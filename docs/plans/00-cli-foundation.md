@@ -4,7 +4,8 @@
 
 ### Tasks
 
-- [ ] **P00-01** Refactor Cobra command construction to accept injected input/output/error writers, context, and service interfaces. Keep `main` minimal. Unit-test commands without spawning the binary.
+- [x] **P00-01** Refactor Cobra command construction to accept injected input/output/error writers, context, and service interfaces. Keep `main` minimal. Unit-test commands without spawning the binary.
+  - Evidence: `internal/cli/commands_test.go` covers human and JSON version/doctor output, injected lookup, TUI flag refusal, context and stream forwarding, independent command trees, and unchanged service errors. Baseline and refactored binaries produced byte-identical output for version/doctor and TUI flag refusal.
 - [ ] **P00-02** Define the versioned response/error envelope and typed domain errors. Ensure `--json` prints exactly one JSON response on success **and failure**; errors include safe codes, never secrets, and stderr has diagnostics only. Document and test exit categories in CONTRACTS.
 - [ ] **P00-03** Specify `--no-input`, terminal detection and optional `--jsonl` behavior. Reject machine flags on TUI; reject prompts in noninteractive mode. Use CLI integration tests for stdout/stderr/exit codes.
 - [ ] **P00-04** Refactor the PATH-only doctor into dependency checks with machine-friendly `name`, `available`, `version`, and `reason` fields. Do not confuse a local PATH check with remote host readiness.
