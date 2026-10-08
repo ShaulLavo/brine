@@ -24,6 +24,12 @@ func TestTUIWithRedirectedStdin(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, output)
 	}
 
+	for _, interrupt := range []bool{false, true} {
+		t.Run(fmt.Sprintf("interrupt=%t", interrupt), func(t *testing.T) { testTUIProcess(t, binary, interrupt) })
+	}
+}
+
+func testTUIProcess(t *testing.T, binary string, interrupt bool) {
 	fd, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -109,13 +115,23 @@ func TestTUIWithRedirectedStdin(t *testing.T) {
 			}
 		}
 		if !quitSent && strings.Contains(output.String(), "Press q to quit.") {
-			if _, err := master.WriteString("q"); err != nil {
+			if interrupt {
+				if err := cmd.Process.Signal(os.Interrupt); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := master.WriteString("q"); err != nil {
 				t.Fatal(err)
 			}
 			quitSent = true
 		}
 	}
-	if err := cmd.Wait(); err != nil {
+	err = cmd.Wait()
+	if interrupt {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 130 {
+			t.Fatalf("SIGINT exit: %v; want 130", err)
+		}
+	} else if err != nil {
 		t.Fatalf("tui exit: %v\nterminal output: %q", err, output.String())
 	}
 	if !quitSent || !strings.Contains(output.String(), "A foundation, not yet a deployment engine.") {

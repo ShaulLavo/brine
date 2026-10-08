@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -10,13 +9,14 @@ import (
 	"syscall"
 
 	"github.com/ShaulLavo/brine/internal/cli"
+	"github.com/ShaulLavo/brine/internal/result"
 )
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	root := cli.NewRootCommand(cli.Dependencies{
+	deps := cli.Dependencies{
 		Context:  ctx,
 		Stdin:    os.Stdin,
 		Stdout:   os.Stdout,
@@ -26,10 +26,12 @@ func main() {
 		RunTUI: func(ctx context.Context, _ io.Reader, stdout io.Writer) error {
 			return cli.RunTUI(ctx, nil, stdout)
 		},
-	})
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(root.ErrOrStderr(), "error:", err)
-		stop()
-		os.Exit(1)
 	}
+	code := run(deps, os.Args[1:])
+	stop()
+	os.Exit(code)
+}
+
+func run(deps cli.Dependencies, args []string) int {
+	return result.ExitCode(cli.Execute(deps, args))
 }

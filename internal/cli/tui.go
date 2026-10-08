@@ -2,9 +2,9 @@ package cli
 
 import (
 	"context"
-	"fmt"
 	"io"
 
+	"github.com/ShaulLavo/brine/internal/result"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/spf13/cobra"
@@ -33,7 +33,7 @@ func newTUICmd(jsonOutput, noInput *bool, runTUI func(context.Context, io.Reader
 		Short: "Open the interactive terminal UI",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if *jsonOutput || *noInput {
-				return fmt.Errorf("tui is interactive; remove --json and --no-input")
+				return result.New(result.TUIInteractive, nil)
 			}
 			return runTUI(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
 		},

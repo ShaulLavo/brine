@@ -1,0 +1,1 @@
+{"schema_version":1,"command":"brine doctor","ok":true,"data":{"checks":[{"name":"podman","available":true,"path":"/fixture/bin/podman"},{"name":"systemctl","available":false},{"name":"caddy","available":false},{"name":"litestream","available":false},{"name":"tailscale","available":false}],"platform":"PLATFORM","schema_version":1},"error":null}
