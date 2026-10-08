@@ -1,0 +1,12 @@
+# Local binaries
+/bin/
+/dist/
+/deployctl
+
+# Editor and secrets
+.idea/
+.vscode/
+.env
+.env.*
+!.env.example
+*.key
