@@ -4,7 +4,7 @@ Brine is a **Go-based, agent-first deployment CLI** with a beautiful Charm human
 
 ## Start here
 
-1. Read [the roadmap](docs/PLAN.md) and [contracts](docs/CONTRACTS.md).
+1. Read [the roadmap](docs/PLAN.md), [decisions](docs/DECISIONS.md) and [contracts](docs/CONTRACTS.md).
 2. Read the relevant phase file in [docs/plans](docs/plans/README.md).
 3. Inspect the **actual code**, not just planning documents. Initially only `version`, a PATH-only `doctor`, and a welcome-screen `tui` exist.
 4. Pick **one task ID** with completed dependencies. Implement and test it in a reviewable change.
@@ -16,7 +16,7 @@ Brine is a **Go-based, agent-first deployment CLI** with a beautiful Charm human
 - Keep Cobra and Charm out of domain packages. Go owns orchestration initially.
 - Use typed subprocess arguments, timeouts, bounded output and structured errors. Never concatenate untrusted values into shell commands.
 - Pin OCI image digests and dependency versions. Review major Charm updates together, not as incidental changes.
-- Unit tests run without VPS access. Host integration tests require an **explicitly authorized disposable test host**.
+- Unit tests run without VPS access. Host integration tests require an **explicitly authorized disposable test host**; the owner's Raspberry Pi is authorized within the limits in [D3](docs/DECISIONS.md).
 - Preserve unrelated edits. Never reset branches, force-push or rewrite history without authorization.
 - Public repo: no credentials, .env files, private keys, real customer data, R2 secrets, or identifiable VPS inventories.
 
