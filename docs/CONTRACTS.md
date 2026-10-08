@@ -22,11 +22,19 @@ Plan is read-only with respect to runtime/proxy/data; it stores the plan in the 
 
 ## Machine modes
 
-`--json` emits exactly one newline-terminated JSON object on stdout for each invocation, including command and flag errors. Stdout must be writable for this guarantee. Human help requested with `--json` is returned as a string in `data.help`. Without `--json`, commands retain human output. `--json=false` disables JSON, and flags after `--` are positional arguments.
+`--json` emits exactly one newline-terminated JSON object on stdout for each invocation, including command and flag errors. Stdout must be writable for this guarantee. Human help requested with a machine flag is returned as a string in `data.help`. Without a machine flag, commands retain human output.
 
-`__complete` and `__completeNoDesc` use Cobra's shell-completion protocol. Their arguments describe another command line, so `--json` inside that command line does not change the protocol response.
+`--jsonl` emits one compact JSON envelope per line. Today's one-shot commands emit exactly one line containing the final result, identical to `--json`. Future streaming commands may emit progress envelopes followed by one final invocation result. Every line uses the version 1 envelope below, with event payloads inside `data`; there is no surrounding array, pretty printing, blank line or unstructured status text. This foundation defines framing, not future event names or payload schemas. A final accepted result does not mean the background operation has finished.
 
-`--no-input` is available. Terminal detection and prompt rules are tracked by P00-03. `--jsonl` is reserved for a later event stream and is not implemented. JSON and JSONL cannot be combined when JSONL becomes available. Machine output never includes ANSI codes, spinners, or prompts. Diagnostics go to stderr and never include raw subprocess output or argument values.
+`--json` and `--jsonl` together are a usage error with exit 2 and one `invalid_usage` JSON envelope on stdout, even when help is requested. An explicit `--json=false` or `--jsonl=false` disables that flag; the last value of each flag wins. Flags after `--` are positional arguments. Malformed machine-flag values still get an error envelope. Machine flags are recognized before parsing so an earlier unknown flag cannot suppress the envelope.
+
+`__complete` and `__completeNoDesc` use Cobra's shell-completion protocol. Their arguments describe another command line, so machine flags inside that command line do not change the protocol response.
+
+`--no-input` forbids all prompts. JSON and JSONL also forbid prompts without requiring `--no-input`. Read-only commands that need no input still succeed. Commands must route every prompt through `internal/cli.RequestInput`, which checks the flags and injected input/output streams before running the prompt callback. If input is needed but forbidden, or either stream is not a terminal, it returns typed `input_required` with exit 2 before printing or reading anything. Callers must supply explicit arguments instead; no automatic answer or authorization is implied. Allowed prompt callbacks receive the injected context, stdin and stderr. The helper checks cancellation before asking. No production command prompts yet.
+
+Terminal detection uses the injected stream's `Fd()` when available, never an unrelated process stdout. Streams without a terminal file descriptor are nonterminals. Human stdout contains no ANSI sequences when redirected, even if `CLICOLOR_FORCE` is set. A nonempty `NO_COLOR` also removes styling from human command output. The plain-output writer keeps parser state across writes so split escape sequences cannot leak. JSON and JSONL never include ANSI styling, spinners or prompts, on terminals or pipes. Safe diagnostics go to stderr and never include raw subprocess output or argument values.
+
+`tui` refuses enabled `--json`, `--jsonl` and `--no-input` with `tui_interactive` and exit 2. It also refuses nonterminal output or input with `tui_terminal_required` and exit 2 before starting its runner. The existing process-input fallback remains allowed when stdout is a terminal, the process's own stdin is redirected, and a controlling terminal is available. Explicitly injected nonterminal input never falls back to a host device. `NO_COLOR` removes TUI text styling, not the cursor-control sequences needed for interaction. Requesting help does not start the TUI.
 
 The response envelope is version 1. All five fields are always present:
 
@@ -67,7 +75,9 @@ A response that accepts a background operation says **accepted**, not **deployed
 | `conflict` | 5 | true | The plan is stale or another operation holds the lock. |
 | `recovery_required` | 6 | false | Manual recovery is required before continuing. |
 | `interrupted` | 130 | false | The client was interrupted. |
-| `tui_interactive` | 2 | false | tui is interactive; remove --json and --no-input |
+| `tui_interactive` | 2 | false | tui is interactive; remove --json, --jsonl and --no-input |
+| `tui_terminal_required` | 2 | false | tui requires terminal input and output. |
+| `input_required` | 2 | false | Interactive input is required; supply explicit arguments or use an interactive terminal. |
 
 | Exit | Category |
 | --- | --- |

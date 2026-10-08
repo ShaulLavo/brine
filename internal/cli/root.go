@@ -26,26 +26,34 @@ type Dependencies struct {
 // Use Execute for the complete response contract, including parser failures.
 func NewRootCommand(deps Dependencies) *cobra.Command {
 	var jsonOutput bool
+	var modes machineModes
 	var noInput bool
 
 	root := &cobra.Command{
-		Use:               "brine",
-		Short:             "Agent-first self-hosted deployments",
-		Long:              "A small deployment control plane for humans and agents. Deployment operations are not implemented yet.",
-		SilenceUsage:      true,
-		SilenceErrors:     true,
-		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error { return cmd.Context().Err() },
+		Use:           "brine",
+		Short:         "Agent-first self-hosted deployments",
+		Long:          "A small deployment control plane for humans and agents. Deployment operations are not implemented yet.",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
+			if modes.json && modes.jsonl {
+				return result.New(result.InvalidUsage, nil)
+			}
+			jsonOutput = modes.enabled()
+			return cmd.Context().Err()
+		},
 	}
 	root.SetFlagErrorFunc(usageError)
 	root.SetContext(deps.Context)
 	root.SetIn(deps.Stdin)
-	root.SetOut(deps.Stdout)
+	root.SetOut(humanOutput(deps.Stdout))
 	root.SetErr(deps.Stderr)
-	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Machine-readable JSON output")
+	root.PersistentFlags().BoolVar(&modes.json, "json", false, "Machine-readable JSON output")
+	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
 	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
-	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps.RunTUI))
+	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps))
 	for _, cmd := range root.Commands() {
 		cmd.Args = cobra.NoArgs
 	}

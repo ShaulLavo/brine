@@ -35,15 +35,18 @@ func (m welcomeModel) View() tea.View {
 	))
 }
 
-func newTUICmd(jsonOutput, noInput *bool, runTUI func(context.Context, io.Reader, io.Writer) error) *cobra.Command {
+func newTUICmd(machineOutput, noInput *bool, deps Dependencies) *cobra.Command {
 	return &cobra.Command{
 		Use:   "tui",
 		Short: "Open the interactive terminal UI",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if *jsonOutput || *noInput {
+			if *machineOutput || *noInput {
 				return result.New(result.TUIInteractive, nil)
 			}
-			return runTUI(cmd.Context(), cmd.InOrStdin(), cmd.OutOrStdout())
+			if !isTerminal(deps.Stdout) || (!isTerminal(deps.Stdin) && !hasProcessTerminalFallback(deps.Stdin)) {
+				return result.New(result.TUITerminalRequired, nil)
+			}
+			return deps.RunTUI(cmd.Context(), cmd.InOrStdin(), deps.Stdout)
 		},
 	}
 }

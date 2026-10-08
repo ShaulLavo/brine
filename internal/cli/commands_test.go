@@ -118,7 +118,7 @@ func TestTUIFlagRefusal(t *testing.T) {
 			root := NewRootCommand(testDependencies(t, &stdout, &stderr))
 			root.SetArgs(args)
 			err := root.Execute()
-			if err == nil || err.Error() != "tui is interactive; remove --json and --no-input" {
+			if err == nil || err.Error() != "tui is interactive; remove --json, --jsonl and --no-input" {
 				t.Fatalf("error = %v", err)
 			}
 			assertStreams(t, &stdout, &stderr, "")
@@ -133,11 +133,12 @@ func TestTUIReceivesContextAndStreams(t *testing.T) {
 	defer cancel()
 	deps.Context = ctx
 	deps.Stdin = strings.NewReader("test input")
+	withTestTerminal(t, &deps)
 	wantErr := errors.New("runner failure")
 	called := false
 	deps.RunTUI = func(gotCtx context.Context, stdin io.Reader, output io.Writer) error {
 		called = true
-		if gotCtx != ctx || stdin != deps.Stdin || output != &stdout {
+		if gotCtx != ctx || stdin != deps.Stdin || output != deps.Stdout {
 			t.Fatal("runner did not receive injected context and streams")
 		}
 		cancel()
