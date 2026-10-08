@@ -31,12 +31,7 @@ func TestMachineGoldens(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var out, diagnostics bytes.Buffer
 			deps := testDependencies(t, &out, &diagnostics)
-			deps.LookPath = func(name string) (string, error) {
-				if name == "podman" {
-					return "/fixture/bin/podman", nil
-				}
-				return "", errors.New("not found")
-			}
+			configureDoctorFixture(t, &deps)
 			err := Execute(deps, tt.args)
 			if got := result.ExitCode(err); got != tt.exit {
 				t.Fatalf("exit = %d, want %d (%v)", got, tt.exit, err)
