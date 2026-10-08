@@ -8,9 +8,9 @@ A Go + Rust-friendly experiment for running personal applications on a VPS. The 
 
 > **Status: bootstrap.** This repository contains a working CLI shell, version reporting, a local tool check, and a TUI welcome screen. It **cannot deploy applications yet**.
 
-## Proposed components
+## Components
 
-| Responsibility | Proposed component |
+| Responsibility | Component (chosen, not yet integrated) |
 | --- | --- |
 | HTTPS / proxy | Caddy (Go) |
 | Containers | Podman (Go) |
@@ -51,7 +51,7 @@ No destructive commands should be implemented without authorization boundaries, 
 
 ## Build plan
 
-Start with the [implementation roadmap](docs/PLAN.md), then the [phase-by-phase task list](docs/plans/README.md). These documents include [proposed command contracts](docs/CONTRACTS.md), a [failure/acceptance test matrix](docs/TEST_MATRIX.md), and [agent instructions](AGENTS.md). Plans describe **future behavior**, not features already implemented.
+Start with the [implementation roadmap](docs/PLAN.md), then the [phase-by-phase task list](docs/plans/README.md). These documents include [command contracts](docs/CONTRACTS.md), a [failure/acceptance test matrix](docs/TEST_MATRIX.md), and [agent instructions](AGENTS.md). Plans describe **future behavior**, not features already implemented.
 
 See also [Architecture](docs/ARCHITECTURE.md).
 
