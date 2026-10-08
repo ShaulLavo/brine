@@ -17,7 +17,7 @@ func TestExitCategories(t *testing.T) {
 		exit     int
 	}{
 		{InternalError, Operational, 1}, {InvalidUsage, Validation, 2}, {DependencyMissing, Dependency, 3},
-		{PolicyRefused, Policy, 4}, {Conflict, StateConflict, 5}, {RecoveryRequired, Recovery, 6}, {Interrupted, Interruption, 130}, {TUIInteractive, Validation, 2},
+		{PolicyRefused, Policy, 4}, {Conflict, StateConflict, 5}, {RecoveryRequired, Recovery, 6}, {Interrupted, Interruption, 130}, {TUIInteractive, Validation, 2}, {TUITerminalRequired, Validation, 2}, {InputRequired, Validation, 2},
 	} {
 		t.Run(string(tt.code), func(t *testing.T) {
 			cause := errors.New("unsafe subprocess output")

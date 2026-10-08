@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/spf13/cobra"
@@ -15,7 +13,8 @@ import (
 // Machine output is buffered until execution finishes so failures cannot follow
 // a partial success response. An unavailable stdout still returns a write error.
 func Execute(deps Dependencies, args []string) error {
-	machine := requestsJSON(args)
+	modes := requestedModes(args)
+	machine := modes.enabled()
 	stdout := deps.Stdout
 	var output bytes.Buffer
 	if machine {
@@ -25,7 +24,14 @@ func Execute(deps Dependencies, args []string) error {
 	root.SetArgs(append([]string{}, args...))
 
 	name := "brine"
-	command, err := root.ExecuteC()
+	var command *cobra.Command
+	var err error
+	if modes.json && modes.jsonl {
+		command, _, _ = root.Find(args)
+		err = result.New(result.InvalidUsage, nil)
+	} else {
+		command, err = root.ExecuteC()
+	}
 	if command != nil {
 		name = command.CommandPath()
 	}
@@ -60,28 +66,6 @@ func Execute(deps Dependencies, args []string) error {
 		fmt.Fprintln(deps.Stderr, "error:", err)
 	}
 	return err
-}
-
-// Inspect the mode before Cobra parsing, which can stop at an earlier bad flag.
-// Values after -- are positional, and an explicit false retains human output.
-func requestsJSON(args []string) bool {
-	// Hidden completion requests carry another command line, not invocation flags.
-	if len(args) > 0 && (args[0] == cobra.ShellCompRequestCmd || args[0] == cobra.ShellCompNoDescRequestCmd) {
-		return false
-	}
-	enabled := false
-	for _, arg := range args {
-		if arg == "--" {
-			break
-		}
-		if arg == "--json" {
-			enabled = true
-		} else if strings.HasPrefix(arg, "--json=") {
-			value, err := strconv.ParseBool(strings.TrimPrefix(arg, "--json="))
-			enabled = value || err != nil
-		}
-	}
-	return enabled
 }
 
 func usageError(_ *cobra.Command, err error) error { return result.New(result.InvalidUsage, err) }
