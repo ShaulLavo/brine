@@ -32,6 +32,7 @@ func Decode(data []byte) (Snapshot, error) {
 	if err := s.validateShape(); err != nil {
 		return Snapshot{}, err
 	}
+	canonicalizeOwnership(&s)
 	return s, nil
 }
 
@@ -147,9 +148,42 @@ func Encode(s Snapshot) ([]byte, error) {
 			}
 		}
 	}
+	canonicalizeOwnership(&canonical)
 	encoded, err := json.Marshal(canonical)
 	if err != nil {
 		return nil, err
 	}
 	return append(encoded, '\n'), nil
+}
+
+func canonicalizeOwnership(s *Snapshot) {
+	if s.LiveCaddyFiles.Value != nil {
+		slices.SortFunc(*s.LiveCaddyFiles.Value, func(a, b LiveCaddyFile) int { return strings.Compare(a.Name, b.Name) })
+		for _, file := range *s.LiveCaddyFiles.Value {
+			if file.Domains.Value != nil {
+				for i, domain := range *file.Domains.Value {
+					normalized, _ := CanonicalDomain(domain)
+					(*file.Domains.Value)[i] = normalized
+				}
+				slices.Sort(*file.Domains.Value)
+			}
+		}
+	}
+	if s.PortOwners.Value != nil {
+		slices.SortFunc(*s.PortOwners.Value, func(a, b PortOwner) int {
+			if a.Port < b.Port {
+				return -1
+			}
+			if a.Port > b.Port {
+				return 1
+			}
+			if n := strings.Compare(a.App, b.App); n != 0 {
+				return n
+			}
+			if n := strings.Compare(a.Process, b.Process); n != 0 {
+				return n
+			}
+			return strings.Compare(a.Unit, b.Unit)
+		})
+	}
 }

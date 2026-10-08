@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -32,14 +33,16 @@ const (
 type ConflictCode string
 
 const (
-	UnsupportedTarget ConflictCode = "unsupported_target"
-	UnknownFacts      ConflictCode = "unknown_facts"
-	DomainOwned       ConflictCode = "domain_owned"
-	PortOwned         ConflictCode = "port_owned"
-	PortsExhausted    ConflictCode = "ports_exhausted"
-	ImagePlatform     ConflictCode = "image_platform"
-	SecretMissing     ConflictCode = "secret_missing"
-	ArtifactDrift     ConflictCode = "artifact_drift"
+	UnsupportedTarget  ConflictCode = "unsupported_target"
+	UnknownFacts       ConflictCode = "unknown_facts"
+	DomainOwned        ConflictCode = "domain_owned"
+	PortOwned          ConflictCode = "port_owned"
+	PortsExhausted     ConflictCode = "ports_exhausted"
+	ImagePlatform      ConflictCode = "image_platform"
+	SecretMissing      ConflictCode = "secret_missing"
+	ArtifactDrift      ConflictCode = "artifact_drift"
+	RuntimeUnavailable ConflictCode = "runtime_unavailable"
+	StaleState         ConflictCode = "stale_brine_state"
 )
 
 type Diagnostic struct {
@@ -51,34 +54,28 @@ type Input struct {
 	Desired  policy.Desired
 	Snapshot target.Snapshot
 	// Image is manifest metadata supplied by the caller, never looked up by Build.
-	Image    target.Image
-	Evidence Evidence
+	Image target.Image
+	State BrineState
 }
 
-// Evidence fills facts not represented by the v1 inventory schema. The caller
-// must obtain it from the same target/generation as Snapshot. An empty app owner
-// means an unrelated route or listener, never permission to overwrite it.
-type Evidence struct {
-	Routes    target.Observation[[]Route]    `json:"routes"`
-	Listeners target.Observation[[]Listener] `json:"listeners"`
-	Applied   target.Observation[[]Applied]  `json:"applied"`
-}
-type Route struct {
-	Domain spec.Domain `json:"domain"`
-	App    string      `json:"app"`
-}
-type Listener struct {
-	Port target.Port `json:"port"`
-	App  string      `json:"app"`
+// BrineState comes from the target control database, not host observation. It
+// binds committed releases to the snapshot identity and control generation.
+// Releases must be non-nil; [] affirmatively records no committed releases.
+type BrineState struct {
+	Target     target.Identity  `json:"target"`
+	Generation uint64           `json:"generation"`
+	Releases   []CurrentRelease `json:"releases"`
 }
 
-// Applied records the configuration fingerprint and artifact digests from the
-// last committed release. It is not reconstructed from the new desired state.
-type Applied struct {
-	App        string        `json:"app"`
-	ConfigHash string        `json:"config_hash"`
-	Units      []target.Unit `json:"units"`
-	CaddyHash  string        `json:"caddy_hash"`
+type CurrentRelease struct {
+	App       string           `json:"app"`
+	ID        string           `json:"id"`
+	Desired   policy.Desired   `json:"desired"`
+	Image     target.Image     `json:"image"`
+	HostPort  target.Port      `json:"host_port"`
+	Secrets   []SecretBinding  `json:"secrets"`
+	Units     []target.Unit    `json:"units"`
+	CaddyFile target.CaddyFile `json:"caddy_file"`
 }
 
 type SecretBinding struct {
@@ -160,9 +157,9 @@ func (p Plan) CanonicalBytes() ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// Build accepts policy-normalized desired state and measured facts. Malformed
-// observation shapes return an error. Unknown or unsupported facts produce a
-// conflict plan with no changes, so missing inventory never means a free host.
+// Build accepts policy-normalized desired state, measured host facts and
+// committed Brine releases. Required unknown or incompatible facts produce a
+// conflict plan with no changes. Malformed input produces no plan and an error.
 func Build(in Input) (Plan, error) {
 	desired, e := in.Desired.CanonicalBytes()
 	if e != nil {
@@ -172,7 +169,6 @@ func Build(in Input) (Plan, error) {
 	if e != nil {
 		return Plan{}, e
 	}
-	// Own all output memory and reuse upstream canonical set ordering.
 	in.Desired = policy.Desired{}
 	if e = json.Unmarshal(desired, &in.Desired); e != nil {
 		return Plan{}, e
@@ -181,12 +177,12 @@ func Build(in Input) (Plan, error) {
 	if e = json.Unmarshal(snapshot, &in.Snapshot); e != nil {
 		return Plan{}, e
 	}
-	evidence, e := canonicalEvidence(in.Evidence)
+	state, e := canonicalState(in.State)
 	if e != nil {
 		return Plan{}, e
 	}
-	in.Evidence = Evidence{}
-	if e = json.Unmarshal(evidence, &in.Evidence); e != nil {
+	in.State = BrineState{}
+	if e = json.Unmarshal(state, &in.State); e != nil {
 		return Plan{}, e
 	}
 	if !validHash(in.Image.Digest) || !strings.HasSuffix(string(in.Desired.Image), "@"+in.Image.Digest) {
@@ -209,21 +205,31 @@ func Build(in Input) (Plan, error) {
 	if in.Image.Platform.OS != "linux" || in.Image.Platform.Arch != in.Snapshot.Arch {
 		add(ImagePlatform, "image.platform")
 	}
-	statuses := []struct {
+	for _, f := range []struct {
 		field  string
 		status target.Status
 	}{
-		{"generation", in.Snapshot.Generation.Status}, {"apps", in.Snapshot.Apps.Status}, {"used_ports", in.Snapshot.UsedPorts.Status}, {"caddy_config", in.Snapshot.CaddyConfig.Status}, {"routes", in.Evidence.Routes.Status}, {"listeners", in.Evidence.Listeners.Status}, {"applied", in.Evidence.Applied.Status},
-	}
-	for _, f := range statuses {
+		{"generation", in.Snapshot.Generation.Status}, {"apps", in.Snapshot.Apps.Status}, {"used_ports", in.Snapshot.UsedPorts.Status}, {"caddy_config", in.Snapshot.CaddyConfig.Status}, {"live_caddy_files", in.Snapshot.LiveCaddyFiles.Status}, {"port_owners", in.Snapshot.PortOwners.Status},
+	} {
 		if f.status == target.Unsupported {
 			add(UnsupportedTarget, f.field)
 		} else if f.status != target.KnownStatus && !(f.field == "caddy_config" && f.status == target.Absent) {
 			add(UnknownFacts, f.field)
 		}
 	}
+	deploymentCapabilities(in.Snapshot, add)
+	if in.State.Target != p.Target || (p.ObservedGeneration.Status == target.KnownStatus && in.State.Generation != *p.ObservedGeneration.Value) {
+		add(StaleState, "brine_state")
+	}
 	if len(p.Conflicts) > 0 {
-		return finish(p, desired, snapshot, evidence)
+		return finish(p, desired, snapshot, state)
+	}
+	var release *CurrentRelease
+	for _, r := range in.State.Releases {
+		if r.App == p.App {
+			release = &r
+			break
+		}
 	}
 	var current *target.App
 	for _, a := range *in.Snapshot.Apps.Value {
@@ -232,9 +238,22 @@ func Build(in Input) (Plan, error) {
 			break
 		}
 	}
-	for _, route := range *in.Evidence.Routes.Value {
-		if slices.Contains(in.Desired.Domains, route.Domain) && route.App != p.App {
-			add(DomainOwned, "domains")
+	ownFile := p.App + ".caddy"
+	for _, file := range *in.Snapshot.LiveCaddyFiles.Value {
+		if file.Domains.Status != target.KnownStatus {
+			if file.Domains.Status == target.Unsupported {
+				add(UnsupportedTarget, "live_caddy_files.domains")
+			} else {
+				add(UnknownFacts, "live_caddy_files.domains")
+			}
+			continue
+		}
+		for _, observed := range *file.Domains.Value {
+			for _, domain := range in.Desired.Domains {
+				if servesDomain(observed, string(domain)) && (file.App != p.App || release == nil || file.Name != release.CaddyFile.Name) {
+					add(DomainOwned, "domains")
+				}
+			}
 		}
 	}
 	allocated := false
@@ -242,7 +261,7 @@ func Build(in Input) (Plan, error) {
 		for _, f := range []struct {
 			field  string
 			status target.Status
-		}{{"app.port", current.AllocatedHostPort.Status}, {"app.release", current.CurrentRelease.Status}, {"app.image", current.Image.Status}, {"app.units", current.QuadletUnits.Status}, {"app.secrets", current.Secrets.Status}} {
+		}{{"app.port", current.AllocatedHostPort.Status}, {"app.image", current.Image.Status}, {"app.units", current.QuadletUnits.Status}, {"app.secrets", current.Secrets.Status}} {
 			if f.status == target.Unsupported {
 				add(UnsupportedTarget, f.field)
 			} else if f.status == target.Unknown {
@@ -254,12 +273,10 @@ func Build(in Input) (Plan, error) {
 		}
 	}
 	if p.HostPort != 0 {
-		// UsedPorts has no attribution. Require explicit ownership even if a control
-		// record claims the port, since a foreign process may have taken it over.
 		owned := false
-		for _, l := range *in.Evidence.Listeners.Value {
-			if l.Port == p.HostPort {
-				if l.App != p.App {
+		for _, owner := range *in.Snapshot.PortOwners.Value {
+			if owner.Port == p.HostPort {
+				if owner.App != p.App {
 					add(PortOwned, "host_port")
 				} else {
 					owned = true
@@ -274,8 +291,8 @@ func Build(in Input) (Plan, error) {
 		for _, port := range *in.Snapshot.UsedPorts.Value {
 			busy[port] = true
 		}
-		for _, l := range *in.Evidence.Listeners.Value {
-			busy[l.Port] = true
+		for _, owner := range *in.Snapshot.PortOwners.Value {
+			busy[owner.Port] = true
 		}
 		for _, a := range *in.Snapshot.Apps.Value {
 			if a.AllocatedHostPort.Status == target.KnownStatus {
@@ -324,45 +341,57 @@ func Build(in Input) (Plan, error) {
 	if in.Snapshot.CaddyConfig.Status == target.KnownStatus {
 		caddy = *in.Snapshot.CaddyConfig.Value
 	}
-	ownFile := p.App + ".caddy"
 	ownHash := ""
 	preserve := []target.CaddyFile{}
 	for _, file := range caddy.Files {
 		if file.Name == ownFile {
 			ownHash = file.Hash
-			if current == nil {
+			if release == nil || release.CaddyFile.Name != file.Name {
 				add(ArtifactDrift, "caddy.ownership")
 			}
 		} else {
 			preserve = append(preserve, file)
 		}
 	}
-	p.ConfigHash = hashJSON(struct {
-		Desired json.RawMessage `json:"desired"`
-		Image   target.Image    `json:"image"`
-		Port    target.Port     `json:"port"`
-		Secrets []SecretBinding `json:"secrets"`
-	}{desired, in.Image, p.HostPort, p.Secrets})
-	var applied *Applied
-	for _, a := range *in.Evidence.Applied.Value {
-		if a.App == p.App {
-			applied = &a
-			break
+	p.ConfigHash = configHash(in.Desired, in.Image, p.HostPort, p.Secrets)
+
+	if release != nil {
+		liveOwned := false
+		expectedDomains := make([]string, len(release.Desired.Domains))
+		for i, domain := range release.Desired.Domains {
+			expectedDomains[i] = string(domain)
 		}
-	}
-	if current != nil && applied != nil {
-		if current.QuadletUnits.Status != target.KnownStatus || !reflect.DeepEqual(*current.QuadletUnits.Value, applied.Units) || ownHash != applied.CaddyHash {
-			add(ArtifactDrift, "artifacts")
+		for _, file := range *in.Snapshot.LiveCaddyFiles.Value {
+			if file.Name == release.CaddyFile.Name && file.App == p.App && file.Domains.Status == target.KnownStatus && slices.Equal(*file.Domains.Value, expectedDomains) {
+				liveOwned = true
+			}
 		}
+		if !liveOwned {
+			add(ArtifactDrift, "caddy.live")
+		}
+		if current != nil && current.AllocatedHostPort.Status == target.KnownStatus && *current.AllocatedHostPort.Value != release.HostPort {
+			add(ArtifactDrift, "host_port")
+		}
+		if ownHash != release.CaddyFile.Hash {
+			add(ArtifactDrift, "caddy")
+		}
+		if current == nil || current.QuadletUnits.Status != target.KnownStatus || !reflect.DeepEqual(*current.QuadletUnits.Value, release.Units) {
+			add(ArtifactDrift, "units")
+		}
+		if current != nil && current.Image.Status == target.KnownStatus && *current.Image.Value != release.Image {
+			add(ArtifactDrift, "image")
+		}
+	} else if current != nil && ((current.Image.Status == target.KnownStatus) || (current.QuadletUnits.Status == target.KnownStatus && len(*current.QuadletUnits.Value) > 0)) {
+		add(ArtifactDrift, "app.ownership")
 	}
 	if len(p.Conflicts) > 0 {
-		return finish(p, desired, snapshot, evidence)
+		return finish(p, desired, snapshot, state)
 	}
 	p.Kind = Create
-	if current != nil && current.CurrentRelease.Status == target.KnownStatus {
+	if release != nil {
 		p.Kind = Update
 	}
-	if p.Kind == Update && applied != nil && applied.ConfigHash == p.ConfigHash && current.Image.Status == target.KnownStatus && *current.Image.Value == in.Image && !allocated && ownHash != "" && hasContainer(*current.QuadletUnits.Value, p.App) {
+	if release != nil && configHash(release.Desired, release.Image, release.HostPort, release.Secrets) == p.ConfigHash && current.Image.Status == target.KnownStatus && *current.Image.Value == in.Image && !allocated && ownHash != "" && hasContainer(*current.QuadletUnits.Value, p.App) {
 		p.Kind = NoOp
 	} else {
 		if caddy.Generation == ^uint64(0) {
@@ -372,14 +401,73 @@ func Build(in Input) (Plan, error) {
 			p.Changes = append(p.Changes, Change{Kind: AllocatePort, Allocation: &PortAllocation{App: p.App, Port: p.HostPort}})
 		}
 		p.Changes = append(p.Changes, Change{Kind: PullImage, Image: &p.Image})
-		for _, s := range p.Secrets {
-			p.Changes = append(p.Changes, Change{Kind: BindSecret, Secret: &s})
+		for _, binding := range p.Secrets {
+			p.Changes = append(p.Changes, Change{Kind: BindSecret, Secret: &binding})
 		}
 		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{Desired: in.Desired, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
 	}
-	return finish(p, desired, snapshot, evidence)
+	return finish(p, desired, snapshot, state)
 }
 
+func deploymentCapabilities(s target.Snapshot, add func(ConflictCode, string)) {
+	for _, r := range []struct {
+		field    string
+		value    target.Observation[string]
+		baseline string
+	}{
+		{"versions.systemd", s.Versions.Systemd, "257"}, {"versions.podman", s.Versions.Podman, "5.4"}, {"versions.caddy", s.Versions.Caddy, "2.6"}, {"versions.passt", s.Versions.Passt, ""}, {"runner.user", s.Runner.User, ""},
+	} {
+		switch r.value.Status {
+		case target.Unknown:
+			add(UnknownFacts, r.field)
+		case target.Unsupported:
+			add(UnsupportedTarget, r.field)
+		case target.Absent:
+			add(RuntimeUnavailable, r.field)
+		case target.KnownStatus:
+			if r.baseline != "" && !versionLine(*r.value.Value, r.baseline) {
+				add(RuntimeUnavailable, r.field)
+			}
+			if r.field == "versions.passt" && !passtVersion.MatchString(*r.value.Value) {
+				add(RuntimeUnavailable, r.field)
+			}
+			if r.field == "runner.user" && *r.value.Value == "root" {
+				add(RuntimeUnavailable, r.field)
+			}
+		}
+	}
+	for _, r := range []struct {
+		field string
+		value target.Observation[bool]
+	}{{"cgroup_v2", s.CgroupV2}, {"runner.linger", s.Runner.Linger}} {
+		switch r.value.Status {
+		case target.Unknown:
+			add(UnknownFacts, r.field)
+		case target.Unsupported:
+			add(UnsupportedTarget, r.field)
+		case target.KnownStatus:
+			if !*r.value.Value {
+				add(RuntimeUnavailable, r.field)
+			}
+		}
+	}
+}
+
+var passtVersion = regexp.MustCompile(`^0\.0~git[0-9]{8}\.[0-9a-f]+([+~.-][0-9A-Za-z.+~_-]+)?$`)
+
+func versionLine(value, baseline string) bool {
+	return value == baseline || strings.HasPrefix(value, baseline+".") || strings.HasPrefix(value, baseline+"-") || strings.HasPrefix(value, baseline+"+") || strings.HasPrefix(value, baseline+"~")
+}
+func servesDomain(observed, desired string) bool {
+	if observed == "*" || observed == desired {
+		return true
+	}
+	if strings.HasPrefix(observed, "*.") {
+		suffix := observed[1:]
+		return strings.HasSuffix(desired, suffix) && !strings.Contains(strings.TrimSuffix(desired, suffix), ".")
+	}
+	return false
+}
 func validHash(s string) bool {
 	if len(s) != 71 || !strings.HasPrefix(s, "sha256:") {
 		return false
@@ -395,7 +483,19 @@ func hashJSON(v any) string {
 	}
 	return hash(b)
 }
-func finish(p Plan, desired, snapshot, evidence []byte) (Plan, error) {
+func configHash(d policy.Desired, image target.Image, port target.Port, secrets []SecretBinding) string {
+	desired, e := d.CanonicalBytes()
+	if e != nil {
+		panic(e)
+	}
+	return hashJSON(struct {
+		Desired json.RawMessage `json:"desired"`
+		Image   target.Image    `json:"image"`
+		Port    target.Port     `json:"port"`
+		Secrets []SecretBinding `json:"secrets"`
+	}{desired, image, port, secrets})
+}
+func finish(p Plan, desired, snapshot, state []byte) (Plan, error) {
 	if len(p.Conflicts) > 0 {
 		p.Kind = Conflict
 		p.Changes = []Change{}
@@ -407,89 +507,54 @@ func finish(p Plan, desired, snapshot, evidence []byte) (Plan, error) {
 		return strings.Compare(a.Field, b.Field)
 	})
 	p.Conflicts = slices.Compact(p.Conflicts)
-	// Hash the complete hashless output as well as canonical input facts. A plan
-	// kind, diagnostic or payload change cannot keep a previous fingerprint.
 	p.Hash = hashJSON(struct {
 		Desired  json.RawMessage `json:"desired"`
 		Snapshot json.RawMessage `json:"snapshot"`
-		Evidence json.RawMessage `json:"evidence"`
+		State    json.RawMessage `json:"brine_state"`
 		Plan     Plan            `json:"plan"`
-	}{desired, snapshot, evidence, p})
+	}{desired, snapshot, state, p})
 	return p, nil
 }
-
-func canonicalEvidence(e Evidence) ([]byte, error) {
-	for _, o := range []struct {
-		status target.Status
-		value  any
-	}{{e.Routes.Status, e.Routes.Value}, {e.Listeners.Status, e.Listeners.Value}, {e.Applied.Status, e.Applied.Value}} {
-		present := !reflect.ValueOf(o.value).IsNil()
-		if o.status == target.KnownStatus {
-			if !present || reflect.ValueOf(o.value).Elem().IsNil() {
-				return nil, fmt.Errorf("known evidence requires an array")
-			}
-		} else if (o.status != target.Unknown && o.status != target.Unsupported) || present {
-			return nil, fmt.Errorf("invalid evidence observation")
+func canonicalState(state BrineState) ([]byte, error) {
+	if state.Releases == nil {
+		return nil, fmt.Errorf("Brine state requires a release array")
+	}
+	raw, e := json.Marshal(state)
+	if e != nil {
+		return nil, e
+	}
+	state = BrineState{}
+	if e = json.Unmarshal(raw, &state); e != nil {
+		return nil, e
+	}
+	slices.SortFunc(state.Releases, func(a, b CurrentRelease) int { return strings.Compare(a.App, b.App) })
+	for i, r := range state.Releases {
+		if r.App == "" || r.ID == "" || string(r.Desired.Name) != r.App || (i > 0 && state.Releases[i-1].App == r.App) || !validHash(r.Image.Digest) || r.HostPort == 0 || r.HostPort > 65535 || r.Units == nil || r.Secrets == nil || r.CaddyFile.Name != r.App+".caddy" || !validHash(r.CaddyFile.Hash) {
+			return nil, fmt.Errorf("invalid committed release state")
 		}
-	}
-	raw, err := json.Marshal(e)
-	if err != nil {
-		return nil, err
-	}
-	e = Evidence{}
-	if err = json.Unmarshal(raw, &e); err != nil {
-		return nil, err
-	}
-
-	if e.Routes.Value != nil {
-		for _, r := range *e.Routes.Value {
-			if r.Domain == "" {
-				return nil, fmt.Errorf("route requires a normalized domain")
-			}
+		desired, e := r.Desired.CanonicalBytes()
+		if e != nil {
+			return nil, e
 		}
-		slices.SortFunc(*e.Routes.Value, func(a, b Route) int {
-			if n := strings.Compare(string(a.Domain), string(b.Domain)); n != 0 {
-				return n
-			}
-			return strings.Compare(a.App, b.App)
-		})
-	}
-	if e.Listeners.Value != nil {
-		for _, l := range *e.Listeners.Value {
-			if l.Port == 0 || l.Port > 65535 {
-				return nil, fmt.Errorf("listener port outside 1-65535")
+		state.Releases[i].Desired = policy.Desired{}
+		if e = json.Unmarshal(desired, &state.Releases[i].Desired); e != nil {
+			return nil, e
+		}
+		slices.SortFunc(r.Units, func(a, b target.Unit) int { return strings.Compare(a.Name, b.Name) })
+		for j, unit := range r.Units {
+			if unit.Name == "" || !validHash(unit.Hash) || (j > 0 && unit.Name == r.Units[j-1].Name) {
+				return nil, fmt.Errorf("invalid committed unit set")
 			}
 		}
-		slices.SortFunc(*e.Listeners.Value, func(a, b Listener) int {
-			if a.Port < b.Port {
-				return -1
-			}
-			if a.Port > b.Port {
-				return 1
-			}
-			return strings.Compare(a.App, b.App)
-		})
-	}
-	if e.Applied.Value != nil {
-		slices.SortFunc(*e.Applied.Value, func(a, b Applied) int { return strings.Compare(a.App, b.App) })
-		for i, a := range *e.Applied.Value {
-			if i > 0 && a.App == (*e.Applied.Value)[i-1].App {
-				return nil, fmt.Errorf("duplicate applied app")
-			}
-			if a.Units == nil || !validHash(a.ConfigHash) || (a.CaddyHash != "" && !validHash(a.CaddyHash)) {
-				return nil, fmt.Errorf("invalid applied fingerprint")
-			}
-			slices.SortFunc(a.Units, func(a, b target.Unit) int { return strings.Compare(a.Name, b.Name) })
-			for j, unit := range a.Units {
-				if unit.Name == "" || !validHash(unit.Hash) || (j > 0 && unit.Name == a.Units[j-1].Name) {
-					return nil, fmt.Errorf("invalid applied unit set")
-				}
+		slices.SortFunc(r.Secrets, func(a, b SecretBinding) int { return strings.Compare(a.Environment, b.Environment) })
+		for j, binding := range r.Secrets {
+			if binding.Environment == "" || binding.Reference == "" || binding.ID == "" || !strings.HasPrefix(binding.VersionName, "brine-"+r.App+"-"+string(binding.Reference)+"-v") || (j > 0 && binding.Environment == r.Secrets[j-1].Environment) {
+				return nil, fmt.Errorf("invalid committed secret binding")
 			}
 		}
 	}
-	return json.Marshal(e)
+	return json.Marshal(state)
 }
-
 func hasContainer(units []target.Unit, app string) bool {
 	for _, unit := range units {
 		if unit.Name == app+".container" {

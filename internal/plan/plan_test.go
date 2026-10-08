@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -30,7 +31,6 @@ func fixture(t testing.TB, name string) Input {
 	if e != nil {
 		t.Fatal(e)
 	}
-	// Reuse the strict spec and operator fixtures with a matching allowed repository.
 	a, e := spec.Parse(bytes.ReplaceAll(read("../spec/testdata/valid-minimal.toml"), []byte("example/hello"), []byte("team/hello")))
 	if e != nil {
 		t.Fatal(e)
@@ -39,9 +39,20 @@ func fixture(t testing.TB, name string) Input {
 	if e != nil {
 		t.Fatal(e)
 	}
-	return Input{Desired: d, Snapshot: s, Image: target.Image{Digest: strings.Split(string(d.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: s.Arch}}, Evidence: Evidence{Routes: target.Known([]Route{}), Listeners: target.Known([]Listener{}), Applied: target.Known([]Applied{})}}
+	image := target.Image{Digest: strings.Split(string(d.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: s.Arch}}
+	state := BrineState{Target: s.Identity, Generation: *s.Generation.Value, Releases: []CurrentRelease{}}
+	for _, app := range *s.Apps.Value {
+		if app.Name == "hello" && app.Image.Status == target.KnownStatus {
+			state.Releases = append(state.Releases, CurrentRelease{App: "hello", ID: "release-0001", Desired: d, Image: *app.Image.Value, HostPort: *app.AllocatedHostPort.Value, Secrets: []SecretBinding{}, Units: *app.QuadletUnits.Value, CaddyFile: s.CaddyConfig.Value.Files[0]})
+		}
+	}
+	raw, _ := json.Marshal(state)
+	state = BrineState{}
+	if e = json.Unmarshal(raw, &state); e != nil {
+		t.Fatal(e)
+	}
+	return Input{Desired: d, Snapshot: s, Image: image, State: state}
 }
-
 func build(t testing.TB, in Input) Plan {
 	t.Helper()
 	p, e := Build(in)
@@ -50,54 +61,58 @@ func build(t testing.TB, in Input) Plan {
 	}
 	return p
 }
-func installed(t testing.TB) Input {
-	in := fixture(t, "one-app")
-	p := build(t, in)
-	app := &(*in.Snapshot.Apps.Value)[0]
-	in.Evidence.Routes = target.Known([]Route{{Domain: in.Desired.Domains[0], App: "hello"}})
-	in.Evidence.Listeners = target.Known([]Listener{{Port: 20000, App: "hello"}})
-	in.Evidence.Applied = target.Known([]Applied{{App: "hello", ConfigHash: p.ConfigHash, Units: append([]target.Unit{}, (*app.QuadletUnits.Value)...), CaddyHash: in.Snapshot.CaddyConfig.Value.Files[0].Hash}})
-	return in
+func installed(t testing.TB) Input { return fixture(t, "one-app") }
+func routes(in *Input, app string, domains ...string) {
+	in.Snapshot.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{Name: "hello.caddy", App: app, Domains: target.Known(domains)}})
 }
 
 func TestFixtureMatrix(t *testing.T) {
 	tests := []struct {
-		name     string
-		input    func(testing.TB) Input
-		change   func(*Input)
-		kind     Kind
-		conflict ConflictCode
+		name, fixture string
+		change        func(*Input)
+		kind          Kind
+		conflict      ConflictCode
 	}{
-		{"create", func(t testing.TB) Input { return fixture(t, "fresh-arm64") }, nil, Create, ""},
-		{"skip occupied", func(t testing.TB) Input { return fixture(t, "port-conflict") }, nil, Create, ""},
-		{"no-op", installed, nil, NoOp, ""},
-		{"image update", installed, func(i *Input) {
+		{"create", "ready-arm64", nil, Create, ""},
+		{"skip occupied", "port-conflict", nil, Create, ""},
+		{"unenrolled host", "fresh-arm64", nil, Conflict, RuntimeUnavailable},
+		{"no-op", "one-app", nil, NoOp, ""},
+		{"image update", "one-app", func(i *Input) {
 			i.Desired.Image = spec.ImageReference(strings.ReplaceAll(string(i.Desired.Image), strings.Repeat("a", 64), strings.Repeat("e", 64)))
 			i.Image.Digest = "sha256:" + strings.Repeat("e", 64)
 		}, Update, ""},
-		{"domain update", installed, func(i *Input) { i.Desired.Domains = []spec.Domain{"other.example.net"} }, Update, ""},
-		{"env update", installed, func(i *Input) { i.Desired.Environment = []policy.Environment{{Name: "APP_ENV", Value: "production"}} }, Update, ""},
-		{"domain conflict", installed, func(i *Input) {
-			i.Evidence.Routes = target.Known([]Route{{Domain: i.Desired.Domains[0], App: "other"}})
-		}, Conflict, DomainOwned},
-		{"foreign route", installed, func(i *Input) { i.Evidence.Routes = target.Known([]Route{{Domain: i.Desired.Domains[0]}}) }, Conflict, DomainOwned},
-		{"port conflict", installed, func(i *Input) { i.Evidence.Listeners = target.Known([]Listener{{Port: 20000, App: "other"}}) }, Conflict, PortOwned},
-		{"unattributed port", installed, func(i *Input) { i.Evidence.Listeners = target.Known([]Listener{}) }, Conflict, PortOwned},
-		{"unsupported", func(t testing.TB) Input { return fixture(t, "unsupported-ubuntu") }, nil, Conflict, UnsupportedTarget},
-		{"platform", installed, func(i *Input) { i.Image.Platform.Arch = "amd64" }, Conflict, ImagePlatform},
-		{"missing secret", installed, func(i *Input) { i.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "missing"}} }, Conflict, SecretMissing},
-		{"unknown ports", installed, func(i *Input) { i.Snapshot.UsedPorts = target.Observation[[]target.Port]{Status: target.Unknown} }, Conflict, UnknownFacts},
-		{"unknown generation", installed, func(i *Input) { i.Snapshot.Generation = target.Observation[uint64]{Status: target.Unknown} }, Conflict, UnknownFacts},
-		{"unknown routes", installed, func(i *Input) { i.Evidence.Routes = target.Observation[[]Route]{Status: target.Unknown} }, Conflict, UnknownFacts},
-		{"unsupported observation", installed, func(i *Input) { i.Snapshot.UsedPorts = target.Observation[[]target.Port]{Status: target.Unsupported} }, Conflict, UnsupportedTarget},
-		{"port exhaustion", func(t testing.TB) Input { return fixture(t, "port-conflict") }, func(i *Input) { i.Desired.AppPorts = policy.PortRange{Min: 20000, Max: 20000} }, Conflict, PortsExhausted},
-		{"artifact drift", installed, func(i *Input) {
+		{"domain update", "one-app", func(i *Input) { i.Desired.Domains = []spec.Domain{"other.example.net"} }, Update, ""},
+		{"env update", "one-app", func(i *Input) { i.Desired.Environment = []policy.Environment{{Name: "APP_ENV", Value: "production"}} }, Update, ""},
+		{"domain conflict", "one-app", func(i *Input) { routes(i, "other", "hello.example.com") }, Conflict, DomainOwned},
+		{"foreign route", "one-app", func(i *Input) { routes(i, "", "hello.example.com") }, Conflict, DomainOwned},
+		{"port conflict", "one-app", func(i *Input) { i.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 20000, App: "other"}}) }, Conflict, PortOwned},
+		{"unattributed port", "one-app", func(i *Input) { i.Snapshot.PortOwners = target.Known([]target.PortOwner{}) }, Conflict, PortOwned},
+		{"unsupported", "unsupported-ubuntu", nil, Conflict, UnsupportedTarget},
+		{"platform", "one-app", func(i *Input) { i.Image.Platform.Arch = "amd64" }, Conflict, ImagePlatform},
+		{"missing secret", "one-app", func(i *Input) { i.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "hello-token"}} }, Conflict, SecretMissing},
+		{"unknown ports", "one-app", func(i *Input) { i.Snapshot.UsedPorts = target.Observation[[]target.Port]{Status: target.Unknown} }, Conflict, UnknownFacts},
+		{"unknown generation", "one-app", func(i *Input) { i.Snapshot.Generation = target.Observation[uint64]{Status: target.Unknown} }, Conflict, UnknownFacts},
+		{"unknown routes", "one-app", func(i *Input) {
+			i.Snapshot.LiveCaddyFiles = target.Observation[[]target.LiveCaddyFile]{Status: target.Unknown}
+		}, Conflict, UnknownFacts},
+		{"unknown route domains", "one-app", func(i *Input) {
+			(*i.Snapshot.LiveCaddyFiles.Value)[0].Domains = target.Observation[[]string]{Status: target.Unknown}
+		}, Conflict, UnknownFacts},
+		{"unsupported observation", "one-app", func(i *Input) { i.Snapshot.UsedPorts = target.Observation[[]target.Port]{Status: target.Unsupported} }, Conflict, UnsupportedTarget},
+		{"port exhaustion", "port-conflict", func(i *Input) { i.Desired.AppPorts = policy.PortRange{Min: 20000, Max: 20000} }, Conflict, PortsExhausted},
+		{"artifact drift", "one-app", func(i *Input) {
 			(*(*i.Snapshot.Apps.Value)[0].QuadletUnits.Value)[0].Hash = "sha256:" + strings.Repeat("f", 64)
 		}, Conflict, ArtifactDrift},
+		{"missing passt", "missing-passt", nil, Conflict, RuntimeUnavailable},
+		{"unknown runtime", "unknown-runtime", nil, Conflict, UnknownFacts},
+		{"cgroup false", "cgroup-v1", nil, Conflict, RuntimeUnavailable},
+		{"runner not ready", "one-app", func(i *Input) { i.Snapshot.Runner.Linger = target.Known(false) }, Conflict, RuntimeUnavailable},
+		{"state identity mismatch", "one-app", func(i *Input) { i.State.Target.ID = "other-target" }, Conflict, StaleState},
+		{"state generation mismatch", "one-app", func(i *Input) { i.State.Generation++ }, Conflict, StaleState},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			in := tt.input(t)
+			in := fixture(t, tt.fixture)
 			if tt.change != nil {
 				tt.change(&in)
 			}
@@ -106,7 +121,13 @@ func TestFixtureMatrix(t *testing.T) {
 				t.Fatalf("kind %s want %s: %+v", p.Kind, tt.kind, p.Conflicts)
 			}
 			if tt.conflict != "" {
-				if len(p.Conflicts) == 0 || p.Conflicts[0].Code != tt.conflict {
+				found := false
+				for _, d := range p.Conflicts {
+					if d.Code == tt.conflict {
+						found = true
+					}
+				}
+				if !found {
 					t.Fatalf("conflicts %+v", p.Conflicts)
 				}
 				if len(p.Changes) != 0 {
@@ -123,17 +144,100 @@ func TestFixtureMatrix(t *testing.T) {
 	}
 }
 
-func TestSecretVersions(t *testing.T) {
-	in := fixture(t, "one-app")
+func TestObservedAddressConflicts(t *testing.T) {
+	for _, address := range []string{"HELLO.EXAMPLE.COM", "https://HELLO.EXAMPLE.COM:443", "http://hello.example.com:80", "hello.example.com.", "*.EXAMPLE.COM", ":443"} {
+		t.Run(address, func(t *testing.T) {
+			in := fixture(t, "ready-arm64")
+			routes(&in, "other", address)
+			p := build(t, in)
+			if p.Kind != Conflict || len(p.Changes) != 0 || p.Conflicts[0].Code != DomainOwned {
+				t.Fatalf("%+v", p)
+			}
+		})
+	}
+}
+
+func TestSecretOnlyAppCannotReplaceForeignFile(t *testing.T) {
+	in := installed(t)
+	app := &(*in.Snapshot.Apps.Value)[0]
+	app.Image = target.Observation[target.Image]{Status: target.Absent}
+	app.AllocatedHostPort = target.Observation[target.Port]{Status: target.Absent}
+	app.QuadletUnits = target.Known([]target.Unit{})
+	in.State.Releases = []CurrentRelease{}
+	in.Snapshot.UsedPorts = target.Known([]target.Port{})
+	in.Snapshot.PortOwners = target.Known([]target.PortOwner{})
+	routes(&in, "other", "unrelated.example.net")
+	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
+	p := build(t, in)
+	if p.Kind != Conflict || len(p.Changes) != 0 || p.Conflicts[0].Code != ArtifactDrift {
+		t.Fatalf("foreign namesake file was replaceable: %+v", p)
+	}
+}
+
+func TestRequiredCapabilities(t *testing.T) {
+	for _, name := range []string{"systemd", "podman", "passt", "caddy", "runner"} {
+		for _, status := range []target.Status{target.Absent, target.Unknown, target.Unsupported} {
+			t.Run(name+"/"+string(status), func(t *testing.T) {
+				in := installed(t)
+				o := target.Observation[string]{Status: status}
+				switch name {
+				case "systemd":
+					in.Snapshot.Versions.Systemd = o
+				case "podman":
+					in.Snapshot.Versions.Podman = o
+				case "passt":
+					in.Snapshot.Versions.Passt = o
+				case "caddy":
+					in.Snapshot.Versions.Caddy = o
+				case "runner":
+					in.Snapshot.Runner.User = o
+				}
+				p := build(t, in)
+				if p.Kind != Conflict || len(p.Changes) != 0 {
+					t.Fatal(p.Kind)
+				}
+			})
+		}
+	}
+	for _, change := range []func(*Input){func(i *Input) { i.Snapshot.Versions.Podman = target.Known("4.9.0") }, func(i *Input) { i.Snapshot.Versions.Systemd = target.Known("2570") }, func(i *Input) { i.Snapshot.Versions.Caddy = target.Known("2.10.0") }, func(i *Input) { i.Snapshot.Runner.User = target.Known("root") },
+		func(i *Input) { i.Snapshot.Versions.Passt = target.Known("not-a-passt-version") }, func(i *Input) { i.Snapshot.CgroupV2 = target.Observation[bool]{Status: target.Unknown} }} {
+		in := installed(t)
+		change(&in)
+		p := build(t, in)
+		if p.Kind != Conflict {
+			t.Fatal(p.Kind)
+		}
+	}
+	in := installed(t)
+	in.Snapshot.Versions.Litestream = target.Observation[string]{Status: target.Absent}
+	if p := build(t, in); p.Kind != NoOp {
+		t.Fatal("optional Litestream blocked plan", p.Conflicts)
+	}
+	in.Snapshot.Versions.Podman = target.Known("5.4.2+ds1-2")
+	in.Snapshot.Versions.Systemd = target.Known("257.9-1~deb13u1")
+	if p := build(t, in); p.Kind != NoOp {
+		t.Fatal("distribution revisions blocked plan", p.Conflicts)
+	}
+}
+
+func TestSecretVersionsAndRotation(t *testing.T) {
+	in := installed(t)
 	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
 	app := &(*in.Snapshot.Apps.Value)[0]
 	*app.Secrets.Value = append(*app.Secrets.Value, target.Secret{Name: "brine-hello-token-v10", ID: "synthetic-10"}, target.Secret{Name: "brine-other-token-v99", ID: "synthetic-99"})
-	p := build(t, in)
-	if len(p.Secrets) != 1 || p.Secrets[0].VersionName != "brine-hello-token-v10" {
-		t.Fatal(p.Secrets)
+	initial := build(t, in)
+	if initial.Kind != Update || len(initial.Secrets) != 1 || initial.Secrets[0].VersionName != "brine-hello-token-v10" || initial.Secrets[0].ID != "synthetic-10" {
+		t.Fatal(initial)
 	}
-	if p.Secrets[0].ID != "synthetic-10" {
-		t.Fatal(p.Secrets)
+	in.State.Releases[0].Desired = in.Desired
+	in.State.Releases[0].Secrets = initial.Secrets
+	if p := build(t, in); p.Kind != NoOp {
+		t.Fatal(p.Kind)
+	}
+	*app.Secrets.Value = append(*app.Secrets.Value, target.Secret{Name: "brine-hello-token-v11", ID: "synthetic-11"})
+	p := build(t, in)
+	if p.Kind != Update || p.Secrets[0].VersionName != "brine-hello-token-v11" || p.Hash == initial.Hash {
+		t.Fatal(p)
 	}
 }
 
@@ -141,28 +245,54 @@ func TestDeterminismAndPurity(t *testing.T) {
 	in := installed(t)
 	in.Desired.Environment = []policy.Environment{{Name: "B", Value: "b"}, {Name: "A", Value: "a"}}
 	in.Desired.Domains = append(in.Desired.Domains, "other.example.net")
+	in.State.Releases[0].Desired.Domains = slices.Clone(in.Desired.Domains)
+	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}, {Name: "KEY", Reference: "key"}}
 	in.Snapshot.UsedPorts = target.Known([]target.Port{20002, 20000})
-	in.Evidence.Routes = target.Known([]Route{{Domain: "other.example.net", App: "hello"}, {Domain: "hello.example.com", App: "hello"}})
+	in.Snapshot.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{Name: "hello.caddy", App: "hello", Domains: target.Known([]string{"other.example.net", "hello.example.com"})}, {Name: "other.caddy", App: "other", Domains: target.Known([]string{"other.example.org"})}})
+	in.Snapshot.CaddyConfig.Value.Files = append(in.Snapshot.CaddyConfig.Value.Files, target.CaddyFile{Name: "other.caddy", Hash: "sha256:" + strings.Repeat("e", 64)})
+	in.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 20000, App: "hello"}, {Port: 20001, App: "other"}})
+	other := (*in.Snapshot.Apps.Value)[0]
+	other.Name = "other"
+	other.AllocatedHostPort = target.Known(target.Port(20001))
+	other.Secrets = target.Known(slices.Clone(*other.Secrets.Value))
+	other.QuadletUnits = target.Known(slices.Clone(*other.QuadletUnits.Value))
+	*in.Snapshot.Apps.Value = append(*in.Snapshot.Apps.Value, other)
+	otherRelease := in.State.Releases[0]
+	otherRelease.App = "other"
+	otherRelease.Desired.Name = "other"
+	otherRelease.Units = slices.Clone(otherRelease.Units)
+	otherRelease.CaddyFile = in.Snapshot.CaddyConfig.Value.Files[1]
+	in.State.Releases = append(in.State.Releases, otherRelease)
 	before, _ := json.Marshal(in)
 	p := build(t, in)
 	after, _ := json.Marshal(in)
 	if !bytes.Equal(before, after) {
 		t.Fatal("mutated input")
 	}
-	reverse := func() {
-		in.Desired.Domains[0], in.Desired.Domains[1] = in.Desired.Domains[1], in.Desired.Domains[0]
-		in.Desired.Environment[0], in.Desired.Environment[1] = in.Desired.Environment[1], in.Desired.Environment[0]
-		(*in.Snapshot.UsedPorts.Value)[0], (*in.Snapshot.UsedPorts.Value)[1] = (*in.Snapshot.UsedPorts.Value)[1], (*in.Snapshot.UsedPorts.Value)[0]
-		(*in.Evidence.Routes.Value)[0], (*in.Evidence.Routes.Value)[1] = (*in.Evidence.Routes.Value)[1], (*in.Evidence.Routes.Value)[0]
-		u := (*in.Snapshot.Apps.Value)[0].QuadletUnits.Value
-		(*u)[0], (*u)[1] = (*u)[1], (*u)[0]
+	slices.Reverse(in.Desired.Domains)
+	slices.Reverse(in.Desired.Environment)
+	slices.Reverse(in.Desired.Secrets)
+	slices.Reverse(*in.Snapshot.Apps.Value)
+	slices.Reverse(*in.Snapshot.UsedPorts.Value)
+	slices.Reverse(in.Snapshot.CaddyConfig.Value.Files)
+	slices.Reverse(*in.Snapshot.PortOwners.Value)
+	for _, a := range *in.Snapshot.Apps.Value {
+		slices.Reverse(*a.QuadletUnits.Value)
+		slices.Reverse(*a.Secrets.Value)
 	}
-	reverse()
+	for _, f := range *in.Snapshot.LiveCaddyFiles.Value {
+		slices.Reverse(*f.Domains.Value)
+	}
+	slices.Reverse(*in.Snapshot.LiveCaddyFiles.Value)
+	slices.Reverse(in.State.Releases)
+	for _, r := range in.State.Releases {
+		slices.Reverse(r.Units)
+		slices.Reverse(r.Secrets)
+	}
 	q := build(t, in)
 	if !reflect.DeepEqual(p, q) {
 		t.Fatalf("plans differ\n%+v\n%+v", p, q)
 	}
-	// Output owns its observations and slices, not pointers into caller memory.
 	*in.Snapshot.Generation.Value = 999
 	if *p.ObservedGeneration.Value == 999 {
 		t.Fatal("aliased generation")
@@ -172,8 +302,9 @@ func TestDeterminismAndPurity(t *testing.T) {
 func TestHashPreconditions(t *testing.T) {
 	in := installed(t)
 	p := build(t, in)
-	tests := []func(*Input){func(i *Input) { i.Snapshot.Generation = target.Known(uint64(5)) }, func(i *Input) { i.Snapshot.Identity.ID = "other-target" }, func(i *Input) { i.Desired.PolicyVersion = "operator-2" }, func(i *Input) { i.Desired.PolicyHash = "sha256:" + strings.Repeat("f", 64) }, func(i *Input) { i.Snapshot.CaddyConfig.Value.Files[0].Hash = "sha256:" + strings.Repeat("f", 64) }}
-	for _, change := range tests {
+	for _, change := range []func(*Input){func(i *Input) { i.Snapshot.Generation = target.Known(uint64(5)) }, func(i *Input) { i.Snapshot.Identity.ID = "other-target" }, func(i *Input) { i.Desired.PolicyVersion = "operator-2" }, func(i *Input) { i.Desired.PolicyHash = "sha256:" + strings.Repeat("f", 64) }, func(i *Input) { i.Snapshot.CaddyConfig.Value.Files[0].Hash = "sha256:" + strings.Repeat("f", 64) }, func(i *Input) {
+		i.State.Releases[0].Desired.Environment = []policy.Environment{{Name: "MODE", Value: "old"}}
+	}, func(i *Input) { i.State.Releases[0].ID = "release-0002" }} {
 		next := installed(t)
 		change(&next)
 		if build(t, next).Hash == p.Hash {
@@ -184,14 +315,13 @@ func TestHashPreconditions(t *testing.T) {
 
 func goldenInputs(t testing.TB) map[string]Input {
 	conflict := installed(t)
-	conflict.Evidence.Routes = target.Known([]Route{{Domain: conflict.Desired.Domains[0], App: "other"}})
-	return map[string]Input{"create": fixture(t, "fresh-arm64"), "no-op": installed(t), "conflict": conflict}
+	routes(&conflict, "other", "hello.example.com")
+	return map[string]Input{"create": fixture(t, "ready-arm64"), "no-op": installed(t), "conflict": conflict}
 }
 func TestGolden(t *testing.T) {
 	for name, in := range goldenInputs(t) {
 		t.Run(name, func(t *testing.T) {
-			p := build(t, in)
-			b, e := p.CanonicalBytes()
+			b, e := build(t, in).CanonicalBytes()
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -206,6 +336,99 @@ func TestGolden(t *testing.T) {
 	}
 }
 
+func TestChangeOrderAndPreservedCaddy(t *testing.T) {
+	in := installed(t)
+	in.Snapshot.CaddyConfig.Value.Files = append(in.Snapshot.CaddyConfig.Value.Files, target.CaddyFile{Name: "unrelated.caddy", Hash: "sha256:" + strings.Repeat("f", 64)})
+	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
+	p := build(t, in)
+	if p.Kind != Update || p.HostPort != 20000 {
+		t.Fatal(p.Kind, p.HostPort)
+	}
+	kinds := []ChangeKind{}
+	for _, c := range p.Changes {
+		kinds = append(kinds, c.Kind)
+	}
+	if !reflect.DeepEqual(kinds, []ChangeKind{PullImage, BindSecret, RenderQuadlet, StageCaddy, RestartApp}) {
+		t.Fatal(kinds)
+	}
+	caddy := p.Changes[3].Caddy
+	if caddy.Previous != 2 || caddy.Next != 3 || len(caddy.Preserve) != 1 || caddy.Preserve[0].Name != "unrelated.caddy" {
+		t.Fatal(caddy)
+	}
+}
+
+func TestReservedPortsAndPrecreatedSecrets(t *testing.T) {
+	in := installed(t)
+	app := &(*in.Snapshot.Apps.Value)[0]
+	app.Image = target.Observation[target.Image]{Status: target.Absent}
+	app.QuadletUnits = target.Known([]target.Unit{})
+	app.AllocatedHostPort = target.Observation[target.Port]{Status: target.Absent}
+	in.State.Releases = []CurrentRelease{}
+	in.Snapshot.UsedPorts = target.Known([]target.Port{})
+	in.Snapshot.PortOwners = target.Known([]target.PortOwner{})
+	in.Snapshot.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{})
+	in.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Files: []target.CaddyFile{}})
+	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
+	p := build(t, in)
+	if p.Kind != Create || p.HostPort != 20000 || len(p.Secrets) != 1 {
+		t.Fatal(p)
+	}
+	other := *app
+	other.Name = "other"
+	other.AllocatedHostPort = target.Known(target.Port(20000))
+	*in.Snapshot.Apps.Value = append(*in.Snapshot.Apps.Value, other)
+	if p = build(t, in); p.HostPort != 20001 {
+		t.Fatal(p.HostPort)
+	}
+}
+
+func TestMalformedStateAndPinnedMetadata(t *testing.T) {
+	for _, change := range []func(*Input){func(i *Input) { i.Image.Digest = "sha256:" + strings.Repeat("f", 64) }, func(i *Input) { i.State.Releases = nil }, func(i *Input) { i.State.Releases = append(i.State.Releases, i.State.Releases[0]) }, func(i *Input) { i.State.Releases[0].CaddyFile.Name = "unrelated.caddy" }, func(i *Input) { i.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 0}}) }} {
+		in := installed(t)
+		change(&in)
+		p, e := Build(in)
+		if e == nil || !reflect.DeepEqual(p, Plan{}) {
+			t.Fatalf("expected zero plan and error, got %+v, %v", p, e)
+		}
+	}
+}
+func TestKeptPortOutsideNewRange(t *testing.T) {
+	in := installed(t)
+	in.Desired.AppPorts = policy.PortRange{Min: 21000, Max: 21001}
+	p := build(t, in)
+	if p.Kind != Update || p.HostPort != 20000 {
+		t.Fatal(p.Kind, p.HostPort)
+	}
+}
+func TestNoOpRequiresOwnedArtifacts(t *testing.T) {
+	in := installed(t)
+	*(*in.Snapshot.Apps.Value)[0].QuadletUnits.Value = []target.Unit{}
+	in.State.Releases[0].Units = []target.Unit{}
+	if p := build(t, in); p.Kind == NoOp {
+		t.Fatal("missing container unit is not a no-op")
+	}
+	in = installed(t)
+	in.Snapshot.CaddyConfig = target.Observation[target.CaddyConfigSet]{Status: target.Absent}
+	if p := build(t, in); p.Kind != Conflict {
+		t.Fatal("missing committed Caddy file must conflict")
+	}
+}
+
+func TestCommittedStateMustMatchLiveArtifacts(t *testing.T) {
+	for _, change := range []func(*Input){
+		func(i *Input) { i.Snapshot.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{}) },
+		func(i *Input) { routes(i, "other", "unrelated.example.net") },
+		func(i *Input) { i.State.Releases[0].HostPort = 20001 },
+	} {
+		in := installed(t)
+		change(&in)
+		p := build(t, in)
+		if p.Kind != Conflict || len(p.Changes) != 0 {
+			t.Fatal(p.Kind)
+		}
+	}
+}
+
 func FuzzHashEquality(f *testing.F) {
 	f.Add(uint16(7), "blue", true)
 	f.Add(uint16(19), "green", false)
@@ -213,12 +436,13 @@ func FuzzHashEquality(f *testing.F) {
 		if len(value) > 100 {
 			t.Skip()
 		}
-		in := fixture(t, "fresh-arm64")
+		in := fixture(t, "ready-arm64")
 		in.Snapshot.Generation = target.Known(uint64(n))
+		in.State.Generation = uint64(n)
 		in.Desired.Environment = []policy.Environment{{Name: "A", Value: value}, {Name: "B", Value: "fixed"}}
 		p := build(t, in)
 		if shuffle {
-			in.Desired.Environment[0], in.Desired.Environment[1] = in.Desired.Environment[1], in.Desired.Environment[0]
+			slices.Reverse(in.Desired.Environment)
 		}
 		q := build(t, in)
 		if p.Hash == q.Hash && !reflect.DeepEqual(p, q) {
@@ -233,141 +457,4 @@ func FuzzHashEquality(f *testing.F) {
 			t.Fatal("equal hashes, unequal generated plans")
 		}
 	})
-}
-
-func TestChangeOrderAndPreservedCaddy(t *testing.T) {
-	in := installed(t)
-	in.Snapshot.CaddyConfig.Value.Files = append(in.Snapshot.CaddyConfig.Value.Files, target.CaddyFile{Name: "unrelated.caddy", Hash: "sha256:" + strings.Repeat("f", 64)})
-	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
-	p := build(t, in)
-	if p.Kind != Update || p.HostPort != 20000 {
-		t.Fatalf("%s port %d", p.Kind, p.HostPort)
-	}
-	kinds := []ChangeKind{}
-	for _, c := range p.Changes {
-		kinds = append(kinds, c.Kind)
-	}
-	want := []ChangeKind{PullImage, BindSecret, RenderQuadlet, StageCaddy, RestartApp}
-	if !reflect.DeepEqual(kinds, want) {
-		t.Fatal(kinds)
-	}
-	caddy := p.Changes[3].Caddy
-	if caddy.Previous != 2 || caddy.Next != 3 || len(caddy.Preserve) != 1 || caddy.Preserve[0].Name != "unrelated.caddy" {
-		t.Fatal(caddy)
-	}
-
-}
-
-func TestReservedPortsAndPrecreatedSecrets(t *testing.T) {
-	in := fixture(t, "one-app")
-	app := &(*in.Snapshot.Apps.Value)[0]
-	app.CurrentRelease = target.Observation[string]{Status: target.Absent}
-	app.AllocatedHostPort = target.Observation[target.Port]{Status: target.Absent}
-	in.Snapshot.UsedPorts = target.Known([]target.Port{})
-	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
-	p := build(t, in)
-	if p.Kind != Create || p.HostPort != 20000 || len(p.Secrets) != 1 {
-		t.Fatalf("%+v", p)
-	}
-	other := *app
-	other.Name = "other"
-	other.AllocatedHostPort = target.Known(target.Port(20000))
-	*in.Snapshot.Apps.Value = append(*in.Snapshot.Apps.Value, other)
-	p = build(t, in)
-	if p.HostPort != 20001 {
-		t.Fatal(p.HostPort)
-	}
-}
-
-func TestMalformedEvidenceAndPinnedMetadata(t *testing.T) {
-	for _, change := range []func(*Input){
-		func(i *Input) { i.Image.Digest = "sha256:" + strings.Repeat("f", 64) },
-		func(i *Input) { i.Evidence.Routes = target.Known[[]Route](nil) },
-		func(i *Input) {
-			i.Evidence.Routes = target.Observation[[]Route]{Status: target.Unknown, Value: new([]Route)}
-		},
-		func(i *Input) { i.Evidence.Listeners = target.Known([]Listener{{Port: 0}}) },
-	} {
-		in := fixture(t, "fresh-arm64")
-		change(&in)
-		p, e := Build(in)
-		if e == nil || !reflect.DeepEqual(p, Plan{}) {
-			t.Fatalf("expected zero plan and error, got %+v, %v", p, e)
-		}
-	}
-}
-
-func TestSecretRotationUpdates(t *testing.T) {
-	in := installed(t)
-	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
-	initial := build(t, in)
-	(*in.Evidence.Applied.Value)[0].ConfigHash = initial.ConfigHash
-	if p := build(t, in); p.Kind != NoOp {
-		t.Fatal(p.Kind)
-	}
-	app := &(*in.Snapshot.Apps.Value)[0]
-	*app.Secrets.Value = append(*app.Secrets.Value, target.Secret{Name: "brine-hello-token-v3", ID: "synthetic-3"})
-	p := build(t, in)
-	if p.Kind != Update || p.Secrets[0].VersionName != "brine-hello-token-v3" || p.Hash == initial.Hash {
-		t.Fatal(p)
-	}
-}
-
-func TestAllSetPermutations(t *testing.T) {
-	in := installed(t)
-	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}, {Name: "KEY", Reference: "key"}}
-	in.Snapshot.CaddyConfig.Value.Files = append(in.Snapshot.CaddyConfig.Value.Files, target.CaddyFile{Name: "other.caddy", Hash: "sha256:" + strings.Repeat("e", 64)})
-	other := (*in.Snapshot.Apps.Value)[0]
-	other.Name = "other"
-	other.Secrets = target.Known(append([]target.Secret{}, (*other.Secrets.Value)...))
-	other.AllocatedHostPort = target.Known(target.Port(20001))
-	*in.Snapshot.Apps.Value = append(*in.Snapshot.Apps.Value, other)
-	*in.Evidence.Applied.Value = append(*in.Evidence.Applied.Value, Applied{App: "other", ConfigHash: "sha256:" + strings.Repeat("e", 64), Units: []target.Unit{}})
-	in.Evidence.Listeners = target.Known([]Listener{{Port: 20000, App: "hello"}, {Port: 20001, App: "other"}})
-	p := build(t, in)
-	in.Desired.Secrets[0], in.Desired.Secrets[1] = in.Desired.Secrets[1], in.Desired.Secrets[0]
-	apps := in.Snapshot.Apps.Value
-	(*apps)[0], (*apps)[1] = (*apps)[1], (*apps)[0]
-	for _, a := range *apps {
-		sec := a.Secrets.Value
-		(*sec)[0], (*sec)[1] = (*sec)[1], (*sec)[0]
-	}
-	files := in.Snapshot.CaddyConfig.Value.Files
-	files[0], files[1] = files[1], files[0]
-	applied := in.Evidence.Applied.Value
-	(*applied)[0], (*applied)[1] = (*applied)[1], (*applied)[0]
-	units := (*applied)[1].Units
-	units[0], units[1] = units[1], units[0]
-	listeners := in.Evidence.Listeners.Value
-	(*listeners)[0], (*listeners)[1] = (*listeners)[1], (*listeners)[0]
-	q := build(t, in)
-	if !reflect.DeepEqual(p, q) {
-		t.Fatal("set permutations changed hash or plan")
-	}
-}
-
-func TestKeptPortOutsideNewRange(t *testing.T) {
-	in := installed(t)
-	in.Desired.AppPorts = policy.PortRange{Min: 21000, Max: 21001}
-	p := build(t, in)
-	if p.Kind != Update || p.HostPort != 20000 {
-		t.Fatal(p.Kind, p.HostPort)
-	}
-}
-
-func TestNoOpRequiresOwnedArtifacts(t *testing.T) {
-	in := installed(t)
-	*(*in.Snapshot.Apps.Value)[0].QuadletUnits.Value = []target.Unit{}
-	(*in.Evidence.Applied.Value)[0].Units = []target.Unit{}
-	p := build(t, in)
-	if p.Kind == NoOp {
-		t.Fatal("missing container unit is not a no-op")
-	}
-	in = installed(t)
-	in.Snapshot.CaddyConfig = target.Observation[target.CaddyConfigSet]{Status: target.Absent}
-	(*in.Evidence.Applied.Value)[0].CaddyHash = ""
-	p = build(t, in)
-	if p.Kind == NoOp {
-		t.Fatal("missing app route file is not a no-op")
-	}
 }

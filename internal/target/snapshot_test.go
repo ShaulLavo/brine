@@ -20,7 +20,7 @@ func fixture(t *testing.T, name string) []byte {
 }
 
 func TestFixtures(t *testing.T) {
-	for _, name := range []string{"fresh-arm64", "one-app", "port-conflict", "missing-passt", "unsupported-ubuntu"} {
+	for _, name := range []string{"fresh-arm64", "ready-arm64", "one-app", "port-conflict", "missing-passt", "unknown-runtime", "cgroup-v1", "unsupported-ubuntu"} {
 		t.Run(name, func(t *testing.T) {
 			b := fixture(t, name)
 			s, err := Decode(b)
@@ -230,7 +230,7 @@ func TestRequiredFieldsAndExactKeys(t *testing.T) {
 }
 
 func FuzzDecodeCanonical(f *testing.F) {
-	for _, name := range []string{"fresh-arm64", "one-app", "port-conflict", "missing-passt", "unsupported-ubuntu"} {
+	for _, name := range []string{"fresh-arm64", "ready-arm64", "one-app", "port-conflict", "missing-passt", "unknown-runtime", "cgroup-v1", "unsupported-ubuntu"} {
 		b, err := os.ReadFile(filepath.Join("testdata", name+".json"))
 		if err != nil {
 			f.Fatal(err)
@@ -487,5 +487,130 @@ func TestSecretNamesAreActualPodmanNames(t *testing.T) {
 	}
 	if _, err := Decode(legacy); err != nil {
 		t.Fatal("legacy metadata must remain observable")
+	}
+}
+
+func TestObservedOwnershipContract(t *testing.T) {
+	s, err := Decode(fixture(t, "one-app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.LiveCaddyFiles = Known([]LiveCaddyFile{{Name: "unrelated.caddy", App: "", Domains: Known([]string{"https://HELLO.EXAMPLE.COM:443", "Other.Example.Net."})}, {Name: "hello.caddy", App: "hello", Domains: Known([]string{"hello.example.com"})}})
+	s.PortOwners = Known([]PortOwner{{Port: 20001, App: "", Process: "foreign", Unit: "foreign.service"}, {Port: 20000, App: "hello", Process: "conmon", Unit: "hello.service"}})
+	before, _ := json.Marshal(s)
+	first, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := json.Marshal(s)
+	if !bytes.Equal(before, after) {
+		t.Fatal("Encode mutated live ownership facts")
+	}
+	if !bytes.Contains(first, []byte(`"domains":{"status":"known","value":["hello.example.com","other.example.net"]}`)) {
+		t.Fatalf("domains not canonical: %s", first)
+	}
+	files := s.LiveCaddyFiles.Value
+	(*files)[0], (*files)[1] = (*files)[1], (*files)[0]
+	ports := s.PortOwners.Value
+	(*ports)[0], (*ports)[1] = (*ports)[1], (*ports)[0]
+	again, err := Encode(s)
+	if err != nil || !bytes.Equal(first, again) {
+		t.Fatal("ownership order is unstable", err)
+	}
+}
+
+func TestCanonicalLiveAddresses(t *testing.T) {
+	for raw, want := range map[string]string{
+		"HELLO.EXAMPLE.COM": "hello.example.com", "https://HELLO.EXAMPLE.COM:443": "hello.example.com",
+		"HTTPS://HELLO.EXAMPLE.COM:443": "hello.example.com", "http://hello.example.com:80": "hello.example.com", "hello.example.com.": "hello.example.com", "*.EXAMPLE.COM": "*.example.com", ":443": "*", "localhost": "localhost", "127.0.0.1:8080": "127.0.0.1", "[::1]:443": "::1", "https://[::1]": "::1",
+	} {
+		t.Run(raw, func(t *testing.T) {
+			got, err := CanonicalDomain(raw)
+			if err != nil || got != want {
+				t.Fatalf("got %q %v, want %q", got, err, want)
+			}
+			again, err := CanonicalDomain(got)
+			if err != nil || again != want {
+				t.Fatal("canonical domain is not stable", again, err)
+			}
+			s, err := Decode(fixture(t, "ready-arm64"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			s.LiveCaddyFiles = Known([]LiveCaddyFile{{Name: "foreign.caddy", App: "", Domains: Known([]string{raw})}})
+			b, err := Encode(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := Decode(b)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if (*(*decoded.LiveCaddyFiles.Value)[0].Domains.Value)[0] != want {
+				t.Fatal("Decode did not canonicalize")
+			}
+		})
+	}
+	for _, raw := range []string{"https://user@example.com", "https://hello.example.com/path", "https://hello.example.com?query", "https://hello.example.com?", "https://hello.example.com#", "https://hello.example.com#fragment", "ftp://hello.example.com", "HELLO..EXAMPLE.COM", "hello.example.com:0", "hello.example.com:65536", "hello.example.com:abc", " hello.example.com", "*.bad*.example.com", "hello/example.com"} {
+		if _, err := CanonicalDomain(raw); err == nil {
+			t.Fatalf("accepted %q", raw)
+		}
+	}
+}
+
+func TestInvalidObservedOwnership(t *testing.T) {
+	for name, change := range map[string]func(*Snapshot){
+		"nil files": func(s *Snapshot) { s.LiveCaddyFiles = Known[[]LiveCaddyFile](nil) },
+		"duplicate files": func(s *Snapshot) {
+			*s.LiveCaddyFiles.Value = append(*s.LiveCaddyFiles.Value, (*s.LiveCaddyFiles.Value)[0])
+		},
+		"unsafe identifier": func(s *Snapshot) { (*s.LiveCaddyFiles.Value)[0].Name = "../foreign.caddy" },
+		"nil domains":       func(s *Snapshot) { (*s.LiveCaddyFiles.Value)[0].Domains = Known[[]string](nil) },
+		"duplicate canonical domain": func(s *Snapshot) {
+			(*s.LiveCaddyFiles.Value)[0].Domains = Known([]string{"hello.example.com", "HELLO.EXAMPLE.COM:443"})
+		},
+		"unknown domains with value": func(s *Snapshot) { (*s.LiveCaddyFiles.Value)[0].Domains.Status = Unknown },
+		"bad observed app":           func(s *Snapshot) { (*s.LiveCaddyFiles.Value)[0].App = "../hello" },
+		"nil owners":                 func(s *Snapshot) { s.PortOwners = Known[[]PortOwner](nil) },
+		"duplicate owner":            func(s *Snapshot) { *s.PortOwners.Value = append(*s.PortOwners.Value, (*s.PortOwners.Value)[0]) },
+		"zero port":                  func(s *Snapshot) { (*s.PortOwners.Value)[0].Port = 0 },
+		"unsafe process":             func(s *Snapshot) { (*s.PortOwners.Value)[0].Process = "bad/name" },
+		"unsafe unit":                func(s *Snapshot) { (*s.PortOwners.Value)[0].Unit = "../hello.service" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, err := Decode(fixture(t, "one-app"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			change(&s)
+			if _, err = Encode(s); err == nil {
+				t.Fatal("Encode accepted invalid ownership")
+			}
+			raw, _ := json.Marshal(s)
+			if _, err = Decode(raw); err == nil {
+				t.Fatal("Decode accepted invalid ownership")
+			}
+		})
+	}
+}
+
+func TestOwnershipExactWireFields(t *testing.T) {
+	base := string(fixture(t, "one-app"))
+	for name, input := range map[string]string{
+		"missing files":         strings.Replace(base, `"live_caddy_files":{"status":"known","value":[{"name":"hello.caddy","app":"hello","domains":{"status":"known","value":["hello.example.com"]}}]},`, "", 1),
+		"missing owners":        strings.Replace(base, `"port_owners":{"status":"known","value":[{"port":20000,"app":"hello","process":"conmon","unit":"hello.service"}]},`, "", 1),
+		"unknown file field":    strings.Replace(base, `"domains":{"status":"known","value":["hello.example.com"]}`, `"extra":true,"domains":{"status":"known","value":["hello.example.com"]}`, 1),
+		"unknown owner field":   strings.Replace(base, `"process":"conmon"`, `"extra":true,"process":"conmon"`, 1),
+		"case alias":            strings.Replace(base, `"port_owners"`, `"PORT_OWNERS"`, 1),
+		"release not inventory": strings.Replace(base, `"name":"hello","image"`, `"name":"hello","current_release":{"status":"known","value":"release-0001"},"image"`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if input == base {
+				t.Fatal("test did not alter wire input")
+			}
+			if _, err := Decode([]byte(input)); err == nil {
+				t.Fatal("invalid wire input accepted")
+			}
+		})
 	}
 }
