@@ -1,0 +1,10 @@
+create  hello
++ host port: 20000
++ image: sha256:aaaaaaaaaaaa... (linux/arm64)
++ secret: TOKEN -> hello-token
++ container port: 3000
++ env APP_ENV: changed (value hidden)
++ render app service
++ domain: hello.example.com
+~ routing generation: 2 -> 3
++ restart app
