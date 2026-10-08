@@ -75,7 +75,15 @@ Added 2026-10-08 after the [Pi runtime spike](spikes/pi-runtime.md). It replaces
 
 Making `authorized_keys` root-owned isn't enough. If the runner owns any parent directory, it can rename `.ssh` and put back an unrestricted key. The spike demonstrated this.
 
-Enrollment therefore makes the runner's home directory operator-owned (`root:<runner>`, mode `0755`), with `.ssh` and `authorized_keys` root-owned and not writable by the runner. Everything the runner needs to write lives in runner-owned subdirectories created at enrollment: `.config`, `.local` and `.cache` (Podman storage, Quadlet units, systemd user state) and Brine's state directory. sshd's `StrictModes` accepts a root-owned home. This avoids changing the SSH server's configuration for other users. Enrollment and P06-01 tests try to replace both the key file and every parent directory as the runner, and must fail.
+Enrollment therefore makes the runner's home directory operator-owned (`root:<runner>`, mode `0755`). `.ssh` is root-owned with mode `0755` and `authorized_keys` is root-owned with mode `0644`, so sshd can read them but the runner can't change them. Everything the runner needs to write lives in runner-owned subdirectories created at enrollment: `.config`, `.local` and `.cache` (Podman storage, Quadlet units, systemd user state) and Brine's state directory. sshd's `StrictModes` accepts a root-owned home. This avoids changing the SSH server's configuration for other users.
 
-Enrollment must also account for packages that start services on install. Installing Caddy enables and starts it immediately, and netavark enables its own units. Enrollment lists those effects and leaves Caddy stopped until Brine's config is in place.
+A forced command still runs through the account's login shell (`$SHELL -c`), and Debian's bash reads `~/.bashrc` even for that. A runner-owned `.bashrc` would run attacker code before the dispatcher. So enrollment:
 
+- creates the runner with an empty skeleton, so no shell startup files (`.bashrc`, `.profile`, `.bash_logout`) exist;
+- sets its login shell to `/bin/sh` (dash), which reads no startup files for a non-login `-c` command;
+- keeps the home's top level limited to `.ssh` and the runner-owned subdirectories above, with no symlinks into writable paths;
+- checks the effective sshd and PAM settings and refuses to enroll if `PermitUserEnvironment` or per-user PAM environment files are enabled.
+
+Enrollment and P06-01 tests run as the runner and must fail to: replace the key file or any parent directory; create a top-level startup file; or run anything but the dispatcher through the real restricted key, including when a startup file has been planted.
+
+Enrollment must also account for packages that start services on install. On the spike host, installing Caddy enabled and started it at once with its default site. Installing netavark enabled its DHCP proxy units, activated the DHCP proxy socket, and enabled a firewalld-reload unit. Enrollment lists these effects before asking for confirmation. It prevents Caddy from starting on install, for example by masking it first, so the default site is never exposed before Brine's config is in place.
