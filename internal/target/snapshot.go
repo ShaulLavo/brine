@@ -29,17 +29,18 @@ func Known[T any](value T) Observation[T] { return Observation[T]{Status: KnownS
 type Port uint32
 
 type Snapshot struct {
-	SchemaVersion int                 `json:"schema_version"`
-	Identity      Identity            `json:"identity"`
-	OS            OS                  `json:"os"`
-	Arch          string              `json:"arch"`
-	Versions      Versions            `json:"versions"`
-	CgroupV2      Observation[bool]   `json:"cgroup_v2"`
-	Runner        Runner              `json:"runner"`
-	Generation    Observation[uint64] `json:"generation"`
-	Apps          Observation[[]App]  `json:"apps"`
-	UsedPorts     Observation[[]Port] `json:"used_ports"`
-	FreeDiskBytes Observation[uint64] `json:"free_disk_bytes"`
+	SchemaVersion int                         `json:"schema_version"`
+	Identity      Identity                    `json:"identity"`
+	OS            OS                          `json:"os"`
+	Arch          string                      `json:"arch"`
+	Versions      Versions                    `json:"versions"`
+	CgroupV2      Observation[bool]           `json:"cgroup_v2"`
+	Runner        Runner                      `json:"runner"`
+	Generation    Observation[uint64]         `json:"generation"`
+	CaddyConfig   Observation[CaddyConfigSet] `json:"caddy_config"`
+	Apps          Observation[[]App]          `json:"apps"`
+	UsedPorts     Observation[[]Port]         `json:"used_ports"`
+	FreeDiskBytes Observation[uint64]         `json:"free_disk_bytes"`
 }
 
 type Identity struct {
@@ -55,6 +56,7 @@ type OS struct {
 type Versions struct {
 	Systemd    Observation[string] `json:"systemd"`
 	Podman     Observation[string] `json:"podman"`
+	Passt      Observation[string] `json:"passt"`
 	Caddy      Observation[string] `json:"caddy"`
 	Litestream Observation[string] `json:"litestream"`
 }
@@ -70,8 +72,19 @@ type App struct {
 	Image             Observation[Image]    `json:"image"`
 	AllocatedHostPort Observation[Port]     `json:"allocated_host_port"`
 	QuadletUnits      Observation[[]Unit]   `json:"quadlet_units"`
-	CaddyDropInHash   Observation[string]   `json:"caddy_drop_in_hash"`
 	Secrets           Observation[[]Secret] `json:"secrets"`
+}
+
+// CaddyConfigSet describes the generation selected by the current symlink,
+// including files that do not correspond to any recorded Brine app.
+type CaddyConfigSet struct {
+	Generation uint64      `json:"generation"`
+	Files      []CaddyFile `json:"files"`
+}
+
+type CaddyFile struct {
+	Name string `json:"name"`
+	Hash string `json:"hash"`
 }
 
 type Image struct {
@@ -89,7 +102,8 @@ type Unit struct {
 	Hash string `json:"hash"`
 }
 
-// Secret carries Podman metadata only. No field can carry a secret value.
+// Secret.Name is the actual Podman name, not a logical app-spec reference.
+// New releases bind immutable names brine-<app>-<ref>-v<n> and never values.
 type Secret struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`
@@ -118,12 +132,13 @@ func (s Snapshot) Validate() error {
 }
 
 var (
-	tokenPattern   = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
-	appPattern     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	userPattern    = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-	hashPattern    = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	versionPattern = regexp.MustCompile(`^[!-~]{1,128}$`)
-	unitPattern    = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\.(container|volume|network|pod|kube|build|image|artifact)$`)
+	tokenPattern     = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
+	appPattern       = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	userPattern      = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
+	hashPattern      = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	versionPattern   = regexp.MustCompile(`^[!-~]{1,128}$`)
+	caddyFilePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\.caddy$`)
+	unitPattern      = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\.(container|volume|network|pod|kube|build|image|artifact)$`)
 )
 
 func checkPattern(pattern *regexp.Regexp, value string) error {
@@ -191,7 +206,7 @@ func (s Snapshot) validateShape() error {
 		name  string
 		value Observation[string]
 	}{
-		{"versions.systemd", s.Versions.Systemd}, {"versions.podman", s.Versions.Podman}, {"versions.caddy", s.Versions.Caddy}, {"versions.litestream", s.Versions.Litestream},
+		{"versions.systemd", s.Versions.Systemd}, {"versions.podman", s.Versions.Podman}, {"versions.passt", s.Versions.Passt}, {"versions.caddy", s.Versions.Caddy}, {"versions.litestream", s.Versions.Litestream},
 	} {
 		if err := observe(item.name, item.value, true, func(v string) error { return checkPattern(versionPattern, v) }); err != nil {
 			return err
@@ -207,6 +222,27 @@ func (s Snapshot) validateShape() error {
 		return err
 	}
 	if err := observe("generation", s.Generation, false, nil); err != nil {
+		return err
+	}
+	if err := observe("caddy_config", s.CaddyConfig, true, func(config CaddyConfigSet) error {
+		if config.Files == nil {
+			return fmt.Errorf("use [] for a known empty Caddy file set")
+		}
+		seen := map[string]bool{}
+		for _, file := range config.Files {
+			if err := checkPattern(caddyFilePattern, file.Name); err != nil {
+				return fmt.Errorf("file name: %w", err)
+			}
+			if err := validHash(file.Hash); err != nil {
+				return fmt.Errorf("file hash: %w", err)
+			}
+			if seen[file.Name] {
+				return fmt.Errorf("duplicate Caddy file name")
+			}
+			seen[file.Name] = true
+		}
+		return nil
+	}); err != nil {
 		return err
 	}
 	if err := observe("free_disk_bytes", s.FreeDiskBytes, false, nil); err != nil {
@@ -275,9 +311,6 @@ func (a App) validate() error {
 		return err
 	}
 	if err := observe("allocated_host_port", a.AllocatedHostPort, true, validPort); err != nil {
-		return err
-	}
-	if err := observe("caddy_drop_in_hash", a.CaddyDropInHash, true, validHash); err != nil {
 		return err
 	}
 	if err := observe("quadlet_units", a.QuadletUnits, false, func(units []Unit) error {

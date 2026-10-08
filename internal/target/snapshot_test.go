@@ -20,7 +20,7 @@ func fixture(t *testing.T, name string) []byte {
 }
 
 func TestFixtures(t *testing.T) {
-	for _, name := range []string{"fresh-arm64", "one-app", "port-conflict", "unsupported-ubuntu"} {
+	for _, name := range []string{"fresh-arm64", "one-app", "port-conflict", "missing-passt", "unsupported-ubuntu"} {
 		t.Run(name, func(t *testing.T) {
 			b := fixture(t, name)
 			s, err := Decode(b)
@@ -115,7 +115,7 @@ func TestRejectJSON(t *testing.T) {
 		"null value":             strings.Replace(base, `"status":"known","value":4`, `"status":"known","value":null`, 1),
 		"null array":             strings.Replace(base, `"value":[20000]`, `"value":null`, 1),
 		"unsafe name":            strings.Replace(base, `"name":"hello"`, `"name":"../hello"`, 1),
-		"extra secret value":     strings.Replace(base, `"name":"hello-key"`, `"value":"must-not-appear","name":"hello-key"`, 1),
+		"extra secret value":     strings.Replace(base, `"name":"brine-hello-key-v1"`, `"value":"must-not-appear","name":"brine-hello-key-v1"`, 1),
 		"trailing json":          base + `{}`,
 	}
 	for name, input := range tests {
@@ -230,7 +230,7 @@ func TestRequiredFieldsAndExactKeys(t *testing.T) {
 }
 
 func FuzzDecodeCanonical(f *testing.F) {
-	for _, name := range []string{"fresh-arm64", "one-app", "port-conflict", "unsupported-ubuntu"} {
+	for _, name := range []string{"fresh-arm64", "one-app", "port-conflict", "missing-passt", "unsupported-ubuntu"} {
 		b, err := os.ReadFile(filepath.Join("testdata", name+".json"))
 		if err != nil {
 			f.Fatal(err)
@@ -301,5 +301,191 @@ func TestMeasuredZeroAndLargeCounters(t *testing.T) {
 	}
 	if *again.Generation.Value != ^uint64(0) || *again.FreeDiskBytes.Value != 0 || *again.CgroupV2.Value {
 		t.Fatal("measured values lost precision or presence")
+	}
+}
+
+func TestCaddyGenerationAndExtraFiles(t *testing.T) {
+	s, err := Decode(fixture(t, "one-app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	controlGeneration := *s.Generation.Value
+	s.CaddyConfig.Value.Generation++
+	changed, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(original, changed) || *s.Generation.Value != controlGeneration {
+		t.Fatal("Caddy generation is not independent hash input")
+	}
+	s.CaddyConfig.Value.Files = append(s.CaddyConfig.Value.Files, CaddyFile{Name: "stale.caddy", Hash: "sha256:" + strings.Repeat("e", 64)})
+	extra, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(changed, extra) {
+		t.Fatal("extra Caddy file disappeared from hash input")
+	}
+	again, err := Decode(extra)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.CaddyConfig.Value.Files) != 2 || len(*again.Apps.Value) != 1 {
+		t.Fatal("extra file cannot be represented independently of apps")
+	}
+	files := s.CaddyConfig.Value.Files
+	files[0], files[1] = files[1], files[0]
+	before, _ := json.Marshal(s)
+	reordered, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after, _ := json.Marshal(s)
+	if !bytes.Equal(extra, reordered) || !bytes.Equal(before, after) {
+		t.Fatal("Caddy files are not sorted without mutation")
+	}
+}
+
+func TestCaddyObservationStates(t *testing.T) {
+	s, err := Decode(fixture(t, "fresh-arm64"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []Status{Absent, Unknown, Unsupported} {
+		s.CaddyConfig = Observation[CaddyConfigSet]{Status: status}
+		b, err := Encode(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		again, err := Decode(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again.CaddyConfig.Status != status || again.CaddyConfig.Value != nil {
+			t.Fatal("Caddy observation status lost")
+		}
+	}
+	s.CaddyConfig = Known(CaddyConfigSet{Generation: 0, Files: []CaddyFile{}})
+	if _, err := Encode(s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestPasstObservationStates(t *testing.T) {
+	s, err := Decode(fixture(t, "one-app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	installed, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Versions.Passt.Status != KnownStatus {
+		t.Fatal("fixture lacks installed passt")
+	}
+	for _, status := range []Status{Absent, Unknown, Unsupported} {
+		s.Versions.Passt = Observation[string]{Status: status}
+		b, err := Encode(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Equal(installed, b) {
+			t.Fatal("passt prerequisite missing from hash input")
+		}
+		again, err := Decode(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if again.Versions.Passt.Status != status || again.Versions.Passt.Value != nil {
+			t.Fatal("passt observation status lost")
+		}
+	}
+}
+
+func TestInvalidCaddyConfig(t *testing.T) {
+	cases := map[string]func(*Snapshot){
+		"duplicate file":    func(s *Snapshot) { files := &s.CaddyConfig.Value.Files; *files = append(*files, (*files)[0]) },
+		"unsafe filename":   func(s *Snapshot) { s.CaddyConfig.Value.Files[0].Name = "../hello.caddy" },
+		"invalid extension": func(s *Snapshot) { s.CaddyConfig.Value.Files[0].Name = "hello.conf" },
+		"invalid hash":      func(s *Snapshot) { s.CaddyConfig.Value.Files[0].Hash = "sha256:abc" },
+		"null files":        func(s *Snapshot) { s.CaddyConfig.Value.Files = nil },
+		"absent with value": func(s *Snapshot) { s.CaddyConfig.Status = Absent },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			s, err := Decode(fixture(t, "one-app"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			mutate(&s)
+			if err := s.Validate(); err == nil {
+				t.Fatal("Validate accepted invalid Caddy config")
+			}
+			if _, err := Encode(s); err == nil {
+				t.Fatal("Encode accepted invalid Caddy config")
+			}
+			raw, err := json.Marshal(s)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Decode(raw); err == nil {
+				t.Fatal("Decode accepted invalid Caddy config")
+			}
+		})
+	}
+}
+
+func TestCaddyConfigRequiredFields(t *testing.T) {
+	base := string(fixture(t, "one-app"))
+	cases := map[string]string{
+		"missing generation":  strings.Replace(base, `"generation":2,`, "", 1),
+		"negative generation": strings.Replace(base, `"generation":2,`, `"generation":-1,`, 1),
+		"missing files":       strings.Replace(base, `,"files":[{"name":"hello.caddy","hash":"sha256:`+strings.Repeat("d", 64)+`"}]`, "", 1),
+		"missing passt":       strings.Replace(base, `"passt":{"status":"known","value":"0.0~git20250503.587980c"},`, "", 1),
+	}
+	for name, input := range cases {
+		t.Run(name, func(t *testing.T) {
+			if input == base {
+				t.Fatal("test did not change input")
+			}
+			if _, err := Decode([]byte(input)); err == nil {
+				t.Fatal("accepted missing or invalid Caddy/prerequisite field")
+			}
+		})
+	}
+}
+
+func TestSecretNamesAreActualPodmanNames(t *testing.T) {
+	s, err := Decode(fixture(t, "one-app"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secrets := (*s.Apps.Value)[0].Secrets.Value
+	if (*secrets)[0].Name != "brine-hello-key-v1" || (*secrets)[1].Name != "brine-hello-token-v2" {
+		t.Fatal("fixture must contain exact versioned Podman names")
+	}
+	versioned, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	(*secrets)[0].Name = "brine-hello-key-v2"
+	rotated, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Equal(versioned, rotated) {
+		t.Fatal("secret version is not hash input")
+	}
+	(*secrets)[0].Name = "legacy-key"
+	legacy, err := Encode(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Decode(legacy); err != nil {
+		t.Fatal("legacy metadata must remain observable")
 	}
 }

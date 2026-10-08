@@ -132,6 +132,9 @@ func Encode(s Snapshot) ([]byte, error) {
 	if canonical.UsedPorts.Value != nil {
 		slices.Sort(*canonical.UsedPorts.Value)
 	}
+	if canonical.CaddyConfig.Value != nil {
+		slices.SortFunc(canonical.CaddyConfig.Value.Files, func(a, b CaddyFile) int { return strings.Compare(a.Name, b.Name) })
+	}
 	if canonical.Apps.Value != nil {
 		apps := *canonical.Apps.Value
 		slices.SortFunc(apps, func(a, b App) int { return strings.Compare(a.Name, b.Name) })
