@@ -1,15 +1,29 @@
 package cli
 
 import (
-	"fmt"
-	"os"
+	"context"
+	"io"
 
 	"github.com/spf13/cobra"
 )
 
-const version = "0.1.1-dev"
+const Version = "0.1.0-dev"
 
-func Execute() error {
+// Dependencies supplies the process resources and services used by commands.
+// Callers provide every field and own error reporting and process exit status.
+type Dependencies struct {
+	Context  context.Context
+	Stdin    io.Reader
+	Stdout   io.Writer
+	Stderr   io.Writer
+	Version  string
+	LookPath func(string) (string, error)
+	RunTUI   func(context.Context, io.Reader, io.Writer) error
+}
+
+// NewRootCommand builds an independent command tree without executing it.
+// Execute returns command errors unchanged so callers can classify them.
+func NewRootCommand(deps Dependencies) *cobra.Command {
 	var jsonOutput bool
 	var noInput bool
 
@@ -20,15 +34,14 @@ func Execute() error {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.SetContext(deps.Context)
+	root.SetIn(deps.Stdin)
+	root.SetOut(deps.Stdout)
+	root.SetErr(deps.Stderr)
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Machine-readable JSON output")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
-	root.AddCommand(newDoctorCmd(&jsonOutput))
-	root.AddCommand(newVersionCmd(&jsonOutput))
-	root.AddCommand(newTUICmd(&jsonOutput, &noInput))
-
-	if err := root.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		return err
-	}
-	return nil
+	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath))
+	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
+	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps.RunTUI))
+	return root
 }
