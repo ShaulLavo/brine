@@ -17,7 +17,8 @@ Duplicate domains after case folding are refused.
 Images must use an explicit ASCII DNS registry and a lowercase OCI repository,
 with @sha256: followed by exactly 64 hexadecimal digits. Hexadecimal case is
 folded to lowercase. A registry port and a tag are allowed only alongside the
-required digest. Implicit registries, IPv6/IP registries, URLs, and credentials
+required digest. The repository path is limited to 255 bytes, excluding the
+registry and tag. Implicit registries, IPv6/IP registries, URLs, and credentials
 are unsupported. Registry ports are 1 to 65535; container ports are 1024 to
 65535. Host ports are not part of the app definition (architecture decision D6).
 
@@ -31,7 +32,10 @@ can impose tighter limits later; parsing is not authorization.
 
 Environment and secrets use case-sensitive POSIX-style variable names matching
 [A-Za-z_][A-Za-z0-9_]* and cannot overlap. Environment values are literal strings;
-NUL and ${ expansion are refused. Secret references match
+NUL and ${ expansion are refused. Literal dollar signs and multiline values
+remain literal data; runtime adapters must safely encode them without shell or
+systemd expansion. Target policy must bound environment sizes before execution.
+The parser input limit is not an execution-size guarantee. Secret references match
 [A-Za-z0-9][A-Za-z0-9_.-]{0,252}. The parser cannot distinguish a plausible secret
 name from a plaintext value with the same spelling. Target policy and reference
 resolution must establish that a named Podman secret actually exists (D5).

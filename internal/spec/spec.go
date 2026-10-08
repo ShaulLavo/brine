@@ -364,7 +364,7 @@ func imageReference(s string) (string, bool) {
 	}
 	ref := parts[0]
 	slash := strings.IndexByte(ref, '/')
-	if slash < 1 || len(ref) > 255 {
+	if slash < 1 {
 		return "", false
 	}
 	registry, repo := ref[:slash], ref[slash+1:]
@@ -384,6 +384,9 @@ func imageReference(s string) (string, bool) {
 			return "", false
 		}
 		repo = repo[:colon]
+	}
+	if len(repo) > 255 {
+		return "", false
 	}
 	for _, component := range strings.Split(repo, "/") {
 		if !repositoryPart.MatchString(component) {

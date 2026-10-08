@@ -3,9 +3,12 @@ package spec
 import (
 	"bytes"
 	"errors"
+	"net/netip"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -113,6 +116,7 @@ func TestFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			assertAppInvariants(t, got)
 			want := App{SchemaVersion: 1, Name: Name("hello"), Image: ImageReference("ghcr.io/example/hello@sha256:" + strings.Repeat("a", 64)), ContainerPort: Port(3000), Domains: []Domain{"hello.example.com"}, Health: Health{Path: "/", ExpectedStatus: 200, StartupDeadlineSeconds: 30, TimeoutSeconds: 3}, Environment: map[string]string{}, Secrets: map[string]SecretReference{}}
 			if tc.name == "valid-full" {
 				want.Health = Health{Path: "/healthz", ExpectedStatus: 204, StartupDeadlineSeconds: 45, TimeoutSeconds: 5}
@@ -149,7 +153,15 @@ func FuzzParse(f *testing.F) {
 			if !reflect.DeepEqual(app, App{}) {
 				t.Fatal("partial app")
 			}
+			if !safeErrorField.MatchString(e.Field) || !strings.HasPrefix(e.Code, "spec.") {
+				t.Fatal("diagnostic contains an unsafe path or code")
+			}
+			if strings.Contains(err.Error(), "DO_NOT_ECHO") || strings.ContainsAny(err.Error(), "\x1b\r\n\x00") {
+				t.Fatal("diagnostic leaked input or terminal controls")
+			}
+			return
 		}
+		assertAppInvariants(t, app)
 	})
 }
 
@@ -200,4 +212,121 @@ func TestDeterministicMapRefusal(t *testing.T) {
 			t.Fatalf("nondeterministic error %v", err)
 		}
 	}
+}
+
+func TestImageRepositoryLength(t *testing.T) {
+	data, err := os.ReadFile("testdata/valid-minimal.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name   string
+		length int
+		tag    string
+		valid  bool
+	}{
+		{"long-tagged-reference", 220, strings.Repeat("t", 40), true},
+		{"maximum-repository", 255, strings.Repeat("t", 128), true},
+		{"oversized-repository", 256, "v1", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			image := "ghcr.io/" + strings.Repeat("r", tc.length) + ":" + tc.tag + "@sha256:" + strings.Repeat("a", 64)
+			input := strings.ReplaceAll(string(data), "ghcr.io/example/hello@sha256:"+strings.Repeat("a", 64), image)
+			app, err := Parse([]byte(input))
+			if tc.valid {
+				if err != nil {
+					t.Fatal(err)
+				}
+				if string(app.Image) != image {
+					t.Fatal("image changed")
+				}
+				return
+			}
+			var e *Error
+			if !errors.As(err, &e) || e.Code != "spec.invalid_image" || !reflect.DeepEqual(app, App{}) {
+				t.Fatalf("unexpected image length result %v", err)
+			}
+		})
+	}
+}
+
+var safeErrorField = regexp.MustCompile(`^(?:\$(?:\.(?:health|resources))?(?:\.\[unknown\])?|schema_version|name|image|container_port|domains(?:\[[0-9]+\])?|health\.(?:path|expected_status|startup_deadline_seconds|timeout_seconds)|resources\.(?:memory_mb|pids_limit)|environment|secrets)$`)
+
+func assertAppInvariants(t *testing.T, app App) {
+	t.Helper()
+	if app.SchemaVersion != 1 || app.ContainerPort < 1024 {
+		t.Fatal("invalid schema or port")
+	}
+	name := string(app.Name)
+	if len(name) < 1 || len(name) > 63 || strings.Trim(name, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" || strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
+		t.Fatal("invalid app name")
+	}
+	if len(app.Domains) == 0 {
+		t.Fatal("missing domains")
+	}
+	seen := map[Domain]bool{}
+	for _, domain := range app.Domains {
+		s := string(domain)
+		if len(s) > 253 || s != strings.ToLower(s) || strings.Trim(s, "abcdefghijklmnopqrstuvwxyz0123456789-.") != "" || seen[domain] {
+			t.Fatal("unsafe or noncanonical domain")
+		}
+		if _, err := netip.ParseAddr(s); err == nil {
+			t.Fatal("domain is an IP literal")
+		}
+		labels := strings.Split(s, ".")
+		if len(labels) < 2 {
+			t.Fatal("domain lacks DNS labels")
+		}
+		for _, label := range labels {
+			if len(label) < 1 || len(label) > 63 || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") || strings.HasPrefix(label, "xn--") {
+				t.Fatal("invalid domain label")
+			}
+		}
+		seen[domain] = true
+	}
+	image := string(app.Image)
+	parts := strings.Split(image, "@sha256:")
+	if len(parts) != 2 || len(parts[1]) != 64 || strings.Trim(parts[1], "0123456789abcdef") != "" || !strings.Contains(parts[0], "/") {
+		t.Fatal("image is not digest-pinned and canonical")
+	}
+	h := app.Health
+	if !strings.HasPrefix(string(h.Path), "/") || strings.HasPrefix(string(h.Path), "//") || path.Clean(string(h.Path)) != string(h.Path) || strings.ContainsAny(string(h.Path), "%\\?#\r\n\x00") {
+		t.Fatal("unsafe health path")
+	}
+	for _, b := range []byte(h.Path) {
+		if b < 33 || b > 126 {
+			t.Fatal("health path is not printable ASCII")
+		}
+	}
+	if h.ExpectedStatus < 100 || h.ExpectedStatus > 599 || h.StartupDeadlineSeconds < 1 || h.StartupDeadlineSeconds > 3600 || h.TimeoutSeconds < 1 || h.TimeoutSeconds > 300 || h.TimeoutSeconds > h.StartupDeadlineSeconds {
+		t.Fatal("invalid health bounds")
+	}
+	if app.Resources != nil && (app.Resources.MemoryMB < 1 || app.Resources.MemoryMB > 2147483647 || app.Resources.PIDsLimit < 1 || app.Resources.PIDsLimit > 2147483647) {
+		t.Fatal("invalid resources")
+	}
+	for key, value := range app.Environment {
+		if !testEnvKey(key) || strings.Contains(value, "${") || strings.ContainsRune(value, 0) {
+			t.Fatal("unsafe environment")
+		}
+		if _, ok := app.Secrets[key]; ok {
+			t.Fatal("environment and secrets collide")
+		}
+	}
+	for key, value := range app.Secrets {
+		s := string(value)
+		if !testEnvKey(key) || len(s) < 1 || len(s) > 253 || strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-") != "" || strings.ContainsAny(s[:1], "_.-") {
+			t.Fatal("invalid secret reference")
+		}
+	}
+}
+
+func testEnvKey(s string) bool {
+	if len(s) == 0 {
+		return false
+	}
+	first := s[0]
+	if first != '_' && !(first >= 'A' && first <= 'Z') && !(first >= 'a' && first <= 'z') {
+		return false
+	}
+	return strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") == ""
 }
