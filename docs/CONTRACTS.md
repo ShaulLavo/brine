@@ -52,9 +52,29 @@ Example usage failure:
 {"schema_version":1,"command":"brine","ok":false,"data":null,"error":{"code":"invalid_usage","message":"Invalid command or arguments. Use --help for usage.","retryable":false}}
 ~~~
 
-`doctor` retains its existing payload fields inside `data`: `schema_version`, `platform`, and `checks`. Each check still contains `name`, `available`, and an optional `path`. Missing PATH tools remain a successful local report, not a dependency failure or a claim of host readiness. P00-04 owns changes to those fields.
-
 A response that accepts a background operation says **accepted**, not **deployed**. Ctrl-C disconnects the observer, not the server-side operation.
+
+### Local client doctor
+
+`brine doctor` checks the **local client machine only**. It never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to P06-02. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
+
+The local client requires `ssh`, the system OpenSSH executable used for transport. `git` is optional for working with app source repositories. Missing or failed optional tools do not fail doctor. A missing required tool or a failed required version probe returns `dependency_missing` and exit 3. This identifies a missing or unverified dependency, not a minimum supported version policy.
+
+A successful response has `data.scope = "local_client"`, `data.remote_host_readiness = false`, `data.platform` with the client OS, and an ordered `data.checks` array. The envelope carries `schema_version`; the payload does not repeat it. Paths and raw subprocess output are omitted.
+
+Each check always includes these fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `name` | string | `ssh` or `git`, in that order. |
+| `required` | boolean | `true` for `ssh`; `false` for optional `git`. |
+| `available` | boolean | Whether PATH lookup found an executable, independent of probe success. |
+| `version` | string | Parsed version, or an empty string if the probe failed. |
+| `reason` | string | Empty on success; otherwise `not_found`, `timeout`, `unparseable`, or `exit_error`. |
+
+Version probes use separate executable and argument values: `ssh -V` and `git --version`. Each has a two-second timeout and captures at most 4096 combined stdout and stderr bytes. Only a recognized version token is rendered. OpenSSH writes its version to stderr; stderr is captured rather than passed through.
+
+Human output identifies the local scope and shows each tool's requirement and version or failure reason. Failure JSON follows the shared envelope contract and carries `data: null`, `command: "brine doctor"`, and the fixed safe dependency error. It therefore contains no local report or per-tool detail. Partial results on failure, explicit local-scope fields on failures, and a safe message naming the missing tool require a later versioned contract extension.
 
 ## Error codes and exit categories
 
