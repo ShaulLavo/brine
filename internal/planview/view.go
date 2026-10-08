@@ -10,6 +10,8 @@ import (
 	"unicode"
 
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 	"github.com/ShaulLavo/brine/internal/ui"
 	"github.com/charmbracelet/x/ansi"
@@ -47,6 +49,7 @@ type presentation struct {
 	HostPort           target.Port                `json:"host_port"`
 	Secrets            []secret                   `json:"secrets"`
 	Changes            []change                   `json:"changes"`
+	Diff               *plan.ConfigurationDiff    `json:"diff,omitempty"`
 	Conflicts          []plan.Diagnostic          `json:"conflicts"`
 	Hash               string                     `json:"hash"`
 }
@@ -59,7 +62,7 @@ func project(p plan.Plan) presentation {
 		DesiredHash: p.DesiredHash, ConfigHash: p.ConfigHash,
 		Image: p.Image, HostPort: p.HostPort,
 		Secrets: []secret{}, Changes: []change{},
-		Conflicts: slices.Clone(p.Conflicts), Hash: p.Hash,
+		Diff: canonicalDiff(p.Diff), Conflicts: slices.Clone(p.Conflicts), Hash: p.Hash,
 	}
 	if v.Conflicts == nil {
 		v.Conflicts = []plan.Diagnostic{}
@@ -96,9 +99,7 @@ func project(p plan.Plan) presentation {
 		case plan.RenderQuadlet:
 			if c.Quadlet != nil {
 				out.ContainerPort = uint16(c.Quadlet.Desired.ContainerPort)
-				for _, e := range c.Quadlet.Desired.Environment {
-					out.EnvironmentKeys = append(out.EnvironmentKeys, e.Name)
-				}
+				out.EnvironmentKeys = slices.Clone(c.Quadlet.EnvironmentKeys)
 				slices.Sort(out.EnvironmentKeys)
 			}
 		case plan.StageCaddy:
@@ -130,43 +131,31 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 	width = min(width, 80)
 	v := project(p)
 	lines := []string{theme.Title.Render(ansi.Hardwrap(safe(string(v.Kind)+"  "+v.App), width, true))}
-	add := func(text string) { lines = append(lines, ansi.Hardwrap(safe(text), width, true)) }
+	add := func(text string) {
+		lines = append(lines, ansi.Hardwrap(ansi.Wrap(safe(text), width, ""), width, true))
+	}
 	if v.Kind == plan.NoOp {
 		add("  No changes required.")
 	}
-	if v.Kind == plan.Update {
-		add("  Previous app values are not recorded in this plan.")
-		add("  Listed settings are desired, not a field-level diff.")
-	}
-	marker := "+"
-	if v.Kind == plan.Update {
-		marker = "~"
-	}
+	renderDiff(v, add)
 	for _, c := range v.Changes {
 		switch c.Kind {
 		case plan.AllocatePort:
-			add(fmt.Sprintf("%s host port: %d", marker, c.HostPort))
+			add(fmt.Sprintf("+ allocate host port %d", c.HostPort))
 		case plan.PullImage:
 			if c.Image != nil {
-				add(marker + " image: " + shortDigest(c.Image.Digest, v) + " (" + c.Image.Platform.OS + "/" + c.Image.Platform.Arch + ")")
+				add("~ pull and verify image " + shortDigest(c.Image.Digest, v))
 			} else {
-				add(marker + " image: unavailable")
+				add("? image unavailable")
 			}
 		case plan.BindSecret:
-			add(marker + " secret: " + c.Environment + " -> " + c.Reference)
+			add("~ bind secret " + c.Environment + " -> " + c.Reference)
 		case plan.RenderQuadlet:
-			add(fmt.Sprintf("%s container port: %d", marker, c.ContainerPort))
-			for _, key := range c.EnvironmentKeys {
-				add(marker + " env " + key + ": changed (value hidden)")
-			}
-			add(marker + " render app service")
+			add("~ render app service")
 		case plan.StageCaddy:
-			for _, domain := range c.Domains {
-				add(marker + " domain: " + domain)
-			}
 			add(fmt.Sprintf("~ routing generation: %d -> %d", c.PreviousGeneration, c.NextGeneration))
 		case plan.RestartApp:
-			add(marker + " restart app")
+			add("~ restart app")
 		default:
 			add("? unsupported plan change")
 		}
@@ -182,6 +171,14 @@ func shortDigest(digest string, v presentation) string {
 		return digest
 	}
 	others := []string{v.Image.Digest}
+	if v.Diff != nil && v.Diff.Image != nil {
+		if v.Diff.Image.From != nil {
+			others = append(others, v.Diff.Image.From.Digest)
+		}
+		if v.Diff.Image.To != nil {
+			others = append(others, v.Diff.Image.To.Digest)
+		}
+	}
 	for _, c := range v.Changes {
 		if c.Image != nil {
 			others = append(others, c.Image.Digest)
@@ -237,4 +234,88 @@ func reason(code plan.ConflictCode) string {
 	default:
 		return "The plan has an unrecognized conflict."
 	}
+}
+
+func renderDiff(v presentation, add func(string)) {
+	d := v.Diff
+	if d == nil {
+		return
+	}
+	image := func(i target.Image) string {
+		return shortDigest(i.Digest, v) + " (" + i.Platform.OS + "/" + i.Platform.Arch + ")"
+	}
+	renderValue("image", d.Image, image, add)
+	if d.Domains != nil {
+		for _, domain := range d.Domains.Removed {
+			add("- domain: " + string(domain))
+		}
+		for _, domain := range d.Domains.Added {
+			add("+ domain: " + string(domain))
+		}
+	}
+	renderValue("host port", d.HostPort, func(p target.Port) string { return fmt.Sprint(p) }, add)
+	renderValue("container port", d.ContainerPort, func(p spec.Port) string { return fmt.Sprint(p) }, add)
+	renderValue("resources", d.Resources, func(r policy.Resources) string { return fmt.Sprintf("%d MiB, %d PIDs", r.MemoryMB, r.PIDsLimit) }, add)
+	renderValue("health", d.Health, func(h policy.Health) string {
+		return fmt.Sprintf("%s status %d, startup %ds, timeout %ds", h.Path, h.ExpectedStatus, h.StartupDeadlineSeconds, h.TimeoutSeconds)
+	}, add)
+	if d.Environment != nil {
+		for _, key := range d.Environment.Removed {
+			add("- env " + key + ": removed")
+		}
+		for _, key := range d.Environment.Added {
+			add("+ env " + key + ": added (value hidden)")
+		}
+		for _, key := range d.Environment.Changed {
+			add("~ env " + key + ": changed (value hidden)")
+		}
+	}
+	for _, s := range d.Secrets {
+		renderValue("secret "+s.Environment, &plan.ValueChange[plan.SecretVersion]{From: s.From, To: s.To}, func(s plan.SecretVersion) string { return string(s.Reference) + " [" + s.VersionName + "]" }, add)
+	}
+}
+
+func renderValue[T any](name string, c *plan.ValueChange[T], format func(T) string, add func(string)) {
+	if c == nil {
+		return
+	}
+	switch {
+	case c.From != nil && c.To != nil:
+		add("~ " + name + ": " + format(*c.From) + " -> " + format(*c.To))
+	case c.To != nil:
+		add("+ " + name + ": " + format(*c.To))
+	case c.From != nil:
+		add("- " + name + ": " + format(*c.From))
+	}
+}
+
+func canonicalDiff(input *plan.ConfigurationDiff) *plan.ConfigurationDiff {
+	if input == nil {
+		return nil
+	}
+	d := *input
+	if input.Domains != nil {
+		v := *input.Domains
+		v.Added = slices.Clone(v.Added)
+		v.Removed = slices.Clone(v.Removed)
+		slices.Sort(v.Added)
+		slices.Sort(v.Removed)
+		d.Domains = &v
+	}
+	if input.Environment != nil {
+		v := *input.Environment
+		v.Added = slices.Clone(v.Added)
+		v.Removed = slices.Clone(v.Removed)
+		v.Changed = slices.Clone(v.Changed)
+		slices.Sort(v.Added)
+		slices.Sort(v.Removed)
+		slices.Sort(v.Changed)
+		d.Environment = &v
+	}
+	d.Secrets = slices.Clone(input.Secrets)
+	if d.Secrets == nil {
+		d.Secrets = []plan.SecretChange{}
+	}
+	slices.SortFunc(d.Secrets, func(a, b plan.SecretChange) int { return strings.Compare(a.Environment, b.Environment) })
+	return &d
 }

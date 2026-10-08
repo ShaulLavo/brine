@@ -112,9 +112,10 @@ type PortAllocation struct {
 	Port target.Port `json:"port"`
 }
 type Quadlet struct {
-	Desired  policy.Desired  `json:"desired"`
-	HostPort target.Port     `json:"host_port"`
-	Secrets  []SecretBinding `json:"secrets"`
+	Desired         policy.Desired  `json:"desired"`
+	EnvironmentKeys []string        `json:"environment_keys"`
+	HostPort        target.Port     `json:"host_port"`
+	Secrets         []SecretBinding `json:"secrets"`
 }
 type CaddyGeneration struct {
 	Previous uint64             `json:"previous"`
@@ -142,6 +143,7 @@ type Plan struct {
 	HostPort           target.Port                `json:"host_port"`
 	Secrets            []SecretBinding            `json:"secrets"`
 	Changes            []Change                   `json:"changes"`
+	Diff               *ConfigurationDiff         `json:"diff,omitempty"`
 	Conflicts          []Diagnostic               `json:"conflicts"`
 	Hash               string                     `json:"hash"`
 }
@@ -397,7 +399,14 @@ func Build(in Input) (Plan, error) {
 		for _, binding := range p.Secrets {
 			p.Changes = append(p.Changes, Change{Kind: BindSecret, Secret: &binding})
 		}
-		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{Desired: in.Desired, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
+		p.Diff = configurationDiff(in.Desired, in.Image, p.HostPort, p.Secrets, release)
+		quadletDesired := in.Desired
+		quadletDesired.Environment = []policy.Environment{}
+		environmentKeys := make([]string, 0, len(in.Desired.Environment))
+		for _, e := range in.Desired.Environment {
+			environmentKeys = append(environmentKeys, e.Name)
+		}
+		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{Desired: quadletDesired, EnvironmentKeys: environmentKeys, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
 	}
 	return finish(p, desired, snapshot, state)
 }

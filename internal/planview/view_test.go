@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -26,6 +27,38 @@ func example(kind plan.Kind) plan.Plan {
 			{Kind: plan.RenderQuadlet, Quadlet: &plan.Quadlet{Desired: policy.Desired{ContainerPort: 3000, Domains: []spec.Domain{"hello.example.com"}, Environment: []policy.Environment{{Name: "APP_ENV", Value: "SYNTHETIC_PRIVATE_VALUE"}}}}},
 			{Kind: plan.StageCaddy, Caddy: &plan.CaddyGeneration{Previous: 2, Next: 3, Domains: []spec.Domain{"hello.example.com"}, HostPort: 20000}},
 			{Kind: plan.RestartApp, Restart: &plan.Restart{App: "hello"}},
+		}
+	}
+
+	if kind == plan.Create || kind == plan.Update {
+		port := target.Port(20000)
+		containerPort := spec.Port(3000)
+		resources := policy.Resources{MemoryMB: 512, PIDsLimit: 128}
+		health := policy.Health{Path: "/ready", ExpectedStatus: 200, StartupDeadlineSeconds: 30, TimeoutSeconds: 3}
+		p.Diff = &plan.ConfigurationDiff{
+			Image:         &plan.ValueChange[target.Image]{To: &image},
+			Domains:       &plan.SetChange[spec.Domain]{Added: []spec.Domain{"hello.example.com"}, Removed: []spec.Domain{}},
+			HostPort:      &plan.ValueChange[target.Port]{To: &port},
+			ContainerPort: &plan.ValueChange[spec.Port]{To: &containerPort},
+			Resources:     &plan.ValueChange[policy.Resources]{To: &resources},
+			Health:        &plan.ValueChange[policy.Health]{To: &health},
+			Environment:   &plan.EnvironmentChange{Added: []string{"APP_ENV"}, Removed: []string{}, Changed: []string{}},
+			Secrets:       []plan.SecretChange{{Environment: "TOKEN", To: &plan.SecretVersion{Reference: "hello-token", VersionName: "brine-hello-hello-token-v2"}}},
+		}
+		if kind == plan.Update {
+			oldImage := target.Image{Digest: "sha256:" + strings.Repeat("b", 64), Platform: image.Platform}
+			oldContainer := spec.Port(4000)
+			oldHost := target.Port(21000)
+			oldResources := policy.Resources{MemoryMB: 256, PIDsLimit: 64}
+			oldHealth := policy.Health{Path: "/", ExpectedStatus: 200, StartupDeadlineSeconds: 15, TimeoutSeconds: 2}
+			p.Diff.Image.From = &oldImage
+			p.Diff.HostPort.From = &oldHost
+			p.Diff.ContainerPort.From = &oldContainer
+			p.Diff.Resources.From = &oldResources
+			p.Diff.Health.From = &oldHealth
+			p.Diff.Domains.Removed = []spec.Domain{"old.example.com"}
+			p.Diff.Environment = &plan.EnvironmentChange{Added: []string{"ADDED"}, Removed: []string{"REMOVED"}, Changed: []string{"APP_ENV"}}
+			p.Diff.Secrets[0].From = &plan.SecretVersion{Reference: "hello-token", VersionName: "brine-hello-hello-token-v1"}
 		}
 	}
 	if kind == plan.Conflict {
@@ -146,7 +179,7 @@ func TestJSONFieldOrder(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want := []string{"schema_version", "kind", "app", "target", "observed_generation", "policy_version", "policy_hash", "desired_hash", "config_hash", "image", "host_port", "secrets", "changes", "conflicts", "hash"}
+	want := []string{"schema_version", "kind", "app", "target", "observed_generation", "policy_version", "policy_hash", "desired_hash", "config_hash", "image", "host_port", "secrets", "changes", "diff", "conflicts", "hash"}
 	if strings.Join(keys, ",") != strings.Join(want, ",") {
 		t.Fatal(keys)
 	}
@@ -178,12 +211,12 @@ func TestDigestCollisionAndControlSafety(t *testing.T) {
 func TestPresentationCanonicalSets(t *testing.T) {
 	p := example(plan.Update)
 	p.Secrets = []plan.SecretBinding{{Environment: "Z", Reference: "last"}, {Environment: "A", Reference: "first"}}
-	p.Changes[3].Quadlet.Desired.Environment = []policy.Environment{{Name: "Z", Value: "hidden"}, {Name: "A", Value: "hidden"}}
+	p.Changes[3].Quadlet.EnvironmentKeys = []string{"Z", "A"}
 	p.Changes[4].Caddy.Domains = []spec.Domain{"z.example.com", "a.example.com"}
 	a, _ := JSON(p)
 	human := Human(p, ui.NewTheme(true), 80)
 	p.Secrets[0], p.Secrets[1] = p.Secrets[1], p.Secrets[0]
-	env := p.Changes[3].Quadlet.Desired.Environment
+	env := p.Changes[3].Quadlet.EnvironmentKeys
 	env[0], env[1] = env[1], env[0]
 	domains := p.Changes[4].Caddy.Domains
 	domains[0], domains[1] = domains[1], domains[0]
@@ -280,5 +313,34 @@ func TestPlainWidthsAndNoColor(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestTypedDiffCanonicalAndImmutable(t *testing.T) {
+	p := example(plan.Update)
+	p.Diff.Domains.Added = []spec.Domain{"z.example.com", "a.example.com"}
+	p.Diff.Environment.Added = []string{"Z", "A"}
+	p.Diff.Environment.Removed = []string{"REMOVED_Z", "REMOVED_A"}
+	p.Diff.Secrets = append(p.Diff.Secrets, plan.SecretChange{Environment: "REMOVED", From: &plan.SecretVersion{Reference: "removed-token", VersionName: "brine-hello-removed-token-v1"}})
+	before, _ := json.Marshal(p)
+	a, err := JSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	human := Human(p, ui.NewTheme(true), 80)
+	after, _ := json.Marshal(p)
+	if !bytes.Equal(before, after) {
+		t.Fatal("projection mutated diff")
+	}
+	slices.Reverse(p.Diff.Domains.Added)
+	slices.Reverse(p.Diff.Environment.Added)
+	slices.Reverse(p.Diff.Environment.Removed)
+	slices.Reverse(p.Diff.Secrets)
+	b, err := JSON(p)
+	if err != nil || !bytes.Equal(a, b) || human != Human(p, ui.NewTheme(true), 80) {
+		t.Fatal("diff permutation changed output")
+	}
+	if !strings.Contains(human, "- secret REMOVED: removed-token") {
+		t.Fatal("missing secret removal")
 	}
 }
