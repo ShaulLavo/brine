@@ -29,18 +29,20 @@ func Known[T any](value T) Observation[T] { return Observation[T]{Status: KnownS
 type Port uint32
 
 type Snapshot struct {
-	SchemaVersion int                         `json:"schema_version"`
-	Identity      Identity                    `json:"identity"`
-	OS            OS                          `json:"os"`
-	Arch          string                      `json:"arch"`
-	Versions      Versions                    `json:"versions"`
-	CgroupV2      Observation[bool]           `json:"cgroup_v2"`
-	Runner        Runner                      `json:"runner"`
-	Generation    Observation[uint64]         `json:"generation"`
-	CaddyConfig   Observation[CaddyConfigSet] `json:"caddy_config"`
-	Apps          Observation[[]App]          `json:"apps"`
-	UsedPorts     Observation[[]Port]         `json:"used_ports"`
-	FreeDiskBytes Observation[uint64]         `json:"free_disk_bytes"`
+	SchemaVersion  int                          `json:"schema_version"`
+	Identity       Identity                     `json:"identity"`
+	OS             OS                           `json:"os"`
+	Arch           string                       `json:"arch"`
+	Versions       Versions                     `json:"versions"`
+	CgroupV2       Observation[bool]            `json:"cgroup_v2"`
+	Runner         Runner                       `json:"runner"`
+	Generation     Observation[uint64]          `json:"generation"`
+	CaddyConfig    Observation[CaddyConfigSet]  `json:"caddy_config"`
+	Apps           Observation[[]App]           `json:"apps"`
+	UsedPorts      Observation[[]Port]          `json:"used_ports"`
+	LiveCaddyFiles Observation[[]LiveCaddyFile] `json:"live_caddy_files"`
+	PortOwners     Observation[[]PortOwner]     `json:"port_owners"`
+	FreeDiskBytes  Observation[uint64]          `json:"free_disk_bytes"`
 }
 
 type Identity struct {
@@ -68,7 +70,6 @@ type Runner struct {
 
 type App struct {
 	Name              string                `json:"name"`
-	CurrentRelease    Observation[string]   `json:"current_release"`
 	Image             Observation[Image]    `json:"image"`
 	AllocatedHostPort Observation[Port]     `json:"allocated_host_port"`
 	QuadletUnits      Observation[[]Unit]   `json:"quadlet_units"`
@@ -80,6 +81,24 @@ type App struct {
 type CaddyConfigSet struct {
 	Generation uint64      `json:"generation"`
 	Files      []CaddyFile `json:"files"`
+}
+
+// LiveCaddyFile describes domains actually served by each root or imported file,
+// including files outside Brine's generation directory. Name is a stable opaque
+// file identifier. App is an observed app association, not replacement authority.
+type LiveCaddyFile struct {
+	Name    string                `json:"name"`
+	App     string                `json:"app"`
+	Domains Observation[[]string] `json:"domains"`
+}
+
+// PortOwner describes each bound listener. Multiple owners may share one port;
+// an empty App is unrelated or unattributed, never affirmative Brine ownership.
+type PortOwner struct {
+	Port    Port   `json:"port"`
+	App     string `json:"app"`
+	Process string `json:"process"`
+	Unit    string `json:"unit"`
 }
 
 type CaddyFile struct {
@@ -266,6 +285,65 @@ func (s Snapshot) validateShape() error {
 	}); err != nil {
 		return err
 	}
+
+	if err := observe("live_caddy_files", s.LiveCaddyFiles, false, func(files []LiveCaddyFile) error {
+		if files == nil {
+			return fmt.Errorf("use [] for known empty live Caddy files")
+		}
+		seen := map[string]bool{}
+		for _, file := range files {
+			if validToken(file.Name) != nil || seen[file.Name] {
+				return fmt.Errorf("invalid or duplicate live file identifier")
+			}
+			seen[file.Name] = true
+			if file.App != "" && checkPattern(appPattern, file.App) != nil {
+				return fmt.Errorf("invalid live file app")
+			}
+			if err := observe("domains", file.Domains, false, func(domains []string) error {
+				if domains == nil {
+					return fmt.Errorf("use [] for known empty domains")
+				}
+				seen := map[string]bool{}
+				for _, domain := range domains {
+					normalized, err := CanonicalDomain(domain)
+					if err != nil {
+						return err
+					}
+					if seen[normalized] {
+						return fmt.Errorf("duplicate canonical domain")
+					}
+					seen[normalized] = true
+				}
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	if err := observe("port_owners", s.PortOwners, false, func(owners []PortOwner) error {
+		if owners == nil {
+			return fmt.Errorf("use [] for known empty port owners")
+		}
+		seen := map[PortOwner]bool{}
+		for _, owner := range owners {
+			if validPort(owner.Port) != nil || seen[owner] {
+				return fmt.Errorf("invalid or duplicate port owner")
+			}
+			seen[owner] = true
+			if owner.App != "" && checkPattern(appPattern, owner.App) != nil {
+				return fmt.Errorf("invalid port owner app")
+			}
+			if (owner.Process != "" && validToken(owner.Process) != nil) || (owner.Unit != "" && validToken(owner.Unit) != nil) {
+				return fmt.Errorf("invalid port owner process or unit")
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
 	return observe("apps", s.Apps, false, func(apps []App) error {
 		if apps == nil {
 			return fmt.Errorf("use [] for known empty apps")
@@ -295,9 +373,6 @@ func (s Snapshot) validateShape() error {
 func (a App) validate() error {
 	if err := checkPattern(appPattern, a.Name); err != nil {
 		return fmt.Errorf("name: %w", err)
-	}
-	if err := observe("current_release", a.CurrentRelease, true, validToken); err != nil {
-		return err
 	}
 	if err := observe("image", a.Image, true, func(i Image) error {
 		if err := validHash(i.Digest); err != nil {
