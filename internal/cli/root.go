@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/spf13/cobra"
 )
@@ -13,13 +14,14 @@ const Version = "0.1.1-dev"
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
 type Dependencies struct {
-	Context  context.Context
-	Stdin    io.Reader
-	Stdout   io.Writer
-	Stderr   io.Writer
-	Version  string
-	LookPath func(string) (string, error)
-	RunTUI   func(context.Context, io.Reader, io.Writer) error
+	Context      context.Context
+	Stdin        io.Reader
+	Stdout       io.Writer
+	Stderr       io.Writer
+	Version      string
+	LookPath     func(string) (string, error)
+	RunTUI       func(context.Context, io.Reader, io.Writer) error
+	DoctorRunner localexec.Runner // Optional; nil uses bounded local execution.
 }
 
 // NewRootCommand builds an independent command tree without executing it.
@@ -43,7 +45,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.SetErr(deps.Stderr)
 	root.PersistentFlags().BoolVar(&jsonOutput, "json", false, "Machine-readable JSON output")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
-	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath))
+	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath, deps.DoctorRunner))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps.RunTUI))
 	for _, cmd := range root.Commands() {
