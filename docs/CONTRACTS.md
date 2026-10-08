@@ -1,13 +1,14 @@
 # Brine v1 contracts
 
-**Status: Approved design target, not an implemented API.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports. The initial CLI still only exposes `version`, `doctor`, and the placeholder `tui`. Stabilize these contracts with tests before claiming compatibility.
+**Status: Approved design target, not an implemented API.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports. The CLI exposes `version`, `doctor`, the placeholder `tui`, `validate`, and offline `plan`; connected planning and deployment remain unimplemented. Stabilize these contracts with tests before claiming compatibility.
 
 ## Command surface
 
 ~~~text
 brine init [directory]
-brine validate ./brine.toml
+brine validate ./brine.toml --policy ./policy.toml
 brine plan ./brine.toml --target staging
+brine plan ./brine.toml --offline --snapshot ./snapshot.json --policy ./policy.toml [--state ./brine-state.json] [--out ./plans]
 brine apply PLAN_ID --target staging
 brine status --target staging
 brine status --operation OPERATION_ID --target staging
@@ -19,6 +20,22 @@ brine tui --target staging
 ~~~
 
 Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Rollback creates a **plan**, not an implicit mutation. Avoid an automatic `destroy` command.
+
+### Local validation and offline planning (P01-04)
+
+`validate` and `plan --offline` read only local regular files. Neither performs network, SSH, subprocess, runtime, proxy or control-database operations. Both require exactly one app path and a nonempty explicit `--policy`. Specs and policies are bounded to 1 MiB each; snapshots and committed-state files to 16 MiB each. Invalid arguments, unreadable inputs, invalid specs, malformed snapshots and malformed committed state return `invalid_usage` with exit 2. Policy decode or enforcement refusals return `policy_refused` with exit 4. Diagnostics never echo input values or paths.
+
+`validate` human output summarizes the normalized name, digest-pinned image, domains, container port, policy version and environment/secret counts. Its machine `data` is the normalized desired configuration, with `environment` replaced by a sorted array of names, never literal values. Health/resource defaults, policy hash/version, app port range and secret references remain visible.
+
+`plan` without enabled `--offline` refuses with `offline_required` and exit 2 before reading files. A supplied snapshot is never treated as a connected host. The image digest comes from the validated app; an installed app's matching digest retains its observed platform. Otherwise Linux and the snapshot architecture are explicit offline assumptions, not verified registry metadata. No manifest is fetched.
+
+`--state` reads the separate `plan.BrineState` JSON schema, including every normalized previous release input. Its decoder rejects unknown, missing, duplicate, case-aliased and null fields, as well as trailing JSON. Without `--state`, an affirmatively empty, generation-zero snapshot permits an empty bound state for a fresh-host preview. Other snapshots receive unbound empty state and produce a conflict; the CLI never invents installed release history from the new desired app. Use the example committed-state file for the installed-app no-op case.
+
+Create, update, no-op and conflict are all successful read-only planning results, with exit 0 and `ok: true`. A conflict has `data.kind: "conflict"` and diagnostics, not executable changes. This distinguishes a completed analysis that found obstacles from a failed invocation or the category-5 refusal to reuse corrupt stored evidence. Callers must inspect `kind`, not infer deployment readiness from exit 0.
+
+Machine plan `data` is exactly `planview.JSON`'s redacted projection, including its hash and diff, never the `planfile.Offline` envelope or retained literal environment values. `--out` does not change that projection. Human output prominently begins with `OFFLINE PLAN — NOT APPLYABLE`, renders the planview diff, and prints the complete plan hash plus a quoted file path when written.
+
+Only `plan --offline --out <existing directory>` persists anything. It writes one private, hash-named offline plan through `planfile.Write`, without creating a directory or control database. Temporary files used for atomic publication are removed. Creation time and tool version remain outside the fingerprint. Sequential retries verify and reuse an existing hash-named, regular 0600 file without rewriting its original metadata; malformed, tampered, non-private or nonregular existing evidence refuses with `conflict` and exit 5. Other output I/O failures use exit 1. The file retains literal settings for fingerprint verification and is not a log or safe public presentation. It never grants apply authority.
 
 ## Machine modes
 
@@ -101,6 +118,7 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `interrupted` | 130 | false | The client was interrupted. |
 | `tui_interactive` | 2 | false | tui is interactive; remove --json, --jsonl and --no-input |
 | `tui_terminal_required` | 2 | false | tui requires terminal input and output. |
+| `offline_required` | 2 | false | Connected planning is not available; use --offline with --snapshot and --policy. |
 | `input_required` | 2 | false | Interactive input is required; supply explicit arguments or use an interactive terminal. |
 
 | Exit | Category |

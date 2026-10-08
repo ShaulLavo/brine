@@ -55,9 +55,13 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
 	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath, deps.DoctorRunner))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
+	root.AddCommand(newValidateCmd(&jsonOutput))
+	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps))
 	for _, cmd := range root.Commands() {
-		cmd.Args = cobra.NoArgs
+		if cmd.Args == nil {
+			cmd.Args = cobra.NoArgs
+		}
 	}
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",

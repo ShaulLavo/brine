@@ -33,6 +33,7 @@ const (
 	TUIInteractive      Code = "tui_interactive"
 	TUITerminalRequired Code = "tui_terminal_required"
 	InputRequired       Code = "input_required"
+	OfflineRequired     Code = "offline_required"
 )
 
 type description struct {
@@ -42,6 +43,7 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
+	OfflineRequired:     {Validation, "Connected planning is not available; use --offline with --snapshot and --policy.", false},
 	InternalError:       {Operational, "The operation failed.", false},
 	InvalidUsage:        {Validation, "Invalid command or arguments. Use --help for usage.", false},
 	DependencyMissing:   {Dependency, "A required dependency is missing or incompatible.", false},
