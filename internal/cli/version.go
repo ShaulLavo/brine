@@ -18,7 +18,7 @@ func newVersionCmd(jsonOutput *bool) *cobra.Command {
 					"version":        version,
 				})
 			}
-			fmt.Fprintln(cmd.OutOrStdout(), "deployctl "+version)
+			fmt.Fprintln(cmd.OutOrStdout(), "brine "+version)
 			return nil
 		},
 	}

@@ -14,7 +14,7 @@ func Execute() error {
 	var noInput bool
 
 	root := &cobra.Command{
-		Use:           "deployctl",
+		Use:           "brine",
 		Short:         "Agent-first self-hosted deployments",
 		Long:          "A small deployment control plane for humans and agents. Deployment operations are not implemented yet.",
 		SilenceUsage:  true,

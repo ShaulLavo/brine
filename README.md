@@ -1,6 +1,8 @@
-# deployctl
+# Brine
 
-**Agent-first self-hosted deployments, with a human-friendly Charm CLI.**
+**Your apps. Your server. Under control.**
+
+Agent-first self-hosted deployments, with a human-friendly Charm CLI.
 
 A Go + Rust-friendly experiment for running personal applications on a VPS. The CLI uses [Cobra](https://github.com/spf13/cobra), [Bubble Tea](https://github.com/charmbracelet/bubbletea), and [Lip Gloss](https://github.com/charmbracelet/lipgloss). The goal is to make routine deployments deterministic for coding agents while still feeling good in a terminal.
 
@@ -27,10 +29,10 @@ The project is **Go + Rust**, not a requirement to rewrite reliable existing too
 Requires a recent Go toolchain.
 
 ~~~sh
-go run ./cmd/deployctl version
-go run ./cmd/deployctl doctor
-go run ./cmd/deployctl doctor --json --no-input
-go run ./cmd/deployctl tui
+go run ./cmd/brine version
+go run ./cmd/brine doctor
+go run ./cmd/brine doctor --json --no-input
+go run ./cmd/brine tui
 go test ./...
 ~~~
 

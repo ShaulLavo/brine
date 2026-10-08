@@ -21,7 +21,7 @@ func (m welcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 func (welcomeModel) View() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Render("deployctl  /  deployment control")
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Render("brine  /  deployment control")
 	return title + "\n\nA foundation, not yet a deployment engine.\n\nPress q to quit.\n"
 }
 

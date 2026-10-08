@@ -1,4 +1,4 @@
-# Architecture notes
+# Brine architecture
 
 ## Goal
 

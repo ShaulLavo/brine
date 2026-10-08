@@ -1,4 +1,4 @@
-module github.com/ShaulLavo/deployctl
+module github.com/ShaulLavo/brine
 
 go 1.25
 

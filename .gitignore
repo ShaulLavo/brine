@@ -1,7 +1,7 @@
 # Local binaries
 /bin/
 /dist/
-/deployctl
+/brine
 
 # Editor and secrets
 .idea/

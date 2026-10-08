@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/ShaulLavo/deployctl/internal/cli"
+	"github.com/ShaulLavo/brine/internal/cli"
 )
 
 func main() {

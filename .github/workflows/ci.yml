@@ -20,4 +20,4 @@ jobs:
       - name: Test
         run: go test ./...
       - name: Build
-        run: go build ./cmd/deployctl
+        run: go build ./cmd/brine
