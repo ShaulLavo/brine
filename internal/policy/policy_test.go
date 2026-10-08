@@ -49,6 +49,10 @@ func TestEnforce(t *testing.T) {
 		code   string
 	}{
 		{"allowed", func(a *spec.App) {}, ""},
+		{"empty health path", func(a *spec.App) { a.Health.Path = "" }, "policy.invalid_spec"},
+		{"zero health status", func(a *spec.App) { a.Health.ExpectedStatus = 0 }, "policy.invalid_spec"},
+		{"zero startup deadline", func(a *spec.App) { a.Health.StartupDeadlineSeconds = 0 }, "policy.invalid_spec"},
+		{"zero health timeout", func(a *spec.App) { a.Health.TimeoutSeconds = 0 }, "policy.invalid_spec"},
 		{"nested wildcard", func(a *spec.App) { a.Domains = []spec.Domain{"nested.web.example.com"} }, ""},
 		{"domain case", func(a *spec.App) { a.Domains = []spec.Domain{"WEB.EXAMPLE.COM"} }, ""},
 		{"suffix boundary", func(a *spec.App) { a.Domains = []spec.Domain{"evilexample.com"} }, "policy.domain_denied"},
@@ -218,7 +222,8 @@ func TestPolicyOptions(t *testing.T) {
 		name, from, to string
 		accept         bool
 	}{
-		{"all repositories", "repository_prefixes = [\"team\"]", "repository_prefixes = []", true},
+		{"empty repositories deny", "repository_prefixes = [\"team\"]", "repository_prefixes = []", false},
+		{"omitted repositories deny", "repository_prefixes = [\"team\"]", "", false},
 		{"exact repository", "repository_prefixes = [\"team\"]", "repository_prefixes = [\"team/web\"]", true},
 		{"different repository", "repository_prefixes = [\"team\"]", "repository_prefixes = [\"team/other\"]", false},
 		{"no registries", "host = \"Registry.Example.com:5000\"", "host = \"other.example.com:5000\"", false},
@@ -309,5 +314,23 @@ func TestCanonicalCollections(t *testing.T) {
 	}
 	if q.Hash() != r.Hash() {
 		t.Fatal("set ordering or duplication changes policy hash")
+	}
+}
+
+func TestMissingRepositoryConstraintsDeny(t *testing.T) {
+	for _, prefixes := range []string{"", "repository_prefixes = []"} {
+		p, e := Parse(bytes.Replace(fixture(t), []byte("repository_prefixes = [\"team\"]"), []byte(prefixes), 1))
+		if e != nil {
+			t.Fatal(e)
+		}
+		for _, repo := range []string{"team/web", "unapproved/web"} {
+			a := app(t)
+			a.Image = spec.ImageReference(strings.Replace(string(a.Image), "team/web", repo, 1))
+			d, e := Normalize(a, p)
+			var r *Refusal
+			if !errors.As(e, &r) || r.Code != "policy.registry_denied" || r.Category() != 4 || !reflect.DeepEqual(d, Desired{}) {
+				t.Fatalf("repository constraints %q accepted %q or refused unsafely: %v", prefixes, repo, e)
+			}
+		}
 	}
 }

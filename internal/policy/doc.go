@@ -16,8 +16,11 @@ allowed_registries is an array of tables with host and optional
 repository_prefixes. Hosts are exact ASCII DNS names with optional ports;
 case is folded, but a missing port does not match a rule with an explicit port.
 Prefixes match the exact repository or descendants separated by a slash.
-An empty prefix set permits every repository on that host. Missing or empty
-registry and domain sets deny every image and domain, respectively.
+An omitted or empty prefix set permits no repositories on that host. There is
+no host-wide authorization opt-in in schema v1. Missing or empty registry and
+domain sets deny every image and domain, respectively. Registry and repository
+aliases are not expanded; docker.io/library/alpine and docker.io/alpine remain
+distinct references and must each match an explicitly approved prefix.
 
 allowed_domains contains exact names or *.suffix rules. Case is folded after
 rejecting non-ASCII input. Wildcards permit one or more subdomain labels, never
@@ -37,10 +40,13 @@ adapter must check containment, symlinks and file ownership on the host.
 Normalize revalidates public spec values through the existing strict parser.
 Every refusal returns a zero Desired. Missing app resources resolve to the
 operator ceilings, so omission never requests unlimited memory or processes.
-Health defaults remain the spec defaults. Domains, environment and secrets are
-sorted; output collections never alias input maps or slices. Desired contains
+Health defaults are resolved only by spec.Parse; Normalize preserves all four
+health fields and refuses invalid zero or empty values. Domains, environment
+and secrets are sorted; output collections never alias input maps or slices. Desired contains
 literal environment settings and secret references, never resolved secrets.
 CanonicalBytes is deterministic JSON with explicit defaults and no timestamps.
+Desired is not a complete plan fingerprint; P01-03 must also bind target platform
+and the resolved image/platform identity, as well as the observed target state.
 Policy.Hash is sha256 over canonical policy JSON, including operator revision,
 resource ceilings, roots and defaults. Allowed sets are sorted and deduplicated;
 duplicate registry hosts are refused rather than merged ambiguously.

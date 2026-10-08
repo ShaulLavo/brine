@@ -69,20 +69,12 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		secrets[name] = string(ref)
 	}
 	raw := map[string]any{"schema_version": input.SchemaVersion, "name": string(input.Name), "image": string(input.Image), "container_port": int(input.ContainerPort), "domains": domains, "environment": input.Environment, "secrets": secrets}
-	h := map[string]any{}
-	if input.Health.Path != "" {
-		h["path"] = string(input.Health.Path)
+	raw["health"] = map[string]any{
+		"path":                     string(input.Health.Path),
+		"expected_status":          input.Health.ExpectedStatus,
+		"startup_deadline_seconds": input.Health.StartupDeadlineSeconds,
+		"timeout_seconds":          input.Health.TimeoutSeconds,
 	}
-	if input.Health.ExpectedStatus != 0 {
-		h["expected_status"] = input.Health.ExpectedStatus
-	}
-	if input.Health.StartupDeadlineSeconds != 0 {
-		h["startup_deadline_seconds"] = input.Health.StartupDeadlineSeconds
-	}
-	if input.Health.TimeoutSeconds != 0 {
-		h["timeout_seconds"] = input.Health.TimeoutSeconds
-	}
-	raw["health"] = h
 	if input.Resources != nil {
 		raw["resources"] = map[string]int{"memory_mb": input.Resources.MemoryMB, "pids_limit": input.Resources.PIDsLimit}
 	}
@@ -98,9 +90,6 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 	for _, registry := range c.AllowedRegistries {
 		if registry.Host != host {
 			continue
-		}
-		if len(registry.RepositoryPrefixes) == 0 {
-			allowed = true
 		}
 		for _, prefix := range registry.RepositoryPrefixes {
 			if repo == prefix || strings.HasPrefix(repo, prefix+"/") {
