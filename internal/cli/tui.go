@@ -5,26 +5,34 @@ import (
 	"fmt"
 	"io"
 
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/lipgloss"
+	tea "charm.land/bubbletea/v2"
+	"github.com/ShaulLavo/brine/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-type welcomeModel struct{}
+type welcomeModel struct {
+	frame ui.Frame
+}
 
 func (welcomeModel) Init() tea.Cmd { return nil }
 func (m welcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	if key, ok := msg.(tea.KeyMsg); ok {
-		switch key.String() {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.frame.Width, m.frame.Height = msg.Width, msg.Height
+	case tea.KeyPressMsg:
+		switch msg.String() {
 		case "q", "ctrl+c", "esc":
 			return m, tea.Quit
 		}
 	}
 	return m, nil
 }
-func (welcomeModel) View() string {
-	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12")).Render("brine  /  deployment control")
-	return title + "\n\nA foundation, not yet a deployment engine.\n\nPress q to quit.\n"
+func (m welcomeModel) View() tea.View {
+	return tea.NewView(m.frame.Render(
+		"brine  /  deployment control",
+		"A foundation, not yet a deployment engine.",
+		"Press q to quit.  ctrl+c / esc also quit.",
+	))
 }
 
 func newTUICmd(jsonOutput, noInput *bool, runTUI func(context.Context, io.Reader, io.Writer) error) *cobra.Command {
@@ -43,10 +51,10 @@ func newTUICmd(jsonOutput, noInput *bool, runTUI func(context.Context, io.Reader
 // RunTUI runs the welcome screen using the caller's context and output.
 // A nil input preserves Bubble Tea's process-input and controlling-terminal fallback.
 func RunTUI(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
-	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(stdout), tea.WithoutSignalHandler()}
+	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(stdout), tea.WithoutSignalHandler(), tea.WithWindowSize(80, 24)}
 	if stdin != nil {
 		opts = append(opts, tea.WithInput(stdin))
 	}
-	_, err := tea.NewProgram(welcomeModel{}, opts...).Run()
+	_, err := tea.NewProgram(welcomeModel{frame: ui.Frame{Theme: ui.ThemeFromEnv(), Width: 80, Height: 24}}, opts...).Run()
 	return err
 }

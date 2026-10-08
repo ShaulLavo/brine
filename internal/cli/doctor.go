@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"runtime"
 
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +39,7 @@ func newDoctorCmd(jsonOutput *bool, lookPath func(string) (string, error)) *cobr
 				})
 			}
 			head := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-			fmt.Fprintln(cmd.OutOrStdout(), head.Render("Deployment tool check"))
+			lipgloss.Fprintln(cmd.OutOrStdout(), head.Render("Deployment tool check"))
 			fmt.Fprintln(cmd.OutOrStdout(), "Checking PATH only; this is not a server readiness audit.")
 			for _, c := range checks {
 				status := "missing"
