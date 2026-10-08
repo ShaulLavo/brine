@@ -9,7 +9,7 @@
 - [ ] **P00-03** Specify `--no-input`, terminal detection and optional `--jsonl` behavior. Reject machine flags on TUI; reject prompts in noninteractive mode. Use CLI integration tests for stdout/stderr/exit codes.
 - [ ] **P00-04** Refactor the PATH-only doctor into dependency checks with machine-friendly `name`, `available`, `version`, and `reason` fields. Do not confuse a local PATH check with remote host readiness.
 - [ ] **P00-05** Review Charm release compatibility. Migrate Bubble Tea/Lip Gloss/Bubbles as a **coordinated** v2 change if compatible, otherwise record why they remain pinned. Add a modest themed reusable UI shell and terminal-size handling; no dummy deploy success screens.
-- [ ] **P00-06** CI: gofmt, tests, vet, build, relevant race tests, and snapshot tests for machine output. Avoid automatically updating all dependencies.
+- [ ] **P00-06** CI: gofmt, tests, vet, build, race tests, module tidiness, and whitespace checks are implemented. Snapshot tests for machine output remain pending P00-02's envelope. Avoid automatically updating all dependencies.
 
 ### Exit gate
 
