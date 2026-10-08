@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newVersionCmd(jsonOutput *bool) *cobra.Command {
+func newVersionCmd(jsonOutput *bool, version string) *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
 		Short: "Show the CLI version",

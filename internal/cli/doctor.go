@@ -3,8 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"os/exec"
 	"runtime"
 
 	"github.com/charmbracelet/lipgloss"
@@ -17,12 +15,12 @@ type toolCheck struct {
 	Path      string `json:"path,omitempty"`
 }
 
-func checkTool(name string) toolCheck {
-	path, err := exec.LookPath(name)
+func checkTool(name string, lookPath func(string) (string, error)) toolCheck {
+	path, err := lookPath(name)
 	return toolCheck{Name: name, Available: err == nil, Path: path}
 }
 
-func newDoctorCmd(jsonOutput *bool) *cobra.Command {
+func newDoctorCmd(jsonOutput *bool, lookPath func(string) (string, error)) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Check local deployment tooling (no server changes)",
@@ -30,11 +28,11 @@ func newDoctorCmd(jsonOutput *bool) *cobra.Command {
 			names := []string{"podman", "systemctl", "caddy", "litestream", "tailscale"}
 			checks := make([]toolCheck, 0, len(names))
 			for _, name := range names {
-				checks = append(checks, checkTool(name))
+				checks = append(checks, checkTool(name, lookPath))
 			}
 
 			if *jsonOutput {
-				return json.NewEncoder(os.Stdout).Encode(map[string]any{
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
 					"schema_version": 1,
 					"platform":       runtime.GOOS,
 					"checks":         checks,
