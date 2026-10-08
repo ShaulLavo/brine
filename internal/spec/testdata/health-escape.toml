@@ -1,0 +1,7 @@
+schema_version = 1
+name = "hello"
+image = "ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+container_port = 3000
+domains = ["hello.example.com"]
+[health]
+path="/%2e%2e/DO_NOT_ECHO"
