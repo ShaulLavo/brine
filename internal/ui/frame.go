@@ -27,7 +27,9 @@ func (f Frame) Render(title, body, help string) string {
 	available := f.Height - len(lines) - 1
 	if available > 0 {
 		bodyLines := strings.Split(ansi.Wrap(body, width, ""), "\n")
-		lines = append(lines, bodyLines[:min(len(bodyLines), available)]...)
+		for _, line := range bodyLines[:min(len(bodyLines), available)] {
+			lines = append(lines, ansi.Truncate(line, width, ""))
+		}
 	}
 	if len(lines) < f.Height-1 {
 		lines = append(lines, "")

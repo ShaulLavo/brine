@@ -33,6 +33,22 @@ func TestFrameRender(t *testing.T) {
 	}
 }
 
+func TestFrameWideGraphemesAtTinyWidths(t *testing.T) {
+	for _, body := range []string{"界面 stays within the terminal.", "🌊 waves", "👩‍💻 coding", "🇯🇵 flag"} {
+		t.Run(body, func(t *testing.T) {
+			for _, size := range []struct{ width, height int }{{1, 5}, {1, 12}, {2, 12}, {3, 12}} {
+				for _, noColor := range []bool{false, true} {
+					frame := Frame{Theme: NewTheme(noColor), Width: size.width, Height: size.height}
+					got := frame.Render("brine", body, "Press q to quit.")
+					if lipgloss.Width(got) > size.width || lipgloss.Height(got) > size.height {
+						t.Fatalf("size %v, noColor %t: frame exceeds terminal: %q", size, noColor, got)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestThemeNoColor(t *testing.T) {
 	for _, value := range []string{"1", "true", "0", ""} {
 		t.Run("NO_COLOR="+value, func(t *testing.T) {
