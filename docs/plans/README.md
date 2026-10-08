@@ -1,6 +1,6 @@
 # Phase plans
 
-Start with [the roadmap](../PLAN.md), then read [contracts](../CONTRACTS.md) and [the test matrix](../TEST_MATRIX.md). **None of these tasks are complete merely because the plan was written.** Check items only when implemented, tested, and documented.
+Start with [the roadmap](../PLAN.md) and [decisions](../DECISIONS.md), then read [contracts](../CONTRACTS.md) and [the test matrix](../TEST_MATRIX.md). **None of these tasks are complete merely because the plan was written.** Check items only when implemented, tested, and documented.
 
 | Order | File | Focus |
 | --- | --- | --- |
@@ -14,6 +14,6 @@ Start with [the roadmap](../PLAN.md), then read [contracts](../CONTRACTS.md) and
 
 ## Prompt for an implementation agent
 
-> Read AGENTS.md, docs/PLAN.md, docs/CONTRACTS.md, docs/TEST_MATRIX.md and the specific phase plan. Inspect the current code. Implement only TASK-ID plus truly necessary prerequisites. Do not deploy or change any VPS, DNS, firewall, credentials, database or unrelated service. Preserve existing work; add tests, run checks, and report limitations. Check off a task only after its acceptance criteria are actually verified.
+> Read AGENTS.md, docs/PLAN.md, docs/DECISIONS.md, docs/CONTRACTS.md, docs/TEST_MATRIX.md and the specific phase plan. Inspect the current code. Implement only TASK-ID plus truly necessary prerequisites. Do not deploy or change any VPS, DNS, firewall, credentials, database or unrelated service. Preserve existing work; add tests, run checks, and report limitations. Check off a task only after its acceptance criteria are actually verified.
 
 Use one small pull request per task where practical. Phase 00 first. Never auto-grant deploy, root or teardown privileges to the agent.

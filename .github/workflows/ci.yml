@@ -17,7 +17,17 @@ jobs:
           cache: true
       - name: Format
         run: test -z "$(gofmt -l ./cmd ./internal)"
+      - name: Whitespace
+        run: git diff --check "$(git hash-object -t tree /dev/null)" HEAD
+      - name: Module tidiness
+        run: |
+          go mod tidy
+          git diff --exit-code -- go.mod go.sum
+      - name: Vet
+        run: go vet ./...
       - name: Test
         run: go test ./...
+      - name: Race tests
+        run: go test -race ./...
       - name: Build
         run: go build ./cmd/brine
