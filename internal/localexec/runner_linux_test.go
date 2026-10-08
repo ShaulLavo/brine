@@ -97,16 +97,50 @@ func TestExecRunnerTimeoutTerminatesDescendants(t *testing.T) {
 func processRunning(t *testing.T, pid int) bool {
 	t.Helper()
 	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
-	if errors.Is(err, os.ErrNotExist) {
-		return false
-	}
+	running, err := processStatRunning(data, err)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return running
+}
+
+func processStatRunning(data []byte, err error) (bool, error) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
 	end := strings.LastIndexByte(string(data), ')')
 	if end < 0 || len(data) < end+4 {
-		t.Fatalf("invalid process stat: %q", data)
+		return false, fmt.Errorf("invalid process stat: %q", data)
 	}
 	// Orphans may remain zombies until the host's init reaps them.
-	return data[end+2] != 'Z' && data[end+2] != 'X'
+	return data[end+2] != 'Z' && data[end+2] != 'X', nil
+}
+
+func TestProcessStatRunning(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		data      string
+		err       error
+		running   bool
+		wantError bool
+	}{
+		{"running", "123 (probe) S 1", nil, true, false},
+		{"zombie", "123 (probe) Z 1", nil, false, false},
+		{"dead", "123 (probe) X 1", nil, false, false},
+		{"missing path", "", &os.PathError{Op: "open", Path: "/proc/123/stat", Err: syscall.ENOENT}, false, false},
+		{"reaped during read", "", &os.PathError{Op: "read", Path: "/proc/123/stat", Err: syscall.ESRCH}, false, false},
+		{"no process", "", syscall.ESRCH, false, false},
+		{"permission denied", "", syscall.EACCES, false, true},
+		{"invalid stat", "invalid", nil, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			running, err := processStatRunning([]byte(tt.data), tt.err)
+			if running != tt.running || (err != nil) != tt.wantError {
+				t.Fatalf("running = %t, error = %v", running, err)
+			}
+		})
+	}
 }

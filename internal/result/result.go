@@ -23,14 +23,16 @@ const (
 type Code string
 
 const (
-	InternalError     Code = "internal_error"
-	InvalidUsage      Code = "invalid_usage"
-	DependencyMissing Code = "dependency_missing"
-	PolicyRefused     Code = "policy_refused"
-	Conflict          Code = "conflict"
-	RecoveryRequired  Code = "recovery_required"
-	Interrupted       Code = "interrupted"
-	TUIInteractive    Code = "tui_interactive"
+	InternalError       Code = "internal_error"
+	InvalidUsage        Code = "invalid_usage"
+	DependencyMissing   Code = "dependency_missing"
+	PolicyRefused       Code = "policy_refused"
+	Conflict            Code = "conflict"
+	RecoveryRequired    Code = "recovery_required"
+	Interrupted         Code = "interrupted"
+	TUIInteractive      Code = "tui_interactive"
+	TUITerminalRequired Code = "tui_terminal_required"
+	InputRequired       Code = "input_required"
 )
 
 type description struct {
@@ -40,14 +42,16 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
-	InternalError:     {Operational, "The operation failed.", false},
-	InvalidUsage:      {Validation, "Invalid command or arguments. Use --help for usage.", false},
-	DependencyMissing: {Dependency, "A required dependency is missing or incompatible.", false},
-	PolicyRefused:     {Policy, "The operation was refused by policy.", false},
-	Conflict:          {StateConflict, "The plan is stale or another operation holds the lock.", true},
-	RecoveryRequired:  {Recovery, "Manual recovery is required before continuing.", false},
-	Interrupted:       {Interruption, "The client was interrupted.", false},
-	TUIInteractive:    {Validation, "tui is interactive; remove --json and --no-input", false},
+	InternalError:       {Operational, "The operation failed.", false},
+	InvalidUsage:        {Validation, "Invalid command or arguments. Use --help for usage.", false},
+	DependencyMissing:   {Dependency, "A required dependency is missing or incompatible.", false},
+	PolicyRefused:       {Policy, "The operation was refused by policy.", false},
+	Conflict:            {StateConflict, "The plan is stale or another operation holds the lock.", true},
+	RecoveryRequired:    {Recovery, "Manual recovery is required before continuing.", false},
+	Interrupted:         {Interruption, "The client was interrupted.", false},
+	TUIInteractive:      {Validation, "tui is interactive; remove --json, --jsonl and --no-input", false},
+	TUITerminalRequired: {Validation, "tui requires terminal input and output.", false},
+	InputRequired:       {Validation, "Interactive input is required; supply explicit arguments or use an interactive terminal.", false},
 }
 
 // Error keeps the cause for reconciliation without exposing it in presentations.

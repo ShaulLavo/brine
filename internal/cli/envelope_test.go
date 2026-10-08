@@ -99,6 +99,7 @@ func TestErrorRedactionT23(t *testing.T) {
 	}
 	var out, diagnostics bytes.Buffer
 	deps := testDependencies(t, &out, &diagnostics)
+	withTestTerminal(t, &deps)
 	deps.RunTUI = func(context.Context, io.Reader, io.Writer) error {
 		return errors.New("subprocess stderr: TOKEN=" + secret + "\x1b[31m")
 	}

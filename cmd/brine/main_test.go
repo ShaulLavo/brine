@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -32,6 +33,15 @@ func TestRunExitCodes(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var out, diagnostics bytes.Buffer
 			deps := cli.Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &diagnostics, Version: "fixture", RunTUI: func(context.Context, io.Reader, io.Writer) error { return tt.err }}
+			if tt.args[0] == "tui" {
+				terminal, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
+				if err != nil {
+					t.Skip("PTY unavailable", err)
+				}
+				t.Cleanup(func() { terminal.Close() })
+				deps.Stdin = terminal
+				deps.Stdout = terminal
+			}
 			if got := run(deps, tt.args); got != tt.exit {
 				t.Fatalf("exit = %d; want %d", got, tt.exit)
 			}
