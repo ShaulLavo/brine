@@ -4,7 +4,7 @@
 
 ### Tasks
 
-- [ ] **P01-01** Introduce strict, versioned `brine.toml` parser with fixture examples. Reject unknown fields, duplicate keys, bad app names, invalid domain labels, arbitrary paths, unpinned image tags, malformed digests, unsafe ports, invalid health paths, and unsupported options.
+- [x] **P01-01** Introduce strict, versioned `brine.toml` parser with fixture examples. Reject unknown fields, duplicate keys, bad app names, invalid domain labels, arbitrary paths, unpinned image tags, malformed digests, unsafe ports, invalid health paths, and unsupported options.
 - [ ] **P01-02** Normalize desired app configuration and enforce an explicitly supplied target policy: registries, domains, persistent roots, secrets and resources. Reject unsafe environment expansion and shell/Quadlet pass-through.
 - [ ] **P01-03** Define stable plan types for create/update/no-op/conflict, ordered changes, expected runtime image/platform and durable immutable plan hashes. Exclude wall-clock timestamps from plan fingerprints; include target generation and policy version.
 - [ ] **P01-04** Add read-only `validate` and `plan --offline` with fixture target snapshots. Offline plans must be conspicuously **not applyable**; never silently treat a fixture as a connected host.

@@ -1,0 +1,18 @@
+schema_version = 1
+name = "hello"
+image = "ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+container_port = 3000
+domains = ["HELLO.EXAMPLE.COM"]
+
+[health]
+path = "/healthz"
+expected_status = 204
+startup_deadline_seconds = 45
+timeout_seconds = 5
+[resources]
+memory_mb = 256
+pids_limit = 128
+[environment]
+APP_ENV = "production"
+[secrets]
+DATABASE_KEY = "hello-db-key"
