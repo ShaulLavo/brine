@@ -4,7 +4,7 @@
 
 Agent-first self-hosted deployments, with a human-friendly Charm CLI.
 
-A Go + Rust-friendly experiment for running personal applications on a VPS. The CLI uses [Cobra](https://github.com/spf13/cobra), [Bubble Tea](https://github.com/charmbracelet/bubbletea), and [Lip Gloss](https://github.com/charmbracelet/lipgloss). The goal is to make routine deployments deterministic for coding agents while still feeling good in a terminal.
+An experiment for running personal applications on a VPS. The goal is to make routine deployments deterministic for coding agents while still feeling good in a terminal.
 
 > **Status: bootstrap.** This repository contains a working CLI shell, version reporting, a local tool check, and a TUI welcome screen. It **cannot deploy applications yet**.
 
@@ -12,17 +12,14 @@ A Go + Rust-friendly experiment for running personal applications on a VPS. The 
 
 | Responsibility | Component (chosen, not yet integrated) |
 | --- | --- |
-| HTTPS / proxy | Caddy (Go) |
-| Containers | Podman (Go) |
+| HTTPS / proxy | Caddy |
+| Containers | Podman |
 | Service lifecycle | Quadlet + systemd |
 | App databases | SQLite |
 | Backups | Litestream to Cloudflare R2 |
 | Private administration | Tailscale |
 | Cloud host | Hetzner |
-| Orchestration & human UI | Go + Charm |
-| Specialized helpers | Rust, only when they earn their place |
-
-The project is **Go + Rust**, not a requirement to rewrite reliable existing tools for language purity.
+| Orchestration & human UI | Brine CLI with a Charm terminal UI |
 
 ## Run locally
 
