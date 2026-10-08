@@ -7,7 +7,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const version = "0.1.0-dev"
+const version = "0.1.1-dev"
 
 func Execute() error {
 	var jsonOutput bool
