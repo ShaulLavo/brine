@@ -260,11 +260,16 @@ func TestDeterminismAndPurity(t *testing.T) {
 	otherRelease := in.State.Releases[0]
 	otherRelease.App = "other"
 	otherRelease.Desired.Name = "other"
+	otherRelease.Desired.Domains = []spec.Domain{"other.example.org"}
+	otherRelease.HostPort = 20001
 	otherRelease.Units = slices.Clone(otherRelease.Units)
 	otherRelease.CaddyFile = in.Snapshot.CaddyConfig.Value.Files[1]
 	in.State.Releases = append(in.State.Releases, otherRelease)
 	before, _ := json.Marshal(in)
 	p := build(t, in)
+	if p.Kind != Update {
+		t.Fatal("determinism fixture must exercise changes", p.Kind, p.Conflicts)
+	}
 	after, _ := json.Marshal(in)
 	if !bytes.Equal(before, after) {
 		t.Fatal("mutated input")
@@ -457,4 +462,75 @@ func FuzzHashEquality(f *testing.F) {
 			t.Fatal("equal hashes, unequal generated plans")
 		}
 	})
+}
+
+func twoAppState(t testing.TB) Input {
+	t.Helper()
+	in := installed(t)
+	other := in.State.Releases[0]
+	other.App = "other"
+	other.ID = "release-other-0001"
+	other.Desired.Name = "other"
+	other.Desired.Domains = []spec.Domain{"other.example.net"}
+	other.Units = []target.Unit{{Name: "other.container", Hash: "sha256:" + strings.Repeat("e", 64)}}
+	other.CaddyFile = target.CaddyFile{Name: "other.caddy", Hash: "sha256:" + strings.Repeat("f", 64)}
+	in.State.Releases = append(in.State.Releases, other)
+	in.Snapshot.CaddyConfig.Value.Files = append(in.Snapshot.CaddyConfig.Value.Files, other.CaddyFile)
+	*in.Snapshot.LiveCaddyFiles.Value = append(*in.Snapshot.LiveCaddyFiles.Value, target.LiveCaddyFile{Name: "other.caddy", App: "other", Domains: target.Known([]string{"other.example.net"})})
+	in.Desired.Environment = []policy.Environment{{Name: "APP_ENV", Value: "changed"}}
+	return in
+}
+
+func TestGenerationCannotDropOrCopyDriftedCommittedApp(t *testing.T) {
+	for _, scenario := range []string{"missing file", "changed hash", "missing live file", "changed live association", "changed live domain"} {
+		t.Run(scenario, func(t *testing.T) {
+			in := twoAppState(t)
+			switch scenario {
+			case "missing file":
+				in.Snapshot.CaddyConfig.Value.Files = in.Snapshot.CaddyConfig.Value.Files[:1]
+			case "changed hash":
+				in.Snapshot.CaddyConfig.Value.Files[1].Hash = "sha256:" + strings.Repeat("c", 64)
+			case "missing live file":
+				*in.Snapshot.LiveCaddyFiles.Value = (*in.Snapshot.LiveCaddyFiles.Value)[:1]
+			case "changed live association":
+				(*in.Snapshot.LiveCaddyFiles.Value)[1].App = ""
+			case "changed live domain":
+				(*in.Snapshot.LiveCaddyFiles.Value)[1].Domains = target.Known([]string{"unrelated.example.net"})
+			}
+			p := build(t, in)
+			if p.Kind != Conflict || len(p.Changes) != 0 {
+				t.Fatalf("unsafe whole-generation plan: kind=%s conflicts=%+v changes=%d", p.Kind, p.Conflicts, len(p.Changes))
+			}
+			found := false
+			for _, d := range p.Conflicts {
+				if d.Code == ArtifactDrift {
+					found = true
+				}
+			}
+			if !found {
+				t.Fatal("expected artifact drift", p.Conflicts)
+			}
+		})
+	}
+}
+
+func TestGenerationPreservesMatchingCommittedAndUnmanagedFiles(t *testing.T) {
+	in := twoAppState(t)
+	unmanaged := target.CaddyFile{Name: "unmanaged.caddy", Hash: "sha256:" + strings.Repeat("b", 64)}
+	in.Snapshot.CaddyConfig.Value.Files = append(in.Snapshot.CaddyConfig.Value.Files, unmanaged)
+	*in.Snapshot.LiveCaddyFiles.Value = append(*in.Snapshot.LiveCaddyFiles.Value, target.LiveCaddyFile{Name: unmanaged.Name, Domains: target.Known([]string{"unmanaged.example.net"})})
+	p := build(t, in)
+	if p.Kind != Update {
+		t.Fatal(p.Kind, p.Conflicts)
+	}
+	for _, change := range p.Changes {
+		if change.Kind == StageCaddy {
+			want := []target.CaddyFile{in.State.Releases[1].CaddyFile, unmanaged}
+			if !reflect.DeepEqual(change.Caddy.Preserve, want) {
+				t.Fatalf("preserve %+v want %+v", change.Caddy.Preserve, want)
+			}
+			return
+		}
+	}
+	t.Fatal("missing Caddy generation staging change")
 }

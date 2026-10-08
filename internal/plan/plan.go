@@ -356,24 +356,9 @@ func Build(in Input) (Plan, error) {
 	p.ConfigHash = configHash(in.Desired, in.Image, p.HostPort, p.Secrets)
 
 	if release != nil {
-		liveOwned := false
-		expectedDomains := make([]string, len(release.Desired.Domains))
-		for i, domain := range release.Desired.Domains {
-			expectedDomains[i] = string(domain)
-		}
-		for _, file := range *in.Snapshot.LiveCaddyFiles.Value {
-			if file.Name == release.CaddyFile.Name && file.App == p.App && file.Domains.Status == target.KnownStatus && slices.Equal(*file.Domains.Value, expectedDomains) {
-				liveOwned = true
-			}
-		}
-		if !liveOwned {
-			add(ArtifactDrift, "caddy.live")
-		}
+		reconcileCommittedCaddy(*release, caddy.Files, *in.Snapshot.LiveCaddyFiles.Value, add)
 		if current != nil && current.AllocatedHostPort.Status == target.KnownStatus && *current.AllocatedHostPort.Value != release.HostPort {
 			add(ArtifactDrift, "host_port")
-		}
-		if ownHash != release.CaddyFile.Hash {
-			add(ArtifactDrift, "caddy")
 		}
 		if current == nil || current.QuadletUnits.Status != target.KnownStatus || !reflect.DeepEqual(*current.QuadletUnits.Value, release.Units) {
 			add(ArtifactDrift, "units")
@@ -394,6 +379,14 @@ func Build(in Input) (Plan, error) {
 	if release != nil && configHash(release.Desired, release.Image, release.HostPort, release.Secrets) == p.ConfigHash && current.Image.Status == target.KnownStatus && *current.Image.Value == in.Image && !allocated && ownHash != "" && hasContainer(*current.QuadletUnits.Value, p.App) {
 		p.Kind = NoOp
 	} else {
+		for _, committed := range in.State.Releases {
+			if committed.App != p.App {
+				reconcileCommittedCaddy(committed, caddy.Files, *in.Snapshot.LiveCaddyFiles.Value, add)
+			}
+		}
+		if len(p.Conflicts) > 0 {
+			return finish(p, desired, snapshot, state)
+		}
 		if caddy.Generation == ^uint64(0) {
 			return Plan{}, fmt.Errorf("Caddy generation exhausted")
 		}
@@ -407,6 +400,33 @@ func Build(in Input) (Plan, error) {
 		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{Desired: in.Desired, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
 	}
 	return finish(p, desired, snapshot, state)
+}
+
+func reconcileCommittedCaddy(release CurrentRelease, files []target.CaddyFile, liveFiles []target.LiveCaddyFile, add func(ConflictCode, string)) {
+	artifactMatches := false
+	for _, file := range files {
+		if file == release.CaddyFile {
+			artifactMatches = true
+			break
+		}
+	}
+	if !artifactMatches {
+		add(ArtifactDrift, "caddy")
+	}
+	expectedDomains := make([]string, len(release.Desired.Domains))
+	for i, domain := range release.Desired.Domains {
+		expectedDomains[i] = string(domain)
+	}
+	liveMatches := false
+	for _, file := range liveFiles {
+		if file.Name == release.CaddyFile.Name && file.App == release.App && file.Domains.Status == target.KnownStatus && slices.Equal(*file.Domains.Value, expectedDomains) {
+			liveMatches = true
+			break
+		}
+	}
+	if !liveMatches {
+		add(ArtifactDrift, "caddy.live")
+	}
 }
 
 func deploymentCapabilities(s target.Snapshot, add func(ConflictCode, string)) {
