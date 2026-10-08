@@ -20,6 +20,7 @@ type ExecRunner struct{}
 func (ExecRunner) Run(ctx context.Context, path string, args ...string) (string, error) {
 	output := &boundedOutput{}
 	cmd := exec.CommandContext(ctx, path, args...)
+	configureProcessGroup(cmd)
 	cmd.Stdout = output
 	cmd.Stderr = output
 	// Bound pipe draining if a descendant keeps the output descriptors open.

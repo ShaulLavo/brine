@@ -74,6 +74,10 @@ Each check always includes these fields:
 
 Version probes use separate executable and argument values: `ssh -V` and `git --version`. Each has a two-second timeout and captures at most 4096 combined stdout and stderr bytes. Only a recognized version token is rendered. OpenSSH writes its version to stderr; stderr is captured rather than passed through.
 
+On Unix, each probe starts in its own process group. Cancellation or deadline expiry kills the group, including descendants that remain in it. Pipe draining remains bounded to 100 milliseconds. Non-Unix platforms retain immediate-process cancellation; descendant termination is not guaranteed there. Process groups are cleanup, not a sandbox: a program can deliberately leave its group.
+
+Probes deliberately inherit the client environment, including tool and loader settings. Doctor trusts the executables selected by the client PATH; it does not isolate them from client credentials. Raw output stays private, but this runner is not an execution boundary for untrusted programs. A stronger use requires explicit environment selection and platform-specific process containment.
+
 Human output identifies the local scope and shows each tool's requirement and version or failure reason. Failure JSON follows the shared envelope contract and carries `data: null`, `command: "brine doctor"`, and the fixed safe dependency error. It therefore contains no local report or per-tool detail. Partial results on failure, explicit local-scope fields on failures, and a safe message naming the missing tool require a later versioned contract extension.
 
 ## Error codes and exit categories
