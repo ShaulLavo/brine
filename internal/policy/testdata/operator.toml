@@ -1,0 +1,16 @@
+schema_version = 1
+version = "operator-1"
+allowed_domains = ["*.Example.com", "other.example.net"]
+persistent_roots = ["/srv/brine/data"]
+# ports
+
+[[allowed_registries]]
+host = "Registry.Example.com:5000"
+repository_prefixes = ["team"]
+
+[resources]
+memory_mb = 512
+pids_limit = 128
+
+[allowed_secrets]
+hello = ["hello-token"]
