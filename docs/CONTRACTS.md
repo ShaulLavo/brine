@@ -22,7 +22,7 @@ Plan is read-only with respect to runtime/proxy/data; it stores the plan in the 
 
 Machine modes: `--no-input`, `--json` for one response object, and later `--jsonl` for an event stream. JSON and JSONL cannot be combined. Output must never include ANSI codes, spinners, prompts or raw subprocess blobs. Diagnostics go to stderr. Stable error envelope: `schema_version`, `command`, `ok`, `data`, `error` (with machine code, safe message, retryable). A response that accepts a background operation says **accepted**, not **deployed**. Ctrl-C disconnects the observer, not the server-side operation.
 
-Proposed exit categories: 0 success or accepted; 1 internal/operational failure; 2 validation/usage; 3 incompatible/missing dependency; 4 refused by policy; 5 stale plan/lock conflict; 6 manual recovery required; 130 interrupted client. These are to be formally tested in phase 00.
+Exit categories: 0 success or accepted; 1 internal/operational failure; 2 validation/usage; 3 incompatible/missing dependency; 4 refused by policy; 5 stale plan/lock conflict; 6 manual recovery required; 130 interrupted client. These are to be formally tested in phase 00.
 
 ## App definition
 
@@ -74,9 +74,9 @@ Use state labels such as `queued`, `preflight`, `preparing`, `quiescing`, `start
 
 ## Runtime ownership and authorization
 
-Enroll each host with affirmative operator action and a read-only inventory. Refuse conflicts with existing software, ports, domains and volumes; do not uninstall Coolify because a plan mentions a proxy (the owner removes it manually, D4). Use a dedicated rootless Podman service user and systemd user units. Test Quadlet install/reboot semantics on the pinned distribution, not merely against a local mock.
+Enroll each host with affirmative operator action and a read-only inventory. Refuse conflicts with existing software, ports, domains and volumes; never uninstall other software because a plan mentions a proxy (D4). Use a dedicated rootless Podman service user and systemd user units. Test Quadlet install/reboot semantics on the pinned distribution, not merely against a local mock.
 
-Caddy is the host's packaged service. Brine owns only `/etc/caddy/brine.d/*.caddy`, validates the full config before each change, reloads through a polkit-scoped `systemctl reload caddy.service`, serializes changes, detects drift by hash, and preserves all unrelated site configuration (D4). Apps never reach the admin API.
+Caddy is the host's packaged service. Brine owns only its generation directories under `/etc/caddy/brine/`, validates the complete candidate config before each change, reloads through a polkit-scoped `systemctl reload caddy.service`, serializes changes, detects drift by hash, and preserves all unrelated site configuration (D4). Apps never reach the admin API.
 
 Rootless does **not** mean safe for an untrusted agent. A deployment identity that can SSH freely and control Podman can bypass Brine checks and can alter its own app data. Autonomous production mode requires an operator-owned policy and the restricted dispatcher (`brine host serve` as a forced SSH command, D1), whose permissions exclude root, host deletion, raw Podman/Caddy control and cloud teardown.
 

@@ -1,6 +1,6 @@
 # Brine architecture decisions
 
-**Status: Approved** (owner, 2026-10-08). These decisions override older wording in the plans. If a decision proves wrong on real hardware, add a new numbered entry that supersedes it and update the affected tasks; do not edit history silently.
+**Status: Approved** (owner, 2026-10-08). These decisions override older wording in the plans. If a decision proves wrong on real hardware, add a new numbered entry that supersedes it and update the affected tasks; do not edit history silently. Approved means designed, not implemented.
 
 ## D1. Brine runs on the host; the laptop is a client
 
@@ -9,38 +9,46 @@ The `brine` binary is installed on each enrolled host and runs as a dedicated, u
 The client (`brine` on a laptop or in an agent sandbox) holds only target configuration: SSH destination and pinned host key. It never holds plans, releases or operation state, so a human and an agent on different machines see the same plan IDs and operations.
 
 - **Transport:** the client runs the system OpenSSH binary with typed arguments, so `~/.ssh/config`, the SSH agent, `known_hosts` and Tailscale addressing work unchanged. No shell strings are built.
-- **Restricted dispatcher:** the runner's deploy key is installed with `restrict,command="brine host serve"` in `authorized_keys`. `brine host serve` reads one versioned JSON request from stdin, checks it against an allowlist of operations and the operator policy, and writes one JSON response (or a JSONL event stream). That key cannot open a shell, forward ports or run Podman, systemd or Caddy directly. This is the P06-01 authorization boundary.
-- **Long-running operations:** `apply` records intent, then starts a transient user unit (`brine-op-<operation-id>`) that runs `brine host run-op <operation-id>`. The SSH session can drop without stopping it. Unit names and arguments come from Brine, never from the request.
-- **Enrollment and upgrades** use the operator's own admin SSH access, not the deploy key. `brine enroll` creates the runner user, directories, the binary, lingering and the restricted key only after the operator confirms the read-only inventory. It installs or removes nothing else.
+- **Restricted dispatcher:** the runner's deploy key is installed with `restrict,command="/usr/local/bin/brine host serve"` (an absolute, operator-owned path) in `authorized_keys`. `brine host serve` ignores `SSH_ORIGINAL_COMMAND` for dispatch. It reads one bounded, versioned JSON request from stdin, checks it against an allowlist of operations and the operator policy, and writes one JSON response (or a JSONL event stream). That key cannot open a shell, forward ports or run Podman, systemd or Caddy directly. The binary, the policy file and `authorized_keys` are owned by root or the operator and are not writable by the runner. This is the P06-01 authorization boundary.
+- **Long-running operations:** `apply` records intent, then starts a transient user unit (`brine-op-<operation-id>`) that runs `brine host run-op <operation-id>`. The SSH session can drop without stopping it. Unit names and arguments come from Brine, never from the request. Transient units don't survive a reboot and finished ones get garbage-collected, so the control database is authoritative: on startup, Brine reconciles any operation the database shows as unfinished.
+- **App services** are Quadlet units with `[Install] WantedBy=default.target`, so the runner's user manager starts them at boot through lingering. Generated Quadlet services can't be `systemctl enable`d like ordinary units.
+- **Enrollment and upgrades** use the operator's own admin SSH access, not the deploy key. `brine enroll` runs a read-only inventory, shows the complete list of changes, and applies only that list after the operator confirms. The list is fixed: the runner user and lingering, Brine's directories, the binary, the restricted deploy key, the Caddy polkit rule and import line (D4), and, if missing, the Debian `podman` and `caddy` packages. It never removes software.
 - **Offline plans** (`plan --offline`) run locally against a snapshot file and produce a plan file marked not applyable. They never enter the host's database.
 
 ## D2. Reference OS: Debian 13 (trixie)
 
-Supported target: Debian 13 with systemd 257, cgroup v2 and the distribution's Podman 5.x and Caddy packages. The pinned versions are recorded once installed on the test host. Other distributions return `unsupported` from inventory rather than "probably works".
-
-The VPS currently runs Ubuntu 24.04 and was cleared on 2026-10-08 down to SSH, Tailscale and mesh. It must run Debian 13 before Brine deploys anything there.
+Supported target: Debian 13 with systemd 257, cgroup v2, and the distribution's Podman 5.4, `passt` and Caddy 2.6 packages. Test evidence records the exact installed package revisions. Inventory checks `passt` explicitly, since Podman only recommends it. Other distributions return `unsupported` from inventory rather than "probably works".
 
 Hosts may be **amd64 or arm64**. Plans already bind image platform. Fixture images must be published for both architectures, and plans refuse an image digest whose platform doesn't match the target.
 
 ## D3. Test host: the owner's Raspberry Pi
 
-The owner's Raspberry Pi (Debian 13, arm64, 4 GB RAM, SD-card storage) is the authorized disposable host for Phase 02–04 integration tests and reboot drills. It is reached over the owner's tailnet. Its hostname, addresses and inventory stay out of this repository.
+A Raspberry Pi owned by the project owner, running Debian 13 on arm64, is the authorized disposable host for Phase 02–04 integration tests and reboot drills. Its name, address and inventory stay out of this repository; workers get them from the coordinator.
 
 Authorized on that host: installing Podman, Caddy and Litestream from Debian packages or pinned releases; creating the runner user; deploying fixture apps; rebooting it for drills. Not authorized: changing its tailnet, firewall or other services, or touching data that Brine didn't create. Cleanup removes only fixture-owned resources.
 
-SD-card storage is slow and wears out. Keep fixture images small, and don't treat Pi timings as performance baselines.
+Small single-board test hosts are memory- and IO-constrained. Keep fixture images small, and don't treat their timings as performance baselines.
 
-## D4. Caddy: Brine-owned drop-in files, reloaded through systemd
+## D4. Caddy: a Brine-owned config set, validated whole, reloaded through systemd
 
-Caddy is the Debian-packaged system service. The main Caddyfile gets one line at enrollment: `import /etc/caddy/brine.d/*.caddy`. Brine owns that directory (writable by the runner user) and writes one file per app. It never touches the main Caddyfile or other sites.
+Caddy is the Debian-packaged system service. Enrollment adds one line to the main Caddyfile: `import /etc/caddy/brine/current/*.caddy`. `/etc/caddy/brine/current` is a symlink to a generation directory (`/etc/caddy/brine/gen-<n>/`) holding one Brine-rendered file per app. Brine never edits the main Caddyfile after enrollment or touches other sites.
 
-Change sequence: write the new file to a staging path, run `caddy validate` on the full config, atomically rename it into place, then `systemctl reload caddy.service`. Caddy keeps its previous config if the new one fails to load. If the reload fails, Brine restores the previous file. A polkit rule lets the runner user reload (not stop, restart or edit) `caddy.service` and nothing else. Drift detection compares owned files against hashes in the control database.
+Change sequence, under the host mutation lock:
 
-Config on disk means routes survive Caddy restarts and reboots without `--resume`. The admin API stays on Caddy's default local endpoint and is never handed to apps; rootless containers don't reach host loopback by default, and Phase 02 tests that an app container cannot connect to it.
+1. Render the complete next app set into a new `gen-<n+1>/` (unchanged apps copied, the changed app replaced or removed).
+2. Build a candidate root config: a temporary copy of the main Caddyfile with Brine's import line pointed at `gen-<n+1>/`. Run `caddy validate` on exactly that candidate. This catches invalid replacements and duplicate site addresses before anything is live.
+3. Atomically repoint `current` to `gen-<n+1>/`, then `systemctl reload caddy.service`.
+4. If the reload fails, repoint `current` to `gen-<n>/` and reload again. A reload that times out has an unknown outcome: reconcile by checking what Caddy is actually serving before restoring anything.
 
-**Coolify** was removed from the VPS at the owner's request on 2026-10-08, along with everything else except SSH, Tailscale and mesh. Brine itself never uninstalls other software: if inventory finds another proxy holding ports 80/443, it reports a conflict and refuses (T05).
+Keep the previous generation for rollback and prune older ones. A polkit rule lets the runner user call `org.freedesktop.systemd1.manage-units` only with `unit == "caddy.service"` and `verb == "reload"`. It grants no other verb, including `reload-or-restart`. Drift detection compares the live generation's files against hashes in the control database.
 
-Caddy isn't preinstalled anywhere. Enrollment installs the Debian `caddy` package only with the operator's confirmation, and then adds the `import` line itself.
+App files are rendered by Brine from typed fields only: site address, `reverse_proxy` to the app's localhost port, and fixed headers. They never contain global options, `admin` settings or app-supplied Caddyfile text. A failed Caddy 2.6 load can still restart the admin listener, which is another reason global settings stay fixed.
+
+**Trust limit:** the runner can write imported Caddy config and reach the local admin endpoint, so a compromised runner can reroute any domain on the host. For v1 (one operator, trusted apps) the forced dispatcher and operator policy are the boundary, not file ownership or the polkit rule. If that becomes unacceptable, a separately privileged helper that validates and installs config replaces direct runner writes.
+
+Config on disk means routes survive Caddy restarts and reboots without `--resume`. The admin API stays on Caddy's default loopback endpoint. With Podman 5.4's default pasta networking, app containers can't reach host loopback. Phase 02 tests that denial under the exact network mode Brine generates. Brine never generates host networking, loopback-enabling pasta or slirp options, or host socket mounts, and the inventory refuses an admin endpoint bound off loopback.
+
+Brine never uninstalls other software. If inventory finds another proxy holding ports 80/443, it reports a conflict and refuses (T05).
 
 ## D5. Secrets: Podman secrets
 
@@ -51,11 +59,11 @@ App secrets are Podman secrets owned by the runner user, injected through Quadle
 DATABASE_KEY = "hello-db-key"
 ~~~
 
-Values are set on the host through the dispatcher (`brine secret set APP NAME`, value read from stdin, never from argv). Plans record secret names and Podman's secret IDs, never values. Rotation creates a new secret and a new plan.
+Values are set on the host through the dispatcher (`brine secret set APP NAME`, value read from stdin, never from argv). Podman resolves environment secrets by name, so Brine stores each value under an immutable, versioned Podman name (`brine-<app>-<ref>-v<n>`) and never reuses a name. Plans record those versioned names, never values. Rotation creates a new version and a new plan. Old versions stay until no retained release references them, so rollback keeps working. The dispatcher only lets an app's operations see that app's secrets.
 
 Limits: Podman's default `file` driver stores values unencrypted with owner-only permissions in the runner's storage, so anyone with runner or root access can read them. That matches the v1 threat model (single operator, no untrusted co-tenants). An encrypted operator-side store such as sops/age can be added later as an input source without changing the app contract.
 
-Other credentials follow the same rule. Registry pulls use the runner's Podman auth file (mode 0600). Litestream's R2 credentials live in a runner-owned 0600 file loaded by the Litestream user unit, scoped per destination. None of these are visible to app containers.
+Other credentials follow the same rule. Registry pulls use the runner's Podman auth file (mode 0600). Litestream's R2 credentials live in a runner-owned 0600 file loaded by the Litestream user unit, scoped per destination. Brine never mounts credential directories, the Podman socket or other runtime sockets into app containers.
 
 ## D6. Host ports for apps
 
