@@ -9,7 +9,7 @@ The `brine` binary is installed on each enrolled host and runs as a dedicated, u
 The client (`brine` on a laptop or in an agent sandbox) holds only target configuration: SSH destination and pinned host key. It never holds plans, releases or operation state, so a human and an agent on different machines see the same plan IDs and operations.
 
 - **Transport:** the client runs the system OpenSSH binary with typed arguments, so `~/.ssh/config`, the SSH agent, `known_hosts` and Tailscale addressing work unchanged. No shell strings are built.
-- **Restricted dispatcher:** the runner's deploy key is installed with `restrict,command="/usr/local/bin/brine host serve"` (an absolute, operator-owned path) in `authorized_keys`. `brine host serve` ignores `SSH_ORIGINAL_COMMAND` for dispatch. It reads one bounded, versioned JSON request from stdin, checks it against an allowlist of operations and the operator policy, and writes one JSON response (or a JSONL event stream). That key cannot open a shell, forward ports or run Podman, systemd or Caddy directly. The binary, the policy file and `authorized_keys` are owned by root or the operator and are not writable by the runner. This is the P06-01 authorization boundary.
+- **Restricted dispatcher:** the runner's deploy key is installed with `restrict,command="/usr/local/bin/brine host serve"` (an absolute, operator-owned path) in `authorized_keys`. `brine host serve` ignores `SSH_ORIGINAL_COMMAND` for dispatch. It reads one bounded, versioned JSON request from stdin, checks it against an allowlist of operations and the operator policy, and writes one JSON response (or a JSONL event stream). That key cannot open a shell, forward ports or run Podman, systemd or Caddy directly. The binary, the policy file and `authorized_keys` are owned by root or the operator, and D7 says how they stay that way. This is the P06-01 authorization boundary.
 - **Long-running operations:** `apply` records intent, then starts a transient user unit (`brine-op-<operation-id>`) that runs `brine host run-op <operation-id>`. The SSH session can drop without stopping it. Unit names and arguments come from Brine, never from the request. Transient units don't survive a reboot and finished ones get garbage-collected, so the control database is authoritative: on startup, Brine reconciles any operation the database shows as unfinished.
 - **App services** are Quadlet units with `[Install] WantedBy=default.target`, so the runner's user manager starts them at boot through lingering. Generated Quadlet services can't be `systemctl enable`d like ordinary units.
 - **Enrollment and upgrades** use the operator's own admin SSH access, not the deploy key. `brine enroll` runs a read-only inventory, shows the complete list of changes, and applies only that list after the operator confirms. The list is fixed: the runner user and lingering, Brine's directories, the binary, the restricted deploy key, the Caddy polkit rule and import line (D4), and, if missing, the Debian `podman` and `caddy` packages. It never removes software.
@@ -68,3 +68,14 @@ Other credentials follow the same rule. Registry pulls use the runner's Podman a
 ## D6. Host ports for apps
 
 Containers publish only on `127.0.0.1`. Brine allocates each app a host port from a range set in target policy (default `20000-20999`), records it in the control database and keeps it stable across releases so a rollback doesn't need a route change. Inventory reports ports already in use, and allocation skips them.
+
+## D7. The runner can't replace its own SSH restriction
+
+Added 2026-10-08 after the [Pi runtime spike](spikes/pi-runtime.md). It replaces D1's ownership sentence for the restricted key.
+
+Making `authorized_keys` root-owned isn't enough. If the runner owns any parent directory, it can rename `.ssh` and put back an unrestricted key. The spike demonstrated this.
+
+Enrollment therefore makes the runner's home directory operator-owned (`root:<runner>`, mode `0755`), with `.ssh` and `authorized_keys` root-owned and not writable by the runner. Everything the runner needs to write lives in runner-owned subdirectories created at enrollment: `.config`, `.local` and `.cache` (Podman storage, Quadlet units, systemd user state) and Brine's state directory. sshd's `StrictModes` accepts a root-owned home. This avoids changing the SSH server's configuration for other users. Enrollment and P06-01 tests try to replace both the key file and every parent directory as the runner, and must fail.
+
+Enrollment must also account for packages that start services on install. Installing Caddy enables and starts it immediately, and netavark enables its own units. Enrollment lists those effects and leaves Caddy stopped until Brine's config is in place.
+
