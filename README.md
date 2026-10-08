@@ -30,6 +30,9 @@ go run ./cmd/brine version
 go run ./cmd/brine doctor
 go run ./cmd/brine doctor --json --no-input
 go run ./cmd/brine tui
+go run ./cmd/brine validate examples/offline/brine.toml --policy examples/offline/policy.toml
+go run ./cmd/brine plan examples/offline/brine.toml --offline --snapshot examples/offline/fresh-host.json --policy examples/offline/policy.toml
+go run ./cmd/brine plan examples/offline/brine.toml --offline --snapshot examples/offline/host-with-app.json --policy examples/offline/policy.toml --state examples/offline/brine-state.json
 go test ./...
 ~~~
 
