@@ -4,13 +4,14 @@ import (
 	"context"
 	"io"
 
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.0-dev"
+const Version = "0.1.1-dev"
 
 // Dependencies supplies the process resources and services used by commands.
-// Callers provide every field and own error reporting and process exit status.
+// Callers provide every field. Execute owns presentation; callers own exit status.
 type Dependencies struct {
 	Context  context.Context
 	Stdin    io.Reader
@@ -22,18 +23,20 @@ type Dependencies struct {
 }
 
 // NewRootCommand builds an independent command tree without executing it.
-// Execute returns command errors unchanged so callers can classify them.
+// Use Execute for the complete response contract, including parser failures.
 func NewRootCommand(deps Dependencies) *cobra.Command {
 	var jsonOutput bool
 	var noInput bool
 
 	root := &cobra.Command{
-		Use:           "brine",
-		Short:         "Agent-first self-hosted deployments",
-		Long:          "A small deployment control plane for humans and agents. Deployment operations are not implemented yet.",
-		SilenceUsage:  true,
-		SilenceErrors: true,
+		Use:               "brine",
+		Short:             "Agent-first self-hosted deployments",
+		Long:              "A small deployment control plane for humans and agents. Deployment operations are not implemented yet.",
+		SilenceUsage:      true,
+		SilenceErrors:     true,
+		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error { return cmd.Context().Err() },
 	}
+	root.SetFlagErrorFunc(usageError)
 	root.SetContext(deps.Context)
 	root.SetIn(deps.Stdin)
 	root.SetOut(deps.Stdout)
@@ -43,5 +46,37 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps.RunTUI))
+	for _, cmd := range root.Commands() {
+		cmd.Args = cobra.NoArgs
+	}
+	root.SetHelpCommand(&cobra.Command{
+		Use:   "help [command]",
+		Short: "Help about any command",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			target, remaining, err := cmd.Root().Find(args)
+			if err != nil || len(remaining) != 0 {
+				return result.New(result.InvalidUsage, err)
+			}
+			target.InitDefaultHelpFlag()
+			return target.Help()
+		},
+	})
+	root.InitDefaultHelpCmd()
+	root.InitDefaultCompletionCmd()
+	wrapArgumentValidators(root)
 	return root
+}
+
+func wrapArgumentValidators(cmd *cobra.Command) {
+	if validate := cmd.Args; validate != nil {
+		cmd.Args = func(cmd *cobra.Command, args []string) error {
+			if err := validate(cmd, args); err != nil {
+				return result.New(result.InvalidUsage, err)
+			}
+			return nil
+		}
+	}
+	for _, child := range cmd.Commands() {
+		wrapArgumentValidators(child)
+	}
 }

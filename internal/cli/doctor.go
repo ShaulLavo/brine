@@ -6,6 +6,7 @@ import (
 	"runtime"
 
 	"charm.land/lipgloss/v2"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/spf13/cobra"
 )
 
@@ -32,11 +33,11 @@ func newDoctorCmd(jsonOutput *bool, lookPath func(string) (string, error)) *cobr
 			}
 
 			if *jsonOutput {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), map[string]any{
 					"schema_version": 1,
 					"platform":       runtime.GOOS,
 					"checks":         checks,
-				})
+				}))
 			}
 			head := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
 			lipgloss.Fprintln(cmd.OutOrStdout(), head.Render("Deployment tool check"))

@@ -1,0 +1,1 @@
+{"schema_version":1,"command":"brine tui","ok":false,"data":null,"error":{"code":"tui_interactive","message":"tui is interactive; remove --json and --no-input","retryable":false}}

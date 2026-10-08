@@ -24,6 +24,12 @@ func TestTUIWithRedirectedStdin(t *testing.T) {
 		t.Fatalf("build: %v\n%s", err, output)
 	}
 
+	for _, interrupt := range []bool{false, true} {
+		t.Run(fmt.Sprintf("interrupt=%t", interrupt), func(t *testing.T) { testTUIProcess(t, binary, interrupt) })
+	}
+}
+
+func testTUIProcess(t *testing.T, binary string, interrupt bool) {
 	fd, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -109,16 +115,55 @@ func TestTUIWithRedirectedStdin(t *testing.T) {
 			}
 		}
 		if !quitSent && strings.Contains(output.String(), "Press q to quit.") {
-			if _, err := master.WriteString("q"); err != nil {
+			if interrupt {
+				if err := cmd.Process.Signal(os.Interrupt); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := master.WriteString("q"); err != nil {
 				t.Fatal(err)
 			}
 			quitSent = true
 		}
 	}
-	if err := cmd.Wait(); err != nil {
+	err = cmd.Wait()
+	if interrupt {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 130 {
+			t.Fatalf("SIGINT exit: %v; want 130", err)
+		}
+	} else if err != nil {
 		t.Fatalf("tui exit: %v\nterminal output: %q", err, output.String())
 	}
 	if !quitSent || !strings.Contains(output.String(), "A foundation, not yet a deployment engine.") {
 		t.Fatalf("welcome screen was not displayed: %q", output.String())
+	}
+}
+
+func TestBinaryClosedStdout(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "brine")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer write.Close()
+	if err := read.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var diagnostics bytes.Buffer
+	cmd := exec.CommandContext(ctx, binary, "version", "--json")
+	cmd.Stdout = write
+	cmd.Stderr = &diagnostics
+	err = cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("exit = %v; want 1, stderr = %q", err, diagnostics.String())
+	}
+	if diagnostics.String() != "error: The operation failed.\n" {
+		t.Fatalf("stderr = %q", diagnostics.String())
 	}
 }
