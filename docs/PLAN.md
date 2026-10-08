@@ -1,12 +1,12 @@
 # Brine implementation roadmap
 
-**Status: planning document.** No deployment functionality is implemented by writing this file.
+**Status: Approved.** No deployment functionality is implemented by writing this file. Architecture decisions live in [DECISIONS.md](DECISIONS.md) and take precedence over older wording here.
 
 **Product goal:** a small, fast, trustworthy self-hosted deployment tool on a single Linux VPS, operated either by an AI agent using stable JSON or by a person using Charm.
 
 ## Current baseline
 
-The existing repo is a Go/Cobra starter with Bubble Tea/Lip Gloss welcome UI, JSON version output, PATH-only doctor and basic CI. It cannot yet deploy, discover remote servers, plan changes, persist operations, configure Caddy, restore SQLite or manage containers. Charm dependencies are currently Bubble Tea **v1**, not a completed v2 migration.
+The existing repo is a Go/Cobra starter with Bubble Tea/Lip Gloss welcome UI, JSON version output, PATH-only doctor and basic CI. It cannot yet deploy, discover remote servers, plan changes, persist operations, configure Caddy, restore SQLite or manage containers. Charm dependencies are currently Bubble Tea **v1**; v2 is stable and P00-05 migrates to it.
 
 ## Default architecture
 
@@ -14,10 +14,12 @@ The existing repo is a Go/Cobra starter with Bubble Tea/Lip Gloss welcome UI, JS
         Human: Brine TUI          Agent: Brine --json
                  \                  /
                    Go operation API
-                plans / policy / state
+                           |
+                OpenSSH (client only)
                            |
               explicitly enrolled host
-             SSH / restricted dispatcher
+     brine host serve (restricted dispatcher)
+       control DB: plans / releases / operations
                            |
        +-------------------+-----------------+
        |                   |                 |
@@ -28,7 +30,7 @@ The existing repo is a Go/Cobra starter with Bubble Tea/Lip Gloss welcome UI, JS
   persistent SQLite volumes
 ~~~
 
-Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovisioning. Go owns CLI/orchestration; Rust stays optional for a distinct component with demonstrated value. Use standard, replaceable tools instead of building a container engine or reverse proxy.
+Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovisioning. The reference OS is Debian 13 (amd64 or arm64), and the owner's Raspberry Pi is the disposable test host (D2, D3). Go owns CLI/orchestration; Rust stays optional for a distinct component with demonstrated value. Use standard, replaceable tools instead of building a container engine or reverse proxy.
 
 ## Decided MVP limits
 
@@ -46,7 +48,7 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 
 | Phase | Plan | Deliverable | Exit criterion |
 | --- | --- | --- | --- |
-| 00 | [CLI foundation](plans/00-cli-foundation.md) | Testable command wiring and output contracts; evaluate Charm v2 together | JSON and no-input behavior fully testable |
+| 00 | [CLI foundation](plans/00-cli-foundation.md) | Testable command wiring and output contracts; Charm v2 migration | JSON and no-input behavior fully testable |
 | 01 | [App spec and planner](plans/01-spec-and-planner.md) | Strict `brine.toml`, deterministic dry-run plans | No host changes from validate/plan; unsafe values rejected |
 | 02 | [Host and runtime](plans/02-host-and-runtime.md) | Target enrollment, Podman/Quadlet and Caddy adapters | A disposable fixture starts, routes and survives reboot |
 | 03 | [Deploy/recover](plans/03-deploy-and-recovery.md) | Persistent jobs, health checks, rollback and reconcile | Failed deployment or dead SSH session is recoverable |

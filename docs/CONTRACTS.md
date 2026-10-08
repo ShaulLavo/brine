@@ -1,6 +1,6 @@
-# Brine v1 proposed contracts
+# Brine v1 contracts
 
-**Design target, not an implemented API.** The initial CLI still only exposes `version`, `doctor`, and the placeholder `tui`. Stabilize these contracts with tests before claiming compatibility.
+**Status: Approved design target, not an implemented API.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports. The initial CLI still only exposes `version`, `doctor`, and the placeholder `tui`. Stabilize these contracts with tests before claiming compatibility.
 
 ## Command surface
 
@@ -18,11 +18,11 @@ brine restore test APP --target staging
 brine tui --target staging
 ~~~
 
-Plan is read-only with respect to runtime/proxy/data; it may store a plan in Brine's control database. `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Rollback creates a **plan**, not an implicit mutation. Avoid an automatic `destroy` command.
+Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Rollback creates a **plan**, not an implicit mutation. Avoid an automatic `destroy` command.
 
 Machine modes: `--no-input`, `--json` for one response object, and later `--jsonl` for an event stream. JSON and JSONL cannot be combined. Output must never include ANSI codes, spinners, prompts or raw subprocess blobs. Diagnostics go to stderr. Stable error envelope: `schema_version`, `command`, `ok`, `data`, `error` (with machine code, safe message, retryable). A response that accepts a background operation says **accepted**, not **deployed**. Ctrl-C disconnects the observer, not the server-side operation.
 
-Proposed exit categories: 0 success or accepted; 1 internal/operational failure; 2 validation/usage; 3 incompatible/missing dependency; 4 refused by policy; 5 stale plan/lock conflict; 6 manual recovery required; 130 interrupted client. These are to be formally tested in phase 00.
+Exit categories: 0 success or accepted; 1 internal/operational failure; 2 validation/usage; 3 incompatible/missing dependency; 4 refused by policy; 5 stale plan/lock conflict; 6 manual recovery required; 130 interrupted client. These are to be formally tested in phase 00.
 
 ## App definition
 
@@ -49,15 +49,18 @@ pids_limit = 128
 
 [environment]
 APP_ENV = "production"
+
+[secrets]
+SESSION_KEY = "hello-session-key"  # Podman secret name, never a value
 ~~~
 
-Secrets are **references** resolved only by target-side restricted credentials; never render secret values into plan output or git. Target policy controls allowed registries, domains, ports, secret IDs, persistence roots and public exposure. Resource settings are enforced by the adapter rather than blindly passed through.
+Secrets are **references** to Podman secrets owned by the runner user on the target (D5); never render secret values into plan output or git. Target policy controls allowed registries, domains, ports, secret IDs, persistence roots and public exposure. Resource settings are enforced by the adapter rather than blindly passed through.
 
 ## Plan and durable state
 
 A plan binds desired spec hash, target identity, observed generation, image digest and platform, policy version, secret-reference versions, artifact digests, expiry and change summary. Identical canonical inputs should generate identical hashes; timestamps live outside hash material. Plan acceptance is not a general authorization grant.
 
-Use a small local SQLite control database for plans, releases, operations and append-only ordered events. It is **separate** from app SQLite databases and needs its own recovery story. Use a bounded connection pool, transactions around local state only, and migrations. Choose a maintained SQLite Go driver in a deliberate dependency PR.
+Use a small SQLite control database **on the target**, owned by the runner user, for plans, releases, operations and append-only ordered events (D1). Clients keep only target configuration. It is **separate** from app SQLite databases and needs its own recovery story. Use a bounded connection pool, transactions around local state only, and migrations. Choose a maintained SQLite Go driver in a deliberate dependency PR.
 
 A deployment writes intent and operation state durably *before* changing files, Quadlet units, containers or proxy routes. Each tool boundary has a typed adapter with bounded outputs and timeouts. Acquire a per-host lock **before** checking plan freshness; one mutation per target. Reconcile observed state after crashes: neither subprocess exit status nor client timeout alone proves an external change succeeded or failed.
 
@@ -71,11 +74,11 @@ Use state labels such as `queued`, `preflight`, `preparing`, `quiescing`, `start
 
 ## Runtime ownership and authorization
 
-Enroll each host with affirmative operator action and a read-only inventory. Refuse conflicts with existing software, ports, domains and volumes; do not uninstall Coolify because a plan mentions a proxy. Use a dedicated rootless Podman service user and systemd user units. Test Quadlet install/reboot semantics on the pinned distribution, not merely against a local mock.
+Enroll each host with affirmative operator action and a read-only inventory. Refuse conflicts with existing software, ports, domains and volumes; never uninstall other software because a plan mentions a proxy (D4). Use a dedicated rootless Podman service user and systemd user units. Test Quadlet install/reboot semantics on the pinned distribution, not merely against a local mock.
 
-Caddy is host-run and owned through a narrowly scoped admin connection; protect its Unix admin socket, serialize configuration changes, detect drift, and preserve all unrelated site configuration. Choose and test one Caddy persistence/restart model. Do not put the admin socket into app containers.
+Caddy is the host's packaged service. Brine owns only its generation directories under `/etc/caddy/brine/`, validates the complete candidate config before each change, reloads through a polkit-scoped `systemctl reload caddy.service`, serializes changes, detects drift by hash, and preserves all unrelated site configuration (D4). Apps never reach the admin API.
 
-Rootless does **not** mean safe for an untrusted agent. A deployment identity that can SSH freely and control Podman can bypass Brine checks and can alter its own app data. Autonomous production mode requires an operator-owned policy and a restricted command dispatcher/helper whose permissions exclude root, host deletion, raw Podman/Caddy control and cloud teardown.
+Rootless does **not** mean safe for an untrusted agent. A deployment identity that can SSH freely and control Podman can bypass Brine checks and can alter its own app data. Autonomous production mode requires an operator-owned policy and the restricted dispatcher (`brine host serve` as a forced SSH command, D1), whose permissions exclude root, host deletion, raw Podman/Caddy control and cloud teardown.
 
 ## Database and recovery
 
