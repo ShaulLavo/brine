@@ -49,7 +49,11 @@ go test ./...
 
 No destructive commands should be implemented without authorization boundaries, durable operation records, and recovery tests.
 
-See [Architecture](docs/ARCHITECTURE.md).
+## Build plan
+
+Start with the [implementation roadmap](docs/PLAN.md), then the [phase-by-phase task list](docs/plans/README.md). These documents include [proposed command contracts](docs/CONTRACTS.md), a [failure/acceptance test matrix](docs/TEST_MATRIX.md), and [agent instructions](AGENTS.md). Plans describe **future behavior**, not features already implemented.
+
+See also [Architecture](docs/ARCHITECTURE.md).
 
 ## License
 
