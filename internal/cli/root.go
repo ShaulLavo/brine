@@ -47,12 +47,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps.RunTUI))
 	for _, cmd := range root.Commands() {
-		cmd.Args = func(cmd *cobra.Command, args []string) error {
-			if err := cobra.NoArgs(cmd, args); err != nil {
-				return result.New(result.InvalidUsage, err)
-			}
-			return nil
-		}
+		cmd.Args = cobra.NoArgs
 	}
 	root.SetHelpCommand(&cobra.Command{
 		Use:   "help [command]",
@@ -68,5 +63,20 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	})
 	root.InitDefaultHelpCmd()
 	root.InitDefaultCompletionCmd()
+	wrapArgumentValidators(root)
 	return root
+}
+
+func wrapArgumentValidators(cmd *cobra.Command) {
+	if validate := cmd.Args; validate != nil {
+		cmd.Args = func(cmd *cobra.Command, args []string) error {
+			if err := validate(cmd, args); err != nil {
+				return result.New(result.InvalidUsage, err)
+			}
+			return nil
+		}
+	}
+	for _, child := range cmd.Commands() {
+		wrapArgumentValidators(child)
+	}
 }

@@ -138,3 +138,32 @@ func testTUIProcess(t *testing.T, binary string, interrupt bool) {
 		t.Fatalf("welcome screen was not displayed: %q", output.String())
 	}
 }
+
+func TestBinaryClosedStdout(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "brine")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer write.Close()
+	if err := read.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var diagnostics bytes.Buffer
+	cmd := exec.CommandContext(ctx, binary, "version", "--json")
+	cmd.Stdout = write
+	cmd.Stderr = &diagnostics
+	err = cmd.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("exit = %v; want 1, stderr = %q", err, diagnostics.String())
+	}
+	if diagnostics.String() != "error: The operation failed.\n" {
+		t.Fatalf("stderr = %q", diagnostics.String())
+	}
+}

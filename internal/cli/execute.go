@@ -23,18 +23,19 @@ func Execute(deps Dependencies, args []string) error {
 	}
 	root := NewRootCommand(deps)
 	root.SetArgs(append([]string{}, args...))
-	command, _, findErr := root.Find(args)
+
 	name := "brine"
-	if findErr == nil && command != nil {
+	command, err := root.ExecuteC()
+	if command != nil {
 		name = command.CommandPath()
 	}
-	var err error
-	if deps.Context.Err() != nil {
-		err = deps.Context.Err()
-	} else if findErr != nil {
-		err = result.New(result.InvalidUsage, findErr)
-	} else {
-		_, err = root.ExecuteC()
+	if err != nil {
+		if _, _, findErr := root.Find(args); findErr != nil {
+			err = result.New(result.InvalidUsage, err)
+		} else if command != nil && command.Name() == cobra.ShellCompRequestCmd {
+			// Cobra adds this command during execution; its only validator is MinimumNArgs.
+			err = result.New(result.InvalidUsage, err)
+		}
 	}
 	if deps.Context.Err() != nil {
 		err = deps.Context.Err()
@@ -64,6 +65,10 @@ func Execute(deps Dependencies, args []string) error {
 // Inspect the mode before Cobra parsing, which can stop at an earlier bad flag.
 // Values after -- are positional, and an explicit false retains human output.
 func requestsJSON(args []string) bool {
+	// Hidden completion requests carry another command line, not invocation flags.
+	if len(args) > 0 && (args[0] == cobra.ShellCompRequestCmd || args[0] == cobra.ShellCompNoDescRequestCmd) {
+		return false
+	}
 	enabled := false
 	for _, arg := range args {
 		if arg == "--" {

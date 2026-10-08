@@ -13,6 +13,8 @@ import (
 )
 
 func main() {
+	// Let closed stdout pipes return EPIPE instead of terminating with SIGPIPE.
+	signal.Ignore(syscall.SIGPIPE)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

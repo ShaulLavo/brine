@@ -24,6 +24,8 @@ Plan is read-only with respect to runtime/proxy/data; it stores the plan in the 
 
 `--json` emits exactly one newline-terminated JSON object on stdout for each invocation, including command and flag errors. Stdout must be writable for this guarantee. Human help requested with `--json` is returned as a string in `data.help`. Without `--json`, commands retain human output. `--json=false` disables JSON, and flags after `--` are positional arguments.
 
+`__complete` and `__completeNoDesc` use Cobra's shell-completion protocol. Their arguments describe another command line, so `--json` inside that command line does not change the protocol response.
+
 `--no-input` is available. Terminal detection and prompt rules are tracked by P00-03. `--jsonl` is reserved for a later event stream and is not implemented. JSON and JSONL cannot be combined when JSONL becomes available. Machine output never includes ANSI codes, spinners, or prompts. Diagnostics go to stderr and never include raw subprocess output or argument values.
 
 The response envelope is version 1. All five fields are always present:

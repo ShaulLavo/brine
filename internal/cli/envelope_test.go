@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -180,6 +181,38 @@ func TestExplicitFalseAndFlagTerminator(t *testing.T) {
 			}
 		} else if err != nil || out.String() != "brine 0.1.0-dev\n" {
 			t.Fatalf("false mode: %q, %v", out.String(), err)
+		}
+	}
+}
+
+func TestCompletionArgumentUsage(t *testing.T) {
+	for _, shell := range []string{"bash", "zsh", "fish", "powershell"} {
+		for _, machine := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/json=%t", shell, machine), func(t *testing.T) {
+				var out, diagnostics bytes.Buffer
+				args := []string{"completion", shell, "synthetic-secret"}
+				if machine {
+					args = append(args, "--json")
+				}
+				err := Execute(testDependencies(t, &out, &diagnostics), args)
+				if result.ExitCode(err) != 2 {
+					t.Fatalf("exit = %d, error = %v", result.ExitCode(err), err)
+				}
+				if strings.Contains(out.String()+diagnostics.String(), "synthetic-secret") {
+					t.Fatal("unsafe argument output")
+				}
+				if machine {
+					var response result.Envelope
+					if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+						t.Fatal(err)
+					}
+					if response.Command != "brine completion "+shell || response.Error.Code != result.InvalidUsage {
+						t.Fatalf("response = %+v", response)
+					}
+				} else if out.Len() != 0 {
+					t.Fatalf("stdout = %q", out.String())
+				}
+			})
 		}
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"path/filepath"
@@ -65,5 +66,40 @@ func TestBinaryMachineResponses(t *testing.T) {
 				t.Fatal("unsafe diagnostics")
 			}
 		})
+	}
+}
+
+func TestBinaryCompletionProtocol(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "brine")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+
+	for _, command := range []string{"__complete", "__completeNoDesc"} {
+		for _, withJSON := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/json-target=%t", command, withJSON), func(t *testing.T) {
+				var out, diagnostics bytes.Buffer
+				args := []string{command, "version", "--j"}
+				wantFlag := "--json"
+				if withJSON {
+					args = []string{command, "version", "--json", "--no-input", "--h"}
+					wantFlag = "--help"
+				}
+				cmd := exec.CommandContext(ctx, binary, args...)
+				cmd.Stdout = &out
+				cmd.Stderr = &diagnostics
+				if err := cmd.Run(); err != nil {
+					t.Fatalf("completion: %v, stderr = %q", err, diagnostics.String())
+				}
+				if !strings.Contains(out.String(), wantFlag) || !strings.HasSuffix(out.String(), ":4\n") {
+					t.Fatalf("protocol stdout = %q", out.String())
+				}
+				if command == "__completeNoDesc" && strings.Contains(out.String(), "\t") {
+					t.Fatalf("description in %q", out.String())
+				}
+			})
+		}
 	}
 }
