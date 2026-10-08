@@ -22,7 +22,7 @@ func TestModeFlagMatrix(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/%03b", command, bits), func(t *testing.T) {
 				var out, diagnostics bytes.Buffer
 				deps := testDependencies(t, &out, &diagnostics)
-				deps.LookPath = func(string) (string, error) { return "", errors.New("missing") }
+				configureDoctorFixture(t, &deps)
 				args := []string{command}
 				for i, flag := range []string{"--json", "--jsonl", "--no-input"} {
 					if bits&(1<<i) != 0 {
@@ -337,6 +337,84 @@ func TestMachineOutputOnTerminals(t *testing.T) {
 				}
 				if !json.Valid(out.Bytes()) || strings.Contains(out.String()+diagnostics.String(), "\x1b") || strings.Count(out.String(), "\n") != 1 {
 					t.Fatalf("stdout = %q, stderr = %q", out.String(), diagnostics.String())
+				}
+			})
+		}
+	}
+}
+
+func TestMalformedModeValueSurvivesFalse(t *testing.T) {
+	for _, flag := range []string{"--json", "--jsonl"} {
+		for _, values := range [][]string{{flag + "=broken", flag + "=false"}, {flag + "=false", flag + "=broken", flag + "=false"}} {
+			t.Run(strings.Join(values, " "), func(t *testing.T) {
+				var out, diagnostics bytes.Buffer
+				err := Execute(testDependencies(t, &out, &diagnostics), append([]string{"version"}, values...))
+				if result.ExitCode(err) != 2 {
+					t.Fatalf("exit = %d, want 2", result.ExitCode(err))
+				}
+				var response result.Envelope
+				if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+					t.Fatalf("stdout = %q: %v", out.String(), err)
+				}
+				if response.OK || response.Error == nil || response.Error.Code != result.InvalidUsage || strings.Count(out.String(), "\n") != 1 {
+					t.Fatalf("stdout = %q", out.String())
+				}
+				if diagnostics.String() != "error: "+result.New(result.InvalidUsage, nil).Error()+"\n" {
+					t.Fatalf("stderr = %q", diagnostics.String())
+				}
+			})
+		}
+	}
+}
+
+func TestPlainWriterPreservesMalformedUTF8(t *testing.T) {
+	for _, tt := range []struct{ input, want string }{
+		{"before\xe2BCafter", "before\xe2BCafter"},
+		{"before\xe2\x1b[31mBC\x1b[0mafter", "before\xe2BCafter"},
+		{"before\xf0\x9fBafter", "before\xf0\x9fBafter"},
+		{"before\xff\xc0Bafter", "before\xff\xc0Bafter"},
+		{"before\xe2", "before\xe2"},
+		{"before\xe2\x98\x83after", "before☃after"},
+		{"before\xe2\x98\x83\x9b31mafter\x9b0m", "before☃after"},
+		{"before\xe2\x1b]0;title\x07after", "before\xe2after"},
+		{"before\xf0\x9f\x1bPdata\x1b\\after", "before\xf0\x9fafter"},
+		{"before\x9d0;title\x9cafter", "beforeafter"},
+		{"before\x90data\x9cafter", "beforeafter"},
+		{"\x1b[\xe2BCafter", "\xe2BCafter"},
+		{"a\v\f\b\ab\n\r\t", "ab\n\r\t"},
+	} {
+		for chunk := 1; chunk <= len(tt.input); chunk++ {
+			t.Run(fmt.Sprintf("%x/chunk=%d", tt.input, chunk), func(t *testing.T) {
+				var out bytes.Buffer
+				w := newPlainWriter(&out)
+				for offset := 0; offset < len(tt.input); offset += chunk {
+					end := min(offset+chunk, len(tt.input))
+					if _, err := io.WriteString(w, tt.input[offset:end]); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if out.String() != tt.want {
+					t.Fatalf("stdout = %q, want %q", out.String(), tt.want)
+				}
+			})
+		}
+	}
+}
+
+func TestHumanThemeOutputPolicy(t *testing.T) {
+	for _, tty := range []bool{false, true} {
+		for _, noColor := range []string{"", "1"} {
+			t.Run(fmt.Sprintf("tty=%t/NO_COLOR=%s", tty, noColor), func(t *testing.T) {
+				t.Setenv("NO_COLOR", noColor)
+				t.Setenv("CLICOLOR_FORCE", "1")
+				var out, diagnostics bytes.Buffer
+				deps := testDependencies(t, &out, &diagnostics)
+				if tty {
+					withTestTerminal(t, &deps)
+				}
+				text := humanTheme(deps.Stdout).Title.Render("title")
+				if got, want := strings.Contains(text, "\x1b"), tty && noColor == ""; got != want {
+					t.Fatalf("rendered = %q, styled = %t", text, want)
 				}
 			})
 		}

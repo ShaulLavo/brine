@@ -9,16 +9,19 @@ import (
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/ui"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/charmbracelet/x/ansi/parser"
 	"github.com/charmbracelet/x/term"
 	"github.com/spf13/cobra"
 )
 
 type machineModes struct {
 	json, jsonl bool
+	malformed   bool
 }
 
-func (m machineModes) enabled() bool { return m.json || m.jsonl }
+func (m machineModes) enabled() bool { return m.json || m.jsonl || m.malformed }
 
 // Inspect flags before Cobra can stop at an earlier parser error. Completion
 // requests carry another command line, not flags for the current invocation.
@@ -41,7 +44,8 @@ func requestedModes(args []string) machineModes {
 				*enabled = true
 			} else if value, found := strings.CutPrefix(arg, "--"+name+"="); found {
 				parsed, err := strconv.ParseBool(value)
-				*enabled = parsed || err != nil
+				*enabled = parsed
+				modes.malformed = modes.malformed || err != nil
 			}
 		}
 	}
@@ -88,6 +92,10 @@ func RequestInput(cmd *cobra.Command, prompt func(context.Context, io.Reader, io
 	return prompt(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr())
 }
 
+func humanTheme(stdout io.Writer) ui.Theme {
+	return ui.NewTheme(!isTerminal(stdout) || os.Getenv("NO_COLOR") != "")
+}
+
 func humanOutput(stdout io.Writer) io.Writer {
 	if isTerminal(stdout) && os.Getenv("NO_COLOR") == "" {
 		return stdout
@@ -96,9 +104,10 @@ func humanOutput(stdout io.Writer) io.Writer {
 }
 
 type plainWriter struct {
-	output io.Writer
-	parser *ansi.Parser
-	text   bytes.Buffer
+	output        io.Writer
+	parser        *ansi.Parser
+	text          bytes.Buffer
+	continuations int
 }
 
 func newPlainWriter(output io.Writer) *plainWriter {
@@ -117,7 +126,35 @@ func newPlainWriter(output io.Writer) *plainWriter {
 
 func (w *plainWriter) Write(p []byte) (int, error) {
 	w.text.Reset()
-	w.parser.Parse(p)
+	for _, b := range p {
+		if w.continuations > 0 {
+			if b&0xc0 == 0x80 {
+				w.text.WriteByte(b)
+				w.continuations--
+				continue
+			}
+			w.continuations = 0
+		}
+		// Keep text bytes outside the terminal parser's unchecked rune collector.
+		// A malformed rune must not consume subsequent ASCII or escape bytes.
+		next, _ := parser.Table.Transition(w.parser.State(), b)
+		if b >= 0xa0 && (w.parser.State() == parser.GroundState || next == parser.Utf8State) {
+			if w.parser.State() != parser.GroundState {
+				w.parser.Reset()
+			}
+			w.text.WriteByte(b)
+			switch {
+			case b >= 0xc2 && b <= 0xdf:
+				w.continuations = 1
+			case b >= 0xe0 && b <= 0xef:
+				w.continuations = 2
+			case b >= 0xf0 && b <= 0xf4:
+				w.continuations = 3
+			}
+		} else {
+			w.parser.Advance(b)
+		}
+	}
 	if _, err := io.Copy(w.output, &w.text); err != nil {
 		return 0, err
 	}

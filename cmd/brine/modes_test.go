@@ -24,6 +24,10 @@ func TestBinaryModeMatrix(t *testing.T) {
 	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
 		t.Fatalf("build: %v\n%s", err, out)
 	}
+	tools := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tools, "ssh"), []byte("#!/bin/sh\nprintf 'OpenSSH_9.9p2\\n'\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	for _, command := range []string{"version", "doctor", "tui"} {
 		for bits := 0; bits < 8; bits++ {
 			t.Run(fmt.Sprintf("%s/%03b", command, bits), func(t *testing.T) {
@@ -36,7 +40,7 @@ func TestBinaryModeMatrix(t *testing.T) {
 				var out, diagnostics bytes.Buffer
 				process := exec.CommandContext(ctx, binary, args...)
 				process.Stdout, process.Stderr = &out, &diagnostics
-				process.Env = append(os.Environ(), "PATH=", "TERM=xterm-256color", "CLICOLOR_FORCE=1", "NO_COLOR=")
+				process.Env = append(os.Environ(), "PATH="+tools, "TERM=xterm-256color", "CLICOLOR_FORCE=1", "NO_COLOR=")
 				err := process.Run()
 				exit := 0
 				if err != nil {
@@ -60,7 +64,7 @@ func TestBinaryModeMatrix(t *testing.T) {
 					if command == "version" && out.String() != "brine "+cli.Version+"\n" {
 						t.Fatalf("stdout = %q", out.String())
 					}
-					if command == "doctor" && !strings.Contains(out.String(), "Checking PATH only") {
+					if command == "doctor" && !strings.Contains(out.String(), "Checks this machine only") {
 						t.Fatalf("stdout = %q", out.String())
 					}
 					if command == "tui" && out.Len() != 0 {
@@ -89,12 +93,12 @@ func TestBinaryModeMatrix(t *testing.T) {
 					if command == "doctor" && exit == 0 {
 						data := envelope.Data.(map[string]any)
 						checks, ok := data["checks"].([]any)
-						if !ok || len(checks) != 5 || data["platform"] == nil {
+						if !ok || len(checks) != 2 || data["platform"] == nil || data["scope"] != "local_client" || data["remote_host_readiness"] != false {
 							t.Fatalf("doctor data = %+v", data)
 						}
 						for _, check := range checks {
 							fields := check.(map[string]any)
-							if fields["name"] == nil || fields["available"] != false {
+							if fields["name"] == nil || fields["available"] != (fields["name"] == "ssh") || fields["reason"] == nil || fields["version"] == nil {
 								t.Fatalf("doctor check = %+v", fields)
 							}
 						}
@@ -116,5 +120,36 @@ func TestBinaryModeMatrix(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestBinaryMalformedModeValueSurvivesFalse(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "brine")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	for _, flag := range []string{"--json", "--jsonl"} {
+		t.Run(flag, func(t *testing.T) {
+			var out, diagnostics bytes.Buffer
+			process := exec.CommandContext(ctx, binary, "version", flag+"=broken", flag+"=false")
+			process.Stdout, process.Stderr = &out, &diagnostics
+			err := process.Run()
+			var status *exec.ExitError
+			if !errors.As(err, &status) || status.ExitCode() != 2 {
+				t.Fatalf("exit = %v, want 2", err)
+			}
+			var response result.Envelope
+			if err := json.Unmarshal(out.Bytes(), &response); err != nil {
+				t.Fatalf("stdout = %q: %v", out.String(), err)
+			}
+			if response.SchemaVersion != 1 || response.Command != "brine version" || response.OK || response.Data != nil || response.Error == nil || response.Error.Code != result.InvalidUsage || strings.Count(out.String(), "\n") != 1 {
+				t.Fatalf("stdout = %q", out.String())
+			}
+			if diagnostics.String() != "error: "+result.New(result.InvalidUsage, nil).Error()+"\n" {
+				t.Fatalf("stderr = %q", diagnostics.String())
+			}
+		})
 	}
 }

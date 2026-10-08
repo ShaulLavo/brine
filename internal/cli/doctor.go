@@ -12,7 +12,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/result"
-	"github.com/ShaulLavo/brine/internal/ui"
 	"github.com/spf13/cobra"
 )
 
@@ -101,7 +100,7 @@ func newDoctorCmd(jsonOutput *bool, lookPath func(string) (string, error), runne
 					"checks":                checks,
 				}))
 			}
-			theme := ui.ThemeFromEnv()
+			theme := humanTheme(cmd.OutOrStdout())
 			if _, err := lipgloss.Fprintln(cmd.OutOrStdout(), theme.Title.Render("Local client dependency check")); err != nil {
 				return err
 			}
