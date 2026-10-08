@@ -48,7 +48,7 @@ func TestVersionOutput(t *testing.T) {
 		want string
 	}{
 		{"human", []string{"version"}, "brine 0.1.0-dev\n"},
-		{"json", []string{"version", "--json", "--no-input"}, "{\"schema_version\":1,\"version\":\"0.1.0-dev\"}\n"},
+		{"json", []string{"version", "--json", "--no-input"}, "{\"schema_version\":1,\"command\":\"brine version\",\"ok\":true,\"data\":{\"version\":\"0.1.0-dev\"},\"error\":null}\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -81,7 +81,7 @@ func TestDoctorOutput(t *testing.T) {
 		want string
 	}{
 		{"human", []string{"doctor"}, "Deployment tool check\nChecking PATH only; this is not a server readiness audit.\n  podman       found\n  systemctl    missing\n  caddy        missing\n  litestream   missing\n  tailscale    missing\n"},
-		{"json", []string{"--json", "--no-input", "doctor"}, fmt.Sprintf("{\"checks\":[{\"name\":\"podman\",\"available\":true,\"path\":\"/fixture/bin/podman\"},{\"name\":\"systemctl\",\"available\":false},{\"name\":\"caddy\",\"available\":false},{\"name\":\"litestream\",\"available\":false},{\"name\":\"tailscale\",\"available\":false}],\"platform\":%q,\"schema_version\":1}\n", runtime.GOOS)},
+		{"json", []string{"--json", "--no-input", "doctor"}, fmt.Sprintf("{\"schema_version\":1,\"command\":\"brine doctor\",\"ok\":true,\"data\":{\"checks\":[{\"name\":\"podman\",\"available\":true,\"path\":\"/fixture/bin/podman\"},{\"name\":\"systemctl\",\"available\":false},{\"name\":\"caddy\",\"available\":false},{\"name\":\"litestream\",\"available\":false},{\"name\":\"tailscale\",\"available\":false}],\"platform\":%q,\"schema_version\":1},\"error\":null}\n", runtime.GOOS)},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
@@ -191,7 +191,7 @@ func TestCommandTreesAreIndependent(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	assertStreams(t, &firstOut, &stderr, "{\"schema_version\":1,\"version\":\"0.1.0-dev\"}\n")
+	assertStreams(t, &firstOut, &stderr, "{\"schema_version\":1,\"command\":\"brine version\",\"ok\":true,\"data\":{\"version\":\"0.1.0-dev\"},\"error\":null}\n")
 	assertStreams(t, &secondOut, &stderr, "brine 0.1.0-dev\n")
 }
 
@@ -202,7 +202,7 @@ func TestParserErrorsLeaveStreamsEmpty(t *testing.T) {
 		want string
 	}{
 		{"unknown command", []string{"not-a-command"}, `unknown command "not-a-command" for "brine"`},
-		{"unknown flag", []string{"version", "--not-a-flag"}, "unknown flag: --not-a-flag"},
+		{"unknown flag", []string{"version", "--not-a-flag"}, "Invalid command or arguments. Use --help for usage."},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer

@@ -20,9 +20,67 @@ brine tui --target staging
 
 Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Rollback creates a **plan**, not an implicit mutation. Avoid an automatic `destroy` command.
 
-Machine modes: `--no-input`, `--json` for one response object, and later `--jsonl` for an event stream. JSON and JSONL cannot be combined. Output must never include ANSI codes, spinners, prompts or raw subprocess blobs. Diagnostics go to stderr. Stable error envelope: `schema_version`, `command`, `ok`, `data`, `error` (with machine code, safe message, retryable). A response that accepts a background operation says **accepted**, not **deployed**. Ctrl-C disconnects the observer, not the server-side operation.
+## Machine modes
 
-Exit categories: 0 success or accepted; 1 internal/operational failure; 2 validation/usage; 3 incompatible/missing dependency; 4 refused by policy; 5 stale plan/lock conflict; 6 manual recovery required; 130 interrupted client. These are to be formally tested in phase 00.
+`--json` emits exactly one newline-terminated JSON object on stdout for each invocation, including command and flag errors. Stdout must be writable for this guarantee. Human help requested with `--json` is returned as a string in `data.help`. Without `--json`, commands retain human output. `--json=false` disables JSON, and flags after `--` are positional arguments.
+
+`__complete` and `__completeNoDesc` use Cobra's shell-completion protocol. Their arguments describe another command line, so `--json` inside that command line does not change the protocol response.
+
+`--no-input` is available. Terminal detection and prompt rules are tracked by P00-03. `--jsonl` is reserved for a later event stream and is not implemented. JSON and JSONL cannot be combined when JSONL becomes available. Machine output never includes ANSI codes, spinners, or prompts. Diagnostics go to stderr and never include raw subprocess output or argument values.
+
+The response envelope is version 1. All five fields are always present:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schema_version` | integer | Always `1` for this contract. |
+| `command` | string | Canonical command path, such as `brine version`. Unknown commands use `brine`, never the unrecognized argument. |
+| `ok` | boolean | `true` for success or an accepted operation, `false` for failure. |
+| `data` | command-specific JSON value or null | Success payload. Always `null` on failure. |
+| `error` | object or null | Always `null` on success. On failure, contains exactly `code`, `message`, and `retryable`. |
+
+Error `code` is a stable string from the table below. `message` is a fixed safe string selected by that code, not a formatted underlying error. `retryable` is a boolean. A retryable conflict requires fresh state and a new plan or a released lock. It does not authorize blindly retrying an irreversible operation with an unknown outcome.
+
+Example version response:
+
+~~~json
+{"schema_version":1,"command":"brine version","ok":true,"data":{"version":"0.1.1-dev"},"error":null}
+~~~
+
+Example usage failure:
+
+~~~json
+{"schema_version":1,"command":"brine","ok":false,"data":null,"error":{"code":"invalid_usage","message":"Invalid command or arguments. Use --help for usage.","retryable":false}}
+~~~
+
+`doctor` retains its existing payload fields inside `data`: `schema_version`, `platform`, and `checks`. Each check still contains `name`, `available`, and an optional `path`. Missing PATH tools remain a successful local report, not a dependency failure or a claim of host readiness. P00-04 owns changes to those fields.
+
+A response that accepts a background operation says **accepted**, not **deployed**. Ctrl-C disconnects the observer, not the server-side operation.
+
+## Error codes and exit categories
+
+| Code | Exit | Retryable | Safe message |
+| --- | --- | --- | --- |
+| `internal_error` | 1 | false | The operation failed. |
+| `invalid_usage` | 2 | false | Invalid command or arguments. Use --help for usage. |
+| `dependency_missing` | 3 | false | A required dependency is missing or incompatible. |
+| `policy_refused` | 4 | false | The operation was refused by policy. |
+| `conflict` | 5 | true | The plan is stale or another operation holds the lock. |
+| `recovery_required` | 6 | false | Manual recovery is required before continuing. |
+| `interrupted` | 130 | false | The client was interrupted. |
+| `tui_interactive` | 2 | false | tui is interactive; remove --json and --no-input |
+
+| Exit | Category |
+| --- | --- |
+| 0 | Success or accepted operation. |
+| 1 | Internal or operational failure, including unclassified errors and stdout write failures. |
+| 2 | Validation or usage error, including unknown commands, unknown flags, unexpected arguments, and TUI machine-flag refusal. |
+| 3 | Incompatible or missing required dependency. |
+| 4 | Refused by policy. |
+| 5 | Stale plan or lock conflict. |
+| 6 | Manual recovery required. |
+| 130 | Interrupted client, including context cancellation and SIGINT. |
+
+The domain error model lives in `internal/result` and has no Cobra or Charm dependency. Error causes remain available for internal inspection but are never rendered. Wrapped context cancellation takes priority over other categories. `internal/cli.Execute` owns the complete invocation response, including Cobra failures. `NewRootCommand` constructs a command tree for embedded use but does not own final error presentation. `main` maps the returned error to the exit status.
 
 ## App definition
 
