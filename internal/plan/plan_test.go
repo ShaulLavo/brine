@@ -321,7 +321,11 @@ func TestHashPreconditions(t *testing.T) {
 func goldenInputs(t testing.TB) map[string]Input {
 	conflict := installed(t)
 	routes(&conflict, "other", "hello.example.com")
-	return map[string]Input{"create": fixture(t, "ready-arm64"), "no-op": installed(t), "conflict": conflict}
+	update := installed(t)
+	update.State.Releases[0].Desired.Environment = []policy.Environment{{Name: "REMOVED", Value: "SYNTHETIC_OLD_PRIVATE"}, {Name: "CHANGED", Value: "SYNTHETIC_OLD_PRIVATE"}}
+	update.Desired.Environment = []policy.Environment{{Name: "ADDED", Value: "SYNTHETIC_NEW_PRIVATE"}, {Name: "CHANGED", Value: "SYNTHETIC_NEW_PRIVATE"}}
+	update.Desired.Domains = []spec.Domain{"new.example.com"}
+	return map[string]Input{"create": fixture(t, "ready-arm64"), "update": update, "no-op": installed(t), "conflict": conflict}
 }
 func TestGolden(t *testing.T) {
 	for name, in := range goldenInputs(t) {

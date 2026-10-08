@@ -1,0 +1,21 @@
+update  hello
+~ image: sha256:bbbbbbbbbbbb... (linux/arm64) -> sha256:aaaaaaaaaaaa...
+(linux/arm64)
+- domain: old.example.com
++ domain: hello.example.com
+~ host port: 21000 -> 20000
+~ container port: 4000 -> 3000
+~ resources: 256 MiB, 64 PIDs -> 512 MiB, 128 PIDs
+~ health: / status 200, startup 15s, timeout 2s -> /ready status 200, startup
+30s, timeout 3s
+- env REMOVED: removed
++ env ADDED: added (value hidden)
+~ env APP_ENV: changed (value hidden)
+~ secret TOKEN: hello-token [brine-hello-hello-token-v1] -> hello-token [brine-
+hello-hello-token-v2]
++ allocate host port 20000
+~ pull and verify image sha256:aaaaaaaaaaaa...
+~ bind secret TOKEN -> hello-token
+~ render app service
+~ routing generation: 2 -> 3
+~ restart app
