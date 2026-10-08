@@ -4,10 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
-	"reflect"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -74,39 +71,6 @@ func TestVersionSource(t *testing.T) {
 	assertStreams(t, &stdout, &stderr, "brine test-version\n")
 }
 
-func TestDoctorOutput(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		args []string
-		want string
-	}{
-		{"human", []string{"doctor"}, "Deployment tool check\nChecking PATH only; this is not a server readiness audit.\n  podman       found\n  systemctl    missing\n  caddy        missing\n  litestream   missing\n  tailscale    missing\n"},
-		{"json", []string{"--json", "--no-input", "doctor"}, fmt.Sprintf("{\"schema_version\":1,\"command\":\"brine doctor\",\"ok\":true,\"data\":{\"checks\":[{\"name\":\"podman\",\"available\":true,\"path\":\"/fixture/bin/podman\"},{\"name\":\"systemctl\",\"available\":false},{\"name\":\"caddy\",\"available\":false},{\"name\":\"litestream\",\"available\":false},{\"name\":\"tailscale\",\"available\":false}],\"platform\":%q,\"schema_version\":1},\"error\":null}\n", runtime.GOOS)},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			var stdout, stderr bytes.Buffer
-			deps := testDependencies(t, &stdout, &stderr)
-			var names []string
-			deps.LookPath = func(name string) (string, error) {
-				names = append(names, name)
-				if name == "podman" {
-					return "/fixture/bin/podman", nil
-				}
-				return "", errors.New("not found")
-			}
-			root := NewRootCommand(deps)
-			root.SetArgs(tt.args)
-			if err := root.Execute(); err != nil {
-				t.Fatal(err)
-			}
-			assertStreams(t, &stdout, &stderr, tt.want)
-			if want := []string{"podman", "systemctl", "caddy", "litestream", "tailscale"}; !reflect.DeepEqual(names, want) {
-				t.Fatalf("lookups = %q; want %q", names, want)
-			}
-		})
-	}
-}
-
 func TestTUIFlagRefusal(t *testing.T) {
 	for _, args := range [][]string{
 		{"tui", "--json"},
@@ -167,7 +131,7 @@ func TestJSONWriterError(t *testing.T) {
 			var stderr bytes.Buffer
 			wantErr := errors.New("write failure")
 			deps := testDependencies(t, failingWriter{wantErr}, &stderr)
-			deps.LookPath = func(string) (string, error) { return "", errors.New("missing") }
+			configureDoctorFixture(t, &deps)
 			root := NewRootCommand(deps)
 			root.SetArgs([]string{command, "--json"})
 			if err := root.Execute(); err != wantErr {

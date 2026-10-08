@@ -11,8 +11,10 @@
 - [ ] **P02-05** Build the Caddy adapter per [D4](../DECISIONS.md): render a new generation directory of Brine-owned app files, validate the exact candidate root config, atomically repoint `current`, reload through the reload-only polkit rule, repoint back on failure, reconcile timeouts by observing Caddy, and detect drift by hash. Test invalid and duplicate-site replacements, persistence through restart, and that an app container cannot reach the admin API.
 - [ ] **P02-06** Fixture integration: create a disposable public-free test service, route it via Caddy/test hostnames, run health checks, reboot, and prove it is still available without Brine running. Cleanup must target **only fixture-owned resources**.
 
+- [ ] **P02-07** Fold in the [Pi spike](../spikes/pi-runtime.md) findings: enrollment applies D7, starting from Debian's normal skeleton, and tests that the runner can't replace the key file or any parent directory, can't plant a shell startup file, and can't run anything but the dispatcher through the real restricted key; runner commands get an accessible working directory and the user-bus environment for non-login sessions; Quadlet rendering binds and verifies both the multi-platform index digest and the selected platform manifest (`podman inspect` reports the index digest); the Caddy adapter probes container loopback and both generated host aliases, and covers a failed reload and unknown-outcome reconciliation; package post-install service activation is listed and handled.
+
 ### Exit gate
 
-A documented, manually authorized fixture starts rootlessly, is routed through Caddy, survives reboot, and is not dependent on an active Brine process. Conflicts with any unrelated service abort without changes. Privilege gaps are explicitly recorded.
+A documented, manually authorized fixture starts rootlessly, is routed through Caddy, survives a **full host reboot** (a user-manager restart doesn't count, per the spike), and is not dependent on an active Brine process. Conflicts with any unrelated service abort without changes. Privilege gaps are explicitly recorded.
 
 **Evidence:** T05, T06, T11, T17. Pin exact Podman/systemd/Caddy versions and capture redacted test output. Before real deployment, confirm the owner has explicitly authorized the *specific disposable host*.
