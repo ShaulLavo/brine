@@ -89,10 +89,10 @@ func New(in plan.Input, metadata Metadata) (Offline, error) {
 	e := envelope{SchemaVersion: SchemaVersion, Plan: p, Hash: p.Hash, Applyable: &no, Reason: "offline", SnapshotIdentity: p.Target, SnapshotGeneration: p.ObservedGeneration, Inputs: inputs{in.Desired, in.Snapshot, in.State}, Metadata: metadata}
 	e.Metadata.CreatedAt = e.Metadata.CreatedAt.UTC()
 	b, err := json.Marshal(e)
-	if err != nil || len(b)+1 > MaxFileBytes {
+	if err != nil {
 		return Offline{}, &DecodeError{}
 	}
-	return Offline{data: append(b, '\n'), hash: p.Hash}, nil
+	return encodedOffline(b, p.Hash)
 }
 
 func (p Offline) Applyable() bool    { return false }
@@ -103,14 +103,14 @@ func (p Offline) Plan() plan.Plan    { return p.document().Plan }
 func (p Offline) Metadata() Metadata { return p.document().Metadata }
 func (p Offline) document() envelope { var e envelope; _ = json.Unmarshal(p.data, &e); return e }
 func (p Offline) MarshalJSON() ([]byte, error) {
-	if len(p.data) == 0 {
+	if validSize(p.data) != nil {
 		return nil, &DecodeError{}
 	}
 	return bytes.Clone(p.data), nil
 }
 
 func Decode(b []byte) (Offline, error) {
-	if len(b) > MaxFileBytes || uniqueFields(b) != nil {
+	if validSize(b) != nil || exactFields(b) != nil {
 		return Offline{}, &DecodeError{}
 	}
 	var e envelope
@@ -148,7 +148,7 @@ func Decode(b []byte) (Offline, error) {
 	if err != nil {
 		return Offline{}, &DecodeError{}
 	}
-	return Offline{data: append(data, '\n'), hash: computed.Hash}, nil
+	return encodedOffline(data, computed.Hash)
 }
 
 // Read additionally checks the content-addressed filename. File size is bounded
@@ -191,7 +191,7 @@ func Write(dir string, p Offline) (string, error) {
 	return writeWith(dir, p, writeOps{createTemp: func(dir, pattern string) (temporaryFile, error) { return os.CreateTemp(dir, pattern) }, publish: publish})
 }
 func writeWith(dir string, p Offline, ops writeOps) (string, error) {
-	if len(p.data) == 0 {
+	if validSize(p.data) != nil {
 		return "", &DecodeError{}
 	}
 	path := filepath.Join(dir, p.Filename())
@@ -244,12 +244,30 @@ func writeWith(dir string, p Offline, ops writeOps) (string, error) {
 	return path, nil
 }
 
-// encoding/json accepts duplicate keys. Detect them at every nesting level
-// before decoding so an apparent offline marker cannot be shadowed later.
-func uniqueFields(b []byte) error {
+func validSize(data []byte) error {
+	if len(data) == 0 || len(data) > MaxFileBytes {
+		return &DecodeError{}
+	}
+	return nil
+}
+
+func encodedOffline(data []byte, hash string) (Offline, error) {
+	data = append(data, '\n')
+	if err := validSize(data); err != nil {
+		return Offline{}, err
+	}
+	return Offline{data: data, hash: hash}, nil
+}
+
+// encoding/json accepts duplicate keys and case aliases. Match exact JSON tags
+// from the authoritative types before its permissive struct decoder runs.
+func exactFields(b []byte) error {
 	decoder := json.NewDecoder(bytes.NewReader(b))
-	var value func() error
-	value = func() error {
+	var value func(reflect.Type) error
+	value = func(typ reflect.Type) error {
+		for typ.Kind() == reflect.Pointer {
+			typ = typ.Elem()
+		}
 		token, err := decoder.Token()
 		if err != nil {
 			return err
@@ -260,6 +278,24 @@ func uniqueFields(b []byte) error {
 		}
 		switch delimiter {
 		case '{':
+			if typ.Kind() != reflect.Struct {
+				return &DecodeError{}
+			}
+			fields := map[string]reflect.Type{}
+			for i := 0; i < typ.NumField(); i++ {
+				field := typ.Field(i)
+				if !field.IsExported() {
+					continue
+				}
+				name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+				if name == "-" {
+					continue
+				}
+				if name == "" {
+					name = field.Name
+				}
+				fields[name] = field.Type
+			}
 			seen := map[string]bool{}
 			for decoder.More() {
 				key, err := decoder.Token()
@@ -267,17 +303,21 @@ func uniqueFields(b []byte) error {
 					return err
 				}
 				name, ok := key.(string)
-				if !ok || seen[name] {
+				field, exists := fields[name]
+				if !ok || !exists || seen[name] {
 					return &DecodeError{}
 				}
 				seen[name] = true
-				if err := value(); err != nil {
+				if err := value(field); err != nil {
 					return err
 				}
 			}
 		case '[':
+			if typ.Kind() != reflect.Slice && typ.Kind() != reflect.Array {
+				return &DecodeError{}
+			}
 			for decoder.More() {
-				if err := value(); err != nil {
+				if err := value(typ.Elem()); err != nil {
 					return err
 				}
 			}
@@ -287,7 +327,7 @@ func uniqueFields(b []byte) error {
 		_, err = decoder.Token()
 		return err
 	}
-	if err := value(); err != nil {
+	if err := value(reflect.TypeFor[envelope]()); err != nil {
 		return err
 	}
 	if _, err := decoder.Token(); err != io.EOF {

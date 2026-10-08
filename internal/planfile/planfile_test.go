@@ -391,3 +391,107 @@ func TestInvalidBoundaries(t *testing.T) {
 		t.Fatal("overwrote symlink destination")
 	}
 }
+
+func TestCanonicalSizeBound(t *testing.T) {
+	raw, err := json.Marshal(offline(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = bytes.Replace(raw, []byte(`"tool_version":"0.1.0"`), []byte(`"tool_version":"`+strings.Repeat("<", MaxFileBytes/5)+`"`), 1)
+	if len(raw) > MaxFileBytes {
+		t.Fatal("regression input exceeds bound")
+	}
+	p, err := Decode(raw)
+	if err == nil {
+		path, writeErr := Write(t.TempDir(), p)
+		if writeErr != nil {
+			t.Fatal(writeErr)
+		}
+		if _, readErr := Read(path); readErr != nil {
+			t.Fatalf("Decode published a file Read rejects: %v", readErr)
+		}
+		t.Fatal("accepted canonical output exceeding bound")
+	}
+	var invalid *DecodeError
+	if !errors.As(err, &invalid) {
+		t.Fatalf("want decode error, got %v", err)
+	}
+	t.Run("writer bound", func(t *testing.T) {
+		dir := t.TempDir()
+		p := offline(t)
+		p.data = bytes.Repeat([]byte("x"), MaxFileBytes+1)
+		if _, err := Write(dir, p); err == nil {
+			t.Fatal("writer accepted oversized bytes")
+		}
+		entries, _ := os.ReadDir(dir)
+		if len(entries) != 0 {
+			t.Fatal("writer left oversized file")
+		}
+	})
+}
+func TestExactCaseFields(t *testing.T) {
+	raw, err := json.Marshal(offline(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := map[string][]byte{
+		"forged shadow":   bytes.Replace(raw, []byte(`"applyable":false`), []byte(`"applyable":true,"APPLYABLE":false`), 1),
+		"marker alias":    bytes.Replace(raw, []byte(`"applyable":false`), []byte(`"Applyable":false`), 1),
+		"nested plan":     bytes.Replace(raw, []byte(`"app":"hello"`), []byte(`"APP":"hello"`), 1),
+		"nested metadata": bytes.Replace(raw, []byte(`"tool_version"`), []byte(`"TOOL_VERSION"`), 1),
+		"nested input":    bytes.Replace(raw, []byte(`"desired":`), []byte(`"DESIRED":`), 1),
+		"nested array":    bytes.Replace(raw, []byte(`"allocation":`), []byte(`"ALLOCATION":`), 1),
+	}
+	for name, b := range tests {
+		t.Run(name, func(t *testing.T) {
+			if bytes.Equal(raw, b) {
+				t.Fatal("test did not mutate fixture")
+			}
+			_, err := Decode(b)
+			var invalid *DecodeError
+			if !errors.As(err, &invalid) {
+				t.Fatalf("want decode error, got %v", err)
+			}
+		})
+	}
+}
+
+func TestCanonicalSizeBoundaryRoundTrip(t *testing.T) {
+	raw, err := json.Marshal(offline(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(`"tool_version":"0.1.0"`)
+	prefix := []byte(`"tool_version":"`)
+	for _, extra := range []int{0, 1} {
+		t.Run(string(rune('0'+extra)), func(t *testing.T) {
+			replacement := append(bytes.Clone(prefix), bytes.Repeat([]byte("x"), MaxFileBytes-len(raw)+len("0.1.0")-1+extra)...)
+			replacement = append(replacement, '"')
+			b := bytes.Replace(raw, original, replacement, 1)
+			p, err := Decode(b)
+			if extra == 1 {
+				if err == nil {
+					t.Fatal("accepted output beyond limit")
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(p.data) != MaxFileBytes {
+				t.Fatalf("got %d bytes", len(p.data))
+			}
+			path, err := Write(t.TempDir(), p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := Read(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got.data, p.data) {
+				t.Fatal("size boundary round trip changed content")
+			}
+		})
+	}
+}
