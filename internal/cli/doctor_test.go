@@ -1,10 +1,18 @@
 package cli
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
 func TestCheckToolMissing(t *testing.T) {
-	got := checkTool("brine_definitely_not_an_executable_123")
-	if got.Available || got.Path != "" {
+	got := checkTool("missing-tool", func(name string) (string, error) {
+		if name != "missing-tool" {
+			t.Fatalf("lookup name = %q", name)
+		}
+		return "", errors.New("not found")
+	})
+	if got.Name != "missing-tool" || got.Available || got.Path != "" {
 		t.Fatalf("unexpected tool lookup result: %+v", got)
 	}
 }
