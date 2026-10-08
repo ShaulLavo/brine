@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -22,7 +23,9 @@ func main() {
 		Stderr:   os.Stderr,
 		Version:  cli.Version,
 		LookPath: exec.LookPath,
-		RunTUI:   cli.RunTUI,
+		RunTUI: func(ctx context.Context, _ io.Reader, stdout io.Writer) error {
+			return cli.RunTUI(ctx, nil, stdout)
+		},
 	})
 	if err := root.Execute(); err != nil {
 		fmt.Fprintln(root.ErrOrStderr(), "error:", err)

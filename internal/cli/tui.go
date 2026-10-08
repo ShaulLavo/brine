@@ -40,8 +40,13 @@ func newTUICmd(jsonOutput, noInput *bool, runTUI func(context.Context, io.Reader
 	}
 }
 
-// RunTUI runs the welcome screen using the caller's context and streams.
+// RunTUI runs the welcome screen using the caller's context and output.
+// A nil input preserves Bubble Tea's process-input and controlling-terminal fallback.
 func RunTUI(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
-	_, err := tea.NewProgram(welcomeModel{}, tea.WithContext(ctx), tea.WithInput(stdin), tea.WithOutput(stdout), tea.WithoutSignalHandler()).Run()
+	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(stdout), tea.WithoutSignalHandler()}
+	if stdin != nil {
+		opts = append(opts, tea.WithInput(stdin))
+	}
+	_, err := tea.NewProgram(welcomeModel{}, opts...).Run()
 	return err
 }

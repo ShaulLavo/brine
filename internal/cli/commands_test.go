@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -192,4 +193,53 @@ func TestCommandTreesAreIndependent(t *testing.T) {
 	}
 	assertStreams(t, &firstOut, &stderr, "{\"schema_version\":1,\"version\":\"0.1.0-dev\"}\n")
 	assertStreams(t, &secondOut, &stderr, "brine 0.1.0-dev\n")
+}
+
+func TestParserErrorsLeaveStreamsEmpty(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"unknown command", []string{"not-a-command"}, `unknown command "not-a-command" for "brine"`},
+		{"unknown flag", []string{"version", "--not-a-flag"}, "unknown flag: --not-a-flag"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			root := NewRootCommand(testDependencies(t, &stdout, &stderr))
+			root.SetArgs(tt.args)
+			if err := root.Execute(); err == nil || err.Error() != tt.want {
+				t.Fatalf("error = %v; want %q", err, tt.want)
+			}
+			assertStreams(t, &stdout, &stderr, "")
+		})
+	}
+}
+
+func TestHelpUsesCommandOutput(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"doctor", "--help"}, {"help", "tui"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			root := NewRootCommand(testDependencies(t, &stdout, &stderr))
+			root.SetArgs(args)
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(stdout.String(), "Usage:") || stderr.Len() != 0 {
+				t.Fatalf("stdout = %q, stderr = %q; want help only on stdout", stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+func TestRunTUIWithInjectedInput(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	var stdout bytes.Buffer
+	if err := RunTUI(ctx, strings.NewReader("q"), &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "Press q to quit.") {
+		t.Fatalf("TUI did not use injected output: %q", stdout.String())
+	}
 }
