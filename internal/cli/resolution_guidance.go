@@ -28,6 +28,11 @@ func resolutionPrefixSupported(op ops.Operation, events []ops.Event) bool {
 		}
 		return name != ""
 	}
+	var validPrefix bool
+	events, _, validPrefix = ops.InspectionPrefix(events)
+	if !validPrefix {
+		return false
+	}
 	paths := [][]string{
 		{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "start_unit", "check_direct", "publish_route", "check_routed", "commit"},
 		{"preflight", "withdraw_route", "stop_unit", "remove_unit", "reload_units", "retire_app"},

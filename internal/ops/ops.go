@@ -158,7 +158,11 @@ func ValidateEvent(e Event) error {
 		}
 		if p.Code != "" {
 			proof := slices.Contains([]string{"stateless_compatible", "compatibility_verified"}, p.Code)
-			if proof {
+			if p.Code == "effect_refused" {
+				if p.Outcome != "failed" || !slices.Contains([]string{"quiesce_old", "install_unit", "reload_units", "stop_unit", "remove_unit", "start_unit", "rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_route", "rollback_start"}, p.Step) {
+					return ErrInvalidEvent
+				}
+			} else if proof {
 				if p.Step != "check_compatibility" || p.Outcome != "completed" {
 					return ErrInvalidEvent
 				}

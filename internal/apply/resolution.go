@@ -18,6 +18,13 @@ func (e *Executor) InspectResolution(ctx context.Context, successor, source Oper
 	if successor.Kind != ops.Resolve || successor.RecoveryOf != source.ID || source.State != RecoveryRequired || successor.PlanID != source.PlanID || source.Kind != ops.Deploy && source.Kind != ops.Resolve {
 		return refused, nil
 	}
+	var prefixOK bool
+	originalEvents := events
+	var refusedEffect bool
+	events, refusedEffect, prefixOK = ops.InspectionPrefix(events)
+	if !prefixOK {
+		return refused, nil
+	}
 	owners, err := e.resolutionSourceOwners(ctx, successor, source)
 	if err != nil || len(owners) == 0 {
 		return refused, err
@@ -32,6 +39,9 @@ func (e *Executor) InspectResolution(ctx context.Context, successor, source Oper
 		if json.Unmarshal(event.Payload, &step) != nil {
 			return refused, nil
 		}
+		if refusedEffect && slices.Contains([]string{"rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "check_compatibility", "rollback_route"}, step.Step) {
+			continue
+		}
 		if p.Lifecycle == plan.RemoveApp {
 			projected.State = map[string]State{"preflight": Preflight, "withdraw_route": Preparing, "stop_unit": Quiescing, "remove_unit": Starting, "reload_units": Checking, "retire_app": Committing}[step.Step]
 		} else {
@@ -41,7 +51,7 @@ func (e *Executor) InspectResolution(ctx context.Context, successor, source Oper
 			return refused, nil
 		}
 	}
-	r, err := e.inspectRecovery(ctx, projected, p, d, events, owners)
+	r, err := e.inspectRecovery(ctx, projected, p, d, originalEvents, owners)
 	if err != nil || r.Action == RequireRecovery {
 		return r, err
 	}

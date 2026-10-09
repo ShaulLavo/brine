@@ -166,3 +166,18 @@ Resolution review regressions (local, physical rerun still pending):
   or start its predecessor. Pre-effect refusals never become unknown/applied
   outcomes. Real pinned-root filesystem tests prove owned hash/explicit absence,
   fresh replacement detection, marker and symlink refusal, and cancellation.
+
+- Changed policy version or hash, while the app remains allowed, refuses with
+  zero mutation calls after predecessor quiesce and after candidate installation
+  (four update-resolution cases).
+- A queued job appearing after intent records an explicit no-effect refusal;
+  after it clears, both inspection paths can authorize recovery. Ordinary deploy
+  rollback refusals at quiesce, restore, reload and predecessor start are
+  resolvable, including first-deploy cleanup after the candidate was removed;
+  completed rollback effects are not replayed (seven boundary cases). Unknown,
+  failed, out-of-order restore evidence and missing compatibility proof refuse.
+- Refusal projection tests reject absent/mismatched intents and invalid proof
+  outcomes/steps, preserve original payloads and never infer no-effect proof
+  from generic rollback failures.
+- Resolution SIGKILL tests keep child/barrier startup bounded separately from
+  the parent recovery/assertion deadline. Production timeouts are unchanged.

@@ -104,3 +104,27 @@ func TestStatusDoesNotOfferResolveWithoutSupportedPrefix(t *testing.T) {
 		})
 	}
 }
+
+func TestResolutionGuidanceRecognizesProvenNoEffectRefusal(t *testing.T) {
+	operation := ops.Operation{ID: "receipt", Kind: ops.Resolve, State: ops.RecoveryRequired, PlanID: "fixture-plan"}
+	var events []ops.Event
+	appendStep := func(step, outcome, code string) {
+		payload, _ := json.Marshal(ops.StepPayload{Step: step, Outcome: outcome, Code: code})
+		events = append(events, ops.Event{Kind: "step", Payload: payload})
+	}
+	for _, step := range []string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "start_unit"} {
+		appendStep(step, "completed", "")
+	}
+	appendStep("check_direct", "intent", "")
+	appendStep("check_direct", "failed", "health_failed")
+	appendStep("rollback_quiesce", "intent", "")
+	appendStep("rollback_quiesce", "failed", "rollback_failed")
+	if resolutionPrefixSupported(operation, events) {
+		t.Fatal("ambiguous failure received resolve advice")
+	}
+	events = events[:len(events)-1]
+	appendStep("rollback_quiesce", "failed", "effect_refused")
+	if !resolutionPrefixSupported(operation, events) {
+		t.Fatal("proven no-effect refusal suppressed inspection advice")
+	}
+}

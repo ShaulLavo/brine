@@ -30,9 +30,9 @@ func TestResolutionRunOpSIGKILLConvergesRemainingRemovalSteps(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer read.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRemoveRunOpCrashChild$")
+			childCtx, childCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer childCancel()
+			child := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRemoveRunOpCrashChild$")
 			child.Env = append(os.Environ(), "BRINE_REMOVE_CRASH_CHILD=1", "BRINE_REMOVE_CRASH_STATE="+dir, "BRINE_REMOVE_CRASH_OP="+accepted.OperationID, "BRINE_REMOVE_CRASH_STEP="+step)
 			phase := strings.TrimPrefix(step, "phase:")
 			phaseCrash := phase != step
@@ -65,10 +65,10 @@ func TestResolutionRunOpSIGKILLConvergesRemainingRemovalSteps(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
+			case <-childCtx.Done():
+				t.Fatal(childCtx.Err())
 			}
-			wait, stop := context.WithTimeout(ctx, 20*time.Millisecond)
+			wait, stop := context.WithTimeout(childCtx, 20*time.Millisecond)
 			lock, lockErr := h.store.AcquireHostLock(wait)
 			stop()
 			if lockErr == nil {
@@ -85,6 +85,9 @@ func TestResolutionRunOpSIGKILLConvergesRemainingRemovalSteps(t *testing.T) {
 			if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
 				t.Fatal(child.ProcessState)
 			}
+			childCancel()
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
 			op, err := h.store.GetOperation(ctx, accepted.OperationID)
 			if err != nil || op.State.IsTerminal() {
 				t.Fatal(op, err)

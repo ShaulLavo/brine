@@ -66,6 +66,7 @@ type execution struct {
 	quiesced, installed, started, published bool
 	state                                   State
 	compatibilityBasis                      string
+	recoveryRollback                        map[string]bool
 	nextRelease                             *Release
 }
 
@@ -452,6 +453,9 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 	eventCode := ""
 	if err != nil {
 		eventCode = code
+		if refused != nil {
+			eventCode = "effect_refused"
+		}
 	} else if name == "check_compatibility" {
 		eventCode = x.compatibilityBasis
 	}
@@ -540,6 +544,9 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 12*x.executor.effectTimeout()+3*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second+4*time.Minute)
 	defer cancel()
 	step := func(name, code string, effect func(context.Context) error) error {
+		if x.recoveryRollback[name] {
+			return nil
+		}
 		return x.step(rollbackCtx, name, RollingBack, code, effect)
 	}
 	if x.started {

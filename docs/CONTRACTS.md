@@ -626,7 +626,7 @@ present settles succeeded, definitely absent settles failed, unknown remains
 recovery-required. No value is read and no secret creation is replayed.
 
 This is not unconditional repair. Ambiguous ownership/writer state, changed
-policy/control generations, unsupported failed/rollback prefixes, unavailable
+policy/control generations, unproven failed/rollback prefixes, unavailable
 staging or loaded-generation evidence, and uncertain deployment route
 publication still refuse without further effects. They need an operator to
 establish authoritative state; no DB editing, arbitrary host command or
@@ -636,8 +636,8 @@ ancestor that lacks the newer journal. Human operation status conditionally
 suggests resolution inspection and diagnose directs the reader to status; the original terminal receipt intentionally remains
 visible, while the successor status and `recovery_of` report the repair outcome.
 
-Human status only offers resolution inspection for a complete supported receipt
-prefix. Failed/rollback prefixes, missing evidence, uncertain deployment route
+Human status only offers resolution inspection for a complete supported forward
+or removal prefix. Unproven failures, completed rollback prefixes, missing evidence, uncertain deployment route
 publication and partial journal pages do not receive unconditional resolve advice.
 Diagnose lacks step-prefix evidence and directs the operator to status instead.
 Resolution creation inspects at most 64 ancestors and 4096 family receipts;
@@ -655,3 +655,16 @@ and a successful stop must also prove the writer stopped with no queued job.
 A previous writer already running after a failed stop is health-checked without
 issuing another start. Proven pre-effect refusals are failed step outcomes, not
 unknown effects eligible for applied-effect readback.
+
+Recovery compares the current policy version and hash with the stored plan
+before authorizing any continuation or rollback, even if the app remains allowed.
+A proven pre-effect refusal journals the closed `effect_refused` step code.
+Inspection may remove only its matching durable intent/refusal pair from a private
+projection; original receipts remain unchanged. Generic `rollback_failed` is not
+proof of an unattempted effect. After fresh ownership, routing and writer/job
+checks, resolution or reconciliation can continue from the true preceding prefix.
+An ordered, completed pre-publication rollback prefix may be retained without
+replaying its completed effects; compatibility proof, restored predecessor
+artifacts and writer state are checked. Ambiguous, noncanonical or still-pending
+rollback outcomes remain recovery-required. Read-only failed health probes can
+be inspected again; uncertain mutations are never converted into refusals.
