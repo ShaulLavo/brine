@@ -36,7 +36,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	byApp := map[string][]target.Unit{}
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasPrefix(name, "brine-") {
+		if entry.IsDir() {
 			continue
 		}
 		ext := filepath.Ext(name)
@@ -45,13 +45,18 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		default:
 			continue
 		}
-		app := strings.TrimSuffix(strings.TrimPrefix(name, "brine-"), ext)
-		if !appName.MatchString(app) {
-			continue
-		}
 		data, err := c.FS.ReadFile(ctx, filepath.Join(dir, name))
 		if err != nil {
 			return
+		}
+		app := strings.TrimSuffix(strings.TrimPrefix(name, "brine-"), ext)
+		if renderedUnitMarker.Match(data) {
+			app = strings.TrimSuffix(name, ext)
+		} else if !strings.HasPrefix(name, "brine-") {
+			continue
+		}
+		if !appName.MatchString(app) {
+			continue
 		}
 		byApp[app] = append(byApp[app], target.Unit{Name: name, Hash: digest(data)})
 	}
@@ -95,6 +100,9 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			a.AllocatedHostPort = absent[target.Port]()
 		}
 		if runnerIdentity {
+			if len(units) > 0 {
+				a.AllocatedHostPort = c.livePort(ctx, units)
+			}
 			observed := []target.Secret{}
 			for _, secret := range secrets {
 				if strings.HasPrefix(secret.Name, "brine-"+app+"-") {

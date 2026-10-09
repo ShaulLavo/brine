@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -17,6 +18,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -40,7 +42,7 @@ const secretName = "brine-fixture-token-v1"
 const fixtureHost = "fixture.localhost"
 const caddyRoot = "/etc/caddy/brine"
 
-var stage = flag.String("fixture-stage", "", "explicitly authorized runner fixture stage: prepare, probe, cleanup")
+var stage = flag.String("fixture-stage", "", "explicitly authorized runner fixture stage: prepare, drills, probe, cleanup")
 
 type receipt struct {
 	Plan     plan.Plan
@@ -121,7 +123,7 @@ func TestPiFixture(t *testing.T) {
 	if *stage == "" {
 		t.Skip("requires named disposable host authorization and -fixture-stage")
 	}
-	if *stage != "prepare" && *stage != "probe" && *stage != "cleanup" {
+	if *stage != "prepare" && *stage != "probe" && *stage != "cleanup" && *stage != "drills" {
 		t.Fatal("unknown fixture stage")
 	}
 	identity := must(user.Current())
@@ -136,6 +138,9 @@ func TestPiFixture(t *testing.T) {
 	switch *stage {
 	case "prepare":
 		f.prepare()
+	case "drills":
+		r := f.load()
+		f.caddyFailureChecks(&r, must(os.ReadFile("/etc/caddy/Caddyfile")))
 	case "probe":
 		f.probe()
 	case "cleanup":
@@ -202,7 +207,19 @@ func (f fixture) prepare() {
 	f.t.Log("verified immutable multi-platform index and arm64 manifest")
 	check(f.t, f.pod.CreateSecret(f.ctx, f.secret, []byte("public-fixture-token")))
 	snap := f.collect()
+	// This adapter fixture is not connected apply. Preserve and explicitly test the
+	// real catch-all refusal, then plan only the separately authorized test route.
+	liveRoutes := snap.LiveCaddyFiles
+	original := must(plan.Build(plan.Input{Desired: f.desired, Snapshot: snap, Image: plan.Image{Digest: info.IndexDigest, Platform: target.Platform{OS: info.Platform.OS, Arch: info.Platform.Architecture}, ManifestDigest: target.Known(info.ManifestDigest)}, State: plan.BrineState{Target: snap.Identity, Generation: 0, Releases: []plan.CurrentRelease{}}}))
+	if len(original.Conflicts) != 1 || original.Conflicts[0].Code != plan.DomainOwned {
+		f.t.Fatal("expected protected package-default catch-all refusal")
+	}
+	f.t.Log("real planner refuses the unowned catch-all; fixture-only route scope does not authorize connected apply")
+	snap.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{})
 	p := must(plan.Build(plan.Input{Desired: f.desired, Snapshot: snap, Image: plan.Image{Digest: info.IndexDigest, Platform: target.Platform{OS: info.Platform.OS, Arch: info.Platform.Architecture}, ManifestDigest: target.Known(info.ManifestDigest)}, State: plan.BrineState{Target: snap.Identity, Generation: 0, Releases: []plan.CurrentRelease{}}}))
+	if liveRoutes.Value == nil {
+		f.t.Fatal("live root routes unknown")
+	}
 	if p.Kind != plan.Create || len(p.Conflicts) != 0 {
 		f.t.Fatalf("fixture plan refused: %v", p.Conflicts)
 	}
@@ -224,7 +241,7 @@ func (f fixture) prepare() {
 	f.save(r)
 	f.health(p.HostPort)
 	f.runtimeChecks()
-	f.caddyFailureChecks(r, main)
+	f.caddyFailureChecks(&r, main)
 	f.t.Log("prepare complete; fixture persists, reboot controlled by operator")
 }
 
@@ -406,7 +423,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func (f fixture) caddyFailureChecks(r receipt, main []byte) {
+func (f fixture) caddyFailureChecks(r *receipt, main []byte) {
 	cm := must(caddy.NewManager(caddyRoot, caddyValidator{f.session}, reloader{f.sd}))
 	defer cm.Close()
 	site := must(caddy.NewSite(f.app, f.policy, spec.Port(r.Plan.HostPort)))
@@ -418,4 +435,94 @@ func (f fixture) caddyFailureChecks(r receipt, main []byte) {
 	check(f.t, cm.CheckDrift(r.Caddy))
 	f.health(r.Plan.HostPort)
 	f.t.Log("invalid candidate rejected; prior disk and live route unchanged")
+	failure := &reloadFault{sd: f.sd}
+	fm := must(caddy.NewManager(caddyRoot, caddyValidator{f.session}, failure))
+	defer fm.Close()
+	result, e = fm.Apply(f.ctx, main, r.Caddy, caddy.Put(site))
+	if e == nil || result.Outcome != caddy.RolledBack || failure.calls != 2 {
+		f.t.Fatal("real failed reload did not restore prior generation")
+	}
+	check(f.t, cm.CheckDrift(r.Caddy))
+	f.health(r.Plan.HostPort)
+	f.t.Log("real systemd reload rejected invalid activated fixture config; adapter rolled back and reloaded prior generation")
+	unknown := &reloadFault{sd: f.sd, unknown: true}
+	um := must(caddy.NewManager(caddyRoot, caddyValidator{f.session}, unknown))
+	defer um.Close()
+	result, e = um.Apply(f.ctx, main, r.Caddy, caddy.Put(site))
+	var ue *caddy.UnknownOutcomeError
+	if !errors.As(e, &ue) || result.Outcome != caddy.Unknown || unknown.calls != 1 {
+		f.t.Fatal("unknown reload was blindly retried")
+	}
+	if _, e = um.Observe(); e == nil {
+		f.t.Fatal("uncertain manager remained usable")
+	}
+	observed := must(cm.Observe())
+	if observed.Generation != result.Next.Generation || !reflect.DeepEqual(observed.Files, result.Next.Files) {
+		f.t.Fatal("unknown disk state differs from recorded intent")
+	}
+	disk := f.run("caddy", "adapt", "--adapter", "caddyfile", "--config", "/etc/caddy/Caddyfile")
+	live := f.run("curl", "--disable", "--noproxy", "*", "--silent", "--fail", "--max-time", "2", "http://127.0.0.1:2019/config/")
+	var a, b any
+	check(f.t, json.Unmarshal([]byte(disk), &a))
+	check(f.t, json.Unmarshal([]byte(live), &b))
+	if !reflect.DeepEqual(a, b) {
+		f.t.Fatal("unknown reload requires recovery; disk/live configs differ")
+	}
+	r.Caddy = result.Next
+	f.save(*r)
+	f.health(r.Plan.HostPort)
+	f.t.Log("lost-success acknowledgement injected after real reload; fresh disk and live admin reads reconciled without another mutation")
+}
+
+type reloadFault struct {
+	sd      *systemd.Client
+	calls   int
+	unknown bool
+}
+
+func (r *reloadFault) Reload(ctx context.Context) error {
+	r.calls++
+	if r.unknown {
+		if e := r.sd.ReloadCaddy(ctx); e != nil {
+			return e
+		}
+		return context.DeadlineExceeded
+	}
+	if r.calls != 1 {
+		return r.sd.ReloadCaddy(ctx)
+	}
+	link, e := os.Readlink(filepath.Join(caddyRoot, "current"))
+	if e != nil {
+		return e
+	}
+	if !strings.HasPrefix(link, "gen-") || strings.ContainsAny(link, "/\\") {
+		return fmt.Errorf("unsafe fixture generation")
+	}
+	path := filepath.Join(caddyRoot, link, "fixture.caddy")
+	bytes, e := os.ReadFile(path)
+	if e != nil {
+		return e
+	}
+	if e = writeSynced(path, append(append([]byte(nil), bytes...), []byte("invalid_fixture_directive\n")...)); e != nil {
+		return e
+	}
+	reloadErr := r.sd.ReloadCaddy(ctx)
+	if e = writeSynced(path, bytes); e != nil {
+		return e
+	}
+	if reloadErr == nil {
+		return fmt.Errorf("invalid fixture config unexpectedly accepted")
+	}
+	return reloadErr
+}
+func writeSynced(path string, b []byte) error {
+	file, e := os.OpenFile(path, os.O_WRONLY|os.O_TRUNC, 0644)
+	if e != nil {
+		return e
+	}
+	_, e = file.Write(b)
+	if e == nil {
+		e = file.Sync()
+	}
+	return errors.Join(e, file.Close())
 }

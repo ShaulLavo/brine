@@ -213,6 +213,7 @@ func TestOwnedQuadletsAndSecretNames(t *testing.T) {
 	f.dirs[dir] = []fs.DirEntry{fixtureEntry("brine-api.container"), fixtureEntry("brine-api.volume"), fixtureEntry("other.container")}
 	f.files[dir+"/brine-api.container"] = "[Container]\nImage=example.test/api:latest\nSecret=brine-api-db-v1\n"
 	f.files[dir+"/brine-api.volume"] = "[Volume]\n"
+	f.files[dir+"/other.container"] = "[Container]\nImage=example.test/other:latest\n"
 	r := fakeRunner{"uname -m": "x86_64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine-api-db-v1\nunrelated-id unrelated\n"}
 	s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 	if e != nil {

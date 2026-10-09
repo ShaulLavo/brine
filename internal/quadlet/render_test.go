@@ -291,3 +291,14 @@ func TestRetainedPortSurvivesPolicyRangeChange(t *testing.T) {
 		t.Fatal("accepted new allocation outside policy")
 	}
 }
+
+func TestRecordedManifestCannotBeReplaced(t *testing.T) {
+	d, p := fixture(t)
+	p.Image.ManifestDigest = target.Known(manifest())
+	if _, err := Render(d, p, manifest()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Render(d, p, "sha256:"+strings.Repeat("d", 64)); err == nil {
+		t.Fatal("recorded platform manifest was replaced")
+	}
+}
