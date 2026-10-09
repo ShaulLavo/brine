@@ -15,7 +15,8 @@ import (
 var processPattern = regexp.MustCompile(`\("([^"\n]+)",pid=([0-9]+),fd=[0-9]+\)`)
 var safeToken = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
-func (c Collector) listeners(ctx context.Context, s *target.Snapshot) {
+func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home string) {
+	bindings := c.listenerBindings(ctx, s, home)
 	ports := map[target.Port]bool{}
 	owners := map[target.PortOwner]bool{}
 	// The snapshot reserves UDP as well as TCP, even though owners cover TCP only.
@@ -66,6 +67,14 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot) {
 				data, e := c.FS.ReadFile(ctx, "/proc/"+match[2]+"/cgroup")
 				if e == nil {
 					owner.Unit = unitFromCgroup(string(data))
+					cgroup, unified := strings.CutPrefix(strings.TrimSpace(string(data)), "0::")
+					if unified && !strings.ContainsRune(cgroup, '\n') && address[:i] == "127.0.0.1" {
+						for path, binding := range bindings {
+							if binding.Port == port && (cgroup == path || strings.HasPrefix(cgroup, path+"/")) {
+								owner.App = binding.App
+							}
+						}
+					}
 				}
 				owners[owner] = true
 			}
@@ -117,4 +126,95 @@ func parseGeneration(path string) (uint64, error) {
 		return 0, fmt.Errorf("unrecognized Caddy generation")
 	}
 	return strconv.ParseUint(strings.TrimPrefix(base, "gen-"), 10, 64)
+}
+
+type listenerBinding struct {
+	App  string
+	Port target.Port
+}
+
+func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, home string) map[string]listenerBinding {
+	bindings := map[string]listenerBinding{}
+	if s.Apps.Status != target.KnownStatus || !c.isRunner(ctx, home) {
+		return bindings
+	}
+	passwd, err := c.FS.ReadFile(ctx, "/etc/passwd")
+	if err != nil {
+		return bindings
+	}
+	uid := ""
+	for _, line := range strings.Split(string(passwd), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) == 7 && fields[0] == c.RunnerUser && fields[5] == home {
+			n, err := strconv.ParseUint(fields[2], 10, 32)
+			if err != nil {
+				return bindings
+			}
+			uid = strconv.FormatUint(n, 10)
+		}
+	}
+	if uid == "" {
+		return bindings
+	}
+	root := "/user.slice/user-" + uid + ".slice/user@" + uid + ".service/app.slice/"
+	for _, app := range *s.Apps.Value {
+		if app.QuadletUnits.Status != target.KnownStatus || app.AllocatedHostPort.Status != target.KnownStatus {
+			continue
+		}
+		var container target.Unit
+		count := 0
+		for _, unit := range *app.QuadletUnits.Value {
+			if strings.HasSuffix(unit.Name, ".container") {
+				container = unit
+				count++
+			}
+		}
+		if count != 1 {
+			continue
+		}
+		data, err := c.FS.ReadFile(ctx, filepath.Join(home, ".config/containers/systemd", container.Name))
+		if err != nil || digest(data) != container.Hash || !renderedUnitMarker.Match(data) {
+			continue
+		}
+		port, ok := pinnedListenerPort(string(data))
+		if !ok || port != *app.AllocatedHostPort.Value {
+			continue
+		}
+		path := root + strings.TrimSuffix(container.Name, ".container") + ".service"
+		if _, duplicate := bindings[path]; duplicate {
+			bindings[path] = listenerBinding{}
+			continue
+		}
+		bindings[path] = listenerBinding{App: app.Name, Port: port}
+	}
+	return bindings
+}
+
+func pinnedListenerPort(data string) (target.Port, bool) {
+	section := ""
+	value := ""
+	count := 0
+	for _, line := range strings.Split(data, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "[") {
+			section = line
+		}
+		if section == "[Container]" && strings.HasPrefix(line, "PublishPort=") {
+			value = strings.TrimPrefix(line, "PublishPort=")
+			count++
+		}
+	}
+	fields := strings.Split(value, ":")
+	if count != 1 || len(fields) != 3 || fields[0] != "127.0.0.1" {
+		return 0, false
+	}
+	host, err := strconv.ParseUint(fields[1], 10, 16)
+	if err != nil || host < 1024 {
+		return 0, false
+	}
+	inside, err := strconv.ParseUint(fields[2], 10, 16)
+	if err != nil || inside < 1024 {
+		return 0, false
+	}
+	return target.Port(host), true
 }
