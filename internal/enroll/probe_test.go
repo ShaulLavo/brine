@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -118,5 +119,41 @@ func TestEarlierDropinRefused(t *testing.T) {
 	p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": "Include /etc/ssh/sshd_config.d/*.conf\n"}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": entries}}}
 	if p.sshConfig(context.Background(), "/etc/ssh/sshd_config", nil, 0) == nil {
 		t.Fatal("earlier policy can override Brine")
+	}
+}
+
+func TestEnvironmentAuditCoversUnsampledMatchAndEqualsSyntax(t *testing.T) {
+	for _, line := range []string{"AcceptEnv *", "AcceptEnv=LD_*", "AcceptEnv = \"LD_PRELOAD\"", "SetEnv=ENV=/fixture", "SetEnv PATH=/fixture"} {
+		p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": "Include /etc/ssh/sshd_config.d/*.conf\nMatch Address 203.0.113.0/24\nInclude=\"/etc/ssh/remote.conf\"\n", "/etc/ssh/remote.conf": line + "\n"}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": nil}}}
+		if p.sshConfig(context.Background(), "/etc/ssh/sshd_config", nil, 0) == nil {
+			t.Fatalf("unsafe unsampled branch accepted: %s", line)
+		}
+	}
+}
+
+func TestEnvironmentSourcesQuotedGlobAndHashPath(t *testing.T) {
+	for _, path := range []string{"/etc/ssh/unsafe#branch.conf", "relative.conf"} {
+		resolved := path
+		if !filepath.IsAbs(path) {
+			resolved = "/etc/ssh/" + path
+		}
+		p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": "Include /etc/ssh/sshd_config.d/*.conf\nInclude " + path + "\n", resolved: "Match Address 203.0.113.99\nAcceptEnv=LD_*\n"}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": nil}}}
+		if p.sshConfig(context.Background(), "/etc/ssh/sshd_config", nil, 0) == nil {
+			t.Fatal("unsafe included path accepted")
+		}
+	}
+	for _, line := range []string{"AcceptEnv LANG LC_* # safe", "SetEnv LANG=C LC_TIME=C", "AcceptEnv=\"LANG\" \"LC_*\""} {
+		f, err := sshSourceFields(line)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkSSHEnvironment(strings.Join(f, " ")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, line := range []string{"Include \"unterminated", "Include /unsafe\\path"} {
+		if _, err := sshSourceFields(line); err == nil {
+			t.Fatal("ambiguous include accepted")
+		}
 	}
 }

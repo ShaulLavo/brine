@@ -143,5 +143,5 @@ func (p Prober) sshConfig(ctx context.Context, path string, _ map[string]bool, d
 			return errors.New("SSH drop-in precedes the Brine authorization policy")
 		}
 	}
-	return nil
+	return p.sshEnvironmentSources(ctx, path)
 }
