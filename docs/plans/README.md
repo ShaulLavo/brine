@@ -12,6 +12,7 @@ Start with [the roadmap](../PLAN.md) and [decisions](../DECISIONS.md), then read
 | 05 | [Charm and agents](05-charm-and-agents.md) | Full TUI and reliable JSON interface |
 | 06 | [Release and operations](06-release-and-ops.md) | Permission boundaries, drills, distribution |
 | 07 | [Drops and previews](07-drops-and-previews.md) | Temporary sites, short links, git previews |
+| 08 | [WebTransport apps](08-webtransport.md) | App-terminated QUIC/UDP first; shared-port ingress and authorized previews gated separately |
 
 ## Prompt for an implementation agent
 
