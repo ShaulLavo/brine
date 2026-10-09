@@ -488,8 +488,8 @@ func TestConditionalTransitionsRaceWithoutOverwritingWinner(t *testing.T) {
 		if winner.err != nil {
 			t.Fatalf("no winner: %v / %v", first.err, second.err)
 		}
-		var conflict *ErrStateConflict
-		if !errors.As(loser.err, &conflict) || conflict.Actual != winner.state {
+		var conflict *ops.StateConflictError
+		if !errors.Is(loser.err, ops.ErrStateConflict) || !errors.As(loser.err, &conflict) || conflict.Current != winner.state {
 			t.Fatalf("loser conflict: %#v %v", conflict, loser.err)
 		}
 		got, e := a.GetOperation(ctx, op.ID)
@@ -506,8 +506,8 @@ func TestConditionalTransitionRefusesIllegalEdge(t *testing.T) {
 	s := openTest(t)
 	op := operation(t, s)
 	e := s.TransitionOperation(context.Background(), op, ops.Queued, ops.Checking)
-	var conflict *ErrStateConflict
-	if !errors.As(e, &conflict) || conflict.Actual != ops.Queued {
+	var conflict *ops.StateConflictError
+	if !errors.Is(e, ops.ErrStateConflict) || !errors.As(e, &conflict) || conflict.Current != ops.Queued {
 		t.Fatalf("illegal edge: %v", e)
 	}
 	events, e := s.EventsAfter(context.Background(), op, 0, 10)

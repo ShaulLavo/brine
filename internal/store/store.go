@@ -55,16 +55,9 @@ type TransitionError struct{ From, To State }
 
 func (*TransitionError) Error() string { return "illegal operation state transition" }
 
-// ErrStateConflict reports a lost conditional transition or an illegal edge.
-// Actual is the state read inside the same transaction as the refused update.
-type ErrStateConflict struct {
-	Expected  State
-	Actual    State
-	Requested State
-}
+type StateConflictError = ops.StateConflictError
 
-func (*ErrStateConflict) Error() string { return "operation state conflict" }
-func (*ErrStateConflict) Unwrap() error { return ErrConflict }
+var ErrStateConflict = ops.ErrStateConflict
 
 type Store struct {
 	db  *sql.DB

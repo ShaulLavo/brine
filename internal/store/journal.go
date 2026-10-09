@@ -105,7 +105,7 @@ func (s *Store) transitionOperation(ctx context.Context, id OpID, expected *Stat
 	}
 	if expected != nil {
 		if from != *expected || !ops.CanTransition(from, state) {
-			return &ErrStateConflict{Expected: *expected, Actual: from, Requested: state}
+			return &ops.StateConflictError{Current: from}
 		}
 	} else if from == state {
 		return tx.Commit()
