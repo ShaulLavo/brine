@@ -65,3 +65,19 @@ func TestInvalidMinimumFreeDiskPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestDesiredDiskDefaultIsCanonicalAndDoesNotMutate(t *testing.T) {
+	d := Desired{}
+	omitted, err := d.CanonicalBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.MinimumFreeDiskBytes != 0 {
+		t.Fatal("canonicalization mutated desired input")
+	}
+	d.MinimumFreeDiskBytes = DefaultMinimumFreeDiskBytes
+	explicit, err := d.CanonicalBytes()
+	if err != nil || !bytes.Equal(omitted, explicit) {
+		t.Fatal("omitted desired minimum did not resolve to the policy default", err)
+	}
+}
