@@ -638,3 +638,49 @@ func TestOpenRepairsExistingSQLiteSidecars(t *testing.T) {
 		}
 	}
 }
+
+func TestAppHistoryQueries(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	r := release(t, s, "release-one")
+	if e := s.CommitRelease(ctx, "hello", r); e != nil {
+		t.Fatal(e)
+	}
+	got, e := s.ReleaseByID(ctx, "hello", r.ID)
+	if e != nil || !reflect.DeepEqual(got, r) {
+		t.Fatal(got, e)
+	}
+	if _, e = s.ReleaseByID(ctx, "other", r.ID); !errors.Is(e, ErrNotFound) {
+		t.Fatal(e)
+	}
+	if _, e = s.LastOperation(ctx, "hello"); !errors.Is(e, ErrNotFound) {
+		t.Fatal(e)
+	}
+	first, _, e := s.CreateOperation(ctx, r.PlanID, "requester", "first")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.SetOperationState(ctx, first.ID, ops.Failed); e != nil {
+		t.Fatal(e)
+	}
+	second, _, e := s.CreateOperation(ctx, r.PlanID, "requester", "second")
+	if e != nil {
+		t.Fatal(e)
+	}
+	if e = s.SetOperationState(ctx, second.ID, ops.Failed); e != nil {
+		t.Fatal(e)
+	}
+	gotOp, e := s.LastOperation(ctx, "hello")
+	if e != nil || gotOp.ID != second.ID || gotOp.State != ops.Failed || gotOp.PlanID != r.PlanID {
+		t.Fatal(gotOp, e)
+	}
+	if _, e = s.LastOperation(ctx, "other"); !errors.Is(e, ErrNotFound) {
+		t.Fatal(e)
+	}
+	if _, e = s.db.Exec(`UPDATE plans SET desired=? WHERE id=?`, []byte(`{"name":"hello"}`), r.PlanID); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = s.LastOperation(ctx, "hello"); e == nil {
+		t.Fatal("tampered plan accepted")
+	}
+}

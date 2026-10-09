@@ -3,6 +3,7 @@ package dispatch
 import (
 	"bytes"
 
+	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
@@ -44,6 +45,18 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "status":
+			report, err := apps.DecodeReport(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = report
+		case "rollback":
+			p, err := apps.DecodeRollback(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
 		case "logs":
 			lines, err := logs.DecodeLines(fields["data"])
 			if err != nil {

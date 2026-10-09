@@ -34,6 +34,13 @@ func sufficientDisk(s target.Snapshot, minimum uint64) target.Observation[bool] 
 
 // The snapshot has already passed target.Encode's validation and sorting.
 func canonicalDecisionFacts(s target.Snapshot, minimum uint64) ([]byte, error) {
+	if s.Apps.Value != nil {
+		apps := append([]target.App{}, (*s.Apps.Value)...)
+		for i := range apps {
+			apps[i].UnitActive = nil
+		}
+		s.Apps = target.Known(apps)
+	}
 	return json.Marshal(decisionFacts{
 		SchemaVersion:  s.SchemaVersion,
 		Identity:       s.Identity,

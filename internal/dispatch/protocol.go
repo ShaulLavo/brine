@@ -50,6 +50,8 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"status":    {ReadOnly, decodeAppStatus},
+	"rollback":  {Mutating, decodeRollback},
 	"logs":      {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
 	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
 	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
@@ -116,6 +118,7 @@ type LogReader interface {
 }
 
 type Server struct {
+	Apps      AppOperations
 	Logs      LogReader
 	version   string
 	inventory Inventory
@@ -159,6 +162,24 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	args, _ := operations[request.Op].decode(request.Args)
 	var value any
 	switch args := args.(type) {
+	case AppStatusArgs:
+		if s.Apps == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		report, err := s.Apps.Status(ctx, args.App)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = report
+	case RollbackArgs:
+		if s.Apps == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		planned, err := s.Apps.Rollback(ctx, args.App, args.ReleaseID)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = planned
 	case logs.Request:
 		if s.Logs == nil {
 			return fail(result.New(result.DependencyMissing, nil))

@@ -285,7 +285,7 @@ func TestSnapshotFieldsHaveExplicitClassification(t *testing.T) {
 		reflect.TypeFor[target.Runner]():            {"user", "linger"},
 		reflect.TypeFor[target.CaddyConfigSet]():    {"generation", "files"},
 		reflect.TypeFor[target.CaddyFile]():         {"name", "hash"},
-		reflect.TypeFor[target.App]():               {"name", "image", "allocated_host_port", "quadlet_units", "secrets"},
+		reflect.TypeFor[target.App]():               {"unit_active", "name", "image", "allocated_host_port", "quadlet_units", "secrets"},
 		reflect.TypeFor[target.Image]():             {"digest", "platform"},
 		reflect.TypeFor[target.Platform]():          {"os", "arch"},
 		reflect.TypeFor[target.Unit]():              {"name", "hash"},
@@ -314,5 +314,17 @@ func TestZeroDesiredMinimumCannotDisableDiskSafety(t *testing.T) {
 	p := build(t, in)
 	if p.Kind != Conflict || !slices.Contains(p.Conflicts, Diagnostic{Code: InsufficientDisk, Field: "free_disk_bytes"}) || len(p.Changes) != 0 {
 		t.Fatal(p)
+	}
+}
+
+func TestUnitHealthDoesNotChangePlan(t *testing.T) {
+	in := installed(t)
+	baseline := build(t, in)
+	for _, value := range []bool{true, false} {
+		active := target.Known(value)
+		(*in.Snapshot.Apps.Value)[0].UnitActive = &active
+		if got := build(t, in); !reflect.DeepEqual(baseline, got) {
+			t.Fatal("volatile unit state changed plan")
+		}
 	}
 }
