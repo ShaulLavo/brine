@@ -15,13 +15,14 @@ import (
 )
 
 type fakeStore struct {
-	mu        sync.Mutex
-	operation ops.Operation
-	events    []ops.Event
-	creates   int
-	locked    bool
-	desired   policy.Desired
-	loadErr   error
+	mu               sync.Mutex
+	operation        ops.Operation
+	events           []ops.Event
+	creates          int
+	locked           bool
+	desired          policy.Desired
+	loadErr          error
+	beforeTransition func()
 }
 
 func (s *fakeStore) CreateOperation(_ context.Context, planID, requester, key string) (ops.Operation, bool, error) {
@@ -65,6 +66,9 @@ func (l fakeLock) Release() error { l.s.locked = false; return nil }
 func (s *fakeStore) AppendEvent(_ context.Context, _ string, e ops.Event) (uint64, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if e.Kind == "state" {
+		return 0, ops.ErrInvalidEvent
+	}
 	if err := ops.ValidateEvent(e); err != nil {
 		return 0, err
 	}
@@ -72,6 +76,22 @@ func (s *fakeStore) AppendEvent(_ context.Context, _ string, e ops.Event) (uint6
 	s.events = append(s.events, e)
 	return e.Sequence, nil
 }
+func (s *fakeStore) TransitionOperation(_ context.Context, _ string, from, to ops.State) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.beforeTransition != nil {
+		s.beforeTransition()
+	}
+	if s.operation.State != from {
+		return &ops.StateConflictError{Current: s.operation.State}
+	}
+	if !ops.CanTransition(from, to) {
+		return errors.New("transition")
+	}
+	s.operation.State = to
+	return nil
+}
+
 func (s *fakeStore) SetOperationState(_ context.Context, _ string, state ops.State) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -242,5 +262,17 @@ func TestCanonicalStoredPlanID(t *testing.T) {
 	service := Service{Store: s, Requester: "runner", Launcher: launchFunc(func(context.Context, systemd.OperationID) error { return nil })}
 	if _, err := service.Apply(context.Background(), planID, "key1"); err != nil {
 		t.Fatalf("stored plan hash refused: %v", err)
+	}
+}
+
+func TestLaunchOutcomeCannotOverwriteExecutorProgress(t *testing.T) {
+	for _, kind := range []localexec.ErrorKind{localexec.Failed, localexec.UnknownOutcome} {
+		s := &fakeStore{}
+		s.beforeTransition = func() { s.operation.State = ops.Preflight }
+		service := Service{Store: s, Requester: "runner", Launcher: launchFunc(func(context.Context, systemd.OperationID) error { return &localexec.Error{Kind: kind} })}
+		accepted, err := service.Apply(context.Background(), "sha256:"+strings.Repeat("a", 64), "key1")
+		if err != nil || accepted.OperationID != "op1" || s.operation.State != ops.Preflight {
+			t.Fatalf("clobbered progress: %+v state=%s err=%v", accepted, s.operation.State, err)
+		}
 	}
 }

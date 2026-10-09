@@ -77,6 +77,9 @@ type fixtureLock struct{}
 
 func (fixtureLock) Release() error { return nil }
 func (s disconnectStore) AppendEvent(_ context.Context, _ string, event ops.Event) (uint64, error) {
+	if event.Kind == "state" {
+		return 0, ops.ErrInvalidEvent
+	}
 	record, err := s.read()
 	if err != nil {
 		return 0, err
@@ -89,6 +92,16 @@ func (s disconnectStore) AppendEvent(_ context.Context, _ string, event ops.Even
 	record.Events = append(record.Events, event)
 	return event.Sequence, s.write(record)
 }
+func (s disconnectStore) TransitionOperation(ctx context.Context, id string, from, to ops.State) error {
+	record, err := s.read()
+	if err != nil {
+		return err
+	}
+	if record.Operation.State != from {
+		return &ops.StateConflictError{Current: record.Operation.State}
+	}
+	return s.SetOperationState(ctx, id, to)
+}
 func (s disconnectStore) SetOperationState(_ context.Context, _ string, state ops.State) error {
 	record, err := s.read()
 	if err != nil {
@@ -96,6 +109,7 @@ func (s disconnectStore) SetOperationState(_ context.Context, _ string, state op
 	}
 	record.Operation.State = state
 	record.Operation.UpdatedAt = time.Now().UTC()
+	record.Events = append(record.Events, ops.Event{Sequence: uint64(len(record.Events) + 1), Kind: "state", State: state, CreatedAt: record.Operation.UpdatedAt})
 	return s.write(record)
 }
 func (s disconnectStore) EventsAfter(_ context.Context, _ string, cursor uint64, limit int) ([]ops.Event, error) {
@@ -112,11 +126,7 @@ func (s disconnectStore) EventsAfter(_ context.Context, _ string, cursor uint64,
 type fixtureExecutor struct{ store disconnectStore }
 
 func (e fixtureExecutor) Run(ctx context.Context, id string, _ plan.Plan, _ policy.Desired) error {
-	if err := e.store.SetOperationState(ctx, id, ops.Succeeded); err != nil {
-		return err
-	}
-	_, err := e.store.AppendEvent(ctx, id, ops.Event{Kind: "state", State: ops.Succeeded})
-	return err
+	return e.store.SetOperationState(ctx, id, ops.Succeeded)
 }
 
 type fakeSystemdRun struct{ dir, binary string }

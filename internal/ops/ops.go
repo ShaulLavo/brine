@@ -109,7 +109,7 @@ func ValidState(s State) bool {
 // ValidateEvent accepts only closed, value-free schemas. Raw logs, arbitrary
 // error text and literal configuration values do not belong in this journal.
 func ValidateEvent(e Event) error {
-	if len(e.Payload) > MaxEventBytes || (e.State != "" && !ValidState(e.State)) {
+	if len(e.Payload) > MaxEventBytes || (e.State != "" && (e.Kind != "state" || !ValidState(e.State))) {
 		return ErrInvalidEvent
 	}
 	decode := func(v any, fields ...string) error {
@@ -166,3 +166,11 @@ func ValidateEvent(e Event) error {
 
 // Lock is the shared host-mutation exclusion handle.
 type Lock interface{ Release() error }
+
+var ErrStateConflict = errors.New("operation state conflict")
+
+// StateConflictError reports the state observed by a refused conditional update.
+type StateConflictError struct{ Current State }
+
+func (*StateConflictError) Error() string { return "operation state conflict" }
+func (*StateConflictError) Unwrap() error { return ErrStateConflict }

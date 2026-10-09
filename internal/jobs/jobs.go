@@ -31,6 +31,7 @@ type Store interface {
 	RunnerStore
 	// The store atomically binds requester+key to one plan and one operation.
 	CreateOperation(context.Context, string, string, string) (ops.Operation, bool, error)
+	TransitionOperation(context.Context, string, ops.State, ops.State) error
 	EventsAfter(context.Context, string, uint64, int) ([]ops.Event, error)
 }
 type Launcher interface {
@@ -101,18 +102,12 @@ func (s Service) Apply(ctx context.Context, planID, key string) (Accepted, error
 	if _, err = s.Store.AppendEvent(journal, op.ID, failureEvent(code)); err != nil {
 		return Accepted{}, err
 	}
-	current, err := s.Store.GetOperation(journal, op.ID)
-	if err != nil {
-		return Accepted{}, err
-	}
-	if current.State != ops.Queued {
-		return accepted, nil
-	}
-	if err = s.Store.SetOperationState(journal, op.ID, state); err != nil {
-		// The job may have progressed between inspection and this transition.
-		current, readErr := s.Store.GetOperation(journal, op.ID)
-		if readErr == nil && current.State != ops.Queued {
-			return accepted, nil
+	if err = s.Store.TransitionOperation(journal, op.ID, ops.Queued, state); err != nil {
+		if errors.Is(err, ops.ErrStateConflict) {
+			current, readErr := s.Store.GetOperation(journal, op.ID)
+			if readErr == nil && current.State != ops.Queued {
+				return accepted, nil
+			}
 		}
 		return Accepted{}, err
 	}
