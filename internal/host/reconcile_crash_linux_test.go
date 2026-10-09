@@ -16,6 +16,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -62,6 +63,9 @@ func TestDispatcherReconcilesCrashedRunOp(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			dir := t.TempDir()
 			r := newDeployRigAt(t, dir)
+			r.runner.Executor.(Executor).Engine.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
+				return podman.ContainerState{}, &localexec.Error{Kind: localexec.NotFound}
+			}
 			factory := newServerFactory("fixture", "deploy", func(context.Context, string) (*Runtime, error) {
 				return &Runtime{Inventory: r.inventory, Planner: r.service, Jobs: jobs.Service{Store: r.store, Launcher: r.launcher, Requester: r.service.Requester}, Reconciler: r.server.Reconciler, Authorize: r.service.Authorize, close: func() error { return nil }}, nil
 			}, nil)

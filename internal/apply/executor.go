@@ -66,6 +66,7 @@ type execution struct {
 	quiesced, installed, started, published bool
 	state                                   State
 	compatibilityBasis                      string
+	recoveryRollback                        map[string]bool
 	nextRelease                             *Release
 }
 
@@ -83,7 +84,7 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		return &Error{Step: "preflight", Code: "journal_failed", State: Failed}
 	}
 	op, readErr := e.Journal.GetOperation(ctx, opID)
-	if readErr != nil || op.Kind != ops.Deploy || op.PlanID != p.Hash {
+	if readErr != nil || op.Kind != ops.Deploy && op.Kind != ops.Resolve || op.PlanID != p.Hash {
 		return &Error{Step: "preflight", Code: "drift", State: Failed, Cause: readErr}
 	}
 	if p.Lifecycle == plan.RemoveApp {
@@ -355,6 +356,9 @@ func (x *execution) previousUnitHash() string {
 	return ""
 }
 func (x *execution) stop(ctx context.Context) error {
+	if err := x.verifyEffectBoundary(ctx, "stop"); err != nil {
+		return err
+	}
 	if err := x.executor.Systemd.Stop(ctx, x.service); err != nil {
 		// An absent unit is quiescent only when the independent container probe
 		// also proves no writer remains. Keep compatibility checks for attempted starts.
@@ -363,24 +367,8 @@ func (x *execution) stop(ctx context.Context) error {
 		}
 		return err
 	}
-	active, err := x.executor.Systemd.IsActive(ctx, x.service)
-	if err != nil {
-		return err
-	}
-	if active {
-		return errors.New("writer still active")
-	}
-	name, err := podman.ParseName("systemd-" + x.plan.App)
-	if err != nil {
-		return err
-	}
-	container, err := x.executor.Podman.ContainerState(ctx, name)
-	var runtimeErr *localexec.Error
-	if errors.As(err, &runtimeErr) && runtimeErr.Kind == localexec.NotFound {
-		return nil
-	}
-	if err != nil || container.Running {
-		return &Error{Step: x.service.String(), Code: "interrupted", Cause: err}
+	if x.waitWriter(ctx) != writerStopped {
+		return &Error{Step: x.service.String(), Code: "interrupted"}
 	}
 	return nil
 }
@@ -421,7 +409,10 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		timeout = 2 * time.Duration(x.previousDesired.Health.StartupDeadlineSeconds) * time.Second
 	}
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
-	err := effect(stepCtx)
+	err := x.verifyEffectBoundary(stepCtx, name)
+	if err == nil {
+		err = effect(stepCtx)
+	}
 	if stepCtx.Err() != nil {
 		err = errors.Join(err, stepCtx.Err())
 	}
@@ -454,11 +445,20 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 			outcome = "unknown"
 		}
 	}
+	// A safety refusal happened before the requested mutation. Do not reconcile
+	// it as an unknown effect and accidentally authorize subsequent mutations.
+	var refused *boundaryRefusal
+	if errors.As(err, &refused) {
+		outcome, code = "failed", "rollback_failed"
+	}
 	// Once an outcome write fails, no further effect is allowed in this process.
 	recordCtx := context.WithoutCancel(ctx)
 	eventCode := ""
 	if err != nil {
 		eventCode = code
+		if refused != nil {
+			eventCode = "effect_refused"
+		}
 	} else if name == "check_compatibility" {
 		eventCode = x.compatibilityBasis
 	}
@@ -547,6 +547,9 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 12*x.executor.effectTimeout()+3*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second+4*time.Minute)
 	defer cancel()
 	step := func(name, code string, effect func(context.Context) error) error {
+		if x.recoveryRollback[name] {
+			return nil
+		}
 		return x.step(rollbackCtx, name, RollingBack, code, effect)
 	}
 	if x.started {
@@ -575,7 +578,18 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 		}
 	}
 	if x.hasPrevious {
-		if err := step("rollback_start", "rollback_failed", func(ctx context.Context) error { return x.executor.Systemd.Start(ctx, x.service) }); err != nil {
+		if err := step("rollback_start", "rollback_failed", func(ctx context.Context) error {
+			if !x.installed && !x.started {
+				writer := x.inspectWriter(ctx)
+				if writer == writerRunning {
+					return nil
+				}
+				if writer != writerStopped {
+					return &boundaryRefusal{cause: errors.New("previous writer not settled")}
+				}
+			}
+			return x.executor.Systemd.Start(ctx, x.service)
+		}); err != nil {
 			return x.terminal(ctx, RecoveryRequired, err)
 		}
 		if err := step("rollback_check", "health_failed", func(ctx context.Context) error {

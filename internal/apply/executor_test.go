@@ -153,6 +153,7 @@ func newRig(t testing.TB, update bool) *rig {
 		DaemonReloadFunc: func(context.Context) error { return r.hit(r.intent) },
 		StartFunc:        func(context.Context, systemd.Unit) error { err := r.hit(r.intent); r.active = true; return err },
 	}
+	configureSettledRecoveryWriter(r)
 	return r
 }
 func (r *rig) hit(step string) error {
@@ -224,12 +225,13 @@ func (r *rig) LoadPlan(context.Context, string) (plan.Plan, policy.Desired, erro
 	return r.oldPlan, r.oldDesired, nil
 }
 func (r *rig) Stage(_ context.Context, _ quadlet.Unit) error { return r.hit("stage_unit") }
-func (r *rig) Install(_ context.Context, _ quadlet.Unit, _ string) error {
+func (r *rig) Install(_ context.Context, unit quadlet.Unit, _ string) error {
 	if r.active {
 		panic("install while previous writer is active")
 	}
 	err := r.hit("install_unit")
 	r.candidate = true
+	r.setLiveUnits([]target.Unit{{Name: unit.Name(), Hash: unit.Hash()}})
 	return err
 }
 func (r *rig) Rollback(context.Context, string, string, string) error {
@@ -237,8 +239,9 @@ func (r *rig) Rollback(context.Context, string, string, string) error {
 		panic("restore unit while candidate writer is active")
 	}
 	err := r.hit("rollback_unit")
-	if err == nil {
+	if err == nil || r.unknownStep == "rollback_unit" {
 		r.candidate = false
+		r.setLiveUnits(r.release.Units)
 	}
 	return err
 }
@@ -327,7 +330,7 @@ func TestFailureAtEveryForwardStep(t *testing.T) {
 		rollback []string
 	}{
 		{"preflight", Failed, nil}, {"pull_image", Failed, nil}, {"verify_image", Failed, nil}, {"ensure_secrets", Failed, nil}, {"stage_unit", Failed, nil},
-		{"quiesce_old", RolledBack, []string{"rollback_start", "rollback_check", "rollback_check"}},
+		{"quiesce_old", RolledBack, []string{"rollback_check", "rollback_check"}},
 		{"install_unit", RolledBack, []string{"rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
 		{"reload_units", RolledBack, []string{"rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
 		{"start_unit", RolledBack, []string{"rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
@@ -604,7 +607,11 @@ func TestStopMustProveWriterOff(t *testing.T) {
 }
 func TestUnknownStartDoesNotRetry(t *testing.T) {
 	r := newRig(t, true)
-	r.executor.Systemd.(*systemd.Fake).StartFunc = func(context.Context, systemd.Unit) error { r.hit(r.intent); return context.DeadlineExceeded }
+	r.executor.Systemd.(*systemd.Fake).StartFunc = func(context.Context, systemd.Unit) error {
+		r.hit(r.intent)
+		r.executor.Systemd.(*systemd.Fake).JobPendingFunc = nil
+		return context.DeadlineExceeded
+	}
 	failure(t, r.run(), RecoveryRequired, "start_unit")
 	if r.effects[len(r.effects)-1] != "start_unit" {
 		t.Fatal(r.effects)
@@ -653,7 +660,11 @@ func TestLingeringContainerRefusesSecondWriter(t *testing.T) {
 }
 func TestMissingContainerProvesQuiescence(t *testing.T) {
 	r := newRig(t, true)
+	r.active = false
 	r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
+		if r.active {
+			return podman.ContainerState{Running: true, Status: "running"}, nil
+		}
 		return podman.ContainerState{}, &localexec.Error{Kind: localexec.NotFound}
 	}
 	if err := r.run(); err != nil {
@@ -810,6 +821,27 @@ func (r *rig) GetOperation(_ context.Context, id string) (ops.Operation, error) 
 	return ops.Operation{ID: id, Kind: kind, PlanID: r.plan.Hash, State: r.state}, nil
 }
 
+func (r *rig) VerifyCurrent(ctx context.Context, name string, hashes ...string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	hash, known := observedUnitHash(r.facts, r.plan.App, name)
+	if !known {
+		return errors.New("unreadable live unit")
+	}
+	for _, allowed := range hashes {
+		if hash == allowed {
+			return nil
+		}
+	}
+	return errors.New("foreign live unit")
+}
+func (r *rig) setLiveUnits(units []target.Unit) {
+	if r.facts.Input.Snapshot.Apps.Value == nil || len(*r.facts.Input.Snapshot.Apps.Value) == 0 {
+		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: r.plan.App}})
+	}
+	(*r.facts.Input.Snapshot.Apps.Value)[0].QuadletUnits = target.Known(units)
+}
 func TestPreflightTimeoutIsNotDrift(t *testing.T) {
 	for _, honorsContext := range []bool{false, true} {
 		t.Run(map[bool]string{false: "late_facts", true: "read_error"}[honorsContext], func(t *testing.T) {

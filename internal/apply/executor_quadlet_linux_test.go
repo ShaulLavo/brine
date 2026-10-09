@@ -22,6 +22,9 @@ type diskUnits struct {
 	manager *quadlet.Manager
 }
 
+func (u diskUnits) VerifyCurrent(ctx context.Context, name string, hashes ...string) error {
+	return u.manager.VerifyCurrent(ctx, name, hashes...)
+}
 func (u diskUnits) Stage(ctx context.Context, unit quadlet.Unit) error {
 	if err := u.r.hit("stage_unit"); err != nil {
 		return err

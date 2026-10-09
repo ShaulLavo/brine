@@ -90,9 +90,12 @@ func TestLifecycleUnknownStopSettlesManagerJobs(t *testing.T) {
 				return &localexec.Error{Kind: localexec.UnknownOutcome}
 			}
 			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+				if r.active {
+					return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
+				}
 				return systemd.Properties{ActiveState: "inactive", SubState: "dead"}, nil
 			}
-			r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return !settled, nil }
+			r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return !r.active && !settled, nil }
 			err := r.executor.Run(context.Background(), "operation-1", r.plan, r.desired)
 			if !hasUnknownEvent(r, "stop_unit") {
 				t.Fatal("stop outcome was not unknown", err, r.effects)

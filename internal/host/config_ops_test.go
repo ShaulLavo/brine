@@ -55,6 +55,12 @@ func TestConnectedLifecycleAfterDeployUsesProductionPreflight(t *testing.T) {
 	manager.StopFunc = func(context.Context, systemd.Unit) error { active = false; return nil }
 	manager.StartFunc = func(context.Context, systemd.Unit) error { active = true; return nil }
 	manager.IsActiveFunc = func(context.Context, systemd.Unit) (bool, error) { return active, nil }
+	manager.ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+		if active {
+			return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
+		}
+		return systemd.Properties{ActiveState: "inactive", SubState: "dead"}, nil
+	}
 	manager.ShowFunc = func(_ context.Context, unit systemd.Unit) (systemd.Properties, error) {
 		if unit.String() == "hello.service" && active {
 			return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
@@ -130,8 +136,14 @@ func TestConnectedConfigIsPlanOnlyUntilApply(t *testing.T) {
 	manager.StopFunc = func(context.Context, systemd.Unit) error { active = false; return nil }
 	manager.StartFunc = func(context.Context, systemd.Unit) error { active = true; return nil }
 	manager.IsActiveFunc = func(context.Context, systemd.Unit) (bool, error) { return active, nil }
+	manager.ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+		if active {
+			return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
+		}
+		return systemd.Properties{ActiveState: "inactive", SubState: "dead"}, nil
+	}
 	executor.Engine.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
-		return podman.ContainerState{Running: active, Status: "exited"}, nil
+		return podman.ContainerState{Running: active, Status: map[bool]string{true: "running", false: "exited"}[active]}, nil
 	}
 	r.runner.Executor = executor
 	applied := r.call(t, "apply", dispatch.ApplyArgs{PlanID: changed.PlanID, IdempotencyKey: "config-apply"}).Data.(jobs.Accepted)

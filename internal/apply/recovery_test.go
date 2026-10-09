@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -45,6 +46,7 @@ func TestRecoveryNeverReplaysUnknownStage(t *testing.T) {
 
 func TestRecoveryContinuesAfterProvenPullWithoutPullingAgain(t *testing.T) {
 	r := newRig(t, false)
+	configureSettledRecoveryWriter(r)
 	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
 	r.intent = "pull_image"
 	r.state = Preparing
@@ -100,7 +102,7 @@ func TestRecoveryIntentCrashMatrix(t *testing.T) {
 			}
 			want := RequireRecovery
 			switch step {
-			case "preflight", "pull_image", "verify_image", "ensure_secrets", "quiesce_old", "check_direct":
+			case "preflight", "pull_image", "verify_image", "ensure_secrets", "quiesce_old":
 				want = ResumeForward
 			}
 			if assessment.Action != want {
@@ -115,6 +117,7 @@ func TestRecoveryIntentCrashMatrix(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			r := newRig(t, true)
 			r.intent = step
+			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) { return systemd.Properties{}, injected }
 			r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
 			assessment, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "operation", PlanID: r.plan.Hash, State: RollingBack}, r.plan, r.desired, recoveryEvents(step))
 			if err != nil || assessment.Action != RequireRecovery || len(r.effects) != 0 {
@@ -192,6 +195,7 @@ func TestRecoveryInventoryTimeoutIsBounded(t *testing.T) {
 
 func TestRecoveryCommitReadBackFinishesWithoutEffects(t *testing.T) {
 	r := newRig(t, false)
+	configureSettledRecoveryWriter(r)
 	if err := r.run(); err != nil {
 		t.Fatal(err)
 	}
@@ -216,6 +220,7 @@ func TestRecoveryCommitReadBackFinishesWithoutEffects(t *testing.T) {
 
 func TestRecoveryProofJournalFailurePreventsContinuation(t *testing.T) {
 	r := newRig(t, false)
+	configureSettledRecoveryWriter(r)
 	r.state = Preparing
 	r.intent = "pull_image"
 	r.failOutcome = "pull_image"
@@ -234,6 +239,7 @@ func TestRecoveryProofJournalFailurePreventsContinuation(t *testing.T) {
 
 func TestRecoveryAssessmentCannotBeReusedOrChanged(t *testing.T) {
 	r := newRig(t, false)
+	configureSettledRecoveryWriter(r)
 	r.state = Preparing
 	r.intent = "pull_image"
 	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
@@ -257,6 +263,7 @@ func TestRecoveryAssessmentCannotBeReusedOrChanged(t *testing.T) {
 
 func TestRecoveryPreflightKeepsEffectDeadline(t *testing.T) {
 	r := newRig(t, false)
+	configureSettledRecoveryWriter(r)
 	r.state = Preparing
 	r.intent = "pull_image"
 	reads := 0
@@ -382,5 +389,23 @@ func TestRecoveryCommitRequiresOtherLiveArtifacts(t *testing.T) {
 				t.Fatalf("state %s effects %v", r.state, r.effects)
 			}
 		})
+	}
+}
+
+// Positive recovery fixtures explicitly supply authoritative manager/container facts.
+func configureSettledRecoveryWriter(r *rig) {
+	manager := r.executor.Systemd.(*systemd.Fake)
+	manager.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
+	manager.ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+		if r.active {
+			return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
+		}
+		return systemd.Properties{ActiveState: "inactive", SubState: "dead"}, nil
+	}
+	r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
+		if r.active {
+			return podman.ContainerState{Running: true, Status: "running"}, nil
+		}
+		return podman.ContainerState{Status: "exited"}, nil
 	}
 }

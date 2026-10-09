@@ -576,5 +576,95 @@ Interrupted no-op removal has an absence-validated completion path: fresh exact
 replanning under the lock must still match before its receipt settles succeeded.
 Unknown presence, changed generation/policy, or an unexpected effect event stays
 recovery-required. Persistent-directive keys are whitespace-trimmed before checks.
-Removal receipts are part of the existing unshipped v1-to-v2 migration; there is
-no v3 migration or old-v2 compatibility path. Fresh enrollment creates v2.
+Removal receipts were introduced by the v1-to-v2 migration. Schema v3 now adds
+explicit terminal-resolution operations through a separate v2-to-v3 migration;
+fresh enrollment creates the current schema.
+
+### Terminal recovery resolution
+
+`brine resolve OPERATION_ID --target NAME [--idempotency-key KEY]` accepts a
+new detached operation for a terminal `recovery_required` deploy or immutable
+secret assignment. Deployment plans include updates, rollback plans, config
+changes and stateless removal. The machine request is exactly
+`resolve {operation_id, idempotency_key}`; it has no force, shell, purge or
+operator-authorization switch. D8 mutating authorization and current per-app
+policy still apply. Operator-only actions remain outside this command.
+
+Terminal receipts stay immutable. A `resolve` successor has `recovery_of`, a
+value-free `resolution {operation_id}` event and an atomically adopted, bounded
+step/secret-version prefix. Idempotent acceptance and the launch fence prevent
+duplicate runners; the store transaction fences active or successful descendants
+across the entire receipt family, not only direct successors of one source. Schema v3 migrates the real v2 operations/journals without
+rewriting them and preserves the v1 migration path.
+
+The successor loads the original stored plan, acquires the existing host lock,
+then inspects current ownership, policy, artifacts, routing, writer and systemd
+jobs. It does not generate a new plan that mistakes earlier journaled Brine
+withdrawal for foreign route drift. Ordinary planners remain strict. Safe
+resolution reuses executor continuation/rollback and journals all new effects
+under the successor. Recovery authorization freshly settles manager jobs and
+proves the unit/container writer state even when the last step was a read-only
+health check. Rollback must prove the live unit hash belongs to the candidate or
+recorded predecessor before stopping its service. Repeated attempts validate at
+most 64 immutable, same-plan recovery-required ancestors under the lock. An exact commit/retirement receipt
+from any member stays usable after a later resolution failed to journal its
+terminal state; missing, foreign, cyclic or overlong chains refuse.
+`run-op` and reconciliation recover interrupted successors. A durable phase
+transition can precede its step intent: recovery preserves an already-reached
+phase and never advances past the phase justified by the journal prefix;
+preview remains read-only. Successful removal finishes deletion/reload and
+retires the live head and port, without restarting the removed writer or
+restoring its route. Retained history, images and secrets are not purged.
+
+An affirmatively installed candidate before route publication can be rolled
+back after the original deployment stopped: restore the owned previous unit and
+prove health, or remove the first-deploy candidate when there is no predecessor.
+Application rollback does not rewrite databases. An exact committed release or
+removal receipt can settle success only with the existing live-artifact checks.
+An uncertain secret assignment only reads the recorded immutable version name:
+present settles succeeded, definitely absent settles failed, unknown remains
+recovery-required. No value is read and no secret creation is replayed.
+
+This is not unconditional repair. Ambiguous ownership/writer state, changed
+policy/control generations, unproven failed/rollback prefixes, unavailable
+staging or loaded-generation evidence, and uncertain deployment route
+publication still refuse without further effects. They need an operator to
+establish authoritative state; no DB editing, arbitrary host command or
+permission bypass is provided. A refused successor is itself recovery-required;
+resolve that latest receipt after fixing the underlying evidence, not an older
+ancestor that lacks the newer journal. Human operation status conditionally
+suggests resolution inspection and diagnose directs the reader to status; the original terminal receipt intentionally remains
+visible, while the successor status and `recovery_of` report the repair outcome.
+
+Human status only offers resolution inspection for a complete supported forward
+or removal prefix. Unproven failures, completed rollback prefixes, missing evidence, uncertain deployment route
+publication and partial journal pages do not receive unconditional resolve advice.
+Diagnose lacks step-prefix evidence and directs the operator to status instead.
+Resolution creation inspects at most 64 ancestors and 4096 family receipts;
+excessive or inconsistent families refuse rather than widening authority.
+
+
+Effect-time writer fencing applies to ordinary deployment and rollback as well
+as resolution. After durable step intent and before stopping, replacing or
+restoring the owned unit, reloading it or starting a writer, the shared executor
+reads the active Quadlet through the pinned-root ownership adapter and settles
+systemd jobs with independent unit/container probes. File ownership is checked
+again around those probes; unknown ownership or unsettled jobs refuse before
+the requested effect. Restore/reload/start boundaries require a stopped writer,
+and a successful stop must also prove the writer stopped with no queued job.
+A previous writer already running after a failed stop is health-checked without
+issuing another start. Proven pre-effect refusals are failed step outcomes, not
+unknown effects eligible for applied-effect readback.
+
+Recovery compares the current policy version and hash with the stored plan
+before authorizing any continuation or rollback, even if the app remains allowed.
+A proven pre-effect refusal journals the closed `effect_refused` step code.
+Inspection may remove only its matching durable intent/refusal pair from a private
+projection; original receipts remain unchanged. Generic `rollback_failed` is not
+proof of an unattempted effect. After fresh ownership, routing and writer/job
+checks, resolution or reconciliation can continue from the true preceding prefix.
+An ordered, completed pre-publication rollback prefix may be retained without
+replaying its completed effects; compatibility proof, restored predecessor
+artifacts and writer state are checked. Ambiguous, noncanonical or still-pending
+rollback outcomes remain recovery-required. Read-only failed health probes can
+be inspected again; uncertain mutations are never converted into refusals.

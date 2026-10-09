@@ -58,6 +58,7 @@ func (s State) IsTerminal() bool {
 
 type Operation struct {
 	ID             string    `json:"id"`
+	RecoveryOf     string    `json:"recovery_of,omitempty"`
 	Kind           Kind      `json:"kind"`
 	App            string    `json:"app"`
 	SecretRef      string    `json:"secret_ref"`
@@ -99,6 +100,10 @@ type StepPayload struct {
 type FailurePayload struct {
 	Code string `json:"code"`
 }
+type ResolutionPayload struct {
+	OperationID string `json:"operation_id"`
+}
+
 type LaunchPayload struct {
 	Outcome string `json:"outcome"`
 }
@@ -132,6 +137,11 @@ func ValidateEvent(e Event) error {
 	}
 	outcome := func(s string) bool { return slices.Contains([]string{"intent", "completed", "unknown"}, s) }
 	switch e.Kind {
+	case "resolution":
+		var p ResolutionPayload
+		if decode(&p, "operation_id") != nil || !operationID.MatchString(p.OperationID) {
+			return ErrInvalidEvent
+		}
 	case "secret_version":
 		var p SecretVersionPayload
 		if decode(&p, "name", "outcome") != nil || !ValidSecretVersionName(p.Name) || !outcome(p.Outcome) {
@@ -148,7 +158,11 @@ func ValidateEvent(e Event) error {
 		}
 		if p.Code != "" {
 			proof := slices.Contains([]string{"stateless_compatible", "compatibility_verified"}, p.Code)
-			if proof {
+			if p.Code == "effect_refused" {
+				if p.Outcome != "failed" || !slices.Contains([]string{"quiesce_old", "install_unit", "reload_units", "stop_unit", "remove_unit", "start_unit", "rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_route", "rollback_start"}, p.Step) {
+					return ErrInvalidEvent
+				}
+			} else if proof {
 				if p.Step != "check_compatibility" || p.Outcome != "completed" {
 					return ErrInvalidEvent
 				}

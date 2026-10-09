@@ -18,7 +18,17 @@ import (
 func TestUnknownStopRunningWithoutJobEvidenceNeverRestartsReviewerCase(t *testing.T) {
 	r := newRig(t, true)
 	r.unknownStep = "quiesce_old"
-	r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+	baseShow := r.executor.Systemd.(*systemd.Fake).ShowFunc
+	r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) {
+		if hasUnknownEvent(r, "quiesce_old") {
+			return false, injected
+		}
+		return false, nil
+	}
+	r.executor.Systemd.(*systemd.Fake).ShowFunc = func(ctx context.Context, unit systemd.Unit) (systemd.Properties, error) {
+		if !hasUnknownEvent(r, "quiesce_old") {
+			return baseShow(ctx, unit)
+		}
 		return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
 	}
 	r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
@@ -37,7 +47,17 @@ func TestUnknownStopRunningWithoutJobEvidenceNeverRestartsReviewerCase(t *testin
 func TestUnknownStartRunningWithoutJobEvidenceCannotContinue(t *testing.T) {
 	r := newRig(t, true)
 	r.unknownStep = "start_unit"
-	r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+	baseShow := r.executor.Systemd.(*systemd.Fake).ShowFunc
+	r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) {
+		if hasUnknownEvent(r, "start_unit") {
+			return false, injected
+		}
+		return false, nil
+	}
+	r.executor.Systemd.(*systemd.Fake).ShowFunc = func(ctx context.Context, unit systemd.Unit) (systemd.Properties, error) {
+		if !hasUnknownEvent(r, "start_unit") {
+			return baseShow(ctx, unit)
+		}
 		return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
 	}
 	r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
@@ -205,6 +225,9 @@ func TestFailedJobReadBeforeOrAfterSnapshotNeverMeansSettled(t *testing.T) {
 			stoppedOrRunningProbes(r)
 			reads := 0
 			r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) {
+				if !hasUnknownEvent(r, "start_unit") {
+					return false, nil
+				}
 				reads++
 				if reads == failAt {
 					return false, injected

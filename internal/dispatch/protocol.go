@@ -56,6 +56,7 @@ var operations = map[string]operation{
 	"lifecycle":  {Mutating, decodeLifecycle},
 	"secret_set": {Mutating, decodeSecret},
 	"reconcile":  {Mutating, decodeReconcile},
+	"resolve":    {Mutating, decodeResolve},
 	"diagnose":   {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
 	"status":     {ReadOnly, decodeAppStatus},
 	"rollback":   {Mutating, decodeRollback},
@@ -234,6 +235,16 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		}
 		value = stored
 
+	case ResolveArgs:
+		resolver, ok := s.jobs.(ResolutionJobs)
+		if !ok {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		accepted, err := resolver.Resolve(ctx, args.OperationID, args.IdempotencyKey)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
 	case ReconcileArgs:
 		if args.DryRun {
 			if s.Reconciler == nil {

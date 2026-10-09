@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync/atomic"
 
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
@@ -30,16 +31,18 @@ const (
 // InspectRecovery and Recover must run under the same host lock. A Recovery is
 // single-use; callers must inspect again after any journal or adapter failure.
 type Recovery struct {
-	Action          RecoveryAction `json:"action"`
-	Step            string         `json:"step,omitempty"`
-	operation       Operation
-	execution       *execution
-	completed       map[string]bool
-	unknownBoundary bool
-	resolved        bool
-	decision        RecoveryAction
-	boundary        string
-	used            *atomic.Bool
+	Action           RecoveryAction `json:"action"`
+	Step             string         `json:"step,omitempty"`
+	operation        Operation
+	execution        *execution
+	completed        map[string]bool
+	unknownBoundary  bool
+	resolved         bool
+	decision         RecoveryAction
+	resolutionState  State
+	resolutionOwners []string
+	boundary         string
+	used             *atomic.Bool
 }
 
 var forwardSteps = []string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "start_unit", "check_direct", "publish_route", "check_routed", "commit"}
@@ -47,9 +50,19 @@ var forwardSteps = []string{"preflight", "pull_image", "verify_image", "ensure_s
 // InspectRecovery never stages, installs, starts, reloads, commits or journals.
 // Reload and route outcomes lack authoritative read-back in the current adapters.
 // Those boundaries deliberately require human recovery, even if health is green.
-func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event) (r Recovery, inspectErr error) {
-	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}}
+func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event) (Recovery, error) {
+	return e.inspectRecovery(ctx, op, p, d, events, nil)
+}
+
+func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, owners []string) (r Recovery, inspectErr error) {
+	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}, resolutionOwners: owners}
 	defer func() { r.decision, r.boundary = r.Action, r.Step }()
+	var prefixOK bool
+	var refusedEffect bool
+	events, refusedEffect, prefixOK = ops.InspectionPrefix(events)
+	if !prefixOK {
+		return r, nil
+	}
 	if p.Lifecycle == plan.RemoveApp {
 		return e.inspectRemoveRecovery(ctx, op, p, d, events, r)
 	}
@@ -64,13 +77,60 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	index := 0
 	validPrefix := true
 	var last stepPayload
+	rollbackCompleted := map[string]bool{}
+	var rollbackPath []string
+	rollbackIndex := 0
+	rollbackPending := false
 	for _, event := range events {
 		if event.Kind != "step" {
 			continue
 		}
-		if json.Unmarshal(event.Payload, &last) != nil {
+		var step stepPayload
+		if json.Unmarshal(event.Payload, &step) != nil {
 			return r, nil
 		}
+		rollbackStep := slices.Contains([]string{"rollback_quiesce", "check_compatibility", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_route"}, step.Step)
+		if refusedEffect && rollbackStep {
+			if rollbackPath == nil {
+				boundary := slices.Index(forwardSteps, r.Step)
+				if boundary >= slices.Index(forwardSteps, "publish_route") || boundary < 0 {
+					return r, nil
+				}
+				if boundary >= slices.Index(forwardSteps, "start_unit") {
+					rollbackPath = append(rollbackPath, "rollback_quiesce")
+					if p.Kind != plan.Create {
+						rollbackPath = append(rollbackPath, "check_compatibility")
+					}
+				}
+				if boundary >= slices.Index(forwardSteps, "install_unit") {
+					rollbackPath = append(rollbackPath, "rollback_unit", "rollback_reload")
+				}
+				if p.Kind != plan.Create {
+					rollbackPath = append(rollbackPath, "rollback_start", "rollback_check")
+				}
+			}
+			if rollbackIndex >= len(rollbackPath) || step.Step != rollbackPath[rollbackIndex] {
+				return r, nil
+			}
+			switch step.Outcome {
+			case "completed":
+				if step.Step == "check_compatibility" && !slices.Contains([]string{"stateless_compatible", "compatibility_verified"}, step.Code) {
+					return r, nil
+				}
+				rollbackCompleted[step.Step] = true
+				rollbackIndex++
+				rollbackPending = false
+			case "intent", "unknown":
+				rollbackPending = true
+			default:
+				return r, nil
+			}
+			continue
+		}
+		if rollbackPath != nil {
+			return r, nil
+		}
+		last = step
 		if index >= len(forwardSteps) || last.Step != forwardSteps[index] {
 			validPrefix = false
 		}
@@ -84,13 +144,16 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 			validPrefix = false
 		}
 	}
+	if rollbackPending {
+		return r, nil
+	}
 	if r.Step == "" {
 		return r, nil
 	}
 	if !validPrefix && op.State != RollingBack {
 		return r, nil
 	}
-	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State}
+	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, recoveryRollback: rollbackCompleted}
 	r.execution = x
 	var err error
 	evidence, cancel := context.WithTimeout(ctx, e.effectTimeout())
@@ -99,12 +162,15 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if err != nil {
 		return r, err
 	}
+	if x.facts.Input.Desired.PolicyHash != p.PolicyHash || x.facts.Input.Desired.PolicyVersion != p.PolicyVersion {
+		return r, nil
+	}
 	x.previous, x.hasPrevious, err = e.Releases.CurrentRelease(evidence, p.App)
 	if err != nil {
 		return r, err
 	}
 	// A committed operation needs exact artifact read-back, not just an ID.
-	if validPrefix && x.hasPrevious && x.previous.ID == op.ID {
+	if validPrefix && x.hasPrevious && (x.previous.ID == op.ID || slices.Contains(r.resolutionOwners, x.previous.ID)) {
 		if r.Step != "commit" || x.previous.PlanID != p.Hash {
 			return r, nil
 		}
@@ -124,6 +190,10 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 			return r, nil
 		}
 		x.nextRelease = &candidate
+		writer := x.waitWriter(evidence)
+		if writer != writerStopped && writer != writerRunning {
+			return r, nil
+		}
 		if x.reconcileUnknown(ctx, "commit") == applied {
 			r.Action = FinishSucceeded
 			r.resolved = last.Outcome != "completed"
@@ -183,31 +253,51 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	x.quiesced = x.hasPrevious && boundary >= slices.Index(forwardSteps, "quiesce_old")
 	x.installed = boundary >= slices.Index(forwardSteps, "install_unit")
 	x.started = boundary >= slices.Index(forwardSteps, "start_unit")
+	// Journaled installation is not ownership of the artifact now on disk.
+	// Prove ownership before rollback can stop its service, not in rollback_unit.
+	if x.quiesced || x.installed {
+		hash, known := observedUnitHash(x.facts, p.App, x.unit.Name())
+		if !known || hash != x.unit.Hash() && hash != x.previousUnitHash() || x.installed && hash == "" && !rollbackCompleted["rollback_unit"] {
+			return r, nil
+		}
+	}
+	if rollbackCompleted["rollback_unit"] {
+		hash, known := observedUnitHash(x.facts, p.App, x.unit.Name())
+		if !known || hash != x.previousUnitHash() {
+			return r, nil
+		}
+	}
 	// A published route cannot be restored from live facts alone. The original
 	// generation was not persisted by this executor, so never invent it.
 	if boundary >= slices.Index(forwardSteps, "publish_route") {
 		return r, nil
 	}
-	fresh, err := plan.Build(x.facts.Input)
-	if err != nil {
-		return r, nil
-	}
+	fresh, buildErr := plan.Build(x.facts.Input)
 	original, err := p.CanonicalBytes()
 	if err != nil {
 		return r, nil
 	}
-	rebuilt, err := fresh.CanonicalBytes()
-	if err == nil && bytes.Equal(original, rebuilt) {
+	rebuilt, canonicalErr := fresh.CanonicalBytes()
+	if len(rollbackCompleted) == 0 && buildErr == nil && canonicalErr == nil && bytes.Equal(original, rebuilt) {
 		r.Action = ResumeForward
 	} else if x.quiesced || x.installed {
-		// Rollback uses committed immutable artifacts. Before routing changed,
-		// the observed original generation must still agree with the old release.
 		if !x.hasPrevious || (x.previous.CaddyGeneration == x.facts.Routing.Generation && x.previous.CaddyFile.Hash == x.facts.Routing.Files[x.previous.CaddyFile.Name]) {
 			r.Action = RestorePrevious
 		}
 	}
 	if r.Action == RestorePrevious && (e.Units == nil || e.Systemd == nil || e.Podman == nil || e.Health == nil) {
 		r.Action = RequireRecovery
+	}
+	if r.Action != RequireRecovery {
+		// A read-only last step does not fence manager jobs or prove the writer.
+		// Every authorization needs a fresh, settled unit/container observation.
+		writer := x.waitWriter(evidence)
+		if rollbackCompleted["rollback_quiesce"] && !rollbackCompleted["rollback_start"] && writer != writerStopped || rollbackCompleted["rollback_start"] && writer != writerRunning {
+			r.Action = RequireRecovery
+		}
+		if writer != writerStopped && writer != writerRunning || x.quiesced && !x.started && writer != writerStopped || r.Action == ResumeForward && (x.started && writer != writerRunning || !x.hasPrevious && !x.started && writer != writerStopped) {
+			r.Action = RequireRecovery
+		}
 	}
 	return r, nil
 }
@@ -217,6 +307,10 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 		return errors.New("apply: invalid recovery assessment")
 	}
 	x := r.execution
+	if err := x.prepareResolution(ctx, r.resolutionState); err != nil {
+		return err
+	}
+	r.operation.State = x.state
 	if r.unknownBoundary {
 		if err := x.event(ctx, r.Step, "unknown", "interrupted"); err != nil {
 			return err

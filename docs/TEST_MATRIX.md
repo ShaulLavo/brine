@@ -90,6 +90,30 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   Volume/Mount/ReadWritePaths directives; unified v1-to-v2 migration preserving
   the deploy journal and creating immutable removal receipts. All pass locally.
 
+### Terminal recovery resolution regressions
+
+- T09/T10/T21: exact terminal removal prefix (withdraw completed, stop unknown/
+  interrupted) with stopped writer and withdrawn route; dispatcher/store/runner
+  resolution retires head/port without replaying withdrawal or stop. An actual
+  v2 database migrates to v3 preserving that journal and terminal identity.
+- T07/T09: equivalent first-deploy and update installed-candidate readback
+  rolls back safely; ambiguous live owned-unit hashes refuse with no effects.
+- T09/T10/T21: local run-op SIGKILL at remaining removal deletion, reload and
+  retirement effects; read-only preview, host-lock proof, detached reconciliation
+  and repeated convergence. This is fake-host evidence, not Pi execution.
+- T20/T22: closed resolve CLI/dispatcher protocol, mutating D8 denial and
+  acceptance, idempotent creation, active-successor exclusion and immutable
+  terminal/source guards. Secret present/absent resolution and interrupted
+  successor reconciliation inspect only the named version and never create it.
+- Historical-artifact regression: terminal removal with a committed pre-log-policy
+  Quadlet hash succeeds after the renderer adds LogDriver/LogOpt. Inspection and
+  deletion use the recorded hash, not freshly rendered unit bytes; normal drift
+  checks remain enabled. Both new diagnostic rules survive the main merge.
+
+Resolution receipt ancestry: committed/retired evidence held by the original,
+intermediate or immediate source is retained across repeated terminal resolution
+attempts. Foreign plan/app, non-recovery-required state, unsupported kind,
+cyclic and overlong (more than 64 ancestors) chains refuse without host effects.
 ## P03 imported-route provenance evidence (physical rerun pending)
 
 - T05/T11: `internal/inventory/provenance_test.go` uses the production collector,
@@ -136,3 +160,44 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   refuses all attribution. Lexer tests distinguish quoted directives from
   harmless response strings and comments; environment expansion and malformed
   source tokens also stay unknown.
+
+
+Resolution review regressions (local, physical rerun still pending):
+- Completed check_direct on an interrupted update with foreign or unreadable
+  Quadlet ownership refuses before rollback_quiesce can stop its service.
+- Both intent and completed health boundaries freshly probe pending manager
+  jobs; a continuously pending job refuses without host effects.
+- Durable phase transitions before step intent converge at every removal
+  boundary. Actual detached run-op SIGKILL after each of the six forward phase
+  writes proves read-only preview, successful settlement and repeat convergence.
+- Transactional family fencing rejects a second resolution of an old source
+  while a descendant is active or after that descendant succeeded.
+- Status suppresses resolve advice for absent and unsupported prefixes; diagnose
+  directs the reader to status rather than promising automatic resolution.
+
+- Post-intent effect races: fresh foreign-file, pending-job and unreadable-job
+  changes refuse at rollback quiesce, unit restore and previous start, for both
+  terminal resolution and ordinary deploy rollback (18 cases). The same races
+  refuse normal forward quiesce, install and start (9 cases). Removing the
+  shared guard reproduces failures; with it all 27 cases pass repeatedly.
+- A disappearing first-deploy candidate refuses rollback stop even though
+  absence will later be an allowed result of safe unit removal.
+- A successful rollback stop with a queued manager job cannot restore a unit
+  or start its predecessor. Pre-effect refusals never become unknown/applied
+  outcomes. Real pinned-root filesystem tests prove owned hash/explicit absence,
+  fresh replacement detection, marker and symlink refusal, and cancellation.
+
+- Changed policy version or hash, while the app remains allowed, refuses with
+  zero mutation calls after predecessor quiesce and after candidate installation
+  (four update-resolution cases).
+- A queued job appearing after intent records an explicit no-effect refusal;
+  after it clears, both inspection paths can authorize recovery. Ordinary deploy
+  rollback refusals at quiesce, restore, reload and predecessor start are
+  resolvable, including first-deploy cleanup after the candidate was removed;
+  completed rollback effects are not replayed (seven boundary cases). Unknown,
+  failed, out-of-order restore evidence and missing compatibility proof refuse.
+- Refusal projection tests reject absent/mismatched intents and invalid proof
+  outcomes/steps, preserve original payloads and never infer no-effect proof
+  from generic rollback failures.
+- Resolution SIGKILL tests keep child/barrier startup bounded separately from
+  the parent recovery/assertion deadline. Production timeouts are unchanged.

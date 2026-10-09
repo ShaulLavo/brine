@@ -7,59 +7,38 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
 
-	"github.com/ShaulLavo/brine/internal/apply"
-	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
-	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 )
 
-func TestRemoveRunOpCrashChild(t *testing.T) {
-	if os.Getenv("BRINE_REMOVE_CRASH_CHILD") != "1" {
-		return
-	}
-	h := newRemovalHost(t, os.Getenv("BRINE_REMOVE_CRASH_STATE"), false)
-	if phase := os.Getenv("BRINE_RESOLUTION_CRASH_PHASE"); phase != "" {
-		engine := h.runner.Executor.(Executor).Engine
-		engine.Journal = phaseCrashJournal{Journal: engine.Journal, phase: ops.State(phase)}
-		h.runner.Reconciler = runnerReconciler{newReconciler(h.service, engine, engine.Systemd)}
-	}
-	h.boundary = func(step string) {
-		if step != os.Getenv("BRINE_REMOVE_CRASH_STEP") {
-			return
-		}
-		pipe := os.NewFile(3, "ready")
-		fmt.Fprintln(pipe, "ready")
-		pipe.Close()
-		select {}
-	}
-	if err := h.runner.Run(context.Background(), os.Getenv("BRINE_REMOVE_CRASH_OP")); err != nil {
-		t.Fatal(err)
-	}
-	t.Fatal("crash boundary not reached")
-}
-func TestRemoveRunOpSIGKILLConvergesEveryEffectBoundary(t *testing.T) {
-	for _, step := range []string{"withdraw_route", "stop_unit", "remove_unit", "reload_units", "retire_app"} {
+func TestResolutionRunOpSIGKILLConvergesRemainingRemovalSteps(t *testing.T) {
+	for _, step := range []string{"remove_unit", "reload_units", "retire_app", "phase:preflight", "phase:preparing", "phase:quiescing", "phase:starting", "phase:checking", "phase:committing"} {
 		t.Run(step, func(t *testing.T) {
 			dir := t.TempDir()
 			h := newRemovalHost(t, dir, true)
-			planned := h.call(t, "lifecycle", dispatch.LifecycleArgs{App: "hello", Action: plan.RemoveApp}).Data.(apps.ConfigPlan)
-			accepted := h.call(t, "apply", dispatch.ApplyArgs{PlanID: planned.PlanID, IdempotencyKey: "remove-crash"}).Data.(jobs.Accepted)
+			source := seedTerminalRemoval(t, h)
+			accepted := h.call(t, "resolve", dispatch.ResolveArgs{OperationID: source, IdempotencyKey: "resolution-crash"}).Data.(jobs.Accepted)
 			read, write, err := os.Pipe()
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer read.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRemoveRunOpCrashChild$")
+			childCtx, childCancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer childCancel()
+			child := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRemoveRunOpCrashChild$")
 			child.Env = append(os.Environ(), "BRINE_REMOVE_CRASH_CHILD=1", "BRINE_REMOVE_CRASH_STATE="+dir, "BRINE_REMOVE_CRASH_OP="+accepted.OperationID, "BRINE_REMOVE_CRASH_STEP="+step)
+			phase := strings.TrimPrefix(step, "phase:")
+			phaseCrash := phase != step
+			if phaseCrash {
+				child.Env = append(child.Env, "BRINE_RESOLUTION_CRASH_PHASE="+phase)
+			}
 			child.ExtraFiles = []*os.File{write}
 			if err = child.Start(); err != nil {
 				write.Close()
@@ -86,10 +65,10 @@ func TestRemoveRunOpSIGKILLConvergesEveryEffectBoundary(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
+			case <-childCtx.Done():
+				t.Fatal(childCtx.Err())
 			}
-			wait, stop := context.WithTimeout(ctx, 20*time.Millisecond)
+			wait, stop := context.WithTimeout(childCtx, 20*time.Millisecond)
 			lock, lockErr := h.store.AcquireHostLock(wait)
 			stop()
 			if lockErr == nil {
@@ -106,13 +85,39 @@ func TestRemoveRunOpSIGKILLConvergesEveryEffectBoundary(t *testing.T) {
 			if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
 				t.Fatal(child.ProcessState)
 			}
+			childCancel()
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
 			op, err := h.store.GetOperation(ctx, accepted.OperationID)
 			if err != nil || op.State.IsTerminal() {
 				t.Fatal(op, err)
 			}
+			if phaseCrash && op.State != ops.State(phase) {
+				t.Fatalf("durable phase %s want %s", op.State, phase)
+			}
 			events, err := h.store.EventsAfter(ctx, accepted.OperationID, 0, 128)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if phaseCrash {
+				want := "stop_unit"
+				if phase == "checking" {
+					want = "remove_unit"
+				}
+				if phase == "committing" {
+					want = "reload_units"
+				}
+				last := ops.StepPayload{}
+				for _, event := range events {
+					if event.Kind == "step" {
+						if e := json.Unmarshal(event.Payload, &last); e != nil {
+							t.Fatal(e)
+						}
+					}
+				}
+				if last.Step != want || last.Outcome == "intent" {
+					t.Fatalf("phase write did not precede next step intent: %+v", last)
+				}
 			}
 			disk, err := h.read()
 			if err != nil {
@@ -158,28 +163,9 @@ func TestRemoveRunOpSIGKILLConvergesEveryEffectBoundary(t *testing.T) {
 					unknown = true
 				}
 			}
-			if !unknown {
+			if !phaseCrash && !unknown {
 				t.Fatal("interrupted effect was not journaled unknown")
 			}
 		})
 	}
-}
-
-// Stop exactly after the durable phase write, before step intent can be appended.
-type phaseCrashJournal struct {
-	apply.Journal
-	phase ops.State
-}
-
-func (j phaseCrashJournal) SetOperationState(ctx context.Context, id string, state ops.State) error {
-	if err := j.Journal.SetOperationState(ctx, id, state); err != nil {
-		return err
-	}
-	if state == j.phase {
-		pipe := os.NewFile(3, "ready")
-		fmt.Fprintln(pipe, "ready")
-		pipe.Close()
-		select {}
-	}
-	return nil
 }

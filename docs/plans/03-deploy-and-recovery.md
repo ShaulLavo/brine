@@ -53,3 +53,16 @@ An authorized stateless test app deploys successfully. An invalid release never 
 **Approved P03-06/P03-10 diagnostic follow-up.** Restricted `diagnose fixture` on that healthy first release returned unit/container/health/route known true, but `drift:unknown` with `artifact_observation_unknown` and logs unknown with `internal_error`. Reproduce with `brine diagnose fixture --target "$TARGET" --config-dir "$CLIENT_DIR" --json` and bounded `brine logs fixture` while a fixture is deployed; investigate the production journal reader/session and route provenance before claiming complete diagnostics. The log failure was observed once; it was not isolated or fixed in this lane. Do not publish raw journal content.
 
 **Approved P03-09 terminal-removal recovery follow-up.** Physical remove operation `01a121b1e29e45390eb6945d6b142cabb2c2d61c6584` withdrew routing, then stopped its writer but reached `recovery_required` on `stop_unit` (`interrupted`). Read-only queue serialization was `LoadState=loaded` with empty `Job=`, exposing the small numeric-only Job parser bug fixed in this lane. The already-terminal operation is not selected by reconciliation: `brine reconcile --dry-run --target "$TARGET" --config-dir "$CLIENT_DIR" --json` returned empty outcomes before and after the fix. Re-planning `brine remove fixture` afterward refuses `artifact_drift:route` (plan `sha256:b6bfd59b7a99eee60454ba7984f649d7487b6db6567355db6dc0630b3f7efd4c`) because the first operation already withdrew that route. No retry was applied. Provide an explicit, ownership-bound repair/resume path for terminal partial removal, without treating arbitrary route drift as permission or restarting a removed writer. Cover this sequence with real server/store/adapter tests. Residual stopped Quadlet, committed head/port, immutable secret, image and historical generation are preserved; no operator-side DB edits or broad deletion were attempted. Then repeat physical removal and verify live-head/port retirement. The failure was seen once; no injected kill or timeout was involved.
+
+**Terminal-removal follow-up implementation (local evidence).** `resolve
+OPERATION_ID --target NAME --idempotency-key KEY` records a linked detached
+successor rather than reopening the terminal receipt. It inspects the original
+plan/prefix and current owned host state under the mutation lock, allowing the
+withdrawn-route/stopped-writer case to finish and retire its live head/port
+without a permissive fresh removal plan. The proper v2-to-v3 migration preserves
+the captured terminal journal; v1 remains supported. Equivalent installed-candidate
+deploy/update rollback, unreadable/foreign-state refusal, D8 authorization,
+read-only secret settlement and SIGKILL of remaining removal effects have local
+coverage. See the terminal-resolution contract and test matrix for safe limits.
+Physical acceptance remains open: this lane has not accessed any host. The Pi
+lane must run the supported command, poll its successor, and verify retirement.

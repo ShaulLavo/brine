@@ -19,6 +19,7 @@ var hostRules = []rule{
 	{"runner_linger_disabled", "error", "The runner's user services cannot survive logout because linger is disabled.", []string{"brine doctor", "brine enroll --help"}, func(h Host, _ App) bool { return h.Linger.Value != nil && !*h.Linger.Value }},
 }
 var appRules = []rule{
+	{"launch_unknown", "error", "The operation launch is uncertain. Inspect and reconcile it without relaunching.", []string{"brine status --operation ID --target NAME", "brine reconcile --target NAME"}, func(_ Host, a App) bool { return latest(a, ops.LaunchUnknown) }},
 	{"unit_journal_unavailable", "warning", "Unit journal logs are unavailable to the runner. Use app logs for container output; ask the operator to inspect unit logs without widening deploy credentials.", []string{"brine logs APP --target NAME"}, func(_ Host, a App) bool {
 		return a.UnitLogs.Status == "unknown" && a.UnitLogs.Reason == string(result.LogsJournalUnavailable)
 	}},
@@ -29,7 +30,7 @@ var appRules = []rule{
 	{"route_missing", "error", "No live Caddy route was observed for this app.", []string{"brine plan --help"}, func(_ Host, a App) bool { return a.RoutePresent.Value != nil && !*a.RoutePresent.Value }},
 	{"artifact_drift", "warning", "Observed app artifacts differ from the committed release. Replan before making changes.", []string{"brine plan --help"}, func(_ Host, a App) bool { return a.Drift.Value != nil && len(*a.Drift.Value) > 0 }},
 	{"operation_failed", "warning", "The most recent app operation failed. Inspect its status and logs before retrying.", []string{"brine status --operation ID --target NAME", "brine logs APP --target NAME"}, func(_ Host, a App) bool { return latest(a, ops.Failed) }},
-	{"recovery_required", "error", "The most recent operation needs recovery. Inspect its recorded state; do not blindly retry.", []string{"brine status --operation ID --target NAME"}, func(_ Host, a App) bool { return latest(a, ops.RecoveryRequired) || latest(a, ops.LaunchUnknown) }},
+	{"recovery_required", "error", "The most recent operation needs recovery. Inspect its recorded state; do not blindly retry.", []string{"brine status --operation ID --target NAME"}, func(_ Host, a App) bool { return latest(a, ops.RecoveryRequired) }},
 	{"plan_stale", "warning", "The most recent operation refused a stale plan. Make a fresh plan before applying.", []string{"brine plan --help"}, func(_ Host, a App) bool {
 		return a.Operations.Value != nil && len(*a.Operations.Value) > 0 && (*a.Operations.Value)[0].FailureCode == "stale_plan"
 	}},

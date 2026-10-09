@@ -49,9 +49,10 @@ type Report struct {
 	Outcomes     []Outcome `json:"outcomes"`
 }
 type Reconciler struct {
-	Store    Store
-	Systemd  RunnerInspector
-	Executor *apply.Executor
+	SecretResolution func(context.Context, ops.Operation, []ops.Event) (ops.State, error)
+	Store            Store
+	Systemd          RunnerInspector
+	Executor         *apply.Executor
 	// ExecutorFor binds fresh facts and policy input to each operation. It must
 	// only construct adapters, never stage or execute effects. It takes priority
 	// over Executor, which is useful for a single-operation host or tests.
@@ -187,6 +188,15 @@ func (r Reconciler) reconcileUnderLocks(ctx context.Context, lock, launch ops.Lo
 				if runErr != nil && !current.State.IsTerminal() {
 					return report, runErr
 				}
+			} else if op.Kind == ops.Resolve && op.PlanID == "" && outcome.After != ops.RecoveryRequired {
+				if err := r.RunResolution(ctx, lock, op.ID); err != nil {
+					return report, err
+				}
+				current, err := r.Store.GetOperation(ctx, op.ID)
+				if err != nil {
+					return report, err
+				}
+				outcome.After = current.State
 			} else {
 				payload, _ := json.Marshal(ops.FailurePayload{Code: outcome.Code})
 				if _, err := r.Store.AppendEvent(ctx, op.ID, ops.Event{Kind: "failure", Payload: payload}); err != nil {
@@ -247,6 +257,29 @@ func (r Reconciler) inspect(ctx context.Context, op ops.Operation) (Outcome, *co
 	if err != nil {
 		return out, nil, err
 	}
+	if op.Kind == ops.Resolve && op.PlanID == "" {
+		source, e := r.Store.GetOperation(ctx, op.RecoveryOf)
+		if e != nil || source.State != ops.RecoveryRequired || source.App != op.App || source.SecretRef != op.SecretRef || source.Kind != ops.SecretSet && source.Kind != ops.Resolve {
+			return out, nil, nil
+		}
+		if r.SecretResolution == nil {
+			return out, nil, nil
+		}
+		state, e := r.SecretResolution(ctx, op, events)
+		if e != nil {
+			return out, nil, nil
+		}
+		out.After = state
+		out.Action = string(state)
+		out.Code = ""
+		if state == ops.RecoveryRequired {
+			out.Code = "recovery_required"
+		}
+		if state == ops.Failed {
+			out.Code = "executor_failed"
+		}
+		return out, nil, nil
+	}
 	launch := false
 	steps := false
 	for _, event := range events {
@@ -272,6 +305,7 @@ func (r Reconciler) inspect(ctx context.Context, op ops.Operation) (Outcome, *co
 	if r.Executor == nil && r.ExecutorFor == nil {
 		return out, nil, nil
 	}
+
 	p, d, err := r.Store.LoadPlan(ctx, op.PlanID)
 	if err != nil {
 		return out, nil, nil
@@ -283,7 +317,16 @@ func (r Reconciler) inspect(ctx context.Context, op ops.Operation) (Outcome, *co
 			return out, nil, nil
 		}
 	}
-	recovery, err := executor.InspectRecovery(ctx, op, p, d, events)
+	var recovery apply.Recovery
+	if op.Kind == ops.Resolve {
+		source, e := r.Store.GetOperation(ctx, op.RecoveryOf)
+		if e != nil {
+			return out, nil, e
+		}
+		recovery, err = executor.InspectResolution(ctx, op, source, p, d, events)
+	} else {
+		recovery, err = executor.InspectRecovery(ctx, op, p, d, events)
+	}
 	if err != nil {
 		return out, nil, nil
 	}

@@ -253,7 +253,9 @@ func TestDryRunPositiveContinuationReadsPaginatedJournal(t *testing.T) {
 		input := plan.Input{Desired: d, Snapshot: snapshot, Image: p.Image, State: plan.BrineState{Target: p.Target, Generation: *p.ObservedGeneration.Value, Releases: []plan.CurrentRelease{}}}
 		executor := &apply.Executor{Journal: s, Releases: releaseAdapter{s}, Plans: s, Facts: apply.FactsFunc(func(context.Context) (apply.Facts, error) {
 			return apply.Facts{Input: input, Routing: caddy.State{Files: map[string]string{}}}, nil
-		}), Systemd: absentRunner(), Podman: &podman.Fake{InspectFunc: func(context.Context, podman.Image) (podman.ImageInfo, error) {
+		}), Systemd: absentRunner(), Podman: &podman.Fake{ContainerStateFunc: func(context.Context, podman.Name) (podman.ContainerState, error) {
+			return podman.ContainerState{}, &localexec.Error{Kind: localexec.NotFound}
+		}, InspectFunc: func(context.Context, podman.Image) (podman.ImageInfo, error) {
 			return podman.ImageInfo{IndexDigest: p.Image.Digest, ManifestDigest: *p.Image.ManifestDigest.Value, Platform: podman.Platform{OS: p.Image.Platform.OS, Architecture: p.Image.Platform.Arch}}, nil
 		}}}
 		return executor, nil

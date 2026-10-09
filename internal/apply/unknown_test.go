@@ -25,11 +25,14 @@ func TestTypedUnknownOutcomesAtEveryMutationBoundary(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			r := newRig(t, true)
 			r.state = Starting
+			r.active = false
 			r.executor.Podman.(*podman.Fake).InspectFunc = func(context.Context, podman.Image) (podman.ImageInfo, error) {
 				return podman.ImageInfo{}, &localexec.Error{Kind: localexec.UnknownOutcome}
 			}
 			x := &execution{executor: &r.executor, id: "operation-1", state: Starting, plan: r.plan, desired: r.desired, previous: r.release, previousDesired: r.oldDesired, hasPrevious: true}
 			err := x.step(context.Background(), step, Starting, "unit_failed", func(context.Context) error {
+				r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) { return systemd.Properties{}, injected }
+				r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return Facts{}, injected })
 				return fmt.Errorf("wrapped: %w", &localexec.Error{Kind: localexec.UnknownOutcome, ExitCode: -1})
 			})
 			var classified *Error
@@ -87,7 +90,11 @@ func TestUnknownStartInspectsBeforeAnyFurtherMutation(t *testing.T) {
 				r.active = true
 				return nil
 			}
-			system.ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+			baseShow := system.ShowFunc
+			system.ShowFunc = func(ctx context.Context, unit systemd.Unit) (systemd.Properties, error) {
+				if startCalls == 0 || startCalls > 1 {
+					return baseShow(ctx, unit)
+				}
 				if !hasUnknownEvent(r, "start_unit") {
 					t.Fatal("inspection before unknown journal outcome")
 				}
@@ -155,9 +162,10 @@ func TestUnknownMutationNeverRollsBackWithoutProof(t *testing.T) {
 				r.failCommitRead = true
 			}
 			unitInspections, containerInspections := 0, 0
-			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+			baseShow := r.executor.Systemd.(*systemd.Fake).ShowFunc
+			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(ctx context.Context, unit systemd.Unit) (systemd.Properties, error) {
 				if !hasUnknownEvent(r, step) {
-					t.Fatal("unit inspection before unknown outcome")
+					return baseShow(ctx, unit)
 				}
 				unitInspections++
 				return systemd.Properties{}, &localexec.Error{Kind: localexec.UnknownOutcome}
@@ -350,6 +358,7 @@ func TestUnknownArtifactUsesObservedHashNotWriterHealth(t *testing.T) {
 						}
 					}
 					apps[0].QuadletUnits = target.Known(units)
+					r.setLiveUnits(units)
 					facts.Input.Snapshot.Apps = target.Known(apps)
 					return facts, nil
 				})
@@ -395,7 +404,11 @@ func TestUnknownJournalFailurePreventsInspection(t *testing.T) {
 	r := newRig(t, true)
 	r.unknownStep = "start_unit"
 	r.failOutcome = "start_unit"
-	r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+	baseShow := r.executor.Systemd.(*systemd.Fake).ShowFunc
+	r.executor.Systemd.(*systemd.Fake).ShowFunc = func(ctx context.Context, unit systemd.Unit) (systemd.Properties, error) {
+		if r.effects[len(r.effects)-1] != "start_unit" {
+			return baseShow(ctx, unit)
+		}
 		t.Fatal("inspection without durable unknown outcome")
 		return systemd.Properties{}, nil
 	}
@@ -573,13 +586,18 @@ func TestAbsentUnitCannotHideAWriterAppearingDuringRollback(t *testing.T) {
 	inspections := 0
 	r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
 		inspections++
-		if inspections == 1 {
+		if !hasUnknownEvent(r, "start_unit") || inspections == 1 {
+			if hasUnknownEvent(r, "start_unit") {
+				inspections = 1
+			} else {
+				inspections = 0
+			}
 			return podman.ContainerState{}, &localexec.Error{Kind: localexec.NotFound}
 		}
 		return podman.ContainerState{Running: true, Status: "running"}, nil
 	}
 	failure(t, r.run(), RecoveryRequired, "rollback_quiesce")
-	if !r.candidate || r.effects[len(r.effects)-1] != "rollback_quiesce" {
+	if !r.candidate || r.effects[len(r.effects)-1] != "start_unit" {
 		t.Fatal("artifact restored while a writer remained")
 	}
 }

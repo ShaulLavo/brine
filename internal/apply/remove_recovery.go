@@ -75,6 +75,15 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 	if err != nil {
 		return r, err
 	}
+	for _, owner := range r.resolutionOwners {
+		if retired {
+			break
+		}
+		retired, err = store.AppRetired(evidence, owner, p.App, p.Removal.ReleaseID)
+		if err != nil {
+			return r, err
+		}
+	}
 	if p.ObservedGeneration.Value == nil {
 		return r, nil
 	}
@@ -151,8 +160,11 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 	if route == applied && r.Step == "preflight" {
 		return r, nil
 	}
+	writer := x.waitWriter(evidence)
+	if writer != writerStopped && writer != writerRunning {
+		return r, nil
+	}
 	if boundary >= slices.Index(removeSteps, "stop_unit") {
-		writer := x.waitWriter(evidence)
 		if writer != writerStopped && (r.Step != "stop_unit" || r.completed["stop_unit"] || writer != writerRunning) {
 			return r, nil
 		}

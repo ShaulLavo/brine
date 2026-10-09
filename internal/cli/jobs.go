@@ -11,6 +11,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/transport"
@@ -82,10 +83,22 @@ func randomOperationKey() (string, error) {
 	return hex.EncodeToString(bytes[:]), nil
 }
 func newApplyCmd(machine *bool, deps Dependencies) *cobra.Command {
+	return newAcceptanceCmd(machine, deps, "apply")
+}
+func newResolveCmd(machine *bool, deps Dependencies) *cobra.Command {
+	return newAcceptanceCmd(machine, deps, "resolve")
+}
+func newAcceptanceCmd(machine *bool, deps Dependencies, verb string) *cobra.Command {
 	var flags operationFlags
 	var key string
-	cmd := &cobra.Command{Use: "apply PLAN_ID --target NAME", Short: "Accept a plan for detached execution on the target", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if !jobs.ValidPlanID(args[0]) || !transport.ValidTargetName(flags.target) || (key != "" && !jobs.ValidID(key)) {
+	argument, description := "PLAN_ID", "Accept a plan for detached execution on the target"
+	valid := jobs.ValidPlanID
+	if verb == "resolve" {
+		argument, description = "OPERATION_ID", "Inspect and resolve a terminal recovery-required operation"
+		valid = jobs.ValidID
+	}
+	cmd := &cobra.Command{Use: verb + " " + argument + " --target NAME", Short: description, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !valid(args[0]) || !transport.ValidTargetName(flags.target) || (key != "" && !jobs.ValidID(key)) {
 			return result.New(result.InvalidUsage, nil)
 		}
 		if cmd.Flags().Changed("idempotency-key") && key == "" {
@@ -102,7 +115,11 @@ func newApplyCmd(machine *bool, deps Dependencies) *cobra.Command {
 				return result.New(result.InternalError, err)
 			}
 		}
-		response, err := flags.call(cmd.Context(), deps, "apply", dispatch.ApplyArgs{PlanID: args[0], IdempotencyKey: key})
+		var request any = dispatch.ApplyArgs{PlanID: args[0], IdempotencyKey: key}
+		if verb == "resolve" {
+			request = dispatch.ResolveArgs{OperationID: args[0], IdempotencyKey: key}
+		}
+		response, err := flags.call(cmd.Context(), deps, verb, request)
 		if err != nil {
 			return err
 		}
@@ -159,6 +176,15 @@ func newOperationStatusCmd(machine *bool, modes *machineModes, deps Dependencies
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), status))
 		}
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Operation %s: %s\nEvents: %d; next cursor: %d\n", id, status.Operation.State, len(status.Events), status.NextCursor)
+		if err == nil && status.Operation.State == ops.RecoveryRequired {
+			if status.Operation.Kind == ops.Reconcile {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect affected app operation status; preview remaining recovery with: brine reconcile --dry-run --target %s\n", flags.target)
+			} else if cursor == 0 && len(status.Events) < jobs.EventPageLimit && resolutionPrefixSupported(status.Operation, status.Events) {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect supported recovery with: brine resolve %s --target %s\n", id, flags.target)
+			} else {
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), "Inspect the full recorded history and live app state; supported automatic resolution is not established for this receipt.")
+			}
+		}
 		return err
 	}}
 	flags.register(cmd)

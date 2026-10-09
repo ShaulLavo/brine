@@ -11,24 +11,33 @@ type Kind string
 
 const (
 	Deploy    Kind = "deploy"
+	Resolve   Kind = "resolve"
 	SecretSet Kind = "secret_set"
 	Reconcile Kind = "reconcile"
 )
 
 // Intent contains identity and references only. Secret values cannot be stored.
 type Intent struct {
-	Kind      Kind
-	PlanID    string
-	App       string
-	SecretRef string
+	Kind       Kind
+	RecoveryOf string
+	PlanID     string
+	App        string
+	SecretRef  string
 }
+
+var operationID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
 var appName = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var secretRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 var planID = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func ValidIntent(i Intent) bool {
+	if i.Kind != Resolve && i.RecoveryOf != "" {
+		return false
+	}
 	switch i.Kind {
+	case Resolve:
+		return operationID.MatchString(i.RecoveryOf) && (planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == "" || i.PlanID == "" && ValidIntent(Intent{Kind: SecretSet, App: i.App, SecretRef: i.SecretRef}))
 	case Deploy:
 		return planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == ""
 	case Reconcile:
@@ -40,11 +49,17 @@ func ValidIntent(i Intent) bool {
 	}
 }
 func ValidOperation(o Operation) bool {
+	if o.Kind != Resolve && o.RecoveryOf != "" {
+		return false
+	}
 	if !ValidState(o.State) {
 		return false
 	}
 	if o.Kind == Reconcile {
 		return ValidIntent(Intent{Kind: o.Kind, PlanID: o.PlanID, App: o.App, SecretRef: o.SecretRef}) && (o.State == Queued || o.State == LaunchUnknown || o.State == Preflight || o.State == Succeeded || o.State == Failed || o.State == RecoveryRequired)
+	}
+	if o.Kind == Resolve {
+		return (o.PlanID != "" && ValidIntent(Intent{Kind: Resolve, PlanID: o.PlanID, RecoveryOf: o.RecoveryOf}) && appName.MatchString(o.App) && o.SecretRef == "") || (o.PlanID == "" && ValidIntent(Intent{Kind: Resolve, App: o.App, SecretRef: o.SecretRef, RecoveryOf: o.RecoveryOf}))
 	}
 	if o.Kind == Deploy {
 		return ValidIntent(Intent{Kind: o.Kind, PlanID: o.PlanID}) && o.SecretRef == "" && (o.App == "" || appName.MatchString(o.App))
@@ -56,7 +71,7 @@ func ValidOperation(o Operation) bool {
 }
 func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
-	case Deploy:
+	case Deploy, Resolve:
 		return Transitions()
 	case Reconcile:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
@@ -94,9 +109,25 @@ func ValidateOperationEvent(op Operation, e Event) error {
 	if ValidateEvent(e) != nil {
 		return ErrInvalidEvent
 	}
-	if op.Kind == Deploy {
-		if e.Kind == "secret_version" {
+	if op.Kind == Deploy || op.Kind == Resolve {
+		if e.Kind == "resolution" {
+			var p ResolutionPayload
+			if op.Kind != Resolve || json.Unmarshal(e.Payload, &p) != nil || p.OperationID != op.RecoveryOf {
+				return ErrInvalidEvent
+			}
+			return nil
+		}
+		if op.Kind == Resolve && op.PlanID == "" && e.Kind == "step" {
 			return ErrInvalidEvent
+		}
+		if e.Kind == "secret_version" {
+			if op.Kind != Resolve || op.PlanID != "" {
+				return ErrInvalidEvent
+			}
+			var p SecretVersionPayload
+			if json.Unmarshal(e.Payload, &p) != nil || !strings.HasPrefix(p.Name, "brine."+op.App+"."+op.SecretRef+".v") {
+				return ErrInvalidEvent
+			}
 		}
 		return nil
 	}

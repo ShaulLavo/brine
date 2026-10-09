@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -29,9 +30,9 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 		return Operation{}, false, err
 	}
 	defer tx.Rollback()
-	old, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref FROM operations WHERE requester=? AND idempotency_key=?", requester, idempotencyKey))
+	old, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE requester=? AND idempotency_key=?", requester, idempotencyKey))
 	if err == nil {
-		if old.PlanID != intent.PlanID || old.Kind != intent.Kind || intent.Kind == ops.SecretSet && (old.App != intent.App || old.SecretRef != intent.SecretRef) {
+		if old.PlanID != intent.PlanID || old.Kind != intent.Kind || old.RecoveryOf != intent.RecoveryOf || (intent.Kind == ops.SecretSet || intent.Kind == ops.Resolve && intent.PlanID == "") && (old.App != intent.App || old.SecretRef != intent.SecretRef) {
 			return Operation{}, false, ErrConflict
 		}
 		return old, true, tx.Commit()
@@ -41,7 +42,7 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 	}
 	app := intent.App
 	var planID any
-	if intent.Kind == ops.Deploy {
+	if intent.Kind == ops.Deploy || intent.Kind == ops.Resolve && intent.PlanID != "" {
 		p, _, e := loadPlan(ctx, tx, intent.PlanID)
 		if e != nil {
 			return Operation{}, false, e
@@ -49,24 +50,69 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 		app = p.App
 		planID = intent.PlanID
 	}
+	if intent.Kind == ops.Resolve {
+		source, e := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", intent.RecoveryOf))
+		if e != nil {
+			return Operation{}, false, e
+		}
+		if source.State != ops.RecoveryRequired || source.PlanID != intent.PlanID || source.App != app || source.SecretRef != intent.SecretRef || source.Kind != ops.Deploy && source.Kind != ops.Resolve && source.Kind != ops.SecretSet {
+			return Operation{}, false, ErrConflict
+		}
+		if e = resolutionFamilyAvailable(ctx, tx, source); e != nil {
+			return Operation{}, false, e
+		}
+	}
 	id, err := newID()
 	if err != nil {
 		return Operation{}, false, err
 	}
 	now := timestamp()
-	if _, err = tx.ExecContext(ctx, "INSERT INTO operations VALUES(?,?,?,?,?,?,?,?,?,?)", id, planID, requester, idempotencyKey, ops.Queued, now, now, intent.Kind, app, intent.SecretRef); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO operations VALUES(?,?,?,?,?,?,?,?,?,?,?)", id, planID, requester, idempotencyKey, ops.Queued, now, now, intent.Kind, app, intent.SecretRef, intent.RecoveryOf); err != nil {
 		return Operation{}, false, err
 	}
-	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref FROM operations WHERE id=?", id))
+	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 	if err != nil {
 		return Operation{}, false, err
+	}
+	if intent.Kind == ops.Resolve {
+		payload, _ := json.Marshal(ops.ResolutionPayload{OperationID: intent.RecoveryOf})
+		if _, err = appendEvent(ctx, tx, id, Event{Kind: "resolution", Payload: payload}); err != nil {
+			return Operation{}, false, err
+		}
+		rows, e := tx.QueryContext(ctx, "SELECT kind,state,payload FROM events WHERE operation_id=? AND kind IN ('step','secret_version') ORDER BY seq", intent.RecoveryOf)
+		if e != nil {
+			return Operation{}, false, e
+		}
+		var adopted []Event
+		for rows.Next() {
+			var event Event
+			if e = rows.Scan(&event.Kind, &event.State, &event.Payload); e != nil {
+				rows.Close()
+				return Operation{}, false, e
+			}
+			adopted = append(adopted, event)
+			if len(adopted) > 4096 {
+				rows.Close()
+				return Operation{}, false, ErrInvalid
+			}
+		}
+		e = rows.Err()
+		rows.Close()
+		if e != nil {
+			return Operation{}, false, e
+		}
+		for _, event := range adopted {
+			if _, e = appendEvent(ctx, tx, id, event); e != nil {
+				return Operation{}, false, e
+			}
+		}
 	}
 	return op, false, tx.Commit()
 }
 func scanOperation(row interface{ Scan(...any) error }) (Operation, error) {
 	var op Operation
 	var created, updated string
-	err := row.Scan(&op.ID, &op.PlanID, &op.Requester, &op.IdempotencyKey, &op.State, &created, &updated, &op.Kind, &op.App, &op.SecretRef)
+	err := row.Scan(&op.ID, &op.PlanID, &op.Requester, &op.IdempotencyKey, &op.State, &created, &updated, &op.Kind, &op.App, &op.SecretRef, &op.RecoveryOf)
 	if errors.Is(err, sql.ErrNoRows) {
 		return op, ErrNotFound
 	}
@@ -84,7 +130,7 @@ func scanOperation(row interface{ Scan(...any) error }) (Operation, error) {
 	return op, nil
 }
 func (s *Store) GetOperation(ctx context.Context, id OpID) (Operation, error) {
-	return scanOperation(s.db.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref FROM operations WHERE id=?", id))
+	return scanOperation(s.db.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 }
 func (s *Store) SetOperationState(ctx context.Context, id OpID, state State) error {
 	return s.transitionOperation(ctx, id, nil, state)
@@ -135,7 +181,7 @@ func appendEvent(ctx context.Context, tx *sql.Tx, id OpID, event Event) (uint64,
 	if err := ops.ValidateEvent(event); err != nil {
 		return 0, err
 	}
-	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref FROM operations WHERE id=?", id))
+	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 	if err != nil {
 		return 0, err
 	}
@@ -198,7 +244,7 @@ func (s *Store) EventsAfter(ctx context.Context, id OpID, cursor uint64, limit i
 	return events, rows.Err()
 }
 func (s *Store) ListUnfinished(ctx context.Context) ([]Operation, error) {
-	rows, err := s.db.QueryContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref FROM operations WHERE state NOT IN ('succeeded','failed','rolled_back','recovery_required') ORDER BY id")
+	rows, err := s.db.QueryContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE state NOT IN ('succeeded','failed','rolled_back','recovery_required') ORDER BY id")
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +262,7 @@ func (s *Store) ListUnfinished(ctx context.Context) ([]Operation, error) {
 
 // LastOperation includes failed and unfinished attempts, not just committed releases.
 func (s *Store) LastOperation(ctx context.Context, app string) (Operation, error) {
-	op, err := scanOperation(s.db.QueryRowContext(ctx, `SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref FROM operations WHERE app=? ORDER BY created_at DESC,id DESC LIMIT 1`, app))
+	op, err := scanOperation(s.db.QueryRowContext(ctx, `SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE app=? ORDER BY created_at DESC,id DESC LIMIT 1`, app))
 	if err != nil {
 		return Operation{}, err
 	}
