@@ -143,7 +143,7 @@ func ValidateEvent(e Event) error {
 		}
 	case "step":
 		var p StepPayload
-		if decode(&p, "step", "outcome") != nil && decode(&p, "step", "outcome", "code") != nil || !slices.Contains([]string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "stop_unit", "start_unit", "check_direct", "publish_route", "check_routed", "commit", "rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_route", "check_compatibility", "rollback_start", "rollback_check"}, p.Step) || !slices.Contains([]string{"intent", "completed", "failed", "unknown"}, p.Outcome) {
+		if decode(&p, "step", "outcome") != nil && decode(&p, "step", "outcome", "code") != nil || !slices.Contains([]string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "stop_unit", "withdraw_route", "remove_unit", "retire_app", "start_unit", "check_direct", "publish_route", "check_routed", "commit", "rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_route", "check_compatibility", "rollback_start", "rollback_check"}, p.Step) || !slices.Contains([]string{"intent", "completed", "failed", "unknown"}, p.Outcome) {
 			return ErrInvalidEvent
 		}
 		if p.Code != "" {

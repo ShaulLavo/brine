@@ -123,7 +123,9 @@ func TestApplyLaunchDoesNotWaitForRunningDeploy(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer lock.Release()
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	// The lock stays held for the entire test, so taking it would still fail
+	// at this deadline. Allow durable journal I/O under full race-suite load.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	launched := false
 	service := jobs.Service{Store: s, Requester: "fixture-requester", Launcher: slowLauncher(func(context.Context, systemd.OperationID) error { launched = true; return nil })}

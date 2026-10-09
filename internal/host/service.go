@@ -125,6 +125,11 @@ type Executor struct {
 }
 
 func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
+	if p.Lifecycle == plan.RemoveApp {
+		engine := e.Engine
+		engine.Facts = operationFacts{service: e.Service, desired: d, removal: true}
+		return engine.Run(ctx, id, p, d)
+	}
 	if p.Image.ManifestDigest.Status != target.KnownStatus || p.Image.ManifestDigest.Value == nil {
 		return result.New(result.Conflict, nil)
 	}

@@ -18,7 +18,7 @@ func TestConfigLifecycleAndSecretRequestBoundaries(t *testing.T) {
 		{"config_set", `{"app":"hello","edits":[]}`, false},
 		{"config_set", `{"app":"hello","edits":null}`, false},
 		{"lifecycle", `{"app":"hello","action":"stop_app"}`, true},
-		{"lifecycle", `{"app":"hello","action":"remove_app"}`, false},
+		{"lifecycle", `{"app":"hello","action":"remove_app"}`, true},
 		{"lifecycle", `{"app":"hello","action":"start_app","unit":"other.service"}`, false},
 		{"secret_set", `{"app":"hello","reference":"hello-token","value":"cHJpdmF0ZQ=="}`, true},
 		{"secret_set", `{"app":"hello","reference":"hello-token","value":""}`, false},

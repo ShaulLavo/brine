@@ -7,6 +7,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -41,4 +42,25 @@ func (r GenerationRoutes) Restore(ctx context.Context, installed, previous caddy
 		return err
 	}
 	return r.Manager.Restore(ctx, main, installed, previous)
+}
+
+func (r GenerationRoutes) Withdraw(ctx context.Context, before caddy.State, app string) (caddy.Result, error) {
+	if r.Manager == nil || r.Main == nil {
+		return caddy.Result{}, errors.New("apply: Caddy adapters required")
+	}
+	main, err := r.Main(ctx)
+	if err != nil {
+		return caddy.Result{}, err
+	}
+	return r.Manager.Apply(ctx, main, before, caddy.Remove(spec.Name(app)))
+}
+func (r GenerationRoutes) SettleWithdrawal(ctx context.Context, before, observed caddy.State, app string) error {
+	if r.Manager == nil || r.Main == nil {
+		return errors.New("apply: Caddy adapters required")
+	}
+	main, err := r.Main(ctx)
+	if err != nil {
+		return err
+	}
+	return r.Manager.SettleWithdrawal(ctx, main, before, observed, spec.Name(app))
 }

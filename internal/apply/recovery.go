@@ -30,15 +30,16 @@ const (
 // InspectRecovery and Recover must run under the same host lock. A Recovery is
 // single-use; callers must inspect again after any journal or adapter failure.
 type Recovery struct {
-	Action    RecoveryAction `json:"action"`
-	Step      string         `json:"step,omitempty"`
-	operation Operation
-	execution *execution
-	completed map[string]bool
-	resolved  bool
-	decision  RecoveryAction
-	boundary  string
-	used      *atomic.Bool
+	Action          RecoveryAction `json:"action"`
+	Step            string         `json:"step,omitempty"`
+	operation       Operation
+	execution       *execution
+	completed       map[string]bool
+	unknownBoundary bool
+	resolved        bool
+	decision        RecoveryAction
+	boundary        string
+	used            *atomic.Bool
 }
 
 var forwardSteps = []string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "start_unit", "check_direct", "publish_route", "check_routed", "commit"}
@@ -49,6 +50,9 @@ var forwardSteps = []string{"preflight", "pull_image", "verify_image", "ensure_s
 func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event) (r Recovery, inspectErr error) {
 	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}}
 	defer func() { r.decision, r.boundary = r.Action, r.Step }()
+	if p.Lifecycle == plan.RemoveApp {
+		return e.inspectRemoveRecovery(ctx, op, p, d, events, r)
+	}
 	if op.State.IsTerminal() {
 		return r, nil
 	}
@@ -213,6 +217,11 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 		return errors.New("apply: invalid recovery assessment")
 	}
 	x := r.execution
+	if r.unknownBoundary {
+		if err := x.event(ctx, r.Step, "unknown", "interrupted"); err != nil {
+			return err
+		}
+	}
 	if r.resolved {
 		if err := x.event(ctx, r.Step, "completed", ""); err != nil {
 			return err
@@ -220,6 +229,9 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 	}
 	switch r.Action {
 	case ResumeForward:
+		if x.plan.Lifecycle == plan.RemoveApp {
+			return x.remove(ctx, r.completed, !r.completed["withdraw_route"] && removalRouteState(x.plan, x.facts) == applied)
+		}
 		return e.run(ctx, x.id, x.plan, x.desired, &r)
 	case RestorePrevious:
 		journal, cancel := context.WithTimeout(ctx, journalTimeout)

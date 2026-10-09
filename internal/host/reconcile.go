@@ -16,9 +16,9 @@ import (
 // binds its facts reader to that operation's stored desired input, not a latest
 // plan or a previous operation's cached inventory.
 func newReconciler(service Service, engine apply.Executor, inspector reconcile.RunnerInspector) reconcile.Reconciler {
-	return reconcile.Reconciler{Store: service.Store, Systemd: inspector, ExecutorFor: func(_ context.Context, _ ops.Operation, _ plan.Plan, d policy.Desired) (*apply.Executor, error) {
+	return reconcile.Reconciler{Store: service.Store, Systemd: inspector, ExecutorFor: func(_ context.Context, _ ops.Operation, p plan.Plan, d policy.Desired) (*apply.Executor, error) {
 		copy := engine
-		copy.Facts = operationFacts{service: service, desired: d}
+		copy.Facts = operationFacts{service: service, desired: d, removal: p.Lifecycle == plan.RemoveApp}
 		return &copy, nil
 	}}
 }
@@ -26,9 +26,13 @@ func newReconciler(service Service, engine apply.Executor, inspector reconcile.R
 type operationFacts struct {
 	service Service
 	desired policy.Desired
+	removal bool
 }
 
 func (f operationFacts) Read(ctx context.Context) (apply.Facts, error) {
+	if f.removal {
+		return f.service.removalFacts(ctx, f.desired)
+	}
 	return f.service.facts(ctx, App(f.desired))
 }
 

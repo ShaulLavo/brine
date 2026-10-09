@@ -32,6 +32,13 @@ CREATE TRIGGER operation_identity BEFORE UPDATE OF id,plan_id,requester,idempote
 CREATE TRIGGER events_no_update BEFORE UPDATE ON events BEGIN SELECT RAISE(ABORT,'append-only events'); END;
 CREATE TRIGGER events_no_delete BEFORE DELETE ON events BEGIN SELECT RAISE(ABORT,'append-only events'); END;
 CREATE TRIGGER events_order BEFORE INSERT ON events WHEN NEW.seq<>COALESCE((SELECT MAX(seq)+1 FROM events WHERE operation_id=NEW.operation_id),1) BEGIN SELECT RAISE(ABORT,'event sequence'); END;
+
+CREATE TABLE app_removals (
+ operation_id TEXT PRIMARY KEY REFERENCES operations(id),
+ app TEXT NOT NULL, release_id TEXT NOT NULL, plan_id TEXT NOT NULL REFERENCES plans(id), committed_at TEXT NOT NULL,
+ FOREIGN KEY(app,release_id) REFERENCES releases(app,id));
+CREATE TRIGGER removals_no_update BEFORE UPDATE ON app_removals BEGIN SELECT RAISE(ABORT,'immutable app removal'); END;
+CREATE TRIGGER removals_no_delete BEFORE DELETE ON app_removals BEGIN SELECT RAISE(ABORT,'immutable app removal'); END;
 UPDATE schema_version SET version=2;
 `
 	if _, err := tx.ExecContext(ctx, migration); err != nil {
