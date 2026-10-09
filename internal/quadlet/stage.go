@@ -32,12 +32,6 @@ type Validator interface {
 	Validate(context.Context, Candidate) error
 }
 
-var (
-	ErrPublicationUnknown = errors.New("quadlet: publication requires reconciliation")
-	ErrUnowned            = errors.New("quadlet: artifact is not owned by Brine")
-	ErrDrift              = errors.New("quadlet: recorded artifact has drifted")
-)
-
 type OwnershipReason string
 
 const (
@@ -125,7 +119,8 @@ func (m *Manager) Install(ctx context.Context, u Unit, oldHash string) error {
 }
 
 // Rollback repeats the same reconciliation with installed/previous hashes
-// swapped. The retained slot must match the committed previous hash exactly.
+// swapped. If active already matches the committed predecessor, no retained
+// slot is needed. Otherwise the retained slot must match that hash exactly.
 func (m *Manager) Rollback(ctx context.Context, name, installedHash, previousHash string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -137,6 +132,13 @@ func (m *Manager) Rollback(ctx context.Context, name, installedHash, previousHas
 	}
 	if err := m.checkDirectories(); err != nil {
 		return err
+	}
+	active, present, err := m.readArtifact(filepath.Join(ActiveDirectory, name))
+	if err != nil {
+		return err
+	}
+	if matches(active, present, previousHash) {
+		return m.replace(ctx, name, installedHash, previousHash, active, false)
 	}
 	var data []byte
 	if previousHash != "" {
@@ -596,4 +598,21 @@ func (m *Manager) ensureDirectories(path string) error {
 		}
 	}
 	return nil
+}
+
+// Stage validates isolated candidate bytes without touching the active unit.
+// Install repeats validation and ownership checks before publication.
+func (m *Manager) Stage(ctx context.Context, u Unit) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !unitNamePattern.MatchString(u.name) || u.content == "" || len(u.content) > maxUnitBytes {
+		return fmt.Errorf("quadlet: invalid stage intent")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := m.checkDirectories(); err != nil {
+		return err
+	}
+	return m.validate(ctx, u.name, u.Bytes(), u.Hash())
 }

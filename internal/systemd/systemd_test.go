@@ -201,15 +201,16 @@ func TestAllFakeOperations(t *testing.T) {
 	ctx := context.Background()
 	u := unit(t)
 	calls := 0
-	f := &Fake{DaemonReloadFunc: func(context.Context) error { calls++; return nil }, StartFunc: func(context.Context, Unit) error { calls++; return nil }, StopFunc: func(context.Context, Unit) error { calls++; return nil }, RestartFunc: func(context.Context, Unit) error { calls++; return nil }, IsActiveFunc: func(context.Context, Unit) (bool, error) { calls++; return true, nil }, ShowFunc: func(context.Context, Unit) (Properties, error) { calls++; return Properties{}, nil }, ReloadCaddyFunc: func(context.Context) error { calls++; return nil }}
+	f := &Fake{DaemonReloadFunc: func(context.Context) error { calls++; return nil }, StartFunc: func(context.Context, Unit) error { calls++; return nil }, StopFunc: func(context.Context, Unit) error { calls++; return nil }, RestartFunc: func(context.Context, Unit) error { calls++; return nil }, IsActiveFunc: func(context.Context, Unit) (bool, error) { calls++; return true, nil }, ShowFunc: func(context.Context, Unit) (Properties, error) { calls++; return Properties{}, nil }, JobPendingFunc: func(context.Context, Unit) (bool, error) { calls++; return true, nil }, ReloadCaddyFunc: func(context.Context) error { calls++; return nil }}
 	f.DaemonReload(ctx)
 	f.Start(ctx, u)
 	f.Stop(ctx, u)
 	f.Restart(ctx, u)
 	f.IsActive(ctx, u)
 	f.Show(ctx, u)
+	f.JobPending(ctx, u)
 	f.ReloadCaddy(ctx)
-	if calls != 7 {
+	if calls != 8 {
 		t.Fatal(calls)
 	}
 	empty := &Fake{}
@@ -220,7 +221,8 @@ func TestAllFakeOperations(t *testing.T) {
 	_, e := empty.IsActive(ctx, u)
 	_, g := empty.Show(ctx, u)
 	h := empty.ReloadCaddy(ctx)
-	for _, err := range []error{a, b, c, d, e, g, h} {
+	_, j := empty.JobPending(ctx, u)
+	for _, err := range []error{a, b, c, d, e, g, h, j} {
 		if err == nil {
 			t.Fatal("unconfigured fake succeeded")
 		}

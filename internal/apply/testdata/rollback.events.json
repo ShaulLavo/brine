@@ -1,0 +1,396 @@
+[
+  {
+    "sequence": 1,
+    "kind": "state",
+    "state": "preflight",
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 2,
+    "kind": "step",
+    "payload": {
+      "step": "preflight",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 3,
+    "kind": "step",
+    "payload": {
+      "step": "preflight",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 4,
+    "kind": "state",
+    "state": "preparing",
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 5,
+    "kind": "step",
+    "payload": {
+      "step": "pull_image",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 6,
+    "kind": "step",
+    "payload": {
+      "step": "pull_image",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 7,
+    "kind": "step",
+    "payload": {
+      "step": "verify_image",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 8,
+    "kind": "step",
+    "payload": {
+      "step": "verify_image",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 9,
+    "kind": "step",
+    "payload": {
+      "step": "ensure_secrets",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 10,
+    "kind": "step",
+    "payload": {
+      "step": "ensure_secrets",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 11,
+    "kind": "step",
+    "payload": {
+      "step": "stage_unit",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 12,
+    "kind": "step",
+    "payload": {
+      "step": "stage_unit",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 13,
+    "kind": "state",
+    "state": "quiescing",
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 14,
+    "kind": "step",
+    "payload": {
+      "step": "quiesce_old",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 15,
+    "kind": "step",
+    "payload": {
+      "step": "quiesce_old",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 16,
+    "kind": "state",
+    "state": "starting",
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 17,
+    "kind": "step",
+    "payload": {
+      "step": "install_unit",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 18,
+    "kind": "step",
+    "payload": {
+      "step": "install_unit",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 19,
+    "kind": "step",
+    "payload": {
+      "step": "reload_units",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 20,
+    "kind": "step",
+    "payload": {
+      "step": "reload_units",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 21,
+    "kind": "step",
+    "payload": {
+      "step": "start_unit",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 22,
+    "kind": "step",
+    "payload": {
+      "step": "start_unit",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 23,
+    "kind": "state",
+    "state": "checking",
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 24,
+    "kind": "step",
+    "payload": {
+      "step": "check_direct",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 25,
+    "kind": "step",
+    "payload": {
+      "step": "check_direct",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 26,
+    "kind": "step",
+    "payload": {
+      "step": "publish_route",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 27,
+    "kind": "step",
+    "payload": {
+      "step": "publish_route",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 28,
+    "kind": "step",
+    "payload": {
+      "step": "check_routed",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 29,
+    "kind": "step",
+    "payload": {
+      "step": "check_routed",
+      "code": "health_failed",
+      "outcome": "failed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 30,
+    "kind": "state",
+    "state": "rolling_back",
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 31,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_quiesce",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 32,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_quiesce",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 33,
+    "kind": "step",
+    "payload": {
+      "step": "check_compatibility",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 34,
+    "kind": "step",
+    "payload": {
+      "step": "check_compatibility",
+      "code": "stateless_compatible",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 35,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_route",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 36,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_route",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 37,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_unit",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 38,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_unit",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 39,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_reload",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 40,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_reload",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 41,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_start",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 42,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_start",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 43,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_check",
+      "outcome": "intent"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 44,
+    "kind": "step",
+    "payload": {
+      "step": "rollback_check",
+      "outcome": "completed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 45,
+    "kind": "failure",
+    "payload": {
+      "code": "executor_failed"
+    },
+    "created_at": "0001-01-01T00:00:00Z"
+  },
+  {
+    "sequence": 46,
+    "kind": "state",
+    "state": "rolled_back",
+    "created_at": "0001-01-01T00:00:00Z"
+  }
+]
