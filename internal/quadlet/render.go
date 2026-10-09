@@ -173,8 +173,3 @@ func quoteAssignment(s string) string {
 	b.WriteByte('"')
 	return b.String()
 }
-
-func owned(data []byte) bool {
-	first, _, _ := strings.Cut(string(data), "\n")
-	return strings.HasPrefix(first, marker) && hashPattern.MatchString(strings.TrimPrefix(first, marker))
-}

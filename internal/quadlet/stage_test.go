@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/target"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func rendered(t testing.TB, value string) Unit {
 
 func TestActivateAndRollback(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +79,7 @@ func checkFile(t testing.TB, path string, want []byte) {
 
 func TestValidationIsOutsideActiveAndAtomic(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,8 +112,8 @@ func TestValidationIsOutsideActiveAndAtomic(t *testing.T) {
 	}
 	checkFile(t, active, old.Bytes())
 	entries, err := os.ReadDir(filepath.Join(home, stagingDirectory))
-	if err != nil || len(entries) != 0 {
-		t.Fatal("staging leak", err)
+	if err != nil || len(entries) != 1 {
+		t.Fatal("missing resumable candidate", err)
 	}
 	m.validator = accept()
 	_, err = m.Activate(context.Background(), next)
@@ -125,7 +126,7 @@ func TestRefuseUnownedAndSymlink(t *testing.T) {
 	for _, kind := range []string{"unowned", "marker suffix", "symlink", "directory", "owned hardlink"} {
 		t.Run(kind, func(t *testing.T) {
 			home := t.TempDir()
-			m, err := NewManager(home, accept())
+			m, err := newTestManager(home, accept())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -169,14 +170,14 @@ func TestRefuseUnownedAndSymlink(t *testing.T) {
 	if err := os.Symlink(t.TempDir(), filepath.Join(home, ".config")); err != nil {
 		t.Fatal(err)
 	}
-	if m, err := NewManager(home, accept()); err == nil {
+	if m, err := newTestManager(home, accept()); err == nil {
 		m.Close()
 		t.Fatal("accepted symlinked directory")
 	}
 }
 func TestCancellationTamperingAndRollbackDrift(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +215,7 @@ func TestCancellationTamperingAndRollbackDrift(t *testing.T) {
 }
 func TestConcurrentActivation(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +243,7 @@ func TestConcurrentActivation(t *testing.T) {
 
 func TestRollbackRefusesChangedBackup(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -266,7 +267,7 @@ func TestRollbackRefusesChangedBackup(t *testing.T) {
 }
 func TestRefuseParentsReplacedAfterOpening(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -294,7 +295,7 @@ func TestRefuseParentsReplacedAfterOpening(t *testing.T) {
 }
 func TestContinuousReadersSeeCompleteUnits(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -342,7 +343,7 @@ func TestContinuousReadersSeeCompleteUnits(t *testing.T) {
 }
 func TestValidatorCannotChangeActiveOwnership(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,7 +360,7 @@ func TestValidatorCannotChangeActiveOwnership(t *testing.T) {
 		t.Fatal("overwrote unowned replacement")
 	}
 	checkFile(t, active, operator)
-	if m, err := NewManager(t.TempDir(), nil); err == nil {
+	if m, err := newTestManager(t.TempDir(), nil); err == nil {
 		m.Close()
 		t.Fatal("accepted missing validator")
 	}
@@ -367,7 +368,7 @@ func TestValidatorCannotChangeActiveOwnership(t *testing.T) {
 
 func TestSyncFailureReturnsReceiptAndUnknownPublication(t *testing.T) {
 	home := t.TempDir()
-	m, err := NewManager(home, accept())
+	m, err := newTestManager(home, accept())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -384,7 +385,7 @@ func TestSyncFailureReturnsReceiptAndUnknownPublication(t *testing.T) {
 		return m.syncDirectory(path)
 	}
 	receipt, err := m.Activate(context.Background(), next)
-	if !errors.Is(err, ErrPublicationUnknown) || receipt.installedHash != next.Hash() {
+	if !errors.Is(err, ErrPublicationUnknown) || receipt.InstalledHash != next.Hash() {
 		t.Fatal("lost unknown-outcome receipt", err)
 	}
 	checkFile(t, filepath.Join(home, ActiveDirectory, next.Name()), next.Bytes())
@@ -399,7 +400,7 @@ func TestCancellationDuringValidation(t *testing.T) {
 	home := t.TempDir()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	m, err := NewManager(home, validatorFunc(func(context.Context, Candidate) error { cancel(); return errors.New("raw validator error") }))
+	m, err := newTestManager(home, validatorFunc(func(context.Context, Candidate) error { cancel(); return errors.New("raw validator error") }))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,4 +412,45 @@ func TestCancellationDuringValidation(t *testing.T) {
 	if _, err = os.Stat(filepath.Join(home, ActiveDirectory, u.Name())); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("published after cancellation", err)
 	}
+}
+
+// This ledger models caller-owned BrineState; it never reads ownership from disk.
+type testManager struct {
+	*Manager
+	ledgerMu  sync.Mutex
+	committed map[string]string
+}
+
+func newTestManager(home string, v Validator) (*testManager, error) {
+	m, err := NewManager(home, v)
+	if err != nil {
+		return nil, err
+	}
+	return &testManager{Manager: m, committed: map[string]string{}}, nil
+}
+func (m *testManager) Activate(ctx context.Context, u Unit) (Receipt, error) {
+	m.ledgerMu.Lock()
+	defer m.ledgerMu.Unlock()
+	records := []target.Unit{}
+	for name, hash := range m.committed {
+		records = append(records, target.Unit{Name: name, Hash: hash})
+	}
+	r, err := m.Manager.Activate(ctx, u, records)
+	if err == nil {
+		m.committed[u.Name()] = u.Hash()
+	}
+	return r, err
+}
+func (m *testManager) Rollback(ctx context.Context, r Receipt) error {
+	m.ledgerMu.Lock()
+	defer m.ledgerMu.Unlock()
+	err := m.Manager.Rollback(ctx, &r)
+	if err == nil {
+		if r.PreviousHash == "" {
+			delete(m.committed, r.UnitName)
+		} else {
+			m.committed[r.UnitName] = r.PreviousHash
+		}
+	}
+	return err
 }
