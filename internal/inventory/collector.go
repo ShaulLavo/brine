@@ -134,11 +134,12 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	home, exists := c.runner(ctx, &s)
 	c.generation(ctx, &s, home, exists)
 	c.disk(ctx, &s, home)
-	c.listeners(ctx, &s)
-	c.apps(ctx, &s, home, exists)
+	artifacts := c.apps(ctx, &s, home, exists)
+	c.listeners(ctx, &s, home, artifacts.publications)
 	if e = c.caddy(ctx, &s); e != nil {
 		return s, e
 	}
+	c.images(ctx, &s, home, artifacts)
 	if err := ctx.Err(); err != nil {
 		return s, err
 	}
