@@ -86,6 +86,9 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 	if readErr != nil || op.Kind != ops.Deploy || op.PlanID != p.Hash {
 		return &Error{Step: "preflight", Code: "drift", State: Failed, Cause: readErr}
 	}
+	if p.Lifecycle == plan.RemoveApp {
+		return e.runRemove(ctx, opID, p, d)
+	}
 	x := &execution{executor: e, id: opID, plan: p, desired: d}
 	preflight := func(ctx context.Context) error {
 		if d.Health.StartupDeadlineSeconds < 1 || d.Health.StartupDeadlineSeconds > spec.MaxStartupDeadlineSeconds {

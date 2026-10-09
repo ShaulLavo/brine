@@ -125,6 +125,7 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `logs_truncated` | 1 | false | The journal output was truncated; request a smaller tail. |
 | `logs_limit_exceeded` | 1 | false | The log response exceeds its bounded tail or byte limit; request a smaller tail. |
 | `logs_invalid_journal` | 1 | false | The journal response is malformed. |
+| `persistent_archive_required` | 4 | false | Removal refused. Persistent data needs the P04-08 archive path; no data will be deleted. |
 | `app_not_found` | 2 | false | The app has no committed Brine release. |
 | `release_not_found` | 2 | false | The rollback release is not known for this app. |
 | `rollback_no_op` | 5 | false | The rollback target is already current or requires no changes. |

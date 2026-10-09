@@ -49,6 +49,9 @@ var forwardSteps = []string{"preflight", "pull_image", "verify_image", "ensure_s
 func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event) (r Recovery, inspectErr error) {
 	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}}
 	defer func() { r.decision, r.boundary = r.Action, r.Step }()
+	if p.Lifecycle == plan.RemoveApp {
+		return e.inspectRemoveRecovery(ctx, op, p, d, events, r)
+	}
 	if op.State.IsTerminal() {
 		return r, nil
 	}
@@ -220,6 +223,9 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 	}
 	switch r.Action {
 	case ResumeForward:
+		if x.plan.Lifecycle == plan.RemoveApp {
+			return x.remove(ctx, r.completed, !r.completed["withdraw_route"] && removalRouteState(x.plan, x.facts) == applied)
+		}
 		return e.run(ctx, x.id, x.plan, x.desired, &r)
 	case RestorePrevious:
 		journal, cancel := context.WithTimeout(ctx, journalTimeout)

@@ -78,7 +78,7 @@ func decodeLifecycle(raw json.RawMessage) (any, error) {
 		return nil, strictjson.ErrObject
 	}
 	action, err := strictjson.Value[plan.ChangeKind](f["action"])
-	if err != nil || action != plan.RestartApp && action != plan.StopApp && action != plan.StartApp {
+	if err != nil || action != plan.RestartApp && action != plan.StopApp && action != plan.StartApp && action != plan.RemoveApp {
 		return nil, strictjson.ErrObject
 	}
 	return LifecycleArgs{App: app, Action: action}, nil

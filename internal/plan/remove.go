@@ -2,15 +2,15 @@ package plan
 
 import (
 	"encoding/json"
-	"errors"
 	"reflect"
 	"slices"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-var ErrPersistentData = errors.New("remove refused: persistent data needs the P04-08 data archive path; no data will be deleted")
+var ErrPersistentData = result.New(result.PersistentArchiveRequired, nil)
 
 type ReleaseIdentity struct {
 	App string `json:"app"`

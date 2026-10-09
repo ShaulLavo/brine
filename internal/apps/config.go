@@ -176,6 +176,9 @@ func (s Service) ConfigSet(ctx context.Context, app string, edits []Edit) (Confi
 	return s.saveConfig(ctx, p, in.Desired)
 }
 func (s Service) Lifecycle(ctx context.Context, app string, action plan.ChangeKind) (ConfigPlan, error) {
+	if action == plan.RemoveApp {
+		return s.remove(ctx, app)
+	}
 	in, pol, err := s.currentInput(ctx, app)
 	if err != nil {
 		return ConfigPlan{}, err

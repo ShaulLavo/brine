@@ -17,7 +17,7 @@ import (
 
 func TestConfigAndLifecycleClient(t *testing.T) {
 	for _, mode := range []string{"", "--json", "--jsonl"} {
-		for _, command := range []string{"config", "restart", "stop", "start"} {
+		for _, command := range []string{"config", "restart", "stop", "start", "remove"} {
 			t.Run(command+mode, func(t *testing.T) {
 				var out, stderr bytes.Buffer
 				deps := testDependencies(t, &out, &stderr)
