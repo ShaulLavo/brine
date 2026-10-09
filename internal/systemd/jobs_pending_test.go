@@ -13,7 +13,7 @@ func TestJobPendingReadsOnlyTheSelectedUnit(t *testing.T) {
 	for _, tc := range []struct {
 		output  string
 		pending bool
-	}{{"0\n", false}, {"17\n", true}, {"4294967295\n", true}} {
+	}{{"LoadState=loaded\nJob=\n", false}, {"LoadState=not-found\nJob=\n", false}, {"Job=17\nLoadState=loaded\n", true}, {"LoadState=loaded\nJob=4294967295\n", true}} {
 		t.Run(tc.output, func(t *testing.T) {
 			r := &recorder{results: []localexec.Result{{Stdout: tc.output}}}
 			u := unit(t)
@@ -25,7 +25,7 @@ func TestJobPendingReadsOnlyTheSelectedUnit(t *testing.T) {
 				t.Fatal(r.commands)
 			}
 			c := r.commands[0]
-			want := []string{"--user", "show", u.String(), "--property=Job", "--value"}
+			want := []string{"--user", "show", u.String(), "--property=LoadState,Job"}
 			if c.Path != "systemctl" || c.Mutation || !reflect.DeepEqual(c.Args, want) {
 				t.Fatalf("job read command: %#v", c)
 			}
@@ -33,7 +33,7 @@ func TestJobPendingReadsOnlyTheSelectedUnit(t *testing.T) {
 	}
 }
 func TestJobPendingNeverTreatsFailedOrMalformedReadAsEmptyQueue(t *testing.T) {
-	for _, output := range []string{"", " \n", "private-output", "-1", "+0", "0\n1", "4294967296", "Job=0"} {
+	for _, output := range []string{"", " \n", "private-output", "-1", "+0", "0\n1", "4294967296", "Job=0", "LoadState=loaded", "LoadState=\nJob=\n", "LoadState=loaded\nJob=-1\n", "LoadState=loaded\nJob=+0\n", "LoadState=loaded\nJob=4294967296\n", "LoadState=loaded\nJob=\nJob=\n", "LoadState=loaded\nJob=\nUnexpected=\n"} {
 		t.Run(output, func(t *testing.T) {
 			r := &recorder{results: []localexec.Result{{Stdout: output}}}
 			pending, err := client(t, r).JobPending(context.Background(), unit(t))
