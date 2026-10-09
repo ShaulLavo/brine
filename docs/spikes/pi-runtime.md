@@ -9,7 +9,7 @@ The runtime assumptions held for the tested configuration. A follow-up full rebo
 | Question | Answer | Evidence limit |
 | --- | --- | --- |
 | 1. Debian package revisions | Works | Debian 13.6, arm64, distribution packages listed below |
-| 2. Rootless Quadlet and linger | Works with caveat | Full reboot; healthy at 25.02 seconds without runner login; unrelated graphical auto-login prevents an all-users-logged-out claim |
+| 2. Rootless Quadlet and linger | Works | Full reboot; healthy at 25.02 seconds without runner login. Not tested with every host user logged out; another user's auto-login doesn't start the runner's manager |
 | 3. Environment secret | Works | Container sees the value; ordinary container inspect and generated unit do not contain it |
 | 4. Caddy generation and reload-only rule | Works | Valid generation serves; invalid and duplicate candidates fail; other verbs and another unit are denied |
 | 5. App access to admin API | Works | Connection refused through container loopback and both generated host aliases |
