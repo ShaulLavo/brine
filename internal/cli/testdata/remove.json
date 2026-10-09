@@ -1,0 +1,1 @@
+{"schema_version":1,"command":"brine remove","ok":true,"data":{"secret_retention":"d5_retained_releases","lifecycle":"remove_app","plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"update","diff":null,"conflicts":[]},"error":null}

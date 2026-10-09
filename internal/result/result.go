@@ -23,6 +23,7 @@ const (
 type Code string
 
 const (
+	PersistentArchiveRequired Code = "persistent_archive_required"
 	AppNotFound               Code = "app_not_found"
 	ReleaseNotFound           Code = "release_not_found"
 	RollbackNoOp              Code = "rollback_no_op"
@@ -57,6 +58,7 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
+	PersistentArchiveRequired: {Policy, "Removal refused. Persistent data needs the P04-08 archive path; no data will be deleted.", false},
 	AppNotFound:               {Validation, "The app has no committed Brine release.", false},
 	ReleaseNotFound:           {Validation, "The rollback release is not known for this app.", false},
 	RollbackNoOp:              {StateConflict, "The rollback target is already current or requires no changes.", false},

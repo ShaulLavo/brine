@@ -46,6 +46,17 @@ func (x *execution) reconcileUnknown(ctx context.Context, step string) resolutio
 	probeCancel()
 	var result resolution
 	switch step {
+	case "withdraw_route", "remove_unit":
+		if x.executor.Facts != nil {
+			_, _ = x.executor.Facts.Read(ctx)
+		}
+	case "retire_app":
+		if store, ok := x.executor.Releases.(RetirementStore); ok && x.plan.Removal != nil {
+			retired, err := store.AppRetired(ctx, x.id, x.plan.App, x.plan.Removal.ReleaseID)
+			if err == nil && retired {
+				result = applied
+			}
+		}
 	case "start_unit", "rollback_start":
 		if writer == writerStopped {
 			result = notApplied

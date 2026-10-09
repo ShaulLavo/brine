@@ -11,6 +11,9 @@ import (
 // BuildLifecycle keeps the committed bindings, including old secret versions.
 // Creating an unbound secret must not make restart implicitly rotate it.
 func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
+	if action == RemoveApp {
+		return BuildRemove(in)
+	}
 	if action != RestartApp && action != StopApp && action != StartApp {
 		return Plan{}, fmt.Errorf("unsupported lifecycle action")
 	}

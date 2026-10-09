@@ -1,0 +1,3 @@
+Plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa (update). No app changes have been applied.
+Action: remove_app. Withdraw the route, stop the app, remove its unit and release its port. Retained releases and secret versions stay for D5 rollback history. Persistent data needs P04-08 archival.
+Apply with brine apply sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --target fixture.

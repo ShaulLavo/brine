@@ -18,7 +18,7 @@ brine rollback APP [--release RELEASE_ID] --target staging
 brine config set APP KEY=VALUE --target staging        # env, resources, domains, health
 brine secret set APP NAME --target staging             # value from stdin; stores a new immutable version, unbound until applied
 brine restart|stop|start APP --target staging
-brine remove APP --target staging                      # archives data under an archive ID for 30 days (D8)
+brine remove APP --target staging                      # stateless removal plan; data archival waits for P04-08 (D8)
 brine data purge ARCHIVE_ID --target staging           # only if policy allows agent purge (D8)
 brine restore live APP --backup BACKUP_ID --target staging   # only if policy allows (D8, P04-09)
 brine diagnose [APP] --target staging                  # read-only report
@@ -31,7 +31,7 @@ brine restore test APP --target staging
 brine tui --target staging
 ~~~
 
-Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Every mutating command above (`config set`, `restart`/`stop`/`start`, `rollback`, `remove`, `data purge`, `restore live` and the `host` verbs) returns a **plan**, and nothing changes until `brine apply PLAN_ID` (D8). `--apply` may combine the two for agents when policy allows. It still records the plan and journals the operation. The one exception is `secret set`, which stores an immutable new version that stays unreferenced (D5) until a plan binds it, so it never changes a running app on its own. `remove` archives app data rather than deleting it; permanent deletion is the separate, policy-gated `data purge`.
+Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Every mutating command above (`config set`, `restart`/`stop`/`start`, `rollback`, `remove`, `data purge`, `restore live` and the `host` verbs) returns a **plan**, and nothing changes until `brine apply PLAN_ID` (D8). `--apply` may combine the two for agents when policy allows. It still records the plan and journals the operation. The one exception is `secret set`, which stores an immutable new version that stays unreferenced (D5) until a plan binds it, so it never changes a running app on its own. P03-09 `remove` supports stateless apps only. Persistent apps are refused until P04-08 supplies immutable archival; permanent deletion remains the separate, policy-gated `data purge`.
 
 ### Local validation and offline planning (P01-04)
 
@@ -125,6 +125,7 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `logs_truncated` | 1 | false | The journal output was truncated; request a smaller tail. |
 | `logs_limit_exceeded` | 1 | false | The log response exceeds its bounded tail or byte limit; request a smaller tail. |
 | `logs_invalid_journal` | 1 | false | The journal response is malformed. |
+| `persistent_archive_required` | 4 | false | Removal refused. Persistent data needs the P04-08 archive path; no data will be deleted. |
 | `app_not_found` | 2 | false | The app has no committed Brine release. |
 | `release_not_found` | 2 | false | The rollback release is not known for this app. |
 | `rollback_no_op` | 5 | false | The rollback target is already current or requires no changes. |
@@ -206,9 +207,9 @@ These commands use injected `HostConfig` and `HostSecrets` services. Production 
 
 The service rebuilds a strict spec and applies the current operator policy to the final edited configuration. This permits reducing an old resource limit after an operator lowers its ceiling. It then plans against fresh inventory and committed state and saves the plan. Environment values stay only in the store's private desired input, never executable plan bytes, diffs, responses or events. Domain ownership, resource ceilings, health validation and app-scoped secret references use the same validation as a new spec.
 
-The mutating dispatcher operation `config_set` takes exactly `app` and `edits`, with each edit containing exactly `key`, `value` and `action`. Actions are empty or `set` for assignments, `unset` for environment keys, and `add`/`remove` for domains. `lifecycle` takes exactly `app` and `action`, one of `restart_app`, `stop_app` or `start_app`. Both return `plan_id`, `kind`, `diff`, `conflicts` and optional `lifecycle`. Human output shows the safe diff or lifecycle action and the apply command. JSON and JSONL each emit one envelope. A conflict plan has no effects. Apply still requires `brine apply PLAN_ID` and fresh checks under the host mutation lock.
+The mutating dispatcher operation `config_set` takes exactly `app` and `edits`, with each edit containing exactly `key`, `value` and `action`. Actions are empty or `set` for assignments, `unset` for environment keys, and `add`/`remove` for domains. `lifecycle` takes exactly `app` and `action`, one of `restart_app`, `stop_app`, `start_app` or `remove_app`. Both return `plan_id`, `kind`, `diff`, `conflicts` and optional `lifecycle`. Human output shows the safe diff or lifecycle action and the apply command. JSON and JSONL each emit one envelope. A conflict plan has no effects. Apply still requires `brine apply PLAN_ID` and fresh checks under the host mutation lock.
 
-Lifecycle plans have exactly one typed action and retain the committed configuration and immutable secret bindings. A newly stored unbound secret cannot rotate a restart. The executor refuses hidden configuration edits and non-deploy operation records. `stop_unit` joins the closed step allowlist; stop journals intent before touching the owned user unit. Already-stopped is success with no stop effect. Unknown stops require manager-job settlement plus independent unit/container evidence; unresolved actions end in `recovery_required`. Start/restart reuse `reload_units`, `start_unit` and `check_direct`. No lifecycle action installs artifacts, changes routing, advances release heads or touches app data. Lifecycle deployment-state edges add preparing-to-starting, quiescing-to-succeeded/failed, starting-to-failed and checking-to-succeeded/failed.
+Restart/stop/start lifecycle plans have exactly one typed action and retain the committed configuration and immutable secret bindings. A newly stored unbound secret cannot rotate a restart. The executor refuses hidden configuration edits and non-deploy operation records. `stop_unit` joins the closed step allowlist; stop journals intent before touching the owned user unit. Already-stopped is success with no stop effect. Unknown stops require manager-job settlement plus independent unit/container evidence; unresolved actions end in `recovery_required`. Start/restart reuse `reload_units`, `start_unit` and `check_direct`. Restart/stop/start never install artifacts, change routing, advance release heads or touch app data. Removal has the separate ownership-bound effects below. Lifecycle deployment-state edges add preparing-to-starting, quiescing-to-succeeded/failed, starting-to-failed and checking-to-succeeded/failed.
 
 `brine secret set APP NAME --target NAME` reads a nonempty value of at most 32 KiB from stdin, preserving its bytes. It accepts neither a value argument nor a value flag. Dispatcher `secret_set` takes exactly `app`, `reference` and `value`; value is canonical base64 solely for stdin transport. The handler clears decoded byte buffers best-effort and never returns the value or raw runtime diagnostics. Values reach Podman only through the typed adapter's bounded stdin path, not argv or child environment.
 
@@ -490,3 +491,75 @@ Findings come from a fixed rule table. Their stable codes are `disk_below_minimu
 Evidence is synthetic. Tests cover each rule, read-only database behavior, fake store/inventory/journal collection, pinned-client protocol round trips, human/JSON/JSONL goldens, hung probes, health responses and redirects, drift, live-source proof, partial discovery, limits and planted secrets. No real deployment, host health or recovery outcome is claimed by these tests.
 
 Secret allocation journal writes each receive a fresh bounded detached context, independent of runtime-list and durable-version read deadlines. The transactional secret-version intent append is itself the name reservation, not a separate allocation write: either the reservation and intent commit together, or neither exists. Podman creation starts only after that commit; a failed intent consumes no version and causes no runtime create. Unknown committed reservations remain unavailable for reuse.
+
+
+### Stateless application removal (P03-09)
+
+`brine remove APP --target NAME` records a plan, not a deletion. Apply it through
+`brine apply PLAN_ID --target NAME`. The authenticated mutating `lifecycle`
+dispatch operation accepts only an app name and `remove_app`; callers cannot
+supply paths, units, raw Podman/Caddy commands or a purge flag. D8 allows scoped
+application removal, not deletion of unrelated software or persistent data.
+
+A removal plan remains an ordinary deploy operation with lifecycle `remove_app`.
+Its `removal` ownership baseline binds the immutable release ID, exact unit
+names/hashes, owned route hash, complete observed routing generation/file set,
+and live release identities. Ordered changes are `withdraw_route`, `stop_app`,
+`remove_unit`, `retire_app`. Planning verifies recorded ownership and observed
+artifacts. Apply rebuilds and compares the entire plan under the host lock;
+stale queued plans fail with the closed `stale_plan` event before effects.
+Unknown/unowned or drifted artifacts conflict instead of being removed.
+
+The executor journals these steps in order:
+
+1. `withdraw_route`: validate/adapt the complete Caddy generation, withdraw only
+   the owned route, publish and reload through the existing polkit boundary.
+2. `stop_unit`: settle systemd jobs and independently prove systemd and Podman
+   have no live writer. Route withdrawal must complete before stopping.
+3. `remove_unit`: recheck quiescence, verify the exact file hash and Brine marker,
+   remove only the owned active Quadlet, and synchronize the directory.
+4. `reload_units`: daemon-reload through the existing typed systemd adapter.
+5. `retire_app`: recheck quiescence and atomically remove the matching live
+   release head (freeing its port reservation) with an immutable removal receipt.
+
+The unified schema v2 includes append-only `app_removals` receipts. Immutable releases and their
+secret references remain. Removal never deletes Podman secrets: D5 retained
+release references still own those versions. The response adds
+`secret_retention: "d5_retained_releases"`, and human output explains retention.
+No images, volumes, databases, app data or retained Quadlet history are deleted.
+An old removal receipt cannot retire a recreated application's different head.
+A genuinely uninstalled app yields a clean no-op plan; repeated removal is safe.
+An observed orphan artifact is a conflict, not proof of an uninstalled app.
+
+Committed volume units and mounted-data directives refuse with
+`persistent_archive_required` (exit 4) before effects and explain that P04-08
+archival is required. This does not implement archival, expiry or purge.
+
+Interrupted removal uses a read-only, ownership-bound contiguous-prefix
+assessment under the same host lock as single-use continuation. Policy, target,
+control generation, unrelated releases/routes, unit hash and writer/job evidence
+must still agree. Killed intent boundaries are journaled as `unknown` before
+settlement. Disk publication never proves a past Caddy reload: a fresh complete
+validated generation and reload settles an interrupted route withdrawal before
+any stop. Unknown file deletion is re-observed, then safely re-entered through
+the content-addressed synchronized deletion adapter; daemon-reload is convergent.
+Only the immutable retirement receipt proves a committed removal. Unresolved or
+foreign state remains `recovery_required`; removal never invokes deployment
+rollback, restores a route or restarts the removed app.
+
+Evidence is synthetic unit/fake integration plus actual local SIGKILL of run-op
+subprocesses at all five effect boundaries. This does not prove a working real
+Caddy/Podman/systemd removal, SSH disconnect or physical-host reboot.
+
+
+P03-09 review regressions: routing reconstruction uses strict routing syntax and
+immutable committed desired input, not today's deployment authorization. The
+complete candidate still binds owned hashes and is validated/adapted by Caddy.
+Revoked registry/domain/resource/secret permissions cannot authorize a redeploy,
+but must not block withdrawing a committed app or retaining another owned route.
+Interrupted no-op removal has an absence-validated completion path: fresh exact
+replanning under the lock must still match before its receipt settles succeeded.
+Unknown presence, changed generation/policy, or an unexpected effect event stays
+recovery-required. Persistent-directive keys are whitespace-trimmed before checks.
+Removal receipts are part of the existing unshipped v1-to-v2 migration; there is
+no v3 migration or old-v2 compatibility path. Fresh enrollment creates v2.

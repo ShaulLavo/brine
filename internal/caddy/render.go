@@ -3,13 +3,14 @@ package caddy
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
 
-// Site can only be constructed through the spec and operator-policy boundary.
+// Site can only be constructed through the validated deployment or committed-route boundary.
 // Its fields are private because spec's branded primitives permit forged casts.
 type Site struct {
 	name    spec.Name
@@ -26,6 +27,17 @@ func NewSite(app spec.App, p policy.Policy, hostPort spec.Port) (Site, error) {
 		return Site{}, errors.New("caddy: host port outside operator policy")
 	}
 	return Site{name: d.Name, domains: d.Domains, port: hostPort}, nil
+}
+
+// CommittedSite reconstructs routing from immutable committed desired input.
+// This is not permission to deploy: the caller must bind the rendered bytes to
+// the recorded owned route hash. Withdrawal still validates/adapts the complete
+// candidate with Caddy; revoking deployment permissions must not block removal.
+func CommittedSite(d policy.Desired, hostPort spec.Port) (Site, error) {
+	if err := spec.ValidateRouting(d.Name, d.Domains, hostPort); err != nil {
+		return Site{}, err
+	}
+	return Site{name: d.Name, domains: slices.Clone(d.Domains), port: hostPort}, nil
 }
 
 func Render(site Site) ([]byte, error) {

@@ -783,3 +783,87 @@ func (m *Manager) restoreCandidate(name string, candidate []byte) error {
 	}
 	return nil
 }
+
+// SettleWithdrawal is forward reconciliation, not proof of a previous reload.
+// After exact disk read-back it validates the complete candidate again and makes
+// a fresh reload-only request. No unit is stopped until this request succeeds.
+func (m *Manager) SettleWithdrawal(ctx context.Context, main []byte, before, observed State, app spec.Name) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped {
+		return errors.New("caddy: reopen manager before reconciliation")
+	}
+	file := string(app) + ".caddy"
+	if !appFile.MatchString(file) || before.Files[file] == "" || observed.Generation <= before.Generation {
+		return errors.New("caddy: invalid withdrawal evidence")
+	}
+	wanted := maps.Clone(before.Files)
+	delete(wanted, file)
+	if !maps.Equal(wanted, observed.Files) {
+		return errors.New("caddy: withdrawal drift")
+	}
+	actual, files, err := m.observe()
+	if err != nil {
+		return err
+	}
+	if err = compareState(actual, observed); err != nil {
+		return err
+	}
+	candidateState := State{Generation: observed.Generation, Files: wanted, Sites: maps.Clone(before.Sites)}
+	delete(candidateState.Sites, file)
+	sites, err := boundSites(candidateState, files)
+	if err != nil {
+		return err
+	}
+	candidate, err := candidateRoot(main, m.path, gen(observed.Generation))
+	if err != nil {
+		return err
+	}
+	name := "reconcile-" + gen(observed.Generation) + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".caddy"
+	if err = m.write(name, candidate); err != nil {
+		return err
+	}
+	defer m.root.Remove(name)
+	validateCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	err = m.validator.Validate(validateCtx, filepath.Join(m.path, name))
+	if validateCtx.Err() != nil {
+		err = errors.Join(err, validateCtx.Err())
+	}
+	cancel()
+	if err != nil {
+		return err
+	}
+	adaptCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	adapted, err := m.validator.Adapt(adaptCtx, filepath.Join(m.path, name))
+	if adaptCtx.Err() != nil {
+		err = errors.Join(err, adaptCtx.Err())
+	}
+	cancel()
+	if err != nil {
+		return err
+	}
+	if err = checkAdapted(adapted, sites, before.Sites); err != nil {
+		return err
+	}
+	actual, _, err = m.observe()
+	if err != nil {
+		return err
+	}
+	if err = compareState(actual, observed); err != nil {
+		return err
+	}
+	if err = m.syncDir(gen(observed.Generation)); err != nil {
+		return err
+	}
+	if err = m.syncDir("."); err != nil {
+		return err
+	}
+	if err = m.reload(ctx); err != nil {
+		if unknown(err) {
+			m.stopped = true
+			return &UnknownOutcomeError{Stage: "settle-withdrawal", Cause: err}
+		}
+		return err
+	}
+	return nil
+}

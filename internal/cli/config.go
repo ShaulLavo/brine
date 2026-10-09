@@ -88,7 +88,11 @@ func configOutput(cmd *cobra.Command, response result.Envelope, modes machineMod
 	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Plan %s (%s). No app changes have been applied.\n", p.PlanID, p.Kind); err != nil {
 		return err
 	}
-	if p.Lifecycle != "" {
+	if p.Lifecycle == plan.RemoveApp {
+		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Action: remove_app. Withdraw the route, stop the app, remove its unit and release its port. Retained releases and secret versions stay for D5 rollback history. Persistent data needs P04-08 archival."); err != nil {
+			return err
+		}
+	} else if p.Lifecycle != "" {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Action: %s. Releases, routes and app data stay unchanged.\n", p.Lifecycle); err != nil {
 			return err
 		}

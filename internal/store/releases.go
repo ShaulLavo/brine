@@ -215,6 +215,6 @@ func (s *Store) ReleaseByID(ctx context.Context, app, id string) (Release, error
 // commit does not advance it, and plans and queued jobs do not affect it.
 func (s *Store) Generation(ctx context.Context) (uint64, error) {
 	var n uint64
-	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM releases").Scan(&n)
+	err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)").Scan(&n)
 	return n, err
 }
