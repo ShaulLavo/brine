@@ -73,7 +73,8 @@ func checkForcedSSH(out string) error {
 	return checkSSHValues(out, map[string]string{"forcecommand": "/usr/local/bin/brine host serve", "authorizedkeysfile": "/etc/ssh/brine/authorized_keys/%u", "authorizedkeyscommand": "none", "authorizedprincipalsfile": "none", "allowtcpforwarding": "no", "allowagentforwarding": "no", "x11forwarding": "no", "permittty": "no", "permittunnel": "no", "gatewayports": "no", "allowstreamlocalforwarding": "no"})
 }
 
-// Locale variables are the only client/session environment inputs supported.
+// Client environment permits locale patterns and exact display-only names.
+// Server SetEnv assignments remain limited to concrete locale variables.
 // A subset (including an empty AcceptEnv list) is safe; additive extras are not.
 func checkSSHEnvironment(out string) error {
 	for _, line := range strings.Split(out, "\n") {
@@ -84,8 +85,8 @@ func checkSSHEnvironment(out string) error {
 		keyword := strings.ToLower(f[0])
 		if keyword == "acceptenv" {
 			for _, pattern := range f[1:] {
-				if pattern != "LANG" && pattern != "LC_*" {
-					return errors.New("SSH AcceptEnv must allow only LANG and LC_*; unsafe client environment refused")
+				if pattern != "LANG" && pattern != "LC_*" && pattern != "COLORTERM" && pattern != "NO_COLOR" {
+					return errors.New("SSH AcceptEnv must allow only LANG, LC_*, COLORTERM and NO_COLOR; unsafe client environment refused")
 				}
 			}
 		}

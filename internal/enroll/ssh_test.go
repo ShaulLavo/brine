@@ -31,3 +31,16 @@ func TestSSHEnvironmentRefusesLoaderAndShellInputs(t *testing.T) {
 		}
 	}
 }
+
+func TestAcceptEnvAllowsOnlyExactDisplayNames(t *testing.T) {
+	for _, name := range []string{"COLORTERM", "NO_COLOR"} {
+		if err := checkGlobalSSH("permituserenvironment no\nacceptenv LANG LC_* " + name + "\n"); err != nil {
+			t.Fatalf("exact display variable refused: %s: %v", name, err)
+		}
+	}
+	for _, name := range []string{"COLORTERM*", "NO_COLOR*", "COLOR*", "NO_*", "COLORTERM_EXTRA", "NO_COLOR_EXTRA", "*", "LD_*", "LD_PRELOAD"} {
+		if err := checkGlobalSSH("permituserenvironment no\nacceptenv " + name + "\n"); err == nil {
+			t.Fatalf("unsafe extension accepted: %s", name)
+		}
+	}
+}
