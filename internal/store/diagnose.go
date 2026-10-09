@@ -58,7 +58,7 @@ func OpenReadOnly(ctx context.Context, stateDir string) (*Store, error) {
 // AppNames includes committed apps and apps with pending or failed operations.
 // Fetching one extra name lets diagnose report truncation without an unbounded inventory.
 func (s *Store) AppNames(ctx context.Context) ([]string, error) {
-	rows, err := s.db.QueryContext(ctx, `SELECT app FROM release_heads UNION SELECT json_extract(canonical,'$.app') FROM plans ORDER BY 1 LIMIT 17`)
+	rows, err := s.db.QueryContext(ctx, `SELECT app FROM release_heads UNION SELECT json_extract(canonical,'$.app') FROM plans UNION SELECT app FROM operations WHERE app<>'' ORDER BY 1 LIMIT 17`)
 	if err != nil {
 		return nil, err
 	}
@@ -77,9 +77,9 @@ func (s *Store) RecentOperations(ctx context.Context, app string, limit int) ([]
 	if limit < 1 || limit > 10 {
 		return nil, ErrInvalid
 	}
-	rows, err := s.db.QueryContext(ctx, `SELECT o.id,o.plan_id,o.requester,o.idempotency_key,o.state,o.created_at,o.updated_at,
+	rows, err := s.db.QueryContext(ctx, `SELECT o.id,COALESCE(o.plan_id,''),o.requester,o.idempotency_key,o.state,o.created_at,o.updated_at,o.kind,o.app,o.secret_ref,
  COALESCE((SELECT json_object('kind',kind,'payload',json(payload)) FROM events e WHERE e.operation_id=o.id AND (e.kind='failure' OR (e.kind='step' AND json_extract(e.payload,'$.outcome') IN ('failed','unknown') AND json_extract(e.payload,'$.code') IS NOT NULL)) ORDER BY seq DESC LIMIT 1),'')
- FROM operations o JOIN plans p ON p.id=o.plan_id WHERE json_extract(p.canonical,'$.app')=? ORDER BY julianday(o.updated_at) DESC,o.updated_at DESC,o.id DESC LIMIT ?`, app, limit)
+ FROM operations o WHERE o.app=? ORDER BY julianday(o.updated_at) DESC,o.updated_at DESC,o.id DESC LIMIT ?`, app, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (s *Store) RecentOperations(ctx context.Context, app string, limit int) ([]
 		var created, updated string
 		var payload []byte
 		o := &record.Operation
-		if err = rows.Scan(&o.ID, &o.PlanID, &o.Requester, &o.IdempotencyKey, &o.State, &created, &updated, &payload); err != nil {
+		if err = rows.Scan(&o.ID, &o.PlanID, &o.Requester, &o.IdempotencyKey, &o.State, &created, &updated, &o.Kind, &o.App, &o.SecretRef, &payload); err != nil {
 			return nil, err
 		}
 		// Match the journal reader's timestamp and state validation without exposing payload text.
@@ -99,7 +99,7 @@ func (s *Store) RecentOperations(ctx context.Context, app string, limit int) ([]
 			return nil, &IntegrityError{}
 		}
 		o.UpdatedAt, err = time.Parse(time.RFC3339Nano, updated)
-		if err != nil || !ops.ValidState(o.State) {
+		if err != nil || !ops.ValidOperation(*o) {
 			return nil, &IntegrityError{}
 		}
 		if len(payload) > 0 {

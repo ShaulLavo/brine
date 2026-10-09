@@ -151,7 +151,7 @@ func TestStrictDecode(t *testing.T) {
 		"unknown":           append([]byte(`{"unknown":1,`), b[1:]...),
 		"duplicate":         append([]byte(`{"applyable":true,`), b[1:]...),
 		"trailing":          append(bytes.Clone(b), []byte(` {}`)...),
-		"secret value":      bytes.Replace(b, []byte(`"secrets":[]`), []byte(`"secrets":[{"environment":"TOKEN","reference":"hello-token","version_name":"brine-hello-hello-token-v1","id":"opaque","value":"planted-secret-do-not-export"}]`), 1),
+		"secret value":      bytes.Replace(b, []byte(`"secrets":[]`), []byte(`"secrets":[{"environment":"TOKEN","reference":"hello-token","version_name":"brine.hello.hello-token.v1","id":"opaque","value":"planted-secret-do-not-export"}]`), 1),
 	}
 	for name, raw := range tests {
 		t.Run(name, func(t *testing.T) {

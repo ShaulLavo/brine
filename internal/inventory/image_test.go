@@ -5,6 +5,7 @@ package inventory
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
@@ -57,35 +58,79 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 		change     func(map[string]string)
 		known      bool
 		unitChange func(string) string
+		inactive   string
 	}{
-		{"matching", nil, true, nil},
+		{"matching", nil, true, nil, ""},
 		{"different container image", func(m map[string]string) {
 			m["container inspect systemd-hello"] = strings.ReplaceAll(m["container inspect systemd-hello"], imageID, strings.Repeat("f", 64))
-		}, false, nil},
-		{"missing container", func(m map[string]string) { delete(m, "container exists systemd-hello") }, false, nil},
-		{"unreadable image", func(m map[string]string) { delete(m, "image inspect "+repository+index) }, false, nil},
-		{"unreadable manifest", func(m map[string]string) { delete(m, "manifest inspect "+repository+index) }, false, nil},
+		}, false, nil, ""},
+		{"missing container", func(m map[string]string) { delete(m, "container exists systemd-hello") }, false, nil, ""},
+		{"unreadable image", func(m map[string]string) { delete(m, "image inspect "+repository+index) }, false, nil, ""},
+		{"unreadable manifest", func(m map[string]string) { delete(m, "manifest inspect "+repository+index) }, false, nil, ""},
 		{"stopped", func(m map[string]string) {
 			m["container inspect systemd-hello"] = strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`)
-		}, false, nil},
+		}, false, nil, ""},
 		{"unit pin mismatch", nil, false, func(s string) string {
 			return strings.ReplaceAll(s, "Image="+repository+manifest, "Image="+repository+index)
-		}},
+		}, ""},
 		{"unit platform mismatch", nil, false, func(s string) string {
 			return strings.ReplaceAll(s, "# Platform=linux/arm64", "# Platform=linux/amd64")
-		}},
-		{"missing index", nil, false, func(s string) string { return strings.ReplaceAll(s, "# IndexDigest="+index+"\n", "") }},
-		{"duplicate pin", nil, false, func(s string) string { return s + "Image=" + repository + manifest + "\n" }},
-		{"custom container name", nil, false, func(s string) string { return s + "ContainerName=foreign\n" }},
+		}, ""},
+		{"missing index", nil, false, func(s string) string { return strings.ReplaceAll(s, "# IndexDigest="+index+"\n", "") }, ""},
+		{"duplicate pin", nil, false, func(s string) string { return s + "Image=" + repository + manifest + "\n" }, ""},
+		{"custom container name", nil, false, func(s string) string { return s + "ContainerName=foreign\n" }, ""},
 		{"unbound index", nil, false, func(s string) string {
 			return strings.ReplaceAll(s, "# IndexDigest="+index, "# IndexDigest=sha256:"+strings.Repeat("e", 64))
-		}},
+		}, ""},
+		{"inactive stored image", func(m map[string]string) {
+			m["container inspect systemd-hello"] = strings.ReplaceAll(strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`), `"Status":"running"`, `"Status":"exited"`)
+			delete(m, "manifest inspect "+repository+index)
+		}, true, nil, "inactive"},
+		{"inactive multi-platform primary manifest alias", func(m map[string]string) {
+			m["container inspect systemd-hello"] = strings.ReplaceAll(strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`), `"Status":"running"`, `"Status":"exited"`)
+			m["image inspect "+repository+index] = m["image inspect "+repository+manifest]
+			delete(m, "manifest inspect "+repository+index)
+		}, true, nil, "inactive"},
+
+		{"inactive multi-platform index resolved by manifest list", func(m map[string]string) {
+			m["container inspect systemd-hello"] = strings.ReplaceAll(strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`), `"Status":"running"`, `"Status":"exited"`)
+			var rows []map[string]any
+			if err := json.Unmarshal([]byte(m["image inspect "+repository+manifest]), &rows); err != nil {
+				t.Fatal(err)
+			}
+			rows[0]["RepoDigests"] = []string{repository + manifest}
+			raw, err := json.Marshal(rows)
+			if err != nil {
+				t.Fatal(err)
+			}
+			m["image inspect "+repository+index] = string(raw)
+			m["image inspect "+repository+manifest] = string(raw)
+		}, true, nil, "inactive"},
+
+		{"inactive but running container", nil, false, nil, "inactive"},
+		{"inactive missing container", func(m map[string]string) {
+			delete(m, "container exists systemd-hello")
+			delete(m, "manifest inspect "+repository+index)
+		}, true, nil, "inactive"},
+		{"inactive wrong stored ID", func(m map[string]string) {
+			m["image inspect "+repository+manifest] = strings.ReplaceAll(m["image inspect "+repository+manifest], imageID, strings.Repeat("f", 64))
+		}, false, nil, "inactive"},
+		{"inactive platform lookup with primary index alias", func(m map[string]string) {
+			m["image inspect "+repository+manifest] = strings.ReplaceAll(m["image inspect "+repository+manifest], `"Digest": "`+manifest, `"Digest": "`+index)
+			m["container inspect systemd-hello"] = strings.ReplaceAll(strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`), `"Status":"running"`, `"Status":"exited"`)
+		}, true, nil, "inactive"},
+		{"inactive foreign container", func(m map[string]string) {
+			m["container inspect systemd-hello"] = strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`), `"Status":"running"`, `"Status":"exited"`), `"hello.service"`, `"foreign.service"`)
+		}, false, nil, "inactive"},
+		{"deactivating running container", nil, false, nil, "deactivating"},
+
+		{"inactive missing local manifest", func(m map[string]string) { delete(m, "image inspect "+repository+manifest) }, false, nil, "inactive"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := secretOnlyFixture()
 			dir := "/home/brine/.config/containers/systemd"
 			f.dirs[dir] = []fs.DirEntry{fixtureEntry("hello.container")}
-			f.files[dir+"/hello.container"] = "# Brine-owned plan=" + index + "\n# IndexDigest=" + index + "\n# PlatformManifestDigest=" + manifest + "\n# Platform=linux/arm64\n\n[Container]\nImage=" + repository + manifest + "\n"
+			f.files[dir+"/hello.container"] = "# Brine-owned plan=" + index + "\n# IndexDigest=" + index + "\n# PlatformManifestDigest=" + manifest + "\n# Platform=linux/arm64\n\n[Container]\nImage=" + repository + manifest + "\nPublishPort=127.0.0.1:20000:8080\n"
 			if tc.unitChange != nil {
 				f.files[dir+"/hello.container"] = tc.unitChange(f.files[dir+"/hello.container"])
 			}
@@ -104,9 +149,17 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 				"podman --remote=false secret ls --format {{.ID}} {{.Name}}":                                      "",
 				"podman --remote=false inspect --type container --format " + runtimePortFormat + " systemd-hello": `{"name":"systemd-hello","running":true,"unit":"hello.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20000"}]}}`,
 			}, results: results}
+			if tc.inactive != "" {
+				r.fakeRunner["systemctl --user show hello.service --property=ActiveState --value"] = tc.inactive
+				r.fakeRunner["podman --remote=false inspect --type container --format "+runtimePortFormat+" systemd-hello"] = `{"name":"systemd-hello","running":false,"unit":"hello.service","ports":{}}`
+			}
 			snapshot, e := target.Decode(read("../target/testdata/one-app.json"))
 			if e != nil {
 				t.Fatal(e)
+			}
+			if tc.inactive != "" {
+				snapshot.UsedPorts = target.Known([]target.Port{})
+				snapshot.PortOwners = target.Known([]target.PortOwner{})
 			}
 			collector := Collector{FS: f, Runner: r, RunnerUser: "brine"}
 			artifacts := collector.apps(context.Background(), &snapshot, "/home/brine", true)
@@ -152,6 +205,49 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 				}
 				return
 			}
+			if tc.inactive != "" {
+				running := in
+				raw, err := target.Encode(in.Snapshot)
+				if err != nil {
+					t.Fatal(err)
+				}
+				running.Snapshot, err = target.Decode(raw)
+				if err != nil {
+					t.Fatal(err)
+				}
+				unitActive := target.Known(true)
+				(*running.Snapshot.Apps.Value)[0].UnitActive = &unitActive
+				running.Snapshot.UsedPorts = target.Known([]target.Port{20000})
+				running.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 20000, App: "hello"}})
+				firstStop, err := plan.BuildLifecycle(running, plan.StopApp)
+				if err != nil || firstStop.Kind != plan.Update {
+					t.Fatal("first stop refused", firstStop, err)
+				}
+
+				if app.AllocatedHostPort.Status != target.KnownStatus || *app.AllocatedHostPort.Value != 20000 {
+					t.Fatal("stopped port unknown", app.AllocatedHostPort)
+				}
+				for _, action := range []plan.ChangeKind{plan.StartApp, plan.RestartApp, plan.StopApp} {
+					lifecycle, err := plan.BuildLifecycle(in, action)
+					if err != nil || lifecycle.Kind != plan.Update {
+						t.Fatal("stopped lifecycle refused", action, lifecycle.Conflicts, err)
+					}
+				}
+				foreign := in
+				foreign.Snapshot.UsedPorts = target.Known([]target.Port{20000})
+				foreign.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 20000, App: "foreign"}})
+				refused, err := plan.BuildLifecycle(foreign, plan.StartApp)
+				if err != nil || refused.Kind != plan.Conflict {
+					t.Fatal("foreign listener accepted", refused, err)
+				}
+				foreign.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 20000, App: "hello"}})
+				refused, err = plan.BuildLifecycle(foreign, plan.StartApp)
+				if err != nil || refused.Kind != plan.Conflict {
+					t.Fatal("contradictory stopped listener accepted", refused, err)
+				}
+
+			}
+
 			if p.Kind != plan.NoOp {
 				t.Fatalf("no-op=%+v", p)
 			}

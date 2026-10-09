@@ -90,7 +90,7 @@ type rawResources struct {
 
 var label = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-var secretName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,252}$`)
+var secretName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,252}$`)
 var repositoryPart = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$`)
 var tag = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$`)
 var digest = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
@@ -422,3 +422,6 @@ func validHealthPath(s string) bool {
 	u, err := url.ParseRequestURI(s)
 	return err == nil && u.Path == s && u.RawQuery == "" && u.Fragment == ""
 }
+
+// ValidEnvironmentName validates edit keys even when an unset removes them.
+func ValidEnvironmentName(name string) bool { return envName.MatchString(name) }

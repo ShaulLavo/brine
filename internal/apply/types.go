@@ -33,6 +33,7 @@ const (
 )
 
 type Journal interface {
+	GetOperation(context.Context, string) (ops.Operation, error)
 	AppendEvent(context.Context, string, Event) (uint64, error)
 	SetOperationState(context.Context, string, State) error
 }

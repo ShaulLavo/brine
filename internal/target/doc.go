@@ -33,7 +33,7 @@
 // hex digits> of exact file bytes. Images use the same digest syntax and bind a
 // linux/amd64 or linux/arm64 platform. Secret records contain only names and IDs.
 // A secret Name is the actual Podman name, not the app-spec logical reference.
-// Plans bind immutable brine-<app>-<ref>-v<n> names and their IDs. Generic or legacy
+// Plans bind immutable brine.<app>.<ref>.v<n> names and their IDs. Generic or legacy
 // names remain observable for drift diagnosis; the planner must refuse to resolve
 // an applyable plan to an unversioned name.
 // Allocated ports survive stopped apps, so they need not appear in UsedPorts.

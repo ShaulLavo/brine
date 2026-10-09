@@ -34,7 +34,7 @@ type Store interface {
 	RunnerStore
 	AcquireLaunchLock(context.Context) (ops.Lock, error)
 	// The store atomically binds requester+key to one plan and one operation.
-	CreateOperation(context.Context, string, string, string) (ops.Operation, bool, error)
+	CreateOperation(context.Context, ops.Intent, string, string) (ops.Operation, bool, error)
 	EventsAfter(context.Context, string, uint64, int) ([]ops.Event, error)
 }
 type Launcher interface {
@@ -75,7 +75,7 @@ func (s Service) Apply(ctx context.Context, planID, key string) (accepted Accept
 		return Accepted{}, err
 	}
 	defer func() { err = errors.Join(err, lock.Release()) }()
-	op, existing, err := s.Store.CreateOperation(ctx, planID, s.Requester, key)
+	op, existing, err := s.Store.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: planID}, s.Requester, key)
 	if err != nil {
 		return Accepted{}, err
 	}
@@ -195,8 +195,11 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	if err != nil {
 		return err
 	}
-	if op.Kind == "reconcile" {
+	if op.Kind == ops.Reconcile {
 		return r.runReconcile(ctx, op)
+	}
+	if op.Kind != ops.Deploy {
+		return result.New(result.Conflict, nil)
 	}
 	if r.Executor == nil {
 		return result.New(result.DependencyMissing, nil)
@@ -221,7 +224,7 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	if err != nil {
 		return err
 	}
-	if op.State != ops.Queued && op.State != ops.LaunchUnknown {
+	if op.Kind != ops.Deploy || op.State != ops.Queued && op.State != ops.LaunchUnknown {
 		return result.New(result.Conflict, nil)
 	}
 	intent, desired, err := r.Store.LoadPlan(ctx, op.PlanID)
@@ -260,6 +263,13 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 func (r Runner) lockUnavailable(ctx context.Context, id string, cause error) error {
 	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
 	defer cancel()
+	op, err := r.Store.GetOperation(journal, id)
+	if err != nil {
+		return err
+	}
+	if op.Kind != ops.Deploy {
+		return result.New(result.Conflict, nil)
+	}
 	_, eventErr := r.Store.AppendEvent(journal, id, failureEvent("lock_unavailable"))
 	stateErr := r.Store.TransitionOperation(journal, id, ops.Queued, ops.Failed)
 	if errors.Is(stateErr, ops.ErrStateConflict) {

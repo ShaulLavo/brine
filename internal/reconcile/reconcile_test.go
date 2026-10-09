@@ -69,7 +69,7 @@ func fixture(t testing.TB) (*store.Store, ops.Operation, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	op, _, err := s.CreateOperation(context.Background(), id, "fixture-requester", "fixture-key")
+	op, _, err := s.CreateOperation(context.Background(), ops.Intent{Kind: ops.Deploy, PlanID: id}, "fixture-requester", "fixture-key")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,4 +283,53 @@ func (s releaseAdapter) CurrentRelease(ctx context.Context, app string) (ops.Rel
 		return ops.Release{}, false, nil
 	}
 	return release, err == nil, err
+}
+
+func TestSecretOperationsNeverEnterDeploymentRecovery(t *testing.T) {
+	for _, state := range []ops.State{ops.Queued, ops.Preparing} {
+		t.Run(string(state), func(t *testing.T) {
+			ctx := context.Background()
+			s, deploy, _ := fixture(t)
+			if err := s.SetOperationState(ctx, deploy.ID, ops.Failed); err != nil {
+				t.Fatal(err)
+			}
+			secret, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.SecretSet, App: "hello", SecretRef: "token"}, "fixture-requester", "secret-key")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if state == ops.Preparing {
+				if err := s.SetOperationState(ctx, secret.ID, state); err != nil {
+					t.Fatal(err)
+				}
+			}
+			manager := &systemd.Fake{ShowFunc: func(context.Context, systemd.Unit) (systemd.Properties, error) {
+				t.Fatal("secret queried detached deployment manager")
+				return systemd.Properties{}, nil
+			}, JobPendingFunc: func(context.Context, systemd.Unit) (bool, error) {
+				t.Fatal("secret queried deployment jobs")
+				return false, nil
+			}}
+			r := Reconciler{Store: s, Systemd: manager}
+			preview, err := r.DryRun(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current, err := s.GetOperation(ctx, secret.ID)
+			if err != nil || current.State != state {
+				t.Fatal("preview changed secret", current, err)
+			}
+			report, err := r.Reconcile(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := state
+			if state == ops.Preparing {
+				want = ops.RecoveryRequired
+			}
+			current, err = s.GetOperation(ctx, secret.ID)
+			if err != nil || current.State != want || len(report.Outcomes) != 1 || len(preview.Outcomes) != 1 || report.Outcomes[0].After != want {
+				t.Fatal(current, report, preview, err)
+			}
+		})
+	}
 }

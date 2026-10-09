@@ -75,7 +75,7 @@ func saved(t testing.TB, s *Store) (PlanID, plan.Input) {
 func operation(t testing.TB, s *Store) OpID {
 	t.Helper()
 	id, _ := saved(t, s)
-	op, _, e := s.CreateOperation(context.Background(), id, "requester", "key")
+	op, _, e := s.CreateOperation(context.Background(), ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "key")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -136,11 +136,11 @@ func TestOperationsIdempotencyAndTransitions(t *testing.T) {
 	s := openTest(t)
 	op := operation(t, s)
 	id, _ := saved(t, s)
-	same, existing, e := s.CreateOperation(context.Background(), id, "requester", "key")
+	same, existing, e := s.CreateOperation(context.Background(), ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "key")
 	if e != nil || !existing || same.ID != op {
 		t.Fatalf("retry %s %v %v", same, existing, e)
 	}
-	other, existing, e := s.CreateOperation(context.Background(), id, "other", "key")
+	other, existing, e := s.CreateOperation(context.Background(), ops.Intent{Kind: ops.Deploy, PlanID: id}, "other", "key")
 	if e != nil || existing || other.ID == op {
 		t.Fatal("requester namespace")
 	}
@@ -285,7 +285,7 @@ func TestIdempotencyConflictAcrossPlans(t *testing.T) {
 	ctx := context.Background()
 	s := openTest(t)
 	id, in := saved(t, s)
-	op, _, e := s.CreateOperation(ctx, id, "requester", "key")
+	op, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "key")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -298,7 +298,7 @@ func TestIdempotencyConflictAcrossPlans(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, _, e = s.CreateOperation(ctx, second, "requester", "key"); !errors.Is(e, ErrConflict) {
+	if _, _, e = s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: second}, "requester", "key"); !errors.Is(e, ErrConflict) {
 		t.Fatalf("key rebound %v", e)
 	}
 	if e = s.SetOperationState(ctx, op.ID, ops.Preflight); e != nil {
@@ -337,7 +337,7 @@ func TestConcurrentStoresShareIdempotencyAndEventSequence(t *testing.T) {
 			if i%2 != 0 {
 				s = b
 			}
-			op, _, e := s.CreateOperation(ctx, id, "requester", "retry")
+			op, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "retry")
 			if e != nil {
 				t.Error(e)
 				return
@@ -400,7 +400,7 @@ func TestSQLBoundaryAndMigrationRollback(t *testing.T) {
 	if _, e := s.AppendEvent(ctx, "missing", Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)}); !errors.Is(e, ErrNotFound) {
 		t.Fatalf("missing op %v", e)
 	}
-	if _, _, e := s.CreateOperation(ctx, "missing", "requester", "other"); !errors.Is(e, ErrNotFound) {
+	if _, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: "sha256:" + strings.Repeat("f", 64)}, "requester", "other"); !errors.Is(e, ErrNotFound) {
 		t.Fatalf("missing plan %v", e)
 	}
 	dir := stateDir(t)
@@ -461,7 +461,7 @@ func TestConditionalTransitionsRaceWithoutOverwritingWinner(t *testing.T) {
 	defer b.Close()
 	id, _ := saved(t, a)
 	for iteration := 0; iteration < 64; iteration++ {
-		op, _, e := a.CreateOperation(ctx, id, "requester", fmt.Sprintf("race-%d", iteration))
+		op, _, e := a.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", fmt.Sprintf("race-%d", iteration))
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -656,14 +656,14 @@ func TestAppHistoryQueries(t *testing.T) {
 	if _, e = s.LastOperation(ctx, "hello"); !errors.Is(e, ErrNotFound) {
 		t.Fatal(e)
 	}
-	first, _, e := s.CreateOperation(ctx, r.PlanID, "requester", "first")
+	first, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: r.PlanID}, "requester", "first")
 	if e != nil {
 		t.Fatal(e)
 	}
 	if e = s.SetOperationState(ctx, first.ID, ops.Failed); e != nil {
 		t.Fatal(e)
 	}
-	second, _, e := s.CreateOperation(ctx, r.PlanID, "requester", "second")
+	second, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: r.PlanID}, "requester", "second")
 	if e != nil {
 		t.Fatal(e)
 	}

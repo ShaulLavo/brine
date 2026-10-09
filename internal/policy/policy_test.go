@@ -334,3 +334,31 @@ func TestMissingRepositoryConstraintsDeny(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretNamespacesRemainDistinct(t *testing.T) {
+	raw := bytes.ReplaceAll(fixture(t), []byte(`hello = ["hello-token"]`), []byte(`hello = ["team-token"]
+hello-team = ["token"]`))
+	if _, err := Parse(raw); err != nil {
+		t.Fatal("distinct dotted app-scoped namespaces refused", err)
+	}
+	raw = bytes.ReplaceAll(fixture(t), []byte(`hello = ["hello-token"]`), []byte(`hello = ["`+strings.Repeat("a", 253)+`"]`))
+	if _, err := Parse(raw); err == nil {
+		t.Fatal("oversized immutable version name accepted")
+	}
+}
+
+func TestDottedSecretReferenceRefused(t *testing.T) {
+	raw := bytes.ReplaceAll(fixture(t), []byte("hello-token"), []byte("hello.token"))
+	if _, err := Parse(raw); err == nil {
+		t.Fatal("dot in reference accepted")
+	}
+	p, err := Parse(fixture(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := app(t)
+	a.Secrets["TOKEN"] = "hello.token"
+	if _, err := Normalize(a, p); err == nil {
+		t.Fatal("spec accepted dotted reference")
+	}
+}

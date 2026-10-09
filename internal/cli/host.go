@@ -58,6 +58,8 @@ func executeHostServe(deps Dependencies) error {
 		server.Reconciler = deps.HostReconciler
 		server.Planner = deps.HostPlanner
 		server.Apps = deps.HostApps
+		server.Config = deps.HostConfig
+		server.Secrets = deps.HostSecrets
 		if deps.HostLogs != nil {
 			server.Logs = deps.HostLogs
 		}

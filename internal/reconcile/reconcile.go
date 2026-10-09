@@ -209,6 +209,14 @@ type continuation struct {
 
 func (r Reconciler) inspect(ctx context.Context, op ops.Operation) (Outcome, *continuation, error) {
 	out := Outcome{OperationID: op.ID, Before: op.State, After: ops.RecoveryRequired, Action: "recovery_required", Code: "recovery_required"}
+	// Synchronous secret assignments are not detached deployment jobs and have
+	// no plan. Never replay them through systemd or the deployment executor.
+	if op.Kind == ops.SecretSet {
+		if op.State == ops.Queued {
+			out.After, out.Action, out.Code = op.State, "unchanged", ""
+		}
+		return out, nil, nil
+	}
 	id, err := systemd.ParseOperationID(op.ID)
 	if err != nil {
 		return out, nil, err
@@ -258,7 +266,7 @@ func (r Reconciler) inspect(ctx context.Context, op ops.Operation) (Outcome, *co
 	}
 	// Interrupted recovery jobs are receipts, not deployment plans. Never replay
 	// their recovery request or interpret them as a forward-effect prefix.
-	if op.Kind == "reconcile" {
+	if op.Kind == ops.Reconcile {
 		return out, nil, nil
 	}
 	if r.Executor == nil && r.ExecutorFor == nil {

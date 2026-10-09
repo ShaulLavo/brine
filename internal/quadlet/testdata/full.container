@@ -11,7 +11,7 @@ Image=registry.example.com/team/web@sha256:ccccccccccccccccccccccccccccccccccccc
 PublishPort=127.0.0.1:20000:3000
 PidsLimit=64
 PodmanArgs=--memory=256m
-Secret=brine-hello-token-v1,type=env,target=TOKEN
+Secret=brine.hello.token.v1,type=env,target=TOKEN
 Environment="A=quote\" slash\\ %%n $$HOME café"
 Environment="Z=line one\nline two"
 

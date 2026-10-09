@@ -127,8 +127,8 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		return Desired{}, refuse("policy.resources_denied", "resources", "requested resources exceed operator ceilings")
 	}
 	for _, ref := range app.Secrets {
-		if !slices.Contains(c.AllowedSecrets[string(app.Name)], string(ref)) {
-			return Desired{}, refuse("policy.secret_denied", "secrets", "secret reference is not allowed for this app")
+		if e := p.CheckSecret(app.Name, ref); e != nil {
+			return Desired{}, e
 		}
 	}
 	d := Desired{SchemaVersion: SchemaVersion, Name: app.Name, Image: app.Image, ContainerPort: app.ContainerPort, Domains: app.Domains, Health: Health{Path: app.Health.Path, ExpectedStatus: app.Health.ExpectedStatus, StartupDeadlineSeconds: app.Health.StartupDeadlineSeconds, TimeoutSeconds: app.Health.TimeoutSeconds}, Resources: resources, Environment: []Environment{}, Secrets: []Secret{}, PolicyVersion: c.Version, PolicyHash: p.hash, AppPorts: *c.AppPorts, MinimumFreeDiskBytes: *c.MinimumFreeDiskBytes}
@@ -142,4 +142,16 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 	}
 	slices.SortFunc(d.Secrets, func(a, b Secret) int { return strings.Compare(a.Name, b.Name) })
 	return d, nil
+}
+
+// CheckSecret is the same app-scoped reference gate used by Normalize. It also
+// works before an app has a release, so first deployment can bind a secret.
+func (p Policy) CheckSecret(app spec.Name, ref spec.SecretReference) error {
+	if p.config == nil {
+		return refuse("policy.required", "$", "explicit operator policy is required")
+	}
+	if !referencePattern.MatchString(string(ref)) || !slices.Contains(p.config.AllowedSecrets[string(app)], string(ref)) {
+		return refuse("policy.secret_denied", "secrets", "secret reference is not allowed for this app")
+	}
+	return nil
 }

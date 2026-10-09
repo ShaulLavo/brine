@@ -36,7 +36,7 @@ func (s *lockErrorStore) TransitionOperation(ctx context.Context, id string, fro
 }
 func (s *lockErrorStore) GetOperation(ctx context.Context, id string) (ops.Operation, error) {
 	if err := ctx.Err(); err != nil {
-		return ops.Operation{}, err
+		return ops.Operation{Kind: ops.Deploy}, err
 	}
 	s.reads++
 	return s.fakeStore.GetOperation(ctx, id)
@@ -48,7 +48,7 @@ func TestRunnerLockErrorsJournalOutsideCanceledContext(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			cause := errors.New("fixture acquisition failed")
-			s := &lockErrorStore{fakeStore: &fakeStore{operation: ops.Operation{ID: "op1", State: ops.Queued}}}
+			s := &lockErrorStore{fakeStore: &fakeStore{operation: ops.Operation{Kind: ops.Deploy, ID: "op1", State: ops.Queued}}}
 			s.acquire = func(wait context.Context) (Lock, error) {
 				deadline, ok := wait.Deadline()
 				if !ok || time.Until(deadline) <= 0 || time.Until(deadline) > HostLockWaitTimeout {
@@ -82,7 +82,7 @@ func TestRunnerLockFailureCannotOverwriteAnotherRunner(t *testing.T) {
 	for _, state := range []ops.State{ops.Preflight, ops.Preparing, ops.Succeeded, ops.Failed, ops.LaunchUnknown} {
 		t.Run(string(state), func(t *testing.T) {
 			cause := errors.New("fixture acquisition failed")
-			base := &fakeStore{operation: ops.Operation{ID: "op1", State: ops.Queued}}
+			base := &fakeStore{operation: ops.Operation{Kind: ops.Deploy, ID: "op1", State: ops.Queued}}
 			base.beforeTransition = func() { base.operation.State = state }
 			s := &lockErrorStore{fakeStore: base, acquire: func(context.Context) (Lock, error) { return nil, cause }}
 			runner := Runner{Store: s, Executor: execFunc(func(context.Context, string, plan.Plan, policy.Desired) error {
@@ -92,7 +92,7 @@ func TestRunnerLockFailureCannotOverwriteAnotherRunner(t *testing.T) {
 			if err := runner.Run(context.Background(), "op1"); !errors.Is(err, cause) {
 				t.Fatalf("acquisition error lost: %v", err)
 			}
-			if base.operation.State != state || s.reads != 2 {
+			if base.operation.State != state || s.reads != 3 {
 				t.Fatalf("conflict not reconciled: state=%s reads=%d", base.operation.State, s.reads)
 			}
 		})
@@ -103,7 +103,7 @@ func TestRunnerWaitsForLockBeforeExecution(t *testing.T) {
 	waiting := make(chan struct{})
 	release := make(chan struct{})
 	executed := make(chan struct{})
-	base := &fakeStore{operation: ops.Operation{ID: "op1", State: ops.Queued}}
+	base := &fakeStore{operation: ops.Operation{Kind: ops.Deploy, ID: "op1", State: ops.Queued}}
 	s := &lockErrorStore{fakeStore: base}
 	s.acquire = func(ctx context.Context) (Lock, error) {
 		close(waiting)

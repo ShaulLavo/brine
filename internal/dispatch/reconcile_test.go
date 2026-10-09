@@ -85,7 +85,7 @@ func (f *reconcileJobFake) Reconcile(context.Context) (jobs.Accepted, error) {
 
 func TestReconcileReceiptHasClosedStatusShape(t *testing.T) {
 	now := time.Now().UTC()
-	status := jobs.Status{Operation: ops.Operation{ID: "recovery-job", Kind: "reconcile", State: ops.Preflight, CreatedAt: now, UpdatedAt: now}, Events: []ops.Event{}}
+	status := jobs.Status{Operation: ops.Operation{ID: "recovery-job", Kind: ops.Reconcile, State: ops.Preflight, CreatedAt: now, UpdatedAt: now}, Events: []ops.Event{}}
 	raw, _ := json.Marshal(result.Success("brine host operation", status))
 	if _, err := DecodeResponse(raw, "operation"); err != nil {
 		t.Fatal(err)

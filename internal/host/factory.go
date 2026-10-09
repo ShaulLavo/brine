@@ -52,6 +52,8 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	server.Reconciler = runtime.Reconciler
 	server.Planner = runtime.Planner
 	server.Apps = runtime.Apps
+	server.Config = runtime.Config
+	server.Secrets = runtime.Secrets
 	server.Logs = runtime.Logs
 	server.Diagnose = runtime.Diagnose
 	return server, nil

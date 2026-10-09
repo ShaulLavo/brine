@@ -24,8 +24,8 @@ type pausedCreationStore struct {
 	pause   bool
 }
 
-func (s pausedCreationStore) CreateOperation(ctx context.Context, planID, requester, key string) (ops.Operation, bool, error) {
-	op, existing, err := s.Store.CreateOperation(ctx, planID, requester, key)
+func (s pausedCreationStore) CreateOperation(ctx context.Context, intent ops.Intent, requester, key string) (ops.Operation, bool, error) {
+	op, existing, err := s.Store.CreateOperation(ctx, intent, requester, key)
 	if err == nil && !existing {
 		s.created <- op
 		if s.pause {

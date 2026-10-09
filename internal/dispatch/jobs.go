@@ -82,32 +82,18 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 	if err != nil {
 		return bad()
 	}
-	var header struct {
-		Kind string `json:"kind"`
-	}
-	if json.Unmarshal(f["operation"], &header) != nil {
-		return bad()
-	}
-	keys := []string{"id", "plan_id", "state", "created_at", "updated_at"}
-	if header.Kind != "" {
-		keys = append(keys, "kind")
-	}
-	opFields, err := strictjson.Object(f["operation"], keys...)
+	opFields, err := strictjson.Object(f["operation"], "id", "plan_id", "kind", "app", "secret_ref", "state", "created_at", "updated_at")
 	if err != nil {
 		return bad()
 	}
 	op, err := strictjson.Value[ops.Operation](f["operation"])
-	if err != nil || !jobs.ValidID(op.ID) || !(op.Kind == "" && jobs.ValidPlanID(op.PlanID) || op.Kind == "reconcile" && op.PlanID == "") || !ops.ValidState(op.State) {
+	if err != nil || !jobs.ValidID(op.ID) || !ops.ValidOperation(op) {
 		return bad()
 	}
-	if op.Kind != "" {
-		kind, e := strictjson.Value[string](opFields["kind"])
-		if e != nil || kind != "reconcile" {
+	for _, key := range []string{"id", "plan_id", "kind", "app", "secret_ref", "state"} {
+		if _, err := strictjson.Value[string](opFields[key]); err != nil {
 			return bad()
 		}
-	}
-	if _, e := strictjson.Value[string](opFields["plan_id"]); e != nil {
-		return bad()
 	}
 	// Decode each timestamp as well as the object to reject null timestamps.
 	for _, key := range []string{"created_at", "updated_at"} {
@@ -141,7 +127,7 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 			return bad()
 		}
 		event, err := strictjson.Value[ops.Event](raw)
-		if err != nil || event.Sequence == 0 || event.Sequence <= sequence || ops.ValidateEvent(event) != nil {
+		if err != nil || event.Sequence == 0 || event.Sequence <= sequence || ops.ValidateOperationEvent(op, event) != nil {
 			return bad()
 		}
 		if _, err := strictjson.Value[time.Time](f["created_at"]); err != nil {

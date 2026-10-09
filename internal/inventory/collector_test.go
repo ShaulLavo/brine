@@ -211,10 +211,10 @@ func TestOwnedQuadletsAndSecretNames(t *testing.T) {
 	f.files["/var/lib/systemd/linger/brine"] = ""
 	dir := "/home/brine/.config/containers/systemd"
 	f.dirs[dir] = []fs.DirEntry{fixtureEntry("brine-api.container"), fixtureEntry("brine-api.volume"), fixtureEntry("other.container")}
-	f.files[dir+"/brine-api.container"] = "[Container]\nImage=example.test/api:latest\nSecret=brine-api-db-v1\n"
+	f.files[dir+"/brine-api.container"] = "[Container]\nImage=example.test/api:latest\nSecret=brine.api.db.v1\n"
 	f.files[dir+"/brine-api.volume"] = "[Volume]\n"
 	f.files[dir+"/other.container"] = "[Container]\nImage=example.test/other:latest\n"
-	r := fakeRunner{"uname -m": "x86_64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine-api-db-v1\nunrelated-id unrelated\n"}
+	r := fakeRunner{"uname -m": "x86_64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine.api.db.v1\nunrelated-id unrelated\n"}
 	s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 	if e != nil {
 		t.Fatal(e)
@@ -229,7 +229,7 @@ func TestOwnedQuadletsAndSecretNames(t *testing.T) {
 	if len(*a.QuadletUnits.Value) != 2 || a.Image.Status != target.Unknown || a.AllocatedHostPort.Status != target.Unknown {
 		t.Fatal("unmeasured app values guessed")
 	}
-	if a.Secrets.Value == nil || len(*a.Secrets.Value) != 1 || (*a.Secrets.Value)[0].Name != "brine-api-db-v1" {
+	if a.Secrets.Value == nil || len(*a.Secrets.Value) != 1 || (*a.Secrets.Value)[0].Name != "brine.api.db.v1" {
 		t.Fatal("secret names missing")
 	}
 }
@@ -397,7 +397,7 @@ func TestSecretRecordsNeverReadValues(t *testing.T) {
 		out   string
 		ok    bool
 		count int
-	}{{"", true, 0}, {"fixture-id brine-api-db-v1\n", true, 1}, {"fixture-id brine-api-db-v1 secret-value", false, 0}, {"id name\nid other", false, 0}} {
+	}{{"", true, 0}, {"fixture-id brine.api.db.v1\n", true, 1}, {"fixture-id brine.api.db.v1 secret-value", false, 0}, {"id name\nid other", false, 0}} {
 		s, ok := secretRecords(tc.out)
 		if ok != tc.ok || len(s) != tc.count {
 			t.Fatalf("unexpected secret records %#v %v", s, ok)

@@ -20,7 +20,7 @@ func (s *jobStub) Apply(context.Context, string, string) (jobs.Accepted, error) 
 }
 func (s *jobStub) Operation(context.Context, string, uint64) (jobs.Status, error) {
 	s.reads++
-	return jobs.Status{Operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, Events: []ops.Event{}, NextCursor: 0}, nil
+	return jobs.Status{Operation: ops.Operation{Kind: ops.Deploy, ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, Events: []ops.Event{}, NextCursor: 0}, nil
 }
 
 func TestJobClassesAndPolicy(t *testing.T) {
@@ -101,7 +101,7 @@ func TestAcceptedResponseNeverMeansDeployed(t *testing.T) {
 }
 
 func TestOperationResponseRejectsUnsafeJournal(t *testing.T) {
-	status := jobs.Status{Operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, Events: []ops.Event{{Sequence: 1, Kind: "failure", Payload: json.RawMessage(`{"code":"launch_failed"}`)}}, NextCursor: 1}
+	status := jobs.Status{Operation: ops.Operation{Kind: ops.Deploy, ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, Events: []ops.Event{{Sequence: 1, Kind: "failure", Payload: json.RawMessage(`{"code":"launch_failed"}`)}}, NextCursor: 1}
 	valid, _ := json.Marshal(result.Success("brine host operation", status))
 	if _, err := DecodeResponse(valid, "operation"); err != nil {
 		t.Fatal(err)

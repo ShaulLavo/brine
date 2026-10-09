@@ -54,10 +54,10 @@ func TestUpdateComparisonAndEnvironmentRedaction(t *testing.T) {
 }
 
 func TestDiffSecretRotationAndRemoval(t *testing.T) {
-	old := CurrentRelease{Desired: policy.Desired{}, Secrets: []SecretBinding{{Environment: "ROTATE", Reference: "old-reference", VersionName: "brine-hello-old-reference-v1"}, {Environment: "REMOVE", Reference: "removed-reference", VersionName: "brine-hello-removed-reference-v1"}}}
-	next := []SecretBinding{{Environment: "ADD", Reference: "added-reference", VersionName: "brine-hello-added-reference-v1"}, {Environment: "ROTATE", Reference: "new-reference", VersionName: "brine-hello-new-reference-v2"}}
+	old := CurrentRelease{Desired: policy.Desired{}, Secrets: []SecretBinding{{Environment: "ROTATE", Reference: "old-reference", VersionName: "brine.hello.old-reference.v1"}, {Environment: "REMOVE", Reference: "removed-reference", VersionName: "brine.hello.removed-reference.v1"}}}
+	next := []SecretBinding{{Environment: "ADD", Reference: "added-reference", VersionName: "brine.hello.added-reference.v1"}, {Environment: "ROTATE", Reference: "new-reference", VersionName: "brine.hello.new-reference.v2"}}
 	d := configurationDiff(old.Desired, old.Image, old.HostPort, next, &old)
-	if len(d.Secrets) != 3 || d.Secrets[0].Environment != "ADD" || d.Secrets[0].From != nil || d.Secrets[1].Environment != "REMOVE" || d.Secrets[1].To != nil || d.Secrets[2].From.Reference != "old-reference" || d.Secrets[2].To.VersionName != "brine-hello-new-reference-v2" {
+	if len(d.Secrets) != 3 || d.Secrets[0].Environment != "ADD" || d.Secrets[0].From != nil || d.Secrets[1].Environment != "REMOVE" || d.Secrets[1].To != nil || d.Secrets[2].From.Reference != "old-reference" || d.Secrets[2].To.VersionName != "brine.hello.new-reference.v2" {
 		t.Fatal(d.Secrets)
 	}
 }

@@ -75,7 +75,7 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 		return Unit{}, fmt.Errorf("quadlet: incomplete secret bindings")
 	}
 	for i, s := range secrets {
-		prefix := "brine-" + string(d.Name) + "-" + string(wanted[i].Reference) + "-v"
+		prefix := "brine." + string(d.Name) + "." + string(wanted[i].Reference) + ".v"
 		version, err := strconv.ParseUint(strings.TrimPrefix(s.VersionName, prefix), 10, 64)
 		if s.Environment != wanted[i].Name || s.Reference != wanted[i].Reference || s.ID == "" || err != nil || version == 0 || s.VersionName != prefix+strconv.FormatUint(version, 10) || len(s.VersionName) > 253 {
 			return Unit{}, fmt.Errorf("quadlet: invalid immutable secret binding")

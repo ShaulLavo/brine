@@ -29,7 +29,7 @@ func DecodeReport(raw []byte) (Report, error) {
 			return Report{}, strictjson.ErrObject
 		}
 		seen[a.App] = true
-		if a.LastOperation != nil && (!idPattern.MatchString(a.LastOperation.ID) || !digestPattern.MatchString(a.LastOperation.PlanID) || !ops.ValidState(a.LastOperation.State)) {
+		if a.LastOperation != nil && (!idPattern.MatchString(a.LastOperation.ID) || !ops.ValidOperation(*a.LastOperation)) {
 			return Report{}, strictjson.ErrObject
 		}
 		h := a.Health.UnitActive
@@ -140,4 +140,18 @@ func exact(raw []byte, t reflect.Type) error {
 		}
 	}
 	return nil
+}
+
+func DecodeConfigPlan(raw []byte) (ConfigPlan, error) {
+	var p ConfigPlan
+	if exact(raw, reflect.TypeFor[ConfigPlan]()) != nil || json.Unmarshal(raw, &p) != nil || !digestPattern.MatchString(p.PlanID) || p.Kind != plan.Update && p.Kind != plan.NoOp && p.Kind != plan.Conflict {
+		return ConfigPlan{}, strictjson.ErrObject
+	}
+	if p.Lifecycle != "" && p.Lifecycle != plan.RestartApp && p.Lifecycle != plan.StopApp && p.Lifecycle != plan.StartApp {
+		return ConfigPlan{}, strictjson.ErrObject
+	}
+	if p.Kind == plan.Conflict && len(p.Conflicts) == 0 || p.Kind != plan.Conflict && len(p.Conflicts) != 0 {
+		return ConfigPlan{}, strictjson.ErrObject
+	}
+	return p, nil
 }

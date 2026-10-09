@@ -165,11 +165,8 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 			return err
 		}
 	}
-	if version <= 1 {
-		if _, err = tx.ExecContext(ctx, schemaV2); err != nil {
-			return err
-		}
-		if _, err = tx.ExecContext(ctx, "UPDATE schema_version SET version=2"); err != nil {
+	if version < 2 {
+		if err = migrateOperations(ctx, tx); err != nil {
 			return err
 		}
 	}
@@ -188,16 +185,6 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 	}
 	return tx.Commit()
 }
-
-// A NULL plan identifies a host reconciliation job, not a fabricated deploy plan.
-// Existing operations/events/release foreign keys keep their original IDs.
-const schemaV2 = `
-CREATE TABLE operations_v2 (id TEXT PRIMARY KEY, plan_id TEXT REFERENCES plans(id), requester TEXT NOT NULL, idempotency_key TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('queued','launch_unknown','preflight','preparing','quiescing','starting','checking','committing','rolling_back','succeeded','failed','rolled_back','recovery_required')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(requester,idempotency_key));
-INSERT INTO operations_v2 SELECT * FROM operations;
-DROP TABLE operations;
-ALTER TABLE operations_v2 RENAME TO operations;
-CREATE TRIGGER legal_transition BEFORE UPDATE OF state ON operations WHEN OLD.state<>NEW.state AND NOT EXISTS (SELECT 1 FROM transitions WHERE from_state=OLD.state AND to_state=NEW.state) BEGIN SELECT RAISE(ABORT,'illegal state transition'); END;
-`
 
 const schema = `
 CREATE TABLE plans (id TEXT PRIMARY KEY, canonical BLOB NOT NULL, content_hash TEXT NOT NULL, desired BLOB NOT NULL, desired_hash TEXT NOT NULL);

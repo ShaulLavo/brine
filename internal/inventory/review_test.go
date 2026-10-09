@@ -57,7 +57,7 @@ func TestReviewPredeploymentSecrets(t *testing.T) {
 		if present {
 			f.dirs["/home/brine/.config/containers/systemd"] = []os.DirEntry{}
 		}
-		r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine-api-db-v1"}
+		r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine.api.db.v1"}
 		s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 		if e != nil {
 			t.Fatal(e)
@@ -112,7 +112,7 @@ func (warningRunner) RunStdout(ctx context.Context, p string, args ...string) (s
 
 func TestReviewFirstDeploymentBindsPreexistingSecret(t *testing.T) {
 	f := secretOnlyFixture()
-	r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine-api-db-v1"}
+	r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine.api-main.db-token.v1"}
 	collected, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 	if e != nil {
 		t.Fatal(e)
@@ -127,24 +127,24 @@ func TestReviewFirstDeploymentBindsPreexistingSecret(t *testing.T) {
 	}
 	ready.Apps = collected.Apps
 	image := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}
-	desired := policy.Desired{SchemaVersion: 1, Name: "api", Image: spec.ImageReference("registry.example.test/api@" + image.Digest), ContainerPort: 8080, Domains: []spec.Domain{"api.example.test"}, Environment: []policy.Environment{}, Secrets: []policy.Secret{{Name: "DB", Reference: "db"}}, PolicyVersion: "fixture", PolicyHash: "sha256:" + strings.Repeat("b", 64), AppPorts: policy.PortRange{Min: 20000, Max: 20010}}
+	desired := policy.Desired{SchemaVersion: 1, Name: "api-main", Image: spec.ImageReference("registry.example.test/api@" + image.Digest), ContainerPort: 8080, Domains: []spec.Domain{"api.example.test"}, Environment: []policy.Environment{}, Secrets: []policy.Secret{{Name: "DB", Reference: "db-token"}}, PolicyVersion: "fixture", PolicyHash: "sha256:" + strings.Repeat("b", 64), AppPorts: policy.PortRange{Min: 20000, Max: 20010}}
 	p, e := plan.Build(plan.Input{Desired: desired, Snapshot: ready, Image: image, State: plan.BrineState{Target: ready.Identity, Generation: 0, Releases: []plan.CurrentRelease{}}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	if p.Kind != plan.Create || len(p.Secrets) != 1 || p.Secrets[0].VersionName != "brine-api-db-v1" {
+	if p.Kind != plan.Create || len(p.Secrets) != 1 || p.Secrets[0].VersionName != "brine.api-main.db-token.v1" {
 		t.Fatalf("first deployment failed: %#v", p.Conflicts)
 	}
 }
-func TestReviewAmbiguousSecretNamesRemainUnknown(t *testing.T) {
+func TestReviewMalformedSecretNamesRemainUnknown(t *testing.T) {
 	f := secretOnlyFixture()
-	r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine-api-main-db-v1"}
+	r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine.api.main.db.v1"}
 	s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 	if e != nil {
 		t.Fatal(e)
 	}
 	if s.Apps.Status != target.Unknown {
-		t.Fatal("ambiguous app/reference boundary guessed")
+		t.Fatal("malformed dotted reference accepted")
 	}
 }
 func TestReviewUnreadableAdminIsUnknown(t *testing.T) {

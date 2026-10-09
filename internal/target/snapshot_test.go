@@ -115,7 +115,7 @@ func TestRejectJSON(t *testing.T) {
 		"null value":             strings.Replace(base, `"status":"known","value":4`, `"status":"known","value":null`, 1),
 		"null array":             strings.Replace(base, `"value":[20000]`, `"value":null`, 1),
 		"unsafe name":            strings.Replace(base, `"name":"hello"`, `"name":"../hello"`, 1),
-		"extra secret value":     strings.Replace(base, `"name":"brine-hello-key-v1"`, `"value":"must-not-appear","name":"brine-hello-key-v1"`, 1),
+		"extra secret value":     strings.Replace(base, `"name":"brine.hello.key.v1"`, `"value":"must-not-appear","name":"brine.hello.key.v1"`, 1),
 		"trailing json":          base + `{}`,
 	}
 	for name, input := range tests {
@@ -465,14 +465,14 @@ func TestSecretNamesAreActualPodmanNames(t *testing.T) {
 		t.Fatal(err)
 	}
 	secrets := (*s.Apps.Value)[0].Secrets.Value
-	if (*secrets)[0].Name != "brine-hello-key-v1" || (*secrets)[1].Name != "brine-hello-token-v2" {
+	if (*secrets)[0].Name != "brine.hello.key.v1" || (*secrets)[1].Name != "brine.hello.token.v2" {
 		t.Fatal("fixture must contain exact versioned Podman names")
 	}
 	versioned, err := Encode(s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	(*secrets)[0].Name = "brine-hello-key-v2"
+	(*secrets)[0].Name = "brine.hello.key.v2"
 	rotated, err := Encode(s)
 	if err != nil {
 		t.Fatal(err)

@@ -11,7 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-func (c Collector) liveImage(ctx context.Context, home string, units []target.Unit, contents map[string][]byte) target.Observation[target.Image] {
+func (c Collector) liveImage(ctx context.Context, home string, units []target.Unit, contents map[string][]byte, inactive bool) target.Observation[target.Image] {
 	unknownImage := unknown[target.Image]()
 	container := ""
 	for _, unit := range units {
@@ -82,7 +82,13 @@ func (c Collector) liveImage(ctx context.Context, home string, units []target.Un
 	if err != nil {
 		return unknownImage
 	}
-	info, err := podman.New(session).RunningContainerImage(ctx, name, stem+".service", indexPin)
+	client := podman.New(session)
+	var info podman.ImageInfo
+	if inactive {
+		info, err = client.StoppedContainerImage(ctx, name, stem+".service", indexPin, pin)
+	} else {
+		info, err = client.RunningContainerImage(ctx, name, stem+".service", indexPin)
+	}
 	if err != nil || info.ManifestDigest != manifest || info.Platform.OS+"/"+info.Platform.Architecture != platform {
 		return unknownImage
 	}
@@ -126,8 +132,26 @@ func (c Collector) images(ctx context.Context, s *target.Snapshot, home string, 
 		if slice <= 0 {
 			break
 		}
+		// Transitional/failed unit states must not become stopped evidence; a
+		// running container contradicting a known inactive unit stays unknown.
+		app := apps[index]
+		if app.UnitActive != nil && app.UnitActive.Status == target.KnownStatus && !*app.UnitActive.Value && !artifacts.inactive[app.Name] {
+			continue
+		}
+
 		appCtx, stop := context.WithTimeout(probes, slice)
-		apps[index].Image = c.liveImage(appCtx, home, *apps[index].QuadletUnits.Value, artifacts.containers)
+		apps[index].Image = c.liveImage(appCtx, home, *apps[index].QuadletUnits.Value, artifacts.containers, artifacts.inactive[apps[index].Name])
+		// A stopped owned unit retains its allocation, not a listener. Do not add
+		// it to publications: any socket on this port must still prove live ownership.
+		if artifacts.inactive[apps[index].Name] && apps[index].Image.Status == target.KnownStatus {
+			for _, unit := range *apps[index].QuadletUnits.Value {
+				if strings.HasSuffix(unit.Name, ".container") {
+					if port, ok := pinnedListenerPort(string(artifacts.containers[unit.Name])); ok {
+						apps[index].AllocatedHostPort = target.Known(port.Host)
+					}
+				}
+			}
+		}
 		stop()
 	}
 }

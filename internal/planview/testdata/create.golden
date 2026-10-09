@@ -7,7 +7,7 @@ create  hello
 + resources: 512 MiB, 128 PIDs
 + health: /ready status 200, startup 30s, timeout 3s
 + env APP_ENV: added (value hidden)
-+ secret TOKEN: hello-token [brine-hello-hello-token-v2]
++ secret TOKEN: hello-token [brine.hello.hello-token.v2]
 + allocate host port 20000
 ~ pull and verify image sha256:aaaaaaaaaaaa...
 ~ bind secret TOKEN -> hello-token

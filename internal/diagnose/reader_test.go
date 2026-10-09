@@ -202,7 +202,7 @@ func TestDriftUnknownAndEveryArtifact(t *testing.T) {
 		{"image", func(_ *target.Snapshot, a *target.App) { a.Image.Value.Digest = "sha256:" + strings.Repeat("c", 64) }},
 		{"host_port", func(_ *target.Snapshot, a *target.App) { a.AllocatedHostPort = target.Known(target.Port(20001)) }},
 		{"secret_bindings", func(_ *target.Snapshot, a *target.App) {
-			a.Secrets = target.Known([]target.Secret{{Name: "brine-demo-key-v2", ID: "different"}})
+			a.Secrets = target.Known([]target.Secret{{Name: "brine.demo.key.v2", ID: "different"}})
 		}},
 		{"caddy_file", func(s *target.Snapshot, _ *target.App) {
 			s.CaddyConfig.Value.Files[0].Hash = "sha256:" + strings.Repeat("c", 64)
@@ -215,7 +215,7 @@ func TestDriftUnknownAndEveryArtifact(t *testing.T) {
 			s.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{App: "demo", Domains: target.Known([]string{})}})
 			expected := release
 			if tt.code == "secret_bindings" {
-				expected.Secrets = []plan.SecretBinding{{VersionName: "brine-demo-key-v2", ID: "expected"}}
+				expected.Secrets = []plan.SecretBinding{{VersionName: "brine.demo.key.v2", ID: "expected"}}
 			}
 			a := &(*s.Apps.Value)[0]
 			tt.change(&s, a)
@@ -382,8 +382,8 @@ func TestReaderRetainedSecretsAndPartialDrift(t *testing.T) {
 			want := []string{}
 			switch scenario {
 			case "retained_secrets":
-				stored.release.Secrets = []plan.SecretBinding{{VersionName: "brine-demo-key-v2", ID: "version-two"}}
-				a.Secrets = target.Known([]target.Secret{{Name: "brine-demo-key-v1", ID: "version-one"}, {Name: "brine-demo-key-v2", ID: "version-two"}})
+				stored.release.Secrets = []plan.SecretBinding{{VersionName: "brine.demo.key.v2", ID: "version-two"}}
+				a.Secrets = target.Known([]target.Secret{{Name: "brine.demo.key.v1", ID: "version-one"}, {Name: "brine.demo.key.v2", ID: "version-two"}})
 			case "unknown_image_changed_units":
 				a.Image = target.Observation[target.Image]{Status: target.Unknown}
 				a.QuadletUnits = target.Known([]target.Unit{{Name: "demo.container", Hash: "sha256:" + strings.Repeat("c", 64)}})

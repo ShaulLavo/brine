@@ -8,10 +8,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/plan"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/ops"
 )
@@ -33,24 +35,34 @@ func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
 			}
 		}
 	}
-	legacy := &Store{db: db, dir: dir}
-	id := operation(t, legacy)
+	// Construct an actual v1 journal through its historical SQL shape. Current
+	// store methods deliberately only understand the unified v2, not old schemas.
+	input := fixture(t)
+	planned, err := plan.Build(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := planned.CanonicalBytes()
+	desired, _ := input.Desired.CanonicalBytes()
+	if _, err = db.Exec("INSERT INTO plans VALUES(?,?,?,?,?)", planned.Hash, raw, digest(raw), desired, planned.DesiredHash); err != nil {
+		t.Fatal(err)
+	}
+	id := "legacy-deploy"
+	now := time.Now().UTC()
+	stamp := now.Format(time.RFC3339Nano)
+	if _, err = db.Exec("INSERT INTO operations VALUES(?,?,?,?,?,?,?)", id, planned.Hash, "fixture-requester", "legacy-key", ops.Preflight, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
 	payload, _ := json.Marshal(ops.LaunchPayload{Outcome: "intent"})
-	if _, err := legacy.AppendEvent(ctx, id, ops.Event{Kind: "launch", Payload: payload}); err != nil {
+	if _, err = db.Exec("INSERT INTO events VALUES(?,?,?,?,?,?)", id, 1, "launch", "", payload, stamp); err != nil {
 		t.Fatal(err)
 	}
-	if err := legacy.TransitionOperation(ctx, id, ops.Queued, ops.Preflight); err != nil {
+	if _, err = db.Exec("INSERT INTO events VALUES(?,?,?,?,?,?)", id, 2, "state", ops.Preflight, []byte{}, stamp); err != nil {
 		t.Fatal(err)
 	}
-	before, err := legacy.GetOperation(ctx, id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	events, err := legacy.EventsAfter(ctx, id, 0, 128)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := legacy.Close(); err != nil {
+	before := ops.Operation{ID: id, Kind: ops.Deploy, App: planned.App, PlanID: planned.Hash, Requester: "fixture-requester", IdempotencyKey: "legacy-key", State: ops.Preflight, CreatedAt: now, UpdatedAt: now}
+	events := []ops.Event{{Sequence: 1, Kind: "launch", Payload: payload, CreatedAt: now}, {Sequence: 2, Kind: "state", State: ops.Preflight, Payload: nil, CreatedAt: now}}
+	if err := db.Close(); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, "control.db")
@@ -110,6 +122,17 @@ func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
 	if err := migrated.TransitionOperation(ctx, recovery.ID, ops.Succeeded, ops.Preflight); err == nil {
 		t.Fatal("terminal receipt changed")
 	}
+	secret, _, err := migrated.CreateOperation(ctx, ops.Intent{Kind: ops.SecretSet, App: "hello", SecretRef: "token"}, "fixture-requester", "secret-after-migration")
+	if err != nil || secret.Kind != ops.SecretSet || secret.PlanID != "" {
+		t.Fatal(secret, err)
+	}
+	if err := migrated.SetOperationState(ctx, secret.ID, ops.Preparing); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrated.SetOperationState(ctx, secret.ID, ops.Succeeded); err != nil {
+		t.Fatal(err)
+	}
+
 	var version, foreignKeys int
 	if err := migrated.db.QueryRow("SELECT version FROM schema_version").Scan(&version); err != nil || version != 2 {
 		t.Fatalf("schema %d %v", version, err)

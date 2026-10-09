@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -21,6 +22,7 @@ type appArtifacts struct {
 	publications map[string]publication
 	containers   map[string][]byte
 	runner       bool
+	inactive     map[string]bool
 }
 
 func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) appArtifacts {
@@ -84,11 +86,11 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			return appArtifacts{}
 		}
 		for _, secret := range secrets {
-			if !strings.HasPrefix(secret.Name, "brine-") {
+			if !strings.HasPrefix(secret.Name, "brine.") {
 				continue
 			}
 			candidates := secretAppNames(secret.Name)
-			// Names are not self-delimiting. Do not guess app/reference boundaries.
+			// Dotted names identify app ownership without guessing.
 			if len(candidates) != 1 {
 				return appArtifacts{}
 			}
@@ -100,6 +102,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		return appArtifacts{}
 	}
 	publications := map[string]publication{}
+	inactive := map[string]bool{}
 	apps := make([]target.App, 0, len(byApp))
 	for app, units := range byApp {
 		sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
@@ -120,7 +123,10 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 							switch state {
 							case "active", "reloading", "refreshing":
 								active = target.Known(true)
-							case "inactive", "failed", "activating", "deactivating", "maintenance":
+							case "inactive":
+								inactive[app] = true
+								active = target.Known(false)
+							case "failed", "activating", "deactivating", "maintenance":
 								active = target.Known(false)
 							}
 						}
@@ -128,14 +134,14 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 				}
 				a.UnitActive = &active
 				measured := c.livePublication(ctx, units)
-				if measured.Status == target.KnownStatus {
+				if measured.Status == target.KnownStatus && !inactive[app] {
 					publications[app] = *measured.Value
 					a.AllocatedHostPort = target.Known(measured.Value.Host)
 				}
 			}
 			observed := []target.Secret{}
 			for _, secret := range secrets {
-				if strings.HasPrefix(secret.Name, "brine-"+app+"-") {
+				if strings.HasPrefix(secret.Name, "brine."+app+".") {
 					observed = append(observed, secret)
 				}
 			}
@@ -147,7 +153,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
 
 	s.Apps = target.Known(apps)
-	return appArtifacts{publications: publications, containers: containerData, runner: runnerIdentity}
+	return appArtifacts{publications: publications, containers: containerData, runner: runnerIdentity, inactive: inactive}
 }
 
 func (c Collector) isRunner(ctx context.Context, home string) bool {
@@ -395,17 +401,9 @@ func sameJSON(a, b []byte) bool {
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
 }
 
-var secretReferenceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,252}$`)
-var secretVersionSuffix = regexp.MustCompile(`-v[0-9]+$`)
-
 func secretAppNames(name string) []string {
-	stem := strings.TrimPrefix(name, "brine-")
-	stem = secretVersionSuffix.ReplaceAllString(stem, "")
-	names := []string{}
-	for i, ch := range stem {
-		if ch == '-' && appName.MatchString(stem[:i]) && secretReferenceName.MatchString(stem[i+1:]) {
-			names = append(names, stem[:i])
-		}
+	if !ops.ValidSecretVersionName(name) {
+		return nil
 	}
-	return names
+	return []string{strings.Split(name, ".")[1]}
 }

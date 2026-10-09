@@ -12,8 +12,8 @@ sha256:aaaaaaaaaaaa... (linux/arm64, manifest unknown)
 - env REMOVED: removed
 + env ADDED: added (value hidden)
 ~ env APP_ENV: changed (value hidden)
-~ secret TOKEN: hello-token [brine-hello-hello-token-v1] -> hello-token [brine-
-hello-hello-token-v2]
+~ secret TOKEN: hello-token [brine.hello.hello-token.v1] -> hello-token
+[brine.hello.hello-token.v2]
 + allocate host port 20000
 ~ pull and verify image sha256:aaaaaaaaaaaa...
 ~ bind secret TOKEN -> hello-token

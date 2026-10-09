@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -20,6 +21,7 @@ type Name struct{ value string }
 func (n Name) String() string { return n.value }
 
 var namePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,252}$`)
+var secretNamePattern = regexp.MustCompile(`^brine\.[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\.[A-Za-z0-9][A-Za-z0-9_-]{0,252}\.v[1-9][0-9]*$`)
 var imagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)+(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-fA-F0-9]{64}$`)
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
@@ -35,6 +37,18 @@ func ParseName(s string) (Name, error) {
 		return Name{}, invalid()
 	}
 	return Name{s}, nil
+}
+
+// ParseSecretName accepts immutable Brine names, not generic runtime names.
+func ParseSecretName(s string) (Name, error) {
+	if !secretNamePattern.MatchString(s) {
+		return Name{}, invalid()
+	}
+	version := s[strings.LastIndex(s, ".v")+2:]
+	if _, err := strconv.ParseUint(version, 10, 64); err != nil {
+		return Name{}, invalid()
+	}
+	return ParseName(s)
 }
 func invalid() error   { return &localexec.Error{Kind: localexec.Invalid} }
 func malformed() error { return &localexec.Error{Kind: localexec.Failed} }
@@ -214,16 +228,28 @@ func (i Image) repository() string {
 }
 func (i Image) digest() string { return i.value[strings.LastIndexByte(i.value, '@')+1:] }
 func (row localImage) associates(image Image) bool {
-	ref := image.repository() + "@" + image.digest()
+	// Primary Digest also proves an alias, but only with an association to
+	// the requested repository. A matching digest or tag alone is not ownership.
 	for _, associated := range row.RepoDigests {
 		candidate, err := ParseImage(associated)
-		if err == nil && candidate.repository()+"@"+candidate.digest() == ref {
+		if err == nil && candidate.repository() == image.repository() && (candidate.digest() == image.digest() || row.Digest == image.digest()) {
 			return true
 		}
 	}
 	return false
 }
 func (c *Client) localImage(ctx context.Context, image Image) (localImage, error) {
+	row, err := c.readLocalImage(ctx, image)
+	if err != nil {
+		return localImage{}, err
+	}
+	if !row.associates(image) {
+		return localImage{}, malformed()
+	}
+	return row, nil
+}
+
+func (c *Client) readLocalImage(ctx context.Context, image Image) (localImage, error) {
 	r, e := c.run(ctx, []string{"image", "inspect", image.value}, nil, false)
 	if e != nil {
 		return localImage{}, e
@@ -233,13 +259,80 @@ func (c *Client) localImage(ctx context.Context, image Image) (localImage, error
 		return localImage{}, malformed()
 	}
 	row := rows[0]
-	if !digestPattern.MatchString("sha256:"+row.ID) || !digestPattern.MatchString(row.Digest) || row.Os == "" || row.Architecture == "" || !row.associates(image) {
+	if !digestPattern.MatchString("sha256:"+row.ID) || !digestPattern.MatchString(row.Digest) || row.Os == "" || row.Architecture == "" {
 		return localImage{}, malformed()
 	}
 	if row.ManifestType != ociManifest && row.ManifestType != dockerManifest {
 		return localImage{}, malformed()
 	}
 	return row, nil
+}
+
+// InspectStored verifies both pins against the same local stored image without
+// requiring a running container. Repository-qualified associated aliases prove
+// local pins without a registry read. If the index association was not retained,
+// the shared manifest resolver must bind that exact index to the local image.
+func (c *Client) InspectStored(ctx context.Context, index, manifest Image) (ImageInfo, error) {
+	if index.value == "" || manifest.value == "" || index.repository() != manifest.repository() {
+		return ImageInfo{}, invalid()
+	}
+	indexed, err := c.readLocalImage(ctx, index)
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	selected, err := c.localImage(ctx, manifest)
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	if indexed.ID != selected.ID || indexed.Os != selected.Os || indexed.Architecture != selected.Architecture {
+		return ImageInfo{}, malformed()
+	}
+	if !indexed.associates(index) && !selected.associates(index) {
+		resolved, err := c.inspectManifest(ctx, index, indexed)
+		if err != nil {
+			return ImageInfo{}, err
+		}
+		if resolved.ImageID != selected.ID || resolved.ManifestDigest != manifest.digest() || resolved.Platform.OS != selected.Os || resolved.Platform.Architecture != selected.Architecture {
+			return ImageInfo{}, malformed()
+		}
+		return resolved, nil
+	}
+	return ImageInfo{ImageID: selected.ID, IndexDigest: index.digest(), ManifestDigest: manifest.digest(), Platform: Platform{OS: selected.Os, Architecture: selected.Architecture}}, nil
+}
+
+// StoppedContainerImage verifies locally retained pins and, when a container
+// remains, its stopped state, unit ownership and image identity. Absence is only
+// accepted after Podman's explicit exists probe, never an inspect failure.
+func (c *Client) StoppedContainerImage(ctx context.Context, name Name, unit string, index, manifest Image) (ImageInfo, error) {
+	if name.value == "" || unit == "" {
+		return ImageInfo{}, invalid()
+	}
+	found, err := c.exists(ctx, []string{"container", "exists", name.value})
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	info, err := c.InspectStored(ctx, index, manifest)
+	if err != nil || !found {
+		return info, err
+	}
+	r, err := c.run(ctx, []string{"container", "inspect", name.value}, nil, false)
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	var rows []struct {
+		Name   string
+		Image  string
+		State  *ContainerState
+		Config struct{ Labels map[string]string }
+	}
+	if json.Unmarshal([]byte(r.Stdout), &rows) != nil || len(rows) != 1 {
+		return ImageInfo{}, malformed()
+	}
+	row := rows[0]
+	if row.Name != name.value || row.Image != info.ImageID || row.Config.Labels["PODMAN_SYSTEMD_UNIT"] != unit || row.State == nil || row.State.Running || (row.State.Status != "exited" && row.State.Status != "stopped") {
+		return ImageInfo{}, malformed()
+	}
+	return info, nil
 }
 
 // Inspect observes local image metadata and the pinned registry manifest. It
@@ -260,6 +353,12 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 	if e != nil {
 		return ImageInfo{}, e
 	}
+	return c.inspectManifest(ctx, image, row)
+}
+
+// inspectManifest shares the index/platform binding rules across running and
+// stopped observations. A primary lookup digest is not an alias identity.
+func (c *Client) inspectManifest(ctx context.Context, image Image, row localImage) (ImageInfo, error) {
 	info := ImageInfo{ImageID: row.ID, IndexDigest: image.digest(), Platform: Platform{OS: row.Os, Architecture: row.Architecture}}
 	r, e := c.run(ctx, []string{"manifest", "inspect", image.value}, nil, false)
 	if e != nil {
@@ -267,7 +366,7 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 		// captured capability refusal permits using the already-verified local pin.
 		var re *localexec.Error
 		unsupported := strings.HasPrefix(r.Stderr, "Error: parsing manifest blob ") && strings.HasSuffix(strings.TrimSpace(r.Stderr), `as a "application/vnd.oci.image.manifest.v1+json": Treating single images as manifest lists is not implemented`)
-		if row.ManifestType == ociManifest && !r.Truncated && errors.As(e, &re) && re.Kind == localexec.Failed && re.ExitCode == 125 && unsupported {
+		if row.associates(image) && row.ManifestType == ociManifest && !r.Truncated && errors.As(e, &re) && re.Kind == localexec.Failed && re.ExitCode == 125 && unsupported {
 			info.ManifestDigest = image.digest()
 			return info, nil
 		}
@@ -312,7 +411,7 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 	case dockerManifest:
 		// The schema-2 single-image result loses config/layers when Podman converts
 		// it to ManifestListData. The supported local lookup verifies this pin.
-		if row.ManifestType != dockerManifest || len(manifest.Manifests) != 0 {
+		if !row.associates(image) || row.ManifestType != dockerManifest || len(manifest.Manifests) != 0 {
 			return ImageInfo{}, malformed()
 		}
 		info.ManifestDigest = image.digest()

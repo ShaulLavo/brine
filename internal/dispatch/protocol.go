@@ -52,16 +52,19 @@ type operation struct {
 }
 
 var operations = map[string]operation{
-	"reconcile": {Mutating, decodeReconcile},
-	"diagnose":  {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
-	"status":    {ReadOnly, decodeAppStatus},
-	"rollback":  {Mutating, decodeRollback},
-	"logs":      {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
-	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
-	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
-	"apply":     {Mutating, decodeApply},
-	"plan":      {Mutating, decodePlan},
-	"operation": {ReadOnly, decodeOperation},
+	"config_set": {Mutating, decodeConfig},
+	"lifecycle":  {Mutating, decodeLifecycle},
+	"secret_set": {Mutating, decodeSecret},
+	"reconcile":  {Mutating, decodeReconcile},
+	"diagnose":   {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
+	"status":     {ReadOnly, decodeAppStatus},
+	"rollback":   {Mutating, decodeRollback},
+	"logs":       {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
+	"ping":       {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
+	"inventory":  {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
+	"apply":      {Mutating, decodeApply},
+	"plan":       {Mutating, decodePlan},
+	"operation":  {ReadOnly, decodeOperation},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
@@ -137,6 +140,8 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
+	Config     ConfigurationOperations
+	Secrets    SecretOperations
 	Reconciler ReconcileOperations
 	Factory    Factory
 	Planner    Planner
@@ -200,6 +205,35 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case ConfigArgs:
+		if s.Config == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.Config.ConfigSet(ctx, args.App, args.Edits)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = p
+	case LifecycleArgs:
+		if s.Config == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.Config.Lifecycle(ctx, args.App, args.Action)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = p
+	case SecretArgs:
+		defer clear(args.Value)
+		if s.Secrets == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		stored, err := s.Secrets.Set(ctx, args.App, args.Reference, request.RequestID, args.Value)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = stored
+
 	case ReconcileArgs:
 		if args.DryRun {
 			if s.Reconciler == nil {

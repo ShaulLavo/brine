@@ -26,6 +26,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
@@ -81,6 +82,10 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 	if e.Journal == nil {
 		return &Error{Step: "preflight", Code: "journal_failed", State: Failed}
 	}
+	op, readErr := e.Journal.GetOperation(ctx, opID)
+	if readErr != nil || op.Kind != ops.Deploy || op.PlanID != p.Hash {
+		return &Error{Step: "preflight", Code: "drift", State: Failed, Cause: readErr}
+	}
 	x := &execution{executor: e, id: opID, plan: p, desired: d}
 	preflight := func(ctx context.Context) error {
 		if d.Health.StartupDeadlineSeconds < 1 || d.Health.StartupDeadlineSeconds > spec.MaxStartupDeadlineSeconds {
@@ -97,7 +102,12 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		if err != nil {
 			return &Error{Step: "preflight", Code: "inventory_failed", Cause: err}
 		}
-		fresh, err := plan.Build(x.facts.Input)
+		var fresh plan.Plan
+		if p.Lifecycle != "" {
+			fresh, err = plan.BuildLifecycle(x.facts.Input, p.Lifecycle)
+		} else {
+			fresh, err = plan.Build(x.facts.Input)
+		}
 		if err != nil {
 			return err
 		}
@@ -140,6 +150,13 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		}
 		if p.Kind == plan.NoOp {
 			return nil
+		}
+		if p.Lifecycle != "" {
+			if e.Podman == nil || e.Systemd == nil || p.Lifecycle != plan.StopApp && e.Health == nil {
+				return errors.New("lifecycle adapters required")
+			}
+			x.service, err = systemd.ParseUnit(p.App + ".service")
+			return err
 		}
 		if e.Podman == nil || e.Systemd == nil || e.Units == nil || e.Routes == nil || e.Health == nil {
 			return errors.New("effect adapters required")
@@ -195,6 +212,9 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 	}
 	if p.Kind == plan.NoOp {
 		return x.terminal(ctx, Succeeded, nil)
+	}
+	if p.Lifecycle != "" {
+		return x.lifecycle(ctx)
 	}
 	image, err := podman.ParseImage(string(d.Image))
 	if err != nil {

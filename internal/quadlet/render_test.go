@@ -56,7 +56,7 @@ func bind(t testing.TB, d policy.Desired) plan.Plan {
 	}
 	p := plan.Plan{Kind: plan.Create, App: string(d.Name), Hash: "sha256:" + strings.Repeat("b", 64), DesiredHash: fmt.Sprintf("sha256:%x", sha256.Sum256(b)), Image: plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}, HostPort: 20000}
 	for _, s := range d.Secrets {
-		p.Secrets = append(p.Secrets, plan.SecretBinding{Environment: s.Name, Reference: s.Reference, VersionName: "brine-hello-" + string(s.Reference) + "-v1", ID: "opaque-id"})
+		p.Secrets = append(p.Secrets, plan.SecretBinding{Environment: s.Name, Reference: s.Reference, VersionName: "brine.hello." + string(s.Reference) + ".v1", ID: "opaque-id"})
 	}
 	return p
 }
@@ -208,7 +208,7 @@ func TestRefuseBindings(t *testing.T) {
 		{"secret injection", func(d *policy.Desired, p *plan.Plan, m *string) {
 			d.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
 			*p = bind(t, *d)
-			p.Secrets[0].VersionName = "brine-hello-token-v1,type=mount"
+			p.Secrets[0].VersionName = "brine.hello.token.v1,type=mount"
 		}},
 		{"name injection", func(d *policy.Desired, p *plan.Plan, m *string) { d.Name = "../bad"; *p = bind(t, *d) }},
 		{"resource zero", func(d *policy.Desired, p *plan.Plan, m *string) { d.Resources.MemoryMB = 0; *p = bind(t, *d) }},

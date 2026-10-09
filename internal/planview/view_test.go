@@ -43,7 +43,7 @@ func example(kind plan.Kind) plan.Plan {
 			Resources:     &plan.ValueChange[policy.Resources]{To: &resources},
 			Health:        &plan.ValueChange[policy.Health]{To: &health},
 			Environment:   &plan.EnvironmentChange{Added: []string{"APP_ENV"}, Removed: []string{}, Changed: []string{}},
-			Secrets:       []plan.SecretChange{{Environment: "TOKEN", To: &plan.SecretVersion{Reference: "hello-token", VersionName: "brine-hello-hello-token-v2"}}},
+			Secrets:       []plan.SecretChange{{Environment: "TOKEN", To: &plan.SecretVersion{Reference: "hello-token", VersionName: "brine.hello.hello-token.v2"}}},
 		}
 		if kind == plan.Update {
 			oldImage := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("b", 64), Platform: image.Platform}
@@ -58,7 +58,7 @@ func example(kind plan.Kind) plan.Plan {
 			p.Diff.Health.From = &oldHealth
 			p.Diff.Domains.Removed = []spec.Domain{"old.example.com"}
 			p.Diff.Environment = &plan.EnvironmentChange{Added: []string{"ADDED"}, Removed: []string{"REMOVED"}, Changed: []string{"APP_ENV"}}
-			p.Diff.Secrets[0].From = &plan.SecretVersion{Reference: "hello-token", VersionName: "brine-hello-hello-token-v1"}
+			p.Diff.Secrets[0].From = &plan.SecretVersion{Reference: "hello-token", VersionName: "brine.hello.hello-token.v1"}
 		}
 	}
 	if kind == plan.Conflict {
@@ -326,7 +326,7 @@ func TestTypedDiffCanonicalAndImmutable(t *testing.T) {
 	p.Diff.Domains.Added = []spec.Domain{"z.example.com", "a.example.com"}
 	p.Diff.Environment.Added = []string{"Z", "A"}
 	p.Diff.Environment.Removed = []string{"REMOVED_Z", "REMOVED_A"}
-	p.Diff.Secrets = append(p.Diff.Secrets, plan.SecretChange{Environment: "REMOVED", From: &plan.SecretVersion{Reference: "removed-token", VersionName: "brine-hello-removed-token-v1"}})
+	p.Diff.Secrets = append(p.Diff.Secrets, plan.SecretChange{Environment: "REMOVED", From: &plan.SecretVersion{Reference: "removed-token", VersionName: "brine.hello.removed-token.v1"}})
 	before, _ := json.Marshal(p)
 	a, err := JSON(p)
 	if err != nil {
