@@ -85,8 +85,9 @@ type CaddyConfigSet struct {
 }
 
 // LiveCaddyFile describes domains actually served by each root or imported file,
-// including files outside Brine's generation directory. Name is a stable opaque
-// file identifier. App is an observed app association, not replacement authority.
+// including files outside Brine's generation directory. Name is the measured
+// filename for exact Brine-rendered generation files, otherwise a stable opaque
+// identifier. App is an observed app association, not replacement authority.
 type LiveCaddyFile struct {
 	Name    string                `json:"name"`
 	App     string                `json:"app"`

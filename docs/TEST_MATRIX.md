@@ -69,3 +69,25 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   intent/completed preflight and refusal of changed/unknown absence; spaced/tabbed
   Volume/Mount/ReadWritePaths directives; unified v1-to-v2 migration preserving
   the deploy journal and creating immutable removal receipts. All pass locally.
+
+## P03 imported-route provenance evidence (physical rerun pending)
+
+- T05/T11: `internal/inventory/provenance_test.go` uses the production collector,
+  generation filesystem shape and real Caddy v2.6.2 adapter JSON. The source root
+  has a global `local_certs` block plus the fixed generation import. Fixtures
+  cover an empty generation, one app, a separate operator site, an overlapping
+  HTTP site and a catchall. Capture used `caddy adapt --config Caddyfile
+  --adapter caddyfile`, with the fixed import redirected only to a local fixture
+  generation. Adapter JSON contains only reserved example names and loopback
+  upstreams; capture paths and diagnostics are not included.
+- A create plan followed by a committed-release environment-update plan passes
+  using collected routing facts, not pre-attributed routing snapshots. Before
+  the fix, the update test reports `artifact_drift caddy.live`, `domain_owned
+  domains` and `unknown_facts live_caddy_files.domains`.
+- Root-owned domains, overlapping owners and catchalls still refuse with
+  `domain_owned`. Changed rendered bytes, failed or unmatched adaptation,
+  unknown generation and disk/live disagreement never authorize an update.
+  Complete disk-adapted/live JSON equality remains a prerequisite.
+- These are local collector/planner and real-adapter fixtures, not a successful
+  Pi update, rollback, removal, recovery or R2 restore. Physical reruns belong
+  to the separately authorized host lane.

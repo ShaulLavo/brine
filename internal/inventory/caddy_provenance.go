@@ -50,9 +50,15 @@ func (c Collector) caddyProvenance(ctx context.Context, s *target.Snapshot, whol
 			return
 		}
 		for _, server := range imported.Apps.HTTP.Servers {
+			if server == nil {
+				return
+			}
 			for _, route := range server.Routes {
 				found := false
 				for _, liveServer := range remaining.Apps.HTTP.Servers {
+					if liveServer == nil {
+						return
+					}
 					for i, candidate := range liveServer.Routes {
 						if sameJSON(route, candidate) {
 							liveServer.Routes = append(liveServer.Routes[:i], liveServer.Routes[i+1:]...)
