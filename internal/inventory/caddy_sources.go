@@ -25,6 +25,9 @@ func (c Collector) caddySources(ctx context.Context, root string) ([]string, boo
 		if e != nil {
 			return false
 		}
+		if path != root && caddy.ValidateInventoryFile(data) != nil {
+			return false
+		}
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {

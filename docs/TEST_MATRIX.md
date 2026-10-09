@@ -108,3 +108,11 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   remain valid only for currently emitted unattributed sources, not as a
   substitute for an app association on filename-shaped sources. The diagnostic
   change is confined to `liveGeneration`; log collection paths are unchanged.
+
+- The imported-file boundary uses the same pinned Caddy lexer, including quoted
+  import directive names. A real-adapter probe confirmed that a quoted import
+  in another unused snippet contributes no routes while the executed app import
+  still produces equivalent JSON. Its failing-first collector regression now
+  refuses all attribution. Lexer tests distinguish quoted directives from
+  harmless response strings and comments; environment expansion and malformed
+  source tokens also stay unknown.
