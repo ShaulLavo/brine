@@ -138,7 +138,7 @@ func TestEscapedSecretsNeverReachClientOutput(t *testing.T) {
 }
 
 func TestLogsCollectionFailurePresentation(t *testing.T) {
-	for _, code := range []result.Code{result.LogsInventoryFailed, result.LogsInventoryTimeout, result.LogsJournalFailed, result.LogsJournalTimeout, result.LogsJournalUnavailable} {
+	for _, code := range []result.Code{result.LogsInventoryFailed, result.LogsInventoryTimeout, result.LogsJournalFailed, result.LogsJournalTimeout, result.LogsJournalUnavailable, result.LogsContainerFailed, result.LogsContainerTimeout, result.LogsContainerUnavailable, result.LogsInvalidContainer} {
 		for _, mode := range []string{"human", "--json", "--jsonl"} {
 			var out, diag bytes.Buffer
 			client := &logsCaller{err: result.New(code, errors.New("password=planted-secret"))}

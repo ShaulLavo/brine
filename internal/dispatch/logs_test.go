@@ -56,7 +56,7 @@ func (f logExecutionFailure) Execute(context.Context, localexec.Command) (locale
 	return localexec.Result{Stdout: "API_KEY=planted-secret", Stderr: "Bearer planted-secret", ExitCode: 1}, &localexec.Error{Kind: f.kind, ExitCode: 1}
 }
 
-func TestLogsCollectionFailureTransport(t *testing.T) {
+func TestUnitJournalCollectionFailureTransport(t *testing.T) {
 	for _, tt := range []struct {
 		kind localexec.ErrorKind
 		code result.Code
@@ -66,9 +66,35 @@ func TestLogsCollectionFailureTransport(t *testing.T) {
 		{localexec.NotFound, result.LogsJournalUnavailable},
 	} {
 		server := NewServer("test", nil)
-		server.Logs = logs.Reader{Inventory: logInventory{}, Executor: logExecutionFailure{tt.kind}}
+		server.Logs = logs.JournalReader{Inventory: logInventory{}, Executor: logExecutionFailure{tt.kind}}
 		response, err := server.Handle(context.Background(), strings.NewReader(`{"schema_version":1,"op":"logs","request_id":"logs-test","args":{"app":"api","tail":5}}`))
 		if err == nil || response.OK || response.Error == nil || response.Error.Code != tt.code || response.Data != nil {
+			t.Fatalf("response=%+v error=%v", response, err)
+		}
+		raw, err := json.Marshal(response)
+		if err != nil || strings.Contains(string(raw), "planted-secret") {
+			t.Fatal("transport leaked failed subprocess output")
+		}
+		decoded, err := DecodeResponse(raw, "logs")
+		if err != nil || decoded.Error == nil || decoded.Error.Code != tt.code || decoded.Data != nil {
+			t.Fatalf("decoded=%+v error=%v", decoded, err)
+		}
+	}
+}
+
+func TestContainerLogFailureTransport(t *testing.T) {
+	for _, tt := range []struct {
+		kind localexec.ErrorKind
+		code result.Code
+	}{
+		{localexec.Failed, result.LogsContainerFailed},
+		{localexec.Timeout, result.LogsContainerTimeout},
+		{localexec.NotFound, result.LogsContainerUnavailable},
+	} {
+		server := NewServer("test", nil)
+		server.Logs = logs.Reader{Inventory: logInventory{}, Executor: logExecutionFailure{tt.kind}}
+		response, err := server.Handle(context.Background(), strings.NewReader(`{"schema_version":1,"op":"logs","request_id":"logs-test","args":{"app":"api","tail":5}}`))
+		if err == nil || response.Error == nil || response.Error.Code != tt.code {
 			t.Fatalf("response=%+v error=%v", response, err)
 		}
 		raw, err := json.Marshal(response)

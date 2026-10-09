@@ -1,4 +1,4 @@
-// Package logs reads bounded, best-effort redacted journals for owned apps.
+// Package logs reads bounded, best-effort redacted container and unit logs for owned apps.
 package logs
 
 import (
@@ -20,6 +20,8 @@ import (
 const MaxTail = 1000
 const MaxBytes = 128 << 10
 const ReadTimeout = 10 * time.Second
+const ContainerLogDriver = "k8s-file"
+const ContainerLogMaxBytes = 10 << 20
 
 type Request struct {
 	App   string `json:"app"`
@@ -38,6 +40,15 @@ type Reader struct {
 	Inventory Inventory
 	Executor  localexec.Executor
 }
+
+type JournalReader Reader
+
+type source uint8
+
+const (
+	containerSource source = iota
+	journalSource
+)
 
 var sincePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$`)
 
@@ -83,6 +94,14 @@ func DecodeRequest(raw []byte) (Request, error) {
 	return r, r.Validate()
 }
 func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
+	return r.read(ctx, request, containerSource)
+}
+
+func (r JournalReader) Read(ctx context.Context, request Request) ([]Line, error) {
+	return Reader(r).read(ctx, request, journalSource)
+}
+
+func (r Reader) read(ctx context.Context, request Request, from source) ([]Line, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
@@ -105,6 +124,9 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	if err != nil {
 		return nil, err
 	}
+	if from == containerSource {
+		return r.readContainer(ctx, request, unit)
+	}
 	args := []string{"--user", "-u", unit.String(), "-n", strconv.Itoa(request.Tail), "-o", "json", "--no-pager", "--all"}
 	if request.Since != "" {
 		since, _ := time.Parse(time.RFC3339, request.Since)
@@ -113,7 +135,7 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	out, err := r.Executor.Execute(ctx, localexec.Command{Path: "journalctl", Args: args, Timeout: ReadTimeout})
 	if err != nil {
 		var execution *localexec.Error
-		if errors.As(err, &execution) && execution.Kind == localexec.NotFound {
+		if errors.As(err, &execution) && (execution.Kind == localexec.NotFound || execution.Kind == localexec.Failed && execution.ExitCode == 1 && strings.TrimSpace(out.Stderr) == "No journal files were opened due to insufficient permissions.") {
 			return nil, result.New(result.LogsJournalUnavailable, err)
 		}
 		return nil, collectionError(err, result.LogsJournalFailed, result.LogsJournalTimeout)
