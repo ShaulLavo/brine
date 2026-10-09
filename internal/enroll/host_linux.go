@@ -853,6 +853,7 @@ func (h *host) bypass(ctx context.Context) (bool, error) {
 		"! touch /home/brine/.bash_logout",
 		"! touch /home/brine/.pam_environment",
 		"! touch /home/brine/.ssh/environment",
+		"! touch /home/brine/.ssh/authorized_keys2",
 	}
 	for _, script := range scripts {
 		if _, err := h.run(ctx, false, "runuser", "-u", "brine", "--", "/bin/sh", "-c", script); err != nil {
@@ -880,6 +881,9 @@ func (h *host) bypass(ctx context.Context) (bool, error) {
 	return true, nil
 }
 func (h *host) finishVerification(ctx context.Context) error {
+	if err := h.removeCandidate(); err != nil {
+		return err
+	}
 	if err := h.captureRuntime(ctx); err != nil {
 		return err
 	}

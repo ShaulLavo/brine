@@ -305,3 +305,19 @@ func TestCaddyCandidateValidatedBeforePromotion(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestBypassProbesAlternateProtectedKeyFile(t *testing.T) {
+	observed := false
+	f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) {
+		if strings.Contains(strings.Join(c.Args, " "), "! touch /home/brine/.ssh/authorized_keys2") {
+			observed = true
+			return localexec.Result{}, errors.New("injected failed restriction")
+		}
+		return localexec.Result{}, nil
+	}}
+	h := host{exec: f}
+	done, err := h.bypass(context.Background())
+	if done || err == nil || !observed {
+		t.Fatalf("alternate bypass was not checked: observed=%v error=%v", observed, err)
+	}
+}

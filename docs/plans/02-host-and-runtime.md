@@ -76,7 +76,7 @@ A documented, manually authorized fixture starts rootlessly, is routed through C
 
 ## P02-07 enrollment evidence
 
-- [x] D7 protected parent directories, empty skeleton, `/bin/sh`, effective SSH/PAM environment refusal and real restricted-key startup bypass checks.
+- [x] D7 protected parent directories, empty skeleton, `/bin/sh`, effective runner-specific and source-level Match SSH authorization checks, protected alternate key-file bypass probe, SSH/PAM environment refusal and real restricted-key startup bypass checks. Enrollment conservatively supports only the two protected Debian key locations and no authorized-key command.
 - [x] The confirmation list declares Caddy and netavark package service effects. Missing-package transactions bind exact versions and mask Caddy first. Fakes cover this install path because all three runtime packages were already installed on the authorized target.
 - [x] Enrollment undo reconciles account absence after `userdel --remove`, including exit 12 and unknown outcomes. It waits for user-manager shutdown before deleting the account and removes only its recorded home. Real checks found no runner account/group, home, linger entry, runtime directory, subordinate IDs or runner processes after undo.
 
