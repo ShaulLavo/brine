@@ -50,6 +50,8 @@ type operation struct {
 var operations = map[string]operation{
 	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
 	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
+	"apply":     {Mutating, decodeApply},
+	"operation": {ReadOnly, decodeOperation},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
@@ -109,9 +111,13 @@ func EncodeRequest(request Request) ([]byte, error) {
 type Server struct {
 	version   string
 	inventory Inventory
+	jobs      JobOperations
+	authorize Authorization
 }
 
-func NewServer(version string, inventory Inventory) *Server { return &Server{version, inventory} }
+func NewServer(version string, inventory Inventory) *Server {
+	return &Server{version: version, inventory: inventory}
+}
 
 func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, error) {
 	command := "brine host serve"
@@ -134,9 +140,13 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	// Mutations are closed until operator policy and durable operation state exist.
-	if operations[request.Op].class != ReadOnly {
-		return fail(result.New(result.DispatchOperationRefused, nil))
+	class := operations[request.Op].class
+	if s.authorize == nil {
+		if class != ReadOnly {
+			return fail(result.New(result.DispatchOperationRefused, nil))
+		}
+	} else if err := s.authorize(ctx, class); err != nil {
+		return fail(result.Classify(err))
 	}
 	args, _ := operations[request.Op].decode(request.Args)
 	var value any
@@ -159,6 +169,24 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.New(result.InternalError, err))
 		}
 		value = json.RawMessage(encoded)
+	case ApplyArgs:
+		if s.jobs == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		accepted, err := s.jobs.Apply(ctx, args.(ApplyArgs).PlanID, args.(ApplyArgs).IdempotencyKey)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
+	case OperationArgs:
+		if s.jobs == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		status, err := s.jobs.Operation(ctx, args.(OperationArgs).OperationID, args.(OperationArgs).AfterCursor)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = status
 	default:
 		return fail(result.New(result.DispatchOperationRefused, nil))
 	}
