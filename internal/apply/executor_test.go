@@ -157,6 +157,9 @@ func (r *rig) hit(step string) error {
 	return nil
 }
 func (r *rig) AppendEvent(_ context.Context, _ string, e Event) (uint64, error) {
+	if e.Kind == "state" {
+		return 0, ops.ErrInvalidEvent
+	}
 	if err := ops.ValidateEvent(e); err != nil {
 		return 0, err
 	}
@@ -174,17 +177,21 @@ func (r *rig) AppendEvent(_ context.Context, _ string, e Event) (uint64, error) 
 	r.events = append(r.events, e)
 	return e.Sequence, nil
 }
-func (r *rig) SetOperationState(ctx context.Context, id string, s State) error {
+func (r *rig) SetOperationState(_ context.Context, _ string, s State) error {
 	if r.failState == s {
 		return injected
 	}
 	if !ops.CanTransition(r.state, s) {
 		return errors.New("illegal state transition " + string(r.state) + " to " + string(s))
 	}
+	event := Event{Kind: "state", State: s, Sequence: uint64(len(r.events) + 1)}
+	if err := ops.ValidateEvent(event); err != nil {
+		return err
+	}
 	r.state = s
 	r.states = append(r.states, s)
-	_, err := r.AppendEvent(ctx, id, Event{Kind: "state", State: s})
-	return err
+	r.events = append(r.events, event)
+	return nil
 }
 func (r *rig) CurrentRelease(context.Context, string) (Release, bool, error) {
 	if r.intent == "commit" && r.failCommitRead {
@@ -692,5 +699,36 @@ func TestRollbackJournalGolden(t *testing.T) {
 	}
 	if !bytes.Equal(raw, golden) {
 		t.Fatalf("rollback journal differs from golden:\n%s", raw)
+	}
+}
+
+func TestPublicJournalCannotAppendStateEvents(t *testing.T) {
+	r := newRig(t, true)
+	if _, err := r.AppendEvent(context.Background(), "operation-1", Event{Kind: "state", State: Preflight}); !errors.Is(err, ops.ErrInvalidEvent) {
+		t.Fatalf("public state append: %v", err)
+	}
+	if r.state != Queued || len(r.events) != 0 {
+		t.Fatal("refused append changed journal")
+	}
+	if err := r.SetOperationState(context.Background(), "operation-1", Preflight); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.events) != 1 || r.events[0].Kind != "state" || r.events[0].State != Preflight {
+		t.Fatal("state transition did not create its own event")
+	}
+}
+func TestExecutorEventsCarryStateOnlyOnTransitions(t *testing.T) {
+	for _, fail := range []string{"", "check_routed", "start_unit"} {
+		r := newRig(t, true)
+		r.failStep = fail
+		err := r.run()
+		if fail == "" && err != nil {
+			t.Fatal(err)
+		}
+		for _, event := range r.events {
+			if event.Kind != "state" && event.State != "" {
+				t.Fatalf("state leaked into %s event", event.Kind)
+			}
+		}
 	}
 }
