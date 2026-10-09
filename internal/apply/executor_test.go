@@ -40,6 +40,7 @@ type rig struct {
 	intent          string
 	state           State
 	failStep        string
+	unknownStep     string
 	failJournal     string
 	failState       State
 	failOutcome     string
@@ -124,7 +125,14 @@ func newRig(t testing.TB, update bool) *rig {
 		},
 		PullFunc: func(context.Context, podman.Image) error { return r.hit("pull_image") },
 		InspectFunc: func(context.Context, podman.Image) (podman.ImageInfo, error) {
-			err := r.hit("verify_image")
+			var err error
+			if r.intent == "pull_image" {
+				if r.unknownStep == "pull_image" {
+					return podman.ImageInfo{}, &localexec.Error{Kind: localexec.UnknownOutcome}
+				}
+			} else {
+				err = r.hit("verify_image")
+			}
 			return podman.ImageInfo{IndexDigest: r.plan.Image.Digest, ManifestDigest: *r.plan.Image.ManifestDigest.Value, Platform: podman.Platform{OS: r.plan.Image.Platform.OS, Architecture: r.plan.Image.Platform.Arch}}, err
 		},
 		SecretExistsFunc: func(context.Context, podman.Name) (bool, error) {
@@ -151,6 +159,9 @@ func (r *rig) hit(step string) error {
 		panic("effect without its journaled intent: " + step + " after " + r.intent)
 	}
 	r.effects = append(r.effects, step)
+	if step == r.unknownStep {
+		return &localexec.Error{Kind: localexec.UnknownOutcome, ExitCode: -1}
+	}
 	if step == r.failStep {
 		return injected
 	}
@@ -672,6 +683,9 @@ func TestUnclassifiedRollbackStopsBeforeRestoringOldWriter(t *testing.T) {
 func TestUnknownImagePullIsRecordedForReconciliation(t *testing.T) {
 	r := newRig(t, true)
 	r.executor.Podman.(*podman.Fake).PullFunc = func(context.Context, podman.Image) error { r.hit("pull_image"); return context.DeadlineExceeded }
+	r.executor.Podman.(*podman.Fake).InspectFunc = func(context.Context, podman.Image) (podman.ImageInfo, error) {
+		return podman.ImageInfo{}, &localexec.Error{Kind: localexec.UnknownOutcome}
+	}
 	failure(t, r.run(), RecoveryRequired, "pull_image")
 	if r.effects[len(r.effects)-1] != "pull_image" {
 		t.Fatal(r.effects)

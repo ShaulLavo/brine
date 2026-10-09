@@ -23,6 +23,8 @@ type statelessDesiredV1 struct {
 	PolicyVersion string               `json:"policy_version"`
 	PolicyHash    string               `json:"policy_hash"`
 	AppPorts      policy.PortRange     `json:"app_ports"`
+	// Capacity admission does not introduce a data mount or schema change.
+	MinimumFreeDiskBytes uint64 `json:"minimum_free_disk_bytes"`
 }
 
 var _ = statelessDesiredV1(policy.Desired{})

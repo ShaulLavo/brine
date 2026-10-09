@@ -3,11 +3,12 @@
 // an offline plan, acquires an agent credential, or rewinds application data.
 //
 // With context-honoring adapters, the maximum operation duration is
-// 17*E + 2*Hcandidate + 2*Hprevious + 5 minutes, where E is EffectTimeout
+// 30*E + 3*Hcandidate + 3*Hprevious + 10 minutes, where E is EffectTimeout
 // (one minute by default) and H is the validated startup deadline. At the
-// spec maximum of 3600 seconds per H and default E, this is 4 hours 22 minutes.
+// spec maximum of 3600 seconds per H and default E, this is 6 hours 40 minutes.
 // Caller cancellation can shorten execution. Rollback detaches cancellation
-// but retains a budget for all effects, both health probes and journal writes.
+// but retains a budget for effects, health probes, read-only reconciliation
+// of unknown outcomes and journal writes. No indeterminate mutation is retried.
 package apply
 
 import (
@@ -63,6 +64,7 @@ type execution struct {
 	quiesced, installed, started, published bool
 	state                                   State
 	compatibilityBasis                      string
+	nextRelease                             *Release
 }
 
 func desiredMatches(p plan.Plan, d policy.Desired) bool {
@@ -260,9 +262,13 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 			units = append(units, target.Unit{Name: x.unit.Name(), Hash: x.unit.Hash()})
 			slices.SortFunc(units, func(a, b target.Unit) int { return strings.Compare(a.Name, b.Name) })
 			release := Release{ID: opID, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: p.Secrets, Units: units, CaddyFile: target.CaddyFile{Name: p.App + ".caddy", Hash: x.route.Files[p.App+".caddy"]}, CaddyGeneration: x.route.Generation}
+			x.nextRelease = &release
 			err := e.Releases.CommitRelease(ctx, p.App, release)
 			if err == nil {
 				return nil
+			}
+			if isUnknown(err) {
+				return err
 			}
 			// A commit error is not proof that the transaction did not commit.
 			current, exists, readErr := e.Releases.CurrentRelease(ctx, p.App)
@@ -296,6 +302,11 @@ func (x *execution) previousUnitHash() string {
 }
 func (x *execution) stop(ctx context.Context) error {
 	if err := x.executor.Systemd.Stop(ctx, x.service); err != nil {
+		// An absent unit is quiescent only when the independent container probe
+		// also proves no writer remains. Keep compatibility checks for attempted starts.
+		if isNotFound(err) && x.inspectWriter(ctx) == writerStopped {
+			return nil
+		}
 		return err
 	}
 	active, err := x.executor.Systemd.IsActive(ctx, x.service)
@@ -361,6 +372,7 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		err = errors.Join(err, stepCtx.Err())
 	}
 	cancel()
+	failureCode := code
 	outcome := "completed"
 	if err != nil {
 		outcome = "failed"
@@ -371,7 +383,7 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		if errors.Is(err, context.DeadlineExceeded) && (name == "check_direct" || name == "check_routed" || name == "rollback_check") {
 			code = "health_timeout"
 		}
-		if isUnknown(err) && name != "check_direct" && name != "check_routed" && name != "rollback_check" && name != "verify_image" && name != "ensure_secrets" && name != "stage_unit" && name != "preflight" && name != "check_compatibility" {
+		if isUnknown(err) && name != "check_direct" && name != "check_routed" && name != "rollback_check" && name != "verify_image" && name != "ensure_secrets" && name != "preflight" && name != "check_compatibility" {
 			code = "interrupted"
 			outcome = "unknown"
 		}
@@ -386,8 +398,7 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		}
 	}
 	// Once an outcome write fails, no further effect is allowed in this process.
-	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), journalTimeout)
-	defer recordCancel()
+	recordCtx := context.WithoutCancel(ctx)
 	eventCode := ""
 	if err != nil {
 		eventCode = code
@@ -397,12 +408,31 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 	if journalErr := x.event(recordCtx, name, outcome, eventCode); journalErr != nil {
 		return journalErr
 	}
+	if outcome == "unknown" {
+		resolution := x.reconcileUnknown(ctx, name)
+		switch resolution {
+		case applied:
+			if journalErr := x.event(recordCtx, name, "completed", ""); journalErr != nil {
+				return journalErr
+			}
+			return nil
+		case notApplied:
+			if journalErr := x.event(recordCtx, name, "failed", failureCode); journalErr != nil {
+				return journalErr
+			}
+			return &Error{Step: name, Code: failureCode, Cause: err}
+		}
+	}
 	if err != nil {
 		return &Error{Step: name, Code: code, Cause: err}
 	}
 	return nil
 }
 func isUnknown(err error) bool {
+	var runtime *localexec.Error
+	if errors.As(err, &runtime) && (runtime.Kind == localexec.UnknownOutcome || runtime.Kind == localexec.Timeout) {
+		return true
+	}
 	var caddyUnknown *caddy.UnknownOutcomeError
 	var timeout interface{ Timeout() bool }
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, quadlet.ErrPublicationUnknown) || errors.As(err, &caddyUnknown) || (errors.As(err, &timeout) && timeout.Timeout())
@@ -457,7 +487,7 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 	if !x.quiesced && !x.installed {
 		return x.terminal(ctx, Failed, cause)
 	}
-	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 6*x.executor.effectTimeout()+2*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second+2*time.Minute)
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 11*x.executor.effectTimeout()+3*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second+4*time.Minute)
 	defer cancel()
 	step := func(name, code string, effect func(context.Context) error) error {
 		return x.step(rollbackCtx, name, RollingBack, code, effect)
