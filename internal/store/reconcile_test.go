@@ -133,8 +133,16 @@ func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	var removals int
+	if err := migrated.db.QueryRow("SELECT COUNT(*) FROM app_removals").Scan(&removals); err != nil || removals != 0 {
+		t.Fatal("v2 removal receipts missing", removals, err)
+	}
+	var triggers int
+	if err := migrated.db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='app_removals'").Scan(&triggers); err != nil || triggers != 2 {
+		t.Fatal("removal immutability missing", triggers, err)
+	}
 	var version, foreignKeys int
-	if err := migrated.db.QueryRow("SELECT version FROM schema_version").Scan(&version); err != nil || version != SchemaVersion {
+	if err := migrated.db.QueryRow("SELECT version FROM schema_version").Scan(&version); err != nil || version != 2 {
 		t.Fatalf("schema %d %v", version, err)
 	}
 	if err := migrated.db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil || foreignKeys != 1 {

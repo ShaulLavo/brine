@@ -522,7 +522,7 @@ The executor journals these steps in order:
 5. `retire_app`: recheck quiescence and atomically remove the matching live
    release head (freeing its port reservation) with an immutable removal receipt.
 
-Schema v3 adds append-only `app_removals` receipts. Immutable releases and their
+The unified schema v2 includes append-only `app_removals` receipts. Immutable releases and their
 secret references remain. Removal never deletes Podman secrets: D5 retained
 release references still own those versions. The response adds
 `secret_retention: "d5_retained_releases"`, and human output explains retention.
@@ -550,3 +550,16 @@ rollback, restores a route or restarts the removed app.
 Evidence is synthetic unit/fake integration plus actual local SIGKILL of run-op
 subprocesses at all five effect boundaries. This does not prove a working real
 Caddy/Podman/systemd removal, SSH disconnect or physical-host reboot.
+
+
+P03-09 review regressions: routing reconstruction uses strict routing syntax and
+immutable committed desired input, not today's deployment authorization. The
+complete candidate still binds owned hashes and is validated/adapted by Caddy.
+Revoked registry/domain/resource/secret permissions cannot authorize a redeploy,
+but must not block withdrawing a committed app or retaining another owned route.
+Interrupted no-op removal has an absence-validated completion path: fresh exact
+replanning under the lock must still match before its receipt settles succeeded.
+Unknown presence, changed generation/policy, or an unexpected effect event stays
+recovery-required. Persistent-directive keys are whitespace-trimmed before checks.
+Removal receipts are part of the existing unshipped v1-to-v2 migration; there is
+no v3 migration or old-v2 compatibility path. Fresh enrollment creates v2.

@@ -67,6 +67,11 @@ func TestRetireAppPreservesHistoryAndReleasesPort(t *testing.T) {
 	if err != nil || !removed {
 		t.Fatal(removed, err)
 	}
+	for _, query := range []string{"UPDATE app_removals SET release_id='other' WHERE operation_id=?", "DELETE FROM app_removals WHERE operation_id=?"} {
+		if _, err := s.db.ExecContext(ctx, query, op.ID); err == nil {
+			t.Fatal("changed immutable removal receipt", query)
+		}
+	}
 	r.ID = "replacement"
 	if err = s.CommitRelease(ctx, "hello", r); err != nil {
 		t.Fatal(err)

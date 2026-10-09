@@ -8,16 +8,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 )
 
-const removalSchema = `
-CREATE TABLE app_removals (
- operation_id TEXT PRIMARY KEY REFERENCES operations(id),
- app TEXT NOT NULL, release_id TEXT NOT NULL, plan_id TEXT NOT NULL REFERENCES plans(id), committed_at TEXT NOT NULL,
- FOREIGN KEY(app,release_id) REFERENCES releases(app,id));
-CREATE TRIGGER removals_no_update BEFORE UPDATE ON app_removals BEGIN SELECT RAISE(ABORT,'immutable app removal'); END;
-CREATE TRIGGER removals_no_delete BEFORE DELETE ON app_removals BEGIN SELECT RAISE(ABORT,'immutable app removal'); END;
-UPDATE schema_version SET version=3;
-`
-
 // RetireApp atomically releases the live head (and its port reservation) and
 // records immutable removal evidence. Retained releases and D5 secrets survive.
 func (s *Store) RetireApp(ctx context.Context, operationID, app, releaseID string) error {

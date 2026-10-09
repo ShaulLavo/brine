@@ -63,3 +63,9 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   checks. Local fakes and SIGKILL are not physical Caddy/Podman/systemd, SSH
   disconnect or reboot evidence. P04-08 archival/restore/expiry/purge and the
   separately authorized physical-host acceptance lane remain pending.
+
+- Review regressions (failing-first): removal after registry/domain revocation,
+  including an unrelated revoked app; interrupted no-op completion after
+  intent/completed preflight and refusal of changed/unknown absence; spaced/tabbed
+  Volume/Mount/ReadWritePaths directives; unified v1-to-v2 migration preserving
+  the deploy journal and creating immutable removal receipts. All pass locally.
