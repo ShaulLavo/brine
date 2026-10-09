@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -10,19 +11,24 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
 // HTTPHealth never follows redirects, reads response bodies, or uses ambient
 // proxy settings. Routed probes verify TLS normally and cover every app domain.
-// An injected transport must honor request contexts and be safe for concurrent use.
+// Routed connections always dial the local Caddy HTTPS listener, retaining the
+// domain in Host and TLS SNI. An injected non-http.Transport is a trusted test
+// adapter and must honor request contexts and local-only routing.
 type HTTPHealth struct {
+	// CaddyPort selects the local HTTPS listener. Zero uses 443.
+	CaddyPort    uint16
 	Transport    http.RoundTripper
 	PollInterval time.Duration
 }
 
 func (h HTTPHealth) Check(ctx context.Context, d policy.Desired, port target.Port, routed bool) error {
-	if d.Health.StartupDeadlineSeconds < 1 || d.Health.TimeoutSeconds < 1 || d.Health.ExpectedStatus < 100 || d.Health.ExpectedStatus > 599 || port < 1024 || port > 65535 {
+	if d.Health.StartupDeadlineSeconds < 1 || d.Health.StartupDeadlineSeconds > spec.MaxStartupDeadlineSeconds || d.Health.TimeoutSeconds < 1 || d.Health.TimeoutSeconds > spec.MaxHealthTimeoutSeconds || d.Health.TimeoutSeconds > d.Health.StartupDeadlineSeconds || d.Health.ExpectedStatus < 100 || d.Health.ExpectedStatus > 599 || port < 1024 || port > 65535 {
 		return errors.New("apply: invalid health configuration")
 	}
 	path, err := url.ParseRequestURI(string(d.Health.Path))
@@ -46,7 +52,30 @@ func (h HTTPHealth) Check(ctx context.Context, d policy.Desired, port target.Por
 	}
 	transport := h.Transport
 	if transport == nil {
-		t := &http.Transport{ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second}
+		transport = &http.Transport{ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second}
+	}
+	if base, ok := transport.(*http.Transport); ok {
+		t := base.Clone()
+		t.Proxy = nil
+		if routed {
+			listener := h.CaddyPort
+			if listener == 0 {
+				listener = 443
+			}
+			destination := net.JoinHostPort("127.0.0.1", strconv.Itoa(int(listener)))
+			dial := t.DialContext
+			if dial == nil {
+				dial = (&net.Dialer{}).DialContext
+			}
+			t.DialContext = func(ctx context.Context, network, _ string) (net.Conn, error) { return dial(ctx, network, destination) }
+			// Alternate TLS hooks must not bypass the forced loopback dialer.
+			t.DialTLS = nil
+			t.DialTLSContext = nil
+			if t.TLSClientConfig != nil {
+				t.TLSClientConfig = t.TLSClientConfig.Clone()
+				t.TLSClientConfig.ServerName = ""
+			}
+		}
 		defer t.CloseIdleConnections()
 		transport = t
 	}

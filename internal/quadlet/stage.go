@@ -125,7 +125,8 @@ func (m *Manager) Install(ctx context.Context, u Unit, oldHash string) error {
 }
 
 // Rollback repeats the same reconciliation with installed/previous hashes
-// swapped. The retained slot must match the committed previous hash exactly.
+// swapped. If active already matches the committed predecessor, no retained
+// slot is needed. Otherwise the retained slot must match that hash exactly.
 func (m *Manager) Rollback(ctx context.Context, name, installedHash, previousHash string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -137,6 +138,13 @@ func (m *Manager) Rollback(ctx context.Context, name, installedHash, previousHas
 	}
 	if err := m.checkDirectories(); err != nil {
 		return err
+	}
+	active, present, err := m.readArtifact(filepath.Join(ActiveDirectory, name))
+	if err != nil {
+		return err
+	}
+	if matches(active, present, previousHash) {
+		return m.replace(ctx, name, installedHash, previousHash, active, false)
 	}
 	var data []byte
 	if previousHash != "" {

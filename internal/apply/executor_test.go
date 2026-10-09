@@ -732,3 +732,57 @@ func TestExecutorEventsCarryStateOnlyOnTransitions(t *testing.T) {
 		}
 	}
 }
+
+func TestForwardHealthGetsFullValidatedDeadline(t *testing.T) {
+	for _, seconds := range []int{900, spec.MaxStartupDeadlineSeconds} {
+		t.Run((time.Duration(seconds) * time.Second).String(), func(t *testing.T) { testForwardHealthDeadline(t, seconds) })
+	}
+}
+func testForwardHealthDeadline(t *testing.T, seconds int) {
+	r := newRig(t, true)
+	r.state = Checking
+	x := &execution{executor: &r.executor, id: "operation-1", desired: r.desired, state: Checking}
+	x.desired.Health.StartupDeadlineSeconds = seconds
+	if err := x.step(context.Background(), "check_direct", Checking, "health_failed", func(ctx context.Context) error {
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) < time.Duration(seconds-1)*time.Second {
+			t.Errorf("health deadline truncated: %v", time.Until(deadline))
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+func TestRollbackHealthGetsFullValidatedDeadlines(t *testing.T) {
+	for _, seconds := range []int{900, spec.MaxStartupDeadlineSeconds} {
+		t.Run((time.Duration(seconds) * time.Second).String(), func(t *testing.T) { testRollbackHealthDeadline(t, seconds) })
+	}
+}
+func testRollbackHealthDeadline(t *testing.T, seconds int) {
+	r := newRig(t, true)
+	r.state = Checking
+	r.candidate = true
+	unit, err := quadlet.Render(r.desired, r.plan, *r.plan.Image.ManifestDigest.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := systemd.ParseUnit("hello.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := &execution{executor: &r.executor, id: "operation-1", plan: r.plan, desired: r.desired, previous: r.release, previousDesired: r.oldDesired, hasPrevious: true, state: Checking, started: true, installed: true, unit: unit, service: service}
+	x.previousDesired.Health.StartupDeadlineSeconds = seconds
+	probes := 0
+	r.executor.Health = healthFunc(func(ctx context.Context, _ policy.Desired, _ target.Port, _ bool) error {
+		probes++
+		deadline, ok := ctx.Deadline()
+		if !ok || time.Until(deadline) < time.Duration(seconds-1)*time.Second {
+			t.Errorf("rollback health deadline truncated: %v", time.Until(deadline))
+		}
+		return nil
+	})
+	failure(t, x.fail(context.Background(), &Error{Step: "check_direct", Code: "health_failed", Cause: injected}), RolledBack, "check_direct")
+	if probes != 2 {
+		t.Fatalf("health probes %d", probes)
+	}
+}

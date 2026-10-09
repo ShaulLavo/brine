@@ -328,3 +328,25 @@ func TestStageLeavesActiveWriterArtifactUnchanged(t *testing.T) {
 		checkFile(t, filepath.Join(home, ActiveDirectory, previous.Name()), previous.Bytes())
 	}
 }
+
+func TestRollbackBeforePredecessorRetentionRestartsFromActiveArtifact(t *testing.T) {
+	home := t.TempDir()
+	m := manager(t, home)
+	defer m.Close()
+	previous, candidate := rendered(t, "previous"), rendered(t, "candidate")
+	if err := m.Install(context.Background(), previous, ""); err != nil {
+		t.Fatal(err)
+	}
+	// Stage passed, but install's second validation failed before retaining old bytes.
+	m.validator = validatorFunc(func(context.Context, Candidate) error { return errors.New("install validation failed") })
+	if err := m.Install(context.Background(), candidate, previous.Hash()); err == nil {
+		t.Fatal("install did not fail")
+	}
+	if _, err := os.Stat(filepath.Join(home, previousPath(previous.Name()))); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unexpected retained predecessor %v", err)
+	}
+	if err := m.Rollback(context.Background(), candidate.Name(), candidate.Hash(), previous.Hash()); err != nil {
+		t.Fatal(err)
+	}
+	checkFile(t, filepath.Join(home, ActiveDirectory, previous.Name()), previous.Bytes())
+}

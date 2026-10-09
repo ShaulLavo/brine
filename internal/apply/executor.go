@@ -1,6 +1,13 @@
 // Package apply orchestrates verified deployment intent. Run requires the caller
 // to hold the target mutation lock for its entire lifetime. It never authorizes
 // an offline plan, acquires an agent credential, or rewinds application data.
+//
+// With context-honoring adapters, the maximum operation duration is
+// 17*E + 2*Hcandidate + 2*Hprevious + 5 minutes, where E is EffectTimeout
+// (one minute by default) and H is the validated startup deadline. At the
+// spec maximum of 3600 seconds per H and default E, this is 4 hours 22 minutes.
+// Caller cancellation can shorten execution. Rollback detaches cancellation
+// but retains a budget for all effects, both health probes and journal writes.
 package apply
 
 import (
@@ -21,6 +28,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -68,6 +76,9 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 	}
 	x := &execution{executor: e, id: opID, plan: p, desired: d}
 	err := x.step(ctx, "preflight", Preflight, "drift", func(ctx context.Context) error {
+		if d.Health.StartupDeadlineSeconds < 1 || d.Health.StartupDeadlineSeconds > spec.MaxStartupDeadlineSeconds {
+			return errors.New("unvalidated health deadline")
+		}
 		if opID == "" || p.Image.ManifestDigest.Status != target.KnownStatus || p.Image.ManifestDigest.Value == nil || !desiredMatches(p, d) || (p.Kind != plan.Create && p.Kind != plan.Update && p.Kind != plan.NoOp) || len(p.Conflicts) != 0 {
 			return errors.New("unverified input")
 		}
@@ -106,7 +117,7 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 			if err != nil {
 				return err
 			}
-			if previousPlan.Hash != x.previous.PlanID || !desiredMatches(previousPlan, previousDesired) {
+			if previousDesired.Health.StartupDeadlineSeconds < 1 || previousDesired.Health.StartupDeadlineSeconds > spec.MaxStartupDeadlineSeconds || previousPlan.Hash != x.previous.PlanID || !desiredMatches(previousPlan, previousDesired) {
 				return errors.New("previous input drift")
 			}
 			x.previousDesired = previousDesired
@@ -326,7 +337,10 @@ func (x *execution) check(ctx context.Context, d policy.Desired, port target.Por
 
 func (x *execution) step(ctx context.Context, name string, state State, code string, effect func(context.Context) error) error {
 	if x.state != state {
-		if err := x.executor.Journal.SetOperationState(ctx, x.id, state); err != nil {
+		stateCtx, stateCancel := context.WithTimeout(ctx, journalTimeout)
+		err := x.executor.Journal.SetOperationState(stateCtx, x.id, state)
+		stateCancel()
+		if err != nil {
 			return &Error{Step: name, Code: "journal_failed", Cause: err}
 		}
 		x.state = state
@@ -334,12 +348,12 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 	if err := x.event(ctx, name, "intent", ""); err != nil {
 		return err
 	}
-	timeout := x.executor.EffectTimeout
-	if timeout <= 0 {
-		timeout = time.Minute
+	timeout := x.executor.effectTimeout()
+	if name == "check_direct" || name == "check_routed" {
+		timeout = time.Duration(x.desired.Health.StartupDeadlineSeconds) * time.Second
 	}
-	if name == "check_direct" || name == "check_routed" || name == "rollback_check" {
-		timeout = 10 * time.Minute
+	if name == "rollback_check" {
+		timeout = 2 * time.Duration(x.previousDesired.Health.StartupDeadlineSeconds) * time.Second
 	}
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	err := effect(stepCtx)
@@ -372,7 +386,7 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		}
 	}
 	// Once an outcome write fails, no further effect is allowed in this process.
-	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	recordCtx, recordCancel := context.WithTimeout(context.WithoutCancel(ctx), journalTimeout)
 	defer recordCancel()
 	eventCode := ""
 	if err != nil {
@@ -394,6 +408,8 @@ func isUnknown(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, quadlet.ErrPublicationUnknown) || errors.As(err, &caddyUnknown) || (errors.As(err, &timeout) && timeout.Timeout())
 }
 func (x *execution) event(ctx context.Context, step, outcome, code string) error {
+	ctx, cancel := context.WithTimeout(ctx, journalTimeout)
+	defer cancel()
 	payload, _ := json.Marshal(stepPayload{Step: step, Outcome: outcome, Code: code})
 	_, err := x.executor.Journal.AppendEvent(ctx, x.id, Event{Kind: "step", Payload: payload})
 	if err != nil {
@@ -402,7 +418,7 @@ func (x *execution) event(ctx context.Context, step, outcome, code string) error
 	return nil
 }
 func (x *execution) terminal(ctx context.Context, state State, cause error) error {
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), journalTimeout)
 	defer cancel()
 	if cause != nil {
 		code := "executor_failed"
@@ -416,7 +432,10 @@ func (x *execution) terminal(ctx context.Context, state State, cause error) erro
 			return &Error{Step: "terminal", Code: "journal_failed", State: RecoveryRequired, Cause: errors.Join(cause, err)}
 		}
 	}
-	if err := x.executor.Journal.SetOperationState(ctx, x.id, state); err != nil {
+	stateCtx, stateCancel := context.WithTimeout(ctx, journalTimeout)
+	err := x.executor.Journal.SetOperationState(stateCtx, x.id, state)
+	stateCancel()
+	if err != nil {
 		return &Error{Step: "terminal", Code: "journal_failed", State: RecoveryRequired, Cause: errors.Join(cause, err)}
 	}
 	x.state = state
@@ -438,7 +457,7 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 	if !x.quiesced && !x.installed {
 		return x.terminal(ctx, Failed, cause)
 	}
-	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 6*x.executor.effectTimeout()+2*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second+2*time.Minute)
 	defer cancel()
 	step := func(name, code string, effect func(context.Context) error) error {
 		return x.step(rollbackCtx, name, RollingBack, code, effect)
@@ -489,3 +508,12 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 type FactsFunc func(context.Context) (Facts, error)
 
 func (f FactsFunc) Read(ctx context.Context) (Facts, error) { return f(ctx) }
+
+const journalTimeout = 5 * time.Second
+
+func (e *Executor) effectTimeout() time.Duration {
+	if e.EffectTimeout <= 0 {
+		return time.Minute
+	}
+	return e.EffectTimeout
+}
