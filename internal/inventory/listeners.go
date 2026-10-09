@@ -68,9 +68,9 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home strin
 				if e == nil {
 					owner.Unit = unitFromCgroup(string(data))
 					cgroup, unified := strings.CutPrefix(strings.TrimSpace(string(data)), "0::")
-					if unified && !strings.ContainsRune(cgroup, '\n') && address[:i] == "127.0.0.1" && c.ownsSocket(ctx, match[2], match[3], socketInode(line), string(data)) {
+					if unified && !strings.ContainsRune(cgroup, '\n') && address[:i] == "127.0.0.1" {
 						for path, binding := range bindings {
-							if binding.Port == port && (cgroup == path || strings.HasPrefix(cgroup, path+"/")) {
+							if binding.Port == port && (cgroup == path || strings.HasPrefix(cgroup, path+"/")) && c.ownsSocket(ctx, match[2], match[3], socketInode(line), string(data)) {
 								owner.App = binding.App
 							}
 						}
