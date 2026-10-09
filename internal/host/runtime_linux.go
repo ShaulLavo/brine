@@ -197,6 +197,9 @@ func (u lazyUnits) withManager(fn func(*quadlet.Manager) error) error {
 	defer m.Close()
 	return fn(m)
 }
+func (u lazyUnits) VerifyCurrent(ctx context.Context, name string, hashes ...string) error {
+	return quadlet.VerifyCurrent(ctx, u.home, name, hashes...)
+}
 func (u lazyUnits) Stage(ctx context.Context, unit quadlet.Unit) error {
 	return u.withManager(func(m *quadlet.Manager) error { return m.Stage(ctx, unit) })
 }

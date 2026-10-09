@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -56,11 +57,29 @@ func (h *fakeHealth) Check(context.Context, policy.Desired, target.Port, bool) e
 	return nil
 }
 
-type fakeUnits struct{ installs int }
+type fakeUnits struct {
+	installs int
+	hash     string
+}
 
-func (*fakeUnits) Stage(context.Context, quadlet.Unit) error              { return nil }
-func (u *fakeUnits) Install(context.Context, quadlet.Unit, string) error  { u.installs++; return nil }
-func (*fakeUnits) Rollback(context.Context, string, string, string) error { return nil }
+func (u *fakeUnits) VerifyCurrent(_ context.Context, _ string, hashes ...string) error {
+	for _, hash := range hashes {
+		if hash == u.hash {
+			return nil
+		}
+	}
+	return errors.New("foreign live unit")
+}
+func (*fakeUnits) Stage(context.Context, quadlet.Unit) error { return nil }
+func (u *fakeUnits) Install(_ context.Context, unit quadlet.Unit, _ string) error {
+	u.installs++
+	u.hash = unit.Hash()
+	return nil
+}
+func (u *fakeUnits) Rollback(_ context.Context, _, _, previous string) error {
+	u.hash = previous
+	return nil
+}
 
 type fakeRoutes struct{ pol policy.Policy }
 
@@ -159,9 +178,22 @@ func newDeployRigAt(t *testing.T, dir string) *deployRig {
 	runtime := &podman.Fake{PullFunc: func(context.Context, podman.Image) error { r.pulls++; return nil }, InspectFunc: func(context.Context, podman.Image) (podman.ImageInfo, error) {
 		return podman.ImageInfo{IndexDigest: r.images.image.Digest, ManifestDigest: *r.images.image.ManifestDigest.Value, Platform: podman.Platform{OS: "linux", Architecture: "arm64"}}, nil
 	}}
-	manager := &systemd.Fake{DaemonReloadFunc: func(context.Context) error { return nil }, StartFunc: func(context.Context, systemd.Unit) error { return nil }, IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return true, nil }}
-	manager.ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
-		return systemd.Properties{}, &localexec.Error{Kind: localexec.NotFound}
+	active := false
+	runtime.ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
+		if active {
+			return podman.ContainerState{Running: true, Status: "running"}, nil
+		}
+		return podman.ContainerState{Status: "exited"}, nil
+	}
+	manager := &systemd.Fake{DaemonReloadFunc: func(context.Context) error { return nil }, StartFunc: func(context.Context, systemd.Unit) error { active = true; return nil }, StopFunc: func(context.Context, systemd.Unit) error { active = false; return nil }, IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return active, nil }}
+	manager.ShowFunc = func(_ context.Context, unit systemd.Unit) (systemd.Properties, error) {
+		if unit.String() != "hello.service" {
+			return systemd.Properties{}, &localexec.Error{Kind: localexec.NotFound}
+		}
+		if active {
+			return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
+		}
+		return systemd.Properties{ActiveState: "inactive", SubState: "dead"}, nil
 	}
 	manager.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 	engine := apply.Executor{Journal: state, Releases: releases{state}, Plans: state, Podman: runtime, Systemd: manager, Units: r.units, Routes: fakeRoutes{pol}, Health: r.health}

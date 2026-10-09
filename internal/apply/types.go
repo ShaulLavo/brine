@@ -56,6 +56,9 @@ type FactsReader interface {
 	Read(context.Context) (Facts, error)
 }
 type Units interface {
+	// VerifyCurrent freshly proves the active file matches an allowed owned hash.
+	// An empty hash explicitly permits absence, never unreadable ownership.
+	VerifyCurrent(context.Context, string, ...string) error
 	Stage(context.Context, quadlet.Unit) error
 	Install(context.Context, quadlet.Unit, string) error
 	Rollback(context.Context, string, string, string) error

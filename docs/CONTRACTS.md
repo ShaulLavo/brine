@@ -642,3 +642,16 @@ publication and partial journal pages do not receive unconditional resolve advic
 Diagnose lacks step-prefix evidence and directs the operator to status instead.
 Resolution creation inspects at most 64 ancestors and 4096 family receipts;
 excessive or inconsistent families refuse rather than widening authority.
+
+
+Effect-time writer fencing applies to ordinary deployment and rollback as well
+as resolution. After durable step intent and before stopping, replacing or
+restoring the owned unit, reloading it or starting a writer, the shared executor
+reads the active Quadlet through the pinned-root ownership adapter and settles
+systemd jobs with independent unit/container probes. File ownership is checked
+again around those probes; unknown ownership or unsettled jobs refuse before
+the requested effect. Restore/reload/start boundaries require a stopped writer,
+and a successful stop must also prove the writer stopped with no queued job.
+A previous writer already running after a failed stop is health-checked without
+issuing another start. Proven pre-effect refusals are failed step outcomes, not
+unknown effects eligible for applied-effect readback.

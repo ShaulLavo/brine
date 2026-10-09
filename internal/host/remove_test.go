@@ -89,6 +89,32 @@ type removalUnits struct {
 	host *removalHost
 }
 
+func (u removalUnits) VerifyCurrent(ctx context.Context, name string, hashes ...string) error {
+	disk, err := u.host.read()
+	if err != nil {
+		return err
+	}
+	if disk.Snapshot.Apps.Value == nil {
+		return errors.New("unreadable live unit")
+	}
+	hash := ""
+	for _, app := range *disk.Snapshot.Apps.Value {
+		if app.QuadletUnits.Value == nil {
+			return errors.New("unreadable live unit")
+		}
+		for _, unit := range *app.QuadletUnits.Value {
+			if unit.Name == name {
+				hash = unit.Hash
+			}
+		}
+	}
+	for _, allowed := range hashes {
+		if hash == allowed {
+			return nil
+		}
+	}
+	return errors.New("foreign live unit")
+}
 func (u removalUnits) VerifyRemove(ctx context.Context, name, hash string) error {
 	return u.host.VerifyRemove(ctx, name, hash)
 }

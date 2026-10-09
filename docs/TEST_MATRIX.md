@@ -154,3 +154,15 @@ Resolution review regressions (local, physical rerun still pending):
   while a descendant is active or after that descendant succeeded.
 - Status suppresses resolve advice for absent and unsupported prefixes; diagnose
   directs the reader to status rather than promising automatic resolution.
+
+- Post-intent effect races: fresh foreign-file, pending-job and unreadable-job
+  changes refuse at rollback quiesce, unit restore and previous start, for both
+  terminal resolution and ordinary deploy rollback (18 cases). The same races
+  refuse normal forward quiesce, install and start (9 cases). Removing the
+  shared guard reproduces failures; with it all 27 cases pass repeatedly.
+- A disappearing first-deploy candidate refuses rollback stop even though
+  absence will later be an allowed result of safe unit removal.
+- A successful rollback stop with a queued manager job cannot restore a unit
+  or start its predecessor. Pre-effect refusals never become unknown/applied
+  outcomes. Real pinned-root filesystem tests prove owned hash/explicit absence,
+  fresh replacement detection, marker and symlink refusal, and cancellation.

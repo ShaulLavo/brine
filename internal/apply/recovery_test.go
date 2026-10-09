@@ -117,6 +117,7 @@ func TestRecoveryIntentCrashMatrix(t *testing.T) {
 		t.Run(step, func(t *testing.T) {
 			r := newRig(t, true)
 			r.intent = step
+			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) { return systemd.Properties{}, injected }
 			r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
 			assessment, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "operation", PlanID: r.plan.Hash, State: RollingBack}, r.plan, r.desired, recoveryEvents(step))
 			if err != nil || assessment.Action != RequireRecovery || len(r.effects) != 0 {
