@@ -146,6 +146,9 @@ func appendEvent(ctx context.Context, tx *sql.Tx, id OpID, event Event) (uint64,
 	return seq, err
 }
 func (s *Store) AppendEvent(ctx context.Context, id OpID, event Event) (uint64, error) {
+	if event.Kind == "state" {
+		return 0, ops.ErrInvalidEvent
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err

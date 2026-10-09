@@ -46,3 +46,11 @@ func TestCompletedCompatibilityProofCodes(t *testing.T) {
 		t.Fatal("failure code accepted as compatibility proof")
 	}
 }
+
+func TestOnlyStateEventsReportState(t *testing.T) {
+	for _, event := range []Event{{Kind: "launch", State: Succeeded, Payload: []byte(`{"outcome":"intent"}`)}, {Kind: "failure", State: Succeeded, Payload: []byte(`{"code":"interrupted"}`)}, {Kind: "step", State: Succeeded, Payload: []byte(`{"step":"start_unit","outcome":"intent"}`)}} {
+		if ValidateEvent(event) == nil {
+			t.Errorf("non-state event reported success: %s", event.Kind)
+		}
+	}
+}

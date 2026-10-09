@@ -41,6 +41,15 @@ func openPrivateFile(path string) (*os.File, error) {
 		}
 		return nil, ErrInvalid
 	}
+	var stat unix.Stat_t
+	if err = unix.Fstat(fd, &stat); err != nil {
+		f.Close()
+		return nil, err
+	}
+	if stat.Uid != uint32(os.Geteuid()) {
+		f.Close()
+		return nil, ErrInvalid
+	}
 	if err = f.Chmod(0600); err != nil {
 		f.Close()
 		return nil, err
@@ -77,4 +86,20 @@ func (s *Store) AcquireHostLock(ctx context.Context) (Lock, error) {
 		case <-ticker.C:
 		}
 	}
+}
+
+func secureStateDir(path string) error {
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(fd)
+	var stat unix.Stat_t
+	if err = unix.Fstat(fd, &stat); err != nil {
+		return err
+	}
+	if stat.Uid != uint32(os.Geteuid()) {
+		return ErrInvalid
+	}
+	return unix.Fchmod(fd, 0700)
 }

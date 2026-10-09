@@ -1,3 +1,5 @@
+//go:build linux
+
 package store
 
 import (
@@ -513,5 +515,126 @@ func TestConditionalTransitionRefusesIllegalEdge(t *testing.T) {
 	events, e := s.EventsAfter(context.Background(), op, 0, 10)
 	if e != nil || len(events) != 0 {
 		t.Fatal("illegal transition changed journal")
+	}
+}
+
+func TestPublicAppendCannotForgeState(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	op := operation(t, s)
+	if _, e := s.AppendEvent(ctx, op, Event{Kind: "state", State: ops.Succeeded}); e == nil {
+		t.Fatal("forged state event accepted")
+	}
+	got, e := s.GetOperation(ctx, op)
+	if e != nil || got.State != ops.Queued {
+		t.Fatal("forgery changed state")
+	}
+	events, e := s.EventsAfter(ctx, op, 0, 100)
+	if e != nil || len(events) != 0 {
+		t.Fatal("forgery changed journal")
+	}
+	for _, state := range []ops.State{ops.Preflight, ops.Preparing, ops.Quiescing, ops.Starting, ops.Checking, ops.Committing, ops.Succeeded} {
+		if e = s.SetOperationState(ctx, op, state); e != nil {
+			t.Fatal(e)
+		}
+		if e = s.SetOperationState(ctx, op, state); e != nil {
+			t.Fatal(e)
+		}
+	}
+	events, e = s.EventsAfter(ctx, op, 0, 100)
+	if e != nil || len(events) != 7 {
+		t.Fatalf("state events %d %v", len(events), e)
+	}
+	for i, state := range []ops.State{ops.Preflight, ops.Preparing, ops.Quiescing, ops.Starting, ops.Checking, ops.Committing, ops.Succeeded} {
+		if events[i].Kind != "state" || events[i].State != state {
+			t.Fatal("state event mismatch")
+		}
+	}
+}
+func TestOpenSecuresExistingFilesAndDirectory(t *testing.T) {
+	dir := stateDir(t)
+	for _, name := range []string{"control.db", "control.db-wal", "control.db-shm"} {
+		if e := os.WriteFile(filepath.Join(dir, name), nil, 0644); e != nil {
+			t.Fatal(e)
+		}
+	}
+	s, e := Open(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.Close()
+	for _, name := range []string{"control.db", "control.db-wal", "control.db-shm"} {
+		info, e := os.Stat(filepath.Join(dir, name))
+		if e != nil || info.Mode().Perm() != 0600 {
+			t.Fatalf("insecure restored %s %v %v", name, info, e)
+		}
+		if e = os.Chmod(filepath.Join(dir, name), 0644); e != nil {
+			t.Fatal(e)
+		}
+	}
+	if e = os.Chmod(dir, 0755); e != nil {
+		t.Fatal(e)
+	}
+	second, e := Open(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer second.Close()
+	info, e := os.Stat(dir)
+	if e != nil || info.Mode().Perm() != 0700 {
+		t.Fatalf("insecure directory %v %v", info, e)
+	}
+	for _, name := range []string{"control.db", "control.db-wal", "control.db-shm"} {
+		info, e := os.Stat(filepath.Join(dir, name))
+		if e != nil || info.Mode().Perm() != 0600 {
+			t.Fatalf("insecure reopened %s %v %v", name, info, e)
+		}
+	}
+}
+func TestOpenRefusesAuxiliaryFileSymlinks(t *testing.T) {
+	for _, name := range []string{"control.db-wal", "control.db-shm"} {
+		t.Run(name, func(t *testing.T) {
+			dir := stateDir(t)
+			victim := filepath.Join(dir, "victim")
+			if e := os.WriteFile(victim, []byte("untouched"), 0644); e != nil {
+				t.Fatal(e)
+			}
+			if e := os.Symlink(victim, filepath.Join(dir, name)); e != nil {
+				t.Fatal(e)
+			}
+			if s, e := Open(dir); e == nil {
+				s.Close()
+				t.Fatal("followed sidecar symlink")
+			}
+			info, e := os.Stat(victim)
+			if e != nil || info.Mode().Perm() != 0644 {
+				t.Fatal("changed symlink target")
+			}
+		})
+	}
+}
+
+func TestOpenRepairsExistingSQLiteSidecars(t *testing.T) {
+	dir := stateDir(t)
+	first, e := Open(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer first.Close()
+	for _, name := range []string{"control.db-wal", "control.db-shm"} {
+		if e = os.Chmod(filepath.Join(dir, name), 0644); e != nil {
+			t.Fatal(e)
+		}
+	}
+	second, e := Open(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer second.Close()
+	for _, name := range []string{"control.db-wal", "control.db-shm"} {
+		info, e := os.Stat(filepath.Join(dir, name))
+		if e != nil || info.Mode().Perm() != 0600 {
+			t.Fatalf("insecure existing sidecar %s %v %v", name, info, e)
+		}
 	}
 }

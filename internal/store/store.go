@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os"
 	"path/filepath"
 	"regexp"
 
@@ -72,20 +71,18 @@ func Open(stateDir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	info, err := os.Lstat(dir)
-	if err != nil {
+	if err = secureStateDir(dir); err != nil {
 		return nil, err
-	}
-	if !info.IsDir() || info.Mode().Perm()&0077 != 0 {
-		return nil, ErrInvalid
 	}
 	path := filepath.Join(dir, "control.db")
-	f, err := openPrivateFile(path)
-	if err != nil {
-		return nil, err
-	}
-	if err = f.Close(); err != nil {
-		return nil, err
+	for _, file := range []string{path, path + "-wal", path + "-shm"} {
+		f, err := openPrivateFile(file)
+		if err != nil {
+			return nil, err
+		}
+		if err = f.Close(); err != nil {
+			return nil, err
+		}
 	}
 	u := url.URL{Scheme: "file", Path: path}
 	q := u.Query()
