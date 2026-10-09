@@ -1,6 +1,6 @@
 # Working on Brine
 
-Brine is a **Go-based, agent-first deployment CLI** with a beautiful Charm human interface. It integrates Caddy, Podman/Quadlet, systemd, SQLite and Litestream/R2. Rust components are welcome where justified, not required for a language quota.
+Brine is an **agent-first deployment CLI** with a beautiful Charm human interface. It integrates Caddy, Podman/Quadlet, systemd, SQLite and Litestream/R2.
 
 ## Start here
 
@@ -13,7 +13,7 @@ Brine is a **Go-based, agent-first deployment CLI** with a beautiful Charm human
 ## Build principles
 
 - One operation engine, two presentations: terminal UI and deterministic machine API.
-- Keep Cobra and Charm out of domain packages. Go owns orchestration initially.
+- Keep Cobra and Charm out of domain packages.
 - Use typed subprocess arguments, timeouts, bounded output and structured errors. Never concatenate untrusted values into shell commands.
 - Pin OCI image digests and dependency versions. Review major Charm updates together, not as incidental changes.
 - Unit tests run without VPS access. Host integration tests require an **explicitly authorized disposable test host**; the owner's Raspberry Pi is authorized within the limits in [D3](docs/DECISIONS.md).
