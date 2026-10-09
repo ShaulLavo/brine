@@ -37,7 +37,7 @@ func decodeApply(raw json.RawMessage) (any, error) {
 		return nil, err
 	}
 	id, err := strictjson.Value[string](f["plan_id"])
-	if err != nil || !jobs.ValidID(id) {
+	if err != nil || !jobs.ValidPlanID(id) {
 		return nil, strictjson.ErrObject
 	}
 	key, err := strictjson.Value[string](f["idempotency_key"])
@@ -87,7 +87,7 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 		return bad()
 	}
 	op, err := strictjson.Value[ops.Operation](f["operation"])
-	if err != nil || !jobs.ValidID(op.ID) || !jobs.ValidID(op.PlanID) || !ops.ValidState(op.State) {
+	if err != nil || !jobs.ValidID(op.ID) || !jobs.ValidPlanID(op.PlanID) || !ops.ValidState(op.State) {
 		return bad()
 	}
 	// Decode each timestamp as well as the object to reject null timestamps.

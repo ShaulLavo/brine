@@ -86,3 +86,34 @@ func TestKnownLaunchFailureDoesNotRetry(t *testing.T) {
 		t.Fatal("failure lost or launch retried")
 	}
 }
+
+type cancelDuringLaunch struct {
+	cancel context.CancelFunc
+	t      *testing.T
+	calls  int
+}
+
+func (r *cancelDuringLaunch) Execute(ctx context.Context, c localexec.Command) (localexec.Result, error) {
+	r.calls++
+	if c.Mutation {
+		r.cancel()
+		return localexec.Result{}, &localexec.Error{Kind: localexec.UnknownOutcome}
+	}
+	if ctx.Err() != nil {
+		r.t.Fatal("probe canceled with SSH")
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		r.t.Fatal("probe has no deadline")
+	}
+	return localexec.Result{Stdout: "LoadState=loaded\n"}, nil
+}
+func TestLaunchProbeOutlivesObserver(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := &cancelDuringLaunch{cancel: cancel, t: t}
+	s, _ := localexec.NewSession(r, 1234, JobWorkingDirectory, time.Second)
+	id, _ := ParseOperationID("op1")
+	if err := NewJobLauncher(s, 1234).Launch(ctx, id); err != nil || r.calls != 2 {
+		t.Fatalf("err=%v calls=%d", err, r.calls)
+	}
+}

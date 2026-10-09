@@ -3,6 +3,7 @@ package jobs
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 
@@ -112,11 +113,11 @@ func TestApplyRecordsBeforeLaunchAndDeduplicates(t *testing.T) {
 		}
 		return nil
 	})}
-	first, err := service.Apply(context.Background(), "plan1", "key1")
+	first, err := service.Apply(context.Background(), "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "key1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := service.Apply(context.Background(), "plan1", "key1")
+	second, err := service.Apply(context.Background(), "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "key1")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,14 +137,14 @@ func TestApplyLaunchOutcomes(t *testing.T) {
 		t.Run(string(tc.kind), func(t *testing.T) {
 			s := &fakeStore{}
 			service := Service{Store: s, Requester: "runner", Launcher: launchFunc(func(context.Context, systemd.OperationID) error { return &localexec.Error{Kind: tc.kind} })}
-			accepted, err := service.Apply(context.Background(), "plan1", "key1")
+			accepted, err := service.Apply(context.Background(), "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "key1")
 			if (err != nil) != tc.wantErr || s.operation.State != tc.state {
 				t.Fatalf("state=%s err=%v", s.operation.State, err)
 			}
 			if !tc.wantErr && accepted.OperationID != "op1" {
 				t.Fatal("lost operation ID")
 			}
-			again, err := service.Apply(context.Background(), "plan1", "key1")
+			again, err := service.Apply(context.Background(), "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "key1")
 			if err != nil || again.OperationID != "op1" {
 				t.Fatal("cannot recover recorded ID", err)
 			}
@@ -159,7 +160,7 @@ func TestConcurrentIdempotentApply(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Go(func() {
-			if _, err := service.Apply(context.Background(), "plan1", "key1"); err != nil {
+			if _, err := service.Apply(context.Background(), "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "key1"); err != nil {
 				t.Error(err)
 			}
 		})
@@ -171,11 +172,11 @@ func TestConcurrentIdempotentApply(t *testing.T) {
 }
 
 func TestRunnerOwnsLockAndLoadsExactDesired(t *testing.T) {
-	s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "plan1", State: ops.Queued}, desired: policy.Desired{PolicyVersion: "retained"}}
+	s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, desired: policy.Desired{PolicyVersion: "retained"}}
 	ran := false
 	runner := Runner{Store: s, Executor: execFunc(func(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
 		ran = true
-		if !s.locked || id != "op1" || p.Hash != "plan1" || d.PolicyVersion != "retained" {
+		if !s.locked || id != "op1" || p.Hash != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || d.PolicyVersion != "retained" {
 			t.Fatal("executor input or lock")
 		}
 		s.operation.State = ops.Succeeded
@@ -194,7 +195,7 @@ func TestRunnerOwnsLockAndLoadsExactDesired(t *testing.T) {
 
 func TestRunnerNeverInventsSuccess(t *testing.T) {
 	for _, fail := range []bool{false, true} {
-		s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "plan1", State: ops.Queued}}
+		s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}}
 		runner := Runner{Store: s, Executor: execFunc(func(context.Context, string, plan.Plan, policy.Desired) error {
 			s.operation.State = ops.Preparing
 			if fail {
@@ -212,9 +213,34 @@ func TestRunnerNeverInventsSuccess(t *testing.T) {
 }
 
 func TestOperationCursor(t *testing.T) {
-	s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "plan1", State: ops.Succeeded}, events: []ops.Event{{Sequence: 1, Kind: "state", State: ops.Preflight}, {Sequence: 2, Kind: "state", State: ops.Succeeded}}}
+	s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Succeeded}, events: []ops.Event{{Sequence: 1, Kind: "state", State: ops.Preflight}, {Sequence: 2, Kind: "state", State: ops.Succeeded}}}
 	got, err := (Service{Store: s}).Operation(context.Background(), "op1", 1)
 	if err != nil || got.NextCursor != 2 || len(got.Events) != 1 || got.Events[0].Sequence != 2 {
 		t.Fatalf("%+v %v", got, err)
+	}
+}
+
+func TestApplyFinishesLaunchAfterObserverCancellation(t *testing.T) {
+	s := &fakeStore{}
+	ctx, cancel := context.WithCancel(context.Background())
+	service := Service{Store: s, Requester: "runner", Launcher: launchFunc(func(ctx context.Context, _ systemd.OperationID) error {
+		cancel()
+		if ctx.Err() != nil {
+			t.Fatal("launch bound to observer cancellation")
+		}
+		return nil
+	})}
+	accepted, err := service.Apply(ctx, "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "key1")
+	if err != nil || accepted.OperationID != "op1" || len(s.events) != 2 {
+		t.Fatalf("%+v %v", accepted, err)
+	}
+}
+
+func TestCanonicalStoredPlanID(t *testing.T) {
+	planID := "sha256:" + strings.Repeat("a", 64)
+	s := &fakeStore{}
+	service := Service{Store: s, Requester: "runner", Launcher: launchFunc(func(context.Context, systemd.OperationID) error { return nil })}
+	if _, err := service.Apply(context.Background(), planID, "key1"); err != nil {
+		t.Fatalf("stored plan hash refused: %v", err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -18,11 +19,11 @@ import (
 const EventPageLimit = 128
 const JournalTimeout = 5 * time.Second
 
-type Lock interface{ Release() error }
+type Lock = ops.Lock
 type RunnerStore interface {
 	GetOperation(context.Context, string) (ops.Operation, error)
 	LoadPlan(context.Context, string) (plan.Plan, policy.Desired, error)
-	AcquireHostLock(context.Context) (Lock, error)
+	AcquireHostLock(context.Context) (ops.Lock, error)
 	AppendEvent(context.Context, string, ops.Event) (uint64, error)
 	SetOperationState(context.Context, string, ops.State) error
 }
@@ -58,7 +59,7 @@ func (s Service) Apply(ctx context.Context, planID, key string) (Accepted, error
 	if s.Store == nil || s.Launcher == nil || s.Requester == "" {
 		return Accepted{}, result.New(result.DependencyMissing, nil)
 	}
-	if !ValidID(planID) || !ValidID(key) {
+	if !ValidPlanID(planID) || !ValidID(key) {
 		return Accepted{}, result.New(result.DispatchInvalidRequest, nil)
 	}
 	op, existing, err := s.Store.CreateOperation(ctx, planID, s.Requester, key)
@@ -145,6 +146,10 @@ func (s Service) Operation(ctx context.Context, id string, cursor uint64) (Statu
 	}
 	return Status{Operation: op, Events: events, NextCursor: next}, nil
 }
+
+var planIDPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+
+func ValidPlanID(raw string) bool { return planIDPattern.MatchString(raw) }
 
 func ValidID(raw string) bool { _, err := systemd.ParseOperationID(raw); return err == nil }
 func launchEvent(outcome string) ops.Event {

@@ -19,7 +19,7 @@ func (s *jobStub) Apply(context.Context, string, string) (jobs.Accepted, error) 
 }
 func (s *jobStub) Operation(context.Context, string, uint64) (jobs.Status, error) {
 	s.reads++
-	return jobs.Status{Operation: ops.Operation{ID: "op1", PlanID: "plan1", State: ops.Queued}, Events: []ops.Event{}, NextCursor: 0}, nil
+	return jobs.Status{Operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, Events: []ops.Event{}, NextCursor: 0}, nil
 }
 
 func TestJobClassesAndPolicy(t *testing.T) {
@@ -28,7 +28,7 @@ func TestJobClassesAndPolicy(t *testing.T) {
 		class Class
 		args  string
 	}{
-		{"apply", Mutating, `{"plan_id":"plan1","idempotency_key":"key1"}`},
+		{"apply", Mutating, `{"plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","idempotency_key":"key1"}`},
 		{"operation", ReadOnly, `{"operation_id":"op1","after_cursor":0}`},
 	} {
 		t.Run(tc.op, func(t *testing.T) {
@@ -67,7 +67,7 @@ func TestJobClassesAndPolicy(t *testing.T) {
 
 func TestApplyClosedWithoutPolicy(t *testing.T) {
 	stub := &jobStub{}
-	input := `{"schema_version":1,"op":"apply","request_id":"req1","args":{"plan_id":"plan1","idempotency_key":"key1"}}`
+	input := `{"schema_version":1,"op":"apply","request_id":"req1","args":{"plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","idempotency_key":"key1"}}`
 	response, err := NewServer("test", nil).WithJobs(stub, nil).Handle(context.Background(), strings.NewReader(input))
 	if err == nil || response.OK || stub.applies != 0 {
 		t.Fatal("apply open without operator policy")
@@ -77,15 +77,43 @@ func TestApplyClosedWithoutPolicy(t *testing.T) {
 func TestJobArgumentsRejectInjection(t *testing.T) {
 	for _, args := range []string{
 		`{"plan_id":"../escape","idempotency_key":"key1"}`,
-		`{"plan_id":"plan1","idempotency_key":"key1","argv":["/bin/sh"]}`,
-		`{"plan_id":"plan1","idempotency_key":"key1","requester":"operator"}`,
-		`{"plan_id":"plan1","plan_id":"plan2","idempotency_key":"key1"}`,
-		`{"Plan_id":"plan1","idempotency_key":"key1"}`,
-		`{"plan_id":"plan1","idempotency_key":null}`,
+		`{"plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","idempotency_key":"key1","argv":["/bin/sh"]}`,
+		`{"plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","idempotency_key":"key1","requester":"operator"}`,
+		`{"plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","plan_id":"plan2","idempotency_key":"key1"}`,
+		`{"Plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","idempotency_key":"key1"}`,
+		`{"plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","idempotency_key":null}`,
 	} {
 		raw := `{"schema_version":1,"op":"apply","request_id":"req1","args":` + args + `}`
 		if _, err := DecodeRequest([]byte(raw)); err == nil {
 			t.Fatalf("accepted %s", args)
+		}
+	}
+}
+
+func TestAcceptedResponseNeverMeansDeployed(t *testing.T) {
+	for _, data := range []string{`{"status":"deployed","operation_id":"op1"}`, `{"status":"accepted","operation_id":"../x"}`, `{"status":"accepted","operation_id":"op1","argv":["sh"]}`} {
+		raw := `{"schema_version":1,"command":"brine host apply","ok":true,"data":` + data + `,"error":null}`
+		if _, err := DecodeResponse([]byte(raw), "apply"); err == nil {
+			t.Fatalf("accepted %s", data)
+		}
+	}
+}
+
+func TestOperationResponseRejectsUnsafeJournal(t *testing.T) {
+	status := jobs.Status{Operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, Events: []ops.Event{{Sequence: 1, Kind: "failure", Payload: json.RawMessage(`{"code":"launch_failed"}`)}}, NextCursor: 1}
+	valid, _ := json.Marshal(result.Success("brine host operation", status))
+	if _, err := DecodeResponse(valid, "operation"); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		strings.Replace(string(valid), `"code":"launch_failed"`, `"code":"launch_failed","message":"secret"`, 1),
+		strings.Replace(string(valid), `"sequence":1`, `"sequence":0`, 1),
+		strings.Replace(string(valid), `"next_cursor":1`, `"next_cursor":2`, 1),
+		strings.Replace(string(valid), `"state":"queued"`, `"state":"invented"`, 1),
+		strings.Replace(string(valid), `"id":"op1"`, `"id":"op1","requester":"spoofed"`, 1),
+	} {
+		if _, err := DecodeResponse([]byte(raw), "operation"); err == nil {
+			t.Fatalf("accepted %s", raw)
 		}
 	}
 }

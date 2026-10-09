@@ -150,7 +150,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	args, _ := operations[request.Op].decode(request.Args)
 	var value any
-	switch args.(type) {
+	switch args := args.(type) {
 	case PingArgs:
 		value = PingData{s.version, []int{SchemaVersion}}
 	case InventoryArgs:
@@ -173,7 +173,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		if s.jobs == nil {
 			return fail(result.New(result.DependencyMissing, nil))
 		}
-		accepted, err := s.jobs.Apply(ctx, args.(ApplyArgs).PlanID, args.(ApplyArgs).IdempotencyKey)
+		accepted, err := s.jobs.Apply(ctx, args.PlanID, args.IdempotencyKey)
 		if err != nil {
 			return fail(result.Classify(err))
 		}
@@ -182,7 +182,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		if s.jobs == nil {
 			return fail(result.New(result.DependencyMissing, nil))
 		}
-		status, err := s.jobs.Operation(ctx, args.(OperationArgs).OperationID, args.(OperationArgs).AfterCursor)
+		status, err := s.jobs.Operation(ctx, args.OperationID, args.AfterCursor)
 		if err != nil {
 			return fail(result.Classify(err))
 		}
