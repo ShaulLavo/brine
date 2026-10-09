@@ -99,3 +99,12 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   now leaves provenance unknown and refuses the update. Source-context tests
   also refuse imports in site blocks, named routes, other files and roots with
   additional imports.
+
+- Diagnostic consumer regression: `internal/diagnose/collector_provenance_test.go`
+  feeds the production collector directly into the diagnostic reader. Healthy
+  attributed files now prove the live generation and route presence. Every
+  selected file must still have known live evidence; missing sources, wrong app
+  attribution or unknown domains keep `live_generation_unproven`. Opaque names
+  remain valid only for currently emitted unattributed sources, not as a
+  substitute for an app association on filename-shaped sources. The diagnostic
+  change is confined to `liveGeneration`; log collection paths are unchanged.
