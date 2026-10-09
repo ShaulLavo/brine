@@ -296,7 +296,7 @@ Rootless does **not** mean safe for an untrusted agent. A deployment identity th
 
 SQLite data, WAL and related files live in durable per-app directories independent of release images. Run **one independent Litestream replicator per database/destination** (matching a tested Litestream release), with separately scoped R2 credentials and destination paths. Replication is asynchronous and may lose recent writes when the VPS dies. Do not start competing replicas writing the same destination.
 
-`restore test` writes into a new isolated directory or disposable fixture, checks `PRAGMA integrity_check`, verifies expected application invariants and reports recovery-point information if available. It **never overwrites the production DB**. Live restore stays an explicitly approved operator runbook. Database storage or backup deletion is never part of image cleanup.
+`restore test` writes into a new isolated directory or disposable fixture, checks `PRAGMA integrity_check`, verifies expected application invariants and reports recovery-point information if available. It **never overwrites the production DB**. Until P04-09 ships, live restore stays an explicitly approved operator runbook; after that it is the policy-gated `restore live` plan (D8). Database storage or backup deletion is never part of image cleanup.
 
 ## Source references
 
