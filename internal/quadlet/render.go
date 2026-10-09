@@ -52,6 +52,9 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	if !hashPattern.MatchString(p.Image.Digest) || !hashPattern.MatchString(platformManifestDigest) || !strings.HasSuffix(string(d.Image), "@"+p.Image.Digest) || p.Image.Platform.OS != "linux" || (p.Image.Platform.Arch != "amd64" && p.Image.Platform.Arch != "arm64") {
 		return Unit{}, fmt.Errorf("quadlet: verified index and platform manifest required")
 	}
+	if p.Image.ManifestDigest.Status == target.KnownStatus && (p.Image.ManifestDigest.Value == nil || *p.Image.ManifestDigest.Value != platformManifestDigest) {
+		return Unit{}, fmt.Errorf("quadlet: platform manifest differs from recorded plan")
+	}
 	if d.AppPorts.Min < 1024 || d.AppPorts.Max < d.AppPorts.Min || p.HostPort < 1024 || p.HostPort > 65535 {
 		return Unit{}, fmt.Errorf("quadlet: invalid normalized host port")
 	}
