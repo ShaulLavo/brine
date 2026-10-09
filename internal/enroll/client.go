@@ -156,7 +156,11 @@ func (c Client) Run(ctx context.Context, o Options) error {
 		}
 		return c.exec(ctx, "ssh", remote, data, 10*time.Minute)
 	}
-	data, err := call("probe", "")
+	probeAction := "probe"
+	if o.Undo {
+		probeAction = "undo-probe"
+	}
+	data, err := call(probeAction, "")
 	if err != nil {
 		return err
 	}

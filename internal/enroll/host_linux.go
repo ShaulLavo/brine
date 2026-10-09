@@ -212,6 +212,27 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		return nil, err
 	}
 	h := &host{r: r, exec: localexec.ExecRunner{}, identityKey: req.IdentityKey}
+	if req.Action == "undo-probe" {
+		// Undo uses authenticated operator SSH and journal provenance, not deploy
+		// environment prerequisites. Unsafe SSH policy must not prevent removal.
+		data, err := boundedRead("/etc/ssh/ssh_host_ed25519_key.pub")
+		if err != nil {
+			return nil, err
+		}
+		fields := strings.Fields(string(data))
+		if len(fields) < 2 {
+			return nil, errors.New("host public key unavailable")
+		}
+		hostKey, err := PublicKey(strings.Join(fields[:2], " "))
+		if err != nil {
+			return nil, err
+		}
+		owned, err := h.owned(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return Facts{HostKey: hostKey, OwnedRunner: owned}, nil
+	}
 	if req.Action == "probe" {
 		if h.r.ID == "" {
 			if err := h.preflight(ctx); err != nil {

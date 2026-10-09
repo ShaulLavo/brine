@@ -22,6 +22,7 @@ import (
 type operatorFake struct {
 	facts        Facts
 	commands     []localexec.Command
+	refuseProbe  bool
 	failAction   string
 	failed       bool
 	restrictions int
@@ -50,6 +51,9 @@ func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localex
 		var request HostRequest
 		if err = json.Unmarshal(c.Stdin, &request); err != nil {
 			return localexec.Output{}, err
+		}
+		if request.Action == "probe" && f.refuseProbe {
+			return localexec.Output{}, errors.New("unsafe SSH environment")
 		}
 		if request.Action == "apply" {
 			var raw map[string]json.RawMessage
@@ -148,6 +152,7 @@ func TestClientEnrollmentAndUndoWithOperatorSSH(t *testing.T) {
 			}
 		}
 	}
+	f.refuseProbe = true
 	o.Undo = true
 	client.Input = strings.NewReader("fixture\n")
 	if err = client.Run(context.Background(), o); err != nil {
