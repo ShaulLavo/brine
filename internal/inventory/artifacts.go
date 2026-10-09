@@ -101,6 +101,21 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		}
 		if runnerIdentity {
 			if len(units) > 0 {
+				active := unknown[bool]()
+				for _, unit := range units {
+					if strings.HasSuffix(unit.Name, ".container") {
+						state, err := c.probe(ctx, "systemctl", "--user", "show", strings.TrimSuffix(unit.Name, ".container")+".service", "--property=ActiveState", "--value")
+						if err == nil {
+							switch state {
+							case "active", "reloading", "refreshing":
+								active = target.Known(true)
+							case "inactive", "failed", "activating", "deactivating", "maintenance":
+								active = target.Known(false)
+							}
+						}
+					}
+				}
+				a.UnitActive = &active
 				a.AllocatedHostPort = c.livePort(ctx, units)
 			}
 			observed := []target.Secret{}

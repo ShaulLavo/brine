@@ -205,3 +205,8 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 	}
 	return result, tx.Commit()
 }
+
+// ReleaseByID reads immutable history scoped to one app, never another app's ID.
+func (s *Store) ReleaseByID(ctx context.Context, app, id string) (Release, error) {
+	return readRelease(ctx, s.db, app, id)
+}

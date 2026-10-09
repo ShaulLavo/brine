@@ -124,6 +124,9 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `logs_truncated` | 1 | false | The journal output was truncated; request a smaller tail. |
 | `logs_limit_exceeded` | 1 | false | The log response exceeds its bounded tail or byte limit; request a smaller tail. |
 | `logs_invalid_journal` | 1 | false | The journal response is malformed. |
+| `app_not_found` | 2 | false | The app has no committed Brine release. |
+| `release_not_found` | 2 | false | The rollback release is not known for this app. |
+| `rollback_no_op` | 5 | false | The rollback target is already current or requires no changes. |
 | `internal_error` | 1 | false | The operation failed. |
 | `invalid_usage` | 2 | false | Invalid command or arguments. Use --help for usage. |
 | `dependency_missing` | 3 | false | A required dependency is missing or incompatible. |

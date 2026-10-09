@@ -69,6 +69,7 @@ type Runner struct {
 }
 
 type App struct {
+	UnitActive        *Observation[bool]    `json:"unit_active,omitempty"`
 	Name              string                `json:"name"`
 	Image             Observation[Image]    `json:"image"`
 	AllocatedHostPort Observation[Port]     `json:"allocated_host_port"`
@@ -371,6 +372,11 @@ func (s Snapshot) validateShape() error {
 }
 
 func (a App) validate() error {
+	if a.UnitActive != nil {
+		if err := observe("unit_active", *a.UnitActive, false, nil); err != nil {
+			return err
+		}
+	}
 	if err := checkPattern(appPattern, a.Name); err != nil {
 		return fmt.Errorf("name: %w", err)
 	}

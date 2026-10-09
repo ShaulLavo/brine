@@ -120,11 +120,20 @@ func newApplyCmd(machine *bool, deps Dependencies) *cobra.Command {
 	cmd.Flags().StringVar(&key, "idempotency-key", "", "Reuse this key to recover the same operation after a lost response")
 	return cmd
 }
-func newOperationStatusCmd(machine *bool, deps Dependencies) *cobra.Command {
+func newOperationStatusCmd(machine *bool, modes *machineModes, deps Dependencies) *cobra.Command {
 	var flags operationFlags
 	var id string
 	var cursor uint64
-	cmd := &cobra.Command{Use: "status --operation ID --target NAME", Short: "Poll one operation and a bounded page of journal events", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	cmd := &cobra.Command{Use: "status [APP] --target NAME", Short: "Read app releases and health, or poll an operation", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !cmd.Flags().Changed("operation") {
+			if cmd.Flags().Changed("after-cursor") {
+				return result.New(result.InvalidUsage, nil)
+			}
+			return appStatus(cmd, deps, flags, *modes, args)
+		}
+		if len(args) != 0 {
+			return result.New(result.InvalidUsage, nil)
+		}
 		if !jobs.ValidID(id) || !transport.ValidTargetName(flags.target) {
 			return result.New(result.InvalidUsage, nil)
 		}
