@@ -337,3 +337,30 @@ func TestMemoryAndPartialDiscovery(t *testing.T) {
 		t.Fatal(report.AppNames)
 	}
 }
+
+func TestUnattributedRouteIsNotGuessedAbsent(t *testing.T) {
+	for _, domains := range []target.Observation[[]string]{target.Known([]string{"demo.example.test"}), {Status: target.Unknown}} {
+		reader := fixtureReader()
+		snapshot := fixtureSnapshot()
+		snapshot.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{Name: "file-unattributed", Domains: domains}})
+		reader.Inventory = fakeInventory{snapshot: snapshot}
+		report, e := reader.Read(context.Background(), Request{App: "demo"})
+		if e != nil {
+			t.Fatal(e)
+		}
+		if report.Apps[0].RoutePresent.Value != nil {
+			t.Fatal("guessed absence from unattributed routes")
+		}
+		for _, finding := range report.Findings {
+			if finding.Code == "route_missing" {
+				t.Fatal("unproven route absence became a failure finding")
+			}
+		}
+	}
+}
+func TestHealthyFactsDoNotMatchFailureRules(t *testing.T) {
+	report := Report{Host: Host{FreeDiskBytes: Known(uint64(2)), MinimumFreeDiskBytes: Known(uint64(2)), Linger: Known(true)}, Apps: []App{{Name: "demo", Unit: Known(Unit{ActiveState: "active", Restarts: 2}), ContainerRunning: Known(true), Health: Known(true), Operations: Known([]RecentOperation{{State: ops.Succeeded}}), RoutePresent: Known(true), Drift: Known([]string{})}}}
+	if got := Findings(report); len(got) != 0 {
+		t.Fatal(got)
+	}
+}

@@ -233,6 +233,9 @@ func (r Reader) app(ctx context.Context, s target.Snapshot, name string) App {
 		uncertain := false
 		for _, file := range *s.LiveCaddyFiles.Value {
 			if file.App != name && file.Name != caddySourceName(name+".caddy") {
+				if file.App == "" && (file.Domains.Value == nil || len(*file.Domains.Value) > 0) {
+					uncertain = true
+				}
 				continue
 			}
 			if file.Domains.Value == nil {
