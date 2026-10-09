@@ -85,3 +85,7 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   acceptance, idempotent creation, active-successor exclusion and immutable
   terminal/source guards. Secret present/absent resolution and interrupted
   successor reconciliation inspect only the named version and never create it.
+- Historical-artifact regression: terminal removal with a committed pre-log-policy
+  Quadlet hash succeeds after the renderer adds LogDriver/LogOpt. Inspection and
+  deletion use the recorded hash, not freshly rendered unit bytes; normal drift
+  checks remain enabled. Both new diagnostic rules survive the main merge.

@@ -2,8 +2,11 @@ package host
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/apps"
@@ -12,7 +15,9 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
+	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -142,5 +147,89 @@ func TestResolveUnknownSecretAssignmentNeverRecreatesValue(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+type recordedRemovalUnits struct {
+	removalUnits
+	recorded string
+}
+
+func (u recordedRemovalUnits) VerifyRemove(ctx context.Context, name, hash string) error {
+	if hash != u.recorded {
+		return fmt.Errorf("removal did not use recorded artifact hash")
+	}
+	return u.removalUnits.VerifyRemove(ctx, name, hash)
+}
+func (u recordedRemovalUnits) Remove(ctx context.Context, name, hash string) error {
+	if hash != u.recorded {
+		return fmt.Errorf("removal did not use recorded artifact hash")
+	}
+	return u.removalUnits.Remove(ctx, name, hash)
+}
+
+func TestResolveTerminalRemovalUsesRecordedPreLogDriverHash(t *testing.T) {
+	h := newRemovalHost(t, t.TempDir(), true)
+	ctx := context.Background()
+	release, err := h.store.CurrentRelease(ctx, "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, d, err := h.store.LoadPlan(ctx, release.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := quadlet.Render(d, p, *p.Image.ManifestDigest.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Recreate the recorded pre-log-policy artifact. Historical ownership is a
+	// content hash, not permission to reinterpret bytes through a new renderer.
+	var old strings.Builder
+	for _, line := range strings.Split(string(current.Bytes()), "\n") {
+		if strings.HasPrefix(line, "LogDriver=") || strings.HasPrefix(line, "LogOpt=") {
+			continue
+		}
+		old.WriteString(line)
+		old.WriteString("\n")
+	}
+	previousBytes := strings.TrimSuffix(old.String(), "\n")
+	previousHash := fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(previousBytes)))
+	if previousHash == current.Hash() {
+		t.Fatal("fixture did not retain historical renderer bytes")
+	}
+	release.ID = "historical-release"
+	for i := range release.Units {
+		if release.Units[i].Name == current.Name() {
+			release.Units[i].Hash = previousHash
+		}
+	}
+	if err = h.store.CommitRelease(ctx, "hello", release); err != nil {
+		t.Fatal(err)
+	}
+	disk, err := h.read()
+	if err != nil {
+		t.Fatal(err)
+	}
+	(*disk.Snapshot.Apps.Value)[0].QuadletUnits = target.Known(release.Units)
+	if err = h.write(disk, ""); err != nil {
+		t.Fatal(err)
+	}
+	engine := h.runner.Executor.(Executor).Engine
+	engine.Units = recordedRemovalUnits{removalUnits: removalUnits{h.units, h}, recorded: previousHash}
+	reconciler := newReconciler(h.service, engine, engine.Systemd.(*systemd.Fake))
+	h.runner.Reconciler = runnerReconciler{reconciler}
+	h.server.Reconciler = reconciler
+	source := seedTerminalRemoval(t, h)
+	accepted := h.call(t, "resolve", dispatch.ResolveArgs{OperationID: source, IdempotencyKey: "historical-resolution"}).Data.(jobs.Accepted)
+	if err = h.runner.Run(ctx, accepted.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	op, err := h.store.GetOperation(ctx, accepted.OperationID)
+	if err != nil || op.State != ops.Succeeded {
+		t.Fatal(op, err)
+	}
+	if _, err = h.store.CurrentRelease(ctx, "hello"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal(err)
 	}
 }
