@@ -234,6 +234,7 @@ func TestStalePlanRefusedUnderHostLock(t *testing.T) {
 		"versions":         func(r *deployRig) { r.inventory.snapshot.Versions.Systemd = target.Known("257.1") },
 		"ports":            func(r *deployRig) { r.inventory.snapshot.UsedPorts = target.Known([]target.Port{20000}) },
 		"policy_missing":   func(r *deployRig) { r.policy.err = fmt.Errorf("missing policy") },
+		"image_digest":     func(r *deployRig) { r.images.image.Digest = "sha256:" + strings.Repeat("b", 64) },
 		"unknown_manifest": func(r *deployRig) { r.images.image.ManifestDigest = target.Observation[string]{Status: target.Unknown} },
 	}
 	for name, change := range changes {

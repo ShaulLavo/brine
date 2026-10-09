@@ -81,3 +81,21 @@ func TestReadOnlyRefusesSymlinksAndOpenPermissions(t *testing.T) {
 		t.Fatal("read-only open changed permissions")
 	}
 }
+
+func TestReadGenerationDoesNotInitializeEmptyStore(t *testing.T) {
+	dir := t.TempDir()
+	generation, err := ReadGeneration(context.Background(), dir)
+	if err != nil || generation != 0 {
+		t.Fatalf("generation %d %v", generation, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("read-only inventory created control files")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unknown"), []byte("fixture"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadGeneration(context.Background(), dir); err == nil {
+		t.Fatal("unknown state became generation zero")
+	}
+}

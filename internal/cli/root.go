@@ -24,6 +24,7 @@ type Dependencies struct {
 	LookPath              func(string) (string, error)
 	RunTUI                func(context.Context, io.Reader, io.Writer) error
 	DoctorRunner          localexec.Runner // Optional; nil uses bounded local execution.
+	HostServerFactory     dispatch.Factory
 	HostPlanner           dispatch.Planner
 	HostInventory         dispatch.Inventory
 	HostUID               func() int // Optional; nil reads the effective process UID.

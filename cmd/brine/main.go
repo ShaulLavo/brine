@@ -9,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/ShaulLavo/brine/internal/cli"
+	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/host"
 	"github.com/ShaulLavo/brine/internal/result"
 )
@@ -43,18 +44,38 @@ func main() {
 		},
 	}
 	var closeRuntime func() error
-	if cli.HostRuntimeRequested(os.Args[1:]) {
+	if cli.HostServeRequested(os.Args[1:]) {
+		deps.HostServerFactory = func(ctx context.Context, op string) (*dispatch.Server, error) {
+			if op == "ping" {
+				return nil, nil
+			}
+			if authenticated != "deploy" {
+				return nil, result.New(result.DispatchOperationRefused, nil)
+			}
+			if op == "inventory" {
+				collector, err := host.NewInventory(ctx)
+				if err != nil {
+					return nil, err
+				}
+				return dispatch.NewServer(deps.Version, collector), nil
+			}
+			runtime, err := host.Open(ctx, authenticated)
+			if err != nil {
+				return nil, err
+			}
+			closeRuntime = runtime.Close
+			server := dispatch.NewServer(deps.Version, runtime.Inventory).WithJobs(runtime.Jobs, runtime.Authorize)
+			server.Planner = runtime.Planner
+			server.Apps = runtime.Apps
+			server.Logs = runtime.Logs
+			server.Diagnose = runtime.Diagnose
+			return server, nil
+		}
+	} else if cli.HostRuntimeRequested(os.Args[1:]) {
 		runtime, err := host.Open(ctx, authenticated)
 		if err == nil {
 			closeRuntime = runtime.Close
-			deps.HostInventory = runtime.Inventory
-			deps.HostPlanner = runtime.Planner
-			deps.HostJobs = runtime.Jobs
-			deps.HostAuthorization = runtime.Authorize
 			deps.HostOperationRunner = runtime.Runner
-			deps.HostApps = runtime.Apps
-			deps.HostLogs = runtime.Logs
-			deps.HostDiagnose = runtime.Diagnose
 		}
 	}
 	code := run(deps, os.Args[1:])

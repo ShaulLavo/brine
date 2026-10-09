@@ -125,7 +125,10 @@ type DiagnosticReader interface {
 	Read(context.Context, diagnose.Request) (diagnose.Report, error)
 }
 
+type Factory func(context.Context, string) (*Server, error)
+
 type Server struct {
+	Factory   Factory
 	Planner   Planner
 	Diagnose  DiagnosticReader
 	Apps      AppOperations
@@ -160,6 +163,15 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	command = "brine host " + request.Op
 	if err := ctx.Err(); err != nil {
 		return fail(err)
+	}
+	if s.Factory != nil {
+		configured, err := s.Factory(ctx, request.Op)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		if configured != nil {
+			s = configured
+		}
 	}
 	class := operations[request.Op].class
 	if s.authorize == nil {

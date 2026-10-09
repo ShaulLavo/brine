@@ -54,6 +54,7 @@ func executeHostServe(deps Dependencies) error {
 			}
 		}
 		server := dispatch.NewServer(deps.Version, collector).WithJobs(deps.HostJobs, deps.HostAuthorization)
+		server.Factory = deps.HostServerFactory
 		server.Planner = deps.HostPlanner
 		server.Apps = deps.HostApps
 		if deps.HostLogs != nil {

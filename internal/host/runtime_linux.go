@@ -66,11 +66,7 @@ func Open(ctx context.Context, authenticated string) (_ *Runtime, err error) {
 		return nil, err
 	}
 	runtimeSystemd := systemd.New(session)
-	units, err := quadlet.NewManager(identity.HomeDir, quadletValidator{})
-	if err != nil {
-		return nil, err
-	}
-	closers = append(closers, units.Close)
+	units := lazyUnits{home: identity.HomeDir, validator: quadletValidator{}}
 	manager, err := caddy.NewManager("/etc/caddy/brine", caddyValidator{session}, caddyReloader{runtimeSystemd})
 	if err != nil {
 		return nil, err
@@ -160,4 +156,40 @@ func (h policyHealth) Check(ctx context.Context, d policy.Desired, port target.P
 		return errors.New("host: health policy drift")
 	}
 	return (apply.HTTPHealth{CaddyPort: p.CaddyPort()}).Check(ctx, d, port, routed)
+}
+
+type lazyUnits struct {
+	home      string
+	validator quadlet.Validator
+}
+
+func (u lazyUnits) withManager(fn func(*quadlet.Manager) error) error {
+	m, err := quadlet.NewManager(u.home, u.validator)
+	if err != nil {
+		return err
+	}
+	defer m.Close()
+	return fn(m)
+}
+func (u lazyUnits) Stage(ctx context.Context, unit quadlet.Unit) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.Stage(ctx, unit) })
+}
+func (u lazyUnits) Install(ctx context.Context, unit quadlet.Unit, old string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.Install(ctx, unit, old) })
+}
+func (u lazyUnits) Rollback(ctx context.Context, name, installed, previous string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.Rollback(ctx, name, installed, previous) })
+}
+
+func NewInventory(ctx context.Context) (*inventory.Collector, error) {
+	identity, err := user.LookupId(strconv.Itoa(os.Geteuid()))
+	if err != nil || identity.Username != "brine" || identity.HomeDir != "/home/brine" || os.Geteuid() == 0 {
+		return nil, result.New(result.DispatchOperationRefused, nil)
+	}
+	key, err := trustedRead(ctx, "/etc/ssh/brine/inventory-key", 32)
+	if err != nil || len(key) != 32 {
+		return nil, result.New(result.DependencyMissing, nil)
+	}
+	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
+	return &inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateGeneration: func(ctx context.Context) (uint64, error) { return store.ReadGeneration(ctx, stateDir) }}, nil
 }
