@@ -148,8 +148,9 @@ func (c Client) Run(ctx context.Context, o Options) error {
 		prefix = ""
 	}
 	remote := append(append([]string{}, args...), prefix+dir+"/brine host enrollment")
+	confirmed := ""
 	call := func(action, key string) ([]byte, error) {
-		data, err := json.Marshal(HostRequest{Action: action, IdentityKey: identityKey, DeployKey: key})
+		data, err := json.Marshal(HostRequest{Action: action, IdentityKey: identityKey, DeployKey: key, Confirmed: confirmed})
 		if err != nil {
 			return nil, err
 		}
@@ -176,6 +177,10 @@ func (c Client) Run(ctx context.Context, o Options) error {
 		fmt.Fprintln(c.Output, "Undo removes only recorded enrollment files, the verified Brine-created runner home/account and linger. Existing packages and services keep their original state. Drift aborts cleanup.")
 	} else {
 		plan, err := MakePlan(f)
+		if err != nil {
+			return err
+		}
+		confirmed, err = confirmationBinding(f)
 		if err != nil {
 			return err
 		}
@@ -327,6 +332,7 @@ func clientKey(path string) ([]byte, error) {
 }
 
 type HostRequest struct {
+	Confirmed   string `json:"confirmed,omitempty"`
 	Action      string `json:"action"`
 	IdentityKey []byte `json:"identity_key"`
 	DeployKey   string `json:"deploy_key"`

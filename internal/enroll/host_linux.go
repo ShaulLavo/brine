@@ -222,6 +222,15 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 	if req.Action != "apply" && req.Action != "undo" && req.Action != "verify" {
 		return nil, errors.New("unknown enrollment action")
 	}
+	if req.Action == "apply" {
+		facts, err := h.facts(ctx, req.IdentityKey)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkConfirmation(facts, req.Confirmed); err != nil {
+			return nil, err
+		}
+	}
 	if err = protectedParents(recordDir); err != nil {
 		return nil, err
 	}
@@ -287,7 +296,7 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	_, err = MakePlan(f)
+	err = checkConfirmation(f, req.Confirmed)
 	if err != nil {
 		return nil, err
 	}

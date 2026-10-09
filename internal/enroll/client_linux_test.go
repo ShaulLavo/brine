@@ -52,6 +52,14 @@ func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localex
 			return localexec.Output{}, err
 		}
 		if request.Action == "apply" {
+			var raw map[string]json.RawMessage
+			_ = json.Unmarshal(c.Stdin, &raw)
+			var binding string
+			_ = json.Unmarshal(raw["confirmed"], &binding)
+			if binding == "" {
+				return localexec.Output{}, errors.New("apply missing confirmed transaction binding")
+			}
+
 			f.facts.OwnedRunner = true
 			f.facts.Snapshot.Runner.User = target.Known("brine")
 			f.facts.Snapshot.Runner.Linger = target.Known(true)
