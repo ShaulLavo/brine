@@ -24,6 +24,16 @@ type Client struct {
 
 // Call never retries. A timeout does not establish a remote operation's outcome.
 func (c Client) Call(ctx context.Context, t Target, request dispatch.Request) (result.Envelope, error) {
+	return c.call(ctx, t, request, "brine host serve")
+}
+
+// VerifyRestriction must still return the dispatcher response to a command that
+// could not invoke it on an unrestricted shell key.
+func (c Client) VerifyRestriction(ctx context.Context, t Target, request dispatch.Request) (result.Envelope, error) {
+	return c.call(ctx, t, request, "printf brine-unrestricted-key")
+}
+
+func (c Client) call(ctx context.Context, t Target, request dispatch.Request, remoteCommand string) (result.Envelope, error) {
 	if err := t.Validate(); err != nil {
 		return result.Envelope{}, err
 	}
@@ -53,7 +63,7 @@ func (c Client) Call(ctx context.Context, t Target, request dispatch.Request) (r
 	} {
 		args = append(args, "-o", option)
 	}
-	args = append(args, "-i", t.IdentityPath, "--", t.Destination, "brine host serve")
+	args = append(args, "-i", t.IdentityPath, "--", t.Destination, remoteCommand)
 	runner := c.Runner
 	if runner == nil {
 		runner = localexec.ExecRunner{}

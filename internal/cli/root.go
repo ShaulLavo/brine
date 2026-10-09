@@ -58,6 +58,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
 	root.AddCommand(newHostCmd(deps))
+	root.AddCommand(newEnrollCmd(deps, &noInput, &modes))
 	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath, deps.DoctorRunner))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newValidateCmd(&jsonOutput))
