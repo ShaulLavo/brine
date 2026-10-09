@@ -226,3 +226,24 @@ func TestSSHSourceTraceRequiresCompleteExactManifest(t *testing.T) {
 		}
 	}
 }
+
+func TestRecursiveMainIncludeRefused(t *testing.T) {
+	p := Prober{FS: configFS{files: map[string]string{"/main.conf": "Include /main.conf\n"}}}
+	if p.sshEnvironmentSources(context.Background(), "/main.conf") == nil {
+		t.Fatal("recursive main include accepted")
+	}
+}
+func TestHiddenDropinDoesNotPrecedePolicy(t *testing.T) {
+	d := t.TempDir()
+	if err := os.WriteFile(filepath.Join(d, ".hidden.conf"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": "Include /etc/ssh/sshd_config.d/*.conf\n"}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": entries}}}
+	if err := p.sshConfig(context.Background(), "/etc/ssh/sshd_config", nil, 0); err != nil {
+		t.Fatal(err)
+	}
+}
