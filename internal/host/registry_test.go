@@ -199,3 +199,87 @@ func TestRegistryDockerHubTokenConfinement(t *testing.T) {
 		}
 	}
 }
+
+func TestRegistryDockerHubRepositoryNormalization(t *testing.T) {
+	config := []byte(`{"os":"linux","architecture":"arm64"}`)
+	manifest, _ := json.Marshal(map[string]any{"schemaVersion": 2, "config": map[string]string{"digest": hashBytes(config)}})
+	for _, tc := range []struct{ name, repository string }{
+		{"docker.io/alpine", "library/alpine"},
+		{"docker.io/alpine:latest", "library/alpine"},
+		{"docker.io/library/alpine", "library/alpine"},
+		{"docker.io/team/alpine", "team/alpine"},
+		{"registry.example/alpine", "alpine"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			host := "registry-1.docker.io"
+			realm, service := "https://auth.docker.io/token", "registry.docker.io"
+			if strings.HasPrefix(tc.name, "registry.example/") {
+				host, realm, service = "registry.example", "https://registry.example/token", "fixture"
+			}
+			calls := 0
+			transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+				calls++
+				status, raw, header := http.StatusOK, manifest, http.Header{}
+				if req.URL.Path == "/token" {
+					if got := req.URL.Query().Get("scope"); got != "repository:"+tc.repository+":pull" {
+						t.Errorf("token scope %q does not match repository %q", got, tc.repository)
+					}
+					raw = []byte(`{"token":"fixture-token"}`)
+				} else {
+					if req.URL.Host != host {
+						t.Errorf("registry host = %q, want %q", req.URL.Host, host)
+					}
+					expected := "/v2/" + tc.repository + "/manifests/" + hashBytes(manifest)
+					if req.Header.Get("Authorization") == "" {
+						status, raw = http.StatusUnauthorized, nil
+						header.Set("WWW-Authenticate", fmt.Sprintf(`Bearer realm="%s",service="%s"`, realm, service))
+					} else if strings.HasSuffix(req.URL.Path, "/blobs/"+hashBytes(config)) {
+						expected, raw = "/v2/"+tc.repository+"/blobs/"+hashBytes(config), config
+					}
+					if req.URL.Path != expected {
+						t.Errorf("registry path = %q, want %q", req.URL.Path, expected)
+					}
+				}
+				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(string(raw))), Header: header}, nil
+			})
+			image, err := (Registry{Transport: transport}).Resolve(context.Background(), spec.ImageReference(tc.name+"@"+hashBytes(manifest)), target.Platform{OS: "linux", Arch: "arm64"})
+			if err != nil || calls != 4 || image.Digest != hashBytes(manifest) {
+				t.Fatalf("resolve image %+v calls %d err %v", image, calls, err)
+			}
+		})
+	}
+}
+
+func TestRegistryRedirectUsesOperationSegment(t *testing.T) {
+	for _, registry := range []struct{ host, cdn string }{
+		{"registry-1.docker.io", "production.cloudfront.docker.com"},
+		{"registry-1.docker.io", "production.cloudflare.docker.com"},
+		{"ghcr.io", "pkg-containers.githubusercontent.com"},
+	} {
+		for _, tc := range []struct {
+			path string
+			blob bool
+		}{
+			{"/v2/team/blobs/manifests/sha256:fixture", false},
+			{"/v2/team/blobs/nested/manifests/sha256:fixture", false},
+			{"/v2/team/blobs/blobs/sha256:fixture", true},
+			{"/v2/team/manifests/blobs/sha256:fixture", true},
+			{"/v2/alpine/blobs/sha256:fixture", true},
+			{"/token/blobs/sha256:fixture", false},
+		} {
+			t.Run(registry.host+tc.path+registry.cdn, func(t *testing.T) {
+				original, _ := http.NewRequest(http.MethodGet, "https://"+registry.host+tc.path, nil)
+				req, _ := http.NewRequest(http.MethodGet, "https://"+registry.cdn+"/blob", nil)
+				req.Header.Set("Authorization", "Bearer fixture-token")
+				err := registryRedirect(req, []*http.Request{original})
+				if tc.blob {
+					if err != nil || req.Header.Get("Authorization") != "" {
+						t.Fatalf("blob redirect failed or forwarded credentials: %v", err)
+					}
+				} else if err != http.ErrUseLastResponse {
+					t.Fatalf("non-blob request redirected: %v", err)
+				}
+			})
+		}
+	}
+}

@@ -34,11 +34,14 @@ func (r Registry) Resolve(ctx context.Context, ref spec.ImageReference, platform
 	}
 	name, digest, _ := strings.Cut(pin.String(), "@")
 	host, repository, _ := strings.Cut(name, "/")
-	if host == "docker.io" {
-		host = "registry-1.docker.io"
-	}
 	// A tag accompanying the immutable pin does not enter the registry API path.
 	repository = strings.Split(repository, ":")[0]
+	if host == "docker.io" {
+		host = "registry-1.docker.io"
+		if !strings.Contains(repository, "/") {
+			repository = "library/" + repository
+		}
+	}
 	if platform.OS != "linux" || (platform.Arch != "amd64" && platform.Arch != "arm64") {
 		return out, errors.New("host: unsupported image platform")
 	}
@@ -158,7 +161,10 @@ func registryRedirect(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
 	original := via[0]
-	if !strings.Contains(original.URL.Path, "/blobs/") {
+	// Registry endpoints are /v2/<repository>/<operation>/<reference>;
+	// a repository segment named "blobs" does not make a manifest a blob.
+	segments := strings.Split(original.URL.Path, "/")
+	if !strings.HasPrefix(original.URL.Path, "/v2/") || len(segments) < 5 || segments[len(segments)-2] != "blobs" || segments[len(segments)-1] == "" {
 		return http.ErrUseLastResponse
 	}
 	if req.URL.Host != original.URL.Host {
