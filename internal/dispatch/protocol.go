@@ -7,6 +7,7 @@ import (
 	"io"
 	"regexp"
 
+	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -50,6 +51,7 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"diagnose":  {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
 	"logs":      {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
 	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
 	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
@@ -115,7 +117,12 @@ type LogReader interface {
 	Read(context.Context, logs.Request) ([]logs.Line, error)
 }
 
+type DiagnosticReader interface {
+	Read(context.Context, diagnose.Request) (diagnose.Report, error)
+}
+
 type Server struct {
+	Diagnose  DiagnosticReader
 	Logs      LogReader
 	version   string
 	inventory Inventory
@@ -159,6 +166,16 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	args, _ := operations[request.Op].decode(request.Args)
 	var value any
 	switch args := args.(type) {
+	case diagnose.Request:
+		reader := s.Diagnose
+		if reader == nil {
+			reader = diagnose.Reader{Inventory: s.inventory, Runner: localexec.ExecRunner{}}
+		}
+		report, err := reader.Read(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = report
 	case logs.Request:
 		if s.Logs == nil {
 			return fail(result.New(result.DependencyMissing, nil))

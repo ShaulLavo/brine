@@ -34,6 +34,7 @@ type Dependencies struct {
 	LoadOperationTarget   func(string, string) (transport.Target, error)
 	HostLogs              dispatch.LogReader
 	LogsClient            LogsClient
+	HostDiagnose          dispatch.DiagnosticReader
 }
 
 // NewRootCommand builds an independent command tree without executing it.
@@ -67,6 +68,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
 	root.AddCommand(newHostCmd(deps))
 	root.AddCommand(newLogsCmd(deps, &modes))
+	root.AddCommand(newDiagnoseCmd(deps, &modes))
 	root.AddCommand(newEnrollCmd(deps, &noInput, &modes))
 	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath, deps.DoctorRunner))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
