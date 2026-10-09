@@ -34,7 +34,7 @@ type Release = ops.Release
 
 const MaxEventBytes = ops.MaxEventBytes
 const MaxPlanBytes = 16 << 20
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 var ErrNotFound = errors.New("control record not found")
 var ErrConflict = errors.New("conflicting control record")
@@ -59,8 +59,11 @@ type StateConflictError = ops.StateConflictError
 var ErrStateConflict = ops.ErrStateConflict
 
 type Store struct {
-	db  *sql.DB
-	dir string
+	db                         *sql.DB
+	dir                        string
+	readOnly                   bool
+	previewHost, previewLaunch ops.Lock
+	cleanup                    func() error
 }
 
 // Open requires an existing private runner state directory. The connection pool
@@ -104,9 +107,24 @@ func Open(stateDir string) (*Store, error) {
 	}
 	return s, nil
 }
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	if s.cleanup != nil {
+		err = errors.Join(err, s.cleanup())
+	}
+	return err
+}
 
-func (s *Store) migrate(ctx context.Context) error {
+func (s *Store) migrate(ctx context.Context) (err error) {
+	// SQLite requires foreign keys off outside the transaction while rebuilding
+	// a referenced table. They are restored before Open returns on every path.
+	if _, err = s.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	defer func() {
+		_, e := s.db.ExecContext(context.WithoutCancel(ctx), "PRAGMA foreign_keys=ON")
+		err = errors.Join(err, e)
+	}()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -147,8 +165,39 @@ func (s *Store) migrate(ctx context.Context) error {
 			return err
 		}
 	}
+	if version <= 1 {
+		if _, err = tx.ExecContext(ctx, schemaV2); err != nil {
+			return err
+		}
+		if _, err = tx.ExecContext(ctx, "UPDATE schema_version SET version=2"); err != nil {
+			return err
+		}
+	}
+	rows, e := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if e != nil {
+		return e
+	}
+	broken := rows.Next()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if broken {
+		return &IntegrityError{}
+	}
 	return tx.Commit()
 }
+
+// A NULL plan identifies a host reconciliation job, not a fabricated deploy plan.
+// Existing operations/events/release foreign keys keep their original IDs.
+const schemaV2 = `
+CREATE TABLE operations_v2 (id TEXT PRIMARY KEY, plan_id TEXT REFERENCES plans(id), requester TEXT NOT NULL, idempotency_key TEXT NOT NULL, state TEXT NOT NULL CHECK(state IN ('queued','launch_unknown','preflight','preparing','quiescing','starting','checking','committing','rolling_back','succeeded','failed','rolled_back','recovery_required')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(requester,idempotency_key));
+INSERT INTO operations_v2 SELECT * FROM operations;
+DROP TABLE operations;
+ALTER TABLE operations_v2 RENAME TO operations;
+CREATE TRIGGER legal_transition BEFORE UPDATE OF state ON operations WHEN OLD.state<>NEW.state AND NOT EXISTS (SELECT 1 FROM transitions WHERE from_state=OLD.state AND to_state=NEW.state) BEGIN SELECT RAISE(ABORT,'illegal state transition'); END;
+`
 
 const schema = `
 CREATE TABLE plans (id TEXT PRIMARY KEY, canonical BLOB NOT NULL, content_hash TEXT NOT NULL, desired BLOB NOT NULL, desired_hash TEXT NOT NULL);

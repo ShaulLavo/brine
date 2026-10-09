@@ -16,3 +16,7 @@ func Open(context.Context, string) (*Runtime, error) {
 func NewInventory(context.Context) (*inventory.Collector, error) {
 	return nil, result.New(result.DependencyMissing, nil)
 }
+
+func OpenPreview(context.Context, string) (*Runtime, error) {
+	return nil, result.New(result.DependencyMissing, nil)
+}

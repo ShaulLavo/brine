@@ -6,12 +6,11 @@ import (
 	"context"
 	"errors"
 	"os"
-
-	"github.com/ShaulLavo/brine/internal/ops"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/ops"
 	"golang.org/x/sys/unix"
 )
 
@@ -57,10 +56,48 @@ func openPrivateFile(path string) (*os.File, error) {
 	return f, nil
 }
 func (s *Store) AcquireHostLock(ctx context.Context) (Lock, error) {
+	if s.previewHost != nil {
+		return previewLock{}, nil
+	}
+	return s.acquireLock(ctx, filepath.Join(s.dir, "mutation.lock"))
+}
+
+// AcquireLaunchLock fences operation creation and launch settlement independently
+// of long-running deployments. When both are needed, take launch before host.
+func (s *Store) AcquireLaunchLock(ctx context.Context) (Lock, error) {
+	if s.previewLaunch != nil {
+		return previewLock{}, nil
+	}
+	return s.acquireLock(ctx, filepath.Join(s.dir, "launch.lock"))
+}
+
+func acquireLock(ctx context.Context, path string) (Lock, error) {
+	return (&Store{}).acquireLock(ctx, path)
+}
+func (s *Store) acquireLock(ctx context.Context, path string) (Lock, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := openPrivateFile(filepath.Join(s.dir, "mutation.lock"))
+	var f *os.File
+	var err error
+	if s.readOnly {
+		// Preview may fence existing files, but never create/chmod a lock file.
+		fd, e := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
+		err = e
+		if e == nil {
+			f = os.NewFile(uintptr(fd), path)
+			var st unix.Stat_t
+			err = unix.Fstat(fd, &st)
+			if err == nil && (st.Mode&unix.S_IFMT != unix.S_IFREG || st.Uid != uint32(os.Geteuid()) || st.Mode&0077 != 0) {
+				err = ErrInvalid
+			}
+			if err != nil {
+				f.Close()
+			}
+		}
+	} else {
+		f, err = openPrivateFile(path)
+	}
 	if err != nil {
 		return nil, err
 	}

@@ -73,6 +73,10 @@ func (s disconnectStore) AcquireHostLock(context.Context) (jobs.Lock, error) {
 	return fixtureLock{}, nil
 }
 
+func (s disconnectStore) AcquireLaunchLock(context.Context) (jobs.Lock, error) {
+	return fixtureLock{}, nil
+}
+
 type fixtureLock struct{}
 
 func (fixtureLock) Release() error { return nil }

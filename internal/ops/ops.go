@@ -57,6 +57,7 @@ func (s State) IsTerminal() bool {
 }
 
 type Operation struct {
+	Kind           string    `json:"kind,omitempty"` // Only "reconcile" is emitted; legacy/apply records omit it.
 	ID             string    `json:"id"`
 	PlanID         string    `json:"plan_id"`
 	Requester      string    `json:"-"`

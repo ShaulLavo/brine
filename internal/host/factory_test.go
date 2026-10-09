@@ -15,7 +15,7 @@ import (
 
 func TestTrustedMarkerGateForEveryOperation(t *testing.T) {
 	for _, marker := range []string{"", "wrong", "deploy"} {
-		for _, op := range []string{"ping", "inventory", "plan", "apply", "operation", "status", "rollback", "logs", "diagnose"} {
+		for _, op := range []string{"ping", "inventory", "plan", "apply", "operation", "status", "rollback", "logs", "diagnose", "reconcile"} {
 			t.Run(marker+"/"+op, func(t *testing.T) {
 				state := filepath.Join(t.TempDir(), "state")
 				opens, inventories := 0, 0
@@ -61,9 +61,10 @@ func TestFactoryRequiresRuntimeAuthorizationForMutations(t *testing.T) {
 		t.Fatal(err)
 	}
 	args := map[string]any{
-		"plan":     dispatch.PlanArgs{Spec: string(spec)},
-		"apply":    dispatch.ApplyArgs{PlanID: "sha256:" + strings.Repeat("a", 64), IdempotencyKey: "fixture-key"},
-		"rollback": dispatch.RollbackArgs{App: "hello", ReleaseID: ""},
+		"plan":      dispatch.PlanArgs{Spec: string(spec)},
+		"apply":     dispatch.ApplyArgs{PlanID: "sha256:" + strings.Repeat("a", 64), IdempotencyKey: "fixture-key"},
+		"reconcile": dispatch.ReconcileArgs{DryRun: false},
+		"rollback":  dispatch.RollbackArgs{App: "hello", ReleaseID: ""},
 	}
 	for op, arg := range args {
 		for _, deny := range []bool{false, true} {
@@ -95,5 +96,17 @@ func TestFactoryRequiresRuntimeAuthorizationForMutations(t *testing.T) {
 				t.Fatalf("op=%s deny=%v error=%v", op, deny, err)
 			}
 		}
+	}
+}
+
+func TestFactoryWiresRealReconciler(t *testing.T) {
+	r := newDeployRig(t)
+	factory := newServerFactory("fixture", "deploy", func(context.Context, string) (*Runtime, error) {
+		return &Runtime{Reconciler: r.server.Reconciler, Authorize: r.service.Authorize, close: func() error { return nil }}, nil
+	}, nil)
+	defer factory.Close()
+	server, err := factory.Build(context.Background(), "reconcile")
+	if err != nil || server.Reconciler == nil {
+		t.Fatalf("production recovery missing: %v", err)
 	}
 }

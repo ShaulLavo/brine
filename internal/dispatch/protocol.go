@@ -52,6 +52,7 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"reconcile": {Mutating, decodeReconcile},
 	"diagnose":  {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
 	"status":    {ReadOnly, decodeAppStatus},
 	"rollback":  {Mutating, decodeRollback},
@@ -125,18 +126,27 @@ type DiagnosticReader interface {
 	Read(context.Context, diagnose.Request) (diagnose.Report, error)
 }
 
+// previewRequestKey is set only after strict request/argument validation.
+type previewRequestKey struct{}
+
+func IsReconcilePreview(ctx context.Context) bool {
+	dry, _ := ctx.Value(previewRequestKey{}).(bool)
+	return dry
+}
+
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
-	Factory   Factory
-	Planner   Planner
-	Diagnose  DiagnosticReader
-	Apps      AppOperations
-	Logs      LogReader
-	version   string
-	inventory Inventory
-	jobs      JobOperations
-	authorize Authorization
+	Reconciler ReconcileOperations
+	Factory    Factory
+	Planner    Planner
+	Diagnose   DiagnosticReader
+	Apps       AppOperations
+	Logs       LogReader
+	version    string
+	inventory  Inventory
+	jobs       JobOperations
+	authorize  Authorization
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -164,6 +174,10 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
+	args, _ := operations[request.Op].decode(request.Args)
+	if preview, ok := args.(ReconcileArgs); ok && preview.DryRun {
+		ctx = context.WithValue(ctx, previewRequestKey{}, true)
+	}
 	if s.Factory != nil {
 		configured, err := s.Factory(ctx, request.Op)
 		if err != nil {
@@ -174,6 +188,9 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		}
 	}
 	class := operations[request.Op].class
+	if reconcile, ok := args.(ReconcileArgs); ok && reconcile.DryRun {
+		class = ReadOnly
+	}
 	if s.authorize == nil {
 		if class != ReadOnly {
 			return fail(result.New(result.DispatchOperationRefused, nil))
@@ -181,9 +198,29 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	} else if err := s.authorize(ctx, class); err != nil {
 		return fail(result.Classify(err))
 	}
-	args, _ := operations[request.Op].decode(request.Args)
 	var value any
 	switch args := args.(type) {
+	case ReconcileArgs:
+		if args.DryRun {
+			if s.Reconciler == nil {
+				return fail(result.New(result.DependencyMissing, nil))
+			}
+			report, err := s.Reconciler.DryRun(ctx)
+			if err != nil {
+				return fail(result.Classify(err))
+			}
+			value = report
+		} else {
+			jobs, ok := s.jobs.(ReconcileJobs)
+			if !ok {
+				return fail(result.New(result.DependencyMissing, nil))
+			}
+			accepted, err := jobs.Reconcile(ctx)
+			if err != nil {
+				return fail(result.Classify(err))
+			}
+			value = accepted
+		}
 	case spec.App:
 		if s.Planner == nil {
 			return fail(result.New(result.DependencyMissing, nil))

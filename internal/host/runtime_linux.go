@@ -30,7 +30,13 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-func Open(ctx context.Context, authenticated string) (_ *Runtime, err error) {
+func Open(ctx context.Context, authenticated string) (*Runtime, error) {
+	return openRuntime(ctx, authenticated, false)
+}
+func OpenPreview(ctx context.Context, authenticated string) (*Runtime, error) {
+	return openRuntime(ctx, authenticated, true)
+}
+func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Runtime, err error) {
 	identity, err := user.LookupId(strconv.Itoa(os.Geteuid()))
 	if err != nil || identity.Username != "brine" || identity.HomeDir != "/home/brine" || os.Geteuid() == 0 {
 		return nil, result.New(result.DispatchOperationRefused, nil)
@@ -39,7 +45,20 @@ func Open(ctx context.Context, authenticated string) (_ *Runtime, err error) {
 	if e != nil {
 		return nil, e
 	}
-	state, err := store.Open(filepath.Join(identity.HomeDir, ".local/state/brine"))
+	var state *store.Store
+	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
+	if preview {
+		read, e := openPreviewState(ctx, stateDir)
+		if e != nil {
+			return nil, e
+		}
+		if read.previewStore == nil {
+			return read, nil
+		}
+		state = read.previewStore
+	} else {
+		state, err = store.Open(stateDir)
+	}
 	if err != nil {
 		return nil, result.New(result.DependencyMissing, err)
 	}
@@ -95,14 +114,18 @@ func Open(ctx context.Context, authenticated string) (_ *Runtime, err error) {
 			return caddy.NewSite(App(d), p, spec.Port(port))
 		},
 	}}
+	reconciler := newReconciler(service, engine, runtimeSystemd)
 	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
-	r := &Runtime{Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}}, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
+	r := &Runtime{Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}}, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
 		p, err := loader.Load(ctx)
 		if err != nil {
 			return 0, err
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
+	if preview {
+		r.Reconciler = readOnlyReconciler{reconciler}
+	}
 	r.Authorize = service.Authorize
 	r.close = func() error {
 		var errs []error

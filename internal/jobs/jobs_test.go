@@ -17,6 +17,7 @@ import (
 
 type fakeStore struct {
 	mu               sync.Mutex
+	launchToken      chan struct{}
 	operation        ops.Operation
 	events           []ops.Event
 	creates          int
@@ -277,6 +278,29 @@ func TestLaunchOutcomeCannotOverwriteExecutorProgress(t *testing.T) {
 		}
 	}
 }
+
+func (s *fakeStore) AcquireLaunchLock(ctx context.Context) (Lock, error) {
+	s.mu.Lock()
+	if s.launchToken == nil {
+		s.launchToken = make(chan struct{}, 1)
+		s.launchToken <- struct{}{}
+	}
+	token := s.launchToken
+	s.mu.Unlock()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-token:
+		return &fakeLaunchLock{token: token}, nil
+	}
+}
+
+type fakeLaunchLock struct {
+	token chan struct{}
+	once  sync.Once
+}
+
+func (l *fakeLaunchLock) Release() error { l.once.Do(func() { l.token <- struct{}{} }); return nil }
 
 type reconcileFunc func(context.Context, ops.Lock, string, bool) error
 

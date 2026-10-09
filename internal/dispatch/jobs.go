@@ -82,12 +82,31 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 	if err != nil {
 		return bad()
 	}
-	opFields, err := strictjson.Object(f["operation"], "id", "plan_id", "state", "created_at", "updated_at")
+	var header struct {
+		Kind string `json:"kind"`
+	}
+	if json.Unmarshal(f["operation"], &header) != nil {
+		return bad()
+	}
+	keys := []string{"id", "plan_id", "state", "created_at", "updated_at"}
+	if header.Kind != "" {
+		keys = append(keys, "kind")
+	}
+	opFields, err := strictjson.Object(f["operation"], keys...)
 	if err != nil {
 		return bad()
 	}
 	op, err := strictjson.Value[ops.Operation](f["operation"])
-	if err != nil || !jobs.ValidID(op.ID) || !jobs.ValidPlanID(op.PlanID) || !ops.ValidState(op.State) {
+	if err != nil || !jobs.ValidID(op.ID) || !(op.Kind == "" && jobs.ValidPlanID(op.PlanID) || op.Kind == "reconcile" && op.PlanID == "") || !ops.ValidState(op.State) {
+		return bad()
+	}
+	if op.Kind != "" {
+		kind, e := strictjson.Value[string](opFields["kind"])
+		if e != nil || kind != "reconcile" {
+			return bad()
+		}
+	}
+	if _, e := strictjson.Value[string](opFields["plan_id"]); e != nil {
 		return bad()
 	}
 	// Decode each timestamp as well as the object to reject null timestamps.

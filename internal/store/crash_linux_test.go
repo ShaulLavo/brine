@@ -77,8 +77,12 @@ func TestStoreCrashHelper(t *testing.T) {
 	ctx := context.Background()
 	op := os.Getenv("BRINE_STORE_OP")
 	switch os.Getenv("BRINE_STORE_STAGE") {
-	case "lock":
-		lock, e := s.AcquireHostLock(ctx)
+	case "lock", "launch-lock":
+		acquire := s.AcquireHostLock
+		if os.Getenv("BRINE_STORE_STAGE") == "launch-lock" {
+			acquire = s.AcquireLaunchLock
+		}
+		lock, e := acquire(ctx)
 		if e != nil {
 			t.Fatal(e)
 		}
