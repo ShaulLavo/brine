@@ -90,6 +90,11 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 	if err != nil || !jobs.ValidID(op.ID) || !ops.ValidOperation(op) {
 		return bad()
 	}
+	for _, key := range []string{"id", "plan_id", "kind", "app", "secret_ref", "state"} {
+		if _, err := strictjson.Value[string](opFields[key]); err != nil {
+			return bad()
+		}
+	}
 	// Decode each timestamp as well as the object to reject null timestamps.
 	for _, key := range []string{"created_at", "updated_at"} {
 		if _, err := strictjson.Value[time.Time](opFields[key]); err != nil {
@@ -122,7 +127,7 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 			return bad()
 		}
 		event, err := strictjson.Value[ops.Event](raw)
-		if err != nil || event.Sequence == 0 || event.Sequence <= sequence || ops.ValidateEvent(event) != nil {
+		if err != nil || event.Sequence == 0 || event.Sequence <= sequence || ops.ValidateOperationEvent(op, event) != nil {
 			return bad()
 		}
 		if _, err := strictjson.Value[time.Time](f["created_at"]); err != nil {

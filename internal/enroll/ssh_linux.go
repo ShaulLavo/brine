@@ -176,6 +176,19 @@ func (h *host) removeSSHLayout(context.Context) error {
 		if !ok {
 			return errors.New("SSH directory incomplete")
 		}
+		if p == sshDir && h.r.RetainedPolicy {
+			entries, err := os.ReadDir(p)
+			if err != nil {
+				return err
+			}
+			if len(entries) != 1 || entries[0].Name() != "operator-policy.toml" {
+				return errors.New("unexpected files beside retained operator policy")
+			}
+			if _, err := (diskOperatorPolicy{h}).Read(); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := os.Remove(p); err != nil {
 			return err
 		}

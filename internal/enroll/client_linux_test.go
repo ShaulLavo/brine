@@ -20,12 +20,13 @@ import (
 )
 
 type operatorFake struct {
-	facts        Facts
-	commands     []localexec.Command
-	refuseProbe  bool
-	failAction   string
-	failed       bool
-	restrictions int
+	facts          Facts
+	commands       []localexec.Command
+	refuseProbe    bool
+	failAction     string
+	failed         bool
+	restrictions   int
+	retainedPolicy bool
 }
 
 func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localexec.Output, error) {
@@ -76,7 +77,11 @@ func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localex
 			f.facts.OwnedRunner = false
 			f.facts.Snapshot.Runner.User = target.Observation[string]{Status: target.Absent}
 		}
-		data, err = json.Marshal(f.facts)
+		if request.Action == "undo" {
+			data, err = json.Marshal(UndoResult{Removed: true, RetainedPolicy: f.retainedPolicy})
+		} else {
+			data, err = json.Marshal(f.facts)
+		}
 	case remote == "brine host serve" || remote == "printf brine-unrestricted-key":
 		if remote == "printf brine-unrestricted-key" {
 			f.restrictions++
@@ -153,10 +158,14 @@ func TestClientEnrollmentAndUndoWithOperatorSSH(t *testing.T) {
 		}
 	}
 	f.refuseProbe = true
+	f.retainedPolicy = true
 	o.Undo = true
 	client.Input = strings.NewReader("fixture\n")
 	if err = client.Run(context.Background(), o); err != nil {
 		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "Operator-edited policy retained at /etc/ssh/brine/operator-policy.toml.") {
+		t.Fatal("missing retained-policy report")
 	}
 	if _, err = os.Stat(config); !errors.Is(err, os.ErrNotExist) || f.facts.OwnedRunner {
 		t.Fatal("undo leaked target")

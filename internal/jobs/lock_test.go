@@ -91,7 +91,7 @@ func TestRunnerLockFailureCannotOverwriteAnotherRunner(t *testing.T) {
 			if err := runner.Run(context.Background(), "op1"); !errors.Is(err, cause) {
 				t.Fatalf("acquisition error lost: %v", err)
 			}
-			if base.operation.State != state || s.reads != 2 {
+			if base.operation.State != state || s.reads != 3 {
 				t.Fatalf("conflict not reconciled: state=%s reads=%d", base.operation.State, s.reads)
 			}
 		})

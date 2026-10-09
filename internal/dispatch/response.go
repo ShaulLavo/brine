@@ -6,6 +6,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/logs"
+	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -59,6 +60,23 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 			}
 			value = stored
 
+		case "reconcile":
+			accepted, err := decodeAccepted(fields["data"])
+			if err == nil {
+				value = accepted
+				break
+			}
+			report, err := reconcile.DecodeReport(fields["data"])
+			if err != nil || !report.DryRun {
+				return invalid()
+			}
+			value = report
+		case "plan":
+			p, err := decodePlanned(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
 		case "diagnose":
 			report, err := diagnose.DecodeReport(fields["data"])
 			if err != nil {

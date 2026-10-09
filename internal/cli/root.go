@@ -25,11 +25,14 @@ type Dependencies struct {
 	LookPath              func(string) (string, error)
 	RunTUI                func(context.Context, io.Reader, io.Writer) error
 	DoctorRunner          localexec.Runner // Optional; nil uses bounded local execution.
+	HostServerFactory     dispatch.Factory
+	HostPlanner           dispatch.Planner
 	HostInventory         dispatch.Inventory
 	HostUID               func() int // Optional; nil reads the effective process UID.
 	OriginalCommandLength int
 	HostJobs              dispatch.JobOperations
 	HostAuthorization     dispatch.Authorization
+	HostReconciler        dispatch.ReconcileOperations
 	HostOperationRunner   OperationRunner
 	OperationClient       OperationClient
 	LoadOperationTarget   func(string, string) (transport.Target, error)
@@ -72,6 +75,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
 	root.AddCommand(newHostCmd(deps))
 	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp))
+	root.AddCommand(newReconcileCmd(&jsonOutput, deps))
 	root.AddCommand(newLogsCmd(deps, &modes))
 	root.AddCommand(newDiagnoseCmd(deps, &modes))
 	root.AddCommand(newEnrollCmd(deps, &noInput, &modes))
@@ -79,7 +83,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newApplyCmd(&jsonOutput, deps), newOperationStatusCmd(&jsonOutput, &modes, deps), newRollbackCmd(deps, &modes))
 	root.AddCommand(newValidateCmd(&jsonOutput))
-	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version))
+	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version, deps))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps))
 	for _, cmd := range root.Commands() {
 		if cmd.Args == nil {

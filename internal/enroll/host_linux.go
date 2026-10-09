@@ -54,6 +54,7 @@ type ownedDir struct {
 	GID     int    `json:"gid"`
 }
 type hostRecord struct {
+	RetainedPolicy   bool                   `json:"retained_policy,omitempty"`
 	SSHReloadPending bool                   `json:"ssh_reload_pending,omitempty"`
 	Runtime          map[string]runtimeFile `json:"runtime"`
 	Journal          Journal                `json:"journal"`
@@ -305,7 +306,7 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		if err = os.Remove(recordDir); err != nil {
 			return nil, err
 		}
-		return map[string]bool{"removed": true}, nil
+		return UndoResult{Removed: true, RetainedPolicy: h.r.RetainedPolicy}, nil
 	}
 	if req.Action == "verify" {
 		if h.r.Journal.Phase != Enrolled {
@@ -588,6 +589,12 @@ func (h *host) steps() []Step {
 		}, Apply: func(ctx context.Context) error {
 			return h.file(ctx, sshIdentityPath, h.identityKey, 0644, false)
 		}, Undo: func(context.Context) error { return h.restoreFile(sshIdentityPath) }},
+		operatorPolicyStep(diskOperatorPolicy{h}),
+		{Name: "requester", Check: func(context.Context) (bool, error) {
+			return h.fileMatches(requesterPath, hash([]byte("deploy:"+hash([]byte(h.r.Key))+"\n")))
+		}, Apply: func(ctx context.Context) error {
+			return h.file(ctx, requesterPath, []byte("deploy:"+hash([]byte(h.r.Key))+"\n"), 0644, false)
+		}, Undo: func(context.Context) error { return h.restoreFile(requesterPath) }},
 		{Name: "key", Check: func(context.Context) (bool, error) {
 			return h.fileMatches(sshKeyPath, hash(h.keyFile()))
 		}, Apply: func(ctx context.Context) error {
@@ -595,6 +602,7 @@ func (h *host) steps() []Step {
 		}, Undo: func(context.Context) error { return h.restoreFile(sshKeyPath) }},
 		{Name: "ssh-policy", Check: h.checkSSH, Apply: h.installSSH, Undo: h.undoSSH},
 		{Name: "bypass", Check: h.bypass, Apply: noop, Undo: func(context.Context) error { return h.removeBypassFiles() }},
+		{Name: "boot-reconcile", Check: h.checkBootReconcile, Apply: h.installBootReconcile, Undo: h.undoBootReconcile},
 	}
 }
 func (h *host) fileMatches(path, want string) (bool, error) {
@@ -634,7 +642,7 @@ func (h *host) fileMatches(path, want string) (bool, error) {
 	return true, nil
 }
 func (h *host) keyFile() []byte {
-	return []byte("restrict,command=\"" + binaryPath + " host serve\" " + h.r.Key + "\n")
+	return []byte("restrict,command=\"/usr/bin/env BRINE_AUTHENTICATED=deploy " + binaryPath + " host serve\" " + h.r.Key + "\n")
 }
 func (h *host) checkUser(ctx context.Context) (bool, error) {
 	owned, err := h.owned(ctx)
@@ -1066,7 +1074,7 @@ func (p probeRunner) RunStdout(ctx context.Context, path string, args ...string)
 }
 
 func (h *host) preflight(ctx context.Context) error {
-	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath} {
+	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath, reconcileUnitPath, reconcileGeneratorPath} {
 		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("preexisting enrollment resource refused")
 		}
@@ -1178,7 +1186,7 @@ func (h *host) removeCandidate() error {
 }
 
 func (h *host) checkAuthorizedKeyPaths(context.Context) error {
-	for _, path := range []string{"/", "/etc", "/etc/ssh", "/etc/ssh/sshd_config.d", "/etc/ssh/sshd_config", sshPolicyPath, sshDir, sshKeyDir, sshKeyPath, sshIdentityPath, "/home", home, home + "/.ssh", home + "/.ssh/authorized_keys", home + "/.ssh/authorized_keys2"} {
+	for _, path := range []string{"/", "/etc", "/etc/ssh", "/etc/ssh/sshd_config.d", "/etc/ssh/sshd_config", sshPolicyPath, sshDir, sshKeyDir, sshKeyPath, sshIdentityPath, operatorPolicyPath, requesterPath, "/home", home, home + "/.ssh", home + "/.ssh/authorized_keys", home + "/.ssh/authorized_keys2"} {
 		info, err := os.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) && (strings.HasPrefix(path, home) || strings.HasPrefix(path, sshDir) || path == sshPolicyPath) {
 			continue

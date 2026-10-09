@@ -11,6 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -54,6 +55,7 @@ var operations = map[string]operation{
 	"config_set": {Mutating, decodeConfig},
 	"lifecycle":  {Mutating, decodeLifecycle},
 	"secret_set": {Mutating, decodeSecret},
+	"reconcile":  {Mutating, decodeReconcile},
 	"diagnose":   {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
 	"status":     {ReadOnly, decodeAppStatus},
 	"rollback":   {Mutating, decodeRollback},
@@ -61,6 +63,7 @@ var operations = map[string]operation{
 	"ping":       {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
 	"inventory":  {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
 	"apply":      {Mutating, decodeApply},
+	"plan":       {Mutating, decodePlan},
 	"operation":  {ReadOnly, decodeOperation},
 }
 
@@ -126,16 +129,29 @@ type DiagnosticReader interface {
 	Read(context.Context, diagnose.Request) (diagnose.Report, error)
 }
 
+// previewRequestKey is set only after strict request/argument validation.
+type previewRequestKey struct{}
+
+func IsReconcilePreview(ctx context.Context) bool {
+	dry, _ := ctx.Value(previewRequestKey{}).(bool)
+	return dry
+}
+
+type Factory func(context.Context, string) (*Server, error)
+
 type Server struct {
-	Config    ConfigurationOperations
-	Secrets   SecretOperations
-	Diagnose  DiagnosticReader
-	Apps      AppOperations
-	Logs      LogReader
-	version   string
-	inventory Inventory
-	jobs      JobOperations
-	authorize Authorization
+	Config     ConfigurationOperations
+	Secrets    SecretOperations
+	Reconciler ReconcileOperations
+	Factory    Factory
+	Planner    Planner
+	Diagnose   DiagnosticReader
+	Apps       AppOperations
+	Logs       LogReader
+	version    string
+	inventory  Inventory
+	jobs       JobOperations
+	authorize  Authorization
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -149,7 +165,6 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		return fail(err)
 	}
 	data, err := io.ReadAll(io.LimitReader(stdin, RequestLimit+1))
-	defer clear(data)
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
@@ -157,7 +172,6 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		return fail(result.New(result.DispatchInvalidRequest, err))
 	}
 	request, err := DecodeRequest(data)
-	defer clear(request.Args)
 	if err != nil {
 		return fail(err)
 	}
@@ -165,7 +179,23 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
+	args, _ := operations[request.Op].decode(request.Args)
+	if preview, ok := args.(ReconcileArgs); ok && preview.DryRun {
+		ctx = context.WithValue(ctx, previewRequestKey{}, true)
+	}
+	if s.Factory != nil {
+		configured, err := s.Factory(ctx, request.Op)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		if configured != nil {
+			s = configured
+		}
+	}
 	class := operations[request.Op].class
+	if reconcile, ok := args.(ReconcileArgs); ok && reconcile.DryRun {
+		class = ReadOnly
+	}
 	if s.authorize == nil {
 		if class != ReadOnly {
 			return fail(result.New(result.DispatchOperationRefused, nil))
@@ -173,7 +203,6 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	} else if err := s.authorize(ctx, class); err != nil {
 		return fail(result.Classify(err))
 	}
-	args, _ := operations[request.Op].decode(request.Args)
 	var value any
 	switch args := args.(type) {
 	case ConfigArgs:
@@ -205,6 +234,36 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		}
 		value = stored
 
+	case ReconcileArgs:
+		if args.DryRun {
+			if s.Reconciler == nil {
+				return fail(result.New(result.DependencyMissing, nil))
+			}
+			report, err := s.Reconciler.DryRun(ctx)
+			if err != nil {
+				return fail(result.Classify(err))
+			}
+			value = report
+		} else {
+			jobs, ok := s.jobs.(ReconcileJobs)
+			if !ok {
+				return fail(result.New(result.DependencyMissing, nil))
+			}
+			accepted, err := jobs.Reconcile(ctx)
+			if err != nil {
+				return fail(result.Classify(err))
+			}
+			value = accepted
+		}
+	case spec.App:
+		if s.Planner == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.Planner.Plan(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = p
 	case diagnose.Request:
 		reader := s.Diagnose
 		if reader == nil {

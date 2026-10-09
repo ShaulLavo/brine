@@ -15,8 +15,8 @@ CREATE TABLE operations_v2 (
  id TEXT PRIMARY KEY, plan_id TEXT REFERENCES plans(id), requester TEXT NOT NULL, idempotency_key TEXT NOT NULL,
  state TEXT NOT NULL CHECK(state IN ('queued','launch_unknown','preflight','preparing','quiescing','starting','checking','committing','rolling_back','succeeded','failed','rolled_back','recovery_required')),
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
- kind TEXT NOT NULL CHECK(kind IN ('deploy','secret_set')), app TEXT NOT NULL, secret_ref TEXT NOT NULL,
- CHECK((kind='deploy' AND plan_id IS NOT NULL AND secret_ref='') OR (kind='secret_set' AND plan_id IS NULL AND secret_ref<>'' AND state IN ('queued','preparing','succeeded','failed','recovery_required'))),
+ kind TEXT NOT NULL CHECK(kind IN ('deploy','secret_set','reconcile')), app TEXT NOT NULL, secret_ref TEXT NOT NULL,
+ CHECK((kind='deploy' AND plan_id IS NOT NULL AND secret_ref='') OR (kind='secret_set' AND plan_id IS NULL AND secret_ref<>'' AND state IN ('queued','preparing','succeeded','failed','recovery_required')) OR (kind='reconcile' AND plan_id IS NULL AND app='' AND secret_ref='' AND state IN ('queued','launch_unknown','preflight','succeeded','failed','recovery_required'))),
  UNIQUE(requester,idempotency_key));
 INSERT INTO operations_v2 SELECT o.*, 'deploy', json_extract(p.canonical,'$.app'), '' FROM operations o LEFT JOIN plans p ON p.id=o.plan_id;
 CREATE TABLE events_v2 (operation_id TEXT NOT NULL REFERENCES operations_v2(id), seq INTEGER NOT NULL CHECK(seq>0), kind TEXT NOT NULL, state TEXT NOT NULL, payload BLOB NOT NULL CHECK(length(payload)<=4096), created_at TEXT NOT NULL, PRIMARY KEY(operation_id,seq));
@@ -37,7 +37,7 @@ UPDATE schema_version SET version=2;
 	if _, err := tx.ExecContext(ctx, migration); err != nil {
 		return err
 	}
-	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet} {
+	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet, ops.Reconcile} {
 		for from, tos := range ops.TransitionsFor(kind) {
 			for _, to := range tos {
 				if _, err := tx.ExecContext(ctx, "INSERT INTO transitions VALUES(?,?,?)", kind, from, to); err != nil {

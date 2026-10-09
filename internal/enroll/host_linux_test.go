@@ -169,7 +169,7 @@ func TestProductionStepOrderMatchesFailureMatrix(t *testing.T) {
 	for _, s := range h.steps() {
 		names = append(names, s.Name)
 	}
-	want := "ssh-layout mask packages user layout linger binary polkit caddy-tree caddy-import caddy-validate unmask caddy-enable caddy-start caddy-writable inventory-key key ssh-policy bypass"
+	want := "ssh-layout mask packages user layout linger binary polkit caddy-tree caddy-import caddy-validate unmask caddy-enable caddy-start caddy-writable inventory-key operator-policy requester key ssh-policy bypass boot-reconcile"
 	if strings.Join(names, " ") != want {
 		t.Fatal("update fault injection matrix for new production steps")
 	}

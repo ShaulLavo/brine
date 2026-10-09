@@ -231,3 +231,17 @@ func (s *Store) LastOperation(ctx context.Context, app string) (Operation, error
 	}
 	return op, nil
 }
+
+// CreateReconcileOperation records a standalone recovery request without inventing
+// a deployment plan. Its ID is polled through the normal operation journal.
+func (s *Store) CreateReconcileOperation(ctx context.Context, requester string) (Operation, error) {
+	if requester == "" || len(requester) > 256 {
+		return Operation{}, ErrInvalid
+	}
+	key, err := newID()
+	if err != nil {
+		return Operation{}, err
+	}
+	op, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Reconcile}, requester, "reconcile-"+key)
+	return op, err
+}

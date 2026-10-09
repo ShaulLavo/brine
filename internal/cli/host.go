@@ -21,7 +21,7 @@ import (
 func newHostCmd(deps Dependencies) *cobra.Command {
 	host := &cobra.Command{Use: "host", Hidden: true}
 	serve := &cobra.Command{Use: "serve", Hidden: true, DisableFlagParsing: true, RunE: func(_ *cobra.Command, _ []string) error { return executeHostServe(deps) }}
-	host.AddCommand(serve, newHostEnrollmentCmd(deps), newHostRunOpCmd(deps))
+	host.AddCommand(serve, newHostEnrollmentCmd(deps), newHostRunOpCmd(deps), newHostReconcileCmd(deps))
 	return host
 }
 
@@ -54,6 +54,9 @@ func executeHostServe(deps Dependencies) error {
 			}
 		}
 		server := dispatch.NewServer(deps.Version, collector).WithJobs(deps.HostJobs, deps.HostAuthorization)
+		server.Factory = deps.HostServerFactory
+		server.Reconciler = deps.HostReconciler
+		server.Planner = deps.HostPlanner
 		server.Apps = deps.HostApps
 		server.Config = deps.HostConfig
 		server.Secrets = deps.HostSecrets
@@ -83,4 +86,10 @@ func HostServeRequested(args []string) bool {
 	root := NewRootCommand(Dependencies{Context: context.Background()})
 	command, _, err := root.Find(args)
 	return err == nil && command != nil && command.CommandPath() == "brine host serve"
+}
+
+func HostRuntimeRequested(args []string) bool {
+	root := NewRootCommand(Dependencies{Context: context.Background()})
+	command, _, err := root.Find(args)
+	return err == nil && command != nil && (command.CommandPath() == "brine host serve" || command.CommandPath() == "brine host run-op" || command.CommandPath() == "brine host reconcile")
 }

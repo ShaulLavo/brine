@@ -51,3 +51,30 @@ func TestRunExitCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestHostEnvironmentCapturedBeforeClear(t *testing.T) {
+	for _, args := range [][]string{{"host", "serve"}, {"--json", "host", "serve"}, {"host", "run-op", "op1"}, {"version"}} {
+		cleared, reads := false, 0
+		marker, length := captureHostEnvironment(args, func(key string) string {
+			if cleared {
+				t.Fatal("read trusted host context after clearing it")
+			}
+			reads++
+			if key == "BRINE_AUTHENTICATED" {
+				return "deploy"
+			}
+			if key == "SSH_ORIGINAL_COMMAND" {
+				return "untrusted command"
+			}
+			t.Fatal("captured unexpected environment")
+			return ""
+		}, func() { cleared = true })
+		if cli.HostServeRequested(args) {
+			if marker != "deploy" || length != len("untrusted command") || reads != 2 || !cleared {
+				t.Fatal("lost captured host context")
+			}
+		} else if marker != "" || length != 0 || reads != 0 || cleared {
+			t.Fatal("run-op or ordinary CLI inherited deploy identity")
+		}
+	}
+}

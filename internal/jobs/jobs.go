@@ -19,6 +19,7 @@ import (
 const EventPageLimit = 128
 const JournalTimeout = 5 * time.Second
 const HostLockWaitTimeout = time.Minute
+const LaunchLockWaitTimeout = 15 * time.Second
 
 type Lock = ops.Lock
 type RunnerStore interface {
@@ -31,6 +32,7 @@ type RunnerStore interface {
 }
 type Store interface {
 	RunnerStore
+	AcquireLaunchLock(context.Context) (ops.Lock, error)
 	// The store atomically binds requester+key to one plan and one operation.
 	CreateOperation(context.Context, ops.Intent, string, string) (ops.Operation, bool, error)
 	EventsAfter(context.Context, string, uint64, int) ([]ops.Event, error)
@@ -57,22 +59,35 @@ type Service struct {
 	Requester string
 }
 
-func (s Service) Apply(ctx context.Context, planID, key string) (Accepted, error) {
+func (s Service) Apply(ctx context.Context, planID, key string) (accepted Accepted, err error) {
 	if s.Store == nil || s.Launcher == nil || s.Requester == "" {
 		return Accepted{}, result.New(result.DependencyMissing, nil)
 	}
 	if !ValidPlanID(planID) || !ValidID(key) {
 		return Accepted{}, result.New(result.DispatchInvalidRequest, nil)
 	}
+	// The launcher holds only the short launch fence, never the deploy lock.
+	// Acquiring this fence after process death proves no creator/launcher remains.
+	wait, stop := context.WithTimeout(ctx, LaunchLockWaitTimeout)
+	lock, err := s.Store.AcquireLaunchLock(wait)
+	stop()
+	if err != nil {
+		return Accepted{}, err
+	}
+	defer func() { err = errors.Join(err, lock.Release()) }()
 	op, existing, err := s.Store.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: planID}, s.Requester, key)
 	if err != nil {
 		return Accepted{}, err
 	}
+	return s.launch(ctx, op, existing)
+}
+
+func (s Service) launch(ctx context.Context, op ops.Operation, existing bool) (accepted Accepted, err error) {
 	id, err := systemd.ParseOperationID(op.ID)
 	if err != nil {
 		return Accepted{}, result.New(result.InternalError, err)
 	}
-	accepted := Accepted{Status: "accepted", OperationID: op.ID}
+	accepted = Accepted{Status: "accepted", OperationID: op.ID}
 	if existing {
 		return accepted, nil
 	}
@@ -157,7 +172,13 @@ func failureEvent(code string) ops.Event {
 	return ops.Event{Kind: "failure", Payload: data}
 }
 
+type Reconciler interface {
+	ReconcileUnderLock(context.Context, ops.Lock, string, bool) error
+}
+
 type Runner struct {
+	Reconciler      Reconciler
+	Recovery        func(context.Context, string) error
 	Store           RunnerStore
 	Executor        Executor
 	LockWaitTimeout time.Duration // Zero uses HostLockWaitTimeout; not request-controlled.
@@ -167,7 +188,20 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	if !ValidID(id) {
 		return result.New(result.InvalidUsage, nil)
 	}
-	if r.Store == nil || r.Executor == nil {
+	if r.Store == nil {
+		return result.New(result.DependencyMissing, nil)
+	}
+	op, err := r.Store.GetOperation(ctx, id)
+	if err != nil {
+		return err
+	}
+	if op.Kind == ops.Reconcile {
+		return r.runReconcile(ctx, op)
+	}
+	if op.Kind != ops.Deploy {
+		return result.New(result.Conflict, nil)
+	}
+	if r.Executor == nil {
 		return result.New(result.DependencyMissing, nil)
 	}
 	bound := r.LockWaitTimeout
@@ -181,7 +215,12 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 		return r.lockUnavailable(ctx, id, err)
 	}
 	defer func() { err = errors.Join(err, lock.Release()) }()
-	op, err := r.Store.GetOperation(ctx, id)
+	if r.Reconciler != nil {
+		if err := r.Reconciler.ReconcileUnderLock(ctx, lock, id, false); err != nil {
+			return err
+		}
+	}
+	op, err = r.Store.GetOperation(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -193,6 +232,7 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 		return r.fail(ctx, id, "executor_failed", ops.Failed, err)
 	}
 	runErr := r.Executor.Run(ctx, id, intent, desired)
+
 	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
 	defer cancel()
 	current, err := r.Store.GetOperation(journal, id)
@@ -201,6 +241,11 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	}
 	if current.State.IsTerminal() {
 		return runErr
+	}
+	if runErr != nil && result.Classify(runErr).Code() == result.Conflict && (current.State == ops.Queued || current.State == ops.LaunchUnknown) {
+		_, eventErr := r.Store.AppendEvent(journal, id, failureEvent("stale_plan"))
+		stateErr := r.Store.TransitionOperation(journal, id, current.State, ops.Failed)
+		return errors.Join(runErr, eventErr, stateErr)
 	}
 	code := "executor_incomplete"
 	if runErr != nil {
@@ -245,4 +290,59 @@ func (r Runner) fail(ctx context.Context, id, code string, state ops.State, caus
 	_, eventErr := r.Store.AppendEvent(journal, id, failureEvent(code))
 	stateErr := r.Store.SetOperationState(journal, id, state)
 	return errors.Join(result.New(result.RecoveryRequired, cause), eventErr, stateErr)
+}
+
+// Reconcile accepts intent under the same short launch fence as apply. Actual
+// recovery runs in the existing detached, bounded run-op transient unit.
+func (s Service) Reconcile(ctx context.Context) (accepted Accepted, err error) {
+	state, ok := s.Store.(interface {
+		CreateReconcileOperation(context.Context, string) (ops.Operation, error)
+	})
+	if !ok || s.Launcher == nil || s.Requester == "" {
+		return Accepted{}, result.New(result.DependencyMissing, nil)
+	}
+	wait, cancel := context.WithTimeout(ctx, LaunchLockWaitTimeout)
+	lock, err := s.Store.AcquireLaunchLock(wait)
+	cancel()
+	if err != nil {
+		return Accepted{}, err
+	}
+	defer func() { err = errors.Join(err, lock.Release()) }()
+	op, err := state.CreateReconcileOperation(ctx, s.Requester)
+	if err != nil {
+		return Accepted{}, err
+	}
+	return s.launch(ctx, op, false)
+}
+
+func (r Runner) runReconcile(ctx context.Context, op ops.Operation) error {
+	if r.Recovery == nil {
+		return result.New(result.DependencyMissing, nil)
+	}
+	if op.State != ops.Queued && op.State != ops.LaunchUnknown {
+		return result.New(result.Conflict, nil)
+	}
+	// CAS is the single-run gate. Do not acquire host before the recovery engine's
+	// launch fence: that would reverse the established lock order.
+	if err := r.Store.TransitionOperation(ctx, op.ID, op.State, ops.Preflight); err != nil {
+		return err
+	}
+	runErr := r.Recovery(ctx, op.ID)
+	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
+	defer cancel()
+	to := ops.Succeeded
+	var eventErr error
+	if runErr != nil {
+		to = ops.RecoveryRequired
+		code := "executor_failed"
+		if errors.Is(runErr, context.Canceled) || errors.Is(runErr, context.DeadlineExceeded) {
+			code = "interrupted"
+		}
+		if result.Classify(runErr).Code() == result.RecoveryRequired {
+			code = "recovery_required"
+		}
+		_, eventErr = r.Store.AppendEvent(journal, op.ID, failureEvent(code))
+	}
+	stateErr := r.Store.TransitionOperation(journal, op.ID, ops.Preflight, to)
+	return errors.Join(runErr, eventErr, stateErr)
 }

@@ -59,8 +59,11 @@ type StateConflictError = ops.StateConflictError
 var ErrStateConflict = ops.ErrStateConflict
 
 type Store struct {
-	db  *sql.DB
-	dir string
+	db                         *sql.DB
+	dir                        string
+	readOnly                   bool
+	previewHost, previewLaunch ops.Lock
+	cleanup                    func() error
 }
 
 // Open requires an existing private runner state directory. The connection pool
@@ -104,9 +107,24 @@ func Open(stateDir string) (*Store, error) {
 	}
 	return s, nil
 }
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	if s.cleanup != nil {
+		err = errors.Join(err, s.cleanup())
+	}
+	return err
+}
 
-func (s *Store) migrate(ctx context.Context) error {
+func (s *Store) migrate(ctx context.Context) (err error) {
+	// SQLite requires foreign keys off outside the transaction while rebuilding
+	// a referenced table. They are restored before Open returns on every path.
+	if _, err = s.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	defer func() {
+		_, e := s.db.ExecContext(context.WithoutCancel(ctx), "PRAGMA foreign_keys=ON")
+		err = errors.Join(err, e)
+	}()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -151,6 +169,19 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err = migrateOperations(ctx, tx); err != nil {
 			return err
 		}
+	}
+	rows, e := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if e != nil {
+		return e
+	}
+	broken := rows.Next()
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return err
+	}
+	if broken {
+		return &IntegrityError{}
 	}
 	return tx.Commit()
 }

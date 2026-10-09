@@ -75,6 +75,10 @@ func desiredMatches(p plan.Plan, d policy.Desired) bool {
 }
 
 func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.Desired) error {
+	return e.run(ctx, opID, p, d, nil)
+}
+
+func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.Desired, recovery *Recovery) error {
 	if e.Journal == nil {
 		return &Error{Step: "preflight", Code: "journal_failed", State: Failed}
 	}
@@ -83,7 +87,7 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		return &Error{Step: "preflight", Code: "drift", State: Failed, Cause: readErr}
 	}
 	x := &execution{executor: e, id: opID, plan: p, desired: d}
-	err := x.step(ctx, "preflight", Preflight, "drift", func(ctx context.Context) error {
+	preflight := func(ctx context.Context) error {
 		if d.Health.StartupDeadlineSeconds < 1 || d.Health.StartupDeadlineSeconds > spec.MaxStartupDeadlineSeconds {
 			return errors.New("unvalidated health deadline")
 		}
@@ -179,8 +183,31 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 			return errors.New("routing facts drift")
 		}
 		return nil
-	})
+	}
+	var err error
+	if recovery == nil {
+		err = x.step(ctx, "preflight", Preflight, "drift", preflight)
+	} else {
+		x.state = recovery.operation.State
+		preflightCtx, preflightCancel := context.WithTimeout(ctx, e.effectTimeout())
+		err = preflight(preflightCtx)
+		if preflightCtx.Err() != nil {
+			err = errors.Join(err, preflightCtx.Err())
+		}
+		preflightCancel()
+		if err == nil && !recovery.completed["preflight"] {
+			err = x.event(ctx, "preflight", "completed", "")
+			if err == nil {
+				recovery.completed["preflight"] = true
+			}
+		}
+		x.quiesced, x.installed, x.started = recovery.execution.quiesced, recovery.execution.installed, recovery.execution.started
+		x.unit = recovery.execution.unit
+	}
 	if err != nil {
+		if recovery != nil {
+			return recovery.execution.terminal(ctx, RecoveryRequired, &Error{Step: "preflight", Code: "interrupted", Cause: err})
+		}
 		return x.fail(ctx, err)
 	}
 	if p.Kind == plan.NoOp {
@@ -306,6 +333,9 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		}},
 	}
 	for _, s := range steps {
+		if recovery != nil && recovery.completed[s.name] {
+			continue
+		}
 		if err := x.step(ctx, s.name, s.state, s.code, s.effect); err != nil {
 			return x.fail(ctx, err)
 		}

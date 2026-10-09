@@ -12,6 +12,7 @@ type Kind string
 const (
 	Deploy    Kind = "deploy"
 	SecretSet Kind = "secret_set"
+	Reconcile Kind = "reconcile"
 )
 
 // Intent contains identity and references only. Secret values cannot be stored.
@@ -30,6 +31,8 @@ func ValidIntent(i Intent) bool {
 	switch i.Kind {
 	case Deploy:
 		return planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == ""
+	case Reconcile:
+		return i.PlanID == "" && i.App == "" && i.SecretRef == ""
 	case SecretSet:
 		return i.PlanID == "" && appName.MatchString(i.App) && secretRef.MatchString(i.SecretRef) && len("brine."+i.App+"."+i.SecretRef+".v18446744073709551615") <= 253
 	default:
@@ -39,6 +42,9 @@ func ValidIntent(i Intent) bool {
 func ValidOperation(o Operation) bool {
 	if !ValidState(o.State) {
 		return false
+	}
+	if o.Kind == Reconcile {
+		return ValidIntent(Intent{Kind: o.Kind, PlanID: o.PlanID, App: o.App, SecretRef: o.SecretRef}) && (o.State == Queued || o.State == LaunchUnknown || o.State == Preflight || o.State == Succeeded || o.State == Failed || o.State == RecoveryRequired)
 	}
 	if o.Kind == Deploy {
 		return ValidIntent(Intent{Kind: o.Kind, PlanID: o.PlanID}) && o.SecretRef == "" && (o.App == "" || appName.MatchString(o.App))
@@ -52,6 +58,8 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy:
 		return Transitions()
+	case Reconcile:
+		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
 	case SecretSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
 	default:
@@ -88,6 +96,12 @@ func ValidateOperationEvent(op Operation, e Event) error {
 	}
 	if op.Kind == Deploy {
 		if e.Kind == "secret_version" {
+			return ErrInvalidEvent
+		}
+		return nil
+	}
+	if op.Kind == Reconcile {
+		if e.Kind != "launch" && e.Kind != "state" && e.Kind != "failure" {
 			return ErrInvalidEvent
 		}
 		return nil

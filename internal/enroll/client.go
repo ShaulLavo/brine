@@ -229,8 +229,16 @@ func (c Client) Run(ctx context.Context, o Options) error {
 		return err
 	}
 	if o.Undo {
-		if _, err = call("undo", ""); err != nil {
-			return err
+		raw, undoErr := call("undo", "")
+		if undoErr != nil {
+			return undoErr
+		}
+		var undone UndoResult
+		if err := json.Unmarshal(raw, &undone); err != nil || !undone.Removed {
+			return errors.New("invalid enrollment undo result")
+		}
+		if undone.RetainedPolicy {
+			fmt.Fprintln(c.Output, "Operator-edited policy retained at /etc/ssh/brine/operator-policy.toml.")
 		}
 		if err = os.Remove(configPath); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err

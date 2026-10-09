@@ -100,12 +100,15 @@ func MakePlan(f Facts) (Plan, error) {
 		"Enable lingering for the Brine runner and install the binary at /usr/local/bin/brine, with root-owned parents and mode 0755.",
 		"Create root-owned /etc/ssh/brine and authorized_keys directories (0755), install the root-owned deploy key at /etc/ssh/brine/authorized_keys/brine (0644), and the inventory identity at /etc/ssh/brine/inventory-key (0644).",
 		"Install and journal /etc/ssh/sshd_config.d/00-brine-brine.conf (root-owned 0644), forcing the dispatcher for every runner login and runner-only key sources and disabling PTY, tunnels and forwarding. Validate the staged complete SSH configuration and reload ssh.service; restore verified original state and reload on known failure, and require explicit undo after an unknown reload outcome.",
+		"Install a root-owned /etc/ssh/brine/operator-policy.toml (0644) with no allowed registries, domains or secrets, 512 MiB and 128 PID ceilings, app ports 20000-20999 and Caddy HTTPS port 443. The operator must explicitly edit this deny-all policy before planning a deployment.",
+		"Install a root-owned requester identity bound to the supplied key; set its trusted authentication marker in the forced command, never SSH AcceptEnv or request content.",
 		"Install only the supplied public deploy key, restricted to the absolute binary path's host serve dispatcher, with no shell, PTY or forwarding access.",
 		"Install a root-owned polkit rule granting only caddy.service reload, never restart or reload-or-restart.",
 		"Create /etc/caddy/brine/gen-0 and current; add only import /etc/caddy/brine/current/*.caddy to the main Caddyfile; refuse other imports, validate, then unmask, enable and start Caddy.",
+		"Install a root-owned brine-reconcile.service oneshot user unit and a root-owned user generator that activates it only for the Brine runner at boot; reconcile unfinished operations without relaunching jobs, and undo only the journaled unit and generator.",
 		"Record enrollment ownership, original Caddy configuration and service state in a root-owned journal; undo only recorded and verified changes.",
 		"Write a private client target config with the authenticated SSH host key; verify the real restricted deploy key through ping and rerun read-only inventory.",
-		"Make no firewall, DNS, Tailscale, other-user, app-data, root-helper or lifecycle policy changes; deploy access remains the dispatcher's typed read-only allowlist until later phases.",
+		"Make no firewall, DNS, Tailscale, other-user, app-data or root-helper changes; unwired lifecycle capabilities remain refused.",
 	}}
 	for _, name := range []string{"podman", "passt", "caddy"} {
 		if f.Packages[name] == "" {
