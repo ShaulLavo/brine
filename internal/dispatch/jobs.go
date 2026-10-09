@@ -82,7 +82,17 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 	if err != nil {
 		return bad()
 	}
-	opFields, err := strictjson.Object(f["operation"], "id", "plan_id", "kind", "app", "secret_ref", "state", "created_at", "updated_at")
+	var identity struct {
+		Kind ops.Kind `json:"kind"`
+	}
+	if json.Unmarshal(f["operation"], &identity) != nil {
+		return bad()
+	}
+	keys := []string{"id", "plan_id", "kind", "app", "secret_ref", "state", "created_at", "updated_at"}
+	if identity.Kind == ops.Resolve {
+		keys = append(keys, "recovery_of")
+	}
+	opFields, err := strictjson.Object(f["operation"], keys...)
 	if err != nil {
 		return bad()
 	}

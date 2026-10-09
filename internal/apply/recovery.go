@@ -9,6 +9,7 @@ import (
 	"slices"
 	"sync/atomic"
 
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
@@ -38,6 +39,7 @@ type Recovery struct {
 	unknownBoundary bool
 	resolved        bool
 	decision        RecoveryAction
+	resolutionState State
 	boundary        string
 	used            *atomic.Bool
 }
@@ -104,7 +106,7 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 		return r, err
 	}
 	// A committed operation needs exact artifact read-back, not just an ID.
-	if validPrefix && x.hasPrevious && x.previous.ID == op.ID {
+	if validPrefix && x.hasPrevious && (x.previous.ID == op.ID || op.Kind == ops.Resolve && x.previous.ID == op.RecoveryOf) {
 		if r.Step != "commit" || x.previous.PlanID != p.Hash {
 			return r, nil
 		}
@@ -188,20 +190,15 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if boundary >= slices.Index(forwardSteps, "publish_route") {
 		return r, nil
 	}
-	fresh, err := plan.Build(x.facts.Input)
-	if err != nil {
-		return r, nil
-	}
+	fresh, buildErr := plan.Build(x.facts.Input)
 	original, err := p.CanonicalBytes()
 	if err != nil {
 		return r, nil
 	}
-	rebuilt, err := fresh.CanonicalBytes()
-	if err == nil && bytes.Equal(original, rebuilt) {
+	rebuilt, canonicalErr := fresh.CanonicalBytes()
+	if buildErr == nil && canonicalErr == nil && bytes.Equal(original, rebuilt) {
 		r.Action = ResumeForward
 	} else if x.quiesced || x.installed {
-		// Rollback uses committed immutable artifacts. Before routing changed,
-		// the observed original generation must still agree with the old release.
 		if !x.hasPrevious || (x.previous.CaddyGeneration == x.facts.Routing.Generation && x.previous.CaddyFile.Hash == x.facts.Routing.Files[x.previous.CaddyFile.Name]) {
 			r.Action = RestorePrevious
 		}
@@ -217,6 +214,10 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 		return errors.New("apply: invalid recovery assessment")
 	}
 	x := r.execution
+	if err := x.prepareResolution(ctx, r.resolutionState); err != nil {
+		return err
+	}
+	r.operation.State = x.state
 	if r.unknownBoundary {
 		if err := x.event(ctx, r.Step, "unknown", "interrupted"); err != nil {
 			return err

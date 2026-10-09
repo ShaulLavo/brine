@@ -69,3 +69,19 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   intent/completed preflight and refusal of changed/unknown absence; spaced/tabbed
   Volume/Mount/ReadWritePaths directives; unified v1-to-v2 migration preserving
   the deploy journal and creating immutable removal receipts. All pass locally.
+
+### Terminal recovery resolution regressions
+
+- T09/T10/T21: exact terminal removal prefix (withdraw completed, stop unknown/
+  interrupted) with stopped writer and withdrawn route; dispatcher/store/runner
+  resolution retires head/port without replaying withdrawal or stop. An actual
+  v2 database migrates to v3 preserving that journal and terminal identity.
+- T07/T09: equivalent first-deploy and update installed-candidate readback
+  rolls back safely; ambiguous live owned-unit hashes refuse with no effects.
+- T09/T10/T21: local run-op SIGKILL at remaining removal deletion, reload and
+  retirement effects; read-only preview, host-lock proof, detached reconciliation
+  and repeated convergence. This is fake-host evidence, not Pi execution.
+- T20/T22: closed resolve CLI/dispatcher protocol, mutating D8 denial and
+  acceptance, idempotent creation, active-successor exclusion and immutable
+  terminal/source guards. Secret present/absent resolution and interrupted
+  successor reconciliation inspect only the named version and never create it.

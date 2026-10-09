@@ -2,21 +2,65 @@ package host
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/spec"
 )
 
 // Recovery shares the normal executor's operational adapters. Each assessment
 // binds its facts reader to that operation's stored desired input, not a latest
 // plan or a previous operation's cached inventory.
 func newReconciler(service Service, engine apply.Executor, inspector reconcile.RunnerInspector) reconcile.Reconciler {
-	return reconcile.Reconciler{Store: service.Store, Systemd: inspector, ExecutorFor: func(_ context.Context, _ ops.Operation, p plan.Plan, d policy.Desired) (*apply.Executor, error) {
+	return reconcile.Reconciler{SecretResolution: func(ctx context.Context, op ops.Operation, events []ops.Event) (ops.State, error) {
+		if service.Policy == nil {
+			return ops.RecoveryRequired, result.New(result.DependencyMissing, nil)
+		}
+		pol, err := service.Policy.Load(ctx)
+		if err != nil {
+			return ops.RecoveryRequired, err
+		}
+		if err = pol.CheckSecret(spec.Name(op.App), spec.SecretReference(op.SecretRef)); err != nil {
+			return ops.RecoveryRequired, err
+		}
+		name := ""
+		for _, event := range events {
+			if event.Kind != "secret_version" {
+				continue
+			}
+			var payload ops.SecretVersionPayload
+			if json.Unmarshal(event.Payload, &payload) != nil || !strings.HasPrefix(payload.Name, "brine."+op.App+"."+op.SecretRef+".v") || name != "" && name != payload.Name {
+				return ops.RecoveryRequired, nil
+			}
+			name = payload.Name
+		}
+		if name == "" || engine.Podman == nil {
+			return ops.RecoveryRequired, nil
+		}
+		parsed, err := podman.ParseSecretName(name)
+		if err != nil {
+			return ops.RecoveryRequired, err
+		}
+		probe, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		exists, err := engine.Podman.SecretExists(probe, parsed)
+		if err != nil {
+			return ops.RecoveryRequired, err
+		}
+		if exists {
+			return ops.Succeeded, nil
+		}
+		return ops.Failed, nil
+	}, Store: service.Store, Systemd: inspector, ExecutorFor: func(_ context.Context, _ ops.Operation, p plan.Plan, d policy.Desired) (*apply.Executor, error) {
 		copy := engine
 		copy.Facts = operationFacts{service: service, desired: d, removal: p.Lifecycle == plan.RemoveApp}
 		return &copy, nil
@@ -62,4 +106,8 @@ func recoveryJob(reconciler reconcile.Reconciler) func(context.Context, string) 
 		}
 		return nil
 	}
+}
+
+func (r runnerReconciler) RunResolution(ctx context.Context, lock ops.Lock, id string) error {
+	return r.reconciler.RunResolution(ctx, lock, id)
 }

@@ -561,5 +561,53 @@ Interrupted no-op removal has an absence-validated completion path: fresh exact
 replanning under the lock must still match before its receipt settles succeeded.
 Unknown presence, changed generation/policy, or an unexpected effect event stays
 recovery-required. Persistent-directive keys are whitespace-trimmed before checks.
-Removal receipts are part of the existing unshipped v1-to-v2 migration; there is
-no v3 migration or old-v2 compatibility path. Fresh enrollment creates v2.
+Removal receipts were introduced by the v1-to-v2 migration. Schema v3 now adds
+explicit terminal-resolution operations through a separate v2-to-v3 migration;
+fresh enrollment creates the current schema.
+
+### Terminal recovery resolution
+
+`brine resolve OPERATION_ID --target NAME [--idempotency-key KEY]` accepts a
+new detached operation for a terminal `recovery_required` deploy or immutable
+secret assignment. Deployment plans include updates, rollback plans, config
+changes and stateless removal. The machine request is exactly
+`resolve {operation_id, idempotency_key}`; it has no force, shell, purge or
+operator-authorization switch. D8 mutating authorization and current per-app
+policy still apply. Operator-only actions remain outside this command.
+
+Terminal receipts stay immutable. A `resolve` successor has `recovery_of`, a
+value-free `resolution {operation_id}` event and an atomically adopted, bounded
+step/secret-version prefix. Idempotent acceptance and the launch fence prevent
+duplicate runners; the store prevents multiple active or successful successors
+for one source. Schema v3 migrates the real v2 operations/journals without
+rewriting them and preserves the v1 migration path.
+
+The successor loads the original stored plan, acquires the existing host lock,
+then inspects current ownership, policy, artifacts, routing, writer and systemd
+jobs. It does not generate a new plan that mistakes earlier journaled Brine
+withdrawal for foreign route drift. Ordinary planners remain strict. Safe
+resolution reuses executor continuation/rollback and journals all new effects
+under the successor. `run-op` and reconciliation recover interrupted successors;
+preview remains read-only. Successful removal finishes deletion/reload and
+retires the live head and port, without restarting the removed writer or
+restoring its route. Retained history, images and secrets are not purged.
+
+An affirmatively installed candidate before route publication can be rolled
+back after the original deployment stopped: restore the owned previous unit and
+prove health, or remove the first-deploy candidate when there is no predecessor.
+Application rollback does not rewrite databases. An exact committed release or
+removal receipt can settle success only with the existing live-artifact checks.
+An uncertain secret assignment only reads the recorded immutable version name:
+present settles succeeded, definitely absent settles failed, unknown remains
+recovery-required. No value is read and no secret creation is replayed.
+
+This is not unconditional repair. Ambiguous ownership/writer state, changed
+policy/control generations, unsupported failed/rollback prefixes, unavailable
+staging or loaded-generation evidence, and uncertain deployment route
+publication still refuse without further effects. They need an operator to
+establish authoritative state; no DB editing, arbitrary host command or
+permission bypass is provided. A refused successor is itself recovery-required;
+resolve that latest receipt after fixing the underlying evidence, not an older
+ancestor that lacks the newer journal. Human operation status and diagnose
+suggest status/resolve; the original terminal receipt intentionally remains
+visible, while the successor status and `recovery_of` report the repair outcome.

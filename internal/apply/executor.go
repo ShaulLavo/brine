@@ -83,7 +83,7 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		return &Error{Step: "preflight", Code: "journal_failed", State: Failed}
 	}
 	op, readErr := e.Journal.GetOperation(ctx, opID)
-	if readErr != nil || op.Kind != ops.Deploy || op.PlanID != p.Hash {
+	if readErr != nil || op.Kind != ops.Deploy && op.Kind != ops.Resolve || op.PlanID != p.Hash {
 		return &Error{Step: "preflight", Code: "drift", State: Failed, Cause: readErr}
 	}
 	if p.Lifecycle == plan.RemoveApp {

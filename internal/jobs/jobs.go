@@ -198,7 +198,7 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	if op.Kind == ops.Reconcile {
 		return r.runReconcile(ctx, op)
 	}
-	if op.Kind != ops.Deploy {
+	if op.Kind != ops.Deploy && op.Kind != ops.Resolve {
 		return result.New(result.Conflict, nil)
 	}
 	if r.Executor == nil {
@@ -224,14 +224,27 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	if err != nil {
 		return err
 	}
-	if op.Kind != ops.Deploy || op.State != ops.Queued && op.State != ops.LaunchUnknown {
+	if op.Kind != ops.Deploy && op.Kind != ops.Resolve || op.State != ops.Queued && op.State != ops.LaunchUnknown {
 		return result.New(result.Conflict, nil)
 	}
-	intent, desired, err := r.Store.LoadPlan(ctx, op.PlanID)
-	if err != nil {
-		return r.fail(ctx, id, "executor_failed", ops.Failed, err)
+	var runErr error
+	if op.Kind == ops.Resolve {
+		resolver, ok := r.Reconciler.(interface {
+			RunResolution(context.Context, ops.Lock, string) error
+		})
+		if !ok {
+			runErr = result.New(result.DependencyMissing, nil)
+		} else {
+			runErr = resolver.RunResolution(ctx, lock, id)
+		}
+	} else {
+		intent, desired, loadErr := r.Store.LoadPlan(ctx, op.PlanID)
+		if loadErr != nil {
+			runErr = loadErr
+		} else {
+			runErr = r.Executor.Run(ctx, id, intent, desired)
+		}
 	}
-	runErr := r.Executor.Run(ctx, id, intent, desired)
 
 	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
 	defer cancel()
@@ -255,7 +268,7 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 		code = "interrupted"
 	}
 	state := ops.RecoveryRequired
-	if current.State == ops.Queued || current.State == ops.LaunchUnknown || current.State == ops.Preflight {
+	if op.Kind != ops.Resolve && (current.State == ops.Queued || current.State == ops.LaunchUnknown || current.State == ops.Preflight) {
 		state = ops.Failed
 	}
 	return r.fail(journal, id, code, state, runErr)
@@ -267,7 +280,7 @@ func (r Runner) lockUnavailable(ctx context.Context, id string, cause error) err
 	if err != nil {
 		return err
 	}
-	if op.Kind != ops.Deploy {
+	if op.Kind != ops.Deploy && op.Kind != ops.Resolve {
 		return result.New(result.Conflict, nil)
 	}
 	_, eventErr := r.Store.AppendEvent(journal, id, failureEvent("lock_unavailable"))

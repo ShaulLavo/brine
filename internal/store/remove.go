@@ -35,7 +35,7 @@ func (s *Store) RetireApp(ctx context.Context, operationID, app, releaseID strin
 	if err != nil {
 		return err
 	}
-	if kind != "deploy" || opApp != app || p.App != app || p.Lifecycle != plan.RemoveApp || p.Removal == nil || p.Removal.ReleaseID != releaseID {
+	if kind != "deploy" && kind != "resolve" || opApp != app || p.App != app || p.Lifecycle != plan.RemoveApp || p.Removal == nil || p.Removal.ReleaseID != releaseID {
 		return ErrInvalid
 	}
 	result, err := tx.ExecContext(ctx, "DELETE FROM release_heads WHERE app=? AND current_id=?", app, releaseID)

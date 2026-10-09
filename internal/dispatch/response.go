@@ -121,7 +121,7 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = snapshot
-		case "apply":
+		case "apply", "resolve":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()
