@@ -167,7 +167,7 @@ func (h *host) owned(ctx context.Context) (bool, error) {
 	return h.r.ID != "" && fields[4] == "brine-enrollment-"+h.r.ID && fields[5] == home && fields[6] == "/bin/sh", nil
 }
 func (h *host) facts(ctx context.Context, key []byte) (Facts, error) {
-	return (Prober{FS: inventory.HostFS{}, Runner: probeRunner{h.exec}, IdentityKey: key, OwnedRunner: h.owned}).Collect(ctx)
+	return (Prober{FS: inventory.HostFS{}, Runner: probeRunner{h.exec}, IdentityKey: key, OwnedRunner: h.owned, CheckAuthorization: h.checkAuthorizedKeyPaths}).Collect(ctx)
 }
 func readRecord() (hostRecord, error) {
 	data, err := boundedRead(recordDir + "/record.json")
@@ -1100,4 +1100,27 @@ func (h *host) removeCandidate() error {
 	}
 	delete(h.r.Files, path)
 	return h.Save(h.r.Journal)
+}
+
+func (h *host) checkAuthorizedKeyPaths(context.Context) error {
+	for _, path := range []string{"/", "/home", home, home + "/.ssh", home + "/.ssh/authorized_keys", home + "/.ssh/authorized_keys2"} {
+		info, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) && strings.HasPrefix(path, home) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		directory := path == "/" || path == "/home" || path == home || path == home+"/.ssh"
+		if err := protectedKeyNode(info, directory); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func protectedKeyNode(info os.FileInfo, directory bool) error {
+	if info.IsDir() != directory || (!directory && !info.Mode().IsRegular()) || info.Sys().(*syscall.Stat_t).Uid != 0 || info.Mode().Perm()&0022 != 0 {
+		return errors.New("SSH key location or parent is not root-owned and protected")
+	}
+	return nil
 }

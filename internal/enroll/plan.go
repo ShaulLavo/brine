@@ -17,14 +17,15 @@ type Package struct {
 }
 
 type Facts struct {
-	PackageInstall        []Package         `json:"package_install"`
-	Snapshot              target.Snapshot   `json:"snapshot"`
-	HostKey               string            `json:"host_key"`
-	Packages              map[string]string `json:"packages"`
-	PermitUserEnvironment string            `json:"permit_user_environment"`
-	PAMChecked            bool              `json:"pam_checked"`
-	PAMUserEnvironment    bool              `json:"pam_user_environment"`
-	OwnedRunner           bool              `json:"owned_runner"`
+	SSHAuthorizationChecked bool              `json:"ssh_authorization_checked"`
+	PackageInstall          []Package         `json:"package_install"`
+	Snapshot                target.Snapshot   `json:"snapshot"`
+	HostKey                 string            `json:"host_key"`
+	Packages                map[string]string `json:"packages"`
+	PermitUserEnvironment   string            `json:"permit_user_environment"`
+	PAMChecked              bool              `json:"pam_checked"`
+	PAMUserEnvironment      bool              `json:"pam_user_environment"`
+	OwnedRunner             bool              `json:"owned_runner"`
 }
 type Plan struct {
 	Changes         []string `json:"changes"`
@@ -65,7 +66,7 @@ func MakePlan(f Facts) (Plan, error) {
 	if s.Runner.User.Status != target.Absent && !f.OwnedRunner {
 		return fail()
 	}
-	if s.UsedPorts.Value == nil || s.PortOwners.Value == nil || !f.PAMChecked || f.PAMUserEnvironment || f.PermitUserEnvironment != "no" {
+	if !f.SSHAuthorizationChecked || s.UsedPorts.Value == nil || s.PortOwners.Value == nil || !f.PAMChecked || f.PAMUserEnvironment || f.PermitUserEnvironment != "no" {
 		return fail()
 	}
 	for _, p := range *s.UsedPorts.Value {

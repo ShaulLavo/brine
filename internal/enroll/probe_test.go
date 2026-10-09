@@ -79,3 +79,30 @@ func TestPublicKeyRefusesOptionsAndShellInput(t *testing.T) {
 		}
 	}
 }
+
+func TestAlternateAuthorizationSourcesRefused(t *testing.T) {
+	for _, input := range []string{
+		"AuthorizedKeysFile .ssh/authorized_keys .config/authorized_keys\n",
+		"Match User brine\n AuthorizedKeysFile .ssh/authorized_keys .local/keys\n",
+		"Match Address 192.0.2.0/24\n AuthorizedKeysCommand /usr/local/bin/key-provider\n",
+		"AuthorizedKeysFile .ssh/authorized_keys2\n",
+	} {
+		p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": input}}}
+		if err := p.sshConfig(context.Background(), "/etc/ssh/sshd_config", map[string]bool{}, 0); err == nil {
+			t.Fatalf("alternate authorization bypass accepted: %q", input)
+		}
+	}
+}
+
+func TestProtectedEffectiveKeyLocations(t *testing.T) {
+	for _, paths := range [][]string{{".ssh/authorized_keys", ".ssh/authorized_keys2"}, {"%h/.ssh/authorized_keys", "/home/brine/.ssh/authorized_keys2"}} {
+		if err := safeAuthorizedKeysFiles(paths); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, paths := range [][]string{nil, {"none"}, {".ssh/authorized_keys2"}, {".ssh/authorized_keys", ".ssh/../.config/keys"}, {".ssh/authorized_keys", "/tmp/keys"}} {
+		if err := safeAuthorizedKeysFiles(paths); err == nil {
+			t.Fatalf("unsafe paths accepted: %v", paths)
+		}
+	}
+}

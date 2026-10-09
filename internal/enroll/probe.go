@@ -12,10 +12,11 @@ import (
 )
 
 type Prober struct {
-	FS          inventory.FileSystem
-	Runner      localexec.StdoutRunner
-	IdentityKey []byte
-	OwnedRunner func(context.Context) (bool, error)
+	FS                 inventory.FileSystem
+	Runner             localexec.StdoutRunner
+	IdentityKey        []byte
+	OwnedRunner        func(context.Context) (bool, error)
+	CheckAuthorization func(context.Context) error
 }
 
 func (p Prober) Collect(ctx context.Context) (Facts, error) {
@@ -63,12 +64,25 @@ func (p Prober) Collect(ctx context.Context) (Facts, error) {
 			return f, err
 		}
 	}
-	out, err := p.Runner.RunStdout(ctx, "/usr/sbin/sshd", "-T")
+	out, err := p.Runner.RunStdout(ctx, "/usr/sbin/sshd", "-T", "-C", "user=brine,host=localhost,addr=127.0.0.1,laddr=127.0.0.1,lport=22")
 	if err != nil {
 		return f, errors.New("effective sshd settings unavailable")
 	}
+	keysChecked, commandChecked := false, false
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
+		if len(fields) > 0 && fields[0] == "authorizedkeysfile" {
+			if err := safeAuthorizedKeysFiles(fields[1:]); err != nil {
+				return f, err
+			}
+			keysChecked = true
+		}
+		if len(fields) > 0 && fields[0] == "authorizedkeyscommand" {
+			if len(fields) != 2 || fields[1] != "none" {
+				return f, errors.New("SSH authorized-key commands are unsupported")
+			}
+			commandChecked = true
+		}
 		if len(fields) == 2 && fields[0] == "permituserenvironment" {
 			f.PermitUserEnvironment = fields[1]
 		}
@@ -78,6 +92,13 @@ func (p Prober) Collect(ctx context.Context) (Facts, error) {
 	if err := p.sshConfig(ctx, "/etc/ssh/sshd_config", map[string]bool{}, 0); err != nil {
 		return f, err
 	}
+	if !keysChecked || !commandChecked || p.CheckAuthorization == nil {
+		return f, errors.New("SSH key authorization could not be proved")
+	}
+	if err := p.CheckAuthorization(ctx); err != nil {
+		return f, err
+	}
+	f.SSHAuthorizationChecked = true
 	entries, err := p.FS.ReadDir(ctx, "/etc/pam.d")
 	if err != nil {
 		return f, errors.New("PAM settings unavailable")
@@ -121,6 +142,14 @@ func (p Prober) sshConfig(ctx context.Context, path string, seen map[string]bool
 			continue
 		}
 		switch strings.ToLower(fields[0]) {
+		case "authorizedkeysfile":
+			if err := safeAuthorizedKeysFiles(fields[1:]); err != nil {
+				return err
+			}
+		case "authorizedkeyscommand":
+			if len(fields) != 2 || fields[1] != "none" {
+				return errors.New("SSH authorized-key commands are unsupported")
+			}
 		case "permituserenvironment":
 			if len(fields) != 2 || fields[1] != "no" {
 				return errors.New("SSH per-user environment is enabled")
@@ -146,6 +175,27 @@ func (p Prober) sshConfig(ctx context.Context, path string, seen map[string]bool
 				}
 			}
 		}
+	}
+	return nil
+}
+
+// Restrict the supported SSH policy to the two protected Debian key locations.
+// Source checks cover every Match branch, not just the representative -C probe.
+func safeAuthorizedKeysFiles(paths []string) error {
+	installed := false
+	for _, path := range paths {
+		path = strings.TrimPrefix(path, "%h/")
+		path = strings.TrimPrefix(path, "/home/brine/")
+		switch path {
+		case ".ssh/authorized_keys":
+			installed = true
+		case ".ssh/authorized_keys2":
+		default:
+			return errors.New("SSH alternate authorized-key location is outside the protected layout")
+		}
+	}
+	if !installed {
+		return errors.New("SSH protected deploy-key location is not effective")
 	}
 	return nil
 }

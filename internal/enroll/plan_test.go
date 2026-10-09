@@ -8,7 +8,7 @@ import (
 )
 
 func supported() Facts {
-	return Facts{Snapshot: target.Snapshot{OS: target.OS{ID: "debian", Version: "13"}, Arch: "arm64", CgroupV2: target.Known(true), Versions: target.Versions{Systemd: target.Known("257"), Podman: target.Known("5.4.2"), Caddy: target.Known("2.6.2"), Passt: target.Known("0.0~git20250503.fixture")}, Runner: target.Runner{User: target.Observation[string]{Status: target.Absent}}, PortOwners: target.Known([]target.PortOwner{}), UsedPorts: target.Known([]target.Port{})}, PermitUserEnvironment: "no", PAMChecked: true, HostKey: "synthetic", Packages: map[string]string{"podman": "5.4", "passt": "1", "caddy": "2.6"}}
+	return Facts{SSHAuthorizationChecked: true, Snapshot: target.Snapshot{OS: target.OS{ID: "debian", Version: "13"}, Arch: "arm64", CgroupV2: target.Known(true), Versions: target.Versions{Systemd: target.Known("257"), Podman: target.Known("5.4.2"), Caddy: target.Known("2.6.2"), Passt: target.Known("0.0~git20250503.fixture")}, Runner: target.Runner{User: target.Observation[string]{Status: target.Absent}}, PortOwners: target.Known([]target.PortOwner{}), UsedPorts: target.Known([]target.Port{})}, PermitUserEnvironment: "no", PAMChecked: true, HostKey: "synthetic", Packages: map[string]string{"podman": "5.4", "passt": "1", "caddy": "2.6"}}
 }
 func TestRefusals(t *testing.T) {
 	for _, tc := range []struct {

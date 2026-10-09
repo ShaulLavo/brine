@@ -17,20 +17,20 @@ func confirmationBinding(f Facts) (string, error) {
 		return "", err
 	}
 	data, err := json.Marshal(struct {
-		Plan                       Plan
-		HostKey                    string
-		Packages                   map[string]string
-		Install                    []Package
-		OS                         target.OS
-		Arch                       string
-		Versions                   target.Versions
-		Runner                     target.Observation[string]
-		Owned                      bool
-		Ports                      target.Observation[[]target.Port]
-		Owners                     target.Observation[[]target.PortOwner]
-		Environment                string
-		PAMChecked, PAMEnvironment bool
-	}{plan, f.HostKey, f.Packages, f.PackageInstall, f.Snapshot.OS, f.Snapshot.Arch, f.Snapshot.Versions, f.Snapshot.Runner.User, f.OwnedRunner, f.Snapshot.UsedPorts, f.Snapshot.PortOwners, f.PermitUserEnvironment, f.PAMChecked, f.PAMUserEnvironment})
+		Plan                                                Plan
+		HostKey                                             string
+		Packages                                            map[string]string
+		Install                                             []Package
+		OS                                                  target.OS
+		Arch                                                string
+		Versions                                            target.Versions
+		Runner                                              target.Observation[string]
+		Owned                                               bool
+		Ports                                               target.Observation[[]target.Port]
+		Owners                                              target.Observation[[]target.PortOwner]
+		Environment                                         string
+		PAMChecked, PAMEnvironment, SSHAuthorizationChecked bool
+	}{plan, f.HostKey, f.Packages, f.PackageInstall, f.Snapshot.OS, f.Snapshot.Arch, f.Snapshot.Versions, f.Snapshot.Runner.User, f.OwnedRunner, f.Snapshot.UsedPorts, f.Snapshot.PortOwners, f.PermitUserEnvironment, f.PAMChecked, f.PAMUserEnvironment, f.SSHAuthorizationChecked})
 	if err != nil {
 		return "", err
 	}
