@@ -163,3 +163,6 @@ func ValidateEvent(e Event) error {
 	}
 	return nil
 }
+
+// Lock is the shared host-mutation exclusion handle.
+type Lock interface{ Release() error }

@@ -438,3 +438,7 @@ func TestSecretReferenceOnlyJournalAndDBPermissions(t *testing.T) {
 		}
 	}
 }
+
+var _ interface {
+	AcquireHostLock(context.Context) (ops.Lock, error)
+} = (*Store)(nil)

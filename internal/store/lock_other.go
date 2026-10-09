@@ -6,9 +6,11 @@ import (
 	"context"
 	"errors"
 	"os"
+
+	"github.com/ShaulLavo/brine/internal/ops"
 )
 
-type Lock interface{ Release() error }
+type Lock = ops.Lock
 
 var errHostOnly = errors.New("control store requires a Linux host")
 

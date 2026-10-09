@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"os"
+
+	"github.com/ShaulLavo/brine/internal/ops"
 	"path/filepath"
 	"sync"
 	"time"
@@ -17,7 +19,7 @@ import (
 // Linux releases flock on process death, including SIGKILL, without PID/boot-ID
 // heuristics or a stale-lease window. Separate opens also exclude one process's
 // concurrent goroutines. Releasing a Store does not release an outstanding lock.
-type Lock interface{ Release() error }
+type Lock = ops.Lock
 type hostLock struct {
 	file *os.File
 	once sync.Once
