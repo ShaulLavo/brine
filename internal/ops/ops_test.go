@@ -54,3 +54,12 @@ func TestOnlyStateEventsReportState(t *testing.T) {
 		}
 	}
 }
+
+func TestLockUnavailableFailureCode(t *testing.T) {
+	if err := ValidateEvent(Event{Kind: "failure", Payload: []byte(`{"code":"lock_unavailable"}`)}); err != nil {
+		t.Fatalf("lock failure code refused: %v", err)
+	}
+	if ValidateEvent(Event{Kind: "failure", State: Failed, Payload: []byte(`{"code":"lock_unavailable"}`)}) == nil {
+		t.Fatal("failure event supplied authoritative state")
+	}
+}

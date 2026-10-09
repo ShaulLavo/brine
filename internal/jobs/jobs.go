@@ -18,6 +18,7 @@ import (
 
 const EventPageLimit = 128
 const JournalTimeout = 5 * time.Second
+const HostLockWaitTimeout = time.Minute
 
 type Lock = ops.Lock
 type RunnerStore interface {
@@ -26,12 +27,12 @@ type RunnerStore interface {
 	AcquireHostLock(context.Context) (ops.Lock, error)
 	AppendEvent(context.Context, string, ops.Event) (uint64, error)
 	SetOperationState(context.Context, string, ops.State) error
+	TransitionOperation(context.Context, string, ops.State, ops.State) error
 }
 type Store interface {
 	RunnerStore
 	// The store atomically binds requester+key to one plan and one operation.
 	CreateOperation(context.Context, string, string, string) (ops.Operation, bool, error)
-	TransitionOperation(context.Context, string, ops.State, ops.State) error
 	EventsAfter(context.Context, string, uint64, int) ([]ops.Event, error)
 }
 type Launcher interface {
@@ -157,8 +158,9 @@ func failureEvent(code string) ops.Event {
 }
 
 type Runner struct {
-	Store    RunnerStore
-	Executor Executor
+	Store           RunnerStore
+	Executor        Executor
+	LockWaitTimeout time.Duration // Zero uses HostLockWaitTimeout; not request-controlled.
 }
 
 func (r Runner) Run(ctx context.Context, id string) (err error) {
@@ -168,9 +170,15 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	if r.Store == nil || r.Executor == nil {
 		return result.New(result.DependencyMissing, nil)
 	}
-	lock, err := r.Store.AcquireHostLock(ctx)
+	bound := r.LockWaitTimeout
+	if bound <= 0 {
+		bound = HostLockWaitTimeout
+	}
+	wait, stop := context.WithTimeout(ctx, bound)
+	lock, err := r.Store.AcquireHostLock(wait)
+	stop()
 	if err != nil {
-		return err
+		return r.lockUnavailable(ctx, id, err)
 	}
 	defer func() { err = errors.Join(err, lock.Release()) }()
 	op, err := r.Store.GetOperation(ctx, id)
@@ -207,6 +215,23 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	}
 	return r.fail(journal, id, code, state, runErr)
 }
+func (r Runner) lockUnavailable(ctx context.Context, id string, cause error) error {
+	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
+	defer cancel()
+	_, eventErr := r.Store.AppendEvent(journal, id, failureEvent("lock_unavailable"))
+	stateErr := r.Store.TransitionOperation(journal, id, ops.Queued, ops.Failed)
+	if errors.Is(stateErr, ops.ErrStateConflict) {
+		current, readErr := r.Store.GetOperation(journal, id)
+		if readErr != nil {
+			stateErr = errors.Join(stateErr, readErr)
+		} else if current.State != ops.Queued {
+			// A different runner advanced this operation; never replace its state.
+			stateErr = nil
+		}
+	}
+	return errors.Join(result.New(result.InternalError, cause), eventErr, stateErr)
+}
+
 func (r Runner) fail(ctx context.Context, id, code string, state ops.State, cause error) error {
 	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
 	defer cancel()

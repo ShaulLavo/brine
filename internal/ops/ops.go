@@ -150,7 +150,7 @@ func ValidateEvent(e Event) error {
 		}
 	case "failure":
 		var p FailurePayload
-		if decode(&p, "code") != nil || !slices.Contains([]string{"launch_failed", "launch_unknown", "executor_failed", "executor_incomplete", "recovery_required", "interrupted", "stale_plan"}, p.Code) {
+		if decode(&p, "code") != nil || !slices.Contains([]string{"launch_failed", "launch_unknown", "executor_failed", "executor_incomplete", "recovery_required", "interrupted", "stale_plan", "lock_unavailable"}, p.Code) {
 			return ErrInvalidEvent
 		}
 	case "launch":
