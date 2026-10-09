@@ -23,3 +23,11 @@ func TestForcedSSHRefusesEnvironmentPatternsAndOverrides(t *testing.T) {
 		t.Fatal("global-only directive in Match")
 	}
 }
+
+func TestSSHEnvironmentRefusesLoaderAndShellInputs(t *testing.T) {
+	for _, suffix := range []string{"acceptenv *\n", "acceptenv LD_*\n", "acceptenv LANG LC_* LD_PRELOAD\n", "acceptenv LC_?\n", "setenv LD_PRELOAD=/fixture\n", "setenv BASH_ENV=/fixture\n", "setenv ENV=/fixture\n", "setenv PATH=/fixture\n", "setenv GCONV_PATH=/fixture\n", "setenv PYTHONPATH=/fixture\n"} {
+		if err := checkGlobalSSH("permituserenvironment no\n" + suffix); err == nil {
+			t.Fatalf("unsafe SSH environment accepted: %q", suffix)
+		}
+	}
+}

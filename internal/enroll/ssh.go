@@ -61,11 +61,59 @@ func checkSSHValues(out string, want map[string]string) error {
 	return nil
 }
 func checkGlobalSSH(out string) error {
-	return checkSSHValues(out, map[string]string{"permituserenvironment": "no"})
+	if err := checkSSHValues(out, map[string]string{"permituserenvironment": "no"}); err != nil {
+		return err
+	}
+	return checkSSHEnvironment(out)
 }
 func checkForcedSSH(out string) error {
 	if err := checkGlobalSSH(out); err != nil {
 		return err
 	}
 	return checkSSHValues(out, map[string]string{"forcecommand": "/usr/local/bin/brine host serve", "authorizedkeysfile": "/etc/ssh/brine/authorized_keys/%u", "authorizedkeyscommand": "none", "authorizedprincipalsfile": "none", "allowtcpforwarding": "no", "allowagentforwarding": "no", "x11forwarding": "no", "permittty": "no", "permittunnel": "no", "gatewayports": "no", "allowstreamlocalforwarding": "no"})
+}
+
+// Locale variables are the only client/session environment inputs supported.
+// A subset (including an empty AcceptEnv list) is safe; additive extras are not.
+func checkSSHEnvironment(out string) error {
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		keyword := strings.ToLower(f[0])
+		if keyword == "acceptenv" {
+			for _, pattern := range f[1:] {
+				if pattern != "LANG" && pattern != "LC_*" {
+					return errors.New("SSH AcceptEnv must allow only LANG and LC_*; unsafe client environment refused")
+				}
+			}
+		}
+		if keyword == "setenv" {
+			if len(f) == 2 && f[1] == "none" {
+				continue
+			}
+			for _, assignment := range f[1:] {
+				name, _, ok := strings.Cut(assignment, "=")
+				if !ok || !safeLocaleVariable(name) {
+					return errors.New("SSH SetEnv must set only locale variables; loader and shell environment refused")
+				}
+			}
+		}
+	}
+	return nil
+}
+func safeLocaleVariable(name string) bool {
+	if name == "LANG" {
+		return true
+	}
+	if !strings.HasPrefix(name, "LC_") || len(name) == 3 {
+		return false
+	}
+	for _, c := range name[3:] {
+		if !(c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_') {
+			return false
+		}
+	}
+	return true
 }
