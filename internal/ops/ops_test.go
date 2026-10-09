@@ -14,3 +14,16 @@ func TestEventBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestVerifiedNoOpAndKnownFailedCommitTransitions(t *testing.T) {
+	for _, pair := range [][2]State{{Preflight, Succeeded}, {Committing, RollingBack}} {
+		if !CanTransition(pair[0], pair[1]) {
+			t.Errorf("required transition %s -> %s", pair[0], pair[1])
+		}
+	}
+	for _, pair := range [][2]State{{Queued, Succeeded}, {Preparing, Succeeded}, {Starting, Committing}, {Succeeded, RollingBack}} {
+		if CanTransition(pair[0], pair[1]) {
+			t.Errorf("illegal skip %s -> %s", pair[0], pair[1])
+		}
+	}
+}
