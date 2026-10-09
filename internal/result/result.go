@@ -23,17 +23,24 @@ const (
 type Code string
 
 const (
-	InternalError       Code = "internal_error"
-	InvalidUsage        Code = "invalid_usage"
-	DependencyMissing   Code = "dependency_missing"
-	PolicyRefused       Code = "policy_refused"
-	Conflict            Code = "conflict"
-	RecoveryRequired    Code = "recovery_required"
-	Interrupted         Code = "interrupted"
-	TUIInteractive      Code = "tui_interactive"
-	TUITerminalRequired Code = "tui_terminal_required"
-	InputRequired       Code = "input_required"
-	OfflineRequired     Code = "offline_required"
+	InternalError             Code = "internal_error"
+	InvalidUsage              Code = "invalid_usage"
+	DependencyMissing         Code = "dependency_missing"
+	PolicyRefused             Code = "policy_refused"
+	Conflict                  Code = "conflict"
+	RecoveryRequired          Code = "recovery_required"
+	Interrupted               Code = "interrupted"
+	TUIInteractive            Code = "tui_interactive"
+	TUITerminalRequired       Code = "tui_terminal_required"
+	InputRequired             Code = "input_required"
+	OfflineRequired           Code = "offline_required"
+	DispatchInvalidRequest    Code = "dispatch_invalid_request"
+	DispatchUnsupportedSchema Code = "dispatch_unsupported_schema"
+	DispatchOperationRefused  Code = "dispatch_operation_refused"
+	DispatchRootRefused       Code = "dispatch_root_refused"
+	TransportInvalidTarget    Code = "transport_invalid_target"
+	TransportFailure          Code = "transport_failure"
+	TransportInvalidResponse  Code = "transport_invalid_response"
 )
 
 type description struct {
@@ -43,17 +50,24 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
-	OfflineRequired:     {Validation, "Connected planning is not available; use --offline with --snapshot and --policy.", false},
-	InternalError:       {Operational, "The operation failed.", false},
-	InvalidUsage:        {Validation, "Invalid command or arguments. Use --help for usage.", false},
-	DependencyMissing:   {Dependency, "A required dependency is missing or incompatible.", false},
-	PolicyRefused:       {Policy, "The operation was refused by policy.", false},
-	Conflict:            {StateConflict, "The plan is stale or another operation holds the lock.", true},
-	RecoveryRequired:    {Recovery, "Manual recovery is required before continuing.", false},
-	Interrupted:         {Interruption, "The client was interrupted.", false},
-	TUIInteractive:      {Validation, "tui is interactive; remove --json, --jsonl and --no-input", false},
-	TUITerminalRequired: {Validation, "tui requires terminal input and output.", false},
-	InputRequired:       {Validation, "Interactive input is required; supply explicit arguments or use an interactive terminal.", false},
+	DispatchInvalidRequest:    {Validation, "The dispatcher request is invalid.", false},
+	DispatchUnsupportedSchema: {Dependency, "The dispatcher protocol version is incompatible.", false},
+	DispatchOperationRefused:  {Policy, "The dispatcher operation is not allowed.", false},
+	DispatchRootRefused:       {Policy, "The host dispatcher cannot run as root.", false},
+	TransportInvalidTarget:    {Validation, "The SSH target configuration is invalid.", false},
+	TransportFailure:          {Operational, "The SSH transport failed; reconcile before retrying any mutation.", false},
+	TransportInvalidResponse:  {Operational, "The SSH dispatcher response is invalid.", false},
+	OfflineRequired:           {Validation, "Connected planning is not available; use --offline with --snapshot and --policy.", false},
+	InternalError:             {Operational, "The operation failed.", false},
+	InvalidUsage:              {Validation, "Invalid command or arguments. Use --help for usage.", false},
+	DependencyMissing:         {Dependency, "A required dependency is missing or incompatible.", false},
+	PolicyRefused:             {Policy, "The operation was refused by policy.", false},
+	Conflict:                  {StateConflict, "The plan is stale or another operation holds the lock.", true},
+	RecoveryRequired:          {Recovery, "Manual recovery is required before continuing.", false},
+	Interrupted:               {Interruption, "The client was interrupted.", false},
+	TUIInteractive:            {Validation, "tui is interactive; remove --json, --jsonl and --no-input", false},
+	TUITerminalRequired:       {Validation, "tui requires terminal input and output.", false},
+	InputRequired:             {Validation, "Interactive input is required; supply explicit arguments or use an interactive terminal.", false},
 }
 
 // Error keeps the cause for reconciliation without exposing it in presentations.
@@ -124,3 +138,6 @@ func Failure(command string, err error) Envelope {
 	d := descriptions[domain.Code()]
 	return Envelope{SchemaVersion: SchemaVersion, Command: command, Error: &MachineError{domain.Code(), d.message, d.retryable}}
 }
+
+// KnownCode reports whether a machine error belongs to this result schema.
+func KnownCode(code Code) bool { _, ok := descriptions[code]; return ok }

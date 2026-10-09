@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -87,5 +88,18 @@ func TestBoundedOutputConcurrent(t *testing.T) {
 	wg.Wait()
 	if len(output.String()) != OutputLimit {
 		t.Fatalf("output size = %d", len(output.String()))
+	}
+}
+
+func TestStdoutProbeSeparatesWarnings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture requires Unix")
+	}
+	stdout, e := (ExecRunner{}).RunStdout(context.Background(), "sh", "-c", `printf '%s' '{"ok":true}'; printf '%s\n' 'warning' >&2`)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if stdout != `{"ok":true}` {
+		t.Fatalf("diagnostics entered stdout: %q", stdout)
 	}
 }
