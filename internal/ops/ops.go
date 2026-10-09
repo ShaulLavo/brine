@@ -89,8 +89,9 @@ type Release struct {
 
 const MaxEventBytes = 4096
 
-type BoundaryPayload struct {
+type StepPayload struct {
 	Step    string `json:"step"`
+	Code    string `json:"code,omitempty"`
 	Outcome string `json:"outcome"`
 }
 type FailurePayload struct {
@@ -129,14 +130,17 @@ func ValidateEvent(e Event) error {
 		if e.State == "" || len(e.Payload) != 0 {
 			return ErrInvalidEvent
 		}
-	case "boundary":
-		var p BoundaryPayload
-		if decode(&p) != nil || !slices.Contains([]string{"prepare", "quiesce", "start", "check", "commit", "rollback"}, p.Step) || !outcome(p.Outcome) {
+	case "step":
+		var p StepPayload
+		if decode(&p) != nil || !slices.Contains([]string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "start_unit", "check_direct", "publish_route", "check_routed", "commit", "rollback_unit", "rollback_route", "rollback_start", "rollback_check"}, p.Step) || !slices.Contains([]string{"intent", "completed", "failed", "unknown"}, p.Outcome) {
+			return ErrInvalidEvent
+		}
+		if p.Code != "" && (p.Outcome != "failed" && p.Outcome != "unknown" || !slices.Contains([]string{"drift", "digest_mismatch", "platform_mismatch", "secret_missing", "unit_invalid", "start_failed", "health_timeout", "health_failed", "route_invalid", "reload_failed", "reload_unknown", "journal_failed", "interrupted"}, p.Code)) {
 			return ErrInvalidEvent
 		}
 	case "failure":
 		var p FailurePayload
-		if decode(&p) != nil || !slices.Contains([]string{"launch_failed", "launch_unknown", "executor_failed", "executor_incomplete", "recovery_required", "interrupted"}, p.Code) {
+		if decode(&p) != nil || !slices.Contains([]string{"launch_failed", "launch_unknown", "executor_failed", "executor_incomplete", "recovery_required", "interrupted", "stale_plan"}, p.Code) {
 			return ErrInvalidEvent
 		}
 	case "launch":
