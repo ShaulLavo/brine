@@ -80,7 +80,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	if err != nil || len(key) != 32 {
 		return nil, result.New(result.DependencyMissing, nil)
 	}
-	collector := inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateGeneration: state.Generation}
+	collector := inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: state.InventoryState}
 	session, err := localexec.NewSession(localexec.ExecRunner{}, uint32(uid), identity.HomeDir, time.Minute)
 	if err != nil {
 		return nil, err
@@ -220,7 +220,9 @@ func NewInventory(ctx context.Context) (*inventory.Collector, error) {
 		return nil, result.New(result.DependencyMissing, nil)
 	}
 	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
-	return &inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateGeneration: func(ctx context.Context) (uint64, error) { return store.ReadGeneration(ctx, stateDir) }}, nil
+	return &inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: func(ctx context.Context) (target.ControlInventory, error) {
+		return store.ReadInventoryState(ctx, stateDir)
+	}}, nil
 }
 
 func (u lazyUnits) VerifyRemove(ctx context.Context, name, hash string) error {
