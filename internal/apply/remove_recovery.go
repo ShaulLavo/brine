@@ -9,6 +9,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/systemd"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 var removeSteps = []string{"preflight", "withdraw_route", "stop_unit", "remove_unit", "reload_units", "retire_app"}
@@ -115,7 +116,7 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 		if app.Name != p.App {
 			continue
 		}
-		if app.QuadletUnits.Value == nil || app.QuadletUnits.Status != "known" || len(*app.QuadletUnits.Value) > 1 {
+		if app.QuadletUnits.Value == nil || app.QuadletUnits.Status != target.KnownStatus || len(*app.QuadletUnits.Value) > 1 {
 			return r, nil
 		}
 		for _, unit := range *app.QuadletUnits.Value {

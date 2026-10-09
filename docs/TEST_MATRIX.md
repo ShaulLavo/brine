@@ -25,7 +25,7 @@
 | T19 | Operator performs real R2 restore drill to disposable destination | Restore procedure and resulting DB independently verified | 04/06 |
 | T20 | Machine/human parity | Same operation ID and status across JSON CLI/TUI | 05 |
 | T21 | Limited disk space, killed process, partial write | Planning below the policy disk minimum or with unobserved disk conflicts with no changes; crossing the minimum changes the hash; safe recoverable state and no loss of previous release/config after runtime failures | 03/06 |
-| T22 | App removal, recreate, expiry and purge | Removal archives under an immutable ID with a restorable backup set for 30 days; remove-recreate-expire never touches the new app; purge only when policy allows; interrupted archive/purge recovers | 03/04/06 |
+| T22 | App removal, recreate, expiry and purge | P03-09 stateless removal withdraws only owned routes/units after writer fencing, retains release/secret history, releases its port, refuses persistent data, and reconciles each effect boundary. P04-08 removal archives under an immutable ID with a restorable backup set for 30 days; remove-recreate-expire never touches the new app; purge only when policy allows; interrupted archive/purge recovers | 03/04/06 |
 | T23 | Secrets in logs, plans, TUI or JSON errors | Redaction tests and audit of subprocess output paths | 00-06 |
 | T24 | Release binary from fresh environment | Go tests, vet, build and version metadata pass | 06 |
 
@@ -38,3 +38,28 @@ Document remaining limits prominently: a single server is not high availability;
 ## Repeatability
 
 Each integration scenario must have a fixture, setup, expected behavior, teardown limited to **resources created by that fixture**, and captured redacted evidence. Never run a blanket `podman system prune`, delete unrelated volumes, flush firewall state or remove another app as part of test cleanup.
+
+
+## P03-09 local evidence (physical host pending)
+
+- T04/T05/T17/T18: removal planner ownership and persistent-unit tests; stale
+  connected apply journals `stale_plan` with no effects; hash, marker, symlink
+  and mounted-data deletion refusals; mutating dispatch authorization and strict
+  app-only argument tests refuse paths, arbitrary units and purge flags.
+- T09/T10/T21: `internal/host/remove_crash_linux_test.go` SIGKILLs an actual
+  run-op subprocess after each of five durable fake effects, proves it held the
+  host lock, verifies dry-run reconciliation changes neither journal nor fake
+  host, and converges through a detached recovery receipt. Eighteen unit prefix
+  cases cover before/after/journaled boundaries; drift and unknown writers/jobs
+  fail closed. Unknown-effect tests journal/read back without blind retries.
+- T11: complete Caddy generation settlement tests refuse foreign hash drift and
+  adapted routes that still send traffic to the removed application; disk state
+  alone is never treated as evidence that an uncertain reload succeeded.
+- T20/T22/T23: human/JSON/JSONL removal goldens; connected removal and repeated
+  no-op; immutable retirement receipt, retained release history, freed port and
+  old-removal/new-head protection. Machine/human output explains D5 retention;
+  the executor never calls secret/data deletion adapters.
+- Gate: Go tests/race tests, Linux and Darwin arm64 vet, build, gofmt and diff
+  checks. Local fakes and SIGKILL are not physical Caddy/Podman/systemd, SSH
+  disconnect or reboot evidence. P04-08 archival/restore/expiry/purge and the
+  separately authorized physical-host acceptance lane remain pending.

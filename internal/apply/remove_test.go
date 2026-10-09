@@ -2,7 +2,9 @@ package apply
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"maps"
 	"reflect"
 	"testing"
@@ -156,5 +158,43 @@ func TestRemoveFailureNeverRestartsOrDeletesUncertainWriter(t *testing.T) {
 		if effect == "remove_unit" || effect == "retire_app" {
 			t.Fatal("removed with live container")
 		}
+	}
+}
+
+func TestRemoveUnknownEffectsReadBackWithoutBlindRetry(t *testing.T) {
+	for _, step := range []string{"withdraw_route", "stop_unit", "remove_unit", "reload_units", "retire_app"} {
+		t.Run(step, func(t *testing.T) {
+			r := newRemoveRig(t)
+			r.unknownStep = step
+			reads := 0
+			r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { reads++; return r.facts, nil })
+			err := r.executor.Run(context.Background(), "operation", r.plan, r.desired)
+			if err == nil || r.state != RecoveryRequired {
+				t.Fatal(err, r.state)
+			}
+			count := 0
+			for _, effect := range r.effects {
+				if effect == step {
+					count++
+				}
+			}
+			if count != 1 || r.effects[len(r.effects)-1] != step {
+				t.Fatal("retried or continued uncertain effect", r.effects)
+			}
+			if (step == "withdraw_route" || step == "remove_unit") && reads != 2 {
+				t.Fatal("missing fresh artifact read-back", reads)
+			}
+			unknown := false
+			for _, event := range r.events {
+				var payload ops.StepPayload
+				_ = json.Unmarshal(event.Payload, &payload)
+				if payload.Step == step && payload.Outcome == "unknown" {
+					unknown = true
+				}
+			}
+			if !unknown {
+				t.Fatal("unknown effect not journaled")
+			}
+		})
 	}
 }
