@@ -32,6 +32,8 @@ func safePath(path string) bool {
 	return filepath.IsAbs(path) && pathPattern.MatchString(path) && filepath.Clean(path) == path
 }
 
+func ValidTargetName(name string) bool { return namePattern.MatchString(name) }
+
 func (t Target) Validate() error {
 	invalid := func() error { return result.New(result.TransportInvalidTarget, nil) }
 	if !namePattern.MatchString(t.Name) || !safePath(t.IdentityPath) {

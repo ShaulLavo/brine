@@ -70,6 +70,18 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = snapshot
+		case "apply":
+			accepted, err := decodeAccepted(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = accepted
+		case "operation":
+			status, err := decodeStatus(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = status
 		}
 		return result.Success(command, value), nil
 	}
