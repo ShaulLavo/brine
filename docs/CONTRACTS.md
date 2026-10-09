@@ -264,6 +264,8 @@ The target identity, observed generation and policy version/hash are explicit pr
 
 ### Connected apply validation (P03-02)
 
+Freshness uses replan-and-compare under the host mutation lock. Apply loads the stored canonical plan and exact normalized desired input, collects live inventory, and loads the host's current operator policy and `plan.BrineState`. After verifying the desired input against that policy, it reruns `plan.Build` and proceeds only when the resulting hash equals the recorded plan hash. A mismatch is a stale-plan refusal in exit category 5, not permission to replace the plan. The store verifies `DesiredHash` and a separate digest of the canonical plan bytes on save/load. Those checks detect changed stored bytes; they do not prove freshness or operator authorization. Original inventory need not be retained because apply compares against live facts.
+
 Under the host mutation lock, connected apply must refuse a plan whose selected platform manifest digest is `unknown`, before any runtime mutation. A connected planner must resolve and verify the index digest, selected platform and manifest digest, then record a new immutable plan. Apply must verify both digests and platform against the runtime or registry evidence. `podman inspect` reporting the index digest alone does not verify the selected platform manifest. Apply must not fill in an unknown digest or silently rehash an existing plan. Offline envelopes remain non-applyable even if a caller supplied cached known manifest metadata. This is an acceptance rule for P03-02, not an implemented apply endpoint.
 
 ### Offline plan files, schema 1
@@ -280,11 +282,27 @@ Use a small SQLite control database **on the target**, owned by the runner user,
 
 A deployment writes intent and operation state durably *before* changing files, Quadlet units, containers or proxy routes. Each tool boundary has a typed adapter with bounded outputs and timeouts. Acquire a per-host lock **before** checking plan freshness; one mutation per target. Reconcile observed state after crashes: neither subprocess exit status nor client timeout alone proves an external change succeeded or failed.
 
+### Target control store (P03-01)
+
+`internal/store.Open(stateDir)` opens `control.db` in an existing private runner state directory. The Linux-only store refuses a symlink database or lock file. Database, WAL and shared-memory files have mode 0600. The pinned pure-Go driver is `modernc.org/sqlite` v1.60.1, so Linux amd64 and arm64 builds need no cgo. Each connection enables WAL, `synchronous=FULL`, foreign keys and a 5000-ms busy timeout. The pool holds one connection. Immediate transactions serialize local writes across processes; no transaction performs runtime, network or filesystem-adapter operations.
+
+Schema version 1 includes plans, operations, ordered events, immutable releases and current/previous release pointers. Migrations, including their version update, commit together. A database from a newer schema refuses to open. Plans store canonical plan bytes, their content digest, exact normalized desired bytes with literal app settings, and `DesiredHash`. Secrets remain immutable version references, never resolved secret values. Save/load mismatches return `store.IntegrityError`; incompatible content at an existing ID refuses replacement.
+
+The shared `internal/ops` package owns `State`, `Operation`, `Event` and `Release`; `internal/store` exports aliases. Every method takes `context.Context` first. `SavePlan(ctx, plan, desired)` returns a plan ID. `LoadPlan(ctx, id)` returns `plan.Plan`, verified `policy.Desired` and an error. `CreateOperation(ctx, planID, requester, idempotencyKey)` returns an operation, an existing flag and an error. The requester comes from trusted host code. An idempotency key is unique per requester and cannot be rebound to a different plan.
+
+`SetOperationState` enforces `ops.CanTransition` in both Go and SQLite. An identical state retry is a no-op. Every transition and its state event commit together. `launch_unknown` records an uncertain launch; reconciliation must inspect it rather than automatically relaunch. Terminal states cannot transition. Verified no-op plans can go from `preflight` to `succeeded`. A known failed commit can go from `committing` to `rolling_back`; an unknown outcome goes to `recovery_required`.
+
+`AppendEvent` assigns the next per-operation sequence in a transaction. SQLite refuses event updates, deletions and sequence gaps. Payloads have a 4096-byte limit and closed, exact-case schemas for `state`, `step`, `failure` and `launch`. Duplicate fields, arbitrary text, logs, environment values and secret values refuse. `EventsAfter` returns ordered cursor pages of at most 1024 events. `GetOperation` and `ListUnfinished` support polling and startup reconciliation; the latter excludes all terminal states, including `recovery_required`.
+
+`CommitRelease` atomically inserts immutable artifact history and advances current/previous pointers. An identical release retry never rotates those pointers, including a late retry for an older release. Release records reference their plan for the verified desired configuration. `CurrentRelease`, `PreviousRelease` and `LoadBrineState(ctx, targetIdentity, generation)` read a consistent transaction. The reconstructed state has the exact `plan.BrineState` shape with a non-null, app-sorted release array. It refuses releases bound to a different target identity.
+
+`AcquireHostLock(ctx)` opens the fixed `mutation.lock` beside the database and acquires kernel `flock` before freshness checks. Its returned `Lock.Release()` is idempotent. Cancellation bounds waiting. The kernel releases a dead process's holder immediately, including after SIGKILL; no PID reuse, boot-ID check or lease-expiry heuristic is needed. The lock file is never unlinked. The lock remains independent of connection or store lifetime.
+
 ## Release behavior
 
 For MVP accept brief interruption: pull/verify a new image, stage immutable release/unit material, announce maintenance, ensure old writer stopped, activate new release, start service, check direct and routed health, publish route, record success. Maintain previous known-good immutable artifacts. If safe, restore previous app release on failure; if migrations or data compatibility make rollback uncertain, stop and mark `recovery_required`.
 
-Use state labels such as `queued`, `preflight`, `preparing`, `quiescing`, `starting`, `checking`, `committing`, `rolling_back`, `succeeded`, `failed`, `rolled_back`, and `recovery_required`. Persist ordered events with monotonically increasing per-operation sequence IDs. Do not perform network or host operations inside a long SQLite database transaction.
+Use state labels such as `queued`, `launch_unknown`, `preflight`, `preparing`, `quiescing`, `starting`, `checking`, `committing`, `rolling_back`, `succeeded`, `failed`, `rolled_back`, and `recovery_required`. Persist ordered events with monotonically increasing per-operation sequence IDs. Do not perform network or host operations inside a long SQLite database transaction.
 
 **App rollback never rewinds SQLite.** v1 does not perform uncontrolled startup migrations or auto-restore databases. Background/worker overlap is not supported yet.
 
