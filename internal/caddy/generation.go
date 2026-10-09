@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -15,7 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode"
 
 	"github.com/ShaulLavo/brine/internal/spec"
 )
@@ -255,81 +255,66 @@ func candidateRoot(main []byte, root, next string) ([]byte, error) {
 	if len(main) == 0 || len(main) > maxFileBytes {
 		return nil, errors.New("caddy: root config exceeds size limit")
 	}
-	wanted := "import " + root + "/current/*.caddy"
-	lines := strings.Split(string(main), "\n")
-	found := -1
-	for i, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if strings.HasPrefix(trimmed, "#") {
-			continue
-		}
-		if strings.Contains(trimmed, root+"/current/") {
-			if trimmed != wanted || found != -1 {
-				return nil, errors.New("caddy: ambiguous Brine import")
-			}
-			found = i
-		}
+	// Caddy expands environment variables before tokenizing. Such expansion
+	// would invalidate source spans and can introduce imports absent from disk.
+	if bytes.Contains(main, []byte("{$")) {
+		return nil, errors.New("caddy: root environment substitution is unsupported")
 	}
-	tokens, err := rootTokens(string(main))
+	tokens, err := rootTokens(main)
 	if err != nil {
 		return nil, err
 	}
+	wanted := root + "/current/*.caddy"
+	found, depth := -1, 0
 	for i, token := range tokens {
-		// Relocation changes Caddy's relative file-import base. Refuse instead of
-		// validating a different config. Absolute imports preserve operator sites.
-		if token == "import" && (i+1 == len(tokens) || !strings.HasPrefix(tokens[i+1], "/")) {
-			return nil, errors.New("caddy: root config must use absolute imports")
+		if token.quote != 0 && (token.text == "{" || token.text == "}" || token.text == "{}") {
+			return nil, errors.New("caddy: ambiguous quoted root brace")
 		}
-	}
-	if found == -1 {
-		return nil, errors.New("caddy: Brine import missing")
-	}
-	lines[found] = strings.Replace(lines[found], wanted, "import "+root+"/"+next+"/*.caddy", 1)
-	return []byte(strings.Join(lines, "\n")), nil
-}
-
-func rootTokens(main string) ([]string, error) {
-	var tokens []string
-	chars := []rune(main)
-	for i := 0; i < len(chars); {
-		c := chars[i]
-		if unicode.IsSpace(c) || c == '{' || c == '}' {
-			i++
-			continue
-		}
-		if c == '#' {
-			for i < len(chars) && chars[i] != '\n' {
-				i++
+		lineStart := i == 0 || tokens[i-1].line+strings.Count(tokens[i-1].text, "\n") < token.line
+		directiveStart := lineStart || (depth > 0 && i > 0 && tokens[i-1].text == "{" && tokens[i-1].quote == 0)
+		if token.text == "import" && directiveStart {
+			if i+1 == len(tokens) || tokens[i+1].line != token.line {
+				return nil, errors.New("caddy: import argument missing")
 			}
-			continue
-		}
-		var token strings.Builder
-		if c == '"' || c == '`' {
-			quote := c
-			i++
-			for i < len(chars) && chars[i] != quote {
-				if chars[i] == '\\' && quote == '"' {
-					i++
-					if i == len(chars) {
-						return nil, errors.New("caddy: unterminated root token")
-					}
+			argument := tokens[i+1]
+			// Relocation changes Caddy's relative file-import base. Only actual
+			// directives are checked; response values named import remain untouched.
+			if !strings.HasPrefix(argument.text, "/") {
+				return nil, errors.New("caddy: root config must use absolute imports")
+			}
+			if argument.text == wanted {
+				if depth != 0 || !lineStart || found != -1 {
+					return nil, errors.New("caddy: Brine import must be unique and top-level")
 				}
-				token.WriteRune(chars[i])
-				i++
-			}
-			if i == len(chars) {
-				return nil, errors.New("caddy: unterminated root token")
-			}
-			i++
-		} else {
-			for i < len(chars) && !unicode.IsSpace(chars[i]) && chars[i] != '#' && chars[i] != '{' && chars[i] != '}' {
-				token.WriteRune(chars[i])
-				i++
+				if i+2 < len(tokens) && tokens[i+2].line == argument.line+strings.Count(argument.text, "\n") {
+					return nil, errors.New("caddy: Brine import must have exactly one argument")
+				}
+				found = i + 1
 			}
 		}
-		tokens = append(tokens, token.String())
+		if token.quote == 0 && token.text == "{" {
+			depth++
+		}
+		if token.quote == 0 && token.text == "}" {
+			depth--
+			if depth < 0 {
+				return nil, errors.New("caddy: unmatched root brace")
+			}
+		}
 	}
-	return tokens, nil
+	if found == -1 || depth != 0 {
+		return nil, errors.New("caddy: top-level Brine import missing or root braces unmatched")
+	}
+	argument := tokens[found]
+	replacement := root + "/" + next + "/*.caddy"
+	if argument.quote != 0 {
+		replacement = string(argument.quote) + replacement + string(argument.quote)
+	}
+	candidate := make([]byte, 0, len(main)+len(replacement))
+	candidate = append(candidate, main[:argument.start]...)
+	candidate = append(candidate, replacement...)
+	candidate = append(candidate, main[argument.end:]...)
+	return candidate, nil
 }
 
 func (m *Manager) nextGeneration(current uint64) (uint64, error) {

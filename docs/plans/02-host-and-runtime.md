@@ -19,7 +19,7 @@ The package in `internal/caddy` is the generation adapter, not a deployed route 
 
 Local tests cover T11/T17 and the generation-files portion of T21. The read-only Caddy 2.6.2 probe accepted the renderer's multi-domain golden and whole candidate root, rejected a duplicate site with `ambiguous site definition`, and rejected an invalid directive with `unrecognized directive`. The probe used only temporary files and `caddy validate`; it did not start or reload Caddy. Its temporary directory was removed.
 
-The main Caddyfile is passed as bytes and never modified. It needs one exact Brine import line and absolute filesystem imports. Relative and snippet imports refuse before staging because moving a candidate into the owned root changes the relative-import base. Enrollment must provide an empty `gen-0` and `current` before first publication. Crash states and the control-state/host-lock contract are documented in the package comment in `internal/caddy/doc.go`.
+The main Caddyfile is passed as bytes and never modified. It needs one real, top-level Brine import directive and absolute filesystem imports. A source-span tokenizer follows Caddy 2.6.2 quotation, comment and line-continuation semantics; it replaces only the import path token, preserving operator content. Caddy environment substitution and newer-version heredocs refuse before staging. Relative and snippet imports refuse before staging because moving a candidate into the owned root changes the relative-import base. Enrollment must provide an empty `gen-0` and `current` before first publication. Crash states and the control-state/host-lock contract are documented in the package comment in `internal/caddy/doc.go`.
 
 ### Exit gate
 

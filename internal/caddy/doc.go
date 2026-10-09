@@ -3,8 +3,13 @@
 // Production callers supply /etc/caddy/brine as the root and the unchanged main
 // Caddyfile bytes. The manager never opens or writes that main file. Enrollment
 // must create an empty gen-0 directory and current symlink before first use.
+// The Brine import is located by Caddy 2.6.2 tokens, directive position and byte
+// spans. Its path alone is replaced; quotes, comments and other bytes survive.
 // Filesystem imports in the main file must be absolute; relative and snippet
 // imports are refused because relocating the candidate changes their base.
+// Caddy environment substitutions are refused because expansion precedes lexing
+// and could change the located directive. Heredocs require newer Caddy and are
+// refused. Quoted standalone brace tokens also refuse ambiguous block parsing.
 // The root and its ancestors must not be symlinks.
 //
 // The caller holds the host mutation lock, checks the main file has not changed,

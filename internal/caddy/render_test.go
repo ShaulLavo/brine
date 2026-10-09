@@ -91,7 +91,7 @@ func TestSiteRefusesForgedFields(t *testing.T) {
 }
 
 func FuzzRender(f *testing.F) {
-	for _, seed := range []string{"hello.example.com", "{env.DOMAIN}", "x.example.com\n}\nimport /tmp/evil", `x.example.com"`, "x.example.com#", "import", "xn--x.example.com"} {
+	for _, seed := range []string{"hello.example.com", "import.example.com", "{env.DOMAIN}", "x.example.com\n}\nimport /tmp/evil", `x.example.com"`, "x.example.com#", "import", "xn--x.example.com"} {
 		f.Add(seed)
 	}
 	a, p := fixtureApp(f), fixturePolicy(f)
@@ -106,11 +106,11 @@ func FuzzRender(f *testing.F) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if bytes.Count(b, []byte("{")) != 1 || bytes.Count(b, []byte("}")) != 1 || bytes.ContainsAny(b, "#\"\r") || strings.Contains(string(b), "import") {
+		if bytes.Count(b, []byte("{")) != 1 || bytes.Count(b, []byte("}")) != 1 || bytes.ContainsAny(b, "#\"\r") {
 			t.Fatalf("unsafe block %q", b)
 		}
 		lines := strings.Split(string(b), "\n")
-		if len(lines) != 6 || lines[1] != "\treverse_proxy 127.0.0.1:20001" {
+		if len(lines) != 6 || lines[0] != string(s.domains[0])+" {" || lines[1] != "\treverse_proxy 127.0.0.1:20001" || lines[2] != "\theader X-Content-Type-Options nosniff" || lines[3] != "\theader Referrer-Policy no-referrer" || lines[4] != "}" || lines[5] != "" {
 			t.Fatalf("unexpected structure %q", b)
 		}
 	})
