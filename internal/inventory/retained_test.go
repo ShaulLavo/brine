@@ -60,20 +60,27 @@ func TestRetainedSecretRecreation(t *testing.T) {
 }
 
 func TestRetainedSecretDoesNotReserveDifferentAppPort(t *testing.T) {
-	c, _, in := retainedFixture(t)
-	collected, err := c.Collect(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	in.Snapshot.Apps = collected.Apps
-	in.Desired.Name = "fixture-two"
-	in.Desired.Secrets = []policy.Secret{}
-	p, err := plan.Build(in)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Kind != plan.Create || p.HostPort != 20000 {
-		t.Fatalf("different app blocked: %#v", p.Conflicts)
+	for _, secrets := range []bool{true, false} {
+		t.Run(map[bool]string{true: "retained secret", false: "retained history only"}[secrets], func(t *testing.T) {
+			c, r, in := retainedFixture(t)
+			if !secrets {
+				r["podman --remote=false secret ls --format {{.ID}} {{.Name}}"] = ""
+			}
+			collected, err := c.Collect(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			in.Snapshot.Apps = collected.Apps
+			in.Desired.Name = "fixture-two"
+			in.Desired.Secrets = []policy.Secret{}
+			p, err := plan.Build(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Kind != plan.Create || p.HostPort != 20000 {
+				t.Fatalf("different app blocked: %#v", p.Conflicts)
+			}
+		})
 	}
 }
 

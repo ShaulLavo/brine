@@ -65,6 +65,7 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 	if err != nil {
 		return result, err
 	}
+	unsettled := map[string]bool{}
 	for _, receipt := range receipts {
 		r, err := readRelease(ctx, tx, receipt.app, receipt.release)
 		if err != nil {
@@ -85,12 +86,14 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 			}
 			if settled {
 				app.Status = target.Absent
+			} else {
+				unsettled[receipt.app] = true
 			}
 			app.RetiredPorts = append(app.RetiredPorts, r.HostPort)
 			apps[receipt.app] = app
 		}
 	}
-	rows, err = tx.QueryContext(ctx, `SELECT o.id,o.app,o.plan_id FROM operations o JOIN plans p ON p.id=o.plan_id WHERE json_extract(p.canonical,'$.lifecycle')='remove_app' AND o.state NOT IN ('succeeded','failed','rolled_back')`)
+	rows, err = tx.QueryContext(ctx, `SELECT o.id,o.app,o.plan_id FROM operations o JOIN plans p ON p.id=o.plan_id WHERE json_extract(p.canonical,'$.lifecycle')='remove_app' AND json_extract(p.canonical,'$.kind')='update' AND o.state NOT IN ('succeeded','failed','rolled_back')`)
 	if err != nil {
 		return result, err
 	}
@@ -121,6 +124,9 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 		}
 	}
 	for _, app := range apps {
+		if unsettled[app.Name] {
+			app.Status = target.Unknown
+		}
 		result.Apps = append(result.Apps, app)
 	}
 	sort.Slice(result.Apps, func(i, j int) bool { return result.Apps[i].Name < result.Apps[j].Name })
