@@ -2,6 +2,7 @@ package diagnose
 
 import (
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/result"
 	"strings"
 )
 
@@ -18,6 +19,9 @@ var hostRules = []rule{
 	{"runner_linger_disabled", "error", "The runner's user services cannot survive logout because linger is disabled.", []string{"brine doctor", "brine enroll --help"}, func(h Host, _ App) bool { return h.Linger.Value != nil && !*h.Linger.Value }},
 }
 var appRules = []rule{
+	{"unit_journal_unavailable", "warning", "Unit journal logs are unavailable to the runner. Use app logs for container output; ask the operator to inspect unit logs without widening deploy credentials.", []string{"brine logs APP --target NAME"}, func(_ Host, a App) bool {
+		return a.UnitLogs.Status == "unknown" && a.UnitLogs.Reason == string(result.LogsJournalUnavailable)
+	}},
 	{"unit_failed", "error", "The app unit has failed. Read its logs before choosing an application rollback; rollback does not rewind data.", []string{"brine logs APP --target NAME", "brine rollback APP --target NAME"}, func(_ Host, a App) bool { return a.Unit.Value != nil && a.Unit.Value.ActiveState == "failed" }},
 	{"unit_restarting", "warning", "The unit reports at least three automatic restarts. This counter is not a count since the last deploy.", []string{"brine logs APP --target NAME", "brine rollback APP --target NAME"}, func(_ Host, a App) bool { return a.Unit.Value != nil && a.Unit.Value.Restarts >= 3 }},
 	{"container_stopped", "error", "The app container is not running. Inspect logs before changing it.", []string{"brine logs APP --target NAME"}, func(_ Host, a App) bool { return a.ContainerRunning.Value != nil && !*a.ContainerRunning.Value }},

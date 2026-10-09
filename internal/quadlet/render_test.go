@@ -302,3 +302,18 @@ func TestRecordedManifestCannotBeReplaced(t *testing.T) {
 		t.Fatal("recorded platform manifest was replaced")
 	}
 }
+
+func TestRenderOwnsBoundedAppLogs(t *testing.T) {
+	d, p := fixture(t)
+	u, err := Render(d, p, manifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(u.Bytes())
+	if !strings.Contains(content, "\nLogDriver=k8s-file\nLogOpt=max-size=10485760\n") {
+		t.Fatal("app logs must be runner-owned and bounded independently of host journald")
+	}
+	if strings.Contains(content, "LogOpt=path=") || strings.Contains(content, "journald") {
+		t.Fatal("app logs must use the rootless container's private default storage")
+	}
+}

@@ -126,6 +126,7 @@ type App struct {
 	PreviousRelease  Fact[Release]           `json:"previous_release"`
 	Drift            Fact[[]string]          `json:"drift"`
 	Logs             Fact[[]logs.Line]       `json:"logs"`
+	UnitLogs         Fact[[]logs.Line]       `json:"unit_logs"`
 	RoutePresent     Fact[bool]              `json:"route_present"`
 }
 type Finding struct {
@@ -161,7 +162,7 @@ func DecodeReport(raw []byte) (Report, error) {
 	}
 	names := map[string]bool{}
 	for i, a := range r.Apps {
-		if !appName.MatchString(a.Name) || names[a.Name] || !validFact(a.Unit) || !validFact(a.ContainerRunning) || !validFact(a.Health) || !validFact(a.Operations) || !validFact(a.CurrentRelease) || !validFact(a.PreviousRelease) || !validFact(a.Drift) || !validFact(a.Logs) || !validFact(a.RoutePresent) {
+		if !appName.MatchString(a.Name) || names[a.Name] || !validFact(a.Unit) || !validFact(a.ContainerRunning) || !validFact(a.Health) || !validFact(a.Operations) || !validFact(a.CurrentRelease) || !validFact(a.PreviousRelease) || !validFact(a.Drift) || !validFact(a.Logs) || !validFact(a.UnitLogs) || !validFact(a.RoutePresent) {
 			return bad()
 		}
 		names[a.Name] = true
@@ -202,16 +203,19 @@ func DecodeReport(raw []byte) (Report, error) {
 				}
 			}
 		}
-		if a.Logs.Value != nil {
-			b, _ := json.Marshal(*a.Logs.Value)
-			if len(b) > LogBytes || len(*a.Logs.Value) > MaxLogLines {
+		for _, fact := range []*Fact[[]logs.Line]{&r.Apps[i].Logs, &r.Apps[i].UnitLogs} {
+			if fact.Value == nil {
+				continue
+			}
+			b, _ := json.Marshal(*fact.Value)
+			if len(b) > LogBytes || len(*fact.Value) > MaxLogLines {
 				return bad()
 			}
 			lines, err := logs.DecodeLines(b)
 			if err != nil {
 				return bad()
 			}
-			r.Apps[i].Logs = Known(lines)
+			*fact = Known(lines)
 		}
 	}
 	if r.AppNames.Value != nil {
