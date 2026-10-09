@@ -1,6 +1,9 @@
 package enroll
 
-import "testing"
+import (
+	"github.com/ShaulLavo/brine/internal/target"
+	"testing"
+)
 
 func TestConfirmedTransactionAndFactsFailClosedOnDrift(t *testing.T) {
 	before := supported()
@@ -34,5 +37,23 @@ func TestConfirmedTransactionAndFactsFailClosedOnDrift(t *testing.T) {
 				t.Fatal("unconfirmed drift accepted")
 			}
 		})
+	}
+}
+
+func TestConfirmationIgnoresUnrelatedListenerChanges(t *testing.T) {
+	f := supported()
+	binding, err := confirmationBinding(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.Snapshot.UsedPorts = target.Known([]target.Port{12345})
+	f.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 12345, Process: "fixture", Unit: "transient.scope"}})
+	if err := checkConfirmation(f, binding); err != nil {
+		t.Fatal("unrelated listener invalidated confirmation:", err)
+	}
+	f.Snapshot.UsedPorts = target.Known([]target.Port{80})
+	f.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 80, Process: "caddy", Unit: "caddy.service"}})
+	if err := checkConfirmation(f, binding); err == nil {
+		t.Fatal("relevant listener drift accepted")
 	}
 }

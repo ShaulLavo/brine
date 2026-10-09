@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/ShaulLavo/brine/internal/target"
+	"sort"
 )
 
 // Bind only enrollment-relevant observations, not volatile disk free space or
@@ -16,6 +17,25 @@ func confirmationBinding(f Facts) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	ports := []target.Port{}
+	owners := []target.PortOwner{}
+	for _, port := range *f.Snapshot.UsedPorts.Value {
+		if port == 80 || port == 443 {
+			ports = append(ports, port)
+		}
+	}
+	for _, owner := range *f.Snapshot.PortOwners.Value {
+		if owner.Port == 80 || owner.Port == 443 {
+			owners = append(owners, target.PortOwner{Port: owner.Port, Process: owner.Process})
+		}
+	}
+	sort.Slice(ports, func(i, j int) bool { return ports[i] < ports[j] })
+	sort.Slice(owners, func(i, j int) bool {
+		if owners[i].Port != owners[j].Port {
+			return owners[i].Port < owners[j].Port
+		}
+		return owners[i].Process < owners[j].Process
+	})
 	data, err := json.Marshal(struct {
 		Plan                                                Plan
 		HostKey                                             string
@@ -26,11 +46,11 @@ func confirmationBinding(f Facts) (string, error) {
 		Versions                                            target.Versions
 		Runner                                              target.Observation[string]
 		Owned                                               bool
-		Ports                                               target.Observation[[]target.Port]
-		Owners                                              target.Observation[[]target.PortOwner]
+		Ports                                               []target.Port
+		Owners                                              []target.PortOwner
 		Environment                                         string
 		PAMChecked, PAMEnvironment, SSHAuthorizationChecked bool
-	}{plan, f.HostKey, f.Packages, f.PackageInstall, f.Snapshot.OS, f.Snapshot.Arch, f.Snapshot.Versions, f.Snapshot.Runner.User, f.OwnedRunner, f.Snapshot.UsedPorts, f.Snapshot.PortOwners, f.PermitUserEnvironment, f.PAMChecked, f.PAMUserEnvironment, f.SSHAuthorizationChecked})
+	}{plan, f.HostKey, f.Packages, f.PackageInstall, f.Snapshot.OS, f.Snapshot.Arch, f.Snapshot.Versions, f.Snapshot.Runner.User, f.OwnedRunner, ports, owners, f.PermitUserEnvironment, f.PAMChecked, f.PAMUserEnvironment, f.SSHAuthorizationChecked})
 	if err != nil {
 		return "", err
 	}
