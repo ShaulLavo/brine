@@ -1,0 +1,143 @@
+package logs
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"reflect"
+	"strings"
+	"testing"
+
+	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/target"
+)
+
+type inventory struct{ snapshot target.Snapshot }
+
+func (i inventory) Collect(context.Context) (target.Snapshot, error) { return i.snapshot, nil }
+
+type executor struct {
+	commands []localexec.Command
+	output   localexec.Result
+	err      error
+}
+
+func (e *executor) Execute(_ context.Context, c localexec.Command) (localexec.Result, error) {
+	e.commands = append(e.commands, c)
+	return e.output, e.err
+}
+func owned(unit string) inventory {
+	return inventory{target.Snapshot{Apps: target.Known([]target.App{{Name: "api", QuadletUnits: target.Known([]target.Unit{{Name: unit}})}})}}
+}
+
+const journal = `{"__REALTIME_TIMESTAMP":"1791542008366482","PRIORITY":"6","MESSAGE":"ready"}` + "\n"
+
+func TestReaderArgv(t *testing.T) {
+	for _, unit := range []string{"api.container", "brine-api.container"} {
+		e := &executor{output: localexec.Result{Stdout: journal}}
+		r := Reader{Inventory: owned(unit), Executor: e}
+		lines, err := r.Read(context.Background(), Request{App: "api", Tail: 5, Since: "2026-10-01T00:00:00Z"})
+		if err != nil || len(lines) != 1 || lines[0].Message != "ready" || lines[0].Priority != 6 || lines[0].Timestamp != "2026-10-09T10:33:28.366482Z" {
+			t.Fatalf("%+v %v", lines, err)
+		}
+		c := e.commands[0]
+		want := []string{"--user", "-u", strings.TrimSuffix(unit, ".container") + ".service", "-n", "5", "-o", "json", "--no-pager", "--since", "2026-10-01T00:00:00Z"}
+		if c.Path != "journalctl" || !reflect.DeepEqual(c.Args, want) || c.Timeout != ReadTimeout || c.Mutation {
+			t.Fatalf("%+v", c)
+		}
+	}
+}
+func TestRefusals(t *testing.T) {
+	for _, tt := range []struct {
+		request Request
+		inv     inventory
+		code    result.Code
+	}{
+		{Request{App: "other", Tail: 5}, owned("api.container"), result.LogsOwnershipRefused},
+		{Request{App: "api", Tail: 5}, owned("unrelated.container"), result.LogsOwnershipRefused},
+		{Request{App: "api", Tail: 5}, inventory{}, result.LogsOwnershipRefused},
+		{Request{App: "api;id", Tail: 5}, owned("api.container"), result.InvalidUsage},
+		{Request{App: "../api", Tail: 5}, owned("api.container"), result.InvalidUsage},
+		{Request{App: "api.service", Tail: 5}, owned("api.container"), result.InvalidUsage},
+		{Request{App: "api", Tail: 1001}, owned("api.container"), result.InvalidUsage},
+		{Request{App: "api", Tail: 0}, owned("api.container"), result.InvalidUsage},
+		{Request{App: "api", Tail: 5, Since: "--file=/etc/shadow"}, owned("api.container"), result.InvalidUsage},
+	} {
+		e := &executor{}
+		_, err := (Reader{Inventory: tt.inv, Executor: e}).Read(context.Background(), tt.request)
+		if err == nil || result.Classify(err).Code() != tt.code || len(e.commands) != 0 {
+			t.Fatalf("%+v %v calls=%d", tt.request, err, len(e.commands))
+		}
+	}
+}
+func TestCapsAndMalformed(t *testing.T) {
+	for _, output := range []localexec.Result{
+		{Stdout: strings.Repeat("x", MaxBytes+1)}, {Stdout: journal, Truncated: true}, {Stdout: strings.Repeat(journal, 6)},
+		{Stdout: journal + "{bad"}, {Stdout: `{"MESSAGE":"secret"}`}, {Stdout: `{"__REALTIME_TIMESTAMP":"0","PRIORITY":"99","MESSAGE":"secret"}`},
+	} {
+		lines, err := (Reader{Inventory: owned("api.container"), Executor: &executor{output: output}}).Read(context.Background(), Request{App: "api", Tail: 5})
+		if err == nil || lines != nil {
+			t.Fatalf("accepted bad output: %v", err)
+		}
+	}
+}
+func TestDebianFixture(t *testing.T) {
+	data, err := os.ReadFile("testdata/debian13.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines, err := parse(string(data), 5)
+	if err != nil || len(lines) != 1 || lines[0].Priority != 6 {
+		t.Fatalf("%+v %v", lines, err)
+	}
+}
+func TestRedaction(t *testing.T) {
+	for _, tt := range []struct{ input, want string }{
+		{"ready", "ready"}, {"\x1b[31mready\x1b[0m", "ready"},
+		{"API_KEY=short-secret OK=yes", "API_KEY=[REDACTED] OK=yes"},
+		{`password="words with spaces"`, `password=[REDACTED]`},
+		{"Authorization: Bearer short-secret", "Authorization: [REDACTED]"},
+		{"token: abcdef", "token: [REDACTED]"},
+		{strings.Repeat("a", 64), "[REDACTED]"},
+		{"-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----", "[REDACTED]"},
+	} {
+		var r redactor
+		if got := r.clean(tt.input); got != tt.want {
+			t.Fatalf("%q -> %q want %q", tt.input, got, tt.want)
+		}
+	}
+	var r redactor
+	for _, s := range []string{"-----BEGIN RSA PRIVATE KEY-----", "short-private-content", "-----END RSA PRIVATE KEY-----"} {
+		if got := r.clean(s); got != "[REDACTED]" {
+			t.Fatalf("block leaked %q", got)
+		}
+	}
+}
+func TestBinaryMessage(t *testing.T) {
+	raw := `{"__REALTIME_TIMESTAMP":"1791542008366482","PRIORITY":"6","MESSAGE":[65,80,73,95,75,69,89,61,120]}`
+	lines, err := parse(raw, 1)
+	if err != nil || lines[0].Message != "API_KEY=[REDACTED]" {
+		t.Fatalf("%+v %v", lines, err)
+	}
+}
+func FuzzPlantedSecrets(f *testing.F) {
+	f.Add("plain text")
+	f.Add("\x1b[31m")
+	f.Add("-----BEGIN PRIVATE KEY-----")
+	f.Fuzz(func(t *testing.T, prefix string) {
+		if len(prefix) > 4096 {
+			t.Skip()
+		}
+		const secret = "planted-secret-value"
+		input := prefix + "\nAPI_KEY=" + secret + "\nAuthorization: Bearer " + secret + "\n" + strings.Repeat("abcdef01", 8)
+		var r redactor
+		got := r.clean(input)
+		if strings.Contains(got, secret) || strings.Contains(got, strings.Repeat("abcdef01", 8)) {
+			t.Fatalf("planted secret survived")
+		}
+		if _, err := json.Marshal(got); err != nil {
+			t.Fatal(err)
+		}
+	})
+}

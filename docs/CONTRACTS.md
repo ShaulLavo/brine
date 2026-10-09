@@ -120,6 +120,9 @@ Human output identifies the local scope and shows each tool's requirement and ve
 
 | Code | Exit | Retryable | Safe message |
 | --- | --- | --- | --- |
+| `logs_ownership_refused` | 4 | false | Logs are readable only for an observed Brine-owned app unit. |
+| `logs_limit_exceeded` | 1 | false | The log response exceeds its bounded tail or byte limit; request a smaller tail. |
+| `logs_invalid_journal` | 1 | false | The journal response is malformed. |
 | `internal_error` | 1 | false | The operation failed. |
 | `invalid_usage` | 2 | false | Invalid command or arguments. Use --help for usage. |
 | `dependency_missing` | 3 | false | A required dependency is missing or incompatible. |
