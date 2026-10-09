@@ -24,10 +24,10 @@ type Dependencies struct {
 	RunTUI                func(context.Context, io.Reader, io.Writer) error
 	DoctorRunner          localexec.Runner // Optional; nil uses bounded local execution.
 	HostInventory         dispatch.Inventory
-	HostLogs              dispatch.LogReader
-	LogsClient            LogsClient
 	HostUID               func() int // Optional; nil reads the effective process UID.
 	OriginalCommandLength int
+	HostLogs              dispatch.LogReader
+	LogsClient            LogsClient
 }
 
 // NewRootCommand builds an independent command tree without executing it.
