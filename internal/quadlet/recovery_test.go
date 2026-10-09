@@ -6,11 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/ShaulLavo/brine/internal/target"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func TestFabricatedMarkerIsNotOwnership(t *testing.T) {
@@ -159,13 +160,13 @@ func TestCommittedHashesAreTheOnlyOverwriteAuthority(t *testing.T) {
 }
 
 func TestEveryCreatedParentMustBeSyncedOnRetry(t *testing.T) {
-	parents := []string{".", ".config", ".config/containers", ".local", ".local/share", ".local/share/brine", ".local/share/brine/quadlet"}
-	for _, parent := range parents {
-		t.Run(parent, func(t *testing.T) {
+	entries := []string{".config", ".config/containers", ActiveDirectory, ".local", ".local/share", ".local/share/brine", ".local/share/brine/quadlet", stagingDirectory, rollbackDirectory}
+	for _, entry := range entries {
+		t.Run(entry, func(t *testing.T) {
 			home := t.TempDir()
 			calls := 0
 			failing := func(root *os.Root, path string) error {
-				if path == parent {
+				if _, entryErr := root.Lstat(entry); path == filepath.Dir(entry) && entryErr == nil {
 					calls++
 					return errors.New("injected parent sync failure")
 				}
@@ -460,6 +461,61 @@ func TestEveryResumedStepRechecksParentOwnership(t *testing.T) {
 				t.Fatal("resumed step accepted replaced parent", err)
 			}
 			checkFile(t, filepath.Join(home, ActiveDirectory, old.Name()), old.Bytes())
+		})
+	}
+}
+
+func TestRollbackNamespaceChangeBeforeCheckpointStillRequiresSync(t *testing.T) {
+	for _, restore := range []bool{false, true} {
+		t.Run(map[bool]string{false: "remove", true: "restore"}[restore], func(t *testing.T) {
+			home := t.TempDir()
+			m, err := NewManager(home, accept())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer m.Close()
+			old, next := rendered(t, "old"), rendered(t, "next")
+			records := []target.Unit{}
+			if restore {
+				if _, err = m.Activate(context.Background(), old, nil); err != nil {
+					t.Fatal(err)
+				}
+				records = committed(old)
+			}
+			r, err := m.Activate(context.Background(), next, records)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = m.PrepareRollback(&r); err != nil {
+				t.Fatal(err)
+			}
+			for r.Rollback.State != RenamePending {
+				if err = m.AdvanceRollback(context.Background(), &r); err != nil {
+					t.Fatal(err)
+				}
+			}
+			persisted := cloneReceipt(t, r)
+			if err = m.AdvanceRollback(context.Background(), &r); err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			m.syncDir = func(path string) error {
+				if path == ActiveDirectory {
+					calls++
+					return errors.New("injected sync failure")
+				}
+				return m.syncDirectory(path)
+			}
+			if err = m.Rollback(context.Background(), &persisted); !errors.Is(err, ErrPublicationUnknown) {
+				t.Fatal("lost checkpoint skipped publication sync", err)
+			}
+			if calls != 1 || persisted.Rollback.State != ActiveSyncPending {
+				t.Fatal("pending namespace change was not reconciled")
+			}
+			m.syncDir = m.syncDirectory
+			if err = m.Rollback(context.Background(), &persisted); err != nil {
+				t.Fatal(err)
+			}
 		})
 	}
 }
