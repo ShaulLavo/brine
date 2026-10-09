@@ -48,6 +48,20 @@ func MakePlan(f Facts) (Plan, error) {
 			return fail()
 		}
 	}
+	for name, pattern := range map[string]string{"podman": `^(?:[0-9]+:)?5\.4(?:\.|-|$)`, "caddy": `^(?:[0-9]+:)?2\.6(?:\.|-|$)`, "passt": `^(?:[0-9]+:)?0\.0~git20250503\.`} {
+		count := 0
+		for _, pkg := range f.PackageInstall {
+			if strings.Split(pkg.Name, ":")[0] == name {
+				count++
+				if !regexp.MustCompile(pattern).MatchString(pkg.Version) {
+					return fail()
+				}
+			}
+		}
+		if count > 1 || (f.Packages[name] == "" && count != 1) {
+			return fail()
+		}
+	}
 	if s.Runner.User.Status != target.Absent && !f.OwnedRunner {
 		return fail()
 	}

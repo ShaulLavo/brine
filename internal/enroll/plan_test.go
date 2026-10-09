@@ -71,3 +71,23 @@ func TestDefaultTargetName(t *testing.T) {
 		}
 	}
 }
+
+func TestMissingRuntimeCandidatesMustBeSupported(t *testing.T) {
+	for _, tt := range []struct{ name, good, bad string }{{"podman", "5.4.2+ds1-2+b2", "9.0-1"}, {"caddy", "2.6.2-12+deb13u1", "2.10.0-1"}, {"passt", "0.0~git20250503.587980c-2", "0.0~git20260101.fixture"}} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := supported()
+			delete(f.Packages, tt.name)
+			for _, version := range []string{tt.bad, "", tt.good} {
+				f.PackageInstall = []Package{{Name: tt.name, Version: version}}
+				_, err := MakePlan(f)
+				if (err == nil) != (version == tt.good) {
+					t.Fatalf("candidate %q: %v", version, err)
+				}
+			}
+			f.PackageInstall = nil
+			if _, err := MakePlan(f); err == nil {
+				t.Fatal("unbound missing package accepted")
+			}
+		})
+	}
+}
