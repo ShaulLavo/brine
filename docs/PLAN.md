@@ -30,7 +30,7 @@ The existing repo is a Go/Cobra starter with Bubble Tea/Lip Gloss welcome UI, JS
   persistent SQLite volumes
 ~~~
 
-Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovisioning. The reference OS is Debian 13 (amd64 or arm64), and the owner's Raspberry Pi is the disposable test host (D2, D3). Go owns CLI/orchestration; Rust stays optional for a distinct component with demonstrated value. Use standard, replaceable tools instead of building a container engine or reverse proxy.
+Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovisioning. The reference OS is Debian 13 (amd64 or arm64), and the owner's Raspberry Pi is the disposable test host (D2, D3). Use standard, replaceable tools instead of building a container engine or reverse proxy.
 
 ## Decided MVP limits
 

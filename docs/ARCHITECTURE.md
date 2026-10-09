@@ -22,7 +22,7 @@ Human (Charm TUI)       Agent (JSON/non-interactive)
   Administration -- Tailscale --> Hetzner VPS
 ~~~
 
-Caddy, Podman, Litestream, systemd, and Tailscale are the **chosen integrations** ([decisions](DECISIONS.md)), not yet implemented by this repository. Rust components are welcome when there is a concrete reason to write them.
+Caddy, Podman, Litestream, systemd, and Tailscale are the **chosen integrations** ([decisions](DECISIONS.md)), not yet implemented by this repository.
 
 ## Guardrails
 

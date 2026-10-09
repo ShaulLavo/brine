@@ -6,7 +6,7 @@
 
 - [ ] **P06-01** Prove a server-side **policy/authorization boundary** owned by the operator, not the agent: restricted command dispatch, pinned policy, target ownership, separate credentials, forbidden arbitrary shell/Podman/Caddy/host teardown. Test bypass attempts.
 - [ ] **P06-02** Build preflight/readiness command that checks exact OS/runtime versions, disk capacity, DNS/TLS prerequisites, rootless systemd user session, control DB health, image registry access and backup status, without mutating the host.
-- [ ] **P06-03** Ship signed/versioned Go binaries and reproducible release metadata for supported platforms. Document upgrade/downgrade compatibility and backup the Brine control database. Rust helpers, if any, have separate version contracts.
+- [ ] **P06-03** Ship signed, versioned binaries and reproducible release metadata for supported platforms. Document upgrade/downgrade compatibility and backup the Brine control database.
 - [ ] **P06-04** Run disaster exercises: unhealthy release, Caddy drift, systemd restart, VPS reboot, lost connection, failed partial write, target disk full, and restore from actual R2 into a fresh isolated environment.
 - [ ] **P06-05** Document human-safe runbooks for credential rotation, app rollback, service ownership, manual Caddy repair, control DB recovery, off-host backups and **approved** live SQLite restoration.
 - [ ] **P06-06** Check limits/security: a single VPS is not HA, app trust boundaries are limited, R2 backups are asynchronous, data cleanup is opt-in and destructive commands are not included in v1. Provide a threat model and disclosure checklist.
