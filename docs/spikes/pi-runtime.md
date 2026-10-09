@@ -2,14 +2,14 @@
 
 Recorded 2026-10-08 against the decisions merged in `1fc96bf`. This is real-hardware evidence, not Brine implementation. No task checkboxes changed.
 
-The runtime assumptions held for the tested configuration. Boot recovery remains unverified because an active interactive session prevented a reboot. D1 also needs an explicit restriction on the parent directories of `authorized_keys`. Protecting only the file does not protect the SSH boundary.
+The runtime assumptions held for the tested configuration. A follow-up full reboot on 2026-10-09 verified automatic app recovery without a runner login. An unrelated graphical session started automatically, so recovery with every host user logged out remains unverified. D7 now protects the parent directories of `authorized_keys`; the earlier spike showed why protecting only the file is insufficient.
 
 ## Results
 
 | Question | Answer | Evidence limit |
 | --- | --- | --- |
 | 1. Debian package revisions | Works | Debian 13.6, arm64, distribution packages listed below |
-| 2. Rootless Quadlet and linger | Works with caveat | Starts and returns after runner user-manager restart; no full reboot |
+| 2. Rootless Quadlet and linger | Works with caveat | Full reboot; healthy at 25.02 seconds without runner login; unrelated graphical auto-login prevents an all-users-logged-out claim |
 | 3. Environment secret | Works | Container sees the value; ordinary container inspect and generated unit do not contain it |
 | 4. Caddy generation and reload-only rule | Works | Valid generation serves; invalid and duplicate candidates fail; other verbs and another unit are denied |
 | 5. App access to admin API | Works | Connection refused through container loopback and both generated host aliases |
@@ -159,6 +159,213 @@ no live sessions on known hosts
 ```
 
 An existing non-runner interactive session was active. The authorization required skipping the reboot in that case. No session was terminated or changed. Zero reboots were performed. The target's final `uptime -s` still preceded this spike by many hours.
+
+### Reboot drill
+
+Recorded 2026-10-09. The owner explicitly authorized this full reboot. Exactly one reboot ran, with no package installation or Caddy changes. Caddy stayed stopped and disabled.
+
+The app returned through linger before any post-boot command ran as `brine-spike`. This closes the full-reboot gap for the runner. It does **not** prove recovery with every host user logged out. The host automatically started an unrelated Wayland session before the app became healthy. Changing that login configuration or terminating the session was outside this drill's authority. A second reboot would not remove that limitation, so none ran.
+
+#### D7 layout and fixture
+
+Baseline checks confirmed passwordless `sudo -n true`, no `brine-spike` account or home, and no listener on fixture port 20001. Package revisions matched section 1. The runner used an empty skeleton and `/bin/sh`:
+
+```sh
+cd /tmp
+skel=$(sudo -n mktemp -d /tmp/brine-spike-empty-XXXXXX)
+sudo -n useradd --create-home --skel "$skel" --shell /bin/sh brine-spike
+sudo -n rmdir "$skel"
+sudo -n chown root:brine-spike /home/brine-spike
+sudo -n chmod 0755 /home/brine-spike
+sudo -n install -d -o root -g root -m 0755 /home/brine-spike/.ssh
+sudo -n install -d -o brine-spike -g brine-spike -m 0700 \
+ /home/brine-spike/.config /home/brine-spike/.local /home/brine-spike/.cache
+sudo -n loginctl enable-linger brine-spike
+```
+
+The `runner` helper from section 1 also set `HOME=/home/brine-spike`. Commands ran from `/tmp`, not the operator's home. The fixture content lived at `.local/share/brine-spike/www/index.html` and contained `brine reboot fixture`. The probe script and health marker lived below `.local`, never at the protected home top level.
+
+The same multi-platform index digest selected the same arm64 configuration digest as section 2. A new manifest inspection confirmed both `amd64` and `arm64`. The source unit was:
+
+```ini
+[Unit]
+Description=Disposable Brine reboot fixture
+[Container]
+Image=docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e
+ContainerName=brine-fixture
+PublishPort=$LOOPBACK:20001:8080
+Volume=/home/brine-spike/.local/share/brine-spike/www:/www:ro
+Exec=httpd -f -p 8080 -h /www
+[Service]
+ExecStartPost=/home/brine-spike/.local/bin/brine-spike-health
+TimeoutStartSec=180
+[Install]
+WantedBy=default.target
+```
+
+As elsewhere in this report, `$LOOPBACK` replaces the literal loopback address used on the host. The actual unit did not depend on an environment substitution. No secret, SSH key, dispatcher, Caddy route, or additional system service was installed.
+
+`brine-spike-health` ran as the runner inside the app's user service. It polled HTTP with a one-second request timeout and one-second retry interval, for at most 120 attempts. After receiving the exact fixture body, it recorded the current boot ID, monotonic uptime, UTC time, session count, and runner linger/session properties. The executed script used the literal loopback address where the sanitized version uses `$LOOPBACK`:
+
+```sh
+#!/bin/sh
+set -eu
+n=0
+while [ "$n" -lt 120 ]; do
+ if [ "$(curl -fsS --max-time 1 "http://$LOOPBACK:20001/" 2>/dev/null)" = 'brine reboot fixture' ]; then
+  {
+   printf 'boot_id='; cat /proc/sys/kernel/random/boot_id
+   printf 'healthy_uptime_seconds='; cut -d ' ' -f 1 /proc/uptime
+   printf 'healthy_utc='; date -u +%FT%TZ
+   printf 'host_sessions_at_health='; loginctl list-sessions --no-legend | wc -l
+   loginctl show-user brine-spike -p Linger -p Sessions
+  } > /home/brine-spike/.local/state/brine-spike/healthy
+  exit 0
+ fi
+ n=$((n+1))
+ sleep 1
+done
+exit 1
+```
+
+#### Full reboot and independent observation
+
+Before reboot, the fixture was started once and served the expected body:
+
+```sh
+runner systemctl --user daemon-reload
+runner systemctl --user start brine-fixture.service
+uptime -s
+runner podman inspect brine-fixture \
+ --format '{{.State.StartedAt}} {{.ImageDigest}} {{.State.Running}}'
+curl -fsS "http://$LOOPBACK:20001/"
+sudo -n systemctl reboot
+```
+
+The previous boot time was `2026-10-07 23:35:22` in the host's local time zone. The container started at `2026-10-09 05:20:45.664953914 +0300`. It reported the pinned index digest and `running=true`. Reboot was requested at `2026-10-09T02:21:02Z`.
+
+The client polled SSH with a ten-minute deadline, a five-second connection timeout, and five seconds between attempts. It required a **different boot ID**, not merely a successful SSH connection:
+
+```sh
+deadline=$((SECONDS+600))
+while ((SECONDS<deadline)); do
+ boot=$(ssh -o BatchMode=yes -o ConnectTimeout=5 -o ConnectionAttempts=1 \
+  "$TARGET" 'cat /proc/sys/kernel/random/boot_id' 2>/dev/null || true)
+ if [[ -n "$boot" && "$boot" != "$previous_boot_id" ]]; then
+  printf 'REBOOT_RETURNED\n'
+  exit 0
+ fi
+ sleep 5
+done
+printf 'REBOOT_RETURN_TIMEOUT_STOP\n'
+exit 1
+```
+
+The poll observed the new boot at `2026-10-09T02:21:53Z`, within the deadline. The deadline was a stop condition, not permission for another reboot or recovery action.
+
+The first detailed operator observation checked the user manager, linger state, HTTP response, and preexisting health marker **before** invoking the runner helper:
+
+```sh
+uptime -s
+cat /proc/sys/kernel/random/boot_id
+sudo -n systemctl show user@1001.service \
+ -p ActiveState -p SubState -p ActiveEnterTimestampMonotonic
+loginctl show-user brine-spike -p Linger -p Sessions -p State -p RuntimePath
+curl -fsS --max-time 3 "http://$LOOPBACK:20001/"
+sudo -n cat /home/brine-spike/.local/state/brine-spike/healthy
+```
+
+Trimmed output:
+
+```text
+boot_time=2026-10-09 05:21:29
+operator_observation_uptime_seconds=49.53
+ActiveState=active
+SubState=running
+ActiveEnterTimestampMonotonic=17298211
+RuntimePath=/run/user/1001
+State=lingering
+Sessions=1
+Linger=yes
+brine reboot fixture
+healthy_uptime_seconds=25.02
+healthy_utc=2026-10-09T02:21:36Z
+host_sessions_at_health=3
+Sessions=1
+Linger=yes
+```
+
+The marker's boot ID matched the current boot and differed from the pre-reboot ID. Session `1` belonged to the runner's user manager, with `Class=manager`, `Type=unspecified`, no TTY, and `Remote=no`. There was no runner SSH or interactive login.
+
+The other two sessions present at health were an unrelated user manager and an unrelated local Wayland session. The Wayland session began at monotonic `16.583436` seconds, before the health marker. The detailed operator SSH observation began at `49.379611` seconds, after health. No session was terminated or reconfigured.
+
+Subsequent runner inspection returned:
+
+```text
+Result=success
+NRestarts=0
+ExecMainStartTimestampMonotonic=24750000
+ActiveState=active
+SubState=running
+ActiveEnterTimestampMonotonic=25077946
+started=2026-10-09 05:21:36.594655153 +0300
+running=true
+```
+
+The user manager was active at **17.298211 seconds** after boot. The app's main process began at **24.75 seconds**. The first successful HTTP probe was recorded at **25.02 seconds**, and the service entered active state at **25.077946 seconds**. No post-boot `start`, `restart`, `daemon-reload`, or Podman command was needed for recovery.
+
+These are monotonic measurements, not a performance baseline. The marker's wall-clock time and the later `uptime -s` do not yield the same interval. The drill did not establish the cause of that clock discrepancy. Subtracting those wall-clock values would incorrectly report about seven seconds instead of the measured 25.02 seconds.
+
+#### D7 and rootless runtime after reboot
+
+Rootless Podman worked with the operator-owned home across the full reboot:
+
+```text
+graphRoot=/home/brine-spike/.local/share/containers/storage
+runRoot=/run/user/1001/containers
+rootless=true
+XDG_RUNTIME_DIR=/run/user/1001
+user_bus_socket_present=true
+architecture=arm64
+size=4352992
+```
+
+The home remained `root:brine-spike`, mode `0755`. `.config`, `.local`, `.cache`, and `/run/user/1001` were runner-owned, mode `0700`. The recreated pause PID file was `/run/user/1001/libpod/tmp/pause.pid`; its live process was runner-owned `catatonit`, PID 1513. The user-manager, pause, pasta, conmon, and HTTP processes all ran under the fixture UID. The stored image remained available without another pull.
+
+Attempts as the runner to create `.bashrc`, `.profile`, and `.bash_logout` at the home's top level failed. `sshd -T` reported `permituserenvironment no`; the inspected SSH PAM entries had no `user_readenv` option. This was a layout/runtime drill, not full D7 enrollment or restricted-dispatcher evidence.
+
+D7 exposed a cleanup surprise. `userdel --remove brine-spike` removed the account but returned exit 12 and refused to remove the root-owned home:
+
+```text
+userdel: /home/brine-spike not owned by brine-spike, not removing
+```
+
+Cleanup first reconciled account absence and the home's ownership. It then explicitly removed only `/home/brine-spike`, which this drill had created. It did not change ownership recursively or retry account removal blindly. D7 enrollment cleanup must handle this operator-owned directory explicitly.
+
+#### Cleanup and remaining state
+
+Cleanup stopped the fixture, removed its Quadlet source, reloaded the user manager, and removed the pinned image. Container, image, secret, and volume listings were empty. After source removal, the generated unit reported `LoadState=not-found` with retained `ActiveState=failed` bookkeeping; the fixture-only journal query returned no entries. That state was removed with the fixture user manager, not treated as a live container.
+
+`podman system migrate` released the fixture user's pause process. Cleanup disabled linger, terminated only this user's manager, waited until no fixture-UID processes remained, removed the account, and handled the D7 home-removal refusal above.
+
+Final checks returned:
+
+```text
+runner_account_absent=true
+fixture_home_linger_runtime_mail_absent=true
+runner_subid_entries_absent=true
+fixture_port_listener_absent=true
+runner_processes_absent=true
+ActiveState=inactive
+SubState=dead
+caddy_active=inactive
+caddy_enabled=disabled
+full_reboots_executed=1
+```
+
+No fixture container, image, unit, marker, probe script, home, runtime directory, subordinate-ID entry, or linger entry remains. The already-installed packages and package-owned state from the earlier spike remain unchanged. The host has a new boot; system logs and account-management records can remain. No other user, service configuration, tailnet, firewall, or unrelated data was changed.
+
+No phase checkbox changed. This proves automatic full-reboot recovery of this rootless fixture without runner login or a Brine process. It leaves the stricter all-users-logged-out case open, and it does not replace integration tests of the eventual Brine adapters.
 
 ## 3. Environment secret is visible only where expected
 
@@ -421,13 +628,13 @@ Required phase-plan additions:
 
 - P02-02 and P06-01 must test writable ancestors, not only the owner and mode of `authorized_keys`. The operator-owned-home option avoids changing SSH configuration for other users.
 - P02-02 must ensure the runner command's working directory is accessible and provide the user bus environment for non-login operator sessions. Initial `sudo -u` Podman invocation failed because it inherited an inaccessible operator home. Moving to `/tmp` resolved it without changing other users' permissions.
-- P02-03 and P02-06 must retain the full reboot drill. A lingering manager restart is useful evidence but does not satisfy T06 or the phase exit gate. An idle, explicitly authorized window is still required.
+- P02-03 and P02-06 must retain the full reboot drill against Brine's eventual adapters. The follow-up reboot drill proves fixture recovery through linger without a runner login. A separate authorized window without automatic interactive login is needed to prove the stricter all-users-logged-out case.
 - P02-04 must bind and verify both the multi-platform index and the selected platform manifest. `podman inspect .ImageDigest` reported the index digest in this probe.
 - P02-05 must probe both container loopback and generated host aliases. It must also cover failed reload and unknown-outcome reconciliation, which this spike did not exercise.
 - P03's operation test must disconnect through the real dispatcher, record intent before unit launch, and verify completion after unit garbage collection.
 - Enrollment must describe package post-install service activation. Installing Caddy started and enabled it immediately; installing netavark also enabled package-managed units and activated its DHCP proxy socket.
 
-D2, D4, D5, and D6 need no replacement based on the observed behavior. The reboot part of D1 remains an assumption, not a disproved decision.
+D2, D4, D5, and D6 need no replacement based on the observed behavior. The follow-up reboot drill supports D1's linger recovery assumption for this fixture. It does not prove recovery with every host user logged out.
 
 ## Cleanup and exact remaining state
 
@@ -468,4 +675,4 @@ Package-owned directories, package defaults, Caddy's clean autosave, apt logs, a
 
 ## Verification limits
 
-This spike covers the requested runtime probes on one arm64 machine. It is not proof of an amd64 deploy, production authorization, successful R2 restore, reboot recovery, or complete T05/T11/T17 coverage. No VPS, tailnet, firewall, existing interactive session, or unrelated service was modified.
+This spike covers runtime probes and full-reboot recovery without a runner login on one arm64 machine. It is not proof of an amd64 deploy, production authorization, successful R2 restore, recovery with all host users logged out, or complete T05/T11/T17 coverage. The authorized reboot interrupted the host's existing sessions. No session was separately terminated or reconfigured, and no VPS, tailnet, firewall, unrelated service configuration, or unrelated data was changed.
