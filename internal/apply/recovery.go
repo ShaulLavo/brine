@@ -30,15 +30,16 @@ const (
 // InspectRecovery and Recover must run under the same host lock. A Recovery is
 // single-use; callers must inspect again after any journal or adapter failure.
 type Recovery struct {
-	Action    RecoveryAction `json:"action"`
-	Step      string         `json:"step,omitempty"`
-	operation Operation
-	execution *execution
-	completed map[string]bool
-	resolved  bool
-	decision  RecoveryAction
-	boundary  string
-	used      *atomic.Bool
+	Action          RecoveryAction `json:"action"`
+	Step            string         `json:"step,omitempty"`
+	operation       Operation
+	execution       *execution
+	completed       map[string]bool
+	unknownBoundary bool
+	resolved        bool
+	decision        RecoveryAction
+	boundary        string
+	used            *atomic.Bool
 }
 
 var forwardSteps = []string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "start_unit", "check_direct", "publish_route", "check_routed", "commit"}
@@ -216,6 +217,11 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 		return errors.New("apply: invalid recovery assessment")
 	}
 	x := r.execution
+	if r.unknownBoundary {
+		if err := x.event(ctx, r.Step, "unknown", "interrupted"); err != nil {
+			return err
+		}
+	}
 	if r.resolved {
 		if err := x.event(ctx, r.Step, "completed", ""); err != nil {
 			return err

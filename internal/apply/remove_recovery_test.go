@@ -72,7 +72,7 @@ func TestRemoveRecoveryEachEffectBoundary(t *testing.T) {
 	}
 }
 func TestRemoveRecoveryDriftAndUnknownWriterFailClosed(t *testing.T) {
-	for _, drift := range []string{"route", "unit", "generation", "policy", "writer", "job"} {
+	for _, drift := range []string{"route", "unit", "generation", "policy", "writer", "job", "extra_unit"} {
 		t.Run(drift, func(t *testing.T) {
 			r := newRemoveRig(t)
 			applyRemoveBoundary(t, r, "withdraw_route")
@@ -82,6 +82,9 @@ func TestRemoveRecoveryDriftAndUnknownWriterFailClosed(t *testing.T) {
 			switch drift {
 			case "route":
 				r.facts.Input.Snapshot.CaddyConfig.Value.Files = append(r.facts.Input.Snapshot.CaddyConfig.Value.Files, target.CaddyFile{Name: "foreign.caddy", Hash: r.plan.Removal.Route.Hash})
+			case "extra_unit":
+				unit := target.Unit{Name: "hello.volume", Hash: r.plan.Removal.Route.Hash}
+				(*r.facts.Input.Snapshot.Apps.Value)[0].QuadletUnits.Value = &[]target.Unit{r.plan.Removal.Units[0], unit}
 			case "unit":
 				(*r.facts.Input.Snapshot.Apps.Value)[0].QuadletUnits.Value = &[]target.Unit{{Name: "hello.container", Hash: r.plan.Removal.Route.Hash}}
 			case "generation":

@@ -47,6 +47,7 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 			return r, nil
 		}
 	}
+	r.unknownBoundary = last.Outcome == "intent"
 	if r.Step == "" {
 		return r, nil
 	}
@@ -106,6 +107,22 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 	x.service, err = systemd.ParseUnit(p.App + ".service")
 	if err != nil {
 		return r, nil
+	}
+	if x.facts.Input.Snapshot.Apps.Value == nil {
+		return r, nil
+	}
+	for _, app := range *x.facts.Input.Snapshot.Apps.Value {
+		if app.Name != p.App {
+			continue
+		}
+		if app.QuadletUnits.Value == nil || app.QuadletUnits.Status != "known" || len(*app.QuadletUnits.Value) > 1 {
+			return r, nil
+		}
+		for _, unit := range *app.QuadletUnits.Value {
+			if unit != p.Removal.Units[0] {
+				return r, nil
+			}
+		}
 	}
 	unit := p.Removal.Units[0]
 	unitHash, known := observedUnitHash(x.facts, p.App, unit.Name)

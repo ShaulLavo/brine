@@ -23,11 +23,12 @@ type Edit struct {
 	Action string `json:"action"`
 }
 type ConfigPlan struct {
-	Lifecycle plan.ChangeKind         `json:"lifecycle,omitempty"`
-	PlanID    string                  `json:"plan_id"`
-	Kind      plan.Kind               `json:"kind"`
-	Diff      *plan.ConfigurationDiff `json:"diff"`
-	Conflicts []plan.Diagnostic       `json:"conflicts"`
+	SecretRetention string                  `json:"secret_retention,omitempty"`
+	Lifecycle       plan.ChangeKind         `json:"lifecycle,omitempty"`
+	PlanID          string                  `json:"plan_id"`
+	Kind            plan.Kind               `json:"kind"`
+	Diff            *plan.ConfigurationDiff `json:"diff"`
+	Conflicts       []plan.Diagnostic       `json:"conflicts"`
 }
 
 func SpecFromDesired(d policy.Desired) spec.App {
@@ -158,7 +159,11 @@ func (s Service) saveConfig(ctx context.Context, p plan.Plan, d policy.Desired) 
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	return ConfigPlan{Lifecycle: p.Lifecycle, PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}, nil
+	out := ConfigPlan{Lifecycle: p.Lifecycle, PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}
+	if p.Lifecycle == plan.RemoveApp {
+		out.SecretRetention = "d5_retained_releases"
+	}
+	return out, nil
 }
 func (s Service) ConfigSet(ctx context.Context, app string, edits []Edit) (ConfigPlan, error) {
 	in, pol, err := s.currentInput(ctx, app)
