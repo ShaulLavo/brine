@@ -222,6 +222,19 @@ func (h *host) checkUndoHome() error {
 		return nil
 	}
 	allowed := map[string]bool{home: true, home + "/.ssh": true, home + "/.config": true, home + "/.cache": true, home + "/.local": true, home + "/.local/state": true, home + "/.local/state/brine": true}
+	root, e := os.OpenRoot(home)
+	if e == nil {
+		err := h.checkRuntime(root)
+		root.Close()
+		if err != nil {
+			return err
+		}
+	} else if !errors.Is(e, os.ErrNotExist) {
+		return e
+	}
+	for p := range h.runtimeHomeAllowed() {
+		allowed[p] = true
+	}
 	for p := range h.r.Files {
 		if strings.HasPrefix(p, home+"/") {
 			allowed[p] = true

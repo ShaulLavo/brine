@@ -69,7 +69,21 @@ func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localex
 		if remote == "printf brine-unrestricted-key" {
 			f.restrictions++
 		}
-		data, err = json.Marshal(result.Success("brine host ping", dispatch.PingData{ServerVersion: "fixture", ProtocolVersions: []int{1}}))
+		var request dispatch.Request
+		_ = json.Unmarshal(c.Stdin, &request)
+		if request.Op == "inventory" {
+			fixture, e := os.ReadFile("../target/testdata/ready-arm64.json")
+			if e != nil {
+				return localexec.Output{}, e
+			}
+			snapshot, e := target.Decode(fixture)
+			if e != nil {
+				return localexec.Output{}, e
+			}
+			data, err = json.Marshal(result.Success("brine host inventory", snapshot))
+		} else {
+			data, err = json.Marshal(result.Success("brine host ping", dispatch.PingData{ServerVersion: "fixture", ProtocolVersions: []int{1}}))
+		}
 	default:
 		return localexec.Output{}, errors.New("unexpected fake command")
 	}

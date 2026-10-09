@@ -53,17 +53,18 @@ type ownedDir struct {
 	GID   int    `json:"gid"`
 }
 type hostRecord struct {
-	Journal      Journal              `json:"journal"`
-	ID           string               `json:"id"`
-	Key          string               `json:"key"`
-	BinaryHash   string               `json:"binary_hash"`
-	GID          int                  `json:"gid"`
-	UID          int                  `json:"uid"`
-	Files        map[string]ownedFile `json:"files"`
-	Dirs         map[string]ownedDir  `json:"dirs"`
-	Packages     []Package            `json:"packages"`
-	CaddyActive  bool                 `json:"caddy_active"`
-	CaddyEnabled bool                 `json:"caddy_enabled"`
+	Runtime      map[string]runtimeFile `json:"runtime"`
+	Journal      Journal                `json:"journal"`
+	ID           string                 `json:"id"`
+	Key          string                 `json:"key"`
+	BinaryHash   string                 `json:"binary_hash"`
+	GID          int                    `json:"gid"`
+	UID          int                    `json:"uid"`
+	Files        map[string]ownedFile   `json:"files"`
+	Dirs         map[string]ownedDir    `json:"dirs"`
+	Packages     []Package              `json:"packages"`
+	CaddyActive  bool                   `json:"caddy_active"`
+	CaddyEnabled bool                   `json:"caddy_enabled"`
 }
 type host struct {
 	r           hostRecord
@@ -808,6 +809,9 @@ func (h *host) bypass(ctx context.Context) (bool, error) {
 	return true, nil
 }
 func (h *host) finishVerification(ctx context.Context) error {
+	if err := h.captureRuntime(ctx); err != nil {
+		return err
+	}
 	if _, err := os.Lstat(home + "/.local/state/brine/startup-ran"); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("planted startup file ran")
 	}

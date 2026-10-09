@@ -248,6 +248,10 @@ func (c Client) Run(ctx context.Context, o Options) error {
 	if _, err = tc.VerifyRestriction(ctx, target, request); err != nil {
 		return err
 	}
+	request.Op = "inventory"
+	if _, err = tc.Call(ctx, target, request); err != nil {
+		return err
+	}
 	data, err = call("verify", "")
 	if err != nil {
 		return err
