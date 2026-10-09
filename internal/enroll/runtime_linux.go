@@ -98,9 +98,9 @@ func (h *host) captureRuntime(ctx context.Context) error {
 		return err
 	}
 	defer root.Close()
-	if h.r.Runtime != nil {
-		return h.checkRuntime(root)
-	}
+	// Verification is operator-authorized and repeats empty-resource checks before
+	// refreshing hashes: even read-only Podman queries update SQLite metadata.
+	// Undo never refreshes these hashes; it fails closed on subsequent drift.
 	if _, err = root.Lstat(".local/share"); errors.Is(err, os.ErrNotExist) {
 		h.r.Runtime = map[string]runtimeFile{}
 		return h.Save(h.r.Journal)
