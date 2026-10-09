@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -309,6 +310,14 @@ func validate(raw rawApp) (App, error) {
 		}
 		if strings.IndexByte(value, 0) >= 0 {
 			return app, refusal("spec.invalid_environment_value", "environment", "environment values cannot contain NUL")
+		}
+		if !utf8.ValidString(value) {
+			return app, refusal("spec.invalid_environment_value", "environment", "environment values must be valid UTF-8")
+		}
+		for _, r := range value {
+			if (unicode.IsControl(r) || unicode.IsSpace(r)) && r != ' ' && r != '\n' && r != '\r' && r != '\t' {
+				return app, refusal("spec.invalid_environment_value", "environment", "unsupported environment control or whitespace character")
+			}
 		}
 		app.Environment[key] = value
 	}

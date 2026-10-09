@@ -330,3 +330,17 @@ func testEnvKey(s string) bool {
 	}
 	return strings.Trim(s, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_") == ""
 }
+
+func TestEnvironmentControlRefusalBeforeRuntimeRendering(t *testing.T) {
+	base, err := os.ReadFile("testdata/valid-minimal.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{`\u0001`, `\u000B`, `\u007F`, `\u0085`, ` `, ` `} {
+		_, err := Parse(append(append([]byte{}, base...), []byte("\n[environment]\nVALUE=\""+value+"\"\n")...))
+		var refusal *Error
+		if !errors.As(err, &refusal) || refusal.Code != "spec.invalid_environment_value" || refusal.Field != "environment" {
+			t.Fatalf("did not refuse control at spec boundary: %s %v", value, err)
+		}
+	}
+}
