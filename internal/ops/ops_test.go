@@ -27,3 +27,22 @@ func TestVerifiedNoOpAndKnownFailedCommitTransitions(t *testing.T) {
 		}
 	}
 }
+
+func TestCompletedCompatibilityProofCodes(t *testing.T) {
+	for _, code := range []string{"stateless_compatible", "compatibility_verified"} {
+		payload := func(step, outcome string) []byte {
+			return []byte(`{"step":"` + step + `","outcome":"` + outcome + `","code":"` + code + `"}`)
+		}
+		if e := ValidateEvent(Event{Kind: "step", Payload: payload("check_compatibility", "completed")}); e != nil {
+			t.Errorf("compatibility proof refused: %v", e)
+		}
+		for _, p := range []struct{ step, outcome string }{{"check_direct", "completed"}, {"check_compatibility", "intent"}, {"check_compatibility", "failed"}, {"check_compatibility", "unknown"}} {
+			if ValidateEvent(Event{Kind: "step", Payload: payload(p.step, p.outcome)}) == nil {
+				t.Errorf("proof code accepted for %s/%s", p.step, p.outcome)
+			}
+		}
+	}
+	if ValidateEvent(Event{Kind: "step", Payload: []byte(`{"step":"check_compatibility","outcome":"completed","code":"health_failed"}`)}) == nil {
+		t.Fatal("failure code accepted as compatibility proof")
+	}
+}

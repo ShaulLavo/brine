@@ -138,8 +138,15 @@ func ValidateEvent(e Event) error {
 		if decode(&p, "step", "outcome") != nil && decode(&p, "step", "outcome", "code") != nil || !slices.Contains([]string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "start_unit", "check_direct", "publish_route", "check_routed", "commit", "rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_route", "check_compatibility", "rollback_start", "rollback_check"}, p.Step) || !slices.Contains([]string{"intent", "completed", "failed", "unknown"}, p.Outcome) {
 			return ErrInvalidEvent
 		}
-		if p.Code != "" && (p.Outcome != "failed" && p.Outcome != "unknown" || !slices.Contains([]string{"drift", "digest_mismatch", "platform_mismatch", "secret_missing", "unit_invalid", "start_failed", "health_timeout", "health_failed", "route_invalid", "reload_failed", "reload_unknown", "journal_failed", "interrupted", "inventory_failed", "stop_failed", "unit_failed", "commit_failed", "rollback_failed", "compatibility_unknown"}, p.Code)) {
-			return ErrInvalidEvent
+		if p.Code != "" {
+			proof := slices.Contains([]string{"stateless_compatible", "compatibility_verified"}, p.Code)
+			if proof {
+				if p.Step != "check_compatibility" || p.Outcome != "completed" {
+					return ErrInvalidEvent
+				}
+			} else if p.Outcome != "failed" && p.Outcome != "unknown" || !slices.Contains([]string{"drift", "digest_mismatch", "platform_mismatch", "secret_missing", "unit_invalid", "start_failed", "health_timeout", "health_failed", "route_invalid", "reload_failed", "reload_unknown", "journal_failed", "interrupted", "inventory_failed", "stop_failed", "unit_failed", "commit_failed", "rollback_failed", "compatibility_unknown"}, p.Code) {
+				return ErrInvalidEvent
+			}
 		}
 	case "failure":
 		var p FailurePayload
