@@ -91,3 +91,11 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
 - These are local collector/planner and real-adapter fixtures, not a successful
   Pi update, rollback, removal, recovery or R2 restore. Physical reruns belong
   to the separately authorized host lane.
+
+- Review regression: real Caddy v2.6.2 adapts an unused snippet containing the
+  generation import plus an equivalent root-owned site to the same JSON as a
+  real imported site. The failing-first collector/planner test proves route
+  equality alone cannot establish import execution. Reusing D4's root lexer
+  now leaves provenance unknown and refuses the update. Source-context tests
+  also refuse imports in site blocks, named routes, other files and roots with
+  additional imports.

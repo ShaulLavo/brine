@@ -294,3 +294,46 @@ func TestImportedOperatorFileCannotBorrowAppProvenance(t *testing.T) {
 	}
 	t.Fatalf("foreign file ownership lost: %+v", p)
 }
+
+func TestUnusedSnippetCannotClaimRootRoute(t *testing.T) {
+	f, r := productionRoutes(t, false)
+	f.files["/etc/caddy/Caddyfile"] = "{\n local_certs\n}\n(unused) {\n import /etc/caddy/brine/current/*.caddy\n}\n" + f.files["/etc/caddy/brine/current/hello.caddy"]
+	whole, e := os.ReadFile("testdata/unused-snippet.json")
+	if e != nil {
+		t.Fatal(e)
+	}
+	r["caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile"] = string(whole)
+	r["curl --disable --noproxy * --silent --fail --max-time 2 http://127.0.0.1:2019/config/"] = string(whole)
+	s := measureRoutes(t, f, r)
+	in := routePlanInput(t, "one-app")
+	in.Snapshot.CaddyConfig = s.CaddyConfig
+	in.Snapshot.LiveCaddyFiles = s.LiveCaddyFiles
+	app := (*in.Snapshot.Apps.Value)[0]
+	in.State.Releases = []plan.CurrentRelease{{App: "hello", ID: "release-0001", Desired: in.Desired, Image: in.Image, HostPort: *app.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: *app.QuadletUnits.Value, CaddyFile: s.CaddyConfig.Value.Files[0]}}
+	in.Desired.Environment = []policy.Environment{{Name: "RELEASE", Value: "two"}}
+	p, e := plan.Build(in)
+	if e != nil || p.Kind != plan.Conflict || s.LiveCaddyFiles.Status != target.Unknown {
+		t.Fatalf("unused import authorized update: %+v %v; observed routes %+v", p, e, s.LiveCaddyFiles)
+	}
+}
+
+func TestBrineImportRequiresRootExecutionContext(t *testing.T) {
+	for _, test := range []struct{ name, root string }{
+		{"unused snippet", "(unused) {\n import /etc/caddy/brine/current/*.caddy\n}\n"},
+		{"site block", "hello.example.com {\n import /etc/caddy/brine/current/*.caddy\n}\n"},
+		{"named route", "&(unused) {\n import /etc/caddy/brine/current/*.caddy\n}\n"},
+		{"additional root import", "import /etc/caddy/brine/current/*.caddy\nimport /etc/caddy/operator.caddy\n"},
+		{"another file", "import /etc/caddy/operator.caddy\n"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			f, r := productionRoutes(t, false)
+			f.files["/etc/caddy/Caddyfile"] = test.root
+			f.dirs["/etc/caddy"] = []os.DirEntry{fixtureEntry("operator.caddy")}
+			f.files["/etc/caddy/operator.caddy"] = "(unused) {\n import /etc/caddy/brine/current/*.caddy\n}\n"
+			s := measureRoutes(t, f, r)
+			if s.LiveCaddyFiles.Status != target.Unknown {
+				t.Fatalf("ambiguous import executed: %+v", s.LiveCaddyFiles)
+			}
+		})
+	}
+}

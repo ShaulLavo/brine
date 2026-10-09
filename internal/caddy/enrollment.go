@@ -5,6 +5,12 @@ import (
 	"errors"
 )
 
+// ValidateInventoryRoot applies D4's import execution-context restrictions.
+func ValidateInventoryRoot(main []byte) error {
+	_, err := candidateRoot(main, "/etc/caddy/brine", "gen-0")
+	return err
+}
+
 // EnrollmentRoot adds the fixed import and applies the same source restrictions
 // as candidate validation. Existing Brine imports are not silently adopted.
 func EnrollmentRoot(main []byte) ([]byte, error) {
