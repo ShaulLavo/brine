@@ -57,7 +57,7 @@ func Execute(deps Dependencies, args []string) error {
 		var writeErr error
 		if err != nil {
 			writeErr = json.NewEncoder(stdout).Encode(result.Failure(name, err))
-		} else if json.Valid(output.Bytes()) {
+		} else if json.Valid(output.Bytes()) || (modes.jsonl && validEnvelopeStream(output.Bytes(), name)) {
 			_, writeErr = stdout.Write(output.Bytes())
 		} else {
 			writeErr = json.NewEncoder(stdout).Encode(result.Success(name, map[string]string{"help": output.String()}))
@@ -73,3 +73,16 @@ func Execute(deps Dependencies, args []string) error {
 }
 
 func usageError(_ *cobra.Command, err error) error { return result.New(result.InvalidUsage, err) }
+
+func validEnvelopeStream(data []byte, command string) bool {
+	if len(data) == 0 || data[len(data)-1] != '\n' {
+		return false
+	}
+	for _, line := range bytes.Split(data[:len(data)-1], []byte("\n")) {
+		var e result.Envelope
+		if json.Unmarshal(line, &e) != nil || e.SchemaVersion != result.SchemaVersion || e.Command != command || !e.OK || e.Error != nil {
+			return false
+		}
+	}
+	return true
+}
