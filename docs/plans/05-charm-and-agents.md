@@ -12,6 +12,8 @@
 - [ ] **P05-06** Write example automation scripts that call Brine with noninteractive flags; avoid having agents scrape terminal rendering or infer success from a green icon.
 - [ ] **P05-07** Snapshot and integration-test human/JSON parity for one successful and one failed deployment, including an interrupted client and resumed operation observation.
 
+- [ ] **P05-08** Agent guide: a short document an agent such as ChatGPT can be given to manage a host end to end. It covers commands, the plan/apply flow, reading `kind` and exit codes, `diagnose`-first troubleshooting, and what is refused and why.
+
 ### Exit gate
 
 An agent can plan, apply, poll and diagnose with structured responses; a human can perform the same actions through a readable TUI backed by identical domain functions. No TUI parser or second deploy engine exists.

@@ -21,11 +21,11 @@
 | T15 | Prevent duplicate replicator on same destination | Second replicator refused before data corruption | 04 |
 | T16 | Rollback after schema-breaking migration | Automatic rewind refused; recovery-required state | 03/04 |
 | T17 | Malicious app name, domain, environment or plan ID | No argv/shell injection, path escape or arbitrary admin command | 00-04 |
-| T18 | Unprivileged agent attempts removal/teardown | Policy boundary refuses independently of CLI UI flags | 06 |
+| T18 | Agent key attempts an operation outside the allowlist (shell, raw Podman/Caddy, non-Brine software, purge or live restore when policy forbids), invokes the root helper directly, forges an operation record, or substitutes a path/symlink | Dispatcher and root helper each refuse independently of CLI flags and runner-writable state | 06 |
 | T19 | Operator performs real R2 restore drill to disposable destination | Restore procedure and resulting DB independently verified | 04/06 |
 | T20 | Machine/human parity | Same operation ID and status across JSON CLI/TUI | 05 |
 | T21 | Limited disk space, killed process, partial write | Safe recoverable state; no loss of previous release/config | 03/06 |
-| T22 | App data cleanup request | Data retained by default; destructive operation unavailable in v1 | 03/06 |
+| T22 | App removal, recreate, expiry and purge | Removal archives under an immutable ID with a restorable backup set for 30 days; remove-recreate-expire never touches the new app; purge only when policy allows; interrupted archive/purge recovers | 03/04/06 |
 | T23 | Secrets in logs, plans, TUI or JSON errors | Redaction tests and audit of subprocess output paths | 00-06 |
 | T24 | Release binary from fresh environment | Go tests, vet, build and version metadata pass | 06 |
 

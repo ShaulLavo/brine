@@ -87,3 +87,41 @@ A forced command still runs through the account's login shell (`$SHELL -c`), and
 Enrollment and P06-01 tests run as the runner and must fail to: replace the key file or any parent directory; create a top-level startup file; or run anything but the dispatcher through the real restricted key, including when a startup file has been planted.
 
 Enrollment must also account for packages that start services on install. On the spike host, installing Caddy enabled and started it at once with its default site. Installing netavark enabled its DHCP proxy units, activated the DHCP proxy socket, and enabled a firewalld-reload unit. Enrollment lists these effects before asking for confirmation. It prevents Caddy from starting on install, for example by masking it first, so the default site is never exposed before Brine's config is in place.
+
+## D8. Agents manage the whole lifecycle, through Brine operations only
+
+Added 2026-10-09 by the owner. Brine exists so an agent (ChatGPT, Claude, Codex or a script) can run everything on a host, not only deploy. "Restricted" means the agent acts only through Brine's typed, recorded operations, never a shell. It doesn't mean the agent may do little.
+
+The dispatcher's allowlist (D1) grows to cover:
+
+- **App lifecycle:** deploy, update config (environment, resources, domains, health), set and rotate secrets, restart, stop and start, roll back, remove.
+- **Diagnostics,** all read-only: status, logs, health, operation history and diffs, inventory, Caddy routing state, disk and memory use, and a `diagnose` report that gathers these for one app or the host.
+- **Backups:** status and test restores; live restores as a planned operation, gated by policy like purge (P04-09).
+- **Host operations:** updating the packages Brine manages (Podman, passt, Caddy, Litestream), restarting Caddy, cleaning Brine-owned leftovers such as old images, generations and releases, and rebooting. These come last (Phase 06), with the guarantees below.
+
+Rules for every mutating operation:
+
+- It is planned, then applied. It is journaled with its operation ID and requester, and is idempotent or reconciles after an unknown outcome.
+- An app rollback still never rewinds data.
+
+**Removing an app** stops it, removes its unit and route, quiesces its writers and replicator, and moves its data directory into an archive with an immutable archive ID. That ID binds the data path and the backup destinations recorded at removal time. Retention runs 30 days from the time removal committed. Brine keeps a restorable backup set for that whole period, and refuses removal if an R2 lifecycle rule or a still-running replicator would break that. Expiry and `brine data purge ARCHIVE_ID` act only on an archive ID, never an app name, so removing an app, recreating it and then purging the old archive can't touch the new app's data or replica. Both refuse any path or destination that a live app uses. Purge deletes early and is allowed for the agent key only when the operator policy sets `allow_agent_purge = true`; the default is false. Purge is never part of app removal, rollback or image cleanup. Stateless apps can be removed in Phase 03; archiving persistent data needs Phase 04's data layout.
+
+**Live restore** replaces an app's database from a chosen backup. It is a planned operation (P04-09) with its own policy flag `allow_agent_live_restore`, default false. It needs a fresh restore point of the current data first, quiesced writers and replicator, an integrity check of the restored copy before swap-in, and recovery after interruption. Until P04-09 ships, live restore stays the operator runbook.
+
+**Host operations** run through a small root-owned helper. The runner has no root shell or sudo. Typed arguments alone don't make the helper safe: it would be a confused deputy if it trusted runner-writable state. So:
+
+- The helper re-checks authorization itself, against the root-owned operator policy and root-owned enrollment records. It never relies on the runner's database, an operation name or a caller's claim of approval.
+- It accepts only fixed verbs, whose targets come from those protected records. It takes no executable, argv, environment, unit name or path from the caller.
+- It opens runner-writable files without following symlinks and validates what it reads.
+- It runs under the same host mutation lock and journal protocol as apply.
+- The runner can't modify the helper, the policy, the enrollment records or any of their parent directories.
+- Phase 06 picks the mechanism, such as a polkit-started root unit per verb, and T18 tests direct helper invocation, forged operation records and path or symlink substitution.
+
+Host maintenance is planned like everything else:
+
+- A package update binds the exact versions and the package-manager transaction. It refuses removals or new packages outside Brine's set, and declares which services restart and which apps and sites see downtime.
+- Updates and reboots take the host mutation lock, so they never overlap a deploy.
+- A reboot records its intent durably before it starts. After boot, Brine reconciles: it checks app health and never reissues a reboot that already happened.
+- D4 still holds: the runner's polkit rule stays reload-only. A Caddy restart is a separate helper verb, gated by policy. It validates the live config first and is declared as affecting every site on the host, Brine's or not.
+
+**Still out of reach for agents:** any shell or raw Podman, systemd or Caddy access; uninstalling or changing software Brine didn't install; other users' files; firewall, Tailscale and DNS changes; and creating or deleting cloud machines. The operator policy can narrow the allowlist further by operation class, but can't widen it past this list.
