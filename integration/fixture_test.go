@@ -167,7 +167,16 @@ func (f fixture) save(r receipt) {
 	f.t.Helper()
 	b := must(json.Marshal(r))
 	check(f.t, os.MkdirAll(filepath.Dir(f.record), 0700))
-	check(f.t, os.WriteFile(f.record, b, 0600))
+	temp := f.record + ".tmp"
+	file := must(os.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600))
+	_, e := file.Write(b)
+	check(f.t, e)
+	check(f.t, file.Sync())
+	check(f.t, file.Close())
+	check(f.t, os.Rename(temp, f.record))
+	dir := must(os.Open(filepath.Dir(f.record)))
+	check(f.t, dir.Sync())
+	check(f.t, dir.Close())
 }
 func (f fixture) load() receipt {
 	f.t.Helper()
@@ -193,8 +202,17 @@ func (f fixture) prepare() {
 	cm := must(caddy.NewManager(caddyRoot, caddyValidator{f.session}, reloader{f.sd}))
 	defer cm.Close()
 	baseline := must(cm.Observe())
-	if baseline.Generation != 0 || len(baseline.Files) != 0 {
-		f.t.Fatal("requires fresh empty enrolled Caddy tree")
+	if len(baseline.Files) != 0 {
+		f.t.Fatal("requires empty enrolled Caddy tree")
+	}
+	entries := must(os.ReadDir(caddyRoot))
+	if len(entries) != 2 {
+		f.t.Fatal("preexisting Caddy artifacts require operator inspection")
+	}
+	for _, entry := range entries {
+		if entry.Name() != "current" && entry.Name() != fmt.Sprintf("gen-%d", baseline.Generation) {
+			f.t.Fatal("unexpected Caddy baseline artifact")
+		}
 	}
 	main := must(os.ReadFile("/etc/caddy/Caddyfile"))
 	r := receipt{MainHash: hash(main), Boot: strings.TrimSpace(string(must(os.ReadFile("/proc/sys/kernel/random/boot_id")))), Caddy: baseline}
@@ -260,7 +278,8 @@ func (f fixture) health(port target.Port) {
 	for time.Now().Before(deadline) {
 		ok := true
 		for _, url := range []string{direct, "https://" + fixtureHost + "/"} {
-			res, e := client.Get(url)
+			request := must(http.NewRequestWithContext(f.ctx, http.MethodGet, url, nil))
+			res, e := client.Do(request)
 			if e != nil {
 				ok = false
 				continue
@@ -353,6 +372,16 @@ func (f fixture) cleanup() {
 	}
 	check(f.t, os.Remove(prior))
 	check(f.t, os.Remove(filepath.Dir(prior)))
+	for _, generation := range []uint64{r.Caddy.Generation, result.Next.Generation} {
+		path := filepath.Join(caddyRoot, fmt.Sprintf("candidate-gen-%d.caddy", generation))
+		main := must(os.ReadFile("/etc/caddy/Caddyfile"))
+		expected := strings.Replace(string(main), "import "+caddyRoot+"/current/*.caddy", "import "+caddyRoot+fmt.Sprintf("/gen-%d/*.caddy", generation), 1)
+		if string(must(os.ReadFile(path))) != expected {
+			f.t.Fatal("cleanup candidate drift")
+		}
+		check(f.t, os.Remove(path))
+	}
+
 	s := f.collect()
 	if s.Apps.Value == nil || len(*s.Apps.Value) != 0 {
 		f.t.Fatal("cleanup left app inventory")
@@ -363,6 +392,10 @@ func (f fixture) cleanup() {
 	if f.run("podman", "ps", "-a", "--format", "{{.Names}}") != "" {
 		f.t.Fatal("cleanup left container")
 	}
+	if s.CaddyConfig.Value == nil || len(s.CaddyConfig.Value.Files) != 0 {
+		f.t.Fatal("cleanup left Caddy app entry")
+	}
+
 	check(f.t, os.Remove(f.record))
 	f.t.Log("fixture resources removed; enrollment and empty Caddy generation retained")
 }
