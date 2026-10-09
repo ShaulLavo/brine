@@ -17,6 +17,14 @@
 - [ ] **P03-09** `remove APP` for stateless apps per D8: plan and apply that stops the app and removes its unit and route under the host lock. Persistent-data archival is P04-08. Depends on P03-01 to P03-05.
 - [ ] **P03-10** (depends on P03-01, P03-06 and P02-01) `diagnose [APP]`: one read-only report, built for agents, combining status, health, recent operations and diffs, a bounded redacted log tail, Caddy routing state and host resources, with plain-language findings and suggested next operations.
 
+### Approved follow-up for P03-02: installed-app listener ownership
+
+The installed-image fix verifies actual running image facts, but live update/no-op planning has a second independent blocker. `internal/inventory/listeners.go` records listener ports, processes and cgroup units without ever assigning `target.PortOwner.App`. `internal/plan/plan.go` requires an app-owned listener for an existing allocation, so the authorized disposable fixture returned exactly `[{Code:port_owned Field:host_port}]` from its no-op assertion on 2026-10-09. The image, unit, secret, live port and Caddy receipt checks had already passed. This happened once in the one live prepare run; cleanup passed and left the enrollment with no apps. No reboot or update apply ran.
+
+Reproduce by building `go test -tags pi_integration -c ./integration`, then running the resulting binary as the enrolled runner on an explicitly authorized disposable host with `-test.v -test.run '^TestPiFixture$' -fixture-stage prepare`. `fixture.checkInstalledPlans` provides the assertion and committed-release fixture. On failure inspect the persisted fixture receipt before cleanup; run the same binary with `-fixture-stage cleanup` rather than retrying prepare. Locally, `go test ./internal/inventory -run TestInstalledImageObservationAndPlanning -count=1` proves installed image observations permit no-op, environment-update and image-update plans when listener ownership is supplied by the existing planner fixture. Do not treat those fake listener owners as live evidence.
+
+Bind listener ownership to verified Brine container/service observations without assigning unrelated or ambiguous sockets to an app. Add failing-first tests for genuine owned listeners, foreign listeners on the same port, missing process/cgroup facts and rootless forwarding processes. Re-run the live installed-app planner assertion without replacing `PortOwners`. Keep the default Caddy catch-all refusal; the adapter fixture deliberately scopes only its authorized route when testing plans. This is required before claiming live installed-app updates work.
+
 ### Exit gate
 
 An authorized stateless test app deploys successfully. An invalid release never reports success; old release is either restored safely or the operation records a precise `recovery_required` state. Parallel applies conflict cleanly, and job outcomes remain observable after the CLI process exits.

@@ -46,26 +46,42 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 	manifest := "sha256:" + strings.Repeat("b", 64)
 	imageID := "748902c9f9368aa7437b05e353c23968266b0bc882ac1d74067fc1768a102ba6"
 	for _, tc := range []struct {
-		name   string
-		change func(map[string]string)
-		known  bool
+		name       string
+		change     func(map[string]string)
+		known      bool
+		unitChange func(string) string
 	}{
-		{"matching", nil, true},
+		{"matching", nil, true, nil},
 		{"different container image", func(m map[string]string) {
 			m["container inspect systemd-hello"] = strings.ReplaceAll(m["container inspect systemd-hello"], imageID, strings.Repeat("f", 64))
-		}, false},
-		{"missing container", func(m map[string]string) { delete(m, "container exists systemd-hello") }, false},
-		{"unreadable image", func(m map[string]string) { delete(m, "image inspect "+repository+index) }, false},
-		{"unreadable manifest", func(m map[string]string) { delete(m, "manifest inspect "+repository+index) }, false},
+		}, false, nil},
+		{"missing container", func(m map[string]string) { delete(m, "container exists systemd-hello") }, false, nil},
+		{"unreadable image", func(m map[string]string) { delete(m, "image inspect "+repository+index) }, false, nil},
+		{"unreadable manifest", func(m map[string]string) { delete(m, "manifest inspect "+repository+index) }, false, nil},
 		{"stopped", func(m map[string]string) {
 			m["container inspect systemd-hello"] = strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`)
-		}, false},
+		}, false, nil},
+		{"unit pin mismatch", nil, false, func(s string) string {
+			return strings.ReplaceAll(s, "Image="+repository+manifest, "Image="+repository+index)
+		}},
+		{"unit platform mismatch", nil, false, func(s string) string {
+			return strings.ReplaceAll(s, "# Platform=linux/arm64", "# Platform=linux/amd64")
+		}},
+		{"missing index", nil, false, func(s string) string { return strings.ReplaceAll(s, "# IndexDigest="+index+"\n", "") }},
+		{"duplicate pin", nil, false, func(s string) string { return s + "Image=" + repository + manifest + "\n" }},
+		{"custom container name", nil, false, func(s string) string { return s + "ContainerName=foreign\n" }},
+		{"unbound index", nil, false, func(s string) string {
+			return strings.ReplaceAll(s, "# IndexDigest="+index, "# IndexDigest=sha256:"+strings.Repeat("e", 64))
+		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := secretOnlyFixture()
 			dir := "/home/brine/.config/containers/systemd"
 			f.dirs[dir] = []fs.DirEntry{fixtureEntry("hello.container")}
 			f.files[dir+"/hello.container"] = "# Brine-owned plan=" + index + "\n# IndexDigest=" + index + "\n# PlatformManifestDigest=" + manifest + "\n# Platform=linux/arm64\n\n[Container]\nImage=" + repository + manifest + "\n"
+			if tc.unitChange != nil {
+				f.files[dir+"/hello.container"] = tc.unitChange(f.files[dir+"/hello.container"])
+			}
 			results := map[string]string{
 				"container exists systemd-hello":         "",
 				"container inspect systemd-hello":        `[{"Name":"systemd-hello","Image":"` + imageID + `","Config":{"Labels":{"PODMAN_SYSTEMD_UNIT":"hello.service"}},"State":{"Status":"running","Running":true}}]`,
@@ -134,6 +150,14 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 			p, e = plan.Build(in)
 			if e != nil || p.Kind != plan.Update {
 				t.Fatalf("update=%+v error=%v", p, e)
+			}
+			in.Desired.Environment = desired.Environment
+			in.Desired.Image = spec.ImageReference(strings.ReplaceAll(string(desired.Image), index, "sha256:"+strings.Repeat("e", 64)))
+			in.Image.Digest = "sha256:" + strings.Repeat("e", 64)
+			in.Image.ManifestDigest = target.Known("sha256:" + strings.Repeat("f", 64))
+			p, e = plan.Build(in)
+			if e != nil || p.Kind != plan.Update {
+				t.Fatalf("image update=%+v error=%v", p, e)
 			}
 		})
 	}
