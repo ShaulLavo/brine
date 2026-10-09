@@ -130,6 +130,10 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 			return r, nil
 		}
 		x.nextRelease = &candidate
+		writer := x.waitWriter(evidence)
+		if writer != writerStopped && writer != writerRunning {
+			return r, nil
+		}
 		if x.reconcileUnknown(ctx, "commit") == applied {
 			r.Action = FinishSucceeded
 			r.resolved = last.Outcome != "completed"
@@ -217,6 +221,14 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	}
 	if r.Action == RestorePrevious && (e.Units == nil || e.Systemd == nil || e.Podman == nil || e.Health == nil) {
 		r.Action = RequireRecovery
+	}
+	if r.Action != RequireRecovery {
+		// A read-only last step does not fence manager jobs or prove the writer.
+		// Every authorization needs a fresh, settled unit/container observation.
+		writer := x.waitWriter(evidence)
+		if writer != writerStopped && writer != writerRunning || x.quiesced && !x.started && writer != writerStopped || r.Action == ResumeForward && (x.started && writer != writerRunning || !x.hasPrevious && !x.started && writer != writerStopped) {
+			r.Action = RequireRecovery
+		}
 	}
 	return r, nil
 }

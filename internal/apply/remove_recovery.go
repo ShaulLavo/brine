@@ -160,8 +160,11 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 	if route == applied && r.Step == "preflight" {
 		return r, nil
 	}
+	writer := x.waitWriter(evidence)
+	if writer != writerStopped && writer != writerRunning {
+		return r, nil
+	}
 	if boundary >= slices.Index(removeSteps, "stop_unit") {
-		writer := x.waitWriter(evidence)
 		if writer != writerStopped && (r.Step != "stop_unit" || r.completed["stop_unit"] || writer != writerRunning) {
 			return r, nil
 		}

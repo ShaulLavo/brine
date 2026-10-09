@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -151,6 +152,7 @@ func TestRepeatedResolutionRecognizesCommittedAncestor(t *testing.T) {
 	for _, owner := range []string{"operation-1", "middle", "latest"} {
 		t.Run(owner, func(t *testing.T) {
 			r := newRig(t, false)
+			configureSettledRecoveryWriter(r)
 			if err := r.run(); err != nil {
 				t.Fatal(err)
 			}
@@ -270,6 +272,22 @@ func TestResolveHealthBoundaryRefusesForeignUnitBeforeStopping(t *testing.T) {
 			assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, events)
 			if err != nil || assessment.Action != RequireRecovery || len(r.effects) != 0 || !r.active {
 				t.Fatalf("assessment=%+v err=%v effects=%v active=%v", assessment, err, r.effects, r.active)
+			}
+		})
+	}
+}
+
+func TestResolveHealthBoundaryRefusesUnsettledManagerJob(t *testing.T) {
+	for _, outcome := range []string{"intent", "completed"} {
+		t.Run(outcome, func(t *testing.T) {
+			r, source, successor, events := healthBoundaryResolution(t)
+			r.executor.EffectTimeout = 25 * time.Millisecond
+			probes := 0
+			r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { probes++; return true, nil }
+			events[len(events)-1].Payload, _ = json.Marshal(ops.StepPayload{Step: "check_direct", Outcome: outcome})
+			assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, events)
+			if err != nil || assessment.Action != RequireRecovery || probes == 0 || len(r.effects) != 0 || !r.active {
+				t.Fatalf("action=%s err=%v probes=%d effects=%v active=%v", assessment.Action, err, probes, r.effects, r.active)
 			}
 		})
 	}
