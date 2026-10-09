@@ -202,6 +202,9 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 			r.Action = RestorePrevious
 		}
 	}
+	if r.Action == RestorePrevious && (e.Units == nil || e.Systemd == nil || e.Podman == nil || e.Health == nil) {
+		r.Action = RequireRecovery
+	}
 	return r, nil
 }
 
@@ -219,6 +222,14 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 	case ResumeForward:
 		return e.run(ctx, x.id, x.plan, x.desired, &r)
 	case RestorePrevious:
+		journal, cancel := context.WithTimeout(ctx, journalTimeout)
+		defer cancel()
+		payload, _ := json.Marshal(struct {
+			Code string `json:"code"`
+		}{"stale_plan"})
+		if _, err := e.Journal.AppendEvent(journal, x.id, Event{Kind: "failure", Payload: payload}); err != nil {
+			return &Error{Step: r.Step, Code: "journal_failed", Cause: err}
+		}
 		return x.fail(ctx, &Error{Step: r.Step, Code: "drift"})
 	case FinishSucceeded:
 		return x.terminal(ctx, Succeeded, nil)
