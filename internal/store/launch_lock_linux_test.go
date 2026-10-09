@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/ShaulLavo/brine/internal/ops"
 )
 
 func TestLaunchLockSecurityExclusionAndIndependence(t *testing.T) {
@@ -85,4 +87,30 @@ func TestLaunchLockExclusionAndSIGKILLRecovery(t *testing.T) {
 		t.Fatalf("SIGKILL left launch lock held: %v", err)
 	}
 	lock.Release()
+}
+
+func TestTryHostLockDoesNotWaitAndCanBeReacquired(t *testing.T) {
+	s := openTest(t)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	host, err := s.TryAcquireHostLock(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host.Release()
+	if lock, err := s.TryAcquireHostLock(ctx); !errors.Is(err, ops.ErrLockUnavailable) || lock != nil || ctx.Err() != nil {
+		t.Fatalf("try-lock waited or acquired a contended lock: %v %v", lock, err)
+	}
+	if err := host.Release(); err != nil {
+		t.Fatal(err)
+	}
+	host, err = s.TryAcquireHostLock(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host.Release()
+	cancel()
+	if lock, err := s.TryAcquireHostLock(ctx); !errors.Is(err, context.Canceled) || lock != nil {
+		t.Fatalf("canceled try-lock acquired: %v %v", lock, err)
+	}
 }

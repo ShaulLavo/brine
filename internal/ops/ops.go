@@ -168,6 +168,9 @@ func ValidateEvent(e Event) error {
 // Lock is the shared host-mutation exclusion handle.
 type Lock interface{ Release() error }
 
+// ErrLockUnavailable reports refusal before any protected work starts.
+var ErrLockUnavailable = errors.New("operation lock unavailable")
+
 var ErrStateConflict = errors.New("operation state conflict")
 
 // StateConflictError reports the state observed by a refused conditional update.
