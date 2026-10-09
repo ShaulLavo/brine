@@ -40,6 +40,15 @@ Document remaining limits prominently: a single server is not high availability;
 Each integration scenario must have a fixture, setup, expected behavior, teardown limited to **resources created by that fixture**, and captured redacted evidence. Never run a blanket `podman system prune`, delete unrelated volumes, flush firewall state or remove another app as part of test cleanup.
 
 
+## P03 lifecycle and preflight deadline evidence
+
+- T04/T08/T09: preflight deadlines report `inventory_failed`, preserve the
+  deadline cause and fail before mutation, including facts returned after expiry.
+- Unknown-stop tests still require a durable unknown outcome, successful settlement
+  or recovery-required for a pending job. Short pending-job budgets begin only
+  after the uncertain action, not during unrelated preflight reads.
+- These are local fake-adapter tests, not physical-host lifecycle evidence.
+
 ## P03-09 local evidence (physical host pending)
 
 - T04/T05/T17/T18: removal planner ownership and persistent-unit tests; stale
