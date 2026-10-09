@@ -13,9 +13,9 @@
 - [ ] **P03-06** Implement `status`, `logs` and `rollback` planning. Logs must enforce app ownership, tail limits and secret redaction; rollback **cannot** rewrite SQLite data.
 - [ ] **P03-07** Reconcile interruptions at every external effect boundary: killed job, lost SSH, unavailable Caddy, disk full, timed-out Podman call. Inspect real state before retrying; do not blindly replay partially completed steps.
 
-- [ ] **P03-08** Config operations per D8: `config set` (environment, resources, domains, health), `secret set` (stdin, new immutable version) and `restart`/`stop`/`start`, each a plan through the same apply path, journaled and reconcilable.
-- [ ] **P03-09** `remove APP` per D8: plan and apply that stops the app, removes its unit and route, and moves its data into the archive with a 30-day retention record. Removal never deletes data or backups (T22).
-- [ ] **P03-10** `diagnose [APP]`: one read-only report, built for agents, combining status, health, recent operations and diffs, a bounded redacted log tail, Caddy routing state and host resources, with plain-language findings and suggested next operations.
+- [ ] **P03-08** Config operations per D8: `config set` (environment, resources, domains, health), `secret set` (stdin, new immutable version, bound only by a plan) and `restart`/`stop`/`start`, each a plan through the same apply path under the host lock, journaled and reconcilable. Domain changes reuse the planner's ownership and policy checks; there is no second permissive path. Depends on P03-01 to P03-05.
+- [ ] **P03-09** `remove APP` for stateless apps per D8: plan and apply that stops the app and removes its unit and route under the host lock. Persistent-data archival is P04-08. Depends on P03-01 to P03-05.
+- [ ] **P03-10** (depends on P03-01, P03-06 and P02-01) `diagnose [APP]`: one read-only report, built for agents, combining status, health, recent operations and diffs, a bounded redacted log tail, Caddy routing state and host resources, with plain-language findings and suggested next operations.
 
 ### Exit gate
 

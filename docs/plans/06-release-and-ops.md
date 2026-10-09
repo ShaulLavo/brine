@@ -9,10 +9,10 @@
 - [ ] **P06-03** Ship signed, versioned binaries and reproducible release metadata for supported platforms. Document upgrade/downgrade compatibility and backup the Brine control database.
 - [ ] **P06-04** Run disaster exercises: unhealthy release, Caddy drift, systemd restart, VPS reboot, lost connection, failed partial write, target disk full, and restore from actual R2 into a fresh isolated environment.
 - [ ] **P06-05** Document human-safe runbooks for credential rotation, app rollback, service ownership, manual Caddy repair, control DB recovery, off-host backups and **approved** live SQLite restoration.
-- [ ] **P06-06** Check limits/security: a single VPS is not HA, app trust boundaries are limited, R2 backups are asynchronous, data cleanup is opt-in and destructive commands are not included in v1. Provide a threat model and disclosure checklist.
+- [ ] **P06-06** Check limits/security: a single VPS is not HA, app trust boundaries are limited, and R2 backups are asynchronous. Removed-app data expires automatically after 30 days, while early purge and live restore stay denied unless policy allows them (D8). Provide a threat model and disclosure checklist.
 - [ ] **P06-07** Publish a minimal quickstart for an **explicitly enrolled disposable host**, clear CLI examples and supported-version matrix. Choose a project license deliberately.
 
-- [ ] **P06-08** Host operations per D8 through a root-owned typed helper: update Brine-managed packages, restart Caddy, clean Brine-owned leftovers, reboot. No shell or sudo for the runner; each operation is planned and journaled; T18 bypass tests cover the helper.
+- [ ] **P06-08** Host operations per D8 through the root-owned helper: `host update`, `host restart-caddy`, `host cleanup` and `host reboot`. The helper authorizes independently against root-owned policy and enrollment records, takes fixed verbs only, and is safe against runner-writable files and symlinks. Update plans bind exact package transactions and declare service and app impact. Every verb takes the host lock. Reboot records intent durably and reconciles after boot. The runner's polkit rule stays reload-only. Evidence: update failure, service-restart impact, a concurrent deploy refused during a reboot or update, post-boot health, and T18 direct-helper, forged-record and symlink bypass tests.
 
 ### Exit gate
 

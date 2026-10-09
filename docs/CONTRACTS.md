@@ -14,22 +14,23 @@ brine status --target staging
 brine status --operation OPERATION_ID --target staging
 brine logs APP --target staging --tail 100
 brine rollback APP --release RELEASE_ID --target staging
-brine config set APP KEY=VALUE --target staging        # env, resources, domains, health; produces a plan
-brine secret set APP NAME --target staging             # value from stdin; creates a new version
-brine restart APP --target staging
-brine stop APP --target staging
-brine start APP --target staging
-brine remove APP --target staging                      # archives data for 30 days (D8)
-brine data purge APP --target staging                  # only if policy allows agent purge (D8)
-brine diagnose [APP] --target staging                  # read-only report: status, health, logs, recent changes, resources
+brine config set APP KEY=VALUE --target staging        # env, resources, domains, health
+brine secret set APP NAME --target staging             # value from stdin; stores a new immutable version, unbound until applied
+brine restart|stop|start APP --target staging
+brine remove APP --target staging                      # archives data under an archive ID for 30 days (D8)
+brine data purge ARCHIVE_ID --target staging           # only if policy allows agent purge (D8)
+brine restore live APP --backup BACKUP_ID --target staging   # only if policy allows (D8, P04-09)
+brine diagnose [APP] --target staging                  # read-only report
 brine host update --target staging                     # Brine-managed packages only (D8)
+brine host restart-caddy --target staging              # affects every site on the host (D8)
+brine host cleanup --target staging                    # Brine-owned leftovers only
 brine host reboot --target staging
 brine backup status APP --target staging
 brine restore test APP --target staging
 brine tui --target staging
 ~~~
 
-Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Rollback, config changes, removal and host operations all create a **plan**, never an implicit mutation (D8). `remove` archives app data rather than deleting it; permanent deletion is the separate, policy-gated `data purge`.
+Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Every mutating command above (`config set`, `restart`/`stop`/`start`, `rollback`, `remove`, `data purge`, `restore live` and the `host` verbs) returns a **plan**, and nothing changes until `brine apply PLAN_ID` (D8). `--apply` may combine the two for agents when policy allows. It still records the plan and journals the operation. The one exception is `secret set`, which stores an immutable new version that stays unreferenced (D5) until a plan binds it, so it never changes a running app on its own. `remove` archives app data rather than deleting it; permanent deletion is the separate, policy-gated `data purge`.
 
 ### Local validation and offline planning (P01-04)
 
