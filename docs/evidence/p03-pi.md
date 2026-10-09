@@ -250,3 +250,17 @@ before/after event-row SHA256 10a4342d6d17d74e4ac936dd81d93b5119e5e16238b205a24c
 The event fingerprint hashes the ordered exact `seq`, `kind`, `state`, hex-encoded stored payload bytes and `created_at` rows. Original operation identity, plan association, state and timestamps matched before/after. `PRAGMA integrity_check` returned `ok` and `PRAGMA foreign_key_check` returned zero rows on both versions. No source events, runtime artifacts or release heads were manually edited. This proves real v2-to-v3 preservation; it does not retroactively claim physical v1-to-v2 evidence.
 
 Local baseline gates passed all 30 Go packages, vet, client and Linux arm64 builds, empty formatting, diff check, and Darwin arm64 vet. No concurrency code changed in this resumed run. A local Quadlet test package took 329 seconds but completed successfully; no local gate failed or was bypassed.
+
+### Supported resolution completes the original removal
+
+```sh
+"$SCRATCH/brine" resolve 01a121b1e29e45390eb6945d6b142cabb2c2d61c6584 \
+  --target "$TARGET" --config-dir "$CLIENT_DIR" \
+  --idempotency-key p03-original-removal-resolution --json
+```
+
+The restricted client accepted successor `01a122ef7112ec7a2a1182bfb1b08320f0dcfa4a87fc`, kind `resolve`, with `recovery_of` pointing at the original removal. It succeeded at `2026-10-09T23:11:22.834506305Z` (the local test session date is 2026-10-10). The original receipt remains terminal recovery-required, as designed; it was not reopened.
+
+The adopted withdrawal intent/completion retain their original `17:24:31` timestamps. No new withdrawal intent or stop intent was journaled. Fresh stopped-writer inspection completed the previously unknown stop, then new `remove_unit`, `reload_units`, and `retire_app` intent/completion pairs finished under the successor. The actual `fixture.container` and selected route are absent, the user unit reports `LoadState=not-found`, and no Podman container or TCP listener remains on port 20000. Read-only SQL reports zero live release heads and one immutable removal receipt. Restricted `status` returns `apps:[]`.
+
+History, the image, historical generation-2 route, and immutable secret v1 remain under D5; successful stateless removal is not a purge. No direct operator app mutation or DB editing was used to complete it. The secret's presence alone must not be mistaken for a committed app or a live port allocation. This resolves the earlier terminal-removal follow-up for that actual receipt; remove/recreate and the remaining clean-fixture drills are separate evidence.
