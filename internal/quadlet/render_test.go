@@ -54,7 +54,7 @@ func bind(t testing.TB, d policy.Desired) plan.Plan {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := plan.Plan{Kind: plan.Create, App: string(d.Name), Hash: "sha256:" + strings.Repeat("b", 64), DesiredHash: fmt.Sprintf("sha256:%x", sha256.Sum256(b)), Image: target.Image{Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}, HostPort: 20000}
+	p := plan.Plan{Kind: plan.Create, App: string(d.Name), Hash: "sha256:" + strings.Repeat("b", 64), DesiredHash: fmt.Sprintf("sha256:%x", sha256.Sum256(b)), Image: plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}, HostPort: 20000}
 	for _, s := range d.Secrets {
 		p.Secrets = append(p.Secrets, plan.SecretBinding{Environment: s.Name, Reference: s.Reference, VersionName: "brine-hello-" + string(s.Reference) + "-v1", ID: "opaque-id"})
 	}
@@ -253,7 +253,7 @@ func TestRenderUsesVerifiedDesiredNotRedactedPlanPayload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := plan.Build(plan.Input{Desired: d, Snapshot: snapshot, Image: target.Image{Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}, State: plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{}}})
+	p, err := plan.Build(plan.Input{Desired: d, Snapshot: snapshot, Image: plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}, State: plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{}}})
 	if err != nil {
 		t.Fatal(err)
 	}

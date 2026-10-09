@@ -7,8 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
+	"time"
 )
 
 var interrupted = errors.New("injected interruption")
@@ -358,6 +362,171 @@ func TestFinalSyncChecksActiveDrift(t *testing.T) {
 				t.Fatal("final active drift reported success", err)
 			}
 			checkFile(t, filepath.Join(f.home, active), operator)
+		})
+	}
+}
+
+func TestHelperCrash(t *testing.T) {
+	if os.Getenv("BRINE_QUADLET_CRASH_HELPER") != "1" {
+		return
+	}
+	point, err := strconv.Atoi(os.Getenv("BRINE_QUADLET_CRASH_POINT"))
+	if err != nil || point < 1 {
+		t.Fatal("invalid crash point")
+	}
+	f := operationFixture{home: os.Getenv("BRINE_QUADLET_CRASH_ROOT"), kind: os.Getenv("BRINE_QUADLET_CRASH_KIND"), old: rendered(t, "old"), next: rendered(t, "next")}
+	m := manager(t, f.home)
+	calls := 0
+	m.after = func(event, path string) error {
+		calls++
+		if calls == point {
+			if err := syscall.Kill(os.Getpid(), syscall.SIGKILL); err != nil {
+				t.Fatal(err)
+			}
+			os.Exit(99)
+		}
+		return nil
+	}
+	if err := f.run(m); err != nil {
+		t.Fatal("operation failed before crash point", err)
+	}
+	t.Fatal("operation completed without reaching crash point")
+}
+
+func killOperation(t testing.TB, f operationFixture, point int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestHelperCrash$", "-test.count=1")
+	cmd.Env = append(os.Environ(), "BRINE_QUADLET_CRASH_HELPER=1", "BRINE_QUADLET_CRASH_ROOT="+f.home, "BRINE_QUADLET_CRASH_KIND="+f.kind, "BRINE_QUADLET_CRASH_POINT="+strconv.Itoa(point))
+	output, err := cmd.CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatal("crash helper timed out", ctx.Err())
+	}
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		t.Fatalf("helper was not terminated: %v, %s", err, output)
+	}
+	status, ok := exit.Sys().(syscall.WaitStatus)
+	if !ok || !status.Signaled() || status.Signal() != syscall.SIGKILL {
+		t.Fatalf("helper did not die from SIGKILL: %v, %s", err, output)
+	}
+}
+
+func checkNoTemporaryFiles(t testing.TB, f operationFixture) {
+	t.Helper()
+	for _, directory := range []string{ActiveDirectory, stagingDirectory} {
+		entries, err := os.ReadDir(filepath.Join(f.home, directory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, entry := range entries {
+			if isTemporary(entry.Name(), f.next.Name()) {
+				t.Fatalf("abandoned temporary remains: %s", entry.Name())
+			}
+		}
+	}
+	if f.kind != "create" && f.kind != "remove" {
+		data, err := os.ReadFile(filepath.Join(f.home, previousPath(f.next.Name())))
+		if err != nil || digest(data) != f.old.Hash() {
+			t.Fatal("predecessor hash is not committed old hash", err)
+		}
+	}
+}
+
+func checkCrashImage(t testing.TB, f operationFixture) {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(f.home, ActiveDirectory, f.next.Name()))
+	if errors.Is(err, os.ErrNotExist) && (f.kind == "create" || f.kind == "remove") {
+		return
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := digest(data)
+	if hash != f.old.Hash() && hash != f.next.Hash() {
+		t.Fatal("terminated process left a partial active unit")
+	}
+}
+
+func TestSIGKILLAtEveryFilesystemEffectConverges(t *testing.T) {
+	for _, kind := range []string{"create", "update", "restore", "remove", "already new"} {
+		t.Run(kind, func(t *testing.T) {
+			baseline, m := operation(t, kind)
+			var events []string
+			m.after = func(event, path string) error { events = append(events, event); return nil }
+			if err := baseline.run(m); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.Close(); err != nil {
+				t.Fatal(err)
+			}
+			for index, event := range events {
+				t.Run(fmt.Sprintf("%02d-%s", index, event), func(t *testing.T) {
+					f, m := operation(t, kind)
+					if err := m.Close(); err != nil {
+						t.Fatal(err)
+					}
+					killOperation(t, f, index+1)
+					checkCrashImage(t, f)
+					m = manager(t, f.home)
+					defer m.Close()
+					for i := 0; i < 2; i++ {
+						if err := f.run(m); err != nil {
+							t.Fatal("restart after SIGKILL did not converge", err)
+						}
+					}
+					f.verify(t)
+					checkNoTemporaryFiles(t, f)
+				})
+			}
+			t.Logf("%s covered %d actual SIGKILL terminations", kind, len(events))
+		})
+	}
+}
+
+func TestSIGKILLRestartRefusesOperatorDrift(t *testing.T) {
+	for _, kind := range []string{"update", "restore"} {
+		t.Run(kind, func(t *testing.T) {
+			baseline, m := operation(t, kind)
+			point, calls := 0, 0
+			active := filepath.Join(ActiveDirectory, baseline.next.Name())
+			m.after = func(event, path string) error {
+				calls++
+				if event == "renamed" && path == active {
+					point = calls
+				}
+				return nil
+			}
+			if err := baseline.run(m); err != nil {
+				t.Fatal(err)
+			}
+			m.Close()
+			if point == 0 {
+				t.Fatal("no publication checkpoint")
+			}
+			f, m := operation(t, kind)
+			m.Close()
+			killOperation(t, f, point)
+			operator := []byte("operator edit after terminated writer")
+			if err := os.WriteFile(filepath.Join(f.home, active), operator, 0600); err != nil {
+				t.Fatal(err)
+			}
+			temp := filepath.Join(f.home, ActiveDirectory, temporaryName(f.next.Name()))
+			if err := os.WriteFile(temp, []byte("partial reserved file"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			m = manager(t, f.home)
+			defer m.Close()
+			if err := f.run(m); !errors.Is(err, ErrDrift) {
+				t.Fatal("terminated writer restart did not refuse drift", err)
+			}
+			checkFile(t, filepath.Join(f.home, active), operator)
+			checkFile(t, temp, []byte("partial reserved file"))
+			data, err := os.ReadFile(filepath.Join(f.home, previousPath(f.next.Name())))
+			if err != nil || digest(data) != f.old.Hash() {
+				t.Fatal("drift refusal changed predecessor", err)
+			}
 		})
 	}
 }
