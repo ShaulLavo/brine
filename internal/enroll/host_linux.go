@@ -713,7 +713,12 @@ func (h *host) checkLayout(ctx context.Context) (bool, error) {
 			return done, err
 		}
 	}
-	return true, nil
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		return false, err
+	}
+	defer root.Close()
+	return runnerStateComplete(root, h.r.UID, h.r.GID)
 }
 func (h *host) caddyTree(ctx context.Context) error {
 	if err := h.dir("/etc/caddy/brine", 0755, 0, 0); err != nil {
@@ -1130,4 +1135,21 @@ func protectedKeyNode(info os.FileInfo, directory bool) error {
 		return errors.New("SSH key location or parent is not root-owned and protected")
 	}
 	return nil
+}
+
+func runnerStateComplete(root *os.Root, uid, gid int) (bool, error) {
+	for _, path := range []string{".local/state", ".local/state/brine"} {
+		info, err := root.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
+			return false, err
+		}
+		st := info.Sys().(*syscall.Stat_t)
+		if !info.IsDir() || int(st.Uid) != uid || int(st.Gid) != gid || info.Mode().Perm() != 0700 {
+			return false, errors.New("runner state directory drift")
+		}
+	}
+	return true, nil
 }

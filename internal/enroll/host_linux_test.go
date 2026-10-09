@@ -435,3 +435,30 @@ func TestKeyNodesRequireRootOwnershipAndNonWritableMode(t *testing.T) {
 		t.Fatal("symlink key accepted")
 	}
 }
+
+func TestInterruptedLayoutRequiresRunnerStateDirectories(t *testing.T) {
+	dir := t.TempDir()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	if done, err := runnerStateComplete(root, os.Getuid(), os.Getgid()); done || err != nil {
+		t.Fatalf("missing state considered complete: %v %v", done, err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, ".local/state/brine"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if done, err := runnerStateComplete(root, os.Getuid(), os.Getgid()); !done || err != nil {
+		t.Fatalf("created state: %v %v", done, err)
+	}
+	if err := os.Remove(filepath.Join(dir, ".local/state/brine")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/tmp", filepath.Join(dir, ".local/state/brine")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runnerStateComplete(root, os.Getuid(), os.Getgid()); err == nil {
+		t.Fatal("runner state symlink accepted")
+	}
+}
