@@ -125,3 +125,40 @@ func TestPolicyForcesDispatcherForAnyAuthorizationSource(t *testing.T) {
 		t.Fatal("certificate or future authorization could bypass key-local forced command")
 	}
 }
+
+func TestUnsafeEnvironmentRejectedAgainstRealOpenSSH(t *testing.T) {
+	sshd, err := exec.LookPath("sshd")
+	if err != nil {
+		t.Skip("sshd unavailable")
+	}
+	keygen, err := exec.LookPath("ssh-keygen")
+	if err != nil {
+		t.Skip("keygen unavailable")
+	}
+	d := t.TempDir()
+	key := filepath.Join(d, "hostkey")
+	if out, err := exec.Command(keygen, "-q", "-t", "ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	policy := filepath.Join(d, "policy.conf")
+	if err := os.WriteFile(policy, []byte(sshPolicy), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, env := range []string{"AcceptEnv *", "AcceptEnv=LD_*", "SetEnv LD_PRELOAD=/fixture", "SetEnv=ENV=/fixture"} {
+		path := filepath.Join(d, "main.conf")
+		main := []byte("HostKey " + key + "\nPermitUserEnvironment no\nMatch Address 192.0.2.0/24\n" + env + "\n")
+		if err := os.WriteFile(path, sshCandidate(main, policy), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command(sshd, "-t", "-f", path).CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+		out, err := exec.Command(sshd, "-T", "-f", path, "-C", sshConnections[2]).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := checkForcedSSH(string(out)); err == nil {
+			t.Fatalf("unsafe real sshd environment accepted: %s", env)
+		}
+	}
+}

@@ -12,6 +12,9 @@ func sshCandidate(main []byte, policy string) []byte {
 	return append([]byte("Include "+policy+"\n"), main...)
 }
 func (h *host) validateSSH(ctx context.Context, path string) error {
+	if err := (Prober{FS: inventory.HostFS{}}).sshEnvironmentSources(ctx, path); err != nil {
+		return err
+	}
 	if _, err := h.run(ctx, false, "/usr/sbin/sshd", "-t", "-f", path); err != nil {
 		return err
 	}

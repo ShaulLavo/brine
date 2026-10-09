@@ -100,7 +100,7 @@ func (p Prober) sshEnvironmentSources(ctx context.Context, path string) error {
 func sshSourceFields(line string) ([]string, error) {
 	var fields []string
 	var token strings.Builder
-	quoted, escaped, started := false, false, false
+	quoted, started := false, false
 	flush := func() {
 		if started {
 			fields = append(fields, token.String())
@@ -109,12 +109,6 @@ func sshSourceFields(line string) ([]string, error) {
 		}
 	}
 	for _, c := range line {
-		if escaped {
-			token.WriteRune(c)
-			started = true
-			escaped = false
-			continue
-		}
 		if c == '\\' {
 			return nil, errors.New("SSH environment source escapes unsupported")
 		}
@@ -133,7 +127,7 @@ func sshSourceFields(line string) ([]string, error) {
 		token.WriteRune(c)
 		started = true
 	}
-	if quoted || escaped {
+	if quoted {
 		return nil, errors.New("SSH environment source syntax unsupported")
 	}
 	flush()
