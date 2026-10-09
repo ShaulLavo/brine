@@ -17,7 +17,7 @@ import (
 )
 
 func example(kind plan.Kind) plan.Plan {
-	image := target.Image{Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}
+	image := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}
 	p := plan.Plan{SchemaVersion: 1, Kind: kind, App: "hello", Image: image, HostPort: 20000, Secrets: []plan.SecretBinding{}, Changes: []plan.Change{}, Conflicts: []plan.Diagnostic{}}
 	if kind == plan.Create || kind == plan.Update {
 		p.Changes = []plan.Change{
@@ -36,7 +36,7 @@ func example(kind plan.Kind) plan.Plan {
 		resources := policy.Resources{MemoryMB: 512, PIDsLimit: 128}
 		health := policy.Health{Path: "/ready", ExpectedStatus: 200, StartupDeadlineSeconds: 30, TimeoutSeconds: 3}
 		p.Diff = &plan.ConfigurationDiff{
-			Image:         &plan.ValueChange[target.Image]{To: &image},
+			Image:         &plan.ValueChange[plan.Image]{To: &image},
 			Domains:       &plan.SetChange[spec.Domain]{Added: []spec.Domain{"hello.example.com"}, Removed: []spec.Domain{}},
 			HostPort:      &plan.ValueChange[target.Port]{To: &port},
 			ContainerPort: &plan.ValueChange[spec.Port]{To: &containerPort},
@@ -46,7 +46,7 @@ func example(kind plan.Kind) plan.Plan {
 			Secrets:       []plan.SecretChange{{Environment: "TOKEN", To: &plan.SecretVersion{Reference: "hello-token", VersionName: "brine-hello-hello-token-v2"}}},
 		}
 		if kind == plan.Update {
-			oldImage := target.Image{Digest: "sha256:" + strings.Repeat("b", 64), Platform: image.Platform}
+			oldImage := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("b", 64), Platform: image.Platform}
 			oldContainer := spec.Port(4000)
 			oldHost := target.Port(21000)
 			oldResources := policy.Resources{MemoryMB: 256, PIDsLimit: 64}
@@ -71,6 +71,11 @@ func TestGolden(t *testing.T) {
 	for _, kind := range []plan.Kind{plan.Create, plan.Update, plan.NoOp, plan.Conflict} {
 		t.Run(string(kind), func(t *testing.T) {
 			got := Human(example(kind), ui.NewTheme(true), 80)
+			if os.Getenv("UPDATE_GOLDEN") == "1" {
+				if err := os.WriteFile("testdata/"+string(kind)+".golden", []byte(got), 0644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			want, err := os.ReadFile("testdata/" + string(kind) + ".golden")
 			if err != nil {
 				t.Fatal(err)
@@ -191,7 +196,7 @@ func TestJSONFieldOrder(t *testing.T) {
 func TestDigestCollisionAndControlSafety(t *testing.T) {
 	p := example(plan.Create)
 	p.Image.Digest = "sha256:" + strings.Repeat("a", 12) + strings.Repeat("b", 52)
-	p.Changes[1].Image = &target.Image{Digest: "sha256:" + strings.Repeat("a", 12) + strings.Repeat("c", 52)}
+	p.Changes[1].Image = &plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("a", 12) + strings.Repeat("c", 52)}
 	got := Human(p, ui.NewTheme(true), 80)
 	if !strings.Contains(got, "sha256:"+strings.Repeat("a", 12)+"c...") {
 		t.Fatal("ambiguous digest abbreviation", got)
@@ -257,11 +262,11 @@ func TestBuiltPlanPresentation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			image := target.Image{Digest: strings.Split(string(desired.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}}
+			image := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: strings.Split(string(desired.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}}
 			state := plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{}}
 			if name == "one-app" {
 				observed := (*snapshot.Apps.Value)[0]
-				state.Releases = append(state.Releases, plan.CurrentRelease{App: "hello", ID: "release-0001", Desired: desired, Image: *observed.Image.Value, HostPort: *observed.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: *observed.QuadletUnits.Value, CaddyFile: snapshot.CaddyConfig.Value.Files[0]})
+				state.Releases = append(state.Releases, plan.CurrentRelease{App: "hello", ID: "release-0001", Desired: desired, Image: plan.Image{Digest: observed.Image.Value.Digest, Platform: observed.Image.Value.Platform, ManifestDigest: target.Observation[string]{Status: target.Unknown}}, HostPort: *observed.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: *observed.QuadletUnits.Value, CaddyFile: snapshot.CaddyConfig.Value.Files[0]})
 			}
 			if kind == plan.Create || kind == plan.Update {
 				desired.Environment = []policy.Environment{{Name: "TOKEN", Value: "SYNTHETIC_PRIVATE_VALUE"}}
@@ -342,5 +347,30 @@ func TestTypedDiffCanonicalAndImmutable(t *testing.T) {
 	}
 	if !strings.Contains(human, "- secret REMOVED: removed-token") {
 		t.Fatal("missing secret removal")
+	}
+}
+
+func TestManifestPresentation(t *testing.T) {
+	p := example(plan.NoOp)
+	manifest := "sha256:" + strings.Repeat("a", 12) + strings.Repeat("b", 52)
+	p.Image.ManifestDigest = target.Known(manifest)
+	raw, err := JSON(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(raw, []byte(`"manifest_digest":{"status":"known","value":"`+manifest+`"}`)) {
+		t.Fatal("full known manifest missing from JSON")
+	}
+	human := Human(p, ui.NewTheme(true), 80)
+	if !strings.Contains(human, "Platform manifest: sha256:"+strings.Repeat("a", 12)+"b...") || strings.Contains(human, manifest) {
+		t.Fatalf("manifest must be shortened without colliding with index: %s", human)
+	}
+	p.Image.ManifestDigest = target.Observation[string]{Status: target.Unknown}
+	raw, err = JSON(p)
+	if err != nil || !bytes.Contains(raw, []byte(`"manifest_digest":{"status":"unknown"}`)) {
+		t.Fatal("unknown manifest missing from JSON")
+	}
+	if !strings.Contains(Human(p, ui.NewTheme(true), 80), "Platform manifest: unknown") {
+		t.Fatal("unknown manifest missing from human output")
 	}
 }

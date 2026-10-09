@@ -126,7 +126,7 @@ func TestReviewFirstDeploymentBindsPreexistingSecret(t *testing.T) {
 		t.Fatal(e)
 	}
 	ready.Apps = collected.Apps
-	image := target.Image{Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}
+	image := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}
 	desired := policy.Desired{SchemaVersion: 1, Name: "api", Image: spec.ImageReference("registry.example.test/api@" + image.Digest), ContainerPort: 8080, Domains: []spec.Domain{"api.example.test"}, Environment: []policy.Environment{}, Secrets: []policy.Secret{{Name: "DB", Reference: "db"}}, PolicyVersion: "fixture", PolicyHash: "sha256:" + strings.Repeat("b", 64), AppPorts: policy.PortRange{Min: 20000, Max: 20010}}
 	p, e := plan.Build(plan.Input{Desired: desired, Snapshot: ready, Image: image, State: plan.BrineState{Target: ready.Identity, Generation: 0, Releases: []plan.CurrentRelease{}}})
 	if e != nil {
