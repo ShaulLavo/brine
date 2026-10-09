@@ -39,7 +39,7 @@ CREATE TABLE app_removals (
  FOREIGN KEY(app,release_id) REFERENCES releases(app,id));
 CREATE TRIGGER removals_no_update BEFORE UPDATE ON app_removals BEGIN SELECT RAISE(ABORT,'immutable app removal'); END;
 CREATE TRIGGER removals_no_delete BEFORE DELETE ON app_removals BEGIN SELECT RAISE(ABORT,'immutable app removal'); END;
-UPDATE schema_version SET version=3;UPDATE schema_version SET version=2;
+UPDATE schema_version SET version=2;
 `
 	if _, err := tx.ExecContext(ctx, migration); err != nil {
 		return err
