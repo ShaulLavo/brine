@@ -58,12 +58,7 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 		if source.State != ops.RecoveryRequired || source.PlanID != intent.PlanID || source.App != app || source.SecretRef != intent.SecretRef || source.Kind != ops.Deploy && source.Kind != ops.Resolve && source.Kind != ops.SecretSet {
 			return Operation{}, false, ErrConflict
 		}
-		var existing string
-		e = tx.QueryRowContext(ctx, "SELECT id FROM operations WHERE recovery_of=? AND state NOT IN ('failed','recovery_required')", source.ID).Scan(&existing)
-		if e == nil {
-			return Operation{}, false, ErrConflict
-		}
-		if !errors.Is(e, sql.ErrNoRows) {
+		if e = resolutionFamilyAvailable(ctx, tx, source); e != nil {
 			return Operation{}, false, e
 		}
 	}

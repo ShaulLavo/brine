@@ -79,3 +79,17 @@ func TestUnknownReasonsNeverExposeErrors(t *testing.T) {
 		t.Fatal(string(raw))
 	}
 }
+
+func TestRecoveryFindingRequiresStatusPrefixInspection(t *testing.T) {
+	report := Report{Apps: []App{{Name: "demo", Operations: Known([]RecentOperation{{ID: "receipt", State: ops.RecoveryRequired}})}}}
+	for _, finding := range Findings(report) {
+		if finding.Code != "recovery_required" {
+			continue
+		}
+		if len(finding.NextOperations) != 1 || finding.NextOperations[0] != "brine status --operation receipt --target NAME" {
+			t.Fatal(finding)
+		}
+		return
+	}
+	t.Fatal("missing recovery finding")
+}

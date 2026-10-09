@@ -179,8 +179,10 @@ func newOperationStatusCmd(machine *bool, modes *machineModes, deps Dependencies
 		if err == nil && status.Operation.State == ops.RecoveryRequired {
 			if status.Operation.Kind == ops.Reconcile {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect affected app operation status; preview remaining recovery with: brine reconcile --dry-run --target %s\n", flags.target)
+			} else if cursor == 0 && len(status.Events) < jobs.EventPageLimit && resolutionPrefixSupported(status.Operation, status.Events) {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect supported recovery with: brine resolve %s --target %s\n", id, flags.target)
 			} else {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect and resolve with: brine resolve %s --target %s\n", id, flags.target)
+				_, err = fmt.Fprintln(cmd.OutOrStdout(), "Inspect the full recorded history and live app state; supported automatic resolution is not established for this receipt.")
 			}
 		}
 		return err

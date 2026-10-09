@@ -140,3 +140,17 @@ cyclic and overlong (more than 64 ancestors) chains refuse without host effects.
   refuses all attribution. Lexer tests distinguish quoted directives from
   harmless response strings and comments; environment expansion and malformed
   source tokens also stay unknown.
+
+
+Resolution review regressions (local, physical rerun still pending):
+- Completed check_direct on an interrupted update with foreign or unreadable
+  Quadlet ownership refuses before rollback_quiesce can stop its service.
+- Both intent and completed health boundaries freshly probe pending manager
+  jobs; a continuously pending job refuses without host effects.
+- Durable phase transitions before step intent converge at every removal
+  boundary. Actual detached run-op SIGKILL after each of the six forward phase
+  writes proves read-only preview, successful settlement and repeat convergence.
+- Transactional family fencing rejects a second resolution of an old source
+  while a descendant is active or after that descendant succeeded.
+- Status suppresses resolve advice for absent and unsupported prefixes; diagnose
+  directs the reader to status rather than promising automatic resolution.

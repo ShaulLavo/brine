@@ -49,9 +49,24 @@ func TestRecoveryStatusSuggestsSupportedCommand(t *testing.T) {
 			var out bytes.Buffer
 			deps := Dependencies{Context: context.Background(), Stdin: bytes.NewReader(nil), Stdout: &out, Stderr: io.Discard}
 			deps.LoadOperationTarget = func(_ string, name string) (transport.Target, error) { return transport.Target{Name: name}, nil }
+
+			events := []ops.Event{}
+			operation := ops.Operation{ID: "receipt", Kind: kind, State: ops.RecoveryRequired, App: "hello", PlanID: "fixture-plan"}
+			if kind == ops.SecretSet {
+				operation.PlanID = ""
+				operation.SecretRef = "token"
+				payload, _ := json.Marshal(ops.SecretVersionPayload{Name: "brine.hello.token.v1", Outcome: "unknown"})
+				events = append(events, ops.Event{Sequence: 1, Kind: "secret_version", Payload: payload})
+			} else if kind != ops.Reconcile {
+				for i, step := range []string{"preflight", "withdraw_route", "stop_unit"} {
+					payload, _ := json.Marshal(ops.StepPayload{Step: step, Outcome: "completed"})
+					events = append(events, ops.Event{Sequence: uint64(i + 1), Kind: "step", Payload: payload})
+				}
+			}
 			deps.OperationClient = callFunc(func(context.Context, transport.Target, dispatch.Request) (result.Envelope, error) {
-				return result.Success("brine host operation", jobs.Status{Operation: ops.Operation{ID: "receipt", Kind: kind, State: ops.RecoveryRequired}, Events: []ops.Event{}}), nil
+				return result.Success("brine host operation", jobs.Status{Operation: operation, Events: events, NextCursor: uint64(len(events))}), nil
 			})
+
 			if err := Execute(deps, []string{"status", "--operation", "receipt", "--target", "fixture"}); err != nil {
 				t.Fatal(err)
 			}
@@ -60,6 +75,30 @@ func TestRecoveryStatusSuggestsSupportedCommand(t *testing.T) {
 					t.Fatal(out.String())
 				}
 			} else if !strings.Contains(out.String(), "brine resolve receipt --target fixture") {
+				t.Fatal(out.String())
+			}
+		})
+	}
+}
+
+func TestStatusDoesNotOfferResolveWithoutSupportedPrefix(t *testing.T) {
+	for _, step := range []string{"", "rollback_quiesce", "stop_unit"} {
+		t.Run(step, func(t *testing.T) {
+			var out bytes.Buffer
+			events := []ops.Event{}
+			if step != "" {
+				payload, _ := json.Marshal(ops.StepPayload{Step: step, Outcome: "unknown", Code: "interrupted"})
+				events = append(events, ops.Event{Sequence: 1, Kind: "step", Payload: payload})
+			}
+			deps := Dependencies{Context: context.Background(), Stdin: bytes.NewReader(nil), Stdout: &out, Stderr: io.Discard}
+			deps.LoadOperationTarget = func(_ string, name string) (transport.Target, error) { return transport.Target{Name: name}, nil }
+			deps.OperationClient = callFunc(func(context.Context, transport.Target, dispatch.Request) (result.Envelope, error) {
+				return result.Success("brine host operation", jobs.Status{Operation: ops.Operation{ID: "receipt", Kind: ops.Deploy, State: ops.RecoveryRequired}, Events: events, NextCursor: uint64(len(events))}), nil
+			})
+			if err := Execute(deps, []string{"status", "--operation", "receipt", "--target", "fixture"}); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(out.String(), "brine resolve") {
 				t.Fatal(out.String())
 			}
 		})

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -139,5 +140,51 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 		if _, err = migrated.db.Exec(query, successor.ID); err == nil {
 			t.Fatal("lost identity or terminal guard")
 		}
+	}
+}
+
+func TestResolutionFencesActiveAndSuccessfulDescendantsAcrossAncestry(t *testing.T) {
+	for _, settled := range []bool{false, true} {
+		t.Run(map[bool]string{false: "active", true: "succeeded"}[settled], func(t *testing.T) {
+			s, err := Open(stateDir(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			ctx := context.Background()
+			root, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.SecretSet, App: "hello", SecretRef: "token"}, "fixture", "root")
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, state := range []ops.State{ops.Preparing, ops.RecoveryRequired} {
+				if err = s.SetOperationState(ctx, root.ID, state); err != nil {
+					t.Fatal(err)
+				}
+			}
+			makeChild := func(source, key string) Operation {
+				op, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, App: "hello", SecretRef: "token", RecoveryOf: source}, "fixture", key)
+				if e != nil {
+					t.Fatal(e)
+				}
+				return op
+			}
+			middle := makeChild(root.ID, "middle")
+			for _, state := range []ops.State{ops.Preflight, ops.RecoveryRequired} {
+				if err = s.SetOperationState(ctx, middle.ID, state); err != nil {
+					t.Fatal(err)
+				}
+			}
+			descendant := makeChild(middle.ID, "descendant")
+			if settled {
+				for _, state := range []ops.State{ops.Preflight, ops.Succeeded} {
+					if err = s.SetOperationState(ctx, descendant.ID, state); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if _, _, err = s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, App: "hello", SecretRef: "token", RecoveryOf: root.ID}, "fixture", "old-source-again"); !errors.Is(err, ErrConflict) {
+				t.Fatalf("ancestor accepted despite descendant: %v", err)
+			}
+		})
 	}
 }

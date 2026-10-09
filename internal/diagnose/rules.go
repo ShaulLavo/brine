@@ -30,7 +30,7 @@ var appRules = []rule{
 	{"route_missing", "error", "No live Caddy route was observed for this app.", []string{"brine plan --help"}, func(_ Host, a App) bool { return a.RoutePresent.Value != nil && !*a.RoutePresent.Value }},
 	{"artifact_drift", "warning", "Observed app artifacts differ from the committed release. Replan before making changes.", []string{"brine plan --help"}, func(_ Host, a App) bool { return a.Drift.Value != nil && len(*a.Drift.Value) > 0 }},
 	{"operation_failed", "warning", "The most recent app operation failed. Inspect its status and logs before retrying.", []string{"brine status --operation ID --target NAME", "brine logs APP --target NAME"}, func(_ Host, a App) bool { return latest(a, ops.Failed) }},
-	{"recovery_required", "error", "The most recent operation needs recovery. Inspect its recorded state; do not blindly retry.", []string{"brine status --operation ID --target NAME", "brine resolve ID --target NAME"}, func(_ Host, a App) bool { return latest(a, ops.RecoveryRequired) }},
+	{"recovery_required", "error", "The most recent operation needs recovery. Inspect its recorded state; do not blindly retry.", []string{"brine status --operation ID --target NAME"}, func(_ Host, a App) bool { return latest(a, ops.RecoveryRequired) }},
 	{"plan_stale", "warning", "The most recent operation refused a stale plan. Make a fresh plan before applying.", []string{"brine plan --help"}, func(_ Host, a App) bool {
 		return a.Operations.Value != nil && len(*a.Operations.Value) > 0 && (*a.Operations.Value)[0].FailureCode == "stale_plan"
 	}},

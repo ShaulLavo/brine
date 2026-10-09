@@ -593,8 +593,8 @@ policy still apply. Operator-only actions remain outside this command.
 Terminal receipts stay immutable. A `resolve` successor has `recovery_of`, a
 value-free `resolution {operation_id}` event and an atomically adopted, bounded
 step/secret-version prefix. Idempotent acceptance and the launch fence prevent
-duplicate runners; the store prevents multiple active or successful successors
-for one source. Schema v3 migrates the real v2 operations/journals without
+duplicate runners; the store transaction fences active or successful descendants
+across the entire receipt family, not only direct successors of one source. Schema v3 migrates the real v2 operations/journals without
 rewriting them and preserves the v1 migration path.
 
 The successor loads the original stored plan, acquires the existing host lock,
@@ -602,11 +602,16 @@ then inspects current ownership, policy, artifacts, routing, writer and systemd
 jobs. It does not generate a new plan that mistakes earlier journaled Brine
 withdrawal for foreign route drift. Ordinary planners remain strict. Safe
 resolution reuses executor continuation/rollback and journals all new effects
-under the successor. Repeated attempts validate at most 64 immutable, same-plan
-recovery-required ancestors under the lock. An exact commit/retirement receipt
+under the successor. Recovery authorization freshly settles manager jobs and
+proves the unit/container writer state even when the last step was a read-only
+health check. Rollback must prove the live unit hash belongs to the candidate or
+recorded predecessor before stopping its service. Repeated attempts validate at
+most 64 immutable, same-plan recovery-required ancestors under the lock. An exact commit/retirement receipt
 from any member stays usable after a later resolution failed to journal its
 terminal state; missing, foreign, cyclic or overlong chains refuse.
-`run-op` and reconciliation recover interrupted successors;
+`run-op` and reconciliation recover interrupted successors. A durable phase
+transition can precede its step intent: recovery preserves an already-reached
+phase and never advances past the phase justified by the journal prefix;
 preview remains read-only. Successful removal finishes deletion/reload and
 retires the live head and port, without restarting the removed writer or
 restoring its route. Retained history, images and secrets are not purged.
@@ -627,6 +632,13 @@ publication still refuse without further effects. They need an operator to
 establish authoritative state; no DB editing, arbitrary host command or
 permission bypass is provided. A refused successor is itself recovery-required;
 resolve that latest receipt after fixing the underlying evidence, not an older
-ancestor that lacks the newer journal. Human operation status and diagnose
-suggest status/resolve; the original terminal receipt intentionally remains
+ancestor that lacks the newer journal. Human operation status conditionally
+suggests resolution inspection and diagnose directs the reader to status; the original terminal receipt intentionally remains
 visible, while the successor status and `recovery_of` report the repair outcome.
+
+Human status only offers resolution inspection for a complete supported receipt
+prefix. Failed/rollback prefixes, missing evidence, uncertain deployment route
+publication and partial journal pages do not receive unconditional resolve advice.
+Diagnose lacks step-prefix evidence and directs the operator to status instead.
+Resolution creation inspects at most 64 ancestors and 4096 family receipts;
+excessive or inconsistent families refuse rather than widening authority.
