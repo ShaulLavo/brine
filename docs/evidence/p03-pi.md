@@ -2,9 +2,15 @@
 
 Recorded 2026-10-09. The first attempt used `9670c1a`. The resumed attempt merged `c4caf3d`, including stateless removal, and tested the Docker Hub fix in `9e862a1` on the physical target.
 
-## Result
+## Latest result, 2026-10-10
 
-**First stateless deployment verified; blocked on route provenance before updating it. The Phase 03 exit gate has not passed.**
+**Real v2-to-v3 migration and terminal-removal resolution passed. Clean-fixture recreation is blocked by retained-secret inventory after a nonzero control generation. The Phase 03 exit gate remains open.**
+
+The current run on `52977d3` preserved the existing receipt and all 13 event rows through migration, then completed its removal through `brine resolve` without operator app mutations. There are zero committed apps and no fixture unit/container/selected route/listener. D5-retained secret v1 and history remain. Planning the recreated fixture now refuses `unknown_facts` for `app.image`, `app.port`, and `apps.port`; even a different app with no secret references refuses `apps.port`. The lane reproduced the same condition locally and stopped rather than delete retained secrets, reset control generation, or invent runtime absence. Details follow at the end of this file. No new deploy was accepted, reboot issued, or acceptance checkbox changed.
+
+## Earlier result, 2026-10-09
+
+**First stateless deployment verified; blocked on route provenance before updating it. The Phase 03 exit gate had not passed.**
 
 After a separate operator session prepared enrollment and routing/TLS prerequisites, the real restricted client deployed a digest-pinned fixture with an immutable Podman secret. Direct HTTP and normally verified routed HTTPS both returned 200. Two small production defects were reproduced with failing-first tests and fixed: Docker Hub resolution and Caddy route permissions under the private job umask.
 
@@ -261,6 +267,33 @@ Local baseline gates passed all 30 Go packages, vet, client and Linux arm64 buil
 
 The restricted client accepted successor `01a122ef7112ec7a2a1182bfb1b08320f0dcfa4a87fc`, kind `resolve`, with `recovery_of` pointing at the original removal. It succeeded at `2026-10-09T23:11:22.834506305Z` (the local test session date is 2026-10-10). The original receipt remains terminal recovery-required, as designed; it was not reopened.
 
-The adopted withdrawal intent/completion retain their original `17:24:31` timestamps. No new withdrawal intent or stop intent was journaled. Fresh stopped-writer inspection completed the previously unknown stop, then new `remove_unit`, `reload_units`, and `retire_app` intent/completion pairs finished under the successor. The actual `fixture.container` and selected route are absent, the user unit reports `LoadState=not-found`, and no Podman container or TCP listener remains on port 20000. Read-only SQL reports zero live release heads and one immutable removal receipt. Restricted `status` returns `apps:[]`.
+The successor's first `resolution` event links the source, followed by the adopted step payloads. Adoption stamps those copied events with successor-acceptance times; they do not retain the source timestamps. There is only one adopted withdrawal intent/completion pair and one adopted stop intent, with no additional withdrawal/stop intent during execution. The selected Caddy generation remains `gen-3`. Fresh stopped-writer inspection completed the previously unknown stop, then new `remove_unit`, `reload_units`, and `retire_app` intent/completion pairs finished under the successor. The actual `fixture.container` and selected route are absent, the user unit reports `LoadState=not-found`, and no Podman container or TCP listener remains on port 20000. Read-only SQL reports zero live release heads and one immutable removal receipt. Restricted `status` returns `apps:[]`.
 
 History, the image, historical generation-2 route, and immutable secret v1 remain under D5; successful stateless removal is not a purge. No direct operator app mutation or DB editing was used to complete it. The secret's presence alone must not be mistaken for a committed app or a live port allocation. This resolves the earlier terminal-removal follow-up for that actual receipt; remove/recreate and the remaining clean-fixture drills are separate evidence.
+
+### New blocker: retained-secret inventory prevents recreation
+
+The resolved host has known control generation 2, zero release heads, no fixture Quadlet/container/listener, and one retained immutable secret. A plan using the original pinned image, route and secret reference was saved, but refused before apply:
+
+```sh
+"$SCRATCH/brine" plan "$SCRATCH/v1.toml" \
+  --target "$TARGET" --config-dir "$CLIENT_DIR" --json
+```
+
+```json
+{"schema_version":1,"command":"brine plan","ok":true,"data":{"plan_id":"sha256:b6c692e503484f9a702de2efa55939536ed01ce6744fc2e0b9c8417a64eaf62d","kind":"conflict","diff":null,"conflicts":[{"code":"unknown_facts","field":"app.image"},{"code":"unknown_facts","field":"app.port"},{"code":"unknown_facts","field":"apps.port"}]},"error":null}
+```
+
+No apply was accepted for this plan. This is not route provenance, missing registry metadata, an occupied port, an incomplete resolution, or failure to migrate. The completed removal has its durable retirement receipt; restricted status has no committed apps. Current Caddy generation 3 has no fixture route. The image still resolves successfully in connected planning.
+
+A second read-only plan changed the desired name/domain to `fixture-two`/`fixture-two.brine.test` and removed all secret references. It returned plan `sha256:1e10c66a295c2d559ac75d4175a03753873f297ae7336bc7397304232fdc376d`, `kind:conflict`, with just `unknown_facts:apps.port`. No second app was deployed. Thus the existing secret-only inventory record can block port allocation even for another app; this is not a missing requested secret.
+
+`internal/inventory/artifacts.go:109-115` initializes secret-only app image/port observations as unknown and only emits absence when global control generation is zero. After the successful removal, generation remains nonzero by design. `internal/plan/plan.go:312-324` refuses those facts for the requested app, and `:340-355` refuses an unknown port from any inventory app while allocating a new port. D5 intentionally keeps secrets/history after removal; deleting them or resetting generation is not the solution.
+
+A temporary local regression adapted `TestReviewFirstDeploymentBindsPreexistingSecret` to a known generation 2, an empty Quadlet directory, matching generation-2 BrineState with no release heads, and the retained secret fixture. `go test ./internal/inventory -run '^TestRecreationRetainedSecretNonzeroGeneration$' -count=1` failed with exactly the three physical `unknown_facts` diagnostics above. The reproduction source/log remain in private task scratch; the failing test was not left in the committed tree. Production code was not loosened to manufacture absence. A safe solution needs affirmative per-app runtime/committed-state absence, retaining strict handling of missing artifacts, unowned containers/listeners, incomplete removal and unreadable state.
+
+The lane stopped at that larger ownership/absence boundary as instructed. A new digest was resolved for the planned second release (`sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8`, arm64 manifest `sha256:e00b7e2763a0dfec9ec6d99253612510c253df47d7218cdd35c4e465b4e9ad1f`), but it was never applied. Update, stop-before-start, rollback, invalid release, parallel applies, client/SSH disconnect, run-op SIGKILL/dry-run preservation/reconciliation, new config/secret/lifecycle operations, nonempty app log tail, reboot and final clean-fixture removal remain owed. Both permitted reboots remain unused. Existing-data mounts, schema-breaking data rollback and R2 restore remain Phase 04; no zero-downtime claim is made.
+
+Final state: no committed fixture app, unit, container, selected route or live port. Secret v1, image, historical route generations, original/recovery receipts and the root-private pre-upgrade binary/DB backup remain intentionally retained. Original terminal receipt/event hash still match the pre-migration observations after successor completion. No operator configuration, credentials, firewall, tailnet, policy, trust store or account was changed in this run.
+
+Final local checks passed: `go test ./...` (all 30 packages), `go vet ./...`, `go build ./cmd/brine`, `gofmt -l ./cmd ./internal` (empty), `GOOS=darwin GOARCH=arm64 go vet ./...`, and `git diff --check`. This resumed PR changes evidence/planning only, not runtime or concurrency code. These local checks do not complete the remaining physical acceptance drills.
