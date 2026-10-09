@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -100,6 +101,79 @@ func TestRemoveRecoveryDriftAndUnknownWriterFailClosed(t *testing.T) {
 			assessment, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "operation", Kind: ops.Deploy, PlanID: r.plan.Hash, State: r.state}, r.plan, r.desired, events)
 			if err != nil || assessment.Action != RequireRecovery {
 				t.Fatal(assessment, err)
+			}
+		})
+	}
+}
+
+func TestInterruptedNoOpRemovalCompletesAfterAbsenceValidation(t *testing.T) {
+	for _, outcome := range []string{"intent", "completed"} {
+		t.Run(outcome, func(t *testing.T) {
+			r := newRig(t, false)
+			var err error
+			r.plan, err = plan.BuildRemove(r.facts.Input)
+			if err != nil || r.plan.Kind != plan.NoOp {
+				t.Fatal(r.plan, err)
+			}
+			r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
+			r.executor.Units = nil
+			r.executor.Routes = nil
+			r.executor.Systemd = nil
+			r.executor.Podman = nil
+			r.state = Preflight
+			raw, _ := json.Marshal(ops.StepPayload{Step: "preflight", Outcome: outcome})
+			events := []Event{{Kind: "step", Payload: raw}}
+			r.events = events
+			op := Operation{ID: "operation", Kind: ops.Deploy, PlanID: r.plan.Hash, State: Preflight}
+			assessment, err := r.executor.InspectRecovery(context.Background(), op, r.plan, r.desired, events)
+			if err != nil || assessment.Action != FinishSucceeded {
+				t.Fatal(assessment, err)
+			}
+			if len(r.effects) != 0 || len(r.events) != 1 {
+				t.Fatal("inspection changed state", r.effects, r.events)
+			}
+			if err = r.executor.Recover(context.Background(), assessment); err != nil || r.state != Succeeded || len(r.effects) != 0 {
+				t.Fatal(err, r.state, r.effects)
+			}
+			if err = r.executor.Recover(context.Background(), assessment); err == nil {
+				t.Fatal("reused assessment")
+			}
+		})
+	}
+}
+
+func TestInterruptedNoOpRemovalRefusesChangedAbsenceEvidence(t *testing.T) {
+	for _, change := range []string{"app", "route", "generation", "policy", "unknown_apps", "unknown_route", "effect_event"} {
+		t.Run(change, func(t *testing.T) {
+			r := newRig(t, false)
+			var err error
+			r.plan, err = plan.BuildRemove(r.facts.Input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
+			raw, _ := json.Marshal(ops.StepPayload{Step: "preflight", Outcome: "completed"})
+			events := []Event{{Kind: "step", Payload: raw}}
+			switch change {
+			case "app":
+				r.facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: r.plan.App, QuadletUnits: target.Known([]target.Unit{})}})
+			case "route":
+				r.facts.Input.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: 1, Files: []target.CaddyFile{{Name: r.plan.App + ".caddy", Hash: r.plan.Hash}}})
+			case "generation":
+				r.facts.Input.State.Generation++
+				r.facts.Input.Snapshot.Generation = target.Known(r.facts.Input.State.Generation)
+			case "policy":
+				r.facts.Input.Desired.PolicyHash = r.plan.Hash
+			case "unknown_apps":
+				r.facts.Input.Snapshot.Apps = target.Observation[[]target.App]{Status: target.Unknown}
+			case "unknown_route":
+				r.facts.Input.Snapshot.CaddyConfig = target.Observation[target.CaddyConfigSet]{Status: target.Unknown}
+			case "effect_event":
+				events = recoveryEvents("preflight", "withdraw_route")
+			}
+			assessment, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "operation", Kind: ops.Deploy, PlanID: r.plan.Hash, State: Preflight}, r.plan, r.desired, events)
+			if err != nil || assessment.Action != RequireRecovery || len(r.effects) != 0 || len(r.events) != 0 {
+				t.Fatal(assessment, err, r.events, r.effects)
 			}
 		})
 	}

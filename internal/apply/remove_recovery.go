@@ -1,6 +1,7 @@
 package apply
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"reflect"
@@ -15,6 +16,12 @@ import (
 var removeSteps = []string{"preflight", "withdraw_route", "stop_unit", "remove_unit", "reload_units", "retire_app"}
 
 func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, r Recovery) (Recovery, error) {
+	if op.State.IsTerminal() || p.Hash != op.PlanID || !desiredMatches(p, d) || len(p.Conflicts) != 0 || e.Facts == nil || e.Releases == nil {
+		return r, nil
+	}
+	if p.Kind == plan.NoOp {
+		return e.inspectNoOpRemoveRecovery(ctx, op, p, d, events, r)
+	}
 	if op.State.IsTerminal() || p.Hash != op.PlanID || !desiredMatches(p, d) || p.Kind != plan.Update || p.Removal == nil || len(p.Removal.Units) != 1 || len(p.Conflicts) != 0 || e.Facts == nil || e.Releases == nil || e.Podman == nil || e.Systemd == nil {
 		return r, nil
 	}
@@ -178,5 +185,58 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 		r.resolved = true
 	}
 	r.Action = ResumeForward
+	return r, nil
+}
+
+// A no-op has no removal payload or runtime adapters. Its only boundary is
+// read-only preflight. Fresh replanning must still prove the same app absence,
+// policy, target and generation before completing the interrupted receipt.
+func (e *Executor) inspectNoOpRemoveRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, r Recovery) (Recovery, error) {
+	if op.State != Preflight || p.Removal != nil || len(p.Changes) != 0 {
+		return r, nil
+	}
+	completed := false
+	for _, event := range events {
+		if event.Kind != "step" {
+			continue
+		}
+		var step stepPayload
+		if json.Unmarshal(event.Payload, &step) != nil || step.Step != "preflight" || completed {
+			return r, nil
+		}
+		switch step.Outcome {
+		case "intent", "unknown":
+		case "completed":
+			completed = true
+		default:
+			return r, nil
+		}
+		r.Step = step.Step
+		r.unknownBoundary = step.Outcome == "intent"
+	}
+	if r.Step == "" {
+		return r, nil
+	}
+	evidence, cancel := context.WithTimeout(ctx, e.effectTimeout())
+	defer cancel()
+	facts, err := e.Facts.Read(evidence)
+	if err != nil {
+		return r, err
+	}
+	fresh, err := plan.BuildRemove(facts.Input)
+	if err != nil || fresh.Kind != plan.NoOp {
+		return r, nil
+	}
+	before, err := p.CanonicalBytes()
+	if err != nil {
+		return r, nil
+	}
+	after, err := fresh.CanonicalBytes()
+	if err != nil || !bytes.Equal(before, after) {
+		return r, nil
+	}
+	r.execution = &execution{executor: e, id: op.ID, plan: p, desired: d, facts: facts, state: op.State}
+	r.resolved = !completed
+	r.Action = FinishSucceeded
 	return r, nil
 }
