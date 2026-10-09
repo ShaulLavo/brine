@@ -201,20 +201,26 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	var value any
 	switch args := args.(type) {
 	case ReconcileArgs:
-		if s.Reconciler == nil {
-			return fail(result.New(result.DependencyMissing, nil))
-		}
-		var report any
-		var err error
 		if args.DryRun {
-			report, err = s.Reconciler.DryRun(ctx)
+			if s.Reconciler == nil {
+				return fail(result.New(result.DependencyMissing, nil))
+			}
+			report, err := s.Reconciler.DryRun(ctx)
+			if err != nil {
+				return fail(result.Classify(err))
+			}
+			value = report
 		} else {
-			report, err = s.Reconciler.Reconcile(ctx)
+			jobs, ok := s.jobs.(ReconcileJobs)
+			if !ok {
+				return fail(result.New(result.DependencyMissing, nil))
+			}
+			accepted, err := jobs.Reconcile(ctx)
+			if err != nil {
+				return fail(result.Classify(err))
+			}
+			value = accepted
 		}
-		if err != nil {
-			return fail(result.Classify(err))
-		}
-		value = report
 	case spec.App:
 		if s.Planner == nil {
 			return fail(result.New(result.DependencyMissing, nil))

@@ -56,6 +56,7 @@ type Reconciler struct {
 	// only construct adapters, never stage or execute effects. It takes priority
 	// over Executor, which is useful for a single-operation host or tests.
 	ExecutorFor  func(context.Context, ops.Operation, plan.Plan, policy.Desired) (*apply.Executor, error)
+	ExcludeID    string // Trusted detached recovery runner; never requester-controlled.
 	LockTimeout  time.Duration
 	ProbeTimeout time.Duration
 }
@@ -89,7 +90,7 @@ func (r Reconciler) withLock(ctx context.Context, dry bool) (report Report, err 
 	defer func() { err = errors.Join(err, lock.Release()) }()
 	// Only launch-state settlement needs the fence. Do not hold it through a
 	// potentially long resumed deployment or rollback.
-	report, err = r.reconcileUnderLocks(ctx, lock, launch, "", dry, true, false)
+	report, err = r.reconcileUnderLocks(ctx, lock, launch, r.ExcludeID, dry, true, false)
 	if err != nil {
 		return report, err
 	}
@@ -98,7 +99,7 @@ func (r Reconciler) withLock(ctx context.Context, dry bool) (report Report, err 
 	if releaseErr != nil {
 		return report, releaseErr
 	}
-	rest, err := r.reconcileUnderLocks(ctx, lock, nil, "", dry, false, true)
+	rest, err := r.reconcileUnderLocks(ctx, lock, nil, r.ExcludeID, dry, false, true)
 	report.Outcomes = append(report.Outcomes, rest.Outcomes...)
 	return report, err
 }
@@ -230,6 +231,11 @@ func (r Reconciler) inspect(ctx context.Context, op ops.Operation) (Outcome, *co
 		if showErr == nil && properties.ActiveState == "failed" {
 			out.After, out.Action, out.Code = ops.Failed, "failed", "executor_failed"
 		}
+		return out, nil, nil
+	}
+	// Interrupted recovery jobs are receipts, not deployment plans. Never replay
+	// their recovery request or interpret them as a forward-effect prefix.
+	if op.Kind == "reconcile" {
 		return out, nil, nil
 	}
 	if r.Executor == nil && r.ExecutorFor == nil {

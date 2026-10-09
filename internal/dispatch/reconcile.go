@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
@@ -23,4 +24,8 @@ func decodeReconcile(raw json.RawMessage) (any, error) {
 	}
 	dry, err := strictjson.Value[bool](fields["dry_run"])
 	return ReconcileArgs{DryRun: dry}, err
+}
+
+type ReconcileJobs interface {
+	Reconcile(context.Context) (jobs.Accepted, error)
 }

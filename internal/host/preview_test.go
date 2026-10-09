@@ -59,12 +59,12 @@ func TestPreviewNeverInitializesOrMigratesDatabase(t *testing.T) {
 				if err := s.Close(); err != nil {
 					t.Fatal(err)
 				}
-				if fixture == "old" {
+				if fixture == "old" || fixture == "v1" {
 					db, err := sql.Open("sqlite", filepath.Join(dir, "control.db"))
 					if err != nil {
 						t.Fatal(err)
 					}
-					if _, err = db.Exec("UPDATE schema_version SET version=0"); err != nil {
+					if _, err = db.Exec("UPDATE schema_version SET version=?", map[string]int{"old": 0, "v1": 1}[fixture]); err != nil {
 						t.Fatal(err)
 					}
 					db.Close()
@@ -103,7 +103,7 @@ func TestPreviewNeverInitializesOrMigratesDatabase(t *testing.T) {
 			if fixture == "missing" {
 				want = "database_missing"
 			}
-			if fixture == "old" {
+			if fixture == "old" || fixture == "v1" {
 				want = "schema_upgrade_required"
 			}
 			if report.ControlState != want {

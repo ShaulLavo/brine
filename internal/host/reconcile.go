@@ -4,10 +4,12 @@ import (
 	"context"
 
 	"github.com/ShaulLavo/brine/internal/apply"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/reconcile"
+	"github.com/ShaulLavo/brine/internal/result"
 )
 
 // Recovery shares the normal executor's operational adapters. Each assessment
@@ -37,4 +39,23 @@ type runnerReconciler struct{ reconciler reconcile.Reconciler }
 func (r runnerReconciler) ReconcileUnderLock(ctx context.Context, lock ops.Lock, id string, dry bool) error {
 	_, err := r.reconciler.ReconcileUnderLock(ctx, lock, id, dry)
 	return err
+}
+
+func recoveryJob(reconciler reconcile.Reconciler) func(context.Context, string) error {
+	return func(ctx context.Context, id string) error {
+		copy := reconciler
+		copy.ExcludeID = id
+		// Detached jobs may wait for an ongoing deploy, unlike synchronous previews.
+		copy.LockTimeout = jobs.HostLockWaitTimeout
+		report, err := copy.Reconcile(ctx)
+		if err != nil {
+			return err
+		}
+		for _, out := range report.Outcomes {
+			if out.After == ops.RecoveryRequired {
+				return result.New(result.RecoveryRequired, nil)
+			}
+		}
+		return nil
+	}
 }

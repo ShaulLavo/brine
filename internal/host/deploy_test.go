@@ -166,7 +166,7 @@ func newDeployRigAt(t *testing.T, dir string) *deployRig {
 	manager.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 	engine := apply.Executor{Journal: state, Releases: releases{state}, Plans: state, Podman: runtime, Systemd: manager, Units: r.units, Routes: fakeRoutes{pol}, Health: r.health}
 	reconciler := newReconciler(r.service, engine, manager)
-	r.runner = jobs.Runner{Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: r.service, Engine: engine}}
+	r.runner = jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: r.service, Engine: engine}}
 	r.server = dispatch.NewServer("fixture", r.inventory).WithJobs(jobs.Service{Store: state, Launcher: r.launcher, Requester: r.service.Requester}, r.service.Authorize)
 	r.server.Reconciler = reconciler
 	r.server.Planner = r.service

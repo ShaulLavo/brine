@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/transport"
@@ -75,6 +76,9 @@ func TestRemoteReconcileCLI(t *testing.T) {
 			}
 			if _, err := dispatch.EncodeRequest(request); err != nil {
 				t.Fatal(err)
+			}
+			if !dry {
+				return result.Success("brine host reconcile", jobs.Accepted{Status: "accepted", OperationID: "recovery-job"}), nil
 			}
 			return result.Success("brine host reconcile", reconcile.Report{DryRun: dry, Outcomes: []reconcile.Outcome{}}), nil
 		})

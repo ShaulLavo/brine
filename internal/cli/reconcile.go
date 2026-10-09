@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/systemd"
@@ -35,6 +36,17 @@ func newReconcileCmd(machine *bool, deps Dependencies) *cobra.Command {
 	cmd := &cobra.Command{Use: "reconcile --target NAME", Short: "Inspect interrupted operations and safely settle their outcomes", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		response, err := flags.call(cmd.Context(), deps, "reconcile", dispatch.ReconcileArgs{DryRun: dry})
 		if err != nil {
+			return err
+		}
+		if !dry {
+			accepted, ok := response.Data.(jobs.Accepted)
+			if !response.OK || !ok || accepted.Status != "accepted" || !jobs.ValidID(accepted.OperationID) {
+				return result.New(result.TransportInvalidResponse, nil)
+			}
+			if *machine {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), accepted))
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Recovery accepted: %s.\nPoll with: brine status --target %s --operation %s\n", accepted.OperationID, flags.target, accepted.OperationID)
 			return err
 		}
 		report, ok := response.Data.(reconcile.Report)

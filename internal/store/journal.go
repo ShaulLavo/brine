@@ -59,12 +59,18 @@ func (s *Store) CreateOperation(ctx context.Context, planID PlanID, requester, i
 func scanOperation(row interface{ Scan(...any) error }) (Operation, error) {
 	var op Operation
 	var created, updated string
-	err := row.Scan(&op.ID, &op.PlanID, &op.Requester, &op.IdempotencyKey, &op.State, &created, &updated)
+	var planID sql.NullString
+	err := row.Scan(&op.ID, &planID, &op.Requester, &op.IdempotencyKey, &op.State, &created, &updated)
 	if errors.Is(err, sql.ErrNoRows) {
 		return op, ErrNotFound
 	}
 	if err != nil {
 		return op, err
+	}
+	if planID.Valid {
+		op.PlanID = planID.String
+	} else {
+		op.Kind = "reconcile"
 	}
 	op.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
 	if err != nil {
@@ -218,4 +224,21 @@ func (s *Store) LastOperation(ctx context.Context, app string) (Operation, error
 		return Operation{}, &IntegrityError{}
 	}
 	return op, nil
+}
+
+// CreateReconcileOperation records a standalone recovery request without inventing
+// a deployment plan. Its ID is polled through the normal operation journal.
+func (s *Store) CreateReconcileOperation(ctx context.Context, requester string) (Operation, error) {
+	if requester == "" || len(requester) > 256 {
+		return Operation{}, ErrInvalid
+	}
+	id, err := newID()
+	if err != nil {
+		return Operation{}, err
+	}
+	now := timestamp()
+	if _, err = s.db.ExecContext(ctx, "INSERT INTO operations VALUES(?,NULL,?,?,?,?,?)", id, requester, "reconcile-"+id, ops.Queued, now, now); err != nil {
+		return Operation{}, err
+	}
+	return s.GetOperation(ctx, id)
 }

@@ -48,8 +48,13 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		var value any
 		switch op {
 		case "reconcile":
+			accepted, err := decodeAccepted(fields["data"])
+			if err == nil {
+				value = accepted
+				break
+			}
 			report, err := reconcile.DecodeReport(fields["data"])
-			if err != nil {
+			if err != nil || !report.DryRun {
 				return invalid()
 			}
 			value = report
