@@ -1,0 +1,19 @@
+# Brine-owned plan=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+# IndexDigest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# PlatformManifestDigest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+# Platform=linux/arm64
+
+[Unit]
+Description=Brine app hello
+
+[Container]
+Image=registry.example.com/team/web@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+PublishPort=127.0.0.1:20000:3000
+PidsLimit=64
+PodmanArgs=--memory=256m
+
+[Service]
+Restart=on-failure
+
+[Install]
+WantedBy=default.target

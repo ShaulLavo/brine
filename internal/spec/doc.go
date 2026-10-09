@@ -32,9 +32,12 @@ can impose tighter limits later; parsing is not authorization.
 
 Environment and secrets use case-sensitive POSIX-style variable names matching
 [A-Za-z_][A-Za-z0-9_]* and cannot overlap. Environment values are literal strings;
-NUL and ${ expansion are refused. Literal dollar signs and multiline values
-remain literal data; runtime adapters must safely encode them without shell or
-systemd expansion. Target policy must bound environment sizes before execution.
+Invalid UTF-8, NUL, and ${ expansion are refused. Controls and whitespace other
+than ordinary spaces, newlines, carriage returns, and tabs are refused because
+the pinned Quadlet serializer cannot preserve all such Unicode runes safely.
+Literal dollar signs and multiline values remain literal data; runtime adapters
+must encode them without shell or systemd expansion. Target policy must bound
+environment sizes before execution.
 The parser input limit is not an execution-size guarantee. Secret references match
 [A-Za-z0-9][A-Za-z0-9_.-]{0,252}. The parser cannot distinguish a plausible secret
 name from a plaintext value with the same spelling. Target policy and reference
