@@ -106,7 +106,9 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			(Collector{FS: f, Runner: r, RunnerUser: "brine"}).apps(context.Background(), &snapshot, "/home/brine", true)
+			collector := Collector{FS: f, Runner: r, RunnerUser: "brine"}
+			artifacts := collector.apps(context.Background(), &snapshot, "/home/brine", true)
+			collector.images(context.Background(), &snapshot, "/home/brine", artifacts)
 			app := (*snapshot.Apps.Value)[0]
 			if (app.Image.Status == target.KnownStatus) != tc.known {
 				t.Fatalf("image=%+v", app.Image)
@@ -165,5 +167,72 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 				t.Fatalf("image update=%+v error=%v", p, e)
 			}
 		})
+	}
+}
+
+type stalledImagesRunner struct {
+	imageRunner
+	manifestCalls int
+}
+
+func (r *stalledImagesRunner) RunStdout(ctx context.Context, p string, args ...string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	return r.fakeRunner.RunStdout(ctx, p, args...)
+}
+func (r *stalledImagesRunner) Execute(ctx context.Context, cmd localexec.Command) (localexec.Result, error) {
+	if len(cmd.Args) > 0 && cmd.Args[0] == "manifest" {
+		r.manifestCalls++
+		<-ctx.Done()
+		return localexec.Result{}, &localexec.Error{Kind: localexec.Timeout}
+	}
+	if err := ctx.Err(); err != nil {
+		return localexec.Result{}, err
+	}
+	return r.imageRunner.Execute(ctx, cmd)
+}
+
+func TestUnavailableImagesDoNotExhaustCollection(t *testing.T) {
+	read := func(name string) string {
+		t.Helper()
+		data, err := os.ReadFile("../podman/testdata/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(data)
+	}
+	f := secretOnlyFixture()
+	dir := "/home/brine/.config/containers/systemd"
+	f.dirs[dir] = []fs.DirEntry{}
+	index := "sha256:" + strings.Repeat("a", 64)
+	manifest := "sha256:" + strings.Repeat("b", 64)
+	r := &stalledImagesRunner{imageRunner: imageRunner{fakeRunner: fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": "", "ss -H -lunp": "", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": ""}, results: map[string]string{"image exists registry.example/app@" + index: "", "image inspect registry.example/app@" + index: read("image-inspect.json")}}}
+	for i, name := range []string{"api", "worker", "web"} {
+		f.dirs[dir] = append(f.dirs[dir], fixtureEntry(name+".container"))
+		f.files[dir+"/"+name+".container"] = "# Brine-owned plan=" + index + "\n# IndexDigest=" + index + "\n# PlatformManifestDigest=" + manifest + "\n# Platform=linux/arm64\n[Container]\nImage=registry.example/app@" + manifest + "\n"
+		r.results["container exists systemd-"+name] = ""
+		r.results["container inspect systemd-"+name] = `[{"Name":"systemd-` + name + `","Image":"748902c9f9368aa7437b05e353c23968266b0bc882ac1d74067fc1768a102ba6","Config":{"Labels":{"PODMAN_SYSTEMD_UNIT":"` + name + `.service"}},"State":{"Status":"running","Running":true}}]`
+		r.fakeRunner["podman --remote=false inspect --type container --format "+runtimePortFormat+" systemd-"+name] = fmt.Sprintf(`{"name":"systemd-%s","running":true,"unit":"%s.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"%d"}]}}`, name, name, 20080+i)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	s, err := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(ctx)
+	if err != nil {
+		t.Fatalf("image probes exhausted inventory: %v", err)
+	}
+	if ctx.Err() != nil {
+		t.Fatal("caller deadline consumed")
+	}
+	if r.manifestCalls != 3 {
+		t.Fatalf("fair image slices attempted %d apps, want 3", r.manifestCalls)
+	}
+	if s.Apps.Value == nil || len(*s.Apps.Value) != 3 || s.PortOwners.Status != target.KnownStatus || s.UsedPorts.Status != target.KnownStatus {
+		t.Fatalf("required facts lost: %+v", s)
+	}
+	for _, app := range *s.Apps.Value {
+		if app.Image.Status != target.Unknown || app.AllocatedHostPort.Status != target.KnownStatus {
+			t.Fatalf("image failure lost unrelated app facts: %+v", app)
+		}
 	}
 }

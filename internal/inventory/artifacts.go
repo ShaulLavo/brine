@@ -17,18 +17,24 @@ import (
 
 var appName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
-func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) map[string]publication {
+type appArtifacts struct {
+	publications map[string]publication
+	containers   map[string][]byte
+	runner       bool
+}
+
+func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) appArtifacts {
 	if s.Runner.User.Status == target.Unknown {
-		return nil
+		return appArtifacts{}
 	}
 	if !exists {
 		s.Apps = target.Known([]target.App{})
-		return nil
+		return appArtifacts{}
 	}
 	dir := filepath.Join(home, ".config/containers/systemd")
 	entries, e := c.FS.ReadDir(ctx, dir)
 	if e != nil && !errors.Is(e, fs.ErrNotExist) {
-		return nil
+		return appArtifacts{}
 	}
 	if errors.Is(e, fs.ErrNotExist) {
 		entries = []fs.DirEntry{}
@@ -48,7 +54,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		}
 		data, err := c.FS.ReadFile(ctx, filepath.Join(dir, name))
 		if err != nil {
-			return nil
+			return appArtifacts{}
 		}
 		app := strings.TrimSuffix(strings.TrimPrefix(name, "brine-"), ext)
 		if renderedUnitMarker.Match(data) {
@@ -70,12 +76,12 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	if runnerIdentity {
 		out, err := c.probe(ctx, "podman", "--remote=false", "secret", "ls", "--format", "{{.ID}} {{.Name}}")
 		if err != nil {
-			return nil
+			return appArtifacts{}
 		}
 		var ok bool
 		secrets, ok = secretRecords(out)
 		if !ok {
-			return nil
+			return appArtifacts{}
 		}
 		for _, secret := range secrets {
 			if !strings.HasPrefix(secret.Name, "brine-") {
@@ -84,14 +90,14 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			candidates := secretAppNames(secret.Name)
 			// Names are not self-delimiting. Do not guess app/reference boundaries.
 			if len(candidates) != 1 {
-				return nil
+				return appArtifacts{}
 			}
 			if _, ok := byApp[candidates[0]]; !ok {
 				byApp[candidates[0]] = []target.Unit{}
 			}
 		}
 	} else if len(byApp) == 0 {
-		return nil
+		return appArtifacts{}
 	}
 	publications := map[string]publication{}
 	apps := make([]target.App, 0, len(byApp))
@@ -111,7 +117,6 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 					publications[app] = *measured.Value
 					a.AllocatedHostPort = target.Known(measured.Value.Host)
 				}
-				a.Image = c.liveImage(ctx, home, units, containerData)
 			}
 			observed := []target.Secret{}
 			for _, secret := range secrets {
@@ -127,7 +132,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
 
 	s.Apps = target.Known(apps)
-	return publications
+	return appArtifacts{publications: publications, containers: containerData, runner: runnerIdentity}
 }
 
 func (c Collector) isRunner(ctx context.Context, home string) bool {

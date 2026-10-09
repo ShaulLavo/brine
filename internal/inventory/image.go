@@ -88,3 +88,46 @@ func (c Collector) liveImage(ctx context.Context, home string, units []target.Un
 	}
 	return target.Known(target.Image{Digest: info.IndexDigest, Platform: target.Platform{OS: info.Platform.OS, Arch: info.Platform.Architecture}})
 }
+
+func (c Collector) images(ctx context.Context, s *target.Snapshot, home string, artifacts appArtifacts) {
+	if !artifacts.runner || s.Apps.Status != target.KnownStatus {
+		return
+	}
+	apps := *s.Apps.Value
+	pending := []int{}
+	for i, app := range apps {
+		if app.Image.Status == target.Unknown && app.QuadletUnits.Status == target.KnownStatus && len(*app.QuadletUnits.Value) > 0 {
+			pending = append(pending, i)
+		}
+	}
+	if len(pending) == 0 {
+		return
+	}
+	// Images are optional facts. Keep at least half the caller's remaining time
+	// outside their aggregate budget, and never spend more than thirty seconds.
+	budget := 30 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline) / 2; remaining < budget {
+			budget = remaining
+		}
+	}
+	if budget <= 0 {
+		return
+	}
+	probes, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	deadline, _ := probes.Deadline()
+	for position, index := range pending {
+		remaining := time.Until(deadline)
+		if probes.Err() != nil || remaining <= 0 {
+			break
+		}
+		slice := remaining / time.Duration(len(pending)-position)
+		if slice <= 0 {
+			break
+		}
+		appCtx, stop := context.WithTimeout(probes, slice)
+		apps[index].Image = c.liveImage(appCtx, home, *apps[index].QuadletUnits.Value, artifacts.containers)
+		stop()
+	}
+}
