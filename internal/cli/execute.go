@@ -13,6 +13,10 @@ import (
 // Machine output is buffered until execution finishes so failures cannot follow
 // a partial success response. An unavailable stdout still returns a write error.
 func Execute(deps Dependencies, args []string) error {
+	// Forced-command requests cannot select presentation or options through argv.
+	if HostServeRequested(args) {
+		return executeHostServe(deps)
+	}
 	modes := requestedModes(args)
 	machine := modes.enabled()
 	stdout := deps.Stdout

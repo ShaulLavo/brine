@@ -1,4 +1,4 @@
-// Package localexec runs read-only local probes with bounded output.
+// Package localexec runs typed local subprocesses with bounded output.
 package localexec
 
 import (
