@@ -330,6 +330,9 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 	} else if h.r.Key != key || (h.r.BinaryHash != hash(h.source) && h.r.Journal.Intents["binary"]) {
 		return nil, errors.New("enrollment options differ from durable intent")
 	}
+	if err := h.checkRecordedTransaction(ctx, f); err != nil {
+		return nil, err
+	}
 	h.r.BinaryHash = hash(h.source)
 	if err = Apply(ctx, h, &h.r.Journal, h.steps()); err != nil {
 		return nil, err

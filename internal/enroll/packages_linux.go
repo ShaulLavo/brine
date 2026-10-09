@@ -262,3 +262,32 @@ func (h *host) checkUndoHome() error {
 	}
 	return err
 }
+
+func (h *host) checkRecordedTransaction(ctx context.Context, f Facts) error {
+	missing := []Package{}
+	for _, pkg := range h.r.Packages {
+		version, err := installed(ctx, probeRunner{h.exec}, pkg.Name)
+		if err != nil {
+			return err
+		}
+		if version == "" {
+			missing = append(missing, pkg)
+		} else if version != pkg.Version {
+			return errors.New("recorded package version changed; finish undo before changing enrollment")
+		}
+	}
+	if len(missing) != len(f.PackageInstall) {
+		return errors.New("confirmed transaction differs from unfinished package intent")
+	}
+	versions := map[string]string{}
+	for _, pkg := range missing {
+		versions[pkg.Name] = pkg.Version
+	}
+	for _, pkg := range f.PackageInstall {
+		if versions[pkg.Name] != pkg.Version {
+			return errors.New("confirmed transaction differs from unfinished package intent")
+		}
+		delete(versions, pkg.Name)
+	}
+	return nil
+}

@@ -321,3 +321,23 @@ func TestBypassProbesAlternateProtectedKeyFile(t *testing.T) {
 		t.Fatalf("alternate bypass was not checked: observed=%v error=%v", observed, err)
 	}
 }
+
+func TestResumedTransactionCannotInstallAnOlderUnconfirmedIntent(t *testing.T) {
+	f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) {
+		return localexec.Result{}, &localexec.Error{Kind: localexec.Failed, ExitCode: 1}
+	}}
+	h := host{exec: f, r: hostRecord{Packages: []Package{{"podman", "5.4.2-1"}, {"fixture-dependency", "1.0"}}}}
+	current := supported()
+	current.PackageInstall = []Package{{"podman", "5.4.3-1"}, {"fixture-dependency", "1.0"}}
+	if err := h.checkRecordedTransaction(context.Background(), current); err == nil {
+		t.Fatal("old journal transaction overrode current confirmed versions")
+	}
+	current.PackageInstall = append([]Package{}, h.r.Packages...)
+	if err := h.checkRecordedTransaction(context.Background(), current); err != nil {
+		t.Fatal(err)
+	}
+	current.PackageInstall = append(current.PackageInstall, Package{"new-dependency", "1.0"})
+	if err := h.checkRecordedTransaction(context.Background(), current); err == nil {
+		t.Fatal("new dependency accepted on resume")
+	}
+}
