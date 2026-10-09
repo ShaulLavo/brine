@@ -126,7 +126,7 @@ func TestStoreCrashHelper(t *testing.T) {
 		t.Fatal("unknown child stage")
 	}
 	fmt.Println("ready")
-	select {}
+	<-time.After(time.Hour)
 }
 func TestSIGKILLJournalConsistency(t *testing.T) {
 	for _, stage := range []string{"event", "state", "state-uncommitted", "release", "release-uncommitted"} {
