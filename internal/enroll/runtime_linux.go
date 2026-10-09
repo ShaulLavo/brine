@@ -108,14 +108,8 @@ func (h *host) captureRuntime(ctx context.Context) error {
 	if _, err := runtimeManifest(root, h.r.UID, h.r.GID); err != nil {
 		return err
 	}
-	// Podman creates metadata even while listing an empty store. Only the fixed,
-	// empty runtime tree is enrollment-created; app/image/volume/secret data isn't.
-	for _, args := range [][]string{{"ps", "-a", "--format", "{{.ID}}"}, {"image", "ls", "--format", "{{.ID}}"}, {"volume", "ls", "--format", "{{.Name}}"}, {"secret", "ls", "--format", "{{.Name}}"}} {
-		command := []string{"-u", "brine", "--", "/usr/bin/env", "XDG_CONFIG_HOME=" + home + "/.config", "XDG_DATA_HOME=" + home + "/.local/share", "XDG_CACHE_HOME=" + home + "/.cache", "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(h.r.UID), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(h.r.UID) + "/bus", "/usr/bin/podman", "--root", home + "/.local/share/containers/storage", "--runroot", "/run/user/" + strconv.Itoa(h.r.UID) + "/containers"}
-		out, err := h.run(ctx, false, "runuser", append(command, args...)...)
-		if err != nil || out.Truncated || strings.TrimSpace(out.Stdout) != "" {
-			return errors.New("undo provenance refused: runtime contains resources or cannot be checked")
-		}
+	if err := h.checkEmptyRuntime(ctx); err != nil {
+		return err
 	}
 	manifest, err := runtimeManifest(root, h.r.UID, h.r.GID)
 	if err != nil {
@@ -145,4 +139,17 @@ func (h *host) runtimeHomeAllowed() map[string]bool {
 		paths[filepath.Join(home, p)] = true
 	}
 	return paths
+}
+
+func (h *host) checkEmptyRuntime(ctx context.Context) error {
+	// Podman creates metadata even while listing an empty store. Only the fixed,
+	// empty runtime tree is enrollment-created; app/image/volume/secret data isn't.
+	for _, args := range [][]string{{"ps", "-a", "--format", "{{.ID}}"}, {"image", "ls", "--format", "{{.ID}}"}, {"volume", "ls", "--format", "{{.Name}}"}, {"secret", "ls", "--format", "{{.Name}}"}} {
+		command := []string{"-u", "brine", "--", "/usr/bin/env", "XDG_CONFIG_HOME=" + home + "/.config", "XDG_DATA_HOME=" + home + "/.local/share", "XDG_CACHE_HOME=" + home + "/.cache", "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(h.r.UID), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(h.r.UID) + "/bus", "/usr/bin/podman", "--root", home + "/.local/share/containers/storage", "--runroot", "/run/user/" + strconv.Itoa(h.r.UID) + "/containers"}
+		out, err := h.run(ctx, false, "runuser", append(command, args...)...)
+		if err != nil || out.Truncated || strings.TrimSpace(out.Stdout) != "" {
+			return errors.New("undo provenance refused: runtime contains resources or cannot be checked")
+		}
+	}
+	return nil
 }

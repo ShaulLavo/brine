@@ -1,8 +1,12 @@
 package enroll
 
 import (
+	"context"
+	"errors"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -89,5 +93,38 @@ func TestRuntimeManifestWithoutProvenanceRefusesMetadata(t *testing.T) {
 	}
 	if _, err := runtimeManifest(root, os.Getuid()+1, os.Getgid()); err == nil {
 		t.Fatal("foreign owner accepted")
+	}
+}
+
+func TestEmptyRuntimeChecksEveryResourceWithRunnerEnvironment(t *testing.T) {
+	cases := []struct {
+		name        string
+		output      localexec.Result
+		err         error
+		wantFailure bool
+	}{
+		{name: "empty"},
+		{name: "resource", output: localexec.Result{Stdout: "fixture-resource\n"}, wantFailure: true},
+		{name: "truncated", output: localexec.Result{Truncated: true}, wantFailure: true},
+		{name: "unknown", err: errors.New("probe failed"), wantFailure: true},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) {
+				argv := strings.Join(c.Args, " ")
+				if c.Path != "/usr/sbin/runuser" || c.Mutation || !strings.Contains(argv, "-u brine -- /usr/bin/env XDG_CONFIG_HOME=/home/brine/.config") || !strings.Contains(argv, "XDG_RUNTIME_DIR=/run/user/1234") || !strings.Contains(argv, "--root /home/brine/.local/share/containers/storage --runroot /run/user/1234/containers") {
+					t.Fatalf("unsafe runtime command: %+v", c)
+				}
+				return tt.output, tt.err
+			}}
+			h := host{exec: f, r: hostRecord{UID: 1234}}
+			err := h.checkEmptyRuntime(context.Background())
+			if (err != nil) != tt.wantFailure {
+				t.Fatalf("error=%v", err)
+			}
+			if !tt.wantFailure && len(f.commands) != 4 {
+				t.Fatal("did not check containers, images, volumes and secrets")
+			}
+		})
 	}
 }
