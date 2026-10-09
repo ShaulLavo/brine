@@ -34,6 +34,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		entries = []fs.DirEntry{}
 	}
 	byApp := map[string][]target.Unit{}
+	containerData := map[string][]byte{}
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() {
@@ -59,6 +60,9 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			continue
 		}
 		byApp[app] = append(byApp[app], target.Unit{Name: name, Hash: digest(data)})
+		if ext == ".container" {
+			containerData[name] = data
+		}
 	}
 
 	secrets := []target.Secret{}
@@ -102,6 +106,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		if runnerIdentity {
 			if len(units) > 0 {
 				a.AllocatedHostPort = c.livePort(ctx, units)
+				a.Image = c.liveImage(ctx, home, units, containerData)
 			}
 			observed := []target.Secret{}
 			for _, secret := range secrets {
