@@ -1,0 +1,43 @@
+Diagnosis for target fixture
+  host.arch: "arm64"
+  host.free_disk_bytes: 5
+  host.linger: true
+  host.live_generation: unknown (live_generation_unproven)
+  host.memory_available_bytes: unknown (probe_unavailable)
+  host.minimum_free_disk_bytes: 10
+  host.os: {"id":"debian","version":"13"}
+  host.runner: "brine"
+  host.selected_generation: 2
+  host.versions: {"caddy":{"status":"known","value":"2.6"},"litestream":{"reason":"inventory_absent","status":"unknown"},"passt":{"reason":"inventory_unknown","status":"unknown"},"podman":{"status":"known","value":"5.4"},"systemd":{"status":"known","value":"257"}}
+  app_names: ["demo"]
+
+App demo
+  container_running: false
+  current_release: absent (no_committed_release)
+  drift: unknown (release_unknown)
+  health: unknown (release_unknown)
+  logs: [{"message":"password=[REDACTED]","priority":3,"timestamp":"2026-10-09T00:00:00Z"}]
+  name: "demo"
+  operations: [{"failure_code":"stale_plan","id":"op-fixture","state":"failed","updated_at":"1970-01-01T00:00:00Z"}]
+  previous_release: absent (no_committed_release)
+  route_present: false
+  unit: {"active_state":"failed","name":"demo.service","restarts":3,"sub_state":"failed"}
+
+Findings
+[error] disk_below_minimum (host): Free disk is below the operator policy minimum. Free space before deploying.
+  Next: brine diagnose --target fixture
+[error] unit_failed (demo): The app unit has failed. Read its logs before choosing an application rollback; rollback does not rewind data.
+  Next: brine logs demo --target fixture
+  Next: brine rollback demo --target fixture
+[warning] unit_restarting (demo): The unit reports at least three automatic restarts. This counter is not a count since the last deploy.
+  Next: brine logs demo --target fixture
+  Next: brine rollback demo --target fixture
+[error] container_stopped (demo): The app container is not running. Inspect logs before changing it.
+  Next: brine logs demo --target fixture
+[error] route_missing (demo): No live Caddy route was observed for this app.
+  Next: brine plan --help
+[warning] operation_failed (demo): The most recent app operation failed. Inspect its status and logs before retrying.
+  Next: brine status --operation op-fixture --target fixture
+  Next: brine logs demo --target fixture
+[warning] plan_stale (demo): The most recent operation refused a stale plan. Make a fresh plan before applying.
+  Next: brine plan --help

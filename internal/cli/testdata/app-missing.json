@@ -1,0 +1,1 @@
+{"schema_version":1,"command":"brine status","ok":false,"data":null,"error":{"code":"app_not_found","message":"The app has no committed Brine release.","retryable":false}}
