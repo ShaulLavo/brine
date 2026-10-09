@@ -120,6 +120,10 @@ const (
 	RestartApp    ChangeKind = "restart_app"
 	StopApp       ChangeKind = "stop_app"
 	StartApp      ChangeKind = "start_app"
+	RemoveApp     ChangeKind = "remove_app"
+	WithdrawRoute ChangeKind = "withdraw_route"
+	RemoveUnit    ChangeKind = "remove_unit"
+	RetireApp     ChangeKind = "retire_app"
 )
 
 // Change is a tagged payload. Build populates exactly the payload named by Kind.
@@ -134,6 +138,7 @@ type Change struct {
 	Restart    *Restart         `json:"restart,omitempty"`
 	Stop       *Restart         `json:"stop,omitempty"`
 	Start      *Restart         `json:"start,omitempty"`
+	Removal    *Restart         `json:"removal,omitempty"`
 }
 type PortAllocation struct {
 	App  string      `json:"app"`
@@ -161,6 +166,7 @@ type Plan struct {
 	SchemaVersion      int                        `json:"schema_version"`
 	Kind               Kind                       `json:"kind"`
 	Lifecycle          ChangeKind                 `json:"lifecycle,omitempty"`
+	Removal            *Removal                   `json:"removal,omitempty"`
 	App                string                     `json:"app"`
 	Target             target.Identity            `json:"target"`
 	ObservedGeneration target.Observation[uint64] `json:"observed_generation"`
