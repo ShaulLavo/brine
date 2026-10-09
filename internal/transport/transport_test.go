@@ -258,3 +258,22 @@ func TestSSHDefaultIgnoresAmbientExecutableAndEnvironment(t *testing.T) {
 		t.Fatal("unexpected environment forwarded")
 	}
 }
+
+func TestRestrictionProbeRequiresDispatcherResponse(t *testing.T) {
+	request := dispatch.Request{SchemaVersion: 1, Op: "ping", RequestID: "fixture", Args: json.RawMessage(`{}`)}
+	for _, restricted := range []bool{false, true} {
+		response := []byte("brine-unrestricted-key")
+		if restricted {
+			response = pingBytes(t)
+		}
+		runner := &captureRunner{output: localexec.Output{Stdout: response}}
+		client := Client{Runner: runner, LookPath: func(string) (string, error) { return "/fixture/ssh", nil }, KnownHostsDir: filepath.Join(t.TempDir(), "pins")}
+		_, err := client.VerifyRestriction(context.Background(), validTarget(), request)
+		if (err == nil) != restricted {
+			t.Fatalf("restricted=%t %v", restricted, err)
+		}
+		if runner.command.Args[len(runner.command.Args)-1] != "printf brine-unrestricted-key" {
+			t.Fatal("restriction probe accidentally invoked dispatcher directly")
+		}
+	}
+}
