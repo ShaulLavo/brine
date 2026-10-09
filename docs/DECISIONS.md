@@ -23,9 +23,9 @@ Hosts may be **amd64 or arm64**. Plans already bind image platform. Fixture imag
 
 ## D3. Test host: the owner's Raspberry Pi
 
-A Raspberry Pi owned by the project owner, running Debian 13 on arm64, is the authorized disposable host for Phase 02–04 integration tests and reboot drills. Its name, address and inventory stay out of this repository; workers get them from the coordinator.
+A Raspberry Pi owned by the project owner, running Debian 13 on arm64, is Brine's disposable test host for every phase. Its name, address and inventory stay out of this repository; workers get them from the coordinator.
 
-Authorized on that host: installing Podman, Caddy and Litestream from Debian packages or pinned releases; creating the runner user; deploying fixture apps; rebooting it for drills. Not authorized: changing its tailnet, firewall or other services, or touching data that Brine didn't create. Cleanup removes only fixture-owned resources.
+**Standing approval (owner, 2026-10-09):** any action on this host is authorized, including enrolling and un-enrolling Brine, editing its operator policy and root Caddy configuration, installing packages or pinned builds, deploying fixture apps and rebooting it for drills. No per-run approval is needed. One practical limit remains: keep the owner's and coordinator's remote access working, so don't change its tailnet, SSH access for the operator account or firewall in a way that could cut it off. Record what was changed and keep a backup of any operator-owned file before editing it.
 
 Small single-board test hosts are memory- and IO-constrained. Keep fixture images small, and don't treat their timings as performance baselines.
 
@@ -153,7 +153,7 @@ Added 2026-10-09 by the owner. Deploying a website should take one command or on
 
 **CI previews, separate authority.** Builds happen in CI. Preview and production credentials are separate; the dispatcher checks verb, environment, repository, and resource scopes for plan/apply. Preview keys never request production plans or touch production secrets. No fork-PR previews in v1; never use `pull_request_target` with fork checkout. Hostnames derive from stable repository ID, PR number, and a collision-resistant incarnation suffix; branch text is display only. Close-event cleanup targets the exact incarnation. The GitHub App is deferred outside the phase gate.
 
-All mutations, including static drops, depend on P03-01 to P03-05 and P03-07. P07-12 safety gates precede public drops. Phase 07 host runs need explicit owner authorization naming the target and actions; D3's Pi grant covers Phases 02-04 only. The [Phase 07 plan](plans/07-drops-and-previews.md) defines dependencies, timing fixtures, and negative security tests.
+All mutations, including static drops, depend on P03-01 to P03-05 and P03-07. P07-12 safety gates precede public drops. Phase 07 runs on the test Pi are covered by D3's standing approval; any other host needs explicit owner authorization naming the target and actions. The [Phase 07 plan](plans/07-drops-and-previews.md) defines dependencies, timing fixtures, and negative security tests.
 
 ## D10. WebTransport starts with app-terminated QUIC on approved UDP ports
 
@@ -169,4 +169,4 @@ Readiness separates local UDP ownership/session health from reachability observe
 
 Shared UDP 443 is P08-09, not enabled by this amendment. Prefer a released and proven session-aware Caddy proxy when one becomes available. A pinned experimental build or caddy-l4 passthrough needs a new numbered D2/D4 amendment after the local multiplexing, migration, certificate, listener-conflict and whole-generation tests select a path. It must name protected global settings, exact builds/modules, upgrade/rollback and enrollment effects. The runner stays reload-only with typed configuration; no generic systemd or Caddy authority follows from WebTransport.
 
-WebTransport drops/previews remain refused until P08-10 proves handshake view authorization, immutable-incarnation binding, revocation/drain, nonrenewing TTL, egress isolation and P07 public-safety gates. Raw SNI routing bypasses the viewing gateway and is not an authorization solution. D3 does not authorize Phase 08 Pi runs; those require fresh owner approval naming the target and actions.
+WebTransport drops/previews remain refused until P08-10 proves handshake view authorization, immutable-incarnation binding, revocation/drain, nonrenewing TTL, egress isolation and P07 public-safety gates. Raw SNI routing bypasses the viewing gateway and is not an authorization solution. Phase 08 runs on the test Pi are covered by D3's standing approval; any other host needs explicit owner authorization naming the target and actions.

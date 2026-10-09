@@ -10,7 +10,7 @@
 - P08-02 through P08-08 deliver stateless full apps using app-terminated QUIC on a policy-approved, unprivileged UDP port. This work can run beside Phase 04. It must not disturb SQLite writer fencing, backup or restore semantics. Update the frozen desired-shape classification in `internal/apply/compatibility.go` deliberately.
 - Phase 05 consumes the same typed endpoint/readiness facts for CLI, JSON, diagnostics and TUI. Phase 06 cannot claim WebTransport release readiness until P08-08 passes and certificate renewal has a tested operator runbook. Its host-maintenance helper must understand the selected ingress build before permitting upgrades.
 - Coordinate P08-09's shared UDP 443 decision with P07-01 before either changes Caddy's package, global configuration or certificate authority. P08-10 depends on Phase 07's gateway authorization, isolation, lifetime and public-hosting gates. Basic HTTP/static drops do not wait for WebTransport. A WebTransport preview/drop does.
-- No remote host is authorized in this planning lane. D3 covers Phases 02-04 only. P08 and combined P07/P08 Pi drills require fresh owner authorization naming the target and actions. Firewall, DNS and Tailscale changes remain outside Brine's authority.
+- P08 and combined P07/P08 drills may run on the test Pi under D3's standing approval. Any other host requires explicit owner authorization naming the target and actions. Firewall, DNS and Tailscale changes remain outside Brine's authority.
 
 ## Research findings
 
