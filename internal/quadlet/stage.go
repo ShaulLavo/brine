@@ -579,6 +579,9 @@ func (m *Manager) ensureDirectories(path string) error {
 			if err = m.root.Mkdir(current, 0700); err != nil {
 				return err
 			}
+			if err = m.checkpoint("directory-created", current); err != nil {
+				return err
+			}
 			info, err = m.root.Lstat(current)
 		}
 		if err != nil {
