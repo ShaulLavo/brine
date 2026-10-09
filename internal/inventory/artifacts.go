@@ -17,18 +17,18 @@ import (
 
 var appName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
-func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) {
+func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) map[string]publication {
 	if s.Runner.User.Status == target.Unknown {
-		return
+		return nil
 	}
 	if !exists {
 		s.Apps = target.Known([]target.App{})
-		return
+		return nil
 	}
 	dir := filepath.Join(home, ".config/containers/systemd")
 	entries, e := c.FS.ReadDir(ctx, dir)
 	if e != nil && !errors.Is(e, fs.ErrNotExist) {
-		return
+		return nil
 	}
 	if errors.Is(e, fs.ErrNotExist) {
 		entries = []fs.DirEntry{}
@@ -48,7 +48,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		}
 		data, err := c.FS.ReadFile(ctx, filepath.Join(dir, name))
 		if err != nil {
-			return
+			return nil
 		}
 		app := strings.TrimSuffix(strings.TrimPrefix(name, "brine-"), ext)
 		if renderedUnitMarker.Match(data) {
@@ -70,12 +70,12 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	if runnerIdentity {
 		out, err := c.probe(ctx, "podman", "--remote=false", "secret", "ls", "--format", "{{.ID}} {{.Name}}")
 		if err != nil {
-			return
+			return nil
 		}
 		var ok bool
 		secrets, ok = secretRecords(out)
 		if !ok {
-			return
+			return nil
 		}
 		for _, secret := range secrets {
 			if !strings.HasPrefix(secret.Name, "brine-") {
@@ -84,15 +84,16 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			candidates := secretAppNames(secret.Name)
 			// Names are not self-delimiting. Do not guess app/reference boundaries.
 			if len(candidates) != 1 {
-				return
+				return nil
 			}
 			if _, ok := byApp[candidates[0]]; !ok {
 				byApp[candidates[0]] = []target.Unit{}
 			}
 		}
 	} else if len(byApp) == 0 {
-		return
+		return nil
 	}
+	publications := map[string]publication{}
 	apps := make([]target.App, 0, len(byApp))
 	for app, units := range byApp {
 		sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
@@ -105,7 +106,11 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		}
 		if runnerIdentity {
 			if len(units) > 0 {
-				a.AllocatedHostPort = c.livePort(ctx, units)
+				measured := c.livePublication(ctx, units)
+				if measured.Status == target.KnownStatus {
+					publications[app] = *measured.Value
+					a.AllocatedHostPort = target.Known(measured.Value.Host)
+				}
 				a.Image = c.liveImage(ctx, home, units, containerData)
 			}
 			observed := []target.Secret{}
@@ -122,6 +127,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
 
 	s.Apps = target.Known(apps)
+	return publications
 }
 
 func (c Collector) isRunner(ctx context.Context, home string) bool {

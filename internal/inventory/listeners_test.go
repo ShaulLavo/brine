@@ -29,6 +29,7 @@ func TestRootlessListenerOwnership(t *testing.T) {
 		{"service prefix collision", strings.ReplaceAll(cgroup, "api.service/", "api.service-other/"), listener, "127.0.0.1:20080:8080", false},
 		{"missing cgroup", "", listener, "127.0.0.1:20080:8080", false},
 		{"different pinned port", cgroup, listener, "127.0.0.1:20081:8080", false},
+		{"container-side drift", cgroup, listener, "127.0.0.1:20080:8080", false},
 		{"unrestricted published address", cgroup, listener, "0.0.0.0:20080:8080", false},
 		{"duplicate publication", cgroup, listener, "127.0.0.1:20080:8080\nPublishPort=127.0.0.1:20081:8080", false},
 		{"unknown listening process", cgroup, "LISTEN 0 128 127.0.0.1:20080 0.0.0.0:*", "127.0.0.1:20080:8080", false},
@@ -47,6 +48,10 @@ func TestRootlessListenerOwnership(t *testing.T) {
 				"uname -m": "aarch64", "ss -H -ltnpe": tc.listener, "ss -H -lunp": "",
 				"podman --remote=false secret ls --format {{.ID}} {{.Name}}":                                    "",
 				"podman --remote=false inspect --type container --format " + runtimePortFormat + " systemd-api": `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`,
+			}
+			if tc.name == "container-side drift" {
+				key := "podman --remote=false inspect --type container --format " + runtimePortFormat + " systemd-api"
+				r[key] = strings.ReplaceAll(r[key], "8080/tcp", "9090/tcp")
 			}
 			s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 			if e != nil {
@@ -95,7 +100,7 @@ func TestListenerBindingRequiresUnchangedOwnedUnit(t *testing.T) {
 				hash = digest([]byte(tc.data))
 			}
 			s := target.Snapshot{Apps: target.Known([]target.App{{Name: "api", AllocatedHostPort: target.Known(target.Port(20080)), QuadletUnits: target.Known([]target.Unit{{Name: "api.container", Hash: hash}})}})}
-			if got := (Collector{FS: f, RunnerUser: "brine"}).listenerBindings(context.Background(), &s, "/home/brine"); len(got) != 0 {
+			if got := (Collector{FS: f, RunnerUser: "brine"}).listenerBindings(context.Background(), &s, "/home/brine", map[string]publication{"api": {Host: 20080, Container: 8080}}); len(got) != 0 {
 				t.Fatalf("unverified binding=%+v", got)
 			}
 		})

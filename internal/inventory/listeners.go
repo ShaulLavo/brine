@@ -15,8 +15,8 @@ import (
 var processPattern = regexp.MustCompile(`\("([^"\n]+)",pid=([0-9]+),fd=([0-9]+)\)`)
 var safeToken = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
-func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home string) {
-	bindings := c.listenerBindings(ctx, s, home)
+func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home string, publications map[string]publication) {
+	bindings := c.listenerBindings(ctx, s, home, publications)
 	ports := map[target.Port]bool{}
 	owners := map[target.PortOwner]bool{}
 	// The snapshot reserves UDP as well as TCP, even though owners cover TCP only.
@@ -133,7 +133,7 @@ type listenerBinding struct {
 	Port target.Port
 }
 
-func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, home string) map[string]listenerBinding {
+func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, home string, publications map[string]publication) map[string]listenerBinding {
 	bindings := map[string]listenerBinding{}
 	if s.Apps.Status != target.KnownStatus || !c.isRunner(ctx, home) {
 		return bindings
@@ -176,8 +176,9 @@ func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, hom
 		if err != nil || digest(data) != container.Hash || !renderedUnitMarker.Match(data) {
 			continue
 		}
-		port, ok := pinnedListenerPort(string(data))
-		if !ok || port != *app.AllocatedHostPort.Value {
+		pinned, ok := pinnedListenerPort(string(data))
+		measured, observed := publications[app.Name]
+		if !ok || !observed || pinned != measured || pinned.Host != *app.AllocatedHostPort.Value {
 			continue
 		}
 		path := root + strings.TrimSuffix(container.Name, ".container") + ".service"
@@ -185,12 +186,12 @@ func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, hom
 			bindings[path] = listenerBinding{}
 			continue
 		}
-		bindings[path] = listenerBinding{App: app.Name, Port: port}
+		bindings[path] = listenerBinding{App: app.Name, Port: pinned.Host}
 	}
 	return bindings
 }
 
-func pinnedListenerPort(data string) (target.Port, bool) {
+func pinnedListenerPort(data string) (publication, bool) {
 	section := ""
 	value := ""
 	count := 0
@@ -206,17 +207,17 @@ func pinnedListenerPort(data string) (target.Port, bool) {
 	}
 	fields := strings.Split(value, ":")
 	if count != 1 || len(fields) != 3 || fields[0] != "127.0.0.1" {
-		return 0, false
+		return publication{}, false
 	}
 	host, err := strconv.ParseUint(fields[1], 10, 16)
 	if err != nil || host < 1024 {
-		return 0, false
+		return publication{}, false
 	}
 	inside, err := strconv.ParseUint(fields[2], 10, 16)
 	if err != nil || inside < 1024 {
-		return 0, false
+		return publication{}, false
 	}
-	return target.Port(host), true
+	return publication{Host: target.Port(host), Container: target.Port(inside)}, true
 }
 
 func socketInode(line string) string {
