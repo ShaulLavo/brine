@@ -166,3 +166,11 @@ func ValidateEvent(e Event) error {
 
 // Lock is the shared host-mutation exclusion handle.
 type Lock interface{ Release() error }
+
+var ErrStateConflict = errors.New("operation state conflict")
+
+// StateConflictError reports the state observed by a refused conditional update.
+type StateConflictError struct{ Current State }
+
+func (*StateConflictError) Error() string { return "operation state conflict" }
+func (*StateConflictError) Unwrap() error { return ErrStateConflict }
