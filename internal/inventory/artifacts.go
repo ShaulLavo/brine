@@ -254,24 +254,10 @@ func (c Collector) caddy(ctx context.Context, s *target.Snapshot) error {
 	if !ok {
 		return nil
 	}
-	files := make([]target.LiveCaddyFile, 0, len(paths))
-	for _, path := range paths {
-		file := target.LiveCaddyFile{Name: "file-" + strings.TrimPrefix(digest([]byte(path)), "sha256:"), Domains: unknown[[]string]()}
-		if len(paths) == 1 {
-			file.Domains = target.Known(liveDomains)
-		} else if path != "/etc/caddy/Caddyfile" {
-			adapted, err := c.probe(ctx, "caddy", "adapt", "--config", path, "--adapter", "caddyfile")
-			if err == nil {
-				if d, ok := caddyDomains([]byte(adapted)); ok {
-					file.Domains = target.Known(d)
-				}
-			}
-		}
-		// Root attribution stays unknown with imports because adapt erases provenance.
-		files = append(files, file)
+	c.caddyProvenance(ctx, s, []byte(out), paths)
+	if s.LiveCaddyFiles.Value != nil {
+		sort.Slice(*s.LiveCaddyFiles.Value, func(i, j int) bool { return (*s.LiveCaddyFiles.Value)[i].Name < (*s.LiveCaddyFiles.Value)[j].Name })
 	}
-	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
-	s.LiveCaddyFiles = target.Known(files)
 	return nil
 
 }

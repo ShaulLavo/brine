@@ -335,7 +335,7 @@ func TestCapturedSnapshotStrictlyDecodes(t *testing.T) {
 		t.Fatal("inactive runtime fabricated")
 	}
 }
-func TestCaddyImportSourcesAndUnknownRoot(t *testing.T) {
+func TestCaddyImportSourcesAndResidualRoot(t *testing.T) {
 	f := baseFixture()
 	f.files["/etc/caddy/Caddyfile"] = "import /etc/caddy/brine/current/*.caddy\n"
 	f.files["/etc/caddy/brine/current/api.caddy"] = "api.example.test { respond ok }\n"
@@ -358,8 +358,8 @@ func TestCaddyImportSourcesAndUnknownRoot(t *testing.T) {
 			unknown++
 		}
 	}
-	if known != 1 || unknown != 1 {
-		t.Fatal("source provenance guessed")
+	if known != 2 || unknown != 0 {
+		t.Fatal("source routes not reconciled")
 	}
 	f.files["/etc/caddy/Caddyfile"] = "import dynamic-snippet\n"
 	s, e = (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())

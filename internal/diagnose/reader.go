@@ -491,14 +491,16 @@ func caddySourceName(file string) string {
 }
 func liveGeneration(s target.Snapshot) Fact[uint64] {
 	unknownGeneration := unknown[uint64]("live_generation_unproven")
-	if s.CaddyConfig.Value == nil || s.LiveCaddyFiles.Value == nil || len(s.CaddyConfig.Value.Files) == 0 {
+	if s.CaddyConfig.Status != target.KnownStatus || s.LiveCaddyFiles.Status != target.KnownStatus || s.CaddyConfig.Value == nil || s.LiveCaddyFiles.Value == nil || len(s.CaddyConfig.Value.Files) == 0 {
 		return unknownGeneration
 	}
 	// Inventory emits live sources only after disk-adapted and active configurations match.
 	for _, selected := range s.CaddyConfig.Value.Files {
 		found := false
 		for _, live := range *s.LiveCaddyFiles.Value {
-			if live.Name == caddySourceName(selected.Name) && live.Domains.Value != nil {
+			attributed := live.Name == selected.Name && live.App == strings.TrimSuffix(selected.Name, ".caddy")
+			unattributed := live.Name == caddySourceName(selected.Name) && live.App == ""
+			if (attributed || unattributed) && live.Domains.Status == target.KnownStatus && live.Domains.Value != nil {
 				found = true
 				break
 			}

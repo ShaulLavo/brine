@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+
+	"github.com/ShaulLavo/brine/internal/caddy"
 )
 
 // Static file imports are enumerable. Snippet imports, placeholders, nested
@@ -23,6 +25,9 @@ func (c Collector) caddySources(ctx context.Context, root string) ([]string, boo
 		if e != nil {
 			return false
 		}
+		if path != root && caddy.ValidateInventoryFile(data) != nil {
+			return false
+		}
 		for _, line := range strings.Split(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || strings.HasPrefix(line, "#") {
@@ -37,7 +42,7 @@ func (c Collector) caddySources(ctx context.Context, root string) ([]string, boo
 			if f[0] != "import" {
 				continue
 			}
-			if len(f) != 2 || strings.ContainsAny(f[1], `"{}()`) {
+			if path != root || len(f) != 2 || strings.ContainsAny(f[1], `"{}()`) {
 				return false
 			}
 			pattern := f[1]
@@ -72,6 +77,18 @@ func (c Collector) caddySources(ctx context.Context, root string) ([]string, boo
 		}
 		return true
 	}
-	ok := visit(root, 0)
-	return paths, ok
+	if !visit(root, 0) {
+		return nil, false
+	}
+	for _, path := range paths {
+		if filepath.Dir(path) != "/etc/caddy/brine/current" {
+			continue
+		}
+		main, err := c.FS.ReadFile(ctx, root)
+		if err != nil || caddy.ValidateInventoryRoot(main) != nil {
+			return nil, false
+		}
+		break
+	}
+	return paths, true
 }
