@@ -51,7 +51,11 @@ func executeHostServe(deps Dependencies) error {
 				}
 			}
 		}
-		envelope, err = dispatch.NewServer(deps.Version, collector).WithJobs(deps.HostJobs, deps.HostAuthorization).Handle(ctx, deps.Stdin)
+		server := dispatch.NewServer(deps.Version, collector).WithJobs(deps.HostJobs, deps.HostAuthorization)
+		if deps.HostLogs != nil {
+			server.Logs = deps.HostLogs
+		}
+		envelope, err = server.Handle(ctx, deps.Stdin)
 	}
 	if writeErr := json.NewEncoder(deps.Stdout).Encode(envelope); writeErr != nil {
 		return result.New(result.InternalError, writeErr)

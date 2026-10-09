@@ -7,6 +7,8 @@ import (
 	"io"
 	"regexp"
 
+	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -48,6 +50,7 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"logs":      {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
 	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
 	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
 	"apply":     {Mutating, decodeApply},
@@ -108,7 +111,12 @@ func EncodeRequest(request Request) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
+type LogReader interface {
+	Read(context.Context, logs.Request) ([]logs.Line, error)
+}
+
 type Server struct {
+	Logs      LogReader
 	version   string
 	inventory Inventory
 	jobs      JobOperations
@@ -116,7 +124,7 @@ type Server struct {
 }
 
 func NewServer(version string, inventory Inventory) *Server {
-	return &Server{version: version, inventory: inventory}
+	return &Server{version: version, inventory: inventory, Logs: logs.Reader{Inventory: inventory, Executor: localexec.ExecRunner{}}}
 }
 
 func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, error) {
@@ -151,6 +159,18 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	args, _ := operations[request.Op].decode(request.Args)
 	var value any
 	switch args := args.(type) {
+	case logs.Request:
+		if s.Logs == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		lines, err := s.Logs.Read(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
+		}
+		value = lines
 	case PingArgs:
 		value = PingData{s.version, []int{SchemaVersion}}
 	case InventoryArgs:
