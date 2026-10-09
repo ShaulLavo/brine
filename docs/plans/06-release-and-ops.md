@@ -12,6 +12,8 @@
 - [ ] **P06-06** Check limits/security: a single VPS is not HA, app trust boundaries are limited, R2 backups are asynchronous, data cleanup is opt-in and destructive commands are not included in v1. Provide a threat model and disclosure checklist.
 - [ ] **P06-07** Publish a minimal quickstart for an **explicitly enrolled disposable host**, clear CLI examples and supported-version matrix. Choose a project license deliberately.
 
+- [ ] **P06-08** Host operations per D8 through a root-owned typed helper: update Brine-managed packages, restart Caddy, clean Brine-owned leftovers, reboot. No shell or sudo for the runner; each operation is planned and journaled; T18 bypass tests cover the helper.
+
 ### Exit gate
 
 Every production-blocking case in [TEST_MATRIX.md](../TEST_MATRIX.md) is backed by redacted results from an authorized reference host and restore drill. Machine errors are reliable, partial states are inspectable, and the agent cannot bypass policy simply by bypassing Brine's client.

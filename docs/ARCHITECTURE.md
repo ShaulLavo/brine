@@ -40,4 +40,4 @@ Deploy a disposable web app with SQLite, confirm TLS/proxy routing, simulate a f
 
 ## Non-goals at bootstrap
 
-Multi-server orchestration, a custom container engine, Kubernetes, a web dashboard, and autonomous host deletion.
+Multi-server orchestration, a custom container engine, Kubernetes, a web dashboard, and creating or deleting cloud machines.

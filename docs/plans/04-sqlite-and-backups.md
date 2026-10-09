@@ -12,6 +12,8 @@
 - [ ] **P04-06** Test application replacement, reboot, proxy outage, R2 outage, missing credentials, backup retention and competing replicators. Write a separate operator-approved **live restore runbook**, not an autonomous command.
 - [ ] **P04-07** Separate app migration policy from deployment: reject implicit unreviewed migrations; require an explicit migration plan, a backup/restore point and compatible rollback semantics before considering migration automation.
 
+- [ ] **P04-08** Archive retention and `data purge` per D8: scheduled expiry of archives and backups after 30 days, and an early purge allowed for the agent key only when policy sets `allow_agent_purge = true`. Test refusal by default, expiry deleting only expired archives, and that live apps are never touched.
+
 ### Exit gate
 
 Known writes survive a new app release and reboot. A real isolated restore from R2 passes database integrity/invariant checks. Live data was never touched during the restore. Recovery-point limits and failure modes are documented.

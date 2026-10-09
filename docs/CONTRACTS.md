@@ -14,12 +14,22 @@ brine status --target staging
 brine status --operation OPERATION_ID --target staging
 brine logs APP --target staging --tail 100
 brine rollback APP --release RELEASE_ID --target staging
+brine config set APP KEY=VALUE --target staging        # env, resources, domains, health; produces a plan
+brine secret set APP NAME --target staging             # value from stdin; creates a new version
+brine restart APP --target staging
+brine stop APP --target staging
+brine start APP --target staging
+brine remove APP --target staging                      # archives data for 30 days (D8)
+brine data purge APP --target staging                  # only if policy allows agent purge (D8)
+brine diagnose [APP] --target staging                  # read-only report: status, health, logs, recent changes, resources
+brine host update --target staging                     # Brine-managed packages only (D8)
+brine host reboot --target staging
 brine backup status APP --target staging
 brine restore test APP --target staging
 brine tui --target staging
 ~~~
 
-Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Rollback creates a **plan**, not an implicit mutation. Avoid an automatic `destroy` command.
+Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Rollback, config changes, removal and host operations all create a **plan**, never an implicit mutation (D8). `remove` archives app data rather than deleting it; permanent deletion is the separate, policy-gated `data purge`.
 
 ### Local validation and offline planning (P01-04)
 

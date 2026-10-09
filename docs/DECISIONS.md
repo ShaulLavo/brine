@@ -87,3 +87,25 @@ A forced command still runs through the account's login shell (`$SHELL -c`), and
 Enrollment and P06-01 tests run as the runner and must fail to: replace the key file or any parent directory; create a top-level startup file; or run anything but the dispatcher through the real restricted key, including when a startup file has been planted.
 
 Enrollment must also account for packages that start services on install. On the spike host, installing Caddy enabled and started it at once with its default site. Installing netavark enabled its DHCP proxy units, activated the DHCP proxy socket, and enabled a firewalld-reload unit. Enrollment lists these effects before asking for confirmation. It prevents Caddy from starting on install, for example by masking it first, so the default site is never exposed before Brine's config is in place.
+
+## D8. Agents manage the whole lifecycle, through Brine operations only
+
+Added 2026-10-09 by the owner. Brine exists so an agent (ChatGPT, Claude, Codex or a script) can run everything on a host, not only deploy. "Restricted" means the agent acts only through Brine's typed, recorded operations, never a shell. It doesn't mean the agent may do little.
+
+The dispatcher's allowlist (D1) grows to cover:
+
+- **App lifecycle:** deploy, update config (environment, resources, domains, health), set and rotate secrets, restart, stop and start, roll back, remove.
+- **Diagnostics,** all read-only: status, logs, health, operation history and diffs, inventory, Caddy routing state, disk and memory use, and a `diagnose` report that gathers these for one app or the host.
+- **Backups:** status, test restores, and later planned live restores (Phase 04).
+- **Host operations:** updating the packages Brine manages (Podman, passt, Caddy, Litestream), restarting Caddy, cleaning Brine-owned leftovers such as old images, generations and releases, and rebooting.
+
+Rules for every mutating operation:
+
+- It is planned, then applied. It is journaled with its operation ID and requester, and is idempotent or reconciles after an unknown outcome.
+- An app rollback still never rewinds data.
+
+**Removing an app** stops it, removes its unit and route, and moves its data directory into a Brine archive. Brine keeps the archive and the app's backups for 30 days, then expires them on schedule. `brine data purge APP` deletes an archive and its backups early. It is allowed for the agent key only when the operator policy sets `allow_agent_purge = true`; the default is false. Purge is never part of app removal, rollback or image cleanup.
+
+**Host operations** run through a small root-owned helper that accepts the same typed operations, never commands. The runner has no root shell or sudo. Phase 06 chooses the mechanism and tests it: for example, polkit rules for reboot and a root systemd unit template per operation. Package updates cover only the packages Brine installed.
+
+**Still out of reach for agents:** any shell or raw Podman, systemd or Caddy access; uninstalling or changing software Brine didn't install; other users' files; firewall, Tailscale and DNS changes; and creating or deleting cloud machines. The operator policy can narrow the allowlist further by operation class, but can't widen it past this list.
