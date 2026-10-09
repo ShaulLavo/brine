@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -272,6 +273,79 @@ func TestRollbackNoOpAndDriftedPlanning(t *testing.T) {
 				if _, e := DecodeRollback(encoded); e != nil {
 					t.Fatal(e, string(encoded))
 				}
+			}
+		})
+	}
+}
+
+func TestStatusUnattributedLiveRoutesAreUnknownNotAppDrift(t *testing.T) {
+	service, _, snap := fixture(t)
+	active := target.Known(true)
+	(*snap.Apps.Value)[0].UnitActive = &active
+	snap.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{Name: "file-" + strings.Repeat("b", 64), App: "", Domains: target.Known([]string{"hello.example.com", "unrelated.example.net"})}})
+	service.Inventory = inventory{snap}
+	calls := 0
+	service.Probe = probeFunc(func(context.Context, target.Port, policy.Health) (bool, error) { calls++; return true, nil })
+	got, e := service.Status(context.Background(), "hello")
+	if e != nil {
+		t.Fatal(e)
+	}
+	status := got.Apps[0]
+	if status.Drift.State != "unknown" || len(status.Drift.Fields) != 0 || status.Health.Direct != "healthy" || calls != 1 {
+		t.Fatalf("unattributed collector routes are not app drift: %+v; probes=%d", status, calls)
+	}
+}
+
+func TestStatusOnlyComparesOwnAttributedRoutes(t *testing.T) {
+	for _, own := range []string{"hello.example.com", "changed.example.com"} {
+		t.Run(own, func(t *testing.T) {
+			service, _, snap := fixture(t)
+			snap.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{
+				{Name: "hello.caddy", App: "hello", Domains: target.Known([]string{own})},
+				{Name: "other.caddy", App: "other", Domains: target.Known([]string{"other.example.net"})},
+				{Name: "file-" + strings.Repeat("b", 64), App: "", Domains: target.Known([]string{"unrelated.example.net"})},
+			})
+			service.Inventory = inventory{snap}
+			got, e := service.Status(context.Background(), "hello")
+			if e != nil {
+				t.Fatal(e)
+			}
+			drift := got.Apps[0].Drift
+			if own == "hello.example.com" {
+				if drift.State != "in_sync" || len(drift.Fields) != 0 {
+					t.Fatal(drift)
+				}
+			} else if drift.State != "drifted" || !slices.Equal(drift.Fields, []string{"domains"}) {
+				t.Fatal(drift)
+			}
+		})
+	}
+}
+
+func TestStatusManagedRouteMissingVersusUnobservable(t *testing.T) {
+	for _, kind := range []string{"absent", "missing_file", "unknown"} {
+		t.Run(kind, func(t *testing.T) {
+			service, _, snap := fixture(t)
+			switch kind {
+			case "absent":
+				snap.CaddyConfig = target.Observation[target.CaddyConfigSet]{Status: target.Absent}
+			case "missing_file":
+				snap.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: 4, Files: []target.CaddyFile{{Name: "other.caddy", Hash: "sha256:" + strings.Repeat("b", 64)}}})
+			case "unknown":
+				snap.CaddyConfig = target.Observation[target.CaddyConfigSet]{Status: target.Unknown}
+			}
+			service.Inventory = inventory{snap}
+			got, e := service.Status(context.Background(), "hello")
+			if e != nil {
+				t.Fatal(e)
+			}
+			drift := got.Apps[0].Drift
+			if kind == "unknown" {
+				if drift.State != "unknown" || len(drift.Fields) != 0 {
+					t.Fatal(drift)
+				}
+			} else if drift.State != "drifted" || !slices.Equal(drift.Fields, []string{"caddy"}) {
+				t.Fatalf("missing managed route must be affirmative drift: %+v", drift)
 			}
 		})
 	}

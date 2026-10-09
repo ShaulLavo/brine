@@ -290,16 +290,17 @@ func drift(s target.Snapshot, r plan.CurrentRelease) Drift {
 			}
 		}
 	}
-	check("caddy", s.CaddyConfig.Status == target.KnownStatus, routeMatches)
-	domainsKnown := s.LiveCaddyFiles.Status == target.KnownStatus && s.LiveCaddyFiles.Value != nil
+	check("caddy", s.CaddyConfig.Status == target.KnownStatus || s.CaddyConfig.Status == target.Absent, routeMatches)
+	domainsKnown := false
 	domains := []string{}
-	if domainsKnown {
+	if s.LiveCaddyFiles.Status == target.KnownStatus && s.LiveCaddyFiles.Value != nil {
 		for _, file := range *s.LiveCaddyFiles.Value {
 			if file.App == r.App {
 				if file.Domains.Status != target.KnownStatus || file.Domains.Value == nil {
 					domainsKnown = false
 					break
 				}
+				domainsKnown = true
 				domains = append(domains, (*file.Domains.Value)...)
 			}
 		}
