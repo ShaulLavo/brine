@@ -3,6 +3,7 @@ package dispatch
 import (
 	"bytes"
 
+	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -43,6 +44,12 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "logs":
+			lines, err := logs.DecodeLines(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = lines
 		case "ping":
 			ping, err := strictjson.Object(fields["data"], "server_version", "protocol_versions")
 			if err != nil {
@@ -63,6 +70,18 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = snapshot
+		case "apply":
+			accepted, err := decodeAccepted(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = accepted
+		case "operation":
+			status, err := decodeStatus(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = status
 		}
 		return result.Success(command, value), nil
 	}

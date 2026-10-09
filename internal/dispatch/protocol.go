@@ -7,6 +7,8 @@ import (
 	"io"
 	"regexp"
 
+	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -48,8 +50,11 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"logs":      {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
 	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
 	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
+	"apply":     {Mutating, decodeApply},
+	"operation": {ReadOnly, decodeOperation},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
@@ -106,12 +111,21 @@ func EncodeRequest(request Request) ([]byte, error) {
 	return append(data, '\n'), nil
 }
 
-type Server struct {
-	version   string
-	inventory Inventory
+type LogReader interface {
+	Read(context.Context, logs.Request) ([]logs.Line, error)
 }
 
-func NewServer(version string, inventory Inventory) *Server { return &Server{version, inventory} }
+type Server struct {
+	Logs      LogReader
+	version   string
+	inventory Inventory
+	jobs      JobOperations
+	authorize Authorization
+}
+
+func NewServer(version string, inventory Inventory) *Server {
+	return &Server{version: version, inventory: inventory, Logs: logs.Reader{Inventory: inventory, Executor: localexec.ExecRunner{}}}
+}
 
 func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, error) {
 	command := "brine host serve"
@@ -134,13 +148,29 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	// Mutations are closed until operator policy and durable operation state exist.
-	if operations[request.Op].class != ReadOnly {
-		return fail(result.New(result.DispatchOperationRefused, nil))
+	class := operations[request.Op].class
+	if s.authorize == nil {
+		if class != ReadOnly {
+			return fail(result.New(result.DispatchOperationRefused, nil))
+		}
+	} else if err := s.authorize(ctx, class); err != nil {
+		return fail(result.Classify(err))
 	}
 	args, _ := operations[request.Op].decode(request.Args)
 	var value any
-	switch args.(type) {
+	switch args := args.(type) {
+	case logs.Request:
+		if s.Logs == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		lines, err := s.Logs.Read(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
+		}
+		value = lines
 	case PingArgs:
 		value = PingData{s.version, []int{SchemaVersion}}
 	case InventoryArgs:
@@ -159,6 +189,24 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.New(result.InternalError, err))
 		}
 		value = json.RawMessage(encoded)
+	case ApplyArgs:
+		if s.jobs == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		accepted, err := s.jobs.Apply(ctx, args.PlanID, args.IdempotencyKey)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
+	case OperationArgs:
+		if s.jobs == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		status, err := s.jobs.Operation(ctx, args.OperationID, args.AfterCursor)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = status
 	default:
 		return fail(result.New(result.DispatchOperationRefused, nil))
 	}
