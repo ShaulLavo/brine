@@ -13,6 +13,8 @@ type Runtime struct {
 	Planner      dispatch.Planner
 	Jobs         dispatch.JobOperations
 	Runner       jobs.Runner
+	Config       dispatch.ConfigurationOperations
+	Secrets      dispatch.SecretOperations
 	Apps         dispatch.AppOperations
 	Logs         dispatch.LogReader
 	Diagnose     dispatch.DiagnosticReader

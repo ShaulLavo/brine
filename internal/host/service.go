@@ -132,7 +132,12 @@ func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desi
 	if err != nil {
 		return result.New(result.Conflict, err)
 	}
-	fresh, err := plan.Build(facts.Input)
+	var fresh plan.Plan
+	if p.Lifecycle != "" {
+		fresh, err = plan.BuildLifecycle(facts.Input, p.Lifecycle)
+	} else {
+		fresh, err = plan.Build(facts.Input)
+	}
 	if err != nil {
 		return result.New(result.Conflict, err)
 	}

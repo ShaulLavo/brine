@@ -24,6 +24,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/secrets"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
@@ -116,7 +117,9 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	}}
 	reconciler := newReconciler(service, engine, runtimeSystemd)
 	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
-	r := &Runtime{Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}}, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
+	appService := apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}, LoadPolicy: loader.Load}
+	secretService := secrets.Service{Store: state, Podman: podman.New(session), LoadPolicy: loader.Load, Requester: requester}
+	r := &Runtime{Config: appService, Secrets: secretService, Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: appService, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
 		p, err := loader.Load(ctx)
 		if err != nil {
 			return 0, err
