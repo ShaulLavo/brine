@@ -92,11 +92,11 @@ func newPlanCmd(machine *bool, version string) *cobra.Command {
 				// empty committed state. Installed releases must come from --state.
 				state.Target = snapshot.Identity
 			}
-			image := target.Image{Digest: strings.SplitN(string(desired.Image), "@", 2)[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}}
+			image := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: strings.SplitN(string(desired.Image), "@", 2)[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}}
 			if snapshot.Apps.Status == target.KnownStatus {
 				for _, app := range *snapshot.Apps.Value {
 					if app.Name == string(desired.Name) && app.Image.Status == target.KnownStatus && app.Image.Value.Digest == image.Digest {
-						image = *app.Image.Value
+						image.Platform = app.Image.Value.Platform
 						break
 					}
 				}

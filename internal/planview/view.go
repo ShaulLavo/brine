@@ -20,7 +20,7 @@ import (
 type change struct {
 	Kind               plan.ChangeKind `json:"kind"`
 	HostPort           target.Port     `json:"host_port,omitempty"`
-	Image              *target.Image   `json:"image,omitempty"`
+	Image              *plan.Image     `json:"image,omitempty"`
 	Environment        string          `json:"environment,omitempty"`
 	Reference          string          `json:"reference,omitempty"`
 	ContainerPort      uint16          `json:"container_port,omitempty"`
@@ -45,7 +45,7 @@ type presentation struct {
 	PolicyHash         string                     `json:"policy_hash"`
 	DesiredHash        string                     `json:"desired_hash"`
 	ConfigHash         string                     `json:"config_hash"`
-	Image              target.Image               `json:"image"`
+	Image              plan.Image                 `json:"image"`
 	HostPort           target.Port                `json:"host_port"`
 	Secrets            []secret                   `json:"secrets"`
 	Changes            []change                   `json:"changes"`
@@ -137,6 +137,11 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 	if v.Kind == plan.NoOp {
 		add("  No changes required.")
 	}
+	manifest := "unknown"
+	if v.Image.ManifestDigest.Status == target.KnownStatus && v.Image.ManifestDigest.Value != nil {
+		manifest = shortDigest(*v.Image.ManifestDigest.Value, v)
+	}
+	add("  Platform manifest: " + manifest)
 	renderDiff(v, add)
 	for _, c := range v.Changes {
 		switch c.Kind {
@@ -170,18 +175,25 @@ func shortDigest(digest string, v presentation) string {
 	if !strings.HasPrefix(digest, "sha256:") || len(digest) != 71 {
 		return digest
 	}
-	others := []string{v.Image.Digest}
+	others := []string{}
+	imageDigests := func(i plan.Image) {
+		others = append(others, i.Digest)
+		if i.ManifestDigest.Status == target.KnownStatus && i.ManifestDigest.Value != nil {
+			others = append(others, *i.ManifestDigest.Value)
+		}
+	}
+	imageDigests(v.Image)
 	if v.Diff != nil && v.Diff.Image != nil {
 		if v.Diff.Image.From != nil {
-			others = append(others, v.Diff.Image.From.Digest)
+			imageDigests(*v.Diff.Image.From)
 		}
 		if v.Diff.Image.To != nil {
-			others = append(others, v.Diff.Image.To.Digest)
+			imageDigests(*v.Diff.Image.To)
 		}
 	}
 	for _, c := range v.Changes {
 		if c.Image != nil {
-			others = append(others, c.Image.Digest)
+			imageDigests(*c.Image)
 		}
 	}
 	for n := 12; n < 64; n++ {
@@ -241,8 +253,12 @@ func renderDiff(v presentation, add func(string)) {
 	if d == nil {
 		return
 	}
-	image := func(i target.Image) string {
-		return shortDigest(i.Digest, v) + " (" + i.Platform.OS + "/" + i.Platform.Arch + ")"
+	image := func(i plan.Image) string {
+		manifest := "unknown"
+		if i.ManifestDigest.Status == target.KnownStatus && i.ManifestDigest.Value != nil {
+			manifest = shortDigest(*i.ManifestDigest.Value, v)
+		}
+		return shortDigest(i.Digest, v) + " (" + i.Platform.OS + "/" + i.Platform.Arch + ", manifest " + manifest + ")"
 	}
 	renderValue("image", d.Image, image, add)
 	if d.Domains != nil {

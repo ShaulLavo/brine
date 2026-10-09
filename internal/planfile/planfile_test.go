@@ -41,7 +41,7 @@ func fixture(t *testing.T) plan.Input {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return plan.Input{Desired: desired, Snapshot: snapshot, Image: target.Image{Digest: strings.Split(string(desired.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}}, State: plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{}}}
+	return plan.Input{Desired: desired, Snapshot: snapshot, Image: plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: strings.Split(string(desired.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}}, State: plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{}}}
 }
 func offline(t *testing.T) Offline {
 	t.Helper()
@@ -493,5 +493,41 @@ func TestCanonicalSizeBoundaryRoundTrip(t *testing.T) {
 				t.Fatal("size boundary round trip changed content")
 			}
 		})
+	}
+}
+
+func TestManifestRoundTrip(t *testing.T) {
+	for _, known := range []bool{false, true} {
+		in := fixture(t)
+		if known {
+			in.Image.ManifestDigest = target.Known("sha256:" + strings.Repeat("b", 64))
+		}
+		p, err := New(in, Metadata{CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), ToolVersion: "fixture"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		path, err := Write(t.TempDir(), p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := Read(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, _ := json.Marshal(in.Image)
+		b, _ := json.Marshal(got.Plan().Image)
+		if !bytes.Equal(a, b) || got.Hash() != p.Hash() || got.Applyable() {
+			t.Fatal("manifest round trip or offline authority changed")
+		}
+		raw, _ := json.Marshal(p)
+		original, _ := json.Marshal(in.Image.ManifestDigest)
+		tampered := bytes.Replace(raw, original, []byte(`{"status":"known","value":"sha256:`+strings.Repeat("c", 64)+`"}`), 1)
+		if _, err := Decode(tampered); err == nil {
+			t.Fatal("accepted modified manifest without rehashing")
+		}
+		missing := bytes.Replace(raw, append([]byte(`,"manifest_digest":`), original...), nil, 1)
+		if _, err := Decode(missing); err == nil {
+			t.Fatal("accepted missing manifest observation")
+		}
 	}
 }
