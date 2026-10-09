@@ -67,10 +67,7 @@
       20008,
       20009,
       20010,
-      20011,
-      20012,
-      20013,
-      20014
+      20011
     ]
   },
   "live_caddy_files": {
@@ -104,7 +101,7 @@
         "unit": "fixture-3.service"
       },
       {
-        "port": 20007,
+        "port": 20009,
         "app": "",
         "process": "fixture-process-4",
         "unit": "fixture-4.service"
@@ -114,18 +111,6 @@
         "app": "",
         "process": "fixture-process-5",
         "unit": "fixture-5.service"
-      },
-      {
-        "port": 20012,
-        "app": "",
-        "process": "fixture-process-6",
-        "unit": "fixture-6.service"
-      },
-      {
-        "port": 20014,
-        "app": "",
-        "process": "fixture-process-7",
-        "unit": "fixture-7.service"
       }
     ]
   },

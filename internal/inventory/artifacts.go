@@ -26,13 +26,12 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		return
 	}
 	dir := filepath.Join(home, ".config/containers/systemd")
-	entries, e := c.FS.ReadDir(dir)
-	if errors.Is(e, fs.ErrNotExist) {
-		s.Apps = target.Known([]target.App{})
+	entries, e := c.FS.ReadDir(ctx, dir)
+	if e != nil && !errors.Is(e, fs.ErrNotExist) {
 		return
 	}
-	if e != nil {
-		return
+	if errors.Is(e, fs.ErrNotExist) {
+		entries = []fs.DirEntry{}
 	}
 	byApp := map[string][]target.Unit{}
 	for _, entry := range entries {
@@ -50,57 +49,70 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		if !appName.MatchString(app) {
 			continue
 		}
-		data, err := c.FS.ReadFile(filepath.Join(dir, name))
+		data, err := c.FS.ReadFile(ctx, filepath.Join(dir, name))
 		if err != nil {
 			return
 		}
 		byApp[app] = append(byApp[app], target.Unit{Name: name, Hash: digest(data)})
 	}
+
+	secrets := []target.Secret{}
+	runnerIdentity := c.isRunner(ctx, home)
+	if runnerIdentity {
+		out, err := c.probe(ctx, "podman", "--remote=false", "secret", "ls", "--format", "{{.ID}} {{.Name}}")
+		if err != nil {
+			return
+		}
+		var ok bool
+		secrets, ok = secretRecords(out)
+		if !ok {
+			return
+		}
+		for _, secret := range secrets {
+			if !strings.HasPrefix(secret.Name, "brine-") {
+				continue
+			}
+			candidates := secretAppNames(secret.Name)
+			// Names are not self-delimiting. Do not guess app/reference boundaries.
+			if len(candidates) != 1 {
+				return
+			}
+			if _, ok := byApp[candidates[0]]; !ok {
+				byApp[candidates[0]] = []target.Unit{}
+			}
+		}
+	} else if len(byApp) == 0 {
+		return
+	}
 	apps := make([]target.App, 0, len(byApp))
 	for app, units := range byApp {
 		sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
-		apps = append(apps, target.App{Name: app, Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known(units), Secrets: unknown[[]target.Secret]()})
-	}
-	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
-
-	if c.isRunner(home) {
-		out, err := c.probe(ctx, "podman", "--remote=false", "secret", "ls", "--format", "{{.ID}} {{.Name}}")
-		if err == nil {
-			secrets, ok := secretRecords(out)
-			if ok {
-				for i := range apps {
-					observed := []target.Secret{}
-					ambiguous := false
-					for _, secret := range secrets {
-						if !strings.HasPrefix(secret.Name, "brine-"+apps[i].Name+"-") {
-							continue
-						}
-						matches := 0
-						for _, app := range apps {
-							if strings.HasPrefix(secret.Name, "brine-"+app.Name+"-") {
-								matches++
-							}
-						}
-						if matches != 1 {
-							ambiguous = true
-							continue
-						}
-						observed = append(observed, secret)
-					}
-					sort.Slice(observed, func(i, j int) bool { return observed[i].Name < observed[j].Name })
-					if !ambiguous {
-						apps[i].Secrets = target.Known(observed)
-					}
+		a := target.App{Name: app, Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known(units), Secrets: unknown[[]target.Secret]()}
+		// Empty artifacts on a measured fresh control state have no Brine allocation
+		// or deployed image. Existing/unknown state never receives invented absence.
+		if len(units) == 0 && s.Generation.Value != nil && *s.Generation.Value == 0 {
+			a.Image = absent[target.Image]()
+			a.AllocatedHostPort = absent[target.Port]()
+		}
+		if runnerIdentity {
+			observed := []target.Secret{}
+			for _, secret := range secrets {
+				if strings.HasPrefix(secret.Name, "brine-"+app+"-") {
+					observed = append(observed, secret)
 				}
 			}
+			sort.Slice(observed, func(i, j int) bool { return observed[i].Name < observed[j].Name })
+			a.Secrets = target.Known(observed)
 		}
+		apps = append(apps, a)
 	}
+	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
 
 	s.Apps = target.Known(apps)
 }
 
-func (c Collector) isRunner(home string) bool {
-	passwd, e := c.FS.ReadFile("/etc/passwd")
+func (c Collector) isRunner(ctx context.Context, home string) bool {
+	passwd, e := c.FS.ReadFile(ctx, "/etc/passwd")
 	if e != nil {
 		return false
 	}
@@ -111,7 +123,7 @@ func (c Collector) isRunner(home string) bool {
 			uid = f[2]
 		}
 	}
-	status, e := c.FS.ReadFile("/proc/self/status")
+	status, e := c.FS.ReadFile(ctx, "/proc/self/status")
 	if e != nil || uid == "" {
 		return false
 	}
@@ -126,7 +138,7 @@ func (c Collector) isRunner(home string) bool {
 
 func (c Collector) caddy(ctx context.Context, s *target.Snapshot) error {
 	const current = "/etc/caddy/brine/current"
-	link, e := c.FS.Readlink(current)
+	link, e := c.FS.Readlink(ctx, current)
 	switch {
 	case errors.Is(e, fs.ErrNotExist):
 		s.CaddyConfig = absent[target.CaddyConfigSet]()
@@ -136,7 +148,7 @@ func (c Collector) caddy(ctx context.Context, s *target.Snapshot) error {
 			s.CaddyConfig = target.Observation[target.CaddyConfigSet]{Status: target.Unsupported}
 			break
 		}
-		entries, e := c.FS.ReadDir(current)
+		entries, e := c.FS.ReadDir(ctx, current)
 		if e != nil {
 			break
 		}
@@ -151,7 +163,7 @@ func (c Collector) caddy(ctx context.Context, s *target.Snapshot) error {
 				complete = false
 				break
 			}
-			data, e := c.FS.ReadFile(filepath.Join(current, entry.Name()))
+			data, e := c.FS.ReadFile(ctx, filepath.Join(current, entry.Name()))
 			if e != nil {
 				complete = false
 				break
@@ -164,31 +176,36 @@ func (c Collector) caddy(ctx context.Context, s *target.Snapshot) error {
 		}
 	}
 
+	// Check the active endpoint even if adaptation of disk configuration fails.
+	live, liveErr := c.probe(ctx, "curl", "--disable", "--noproxy", "*", "--silent", "--fail", "--max-time", "2", "http://127.0.0.1:2019/config/")
+	liveAdmin := unknown[bool]()
+	if liveErr == nil {
+		liveAdmin = adminBinding([]byte(live))
+		if liveAdmin.Value != nil && !*liveAdmin.Value {
+			return &ConflictError{}
+		}
+	}
 	// Adapt resolves matchers without guessing hosts from Caddyfile text.
-	out, e := c.probe(ctx, "caddy", "adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile")
-	if e != nil {
+	out, adaptErr := c.probe(ctx, "caddy", "adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile")
+	if adaptErr != nil {
 		return nil
 	}
-	if !loopbackAdmin([]byte(out)) {
+	diskAdmin := adminBinding([]byte(out))
+	if diskAdmin.Value != nil && !*diskAdmin.Value {
 		return &ConflictError{}
+	}
+	if liveErr != nil || liveAdmin.Status != target.KnownStatus || diskAdmin.Status != target.KnownStatus {
+		return nil
 	}
 	domains, ok := caddyDomains([]byte(out))
 	if !ok {
 		return nil
 	}
-	// Disk configuration is not proof of what survived a reload timeout.
-	live, e := c.probe(ctx, "curl", "--disable", "--noproxy", "*", "--silent", "--fail", "--max-time", "2", "http://127.0.0.1:2019/config/")
-	if e != nil {
-		return nil
-	}
-	if !loopbackAdmin([]byte(live)) {
-		return &ConflictError{}
-	}
 	liveDomains, ok := caddyDomains([]byte(live))
 	if !ok || strings.Join(domains, "\x00") != strings.Join(liveDomains, "\x00") || !sameJSON([]byte(out), []byte(live)) {
 		return nil
 	}
-	paths, ok := c.caddySources("/etc/caddy/Caddyfile")
+	paths, ok := c.caddySources(ctx, "/etc/caddy/Caddyfile")
 	if !ok {
 		return nil
 	}
@@ -279,24 +296,40 @@ type ConflictError struct{}
 
 func (*ConflictError) Error() string { return "Caddy administration must be restricted to loopback" }
 func (*ConflictError) Code() string  { return "conflict" }
-func loopbackAdmin(data []byte) bool {
-	var config struct{ Admin struct{ Listen string } }
+
+func adminBinding(data []byte) target.Observation[bool] {
+	var object map[string]json.RawMessage
+	if json.Unmarshal(data, &object) != nil || object == nil {
+		return unknown[bool]()
+	}
+	var config struct {
+		Admin struct {
+			Listen   string
+			Disabled bool
+		}
+	}
 	if json.Unmarshal(data, &config) != nil {
-		return true
+		return unknown[bool]()
+	}
+	if config.Admin.Disabled {
+		return target.Known(true)
 	}
 	address := config.Admin.Listen
 	if address == "" || strings.HasPrefix(address, "unix/") {
-		return true
+		return target.Known(true)
 	}
 	host, _, e := net.SplitHostPort(address)
 	if e != nil {
-		return false
+		return unknown[bool]()
 	}
 	if host == "localhost" {
-		return true
+		return target.Known(true)
 	}
 	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
+	if ip == nil {
+		return target.Known(false)
+	}
+	return target.Known(ip.IsLoopback())
 }
 
 func secretRecords(out string) ([]target.Secret, bool) {
@@ -321,4 +354,19 @@ func secretRecords(out string) ([]target.Secret, bool) {
 func sameJSON(a, b []byte) bool {
 	var left, right any
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
+}
+
+var secretReferenceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,252}$`)
+var secretVersionSuffix = regexp.MustCompile(`-v[0-9]+$`)
+
+func secretAppNames(name string) []string {
+	stem := strings.TrimPrefix(name, "brine-")
+	stem = secretVersionSuffix.ReplaceAllString(stem, "")
+	names := []string{}
+	for i, ch := range stem {
+		if ch == '-' && appName.MatchString(stem[:i]) && secretReferenceName.MatchString(stem[i+1:]) {
+			names = append(names, stem[:i])
+		}
+	}
+	return names
 }

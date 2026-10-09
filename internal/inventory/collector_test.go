@@ -20,7 +20,7 @@ type fixtureFS struct {
 	failures map[string]error
 }
 
-func (f fixtureFS) ReadFile(p string) ([]byte, error) {
+func (f fixtureFS) ReadFile(_ context.Context, p string) ([]byte, error) {
 	if e := f.failures[p]; e != nil {
 		return nil, e
 	}
@@ -30,7 +30,7 @@ func (f fixtureFS) ReadFile(p string) ([]byte, error) {
 	}
 	return []byte(s), nil
 }
-func (f fixtureFS) ReadDir(p string) ([]fs.DirEntry, error) {
+func (f fixtureFS) ReadDir(_ context.Context, p string) ([]fs.DirEntry, error) {
 	if e := f.failures[p]; e != nil {
 		return nil, e
 	}
@@ -40,7 +40,7 @@ func (f fixtureFS) ReadDir(p string) ([]fs.DirEntry, error) {
 	}
 	return v, nil
 }
-func (f fixtureFS) Readlink(p string) (string, error) {
+func (f fixtureFS) Readlink(_ context.Context, p string) (string, error) {
 	v, ok := f.links[p]
 	if !ok {
 		return "", fs.ErrNotExist
@@ -421,4 +421,11 @@ func TestMalformedRunnerRecordIsUnknown(t *testing.T) {
 	if s.Runner.User.Status != target.Unknown || s.Generation.Status != target.Unknown || s.Apps.Status != target.Unknown {
 		t.Fatal("malformed runner treated as absent")
 	}
+}
+
+func (r fakeRunner) RunStdout(ctx context.Context, p string, args ...string) (string, error) {
+	return r.Run(ctx, p, args...)
+}
+func (r probeRunner) RunStdout(ctx context.Context, p string, args ...string) (string, error) {
+	return r.Run(ctx, p, args...)
 }

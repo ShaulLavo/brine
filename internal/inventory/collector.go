@@ -10,9 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
@@ -26,39 +24,15 @@ import (
 
 const fileLimit = 1 << 20
 
+// FileSystem implementations must honor the collection context. HostFS also
+// limits each operation to three seconds and caps outstanding kernel calls.
 type FileSystem interface {
-	ReadFile(string) ([]byte, error)
-	ReadDir(string) ([]fs.DirEntry, error)
-	Readlink(string) (string, error)
+	ReadFile(context.Context, string) ([]byte, error)
+	ReadDir(context.Context, string) ([]fs.DirEntry, error)
+	Readlink(context.Context, string) (string, error)
 }
 
 type HostFS struct{}
-
-func (HostFS) ReadFile(p string) ([]byte, error) {
-	f, e := os.Open(p)
-	if e != nil {
-		return nil, e
-	}
-	defer f.Close()
-	data := make([]byte, fileLimit+1)
-	n := 0
-	for n < len(data) {
-		m, err := f.Read(data[n:])
-		n += m
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			return nil, err
-		}
-	}
-	if n > fileLimit {
-		return nil, fmt.Errorf("file exceeds inventory limit")
-	}
-	return data[:n], nil
-}
-func (HostFS) ReadDir(p string) ([]fs.DirEntry, error) { return os.ReadDir(p) }
-func (HostFS) Readlink(p string) (string, error)       { return os.Readlink(p) }
 
 // IdentityKey is operator-provided, stable across collections, and never emitted.
 // Changing it changes the target ID. No fallback to the raw machine ID exists.
@@ -66,7 +40,7 @@ func (HostFS) Readlink(p string) (string, error)       { return os.Readlink(p) }
 // A present state directory without a state reader produces unknown, not zero.
 type Collector struct {
 	FS              FileSystem
-	Runner          localexec.Runner
+	Runner          localexec.StdoutRunner
 	IdentityKey     []byte
 	RunnerUser      string
 	StateGeneration func(context.Context) (uint64, error)
@@ -79,7 +53,7 @@ func digest(b []byte) string                { h := sha256.Sum256(b); return "sha
 func (c Collector) probe(ctx context.Context, p string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	s, e := c.Runner.Run(ctx, p, args...)
+	s, e := c.Runner.RunStdout(ctx, p, args...)
 	if len(s) >= localexec.OutputLimit {
 		return "", fmt.Errorf("probe output limit reached")
 	}
@@ -87,6 +61,8 @@ func (c Collector) probe(ctx context.Context, p string, args ...string) (string,
 }
 
 func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
 	if c.FS == nil || c.Runner == nil || len(c.IdentityKey) == 0 {
 		return target.Snapshot{}, fmt.Errorf("inventory requires filesystem, runner and identity key")
 	}
@@ -97,7 +73,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 		return target.Snapshot{}, fmt.Errorf("invalid inventory runner user")
 	}
 	s := target.Snapshot{SchemaVersion: target.SchemaVersion, CgroupV2: unknown[bool](), Runner: target.Runner{User: unknown[string](), Linger: unknown[bool]()}, Generation: unknown[uint64](), CaddyConfig: unknown[target.CaddyConfigSet](), Apps: unknown[[]target.App](), UsedPorts: unknown[[]target.Port](), PortOwners: unknown[[]target.PortOwner](), LiveCaddyFiles: unknown[[]target.LiveCaddyFile](), FreeDiskBytes: unknown[uint64]()}
-	data, e := c.FS.ReadFile("/etc/os-release")
+	data, e := c.FS.ReadFile(ctx, "/etc/os-release")
 	if e != nil {
 		return s, fmt.Errorf("cannot read target OS")
 	}
@@ -117,7 +93,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 		arch = "amd64"
 	}
 	s.Arch = arch
-	machine, e := c.FS.ReadFile("/etc/machine-id")
+	machine, e := c.FS.ReadFile(ctx, "/etc/machine-id")
 	if e != nil {
 		return s, fmt.Errorf("cannot read target identity")
 	}
@@ -128,7 +104,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	h := hmac.New(sha256.New, c.IdentityKey)
 	h.Write([]byte("brine-target-v1\x00" + id))
 	s.Identity.ID = "host-" + hex.EncodeToString(h.Sum(nil))
-	key, e := c.FS.ReadFile("/etc/ssh/ssh_host_ed25519_key.pub")
+	key, e := c.FS.ReadFile(ctx, "/etc/ssh/ssh_host_ed25519_key.pub")
 	if e != nil {
 		return s, fmt.Errorf("cannot read SSH host public key")
 	}
@@ -148,14 +124,14 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 			s.Versions.Passt = target.Known(out)
 		}
 	}
-	if _, e = c.FS.ReadFile("/sys/fs/cgroup/cgroup.controllers"); e == nil {
+	if _, e = c.FS.ReadFile(ctx, "/sys/fs/cgroup/cgroup.controllers"); e == nil {
 		s.CgroupV2 = target.Known(true)
 	} else if errors.Is(e, fs.ErrNotExist) {
-		if _, e = c.FS.ReadDir("/sys/fs/cgroup"); e == nil {
+		if _, e = c.FS.ReadDir(ctx, "/sys/fs/cgroup"); e == nil {
 			s.CgroupV2 = target.Known(false)
 		}
 	}
-	home, exists := c.runner(&s)
+	home, exists := c.runner(ctx, &s)
 	c.generation(ctx, &s, home, exists)
 	c.disk(ctx, &s, home)
 	c.listeners(ctx, &s)
@@ -184,14 +160,10 @@ func osRelease(data string) (map[string]string, error) {
 		if !ok {
 			continue
 		}
-		if len(v) > 1 && v[0] == '\'' && v[len(v)-1] == '\'' {
-			v = v[1 : len(v)-1]
-		} else if strings.HasPrefix(v, "\"") {
-			u, e := strconv.Unquote(v)
-			if e != nil {
-				return nil, fmt.Errorf("invalid OS metadata")
-			}
-			v = u
+
+		v, e := releaseValue(v)
+		if e != nil {
+			return nil, e
 		}
 		m[k] = v
 	}
@@ -241,9 +213,9 @@ func (c Collector) version(ctx context.Context, p string, args []string) target.
 	return target.Known(v)
 }
 
-func (c Collector) runner(s *target.Snapshot) (string, bool) {
+func (c Collector) runner(ctx context.Context, s *target.Snapshot) (string, bool) {
 	home := "/home"
-	data, e := c.FS.ReadFile("/etc/passwd")
+	data, e := c.FS.ReadFile(ctx, "/etc/passwd")
 	if e != nil {
 		return home, false
 	}
@@ -256,7 +228,7 @@ func (c Collector) runner(s *target.Snapshot) (string, bool) {
 		if len(f) == 7 && f[0] == c.RunnerUser && filepath.IsAbs(f[5]) {
 			home = f[5]
 			s.Runner.User = target.Known(c.RunnerUser)
-			if _, e = c.FS.ReadFile("/var/lib/systemd/linger/" + c.RunnerUser); e == nil {
+			if _, e = c.FS.ReadFile(ctx, "/var/lib/systemd/linger/"+c.RunnerUser); e == nil {
 				s.Runner.Linger = target.Known(true)
 			} else if errors.Is(e, fs.ErrNotExist) {
 				s.Runner.Linger = target.Known(false)
@@ -282,7 +254,7 @@ func (c Collector) generation(ctx context.Context, s *target.Snapshot, home stri
 		s.Generation = target.Known(uint64(0))
 		return
 	}
-	_, e := c.FS.ReadDir(filepath.Join(home, ".local/state/brine"))
+	_, e := c.FS.ReadDir(ctx, filepath.Join(home, ".local/state/brine"))
 	if errors.Is(e, fs.ErrNotExist) {
 		s.Generation = target.Known(uint64(0))
 	}
@@ -296,7 +268,7 @@ func (c Collector) disk(ctx context.Context, s *target.Snapshot, home string) {
 		p = home
 	}
 	for {
-		_, e := c.FS.ReadDir(p)
+		_, e := c.FS.ReadDir(ctx, p)
 		if e == nil || !errors.Is(e, fs.ErrNotExist) || p == "/" {
 			break
 		}
@@ -314,4 +286,43 @@ func (c Collector) disk(ctx context.Context, s *target.Snapshot, home string) {
 	if e == nil {
 		s.FreeDiskBytes = target.Known(v)
 	}
+}
+
+func releaseValue(value string) (string, error) {
+	quote := byte(0)
+	if len(value) > 0 && (value[0] == '\'' || value[0] == '"') {
+		quote = value[0]
+		if len(value) < 2 || value[len(value)-1] != quote {
+			return "", fmt.Errorf("invalid OS metadata")
+		}
+		value = value[1 : len(value)-1]
+	}
+	if quote == '\'' {
+		if strings.ContainsRune(value, '\'') {
+			return "", fmt.Errorf("invalid OS metadata")
+		}
+		return value, nil
+	}
+	var out strings.Builder
+	for i := 0; i < len(value); i++ {
+		ch := value[i]
+		if ch == '\\' {
+			if i+1 == len(value) {
+				return "", fmt.Errorf("invalid OS metadata")
+			}
+			next := value[i+1]
+			if quote == 0 || next == '"' || next == '\\' || next == '$' || next == '`' {
+				out.WriteByte(next)
+				i++
+				continue
+			}
+			out.WriteByte(ch)
+			continue
+		}
+		if ch == '"' || (quote == 0 && (ch == '\'' || ch == ' ' || ch == '\t')) {
+			return "", fmt.Errorf("invalid OS metadata")
+		}
+		out.WriteByte(ch)
+	}
+	return out.String(), nil
 }

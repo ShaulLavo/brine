@@ -1,13 +1,14 @@
 package inventory
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 )
 
 // Static file imports are enumerable. Snippet imports, placeholders, nested
 // glob directories and ambiguous syntax remain unknown instead of losing sites.
-func (c Collector) caddySources(root string) ([]string, bool) {
+func (c Collector) caddySources(ctx context.Context, root string) ([]string, bool) {
 	paths := []string{}
 	seen := map[string]bool{}
 	var visit func(string, int) bool
@@ -18,7 +19,7 @@ func (c Collector) caddySources(root string) ([]string, bool) {
 		}
 		seen[path] = true
 		paths = append(paths, path)
-		data, e := c.FS.ReadFile(path)
+		data, e := c.FS.ReadFile(ctx, path)
 		if e != nil {
 			return false
 		}
@@ -47,7 +48,7 @@ func (c Collector) caddySources(root string) ([]string, bool) {
 			if strings.ContainsAny(dir, "*?[") {
 				return false
 			}
-			entries, e := c.FS.ReadDir(dir)
+			entries, e := c.FS.ReadDir(ctx, dir)
 			if e != nil {
 				return false
 			}

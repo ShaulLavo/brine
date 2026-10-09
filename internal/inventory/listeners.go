@@ -63,7 +63,7 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot) {
 				if safeToken.MatchString(match[1]) {
 					owner.Process = match[1]
 				}
-				data, e := c.FS.ReadFile("/proc/" + match[2] + "/cgroup")
+				data, e := c.FS.ReadFile(ctx, "/proc/"+match[2]+"/cgroup")
 				if e == nil {
 					owner.Unit = unitFromCgroup(string(data))
 				}
