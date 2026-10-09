@@ -1,9 +1,10 @@
-// Package logs reads bounded, best-effort redacted journals for owned apps.
+// Package logs reads bounded, best-effort redacted container and unit logs for owned apps.
 package logs
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"strconv"
 	"strings"
@@ -19,6 +20,8 @@ import (
 const MaxTail = 1000
 const MaxBytes = 128 << 10
 const ReadTimeout = 10 * time.Second
+const ContainerLogDriver = "k8s-file"
+const ContainerLogMaxBytes = 10 << 20
 
 type Request struct {
 	App   string `json:"app"`
@@ -37,6 +40,15 @@ type Reader struct {
 	Inventory Inventory
 	Executor  localexec.Executor
 }
+
+type JournalReader Reader
+
+type source uint8
+
+const (
+	containerSource source = iota
+	journalSource
+)
 
 var sincePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$`)
 
@@ -82,11 +94,19 @@ func DecodeRequest(raw []byte) (Request, error) {
 	return r, r.Validate()
 }
 func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
+	return r.read(ctx, request, containerSource)
+}
+
+func (r JournalReader) Read(ctx context.Context, request Request) ([]Line, error) {
+	return Reader(r).read(ctx, request, journalSource)
+}
+
+func (r Reader) read(ctx context.Context, request Request, from source) ([]Line, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, result.Classify(err)
+		return nil, collectionError(err, result.LogsInventoryFailed, result.LogsInventoryTimeout)
 	}
 	if r.Inventory == nil || r.Executor == nil {
 		return nil, result.New(result.DependencyMissing, nil)
@@ -95,14 +115,17 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	defer cancel()
 	snapshot, err := r.Inventory.Collect(ctx)
 	if err != nil {
-		return nil, result.Classify(err)
+		return nil, collectionError(err, result.LogsInventoryFailed, result.LogsInventoryTimeout)
 	}
 	if err := ctx.Err(); err != nil {
-		return nil, result.Classify(err)
+		return nil, collectionError(err, result.LogsInventoryFailed, result.LogsInventoryTimeout)
 	}
 	unit, err := ownedUnit(snapshot, request.App)
 	if err != nil {
 		return nil, err
+	}
+	if from == containerSource {
+		return r.readContainer(ctx, request, unit)
 	}
 	args := []string{"--user", "-u", unit.String(), "-n", strconv.Itoa(request.Tail), "-o", "json", "--no-pager", "--all"}
 	if request.Since != "" {
@@ -111,10 +134,14 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	}
 	out, err := r.Executor.Execute(ctx, localexec.Command{Path: "journalctl", Args: args, Timeout: ReadTimeout})
 	if err != nil {
-		return nil, result.Classify(err)
+		var execution *localexec.Error
+		if errors.As(err, &execution) && (execution.Kind == localexec.NotFound || execution.Kind == localexec.Failed && execution.ExitCode == 1 && strings.TrimSpace(out.Stderr) == "No journal files were opened due to insufficient permissions.") {
+			return nil, result.New(result.LogsJournalUnavailable, err)
+		}
+		return nil, collectionError(err, result.LogsJournalFailed, result.LogsJournalTimeout)
 	}
-	if ctx.Err() != nil {
-		return nil, result.Classify(ctx.Err())
+	if err := ctx.Err(); err != nil {
+		return nil, collectionError(err, result.LogsJournalFailed, result.LogsJournalTimeout)
 	}
 	if out.Truncated {
 		return nil, result.New(result.LogsTruncated, nil)
@@ -124,6 +151,17 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	}
 	return parse(out.Stdout, request.Tail)
 }
+func collectionError(err error, failed, timedOut result.Code) *result.Error {
+	if errors.Is(err, context.Canceled) {
+		return result.New(result.Interrupted, err)
+	}
+	var execution *localexec.Error
+	if errors.Is(err, context.DeadlineExceeded) || errors.As(err, &execution) && execution.Kind == localexec.Timeout {
+		return result.New(timedOut, err)
+	}
+	return result.New(failed, err)
+}
+
 func ownedUnit(snapshot target.Snapshot, app string) (systemd.Unit, error) {
 	refuse := func() (systemd.Unit, error) { return systemd.Unit{}, result.New(result.LogsOwnershipRefused, nil) }
 	if snapshot.Apps.Status != target.KnownStatus || snapshot.Apps.Value == nil {

@@ -1,0 +1,231 @@
+# Phase 03 Pi run
+
+Recorded 2026-10-09. The first attempt used `9670c1a`. The resumed attempt merged `c4caf3d`, including stateless removal, and tested the Docker Hub fix in `9e862a1` on the physical target.
+
+## Result
+
+**First stateless deployment verified; blocked on route provenance before updating it. The Phase 03 exit gate has not passed.**
+
+After a separate operator session prepared enrollment and routing/TLS prerequisites, the real restricted client deployed a digest-pinned fixture with an immutable Podman secret. Direct HTTP and normally verified routed HTTPS both returned 200. Two small production defects were reproduced with failing-first tests and fixed: Docker Hub resolution and Caddy route permissions under the private job umask.
+
+The next `config set` plan refuses with `artifact_drift` for `caddy.live`, `domain_owned`, and `unknown_facts` for `live_caddy_files.domains`. The production inventory cannot attribute an imported managed route to its app and leaves root domains unknown. This is a larger provenance problem; the lane stopped rather than weaken route ownership checks. No release replacement, explicit rollback, client kill, injected runner kill, or reboot was performed. Both permitted reboots remain unused. P03-04 remains open for existing-data mounts and writer-switch evidence; no acceptance checkbox changed.
+
+Fixture cleanup through the real `remove` client withdrew the route and stopped the writer, but reached `recovery_required` at `stop_unit`. Read-only inspection identified a third small defect: the production systemd queue reader expects numeric zero, whereas systemctl prints an empty labeled `Job=`. The fix retains strict failed/missing-output rejection and is tested against actual property serialization. Cleanup outcome after that fix is recorded below.
+
+## Evidence conventions
+
+`$OPERATOR_TARGET`, `$TARGET`, `$CLIENT_DIR`, `$DEPLOY_PUBLIC_KEY`, and `$SCRATCH` replace private target aliases and paths in commands. Account inventories, addresses, keys, and secret values are omitted. Fixed paths below belong to Brine's implementation. `fixture.brine.test` is the synthetic test route, not the host's name or address.
+
+Previous runtime evidence is in [the Pi runtime spike](../spikes/pi-runtime.md). That spike does not prove the current production deploy path works. There was no `docs/evidence` directory in the first checked revision.
+
+## Initial installation blocker
+
+The installed binary matched its root-owned enrollment record and reported `0.1.1-dev`. That version string does not identify its source commit. The target lacked the current protected policy, requester, authentication marker, boot recovery files, and control database.
+
+The first current-client observations returned:
+
+```json
+{"schema_version":1,"command":"brine status","ok":false,"data":null,"error":{"code":"dispatch_operation_refused","message":"The dispatcher operation is not allowed.","retryable":false}}
+```
+
+```json
+{"schema_version":1,"command":"brine reconcile","ok":false,"data":null,"error":{"code":"dispatch_operation_refused","message":"The dispatcher operation is not allowed.","retryable":false}}
+```
+
+Supported re-enrollment reached target-name confirmation, then exited 1:
+
+```sh
+"$SCRATCH/brine" enroll "$OPERATOR_TARGET" \
+  --target-name "$TARGET" --deploy-key "$DEPLOY_PUBLIC_KEY" \
+  --host-binary "$SCRATCH/brine-arm64" --config-dir "$CLIENT_DIR"
+```
+
+```text
+enrollment options differ from durable intent
+operator SSH command failed; inspect and reconcile the host before retrying
+```
+
+`internal/enroll/host_linux.go:359-360` refuses a changed binary hash after recorded binary intent. [The enrollment contract](../CONTRACTS.md#operator-enrollment) explicitly excludes treating a different binary as an enrollment rerun. A documented operator update path remains missing.
+
+A separate operator session reported that supported undo also refused with `unrecorded runtime data refused`, then Caddy tree drift. That session reported manual withdrawal of journaled artifacts and fresh enrollment. This lane did not perform or independently verify that withdrawal. Those reports are follow-ups to reproduce, not evidence that every used host is impossible to unenroll. The installation and undo findings remain under P06-03 and P06-05.
+
+## Resumed baseline
+
+After the separate operator setup, the new restricted client returned:
+
+```json
+{"schema_version":1,"command":"brine status","ok":true,"data":{"apps":[]},"error":null}
+```
+
+```json
+{"schema_version":1,"command":"brine reconcile","ok":true,"data":{"control_state":"preview_unavailable","dry_run":true,"outcomes":[]},"error":null}
+```
+
+The observed preview was `preview_unavailable`, not the `database_missing` reported by the setup session. This run did not investigate that difference. It does not count as a successful effect-boundary preview or prove database preservation.
+
+No existing v1 database was present. Physical v1-to-v2 migration evidence is omitted rather than manufacturing a preexisting journal. Automated migration tests remain the evidence for that behavior.
+
+The target reports Debian GNU/Linux 13, trixie, full version 13.6, on arm64. Exact installed package revisions were:
+
+```text
+caddy 2.6.2-12+deb13u1
+passt 0.0~git20250503.587980c-2+deb13u1
+podman 5.4.2+ds1-2+b2
+systemd 257.13-1~deb13u1
+```
+
+Litestream was not queried. No backup or R2 restore was attempted.
+
+## Fixture and Docker Hub regression
+
+The fixture was `nginxinc/nginx-unprivileged:stable-alpine`, resolved before planning to the immutable multi-architecture index:
+
+```text
+index    sha256:15c994d10d6d78658721c3bcafff14cb281fba2a4bdf9d5ba92c416a472516e3
+arm64    sha256:4538a98ff4262f70babae95a74ecc5cff3de466445f4ef022cc42be5a29b10c2
+config   sha256:1d8171baa86a607971182e96563f06667b683d900eba9f799d3b818eee336c21
+```
+
+The index contains linux/amd64 and linux/arm64 entries. The TOML used only the immutable index, container port 8080, `fixture.brine.test`, a 30-second startup deadline, HTTP `/` with status 200, an environment release marker, and the allowed `fixture-token` reference. At the initial planning attempt, no image pull or container startup occurred.
+
+A generated secret value reached only stdin of the real restricted client:
+
+```sh
+"$SCRATCH/brine" secret set fixture fixture-token \
+  --target "$TARGET" --config-dir "$CLIENT_DIR" --json < "$PRIVATE_SECRET_FILE"
+```
+
+Captured response:
+
+```json
+{"schema_version":1,"command":"brine secret set","ok":true,"data":{"operation_id":"01a1219c093bb596dc198ec3a4bfca754993cebab3ed","version_name":"brine.fixture.fixture-token.v1","bound":false},"error":null}
+```
+
+The first connected Docker Hub plan returned:
+
+```json
+{"schema_version":1,"command":"brine plan","ok":false,"data":null,"error":{"code":"internal_error","message":"The operation failed.","retryable":false}}
+```
+
+The resolver treated `docker.io` as the registry API origin and only allowed same-origin anonymous token services. Docker Hub instead uses `registry-1.docker.io`, `auth.docker.io/token`, and blob redirects to its CDN. Failing-first tests reproduced the incorrect registry host and rejected CDN. The fix maps only the Docker Hub alias, admits its exact anonymous token endpoint and service, and admits exact HTTPS Docker CDN hosts for blobs only. Redirected requests strip authorization. Tests still refuse unrelated hosts, alternate ports, token redirects, and manifest redirects. All digest and platform checks remain in place.
+
+The Docker registry config blob actually redirected to `production.cloudfront.docker.com`. The fixed production resolver completed connected planning against the same real index. No credentials or registry token were captured in published evidence.
+
+## Authorized test binary installation
+
+The task authorizes operator installation of the test binary. Because no supported update command exists, this run used the minimal explicit replacement below, after local gates passed. The original fresh-enrollment executable remains preserved in the separate operator setup workspace.
+
+```sh
+scp "$SCRATCH/brine-arm64" "$OPERATOR_TARGET:/tmp/brine-p03-fixture-binary"
+ssh "$OPERATOR_TARGET" 'sudo -n install -o root -g root -m 0755 /tmp/brine-p03-fixture-binary /usr/local/bin/brine && rm -- /tmp/brine-p03-fixture-binary'
+```
+
+Only the Brine binary was replaced. The protected enrollment record was not rewritten. This manual test installation is not a supported journal-aware upgrade and leaves its recorded binary hash stale. No claim of working upgrade or supported undo is made.
+
+## Routed planning conflict
+
+After the Docker Hub fix and binary installation:
+
+```sh
+"$SCRATCH/brine" plan "$SCRATCH/fixture.toml" \
+  --target "$TARGET" --config-dir "$CLIENT_DIR" --json
+```
+
+Captured response:
+
+```json
+{"schema_version":1,"command":"brine plan","ok":true,"data":{"plan_id":"sha256:47dc8ab58aa211a9ab4950c2db17242ddd6132617f8560cd180d75f3e028c602","kind":"conflict","diff":null,"conflicts":[{"code":"domain_owned","field":"domains"}]},"error":null}
+```
+
+Read-only `caddy adapt` of the operator's root configuration showed one server listening on `:80`, with an empty route matcher and `vars` plus `file_server` handlers. Its site has no host restriction. The planner's domain ownership checks at `internal/plan/plan.go:292-306` conservatively treat that site as owning the requested domain. The selected Brine generation remains 0.
+
+This is a routing precondition, not a reason to silently remove an operator site. A usable non-public fixture also needs a trusted local HTTPS certificate because routed health uses normal TLS verification. At that stage, the lane had not established that certificate prerequisite or attempted issuance. Readiness work under P06-02 records both prerequisites.
+
+## First physical apply and private-umask regression
+
+The separate operator session reported removal of the hostless operator site, a root `local_certs` block plus Brine import, validated Caddy reload, and local-authority trust installation. This lane did not perform those preparation actions or amend D3. Read-only root validation passed; `local_certs` caused no planner/parser objection.
+
+The real create plan had no conflicts:
+
+```text
+plan sha256:7207b754cbda0f183fc9a0214ac6991abc38a6a6b6e593a3113635f081267e21
+first operation 01a121a5f56d552a11079141ad2ac68042f1f7d91b4a
+```
+
+The first apply pulled and verified the arm64 image, bound `brine.fixture.fixture-token.v1`, installed/started the Quadlet, and passed direct health. Routed health timed out after 30 seconds. Reverse rollback completed with terminal `rolled_back`; the operation did not falsely succeed. This was a first-release rollback to absence, not restoration of a previous healthy app. Durable status remained readable after the transient unit was collected.
+
+Caddy's reload succeeded but reported no matching import files. Detached jobs use `UMask=0077`; the generated directory and app route were actually 0700 and 0600, inaccessible to the separate Caddy service account. The generation writer had requested 0755/0644 without explicitly restoring those permissions. A subprocess-isolated test under umask 0077 failed before the fix. The writer now creates privately, explicitly sets generation directories to 0755 and route files to 0644, and keeps whole-root candidate files private 0600. The detached job umask remains 0077. No unrelated Caddy site is modified.
+
+After installation of `d35f65a`, the same create plan succeeded:
+
+```text
+operation 01a121ac2b04ed4d71e600e38f8c5dc4f3aa09e8c69a
+accepted 2026-10-09T17:18:13.764906337Z
+succeeded 2026-10-09T17:18:23.068338402Z
+```
+
+Read-only physical inspection confirmed generation 2 directory 0755, `fixture.caddy` 0644, and whole-root candidate 0600. Both probes used normal verification, with no insecure flag:
+
+```sh
+ssh "$OPERATOR_TARGET" 'curl --noproxy "*" -fsS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:20000/'
+ssh "$OPERATOR_TARGET" 'curl --noproxy "*" --resolve fixture.brine.test:443:127.0.0.1 -fsS -o /dev/null -w "%{http_code}\n" https://fixture.brine.test/'
+```
+
+Each returned 200. Restricted `status fixture` reported the committed image digest, active unit and healthy direct probe. `diagnose fixture` reported a running container and present route, but drift remained unknown and the bounded log tail returned `internal_error`; that is not full diagnostic acceptance. The active Caddy root fingerprint matched the installed system trust root. Secret values were never printed or compared in public evidence.
+
+## Larger update blocker: imported route provenance
+
+```sh
+"$SCRATCH/brine" config set fixture environment.RELEASE=two \
+  --target "$TARGET" --config-dir "$CLIENT_DIR" --json
+```
+
+```json
+{"schema_version":1,"command":"brine config set","ok":true,"data":{"plan_id":"sha256:02caf962721d6eb02853e555caf1710d465ae97e00e27cb7dac41bdb6117c857","kind":"conflict","diff":null,"conflicts":[{"code":"artifact_drift","field":"caddy.live"},{"code":"domain_owned","field":"domains"},{"code":"unknown_facts","field":"live_caddy_files.domains"}]},"error":null}
+```
+
+No apply was launched for this plan. The deployed route was healthy and its artifact permissions correct. `internal/inventory/artifacts.go:257-274` emits generic hashed names with no app ownership for imported files and leaves the root file's domains unknown whenever imports exist. `internal/plan/plan.go:462-485` requires a live file matching the committed app and route filename; `:292-306` refuses unknown or foreign domain ownership. Existing host tests supply already-attributed synthetic snapshots, so they do not expose this production mismatch. A safe fix must establish file provenance while preserving unrelated imported/root sites and whole-live-config verification; simply declaring the root empty or ignoring unknown domains is not acceptable. The owning Phase 03 task records the reproduction and acceptance needed.
+
+## Removal and remaining resources
+
+Initial removal before deployment correctly refused `unowned_app`. After the healthy first release, real removal planning returned `kind:update`, no conflicts, with secret retention `d5_retained_releases`:
+
+```text
+plan sha256:f3da8c4c68cf567ceb3c764819a9e3396ad4778be972b5d6ec31e1324e437ddb
+operation 01a121b1e29e45390eb6945d6b142cabb2c2d61c6584
+```
+
+`withdraw_route` completed. `stop_unit` recorded `unknown` with code `interrupted`; terminal state was `recovery_required`. Read-only inspection showed `ActiveState=inactive`, `SubState=dead`, no Podman containers, and no selected `fixture.caddy`. Direct connection was refused. The committed release head and allocated port were not retired. Dry-run reconciliation returned no outcomes; it did not resume this terminal recovery-required operation. This is safe fencing, not successful removal acceptance.
+
+The real systemd serialization was:
+
+```text
+LoadState=loaded
+Job=
+```
+
+The old `JobPending` implementation queried `--property=Job --value` then parsed only an integer. Failing-first tests reproduced rejection of the actual settled-job output. The corrected reader requests labeled LoadState and Job together, accepts an explicit empty Job only with known loaded/not-found state, parses bounded numeric pending IDs, and rejects missing, duplicate, malformed, overflowed or failed reads. This is current systemd behavior, not mixed-version fallback.
+
+### Cleanup follow-up after the parser fix
+
+The fixed arm64 binary was installed through the same authorized binary-only replacement. No DB events or provenance records were manually edited. A new removal plan returned a conflict, not permission to replay the earlier partial operation:
+
+```text
+plan sha256:b6bfd59b7a99eee60454ba7984f649d7487b6db6567355db6dc0630b3f7efd4c
+kind conflict
+artifact_drift:route
+```
+
+Dry-run reconciliation again returned no outcomes because the earlier operation is terminal `recovery_required`. No conflicting plan was applied and no irreversible action was blindly retried. The corrected parser passes local regression tests, but could not complete this already-terminal removal through the supported API; physical successful removal remains unverified.
+
+Final read-only inventory: `fixture.service` loaded/inactive/dead with an explicit empty Job, no Podman containers, no fixture route in the selected generation, and direct port 20000 refusing connection. The retained `fixture.container`, historical generation-2 route, pinned image, immutable secret v1, committed release head, reserved port, and recovery-required removal history remain. The control DB is preserved. Do not describe the task as clean or the residual secret as unbound: it is bound in retained release history. No account, root Caddy config, unrelated route, image cache, secret, or enrollment provenance was manually deleted.
+
+## Acceptance still owed
+
+T07 first stateless release is physically verified. The routed-health failure demonstrated no false success and first-release rollback to absence, but does not replace T08 invalid-release/previous-release restoration or T11 controlled Caddy failure evidence. T04, T08-T11, T16-T17, T21-T22 and the full exit gate remain owed. Secret bootstrap/binding is only partial P03-08; config change and secret rotation are not verified. Existing-data mounts and schema-breaking migration remain Phase 04. No zero-downtime or R2-restore claim is made.
+
+## Local verification
+
+Docker-specific and restrictive-umask regressions failed before their fixes and passed afterward. The original and resumed code gates passed all 30 Go packages, vet, client build, Linux arm64 cross-build, empty formatting, diff check, and Darwin arm64 vet. The systemd regression likewise failed first. Final verification passed `go test ./...` (30 packages), `go test -race ./...` (30 packages), `go vet ./...`, `go build ./cmd/brine`, the Linux arm64 cross-build, empty `gofmt -l ./cmd ./internal`, `git diff --check`, and `GOOS=darwin GOARCH=arm64 go vet ./...`. The targeted actual-systemd serialization regressions also passed with `-count=1`. Checks used `GOTMPDIR` under the private task scratch and `GOCACHE=/work/cache/go-build`. An initial local rerun hit the host's `/tmp` disk quota; subsequent build scratch was redirected to `/work`, without deleting other sessions' files.
+
+The exit gate remains open in [Phase 03](../plans/03-deploy-and-recovery.md). Operator installation, readiness, and reported undo follow-ups remain in [Phase 06](../plans/06-release-and-ops.md).

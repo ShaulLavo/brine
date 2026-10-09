@@ -31,6 +31,15 @@ const (
 	LogsTruncated             Code = "logs_truncated"
 	LogsLimitExceeded         Code = "logs_limit_exceeded"
 	LogsInvalidJournal        Code = "logs_invalid_journal"
+	LogsInventoryFailed       Code = "logs_inventory_failed"
+	LogsInventoryTimeout      Code = "logs_inventory_timeout"
+	LogsJournalFailed         Code = "logs_journal_failed"
+	LogsJournalTimeout        Code = "logs_journal_timeout"
+	LogsJournalUnavailable    Code = "logs_journal_unavailable"
+	LogsContainerFailed       Code = "logs_container_failed"
+	LogsContainerTimeout      Code = "logs_container_timeout"
+	LogsContainerUnavailable  Code = "logs_container_unavailable"
+	LogsInvalidContainer      Code = "logs_invalid_container"
 	InternalError             Code = "internal_error"
 	InvalidUsage              Code = "invalid_usage"
 	DependencyMissing         Code = "dependency_missing"
@@ -62,10 +71,19 @@ var descriptions = map[Code]description{
 	AppNotFound:               {Validation, "The app has no committed Brine release.", false},
 	ReleaseNotFound:           {Validation, "The rollback release is not known for this app.", false},
 	RollbackNoOp:              {StateConflict, "The rollback target is already current or requires no changes.", false},
-	LogsTruncated:             {Operational, "The journal output was truncated; request a smaller tail.", false},
+	LogsTruncated:             {Operational, "The log output was truncated; request a smaller tail.", false},
 	LogsOwnershipRefused:      {Policy, "Logs are readable only for an observed Brine-owned app unit.", false},
 	LogsLimitExceeded:         {Operational, "The log response exceeds its bounded tail or byte limit; request a smaller tail.", false},
 	LogsInvalidJournal:        {Operational, "The journal response is malformed.", false},
+	LogsInventoryFailed:       {Operational, "Log collection failed while checking app ownership in host inventory.", false},
+	LogsInventoryTimeout:      {Operational, "Log collection timed out while checking app ownership in host inventory.", false},
+	LogsJournalFailed:         {Operational, "Log collection failed while running journalctl as the enrolled runner; inspect its journal access and command exit.", false},
+	LogsJournalTimeout:        {Operational, "Log collection timed out while running journalctl as the enrolled runner.", false},
+	LogsJournalUnavailable:    {Dependency, "Unit journal logs require journalctl and readable journals. Use app logs for container output; ask the operator to inspect unit logs without widening deploy credentials.", false},
+	LogsContainerFailed:       {Operational, "Log collection failed while inspecting or reading the owned app container with Podman.", false},
+	LogsContainerTimeout:      {Operational, "Log collection timed out while inspecting or reading the owned app container with Podman.", false},
+	LogsContainerUnavailable:  {Dependency, "App logs require Podman and the managed k8s-file log driver; inspect the app unit and container configuration.", false},
+	LogsInvalidContainer:      {Operational, "The container log response is malformed.", false},
 	DispatchInvalidRequest:    {Validation, "The dispatcher request is invalid.", false},
 	DispatchUnsupportedSchema: {Dependency, "The dispatcher protocol version is incompatible.", false},
 	DispatchOperationRefused:  {Policy, "The dispatcher operation is not allowed.", false},

@@ -393,15 +393,18 @@ func (m *Manager) nextGeneration(current uint64) (uint64, error) {
 	}
 	return highest + 1, nil
 }
-func (m *Manager) write(path string, content []byte) error {
-	f, err := m.root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+func (m *Manager) write(path string, content []byte, mode os.FileMode) error {
+	f, err := m.root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
-	_, writeErr := f.Write(content)
-	syncErr := f.Sync()
-	closeErr := f.Close()
-	return errors.Join(writeErr, syncErr, closeErr)
+	if _, err := f.Write(content); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	if err := f.Chmod(mode); err != nil {
+		return errors.Join(err, f.Close())
+	}
+	return errors.Join(f.Sync(), f.Close())
 }
 func (m *Manager) syncDir(path string) error {
 	dir, err := m.root.Open(path)
@@ -520,7 +523,10 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 		}
 	}
 	result.Next = State{Generation: next, Files: hashFiles(files), Sites: sites}
-	if err = m.root.Mkdir(name, 0755); err != nil {
+	if err = m.root.Mkdir(name, 0700); err != nil {
+		return result, err
+	}
+	if err = m.root.Chmod(name, 0755); err != nil {
 		return result, err
 	}
 	if err = m.step(&result, "generation-created"); err != nil {
@@ -528,7 +534,7 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 	}
 	names := slices.Sorted(maps.Keys(files))
 	for _, file := range names {
-		if err = m.write(name+"/"+file, files[file]); err != nil {
+		if err = m.write(name+"/"+file, files[file], 0644); err != nil {
 			return result, err
 		}
 		if err = m.step(&result, "file-written"); err != nil {
@@ -545,7 +551,7 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 		return result, err
 	}
 	candidateName := "candidate-" + name + ".caddy"
-	if err = m.write(candidateName, candidate); err != nil {
+	if err = m.write(candidateName, candidate, 0600); err != nil {
 		return result, err
 	}
 	if err = m.syncDir("."); err != nil {
@@ -758,7 +764,7 @@ func (m *Manager) Restore(ctx context.Context, main []byte, installed, previous 
 }
 
 func (m *Manager) restoreCandidate(name string, candidate []byte) error {
-	err := m.write(name, candidate)
+	err := m.write(name, candidate, 0600)
 	if !errors.Is(err, os.ErrExist) {
 		return err
 	}
@@ -820,7 +826,7 @@ func (m *Manager) SettleWithdrawal(ctx context.Context, main []byte, before, obs
 		return err
 	}
 	name := "reconcile-" + gen(observed.Generation) + "-" + strconv.FormatInt(time.Now().UnixNano(), 10) + ".caddy"
-	if err = m.write(name, candidate); err != nil {
+	if err = m.write(name, candidate, 0600); err != nil {
 		return err
 	}
 	defer m.root.Remove(name)

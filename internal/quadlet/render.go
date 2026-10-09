@@ -12,6 +12,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -87,6 +88,7 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	fmt.Fprintf(&b, "%s%s\n# IndexDigest=%s\n# PlatformManifestDigest=%s\n# Platform=linux/%s\n\n[Unit]\nDescription=Brine app %s\n\n[Container]\n", marker, p.Hash, p.Image.Digest, platformManifestDigest, p.Image.Platform.Arch, d.Name)
 	repository, _, _ := strings.Cut(string(d.Image), "@")
 	fmt.Fprintf(&b, "Image=%s@%s\nPublishPort=127.0.0.1:%d:%d\nPidsLimit=%d\nPodmanArgs=--memory=%dm\n", repository, platformManifestDigest, p.HostPort, d.ContainerPort, d.Resources.PIDsLimit, d.Resources.MemoryMB)
+	fmt.Fprintf(&b, "LogDriver=%s\nLogOpt=max-size=%d\n", logs.ContainerLogDriver, logs.ContainerLogMaxBytes)
 	for _, s := range secrets {
 		fmt.Fprintf(&b, "Secret=%s,type=env,target=%s\n", s.VersionName, s.Environment)
 	}

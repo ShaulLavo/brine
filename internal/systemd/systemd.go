@@ -105,19 +105,42 @@ func (c *Client) Show(ctx context.Context, u Unit) (Properties, error) {
 	return parseProperties(r.Stdout)
 }
 
-// JobPending observes the manager job attached to this exact unit. Zero means
-// no queued/running job; failed, absent or malformed reads never imply zero.
+// JobPending observes the manager job attached to this exact unit. systemctl
+// serializes an absent job as an empty property, not the D-Bus numeric zero.
+// Labeled properties distinguish that evidence from missing or failed output.
 func (c *Client) JobPending(ctx context.Context, u Unit) (bool, error) {
 	if u.value == "" {
 		return false, &localexec.Error{Kind: localexec.Invalid}
 	}
-	r, err := c.run(ctx, []string{"--user", "show", u.value, "--property=Job", "--value"}, false)
+	r, err := c.run(ctx, []string{"--user", "show", u.value, "--property=LoadState,Job"}, false)
 	if err != nil {
 		return false, err
 	}
-	id, err := strconv.ParseUint(strings.TrimSpace(r.Stdout), 10, 32)
+	bad := func() (bool, error) { return false, &localexec.Error{Kind: localexec.Failed} }
+	fields := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(r.Stdout), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || (key != "LoadState" && key != "Job") {
+			return bad()
+		}
+		if _, duplicate := fields[key]; duplicate {
+			return bad()
+		}
+		fields[key] = value
+	}
+	job, present := fields["Job"]
+	if !present || (fields["LoadState"] != "loaded" && fields["LoadState"] != "not-found") {
+		return bad()
+	}
+	if job == "" {
+		return false, nil
+	}
+	if strings.IndexFunc(job, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return bad()
+	}
+	id, err := strconv.ParseUint(job, 10, 32)
 	if err != nil {
-		return false, &localexec.Error{Kind: localexec.Failed}
+		return bad()
 	}
 	return id != 0, nil
 }

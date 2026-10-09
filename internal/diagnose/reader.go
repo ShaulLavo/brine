@@ -44,6 +44,7 @@ type ControlStore interface {
 type Reader struct {
 	Inventory            Inventory
 	Logs                 LogReader
+	UnitLogs             LogReader
 	Store                ControlStore
 	Runner               localexec.StdoutRunner
 	FS                   inventory.FileSystem
@@ -84,12 +85,12 @@ func bounded[T any](ctx context.Context, timeout time.Duration, fn func(context.
 	}
 }
 func reason(err error) string {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return "probe_timeout"
-	}
 	var safe *result.Error
 	if errors.As(err, &safe) {
 		return string(safe.Code())
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "probe_timeout"
 	}
 	return "probe_failed"
 }
@@ -163,9 +164,12 @@ func (r Reader) Read(parent context.Context, request Request) (Report, error) {
 	}
 	h.LiveGeneration = liveGeneration(snapshot)
 	report.Host = h
-	if r.Logs == nil {
-		if executor, ok := r.Runner.(localexec.Executor); ok {
+	if executor, ok := r.Runner.(localexec.Executor); ok {
+		if r.Logs == nil {
 			r.Logs = logs.Reader{Inventory: snapshotInventory{snapshot}, Executor: executor}
+		}
+		if r.UnitLogs == nil {
+			r.UnitLogs = logs.JournalReader{Inventory: snapshotInventory{snapshot}, Executor: executor}
 		}
 	}
 	names := []string{}
@@ -215,7 +219,7 @@ func (r Reader) Read(parent context.Context, request Request) (Report, error) {
 	return report, nil
 }
 func emptyApp(name string) App {
-	return App{Name: name, Unit: unknown[Unit]("ownership_unknown"), ContainerRunning: unknown[bool]("ownership_unknown"), Health: unknown[bool]("release_unknown"), Operations: unknown[[]RecentOperation]("store_unavailable"), CurrentRelease: unknown[Release]("store_unavailable"), PreviousRelease: unknown[Release]("store_unavailable"), Drift: unknown[[]string]("release_unknown"), Logs: unknown[[]logs.Line]("log_reader_unavailable"), RoutePresent: unknown[bool]("inventory_unknown")}
+	return App{Name: name, Unit: unknown[Unit]("ownership_unknown"), ContainerRunning: unknown[bool]("ownership_unknown"), Health: unknown[bool]("release_unknown"), Operations: unknown[[]RecentOperation]("store_unavailable"), CurrentRelease: unknown[Release]("store_unavailable"), PreviousRelease: unknown[Release]("store_unavailable"), Drift: unknown[[]string]("release_unknown"), Logs: unknown[[]logs.Line]("log_reader_unavailable"), UnitLogs: unknown[[]logs.Line]("log_reader_unavailable"), RoutePresent: unknown[bool]("inventory_unknown")}
 }
 func (r Reader) app(ctx context.Context, s target.Snapshot, name string) App {
 	a := emptyApp(name)
@@ -336,20 +340,28 @@ func (r Reader) app(ctx context.Context, s target.Snapshot, name string) App {
 		}
 	}
 	if r.Logs != nil {
-		a.Logs = fact(ctx, func(ctx context.Context) ([]logs.Line, error) {
-			lines, e := r.Logs.Read(ctx, logs.Request{App: name, Tail: MaxLogLines})
-			if e != nil {
-				return nil, e
-			}
-			raw, e := json.Marshal(lines)
-			if e != nil || len(raw) > LogBytes || len(lines) > MaxLogLines {
-				return nil, result.New(result.LogsLimitExceeded, nil)
-			}
-			return logs.DecodeLines(raw)
-		})
+		a.Logs = logFact(ctx, r.Logs, name)
+	}
+	if r.UnitLogs != nil {
+		a.UnitLogs = logFact(ctx, r.UnitLogs, name)
 	}
 	return a
 }
+
+func logFact(ctx context.Context, reader LogReader, name string) Fact[[]logs.Line] {
+	return fact(ctx, func(ctx context.Context) ([]logs.Line, error) {
+		lines, err := reader.Read(ctx, logs.Request{App: name, Tail: MaxLogLines})
+		if err != nil {
+			return nil, err
+		}
+		raw, err := json.Marshal(lines)
+		if err != nil || len(raw) > LogBytes || len(lines) > MaxLogLines {
+			return nil, result.New(result.LogsLimitExceeded, nil)
+		}
+		return logs.DecodeLines(raw)
+	})
+}
+
 func releaseFact(r ops.Release, err error) Fact[Release] {
 	if errors.Is(err, store.ErrNotFound) {
 		return Fact[Release]{Status: "absent", Reason: "no_committed_release"}

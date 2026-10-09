@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -33,10 +34,10 @@ func owned(unit string) inventory {
 
 const journal = `{"__REALTIME_TIMESTAMP":"1791542008366482","PRIORITY":"6","MESSAGE":"ready"}` + "\n"
 
-func TestReaderArgv(t *testing.T) {
+func TestJournalReaderArgv(t *testing.T) {
 	for _, unit := range []string{"api.container", "brine-api.container"} {
 		e := &executor{output: localexec.Result{Stdout: journal}}
-		r := Reader{Inventory: owned(unit), Executor: e}
+		r := JournalReader{Inventory: owned(unit), Executor: e}
 		lines, err := r.Read(context.Background(), Request{App: "api", Tail: 5, Since: "2026-10-01T00:00:00Z"})
 		if err != nil || len(lines) != 1 || lines[0].Message != "ready" || lines[0].Priority != 6 || lines[0].Timestamp != "2026-10-09T10:33:28.366482Z" {
 			t.Fatalf("%+v %v", lines, err)
@@ -65,7 +66,7 @@ func TestRefusals(t *testing.T) {
 		{Request{App: "api", Tail: 5, Since: "--file=/etc/shadow"}, owned("api.container"), result.InvalidUsage},
 	} {
 		e := &executor{}
-		_, err := (Reader{Inventory: tt.inv, Executor: e}).Read(context.Background(), tt.request)
+		_, err := (JournalReader{Inventory: tt.inv, Executor: e}).Read(context.Background(), tt.request)
 		if err == nil || result.Classify(err).Code() != tt.code || len(e.commands) != 0 {
 			t.Fatalf("%+v %v calls=%d", tt.request, err, len(e.commands))
 		}
@@ -77,7 +78,7 @@ func TestCapsAndMalformed(t *testing.T) {
 		{Stdout: `{ "__REALTIME_TIMESTAMP":"9223372036854775807", "PRIORITY":"6", "MESSAGE":"secret" }`},
 		{Stdout: journal + "{bad"}, {Stdout: `{"MESSAGE":"secret"}`}, {Stdout: `{"__REALTIME_TIMESTAMP":"0","PRIORITY":"99","MESSAGE":"secret"}`},
 	} {
-		lines, err := (Reader{Inventory: owned("api.container"), Executor: &executor{output: output}}).Read(context.Background(), Request{App: "api", Tail: 5})
+		lines, err := (JournalReader{Inventory: owned("api.container"), Executor: &executor{output: output}}).Read(context.Background(), Request{App: "api", Tail: 5})
 		if err == nil || lines != nil {
 			t.Fatalf("accepted bad output: %v", err)
 		}
@@ -172,7 +173,7 @@ func TestAmbiguousOwnership(t *testing.T) {
 	inv := owned("api.container")
 	*(*inv.snapshot.Apps.Value)[0].QuadletUnits.Value = append(*(*inv.snapshot.Apps.Value)[0].QuadletUnits.Value, target.Unit{Name: "brine-api.container"})
 	e := &executor{}
-	_, err := (Reader{Inventory: inv, Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
+	_, err := (JournalReader{Inventory: inv, Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
 	if result.Classify(err).Code() != result.LogsOwnershipRefused || len(e.commands) != 0 {
 		t.Fatalf("%v", err)
 	}
@@ -180,7 +181,7 @@ func TestAmbiguousOwnership(t *testing.T) {
 func TestSubprocessFailureDoesNotPublish(t *testing.T) {
 	for _, err := range []error{&localexec.Error{Kind: localexec.Timeout}, &localexec.Error{Kind: localexec.Failed}, context.Canceled} {
 		e := &executor{output: localexec.Result{Stdout: journal + "API_KEY=planted-secret", Stderr: "Bearer planted-secret"}, err: err}
-		lines, got := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
+		lines, got := (JournalReader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
 		if got == nil || lines != nil || strings.Contains(got.Error(), "planted-secret") {
 			t.Fatal("subprocess failure leaked output")
 		}
@@ -241,7 +242,7 @@ func TestFullJournalMessages(t *testing.T) {
 	} {
 		raw, _ := json.Marshal(map[string]string{"__REALTIME_TIMESTAMP": "1791542008366482", "PRIORITY": "6", "MESSAGE": tt.message})
 		e := &executor{output: localexec.Result{Stdout: string(raw)}}
-		lines, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1})
+		lines, err := (JournalReader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1})
 		if tt.want == "" {
 			if err != nil || len(lines) != 1 || lines[0].Message != tt.message {
 				t.Fatal("long message was lost")
@@ -267,13 +268,13 @@ func TestFullJournalMessages(t *testing.T) {
 func TestStrictSince(t *testing.T) {
 	for _, since := range []string{"2026-10-09T1:00:00Z", "2026-10-09T00:00:00,123Z", "2026-10-09T00:00:00+24:60", "2026-10-09T00:00:00+24:00", "2026-10-09T00:00:00+01:60"} {
 		e := &executor{output: localexec.Result{Stdout: journal}}
-		_, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1, Since: since})
+		_, err := (JournalReader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1, Since: since})
 		if err == nil || result.Classify(err).Code() != result.InvalidUsage || len(e.commands) != 0 {
 			t.Fatalf("accepted invalid since %q", since)
 		}
 	}
 	e := &executor{output: localexec.Result{Stdout: journal}}
-	_, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1, Since: "2026-10-09T02:00:00.123456+02:00"})
+	_, err := (JournalReader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1, Since: "2026-10-09T02:00:00.123456+02:00"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -285,8 +286,61 @@ func TestStrictSince(t *testing.T) {
 
 func TestTruncatedCaptureMarker(t *testing.T) {
 	e := &executor{output: localexec.Result{Stdout: journal, Truncated: true}}
-	lines, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1})
+	lines, err := (JournalReader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1})
 	if lines != nil || err == nil || result.Classify(err).Code() != result.LogsTruncated {
 		t.Fatalf("missing explicit truncated refusal: %v", err)
+	}
+}
+
+func TestJournalFailureIdentifiesCollectionStep(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		code result.Code
+	}{
+		{"exit", &localexec.Error{Kind: localexec.Failed, ExitCode: 1}, "logs_journal_failed"},
+		{"missing", &localexec.Error{Kind: localexec.NotFound, ExitCode: -1}, "logs_journal_unavailable"},
+		{"timeout", &localexec.Error{Kind: localexec.Timeout}, "logs_journal_timeout"},
+		{"deadline", context.DeadlineExceeded, "logs_journal_timeout"},
+		{"unexpected", errors.New("password=planted-secret"), "logs_journal_failed"},
+		{"canceled", context.Canceled, result.Interrupted},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &executor{output: localexec.Result{Stdout: journal + "API_KEY=planted-secret", Stderr: "Bearer planted-secret", ExitCode: 1}, err: tt.err}
+			lines, err := (JournalReader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
+			if lines != nil || err == nil || result.Classify(err).Code() != tt.code || !errors.Is(err, tt.err) {
+				t.Fatalf("lines=%v error=%v want code=%s", lines, err, tt.code)
+			}
+			raw, marshalErr := json.Marshal(result.Failure("brine logs", err))
+			if marshalErr != nil || strings.Contains(string(raw), "planted-secret") {
+				t.Fatal("failure exposed subprocess output or cause")
+			}
+		})
+	}
+}
+
+type failedInventory struct{ err error }
+
+func (i failedInventory) Collect(context.Context) (target.Snapshot, error) {
+	return target.Snapshot{}, i.err
+}
+
+func TestInventoryFailureIdentifiesCollectionStep(t *testing.T) {
+	for _, tt := range []struct {
+		err  error
+		code result.Code
+	}{
+		{errors.New("password=planted-secret"), "logs_inventory_failed"},
+		{context.DeadlineExceeded, "logs_inventory_timeout"},
+		{context.Canceled, result.Interrupted},
+	} {
+		e := &executor{}
+		lines, err := (JournalReader{Inventory: failedInventory{tt.err}, Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
+		if lines != nil || err == nil || result.Classify(err).Code() != tt.code || !errors.Is(err, tt.err) || len(e.commands) != 0 {
+			t.Fatalf("lines=%v error=%v calls=%d", lines, err, len(e.commands))
+		}
+		if strings.Contains(err.Error(), "planted-secret") {
+			t.Fatal("inventory cause leaked")
+		}
 	}
 }

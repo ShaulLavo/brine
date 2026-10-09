@@ -36,6 +36,12 @@ func (r Registry) Resolve(ctx context.Context, ref spec.ImageReference, platform
 	host, repository, _ := strings.Cut(name, "/")
 	// A tag accompanying the immutable pin does not enter the registry API path.
 	repository = strings.Split(repository, ":")[0]
+	if host == "docker.io" {
+		host = "registry-1.docker.io"
+		if !strings.Contains(repository, "/") {
+			repository = "library/" + repository
+		}
+	}
 	if platform.OS != "linux" || (platform.Arch != "amd64" && platform.Arch != "arm64") {
 		return out, errors.New("host: unsupported image platform")
 	}
@@ -155,11 +161,16 @@ func registryRedirect(req *http.Request, via []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
 	original := via[0]
-	if !strings.Contains(original.URL.Path, "/blobs/") {
+	// Registry endpoints are /v2/<repository>/<operation>/<reference>;
+	// a repository segment named "blobs" does not make a manifest a blob.
+	segments := strings.Split(original.URL.Path, "/")
+	if !strings.HasPrefix(original.URL.Path, "/v2/") || len(segments) < 5 || segments[len(segments)-2] != "blobs" || segments[len(segments)-1] == "" {
 		return http.ErrUseLastResponse
 	}
 	if req.URL.Host != original.URL.Host {
-		if original.URL.Host != "ghcr.io" || req.URL.Host != "pkg-containers.githubusercontent.com" {
+		githubCDN := original.URL.Host == "ghcr.io" && req.URL.Host == "pkg-containers.githubusercontent.com"
+		dockerCDN := original.URL.Host == "registry-1.docker.io" && (req.URL.Host == "production.cloudfront.docker.com" || req.URL.Host == "production.cloudflare.docker.com")
+		if !githubCDN && !dockerCDN {
 			return http.ErrUseLastResponse
 		}
 		req.Header.Del("Authorization")
@@ -173,9 +184,13 @@ func registryToken(ctx context.Context, client *http.Client, challenge, host, re
 		return "", errors.New("host: unsupported registry authentication")
 	}
 	realm, err := url.Parse(m[1])
-	// Only anonymous same-origin token services are supported. Operator credentials
-	// and arbitrary challenge destinations are never consulted.
-	if err != nil || realm.Scheme != "https" || realm.Host != host || realm.User != nil || realm.Fragment != "" {
+	// Docker Hub's anonymous token service is separate from its registry origin.
+	// No operator credentials or arbitrary challenge destinations are consulted.
+	if err != nil || realm.Scheme != "https" || realm.User != nil || realm.Fragment != "" {
+		return "", errors.New("host: untrusted registry token service")
+	}
+	dockerToken := host == "registry-1.docker.io" && realm.Host == "auth.docker.io" && realm.Path == "/token" && m[2] == "registry.docker.io"
+	if realm.Host != host && !dockerToken {
 		return "", errors.New("host: untrusted registry token service")
 	}
 	q := realm.Query()
