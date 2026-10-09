@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -122,5 +123,111 @@ func TestResolveRemovalAlreadyRetiredBySource(t *testing.T) {
 	}
 	if err = r.executor.Recover(context.Background(), assessment); err != nil || r.state != Succeeded || len(r.effects) != 0 {
 		t.Fatal(err, r.state, r.effects)
+	}
+}
+
+type resolutionJournal struct {
+	*rig
+	records map[string]Operation
+}
+
+func (j resolutionJournal) GetOperation(ctx context.Context, id string) (Operation, error) {
+	if op, ok := j.records[id]; ok {
+		return op, nil
+	}
+	return j.rig.GetOperation(ctx, id)
+}
+
+func repeatedResolution(r *rig, rootID string) (Operation, Operation) {
+	root := Operation{ID: rootID, Kind: ops.Deploy, PlanID: r.plan.Hash, State: RecoveryRequired}
+	middle := Operation{ID: "middle", Kind: ops.Resolve, RecoveryOf: rootID, PlanID: r.plan.Hash, State: RecoveryRequired}
+	source := Operation{ID: "latest", Kind: ops.Resolve, RecoveryOf: middle.ID, PlanID: r.plan.Hash, State: RecoveryRequired}
+	r.executor.Journal = resolutionJournal{rig: r, records: map[string]Operation{root.ID: root, middle.ID: middle, source.ID: source}}
+	return source, Operation{ID: "successor", Kind: ops.Resolve, RecoveryOf: source.ID, PlanID: r.plan.Hash, State: Queued}
+}
+
+func TestRepeatedResolutionRecognizesCommittedAncestor(t *testing.T) {
+	for _, owner := range []string{"operation-1", "middle", "latest"} {
+		t.Run(owner, func(t *testing.T) {
+			r := newRig(t, false)
+			if err := r.run(); err != nil {
+				t.Fatal(err)
+			}
+			r.release.ID = owner
+			r.state = Queued
+			r.effects = nil
+			r.events = nil
+			observeCommittedRelease(r)
+			r.facts.Routing.Generation = r.release.CaddyGeneration
+			r.facts.Routing.Files = map[string]string{r.release.CaddyFile.Name: r.release.CaddyFile.Hash}
+			r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
+			source, successor := repeatedResolution(r, "operation-1")
+			events := recoveryEvents(forwardSteps...)
+			assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, events)
+			if err != nil || assessment.Action != FinishSucceeded {
+				t.Fatal(assessment, err)
+			}
+			if err = r.executor.Recover(context.Background(), assessment); err != nil || r.state != Succeeded || len(r.effects) != 0 {
+				t.Fatal(err, r.state, r.effects)
+			}
+		})
+	}
+}
+
+func TestRepeatedResolutionRecognizesRetiredAncestor(t *testing.T) {
+	for _, owner := range []string{"earlier", "middle", "latest"} {
+		t.Run(owner, func(t *testing.T) {
+			r := newRemoveRig(t)
+			for _, step := range removeSteps[1:] {
+				applyRemoveBoundary(t, r, step)
+			}
+			r.effects = nil
+			r.state = Queued
+			r.executor.Releases = sourceRetirementStore{rig: r, sourceID: owner}
+			source, successor := repeatedResolution(r, "earlier")
+			events := recoveryEvents(removeSteps...)
+			assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, events)
+			if err != nil || assessment.Action != FinishSucceeded {
+				t.Fatal(assessment, err)
+			}
+			if err = r.executor.Recover(context.Background(), assessment); err != nil || r.state != Succeeded || len(r.effects) != 0 {
+				t.Fatal(err, r.state, r.effects)
+			}
+		})
+	}
+}
+
+func TestRepeatedResolutionRefusesInvalidAncestry(t *testing.T) {
+	for _, fault := range []string{"cycle", "plan", "app", "terminal", "kind", "limit"} {
+		t.Run(fault, func(t *testing.T) {
+			r := newRemoveRig(t)
+			source, successor := repeatedResolution(r, "earlier")
+			journal := r.executor.Journal.(resolutionJournal)
+			parent := journal.records["middle"]
+			switch fault {
+			case "cycle":
+				parent.RecoveryOf = source.ID
+			case "plan":
+				parent.PlanID = "foreign-plan"
+			case "app":
+				parent.App = "foreign-app"
+			case "terminal":
+				parent.State = Succeeded
+			case "kind":
+				parent.Kind = ops.SecretSet
+			case "limit":
+				parent.RecoveryOf = "chain-0"
+				for i := 0; i < 65; i++ {
+					id := fmt.Sprintf("chain-%d", i)
+					journal.records[id] = Operation{ID: id, Kind: ops.Resolve, RecoveryOf: fmt.Sprintf("chain-%d", i+1), PlanID: r.plan.Hash, State: RecoveryRequired}
+				}
+			}
+			journal.records[parent.ID] = parent
+			r.executor.Journal = journal
+			assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, recoveryEvents("preflight"))
+			if err != nil || assessment.Action != RequireRecovery || len(r.effects) != 0 {
+				t.Fatal(assessment, err, r.effects)
+			}
+		})
 	}
 }

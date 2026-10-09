@@ -89,3 +89,8 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
   Quadlet hash succeeds after the renderer adds LogDriver/LogOpt. Inspection and
   deletion use the recorded hash, not freshly rendered unit bytes; normal drift
   checks remain enabled. Both new diagnostic rules survive the main merge.
+
+Resolution receipt ancestry: committed/retired evidence held by the original,
+intermediate or immediate source is retained across repeated terminal resolution
+attempts. Foreign plan/app, non-recovery-required state, unsupported kind,
+cyclic and overlong (more than 64 ancestors) chains refuse without host effects.

@@ -17,6 +17,10 @@ func (e *Executor) InspectResolution(ctx context.Context, successor, source Oper
 	if successor.Kind != ops.Resolve || successor.RecoveryOf != source.ID || source.State != RecoveryRequired || successor.PlanID != source.PlanID || source.Kind != ops.Deploy && source.Kind != ops.Resolve {
 		return refused, nil
 	}
+	owners, err := e.resolutionSourceOwners(ctx, successor, source)
+	if err != nil || len(owners) == 0 {
+		return refused, err
+	}
 	projected := successor
 	projected.State = Preflight
 	for _, event := range events {
@@ -36,7 +40,7 @@ func (e *Executor) InspectResolution(ctx context.Context, successor, source Oper
 			return refused, nil
 		}
 	}
-	r, err := e.InspectRecovery(ctx, projected, p, d, events)
+	r, err := e.inspectRecovery(ctx, projected, p, d, events, owners)
 	if err != nil || r.Action == RequireRecovery {
 		return r, err
 	}
@@ -71,4 +75,38 @@ func (x *execution) prepareResolution(ctx context.Context, destination State) er
 		return errors.New("apply: invalid resolution phase")
 	}
 	return nil
+}
+
+// Every new effect belongs to a receipt in this immutable chain. A resolution
+// that only settled an ancestor can itself fail to journal its terminal state;
+// that must not make the ancestor commit/retirement proof unreachable.
+func (e *Executor) resolutionSourceOwners(ctx context.Context, successor, source Operation) ([]string, error) {
+	probe, cancel := context.WithTimeout(ctx, e.effectTimeout())
+	defer cancel()
+	owners := []string{}
+	seen := map[string]bool{successor.ID: true}
+	app, ref := source.App, source.SecretRef
+	for depth := 0; depth < 64; depth++ {
+		if seen[source.ID] || source.State != RecoveryRequired || source.PlanID != successor.PlanID || source.App != app || source.SecretRef != ref {
+			return nil, nil
+		}
+		seen[source.ID] = true
+		owners = append(owners, source.ID)
+		if source.Kind == ops.Deploy {
+			return owners, nil
+		}
+		if source.Kind != ops.Resolve || e.Journal == nil {
+			return nil, nil
+		}
+		parentID := source.RecoveryOf
+		parent, err := e.Journal.GetOperation(probe, parentID)
+		if err != nil {
+			return nil, err
+		}
+		if parent.ID != parentID {
+			return nil, nil
+		}
+		source = parent
+	}
+	return nil, nil
 }

@@ -7,7 +7,6 @@ import (
 	"reflect"
 	"slices"
 
-	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/systemd"
@@ -76,8 +75,11 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 	if err != nil {
 		return r, err
 	}
-	if !retired && op.Kind == ops.Resolve {
-		retired, err = store.AppRetired(evidence, op.RecoveryOf, p.App, p.Removal.ReleaseID)
+	for _, owner := range r.resolutionOwners {
+		if retired {
+			break
+		}
+		retired, err = store.AppRetired(evidence, owner, p.App, p.Removal.ReleaseID)
 		if err != nil {
 			return r, err
 		}

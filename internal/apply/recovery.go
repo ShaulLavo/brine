@@ -9,7 +9,6 @@ import (
 	"slices"
 	"sync/atomic"
 
-	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
@@ -31,17 +30,18 @@ const (
 // InspectRecovery and Recover must run under the same host lock. A Recovery is
 // single-use; callers must inspect again after any journal or adapter failure.
 type Recovery struct {
-	Action          RecoveryAction `json:"action"`
-	Step            string         `json:"step,omitempty"`
-	operation       Operation
-	execution       *execution
-	completed       map[string]bool
-	unknownBoundary bool
-	resolved        bool
-	decision        RecoveryAction
-	resolutionState State
-	boundary        string
-	used            *atomic.Bool
+	Action           RecoveryAction `json:"action"`
+	Step             string         `json:"step,omitempty"`
+	operation        Operation
+	execution        *execution
+	completed        map[string]bool
+	unknownBoundary  bool
+	resolved         bool
+	decision         RecoveryAction
+	resolutionState  State
+	resolutionOwners []string
+	boundary         string
+	used             *atomic.Bool
 }
 
 var forwardSteps = []string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "start_unit", "check_direct", "publish_route", "check_routed", "commit"}
@@ -49,8 +49,12 @@ var forwardSteps = []string{"preflight", "pull_image", "verify_image", "ensure_s
 // InspectRecovery never stages, installs, starts, reloads, commits or journals.
 // Reload and route outcomes lack authoritative read-back in the current adapters.
 // Those boundaries deliberately require human recovery, even if health is green.
-func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event) (r Recovery, inspectErr error) {
-	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}}
+func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event) (Recovery, error) {
+	return e.inspectRecovery(ctx, op, p, d, events, nil)
+}
+
+func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, owners []string) (r Recovery, inspectErr error) {
+	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}, resolutionOwners: owners}
 	defer func() { r.decision, r.boundary = r.Action, r.Step }()
 	if p.Lifecycle == plan.RemoveApp {
 		return e.inspectRemoveRecovery(ctx, op, p, d, events, r)
@@ -106,7 +110,7 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 		return r, err
 	}
 	// A committed operation needs exact artifact read-back, not just an ID.
-	if validPrefix && x.hasPrevious && (x.previous.ID == op.ID || op.Kind == ops.Resolve && x.previous.ID == op.RecoveryOf) {
+	if validPrefix && x.hasPrevious && (x.previous.ID == op.ID || slices.Contains(r.resolutionOwners, x.previous.ID)) {
 		if r.Step != "commit" || x.previous.PlanID != p.Hash {
 			return r, nil
 		}

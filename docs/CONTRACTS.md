@@ -602,7 +602,11 @@ then inspects current ownership, policy, artifacts, routing, writer and systemd
 jobs. It does not generate a new plan that mistakes earlier journaled Brine
 withdrawal for foreign route drift. Ordinary planners remain strict. Safe
 resolution reuses executor continuation/rollback and journals all new effects
-under the successor. `run-op` and reconciliation recover interrupted successors;
+under the successor. Repeated attempts validate at most 64 immutable, same-plan
+recovery-required ancestors under the lock. An exact commit/retirement receipt
+from any member stays usable after a later resolution failed to journal its
+terminal state; missing, foreign, cyclic or overlong chains refuse.
+`run-op` and reconciliation recover interrupted successors;
 preview remains read-only. Successful removal finishes deletion/reload and
 retires the live head and port, without restarting the removed writer or
 restoring its route. Retained history, images and secrets are not purged.
