@@ -30,7 +30,9 @@
 // route and loopback upstream against the pinned renderer/adapter shape, permits
 // unrelated operator routes, and refuses missing, duplicate, conditional or
 // misdirected sites and old hosts that should be gone (including nested/error
-// routes). Adaptation errors, timeouts, malformed JSON, and output above 16 MiB
+// routes and negated matcher sets). Only HTTP route matcher hosts are examined;
+// logging fields and other handler payloads do not authorize or block routing.
+// Adaptation errors, timeouts, malformed JSON, and output above 16 MiB
 // refuse before switching current. This is candidate evidence, not observation
 // of the running service. Different Caddy versions or global directive ordering
 // that changes the expected route shape require a reviewed contract change.

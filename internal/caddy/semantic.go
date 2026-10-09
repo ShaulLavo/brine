@@ -52,6 +52,9 @@ type adaptedConfig struct {
 		HTTP struct {
 			Servers map[string]struct {
 				Routes []json.RawMessage `json:"routes"`
+				Errors struct {
+					Routes []json.RawMessage `json:"routes"`
+				} `json:"errors"`
 			} `json:"servers"`
 		} `json:"http"`
 	} `json:"apps"`
@@ -59,7 +62,9 @@ type adaptedConfig struct {
 type adaptedRoute struct {
 	Match  []map[string]json.RawMessage `json:"match"`
 	Handle []struct {
-		Routes []json.RawMessage `json:"routes"`
+		Handler string          `json:"handler"`
+		Routes  json.RawMessage `json:"routes"`
+		Errors  json.RawMessage `json:"errors"`
 	} `json:"handle"`
 }
 
@@ -96,59 +101,6 @@ func checkAdapted(data []byte, next, previous map[string]Site) error {
 			protected[host] = true
 		}
 	}
-	// Scan all adapted JSON, not only the success-path server routes. A stale
-	// host in error routes or any nested handler is still a stale Brine route.
-	var tree any
-	if err := json.Unmarshal(data, &tree); err != nil {
-		return refused
-	}
-	counts := map[string]int{}
-	var scan func(any) error
-	scan = func(value any) error {
-		switch value := value.(type) {
-		case map[string]any:
-			for key, child := range value {
-				if key == "host" {
-					hosts, ok := child.([]any)
-					if !ok {
-						return refused
-					}
-					for _, v := range hosts {
-						host, ok := v.(string)
-						if !ok {
-							return refused
-						}
-						host = strings.ToLower(strings.TrimSuffix(host, "."))
-						if protected[host] {
-							counts[host]++
-						}
-					}
-				}
-				if err := scan(child); err != nil {
-					return err
-				}
-			}
-		case []any:
-			for _, child := range value {
-				if err := scan(child); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
-	}
-	if err := scan(tree); err != nil {
-		return err
-	}
-	for host := range protected {
-		want := 0
-		if _, ok := owners[host]; ok {
-			want = 1
-		}
-		if counts[host] != want {
-			return refused
-		}
-	}
 	seen := map[string]bool{}
 	var checkRoute func(json.RawMessage, bool) error
 	checkRoute = func(raw json.RawMessage, top bool) error {
@@ -157,7 +109,10 @@ func checkAdapted(data []byte, next, previous map[string]Site) error {
 			return refused
 		}
 		file := ""
-		for _, matcher := range route.Match {
+		// Only HTTP route matcher sets define routing hosts. Negation embeds
+		// more matcher sets; logging and handler payloads are not matchers.
+		var checkMatcher func(map[string]json.RawMessage) error
+		checkMatcher = func(matcher map[string]json.RawMessage) error {
 			if hostsRaw, ok := matcher["host"]; ok {
 				var hosts []string
 				if err := json.Unmarshal(hostsRaw, &hosts); err != nil {
@@ -175,7 +130,25 @@ func checkAdapted(data []byte, next, previous map[string]Site) error {
 					file = owner
 				}
 			}
+			if negatedRaw, ok := matcher["not"]; ok {
+				var negated []map[string]json.RawMessage
+				if err := json.Unmarshal(negatedRaw, &negated); err != nil {
+					return refused
+				}
+				for _, nested := range negated {
+					if err := checkMatcher(nested); err != nil {
+						return err
+					}
+				}
+			}
+			return nil
 		}
+		for _, matcher := range route.Match {
+			if err := checkMatcher(matcher); err != nil {
+				return err
+			}
+		}
+
 		if file != "" {
 			var actual map[string]any
 			if err := json.Unmarshal(raw, &actual); err != nil || seen[file] || !reflect.DeepEqual(actual, expected[file]) {
@@ -184,9 +157,31 @@ func checkAdapted(data []byte, next, previous map[string]Site) error {
 			seen[file] = true
 		}
 		for _, handler := range route.Handle {
-			for _, nested := range handler.Routes {
+			if handler.Handler != "subroute" {
+				continue
+			}
+			var nestedRoutes []json.RawMessage
+			if len(handler.Routes) > 0 {
+				if err := json.Unmarshal(handler.Routes, &nestedRoutes); err != nil {
+					return refused
+				}
+			}
+			for _, nested := range nestedRoutes {
 				if err := checkRoute(nested, false); err != nil {
 					return err
+				}
+			}
+			if len(handler.Errors) > 0 {
+				var errorRoutes struct {
+					Routes []json.RawMessage `json:"routes"`
+				}
+				if err := json.Unmarshal(handler.Errors, &errorRoutes); err != nil {
+					return refused
+				}
+				for _, nested := range errorRoutes.Routes {
+					if err := checkRoute(nested, false); err != nil {
+						return err
+					}
 				}
 			}
 		}
@@ -195,6 +190,11 @@ func checkAdapted(data []byte, next, previous map[string]Site) error {
 	for _, server := range config.Apps.HTTP.Servers {
 		for _, route := range server.Routes {
 			if err := checkRoute(route, true); err != nil {
+				return err
+			}
+		}
+		for _, route := range server.Errors.Routes {
+			if err := checkRoute(route, false); err != nil {
 				return err
 			}
 		}

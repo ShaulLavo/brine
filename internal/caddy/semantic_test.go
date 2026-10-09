@@ -256,3 +256,59 @@ func FuzzAdaptedJSON(f *testing.F) {
 		_ = checkAdapted(data, map[string]Site{"hello.caddy": site}, nil)
 	})
 }
+
+func TestLoggingHostFieldDoesNotBlockPublication(t *testing.T) {
+	m, root, main, state, v, r := setup(t)
+	// Independently adapted by Caddy 2.6.2 from the renderer golden plus the
+	// operator's logging filter. No production expectation builder is used.
+	adapted, err := os.ReadFile("testdata/logging.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v.adapted = adapted
+	main = append([]byte("{\n log default {\n  format filter {\n   wrap json\n   fields {\n    host delete\n   }\n  }\n }\n}\n"), main...)
+	result, err := m.Apply(context.Background(), main, state, Put(fixtureSite(t)))
+	if err != nil || result.Outcome != Applied {
+		t.Fatal("unrelated logging host field blocked publication", result, err)
+	}
+	requireCurrent(t, root, "gen-1")
+	if r.calls != 1 || v.adaptCalls != 1 {
+		t.Fatal("route was not published")
+	}
+}
+
+func TestHandlerHostHeaderIsNotRoutingMatcher(t *testing.T) {
+	var config map[string]any
+	if err := json.Unmarshal([]byte(adaptedGolden), &config); err != nil {
+		t.Fatal(err)
+	}
+	servers := config["apps"].(map[string]any)["http"].(map[string]any)["servers"].(map[string]any)
+	servers["operator"] = map[string]any{"routes": []any{map[string]any{"handle": []any{map[string]any{
+		"handler": "static_response", "body": "ok", "headers": map[string]any{"host": []string{"web.example.com"}},
+	}}}}}
+	data, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkAdapted(data, map[string]Site{"hello.caddy": fixtureSite(t)}, nil); err != nil {
+		t.Fatal("handler payload treated as matcher", err)
+	}
+}
+
+func TestStaleHostsInRouteMatcherStructuresRefuse(t *testing.T) {
+	old := map[string]Site{"hello.caddy": fixtureSite(t)}
+	cases := []string{
+		`{"routes":[{"match":[{"not":[{"host":["web.example.com"]}]}]}]}`,
+		`{"routes":[{"match":[{"not":[{"not":[{"host":["web.example.com"]}]}]}]}]}`,
+		`{"routes":[{"handle":[{"handler":"subroute","routes":[{"match":[{"not":[{"host":["web.example.com"]}]}]}]}]}]}`,
+		`{"errors":{"routes":[{"match":[{"not":[{"host":["WEB.EXAMPLE.COM."]}]}]}]}}`,
+		`{"errors":{"routes":[{"handle":[{"handler":"subroute","routes":[{"match":[{"host":["web.example.com"]}]}]}]}]}}`,
+		`{"routes":[{"handle":[{"handler":"subroute","errors":{"routes":[{"match":[{"host":["web.example.com"]}]}]}}]}]}`,
+	}
+	for _, server := range cases {
+		data := []byte(`{"apps":{"http":{"servers":{"srv0":` + server + `}}}}`)
+		if err := checkAdapted(data, nil, old); err == nil {
+			t.Fatal("stale matcher host retained", server)
+		}
+	}
+}
