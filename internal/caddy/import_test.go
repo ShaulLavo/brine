@@ -52,18 +52,13 @@ func TestImportArgumentsAreNotDirectives(t *testing.T) {
 	}
 }
 
-func TestRealImportSelectedInsteadOfQuotedDecoy(t *testing.T) {
+func TestOtherQuotedBrineReferenceRefuses(t *testing.T) {
 	for _, quote := range []string{"`", `"`} {
 		root := "/etc/caddy/brine"
 		decoy := ":8080 {\n respond " + quote + "hello\nimport " + root + "/current/*.caddy\nworld" + quote + "\n}\n"
 		main := []byte(decoy + "import " + root + "/current/*.caddy\n")
-		got, err := candidateRoot(main, root, "gen-2")
-		if err != nil {
-			t.Fatal(err)
-		}
-		want := []byte(decoy + "import " + root + "/gen-2/*.caddy\n")
-		if !bytes.Equal(got, want) {
-			t.Fatal("quoted decoy modified")
+		if _, err := candidateRoot(main, root, "gen-2"); err == nil {
+			t.Fatal("quoted Brine reference accepted")
 		}
 	}
 }
@@ -71,7 +66,7 @@ func TestRealImportSelectedInsteadOfQuotedDecoy(t *testing.T) {
 func TestBrineImportTokenSequence(t *testing.T) {
 	root := "/etc/caddy/brine"
 	path := root + "/current/*.caddy"
-	for _, line := range []string{"import\t" + path + " # comment\n", "import " + `"` + path + `"` + "\n", "import `" + path + "`\n", "import \\\n" + path + "\n", "\xef\xbb\xbfimport " + path + "\r\n"} {
+	for _, line := range []string{"import " + path + "\n", "\xef\xbb\xbfimport " + path + "\r\n"} {
 		t.Run(line, func(t *testing.T) {
 			main := []byte(line)
 			got, err := candidateRoot(main, root, "gen-2")
@@ -85,6 +80,7 @@ func TestBrineImportTokenSequence(t *testing.T) {
 		})
 	}
 	for _, main := range []string{
+		"import\t" + path + " # comment\n", "import " + `"` + path + `"` + "\n", "import `" + path + "`\n",
 		":8080 {\n import " + path + "\n}\n",
 		"(unused) {\n import " + path + "\n}\n",
 		"# import " + path + "\n:8080 {\n respond ok\n}\n",

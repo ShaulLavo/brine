@@ -26,10 +26,14 @@ const (
 	commandTimeout = 10 * time.Second
 )
 
-// Validator runs caddy validate --adapter caddyfile --config candidate.
+// Validator validates and adapts the same candidate through Caddy.
+// Validate runs caddy validate --adapter caddyfile --config candidate.
+// Adapt runs caddy adapt --adapter caddyfile --config candidate and returns
+// only its JSON stdout, bounded to 16 MiB (diagnostics are not JSON).
 // Implementations must use bounded subprocess output and honor the context.
 type Validator interface {
 	Validate(ctx context.Context, candidate string) error
+	Adapt(ctx context.Context, candidate string) ([]byte, error)
 }
 
 // Reloader runs only systemctl reload caddy.service, never reload-or-restart.
@@ -49,9 +53,13 @@ const (
 
 // State is supplied from committed control state, not invented from live files.
 // Files maps app filenames (including .caddy) to sha256:<lowercase hex>.
+// Sites binds those files to policy-validated routing expectations. Observe
+// leaves Sites unset; callers restore it from committed desired state, never
+// from parsing the observed files. Apply verifies each rendered Site byte-for-byte.
 type State struct {
 	Generation uint64
 	Files      map[string]string
+	Sites      map[string]Site
 }
 
 type Result struct {
@@ -266,31 +274,58 @@ func candidateRoot(main []byte, root, next string) ([]byte, error) {
 	}
 	wanted := root + "/current/*.caddy"
 	found, depth := -1, 0
+	snippets := []string{}
+	importArguments := map[string]bool{}
 	for i, token := range tokens {
 		if token.quote != 0 && (token.text == "{" || token.text == "}" || token.text == "{}") {
 			return nil, errors.New("caddy: ambiguous quoted root brace")
 		}
 		lineStart := i == 0 || tokens[i-1].line+strings.Count(tokens[i-1].text, "\n") < token.line
 		directiveStart := lineStart || (depth > 0 && i > 0 && tokens[i-1].text == "{" && tokens[i-1].quote == 0)
+		if depth == 0 && lineStart && strings.HasPrefix(token.text, "(") && strings.HasSuffix(token.text, ")") && i+1 < len(tokens) && tokens[i+1].text == "{" {
+			snippet := token.text[1 : len(token.text)-1]
+			if strings.ContainsAny(snippet, "/*") {
+				return nil, errors.New("caddy: path-like snippet declaration refused")
+			}
+			snippets = append(snippets, snippet)
+		}
 		if token.text == "import" && directiveStart {
 			if i+1 == len(tokens) || tokens[i+1].line != token.line {
 				return nil, errors.New("caddy: import argument missing")
 			}
 			argument := tokens[i+1]
-			// Relocation changes Caddy's relative file-import base. Only actual
-			// directives are checked; response values named import remain untouched.
-			if !strings.HasPrefix(argument.text, "/") {
-				return nil, errors.New("caddy: root config must use absolute imports")
+			importArguments[argument.text] = true
+			// Other file imports can declare path-like snippets outside this root.
+			// Their resolution cannot be proved from root bytes or adapted JSON alone.
+			if argument.text != wanted {
+				return nil, errors.New("caddy: additional root imports refused")
 			}
-			if argument.text == wanted {
-				if depth != 0 || !lineStart || found != -1 {
-					return nil, errors.New("caddy: Brine import must be unique and top-level")
-				}
-				if i+2 < len(tokens) && tokens[i+2].line == argument.line+strings.Count(argument.text, "\n") {
-					return nil, errors.New("caddy: Brine import must have exactly one argument")
-				}
-				found = i + 1
+
+			if depth != 0 || !lineStart || found != -1 {
+				return nil, errors.New("caddy: Brine import must be unique and top-level")
 			}
+			if i+2 < len(tokens) && tokens[i+2].line == argument.line+strings.Count(argument.text, "\n") {
+				return nil, errors.New("caddy: Brine import must have exactly one argument")
+			}
+			if token.quote != 0 || argument.quote != 0 || string(main[argument.start:argument.end]) != wanted {
+				return nil, errors.New("caddy: Brine import must use literal unquoted tokens")
+			}
+			physicalLine := bytes.Count(main[:token.start], []byte("\n")) + 1
+			lineBegin := bytes.LastIndexByte(main[:token.start], '\n') + 1
+			lineEnd := bytes.IndexByte(main[token.start:], '\n')
+			if lineEnd < 0 {
+				lineEnd = len(main)
+			} else {
+				lineEnd += token.start
+			}
+			source := main[lineBegin:lineEnd]
+			if lineBegin == 0 {
+				source = bytes.TrimPrefix(source, []byte{0xef, 0xbb, 0xbf})
+			}
+			if token.line != physicalLine || string(bytes.TrimSpace(source)) != "import "+wanted {
+				return nil, errors.New("caddy: Brine import must be a standalone physical line")
+			}
+			found = i + 1
 		}
 		if token.quote == 0 && token.text == "{" {
 			depth++
@@ -305,11 +340,18 @@ func candidateRoot(main []byte, root, next string) ([]byte, error) {
 	if found == -1 || depth != 0 {
 		return nil, errors.New("caddy: top-level Brine import missing or root braces unmatched")
 	}
+	for _, snippet := range snippets {
+		if importArguments[snippet] {
+			return nil, errors.New("caddy: snippet shadows import argument")
+		}
+	}
+	for i, token := range tokens {
+		if i != found && strings.Contains(token.text, root) {
+			return nil, errors.New("caddy: additional Brine root reference refused")
+		}
+	}
 	argument := tokens[found]
 	replacement := root + "/" + next + "/*.caddy"
-	if argument.quote != 0 {
-		replacement = string(argument.quote) + replacement + string(argument.quote)
-	}
 	candidate := make([]byte, 0, len(main)+len(replacement))
 	candidate = append(candidate, main[:argument.start]...)
 	candidate = append(candidate, replacement...)
@@ -442,6 +484,10 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 	if err = compareState(observed, expected); err != nil {
 		return result, err
 	}
+	sites, err := boundSites(expected, files)
+	if err != nil {
+		return result, err
+	}
 	next, err := m.nextGeneration(observed.Generation)
 	if err != nil {
 		return result, err
@@ -457,12 +503,14 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 			return result, errors.New("caddy: removal requires owned app file")
 		}
 		delete(files, app)
+		delete(sites, app)
 	} else {
 		content, err := Render(change.site)
 		if err != nil {
 			return result, err
 		}
 		files[app] = content
+		sites[app] = change.site
 	}
 	total := 0
 	for _, content := range files {
@@ -471,7 +519,7 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 			return result, errors.New("caddy: next generation exceeds size limit")
 		}
 	}
-	result.Next = State{Generation: next, Files: hashFiles(files)}
+	result.Next = State{Generation: next, Files: hashFiles(files), Sites: sites}
 	if err = m.root.Mkdir(name, 0755); err != nil {
 		return result, err
 	}
@@ -517,6 +565,22 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 		return result, err
 	}
 	if err = m.step(&result, "validated"); err != nil {
+		return result, err
+	}
+	result.Stage = "adapt"
+	adaptCtx, adaptCancel := context.WithTimeout(ctx, commandTimeout)
+	adapted, adaptErr := m.validator.Adapt(adaptCtx, filepath.Join(m.path, candidateName))
+	if adaptCtx.Err() != nil {
+		adaptErr = errors.Join(adaptErr, adaptCtx.Err())
+	}
+	adaptCancel()
+	if adaptErr != nil {
+		return result, adaptErr
+	}
+	if err = checkAdapted(adapted, sites, expected.Sites); err != nil {
+		return result, err
+	}
+	if err = m.step(&result, "adapted"); err != nil {
 		return result, err
 	}
 	if err = ctx.Err(); err != nil {

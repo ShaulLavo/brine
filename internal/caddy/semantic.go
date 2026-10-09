@@ -1,0 +1,206 @@
+package caddy
+
+import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"maps"
+	"reflect"
+	"strings"
+)
+
+// Routing expectations come from policy-validated control state, independently
+// of both the root lexer and Caddy's adapter. Hashes alone cannot bind routing.
+func boundSites(state State, files map[string][]byte) (map[string]Site, error) {
+	if len(state.Sites) != len(files) {
+		return nil, errors.New("caddy: committed site manifest required")
+	}
+	for name, site := range state.Sites {
+		content, err := Render(site)
+		if err != nil || string(site.name)+".caddy" != name || !bytes.Equal(content, files[name]) {
+			return nil, errors.New("caddy: committed site manifest differs from files")
+		}
+	}
+	sites := maps.Clone(state.Sites)
+	if sites == nil {
+		sites = map[string]Site{}
+	}
+	return sites, nil
+}
+
+func expectedRoute(site Site) map[string]any {
+	hosts := make([]any, len(site.domains))
+	for i, domain := range site.domains {
+		hosts[i] = string(domain)
+	}
+	return map[string]any{
+		"match": []any{map[string]any{"host": hosts}},
+		"handle": []any{map[string]any{"handler": "subroute", "routes": []any{map[string]any{
+			"handle": []any{
+				map[string]any{"handler": "headers", "response": map[string]any{"set": map[string]any{"X-Content-Type-Options": []any{"nosniff"}}}},
+				map[string]any{"handler": "headers", "response": map[string]any{"set": map[string]any{"Referrer-Policy": []any{"no-referrer"}}}},
+				map[string]any{"handler": "reverse_proxy", "upstreams": []any{map[string]any{"dial": fmt.Sprintf("127.0.0.1:%d", site.port)}}},
+			},
+		}}}},
+		"terminal": true,
+	}
+}
+
+type adaptedConfig struct {
+	Apps struct {
+		HTTP struct {
+			Servers map[string]struct {
+				Routes []json.RawMessage `json:"routes"`
+			} `json:"servers"`
+		} `json:"http"`
+	} `json:"apps"`
+}
+type adaptedRoute struct {
+	Match  []map[string]json.RawMessage `json:"match"`
+	Handle []struct {
+		Routes []json.RawMessage `json:"routes"`
+	} `json:"handle"`
+}
+
+// This checks the pinned adapter's complete host routes, including handlers and
+// upstreams, rather than merely finding host names somewhere in a JSON tree.
+func checkAdapted(data []byte, next, previous map[string]Site) error {
+	refused := errors.New("caddy: adapted routes differ from expected Brine sites")
+	if len(data) == 0 || len(data) > maxSetBytes || (len(bytes.TrimSpace(data)) == 0 || bytes.TrimSpace(data)[0] != '{') {
+		return refused
+	}
+	var config adaptedConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return refused
+	}
+	protected := map[string]bool{}
+	owners := map[string]string{}
+	expected := map[string]map[string]any{}
+	for _, site := range previous {
+		for _, domain := range site.domains {
+			protected[string(domain)] = true
+		}
+	}
+	for file, site := range next {
+		if site.name == "" {
+			return refused
+		}
+		expected[file] = expectedRoute(site)
+		for _, domain := range site.domains {
+			host := string(domain)
+			if _, exists := owners[host]; exists {
+				return refused
+			}
+			owners[host] = file
+			protected[host] = true
+		}
+	}
+	// Scan all adapted JSON, not only the success-path server routes. A stale
+	// host in error routes or any nested handler is still a stale Brine route.
+	var tree any
+	if err := json.Unmarshal(data, &tree); err != nil {
+		return refused
+	}
+	counts := map[string]int{}
+	var scan func(any) error
+	scan = func(value any) error {
+		switch value := value.(type) {
+		case map[string]any:
+			for key, child := range value {
+				if key == "host" {
+					hosts, ok := child.([]any)
+					if !ok {
+						return refused
+					}
+					for _, v := range hosts {
+						host, ok := v.(string)
+						if !ok {
+							return refused
+						}
+						host = strings.ToLower(strings.TrimSuffix(host, "."))
+						if protected[host] {
+							counts[host]++
+						}
+					}
+				}
+				if err := scan(child); err != nil {
+					return err
+				}
+			}
+		case []any:
+			for _, child := range value {
+				if err := scan(child); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	if err := scan(tree); err != nil {
+		return err
+	}
+	for host := range protected {
+		want := 0
+		if _, ok := owners[host]; ok {
+			want = 1
+		}
+		if counts[host] != want {
+			return refused
+		}
+	}
+	seen := map[string]bool{}
+	var checkRoute func(json.RawMessage, bool) error
+	checkRoute = func(raw json.RawMessage, top bool) error {
+		var route adaptedRoute
+		if err := json.Unmarshal(raw, &route); err != nil {
+			return refused
+		}
+		file := ""
+		for _, matcher := range route.Match {
+			if hostsRaw, ok := matcher["host"]; ok {
+				var hosts []string
+				if err := json.Unmarshal(hostsRaw, &hosts); err != nil {
+					return refused
+				}
+				for _, value := range hosts {
+					host := strings.ToLower(strings.TrimSuffix(value, "."))
+					if !protected[host] {
+						continue
+					}
+					owner, present := owners[host]
+					if !present || !top || (file != "" && file != owner) {
+						return refused
+					}
+					file = owner
+				}
+			}
+		}
+		if file != "" {
+			var actual map[string]any
+			if err := json.Unmarshal(raw, &actual); err != nil || seen[file] || !reflect.DeepEqual(actual, expected[file]) {
+				return refused
+			}
+			seen[file] = true
+		}
+		for _, handler := range route.Handle {
+			for _, nested := range handler.Routes {
+				if err := checkRoute(nested, false); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	}
+	for _, server := range config.Apps.HTTP.Servers {
+		for _, route := range server.Routes {
+			if err := checkRoute(route, true); err != nil {
+				return err
+			}
+		}
+	}
+	if len(seen) != len(next) {
+		return refused
+	}
+	return nil
+}

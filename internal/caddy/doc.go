@@ -3,20 +3,37 @@
 // Production callers supply /etc/caddy/brine as the root and the unchanged main
 // Caddyfile bytes. The manager never opens or writes that main file. Enrollment
 // must create an empty gen-0 directory and current symlink before first use.
-// The Brine import is located by Caddy 2.6.2 tokens, directive position and byte
-// spans. Its path alone is replaced; quotes, comments and other bytes survive.
-// Filesystem imports in the main file must be absolute; relative and snippet
-// imports are refused because relocating the candidate changes their base.
-// Caddy environment substitutions are refused because expansion precedes lexing
-// and could change the located directive. Heredocs require newer Caddy and are
-// refused. Quoted standalone brace tokens also refuse ambiguous block parsing.
+// The root needs exactly one standalone top-level physical line:
+// import /etc/caddy/brine/current/*.caddy
+// The import has one literal space between unquoted tokens, no continuation,
+// comment or trailing argument. Leading indentation and CRLF are preserved.
+// A Caddy 2.6.2 source-span tokenizer replaces only the argument token. All other
+// references to the owned root refuse. Path-like snippet names refuse too.
+// Other actual imports (including absolute imports) refuse because an external
+// file could declare a path-named snippet that shadows current on real reload,
+// yet leaves the generation-path candidate unaffected. We never inspect those
+// unowned files. Ordinary response values such as respond "import" still work.
+// Caddy environment substitutions refuse because expansion precedes lexing;
+// newer-version heredocs and ambiguous quoted standalone braces also refuse.
 // The root and its ancestors must not be symlinks.
 //
 // The caller holds the host mutation lock, checks the main file has not changed,
 // and durably journals intent before Apply. Expected State comes from committed
-// control state. Observe hashes selected disk files only, not Caddy's loaded
+// control state. Its Sites manifest contains NewSite values reconstructed from
+// committed desired state; each rendered site must equal its selected file.
+// Nonempty hash-only state cannot authorize Apply. Observe leaves Sites unset
+// and hashes selected disk files only, not Caddy's loaded
 // configuration. A successful result's Next state becomes committed evidence
 // only after the operation engine has checked service health and committed it.
+// After Validate succeeds, Validator.Adapt returns Caddy's JSON for the same
+// candidate. The manager independently checks every expected host's complete
+// route and loopback upstream against the pinned renderer/adapter shape, permits
+// unrelated operator routes, and refuses missing, duplicate, conditional or
+// misdirected sites and old hosts that should be gone (including nested/error
+// routes). Adaptation errors, timeouts, malformed JSON, and output above 16 MiB
+// refuse before switching current. This is candidate evidence, not observation
+// of the running service. Different Caddy versions or global directive ordering
+// that changes the expected route shape require a reviewed contract change.
 // Validator and Reloader must honor their ten-second contexts and bound output.
 // Only the real systemd adapter may implement the reload-only command boundary.
 //

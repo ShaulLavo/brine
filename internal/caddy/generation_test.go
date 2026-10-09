@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -14,9 +15,14 @@ import (
 )
 
 type fakeValidator struct {
-	paths []string
-	roots [][]byte
-	err   error
+	paths      []string
+	roots      [][]byte
+	err        error
+	adapted    []byte
+	adaptCalls int
+	adaptErr   error
+	adaptPaths []string
+	adaptFn    func(context.Context, string) ([]byte, error)
 }
 
 func (f *fakeValidator) Validate(_ context.Context, path string) error {
@@ -27,6 +33,44 @@ func (f *fakeValidator) Validate(_ context.Context, path string) error {
 	}
 	f.roots = append(f.roots, b)
 	return f.err
+}
+
+func (f *fakeValidator) Adapt(ctx context.Context, path string) ([]byte, error) {
+	f.adaptCalls++
+	f.adaptPaths = append(f.adaptPaths, path)
+	if f.adaptFn != nil {
+		return f.adaptFn(ctx, path)
+	}
+	if f.adaptErr != nil {
+		return nil, f.adaptErr
+	}
+	if f.adapted != nil {
+		return f.adapted, nil
+	}
+	generation := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(path), "candidate-"), ".caddy")
+	entries, err := os.ReadDir(filepath.Join(filepath.Dir(path), generation))
+	if err != nil {
+		return nil, err
+	}
+	routes := []any{}
+	for _, entry := range entries {
+		content, err := os.ReadFile(filepath.Join(filepath.Dir(path), generation, entry.Name()))
+		if err != nil {
+			return nil, err
+		}
+		lines := strings.Split(string(content), "\n")
+		hosts := strings.Split(strings.TrimSuffix(lines[0], " {"), ", ")
+		site := Site{name: spec.Name(strings.TrimSuffix(entry.Name(), ".caddy"))}
+		for _, host := range hosts {
+			site.domains = append(site.domains, spec.Domain(host))
+		}
+		_, err = fmt.Sscanf(lines[1], "\treverse_proxy 127.0.0.1:%d", &site.port)
+		if err != nil {
+			return nil, err
+		}
+		routes = append(routes, expectedRoute(site))
+	}
+	return json.Marshal(map[string]any{"apps": map[string]any{"http": map[string]any{"servers": map[string]any{"srv0": map[string]any{"routes": routes}}}}})
 }
 
 type fakeReloader struct {
@@ -295,7 +339,7 @@ func diskImage(t *testing.T, root string) map[string]string {
 }
 
 func TestCrashCheckpoints(t *testing.T) {
-	for _, step := range []string{"generation-created", "file-written", "generation-synced", "candidate-written", "validated", "link-created", "current-renamed", "current-synced", "reloaded", "pruned"} {
+	for _, step := range []string{"generation-created", "file-written", "generation-synced", "candidate-written", "validated", "adapted", "link-created", "current-renamed", "current-synced", "reloaded", "pruned"} {
 		t.Run(step, func(t *testing.T) {
 			m, root, main, state, _, r := setup(t)
 			sentinel := errors.New("injected crash")
