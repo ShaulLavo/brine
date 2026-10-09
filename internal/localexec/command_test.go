@@ -141,20 +141,37 @@ func TestExecuteIgnoresAmbientRuntimeOverrides(t *testing.T) {
 		t.Fatal(e)
 	}
 	t.Setenv("PATH", dir)
-	r, e := (ExecRunner{}).Execute(context.Background(), Command{Path: "env", Timeout: time.Second})
-	if e != nil {
-		t.Fatal(e)
-	}
-	if strings.Contains(r.Stdout, "ambient-poison") || strings.Contains(r.Stdout, "AMBIENT_EXECUTABLE") {
-		t.Fatal("ambient environment or executable reached child")
-	}
-	for _, key := range []string{"CONTAINER_HOST=", "CONTAINER_CONNECTION=", "CONTAINERS_CONF=", "CONTAINERS_STORAGE_CONF=", "DOCKER_HOST=", "LD_PRELOAD=", "LD_LIBRARY_PATH="} {
-		if strings.Contains(r.Stdout, key) {
-			t.Fatalf("inherited %s", key)
-		}
-	}
-	if !strings.Contains(r.Stdout, "PATH=/usr/bin:/bin\n") {
-		t.Fatal("uncontrolled child search path")
+	for _, mode := range []string{"execute", "run", "stdout", "input"} {
+		t.Run(mode, func(t *testing.T) {
+			var r Result
+			var e error
+			switch mode {
+			case "execute":
+				r, e = (ExecRunner{}).Execute(context.Background(), Command{Path: "env", Timeout: time.Second})
+			case "run":
+				r.Stdout, e = (ExecRunner{}).Run(context.Background(), "env")
+			case "stdout":
+				r.Stdout, e = (ExecRunner{}).RunStdout(context.Background(), "env")
+			case "input":
+				var out Output
+				out, e = (ExecRunner{}).RunInput(context.Background(), Command{Path: "env", OutputLimit: CommandOutputLimit})
+				r.Stdout = string(out.Stdout)
+			}
+			if e != nil {
+				t.Fatal(e)
+			}
+			if strings.Contains(r.Stdout, "ambient-poison") || strings.Contains(r.Stdout, "AMBIENT_EXECUTABLE") {
+				t.Fatal("ambient environment or executable reached child")
+			}
+			for _, key := range []string{"CONTAINER_HOST=", "CONTAINER_CONNECTION=", "CONTAINERS_CONF=", "CONTAINERS_STORAGE_CONF=", "DOCKER_HOST=", "LD_PRELOAD=", "LD_LIBRARY_PATH="} {
+				if strings.Contains(r.Stdout, key) {
+					t.Fatalf("inherited %s", key)
+				}
+			}
+			if !strings.Contains(r.Stdout, "PATH=/usr/bin:/bin\n") {
+				t.Fatal("uncontrolled child search path")
+			}
+		})
 	}
 }
 

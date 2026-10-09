@@ -37,13 +37,14 @@ func (e *Error) Error() string { return "runtime operation: " + string(e.Kind) }
 func (e *Error) Unwrap() error { return e.cause }
 
 type Command struct {
-	Path     string
-	Args     []string
-	Stdin    []byte
-	Env      []string
-	Dir      string
-	Timeout  time.Duration
-	Mutation bool
+	Path        string
+	Args        []string
+	Stdin       []byte
+	Env         []string
+	Dir         string
+	Timeout     time.Duration
+	Mutation    bool
+	OutputLimit int
 }
 type Result struct {
 	Stdout, Stderr string
@@ -63,43 +64,22 @@ func (ExecRunner) Execute(ctx context.Context, c Command) (Result, error) {
 	if ctx.Err() != nil {
 		return Result{}, &Error{Kind: Timeout, cause: ctx.Err()}
 	}
-	path, err := trustedExecutable(c.Path)
+	path, err := LookPath(c.Path)
 	if err != nil {
 		return Result{}, err
 	}
-	identity, err := user.Current()
-	if err != nil || !filepath.IsAbs(identity.HomeDir) {
-		return Result{}, &Error{Kind: Failed}
-	}
-	for _, entry := range c.Env {
-		key, value, ok := strings.Cut(entry, "=")
-		if !ok {
-			return Result{}, &Error{Kind: Invalid}
-		}
-		switch key {
-		case "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS":
-		case "LC_ALL":
-			if value != "C" {
-				return Result{}, &Error{Kind: Invalid}
-			}
-		default:
-			return Result{}, &Error{Kind: Invalid}
-		}
+	env, home, err := commandEnvironment(c.Env, false)
+	if err != nil {
+		return Result{}, err
 	}
 	stdout, stderr := &commandOutput{}, &commandOutput{}
 	cmd := exec.CommandContext(ctx, path, c.Args...)
 	configureProcessGroup(cmd)
 	cmd.Dir = c.Dir
-	cmd.Env = append([]string{
-		"HOME=" + identity.HomeDir,
-		"USER=" + identity.Username,
-		"LOGNAME=" + identity.Username,
-		"PATH=/usr/bin:/bin",
-		"XDG_CONFIG_HOME=" + filepath.Join(identity.HomeDir, ".config"),
-		"XDG_DATA_HOME=" + filepath.Join(identity.HomeDir, ".local", "share"),
-		"XDG_CACHE_HOME=" + filepath.Join(identity.HomeDir, ".cache"),
-		"LC_ALL=C",
-	}, c.Env...)
+	cmd.Env = env
+	if cmd.Dir == "" {
+		cmd.Dir = home
+	}
 	cmd.Stdin = bytes.NewReader(c.Stdin)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -134,9 +114,9 @@ func (ExecRunner) Execute(ctx context.Context, c Command) (Result, error) {
 	return result, nil
 }
 
-// Executable lookup must use the same controlled path as the child environment.
+// LookPath resolves executable names using the controlled child search path.
 // exec.Command would otherwise search the dispatcher's ambient PATH first.
-func trustedExecutable(name string) (string, error) {
+func LookPath(name string) (string, error) {
 	if filepath.IsAbs(name) {
 		return name, nil
 	}
@@ -150,6 +130,42 @@ func trustedExecutable(name string) (string, error) {
 		}
 	}
 	return "", &Error{Kind: Failed, ExitCode: -1}
+}
+
+func commandEnvironment(overrides []string, allowAgent bool) ([]string, string, error) {
+	identity, err := user.LookupId(strconv.Itoa(os.Getuid()))
+	if err != nil || !filepath.IsAbs(identity.HomeDir) {
+		return nil, "", &Error{Kind: Failed}
+	}
+	for _, entry := range overrides {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			return nil, "", &Error{Kind: Invalid}
+		}
+		switch key {
+		case "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS":
+		case "SSH_AUTH_SOCK":
+			if !allowAgent {
+				return nil, "", &Error{Kind: Invalid}
+			}
+		case "LC_ALL":
+			if value != "C" {
+				return nil, "", &Error{Kind: Invalid}
+			}
+		default:
+			return nil, "", &Error{Kind: Invalid}
+		}
+	}
+	runtime := "/run/user/" + identity.Uid
+	env := []string{
+		"HOME=" + identity.HomeDir, "USER=" + identity.Username, "LOGNAME=" + identity.Username,
+		"PATH=/usr/bin:/bin", "LC_ALL=C",
+		"XDG_CONFIG_HOME=" + filepath.Join(identity.HomeDir, ".config"),
+		"XDG_DATA_HOME=" + filepath.Join(identity.HomeDir, ".local", "share"),
+		"XDG_CACHE_HOME=" + filepath.Join(identity.HomeDir, ".cache"),
+		"XDG_RUNTIME_DIR=" + runtime, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + runtime + "/bus",
+	}
+	return append(env, overrides...), identity.HomeDir, nil
 }
 
 type commandOutput struct {

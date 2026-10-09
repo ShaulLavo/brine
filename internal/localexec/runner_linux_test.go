@@ -71,7 +71,7 @@ func testTimeoutTerminatesDescendants(t *testing.T, execute bool) {
 		if execute {
 			_, err = (ExecRunner{}).Execute(ctx, Command{Path: os.Args[0], Args: []string{"-test.run=^TestProcessTreeHelper$", "--", "BRINE_PROCESS_TREE_HELPER=1", "BRINE_PROCESS_TREE_PIDFILE=" + pidfile, "parent"}, Timeout: 3 * time.Second, Mutation: true})
 		} else {
-			_, err = (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestProcessTreeHelper$", "--", "parent")
+			_, err = (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestProcessTreeHelper$", "--", "BRINE_PROCESS_TREE_HELPER=1", "BRINE_PROCESS_TREE_PIDFILE="+pidfile, "parent")
 		}
 		done <- err
 	}()

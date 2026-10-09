@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -12,7 +14,7 @@ import (
 )
 
 func TestRunnerHelper(t *testing.T) {
-	if os.Getenv("BRINE_RUNNER_HELPER") != "1" {
+	if !slices.Contains(os.Args, "BRINE_RUNNER_HELPER=1") {
 		return
 	}
 	switch os.Args[len(os.Args)-1] {
@@ -46,7 +48,7 @@ func TestExecRunner(t *testing.T) {
 		t.Run(tt.mode, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
-			output, err := (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestRunnerHelper$", "--", tt.mode)
+			output, err := (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestRunnerHelper$", "--", "BRINE_RUNNER_HELPER=1", tt.mode)
 			if output != tt.want || (err != nil) != tt.wantError {
 				t.Fatalf("output = %q, error = %v", output, err)
 			}
@@ -59,7 +61,7 @@ func TestExecRunnerTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	start := time.Now()
-	_, err := (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestRunnerHelper$", "--", "timeout")
+	_, err := (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestRunnerHelper$", "--", "BRINE_RUNNER_HELPER=1", "timeout")
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("error = %v", err)
 	}
@@ -87,5 +89,18 @@ func TestBoundedOutputConcurrent(t *testing.T) {
 	wg.Wait()
 	if len(output.String()) != OutputLimit {
 		t.Fatalf("output size = %d", len(output.String()))
+	}
+}
+
+func TestStdoutProbeSeparatesWarnings(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell fixture requires Unix")
+	}
+	stdout, e := (ExecRunner{}).RunStdout(context.Background(), "sh", "-c", `printf '%s' '{"ok":true}'; printf '%s\n' 'warning' >&2`)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if stdout != `{"ok":true}` {
+		t.Fatalf("diagnostics entered stdout: %q", stdout)
 	}
 }
