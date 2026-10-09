@@ -2,14 +2,13 @@
 package ops
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
-	"io"
 	"slices"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -113,13 +112,17 @@ func ValidateEvent(e Event) error {
 	if len(e.Payload) > MaxEventBytes || (e.State != "" && !ValidState(e.State)) {
 		return ErrInvalidEvent
 	}
-	decode := func(v any) error {
-		d := json.NewDecoder(bytes.NewReader(e.Payload))
-		d.DisallowUnknownFields()
-		if err := d.Decode(v); err != nil {
+	decode := func(v any, fields ...string) error {
+		values, err := strictjson.Object(e.Payload, fields...)
+		if err != nil {
 			return ErrInvalidEvent
 		}
-		if d.Decode(new(any)) != io.EOF {
+		for _, value := range values {
+			if _, err := strictjson.Value[string](value); err != nil {
+				return ErrInvalidEvent
+			}
+		}
+		if json.Unmarshal(e.Payload, v) != nil {
 			return ErrInvalidEvent
 		}
 		return nil
@@ -132,20 +135,20 @@ func ValidateEvent(e Event) error {
 		}
 	case "step":
 		var p StepPayload
-		if decode(&p) != nil || !slices.Contains([]string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "start_unit", "check_direct", "publish_route", "check_routed", "commit", "rollback_unit", "rollback_route", "rollback_start", "rollback_check"}, p.Step) || !slices.Contains([]string{"intent", "completed", "failed", "unknown"}, p.Outcome) {
+		if decode(&p, "step", "outcome") != nil && decode(&p, "step", "outcome", "code") != nil || !slices.Contains([]string{"preflight", "pull_image", "verify_image", "ensure_secrets", "stage_unit", "quiesce_old", "install_unit", "reload_units", "start_unit", "check_direct", "publish_route", "check_routed", "commit", "rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_route", "check_compatibility", "rollback_start", "rollback_check"}, p.Step) || !slices.Contains([]string{"intent", "completed", "failed", "unknown"}, p.Outcome) {
 			return ErrInvalidEvent
 		}
-		if p.Code != "" && (p.Outcome != "failed" && p.Outcome != "unknown" || !slices.Contains([]string{"drift", "digest_mismatch", "platform_mismatch", "secret_missing", "unit_invalid", "start_failed", "health_timeout", "health_failed", "route_invalid", "reload_failed", "reload_unknown", "journal_failed", "interrupted"}, p.Code)) {
+		if p.Code != "" && (p.Outcome != "failed" && p.Outcome != "unknown" || !slices.Contains([]string{"drift", "digest_mismatch", "platform_mismatch", "secret_missing", "unit_invalid", "start_failed", "health_timeout", "health_failed", "route_invalid", "reload_failed", "reload_unknown", "journal_failed", "interrupted", "inventory_failed", "stop_failed", "unit_failed", "commit_failed", "rollback_failed", "compatibility_unknown"}, p.Code)) {
 			return ErrInvalidEvent
 		}
 	case "failure":
 		var p FailurePayload
-		if decode(&p) != nil || !slices.Contains([]string{"launch_failed", "launch_unknown", "executor_failed", "executor_incomplete", "recovery_required", "interrupted", "stale_plan"}, p.Code) {
+		if decode(&p, "code") != nil || !slices.Contains([]string{"launch_failed", "launch_unknown", "executor_failed", "executor_incomplete", "recovery_required", "interrupted", "stale_plan"}, p.Code) {
 			return ErrInvalidEvent
 		}
 	case "launch":
 		var p LaunchPayload
-		if decode(&p) != nil || !outcome(p.Outcome) {
+		if decode(&p, "outcome") != nil || !outcome(p.Outcome) {
 			return ErrInvalidEvent
 		}
 	default:
