@@ -1,6 +1,9 @@
 package enroll
 
 import (
+	operatorpolicy "github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/spec"
+	"os"
 	"strings"
 	"testing"
 )
@@ -42,5 +45,23 @@ func TestAcceptEnvAllowsOnlyExactDisplayNames(t *testing.T) {
 		if err := checkGlobalSSH("permituserenvironment no\nacceptenv " + name + "\n"); err == nil {
 			t.Fatalf("unsafe extension accepted: %s", name)
 		}
+	}
+}
+
+func TestDefaultOperatorPolicyRefusesDeployment(t *testing.T) {
+	pol, err := operatorpolicy.Parse([]byte(defaultOperatorPolicy))
+	if err != nil || pol.CaddyPort() != 443 {
+		t.Fatalf("default policy %v", err)
+	}
+	raw, err := os.ReadFile("../spec/testdata/valid-minimal.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := spec.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := operatorpolicy.Normalize(app, pol); err == nil {
+		t.Fatal("enrollment policy authorized a deployment")
 	}
 }

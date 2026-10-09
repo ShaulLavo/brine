@@ -117,3 +117,33 @@ func (s *Store) RecentOperations(ctx context.Context, app string, limit int) ([]
 	}
 	return records, rows.Err()
 }
+
+// ReadGeneration leaves an affirmatively empty enrolled state directory empty.
+// Unknown contents and an existing damaged database never become generation zero.
+func ReadGeneration(ctx context.Context, stateDir string) (uint64, error) {
+	dir, err := filepath.Abs(stateDir)
+	if err != nil {
+		return 0, err
+	}
+	if err = secureStateDir(dir); err != nil {
+		return 0, err
+	}
+	if _, err = os.Lstat(filepath.Join(dir, "control.db")); os.IsNotExist(err) {
+		entries, e := os.ReadDir(dir)
+		if e != nil {
+			return 0, e
+		}
+		if len(entries) != 0 {
+			return 0, ErrInvalid
+		}
+		return 0, nil
+	} else if err != nil {
+		return 0, err
+	}
+	s, err := OpenReadOnly(ctx, dir)
+	if err != nil {
+		return 0, err
+	}
+	defer s.Close()
+	return s.Generation(ctx)
+}

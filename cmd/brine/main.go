@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -9,15 +10,14 @@ import (
 	"syscall"
 
 	"github.com/ShaulLavo/brine/internal/cli"
+	"github.com/ShaulLavo/brine/internal/host"
 	"github.com/ShaulLavo/brine/internal/result"
 )
 
 func main() {
-	originalCommandLength := 0
+	authenticated, originalCommandLength := captureHostEnvironment(os.Args[1:], os.Getenv, os.Clearenv)
 	var stdin io.Reader = os.Stdin
 	if cli.HostServeRequested(os.Args[1:]) {
-		originalCommandLength = len(os.Getenv("SSH_ORIGINAL_COMMAND"))
-		os.Clearenv()
 		input := hostInput()
 		defer input.Close()
 		stdin = input
@@ -39,7 +39,26 @@ func main() {
 			return cli.RunTUI(ctx, nil, stdout)
 		},
 	}
+	var closeRuntime func() error
+	if cli.HostServeRequested(os.Args[1:]) {
+		factory := host.NewServerFactory(deps.Version, authenticated)
+		deps.HostServerFactory = factory.Build
+		closeRuntime = factory.Close
+	} else if cli.HostRuntimeRequested(os.Args[1:]) {
+		runtime, err := host.Open(ctx, authenticated)
+		if err == nil {
+			closeRuntime = runtime.Close
+			deps.HostOperationRunner = runtime.Runner
+		} else {
+			fmt.Fprintln(os.Stderr, "Host runtime initialization failed:", result.Classify(err).Code())
+		}
+	}
 	code := run(deps, os.Args[1:])
+	if closeRuntime != nil {
+		if err := closeRuntime(); err != nil && code == 0 {
+			code = result.ExitCode(result.New(result.InternalError, err))
+		}
+	}
 	stop()
 	os.Exit(code)
 }
@@ -52,3 +71,13 @@ type failedInput struct{ err error }
 
 func (f failedInput) Read([]byte) (int, error) { return 0, f.err }
 func (failedInput) Close() error               { return nil }
+
+func captureHostEnvironment(args []string, getenv func(string) string, clearenv func()) (string, int) {
+	if !cli.HostServeRequested(args) {
+		return "", 0
+	}
+	marker := getenv("BRINE_AUTHENTICATED")
+	length := len(getenv("SSH_ORIGINAL_COMMAND"))
+	clearenv()
+	return marker, length
+}

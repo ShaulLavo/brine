@@ -210,3 +210,11 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 func (s *Store) ReleaseByID(ctx context.Context, app, id string) (Release, error) {
 	return readRelease(ctx, s.db, app, id)
 }
+
+// Generation advances once for each immutable committed release. Replaying a
+// commit does not advance it, and plans and queued jobs do not affect it.
+func (s *Store) Generation(ctx context.Context) (uint64, error) {
+	var n uint64
+	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM releases").Scan(&n)
+	return n, err
+}

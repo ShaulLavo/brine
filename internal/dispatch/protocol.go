@@ -11,6 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -59,6 +60,7 @@ var operations = map[string]operation{
 	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
 	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
 	"apply":     {Mutating, decodeApply},
+	"plan":      {Mutating, decodePlan},
 	"operation": {ReadOnly, decodeOperation},
 }
 
@@ -124,8 +126,12 @@ type DiagnosticReader interface {
 	Read(context.Context, diagnose.Request) (diagnose.Report, error)
 }
 
+type Factory func(context.Context, string) (*Server, error)
+
 type Server struct {
 	Reconciler ReconcileOperations
+	Factory    Factory
+	Planner    Planner
 	Diagnose   DiagnosticReader
 	Apps       AppOperations
 	Logs       LogReader
@@ -160,6 +166,15 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
+	if s.Factory != nil {
+		configured, err := s.Factory(ctx, request.Op)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		if configured != nil {
+			s = configured
+		}
+	}
 	args, _ := operations[request.Op].decode(request.Args)
 	class := operations[request.Op].class
 	if reconcile, ok := args.(ReconcileArgs); ok && reconcile.DryRun {
@@ -189,6 +204,15 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = report
+	case spec.App:
+		if s.Planner == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.Planner.Plan(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = p
 	case diagnose.Request:
 		reader := s.Diagnose
 		if reader == nil {

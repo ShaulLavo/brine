@@ -168,7 +168,13 @@ func failureEvent(code string) ops.Event {
 	return ops.Event{Kind: "failure", Payload: data}
 }
 
+type Reconciler interface {
+	ReconcileUnderLock(context.Context, ops.Lock, string, bool) error
+}
+
 type Runner struct {
+	// TODO(P03-07): provide the host reconciler once its package is available.
+	Reconciler      Reconciler
 	Store           RunnerStore
 	Executor        Executor
 	LockWaitTimeout time.Duration // Zero uses HostLockWaitTimeout; not request-controlled.
@@ -192,6 +198,11 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 		return r.lockUnavailable(ctx, id, err)
 	}
 	defer func() { err = errors.Join(err, lock.Release()) }()
+	if r.Reconciler != nil {
+		if err := r.Reconciler.ReconcileUnderLock(ctx, lock, id, false); err != nil {
+			return err
+		}
+	}
 	op, err := r.Store.GetOperation(ctx, id)
 	if err != nil {
 		return err
@@ -204,6 +215,7 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 		return r.fail(ctx, id, "executor_failed", ops.Failed, err)
 	}
 	runErr := r.Executor.Run(ctx, id, intent, desired)
+
 	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
 	defer cancel()
 	current, err := r.Store.GetOperation(journal, id)
@@ -212,6 +224,11 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	}
 	if current.State.IsTerminal() {
 		return runErr
+	}
+	if runErr != nil && result.Classify(runErr).Code() == result.Conflict && (current.State == ops.Queued || current.State == ops.LaunchUnknown) {
+		_, eventErr := r.Store.AppendEvent(journal, id, failureEvent("stale_plan"))
+		stateErr := r.Store.TransitionOperation(journal, id, current.State, ops.Failed)
+		return errors.Join(runErr, eventErr, stateErr)
 	}
 	code := "executor_incomplete"
 	if runErr != nil {
