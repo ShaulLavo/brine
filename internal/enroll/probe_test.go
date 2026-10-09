@@ -1,0 +1,81 @@
+package enroll
+
+import (
+	"context"
+	"io/fs"
+	"testing"
+)
+
+type configFS struct {
+	files map[string]string
+	dirs  map[string][]fs.DirEntry
+}
+
+func (f configFS) ReadFile(_ context.Context, p string) ([]byte, error) {
+	s, ok := f.files[p]
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	return []byte(s), nil
+}
+func (f configFS) ReadDir(_ context.Context, p string) ([]fs.DirEntry, error) {
+	entries, ok := f.dirs[p]
+	if !ok {
+		return nil, fs.ErrNotExist
+	}
+	return entries, nil
+}
+func (f configFS) Readlink(context.Context, string) (string, error) { return "", fs.ErrNotExist }
+func TestSSHSourceChecks(t *testing.T) {
+	for _, tt := range []struct {
+		input string
+		want  bool
+	}{
+		{"PermitUserEnvironment no\n", true},
+		{"Match User fixture\n PermitUserEnvironment yes\n", false},
+		{"Include relative.conf\n", false},
+		{"Include /etc/ssh/sshd_config.d/*.conf\n", true},
+		{"PermitUserEnvironment LANG\n", false},
+		{"PermitUserEnvironment\n", false},
+	} {
+		p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": tt.input}}}
+		err := p.sshConfig(context.Background(), "/etc/ssh/sshd_config", map[string]bool{}, 0)
+		if (err == nil) != tt.want {
+			t.Errorf("%q %v", tt.input, err)
+		}
+	}
+}
+func TestSSHConfigurationFailures(t *testing.T) {
+	p := Prober{FS: configFS{}}
+	if err := p.sshConfig(context.Background(), "/missing", map[string]bool{}, 0); err == nil {
+		t.Fatal("missing config accepted")
+	}
+	if err := p.sshConfig(context.Background(), "/missing", map[string]bool{}, 17); err == nil {
+		t.Fatal("unbounded recursion")
+	}
+}
+func TestAptTransaction(t *testing.T) {
+	for _, tt := range []struct {
+		input string
+		want  bool
+	}{
+		{"Inst podman (5.4.2 Debian:13/stable [arm64])\nInst passt (1.0 Debian:13/stable [arm64])\n", true},
+		{"Inst existing [1.0] (2.0 Debian:13/stable [arm64])\n", false},
+		{"Remv existing [1.0]\n", false},
+		{"Inst --bad (1.0 source)\n", false},
+		{"Inst podman\n", false},
+		{"Inst podman (;touch source)\n", false},
+	} {
+		_, err := aptInstalls(tt.input)
+		if (err == nil) != tt.want {
+			t.Errorf("%q %v", tt.input, err)
+		}
+	}
+}
+func TestPublicKeyRefusesOptionsAndShellInput(t *testing.T) {
+	for _, key := range []string{"command=\"shell\" ssh-ed25519 AAAA", "ssh-ed25519 AAAA\n", "ssh-rsa AAAA", "ssh-ed25519 AAAA x y"} {
+		if _, err := PublicKey(key); err == nil {
+			t.Errorf("accepted %q", key)
+		}
+	}
+}

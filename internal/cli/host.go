@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
+	"path/filepath"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/inventory"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/spf13/cobra"
 )
@@ -16,7 +20,7 @@ import (
 func newHostCmd(deps Dependencies) *cobra.Command {
 	host := &cobra.Command{Use: "host", Hidden: true}
 	serve := &cobra.Command{Use: "serve", Hidden: true, DisableFlagParsing: true, RunE: func(_ *cobra.Command, _ []string) error { return executeHostServe(deps) }}
-	host.AddCommand(serve)
+	host.AddCommand(serve, newHostEnrollmentCmd(deps))
 	return host
 }
 
@@ -38,7 +42,17 @@ func executeHostServe(deps Dependencies) error {
 			stopClose := context.AfterFunc(ctx, func() { _ = closer.Close() })
 			defer stopClose()
 		}
-		envelope, err = dispatch.NewServer(deps.Version, deps.HostInventory).Handle(ctx, deps.Stdin)
+		collector := deps.HostInventory
+		if collector == nil {
+			identity, e := user.LookupId(fmt.Sprint(uid()))
+			if e == nil {
+				key, e := os.ReadFile(filepath.Join(identity.HomeDir, ".ssh/inventory-key"))
+				if e == nil && len(key) == 32 {
+					collector = inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key}
+				}
+			}
+		}
+		envelope, err = dispatch.NewServer(deps.Version, collector).Handle(ctx, deps.Stdin)
 	}
 	if writeErr := json.NewEncoder(deps.Stdout).Encode(envelope); writeErr != nil {
 		return result.New(result.InternalError, writeErr)
