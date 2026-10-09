@@ -16,6 +16,8 @@ import (
 
 const SchemaVersion = 1
 
+const DefaultMinimumFreeDiskBytes uint64 = 1 << 30
+
 // Refusal diagnostics contain only package-owned text, including for malformed
 // input. Category is the machine contract's refused-by-policy exit category.
 type Refusal struct {
@@ -43,14 +45,15 @@ type Registry struct {
 	RepositoryPrefixes []string `toml:"repository_prefixes" json:"repository_prefixes"`
 }
 type document struct {
-	SchemaVersion     int                 `toml:"schema_version" json:"schema_version"`
-	Version           string              `toml:"version" json:"version"`
-	AllowedRegistries []Registry          `toml:"allowed_registries" json:"allowed_registries"`
-	AllowedDomains    []string            `toml:"allowed_domains" json:"allowed_domains"`
-	AppPorts          *PortRange          `toml:"app_ports" json:"app_ports"`
-	AllowedSecrets    map[string][]string `toml:"allowed_secrets" json:"allowed_secrets"`
-	Resources         Resources           `toml:"resources" json:"resources"`
-	PersistentRoots   []string            `toml:"persistent_roots" json:"persistent_roots"`
+	SchemaVersion        int                 `toml:"schema_version" json:"schema_version"`
+	Version              string              `toml:"version" json:"version"`
+	AllowedRegistries    []Registry          `toml:"allowed_registries" json:"allowed_registries"`
+	AllowedDomains       []string            `toml:"allowed_domains" json:"allowed_domains"`
+	AppPorts             *PortRange          `toml:"app_ports" json:"app_ports"`
+	AllowedSecrets       map[string][]string `toml:"allowed_secrets" json:"allowed_secrets"`
+	Resources            Resources           `toml:"resources" json:"resources"`
+	PersistentRoots      []string            `toml:"persistent_roots" json:"persistent_roots"`
+	MinimumFreeDiskBytes *uint64             `toml:"minimum_free_disk_bytes" json:"minimum_free_disk_bytes"`
 }
 
 // Policy has no public constructor or writable fields. Its zero value refuses
@@ -107,6 +110,13 @@ func Parse(data []byte) (Policy, error) {
 	}
 	if !revisionPattern.MatchString(raw.Version) {
 		return bad("policy.invalid_version", "version", "operator revision is required and must be a bounded token")
+	}
+	if raw.MinimumFreeDiskBytes == nil {
+		minimum := DefaultMinimumFreeDiskBytes
+		raw.MinimumFreeDiskBytes = &minimum
+	}
+	if *raw.MinimumFreeDiskBytes == 0 {
+		return bad("policy.invalid_disk_minimum", "minimum_free_disk_bytes", "a positive minimum free disk size is required")
 	}
 	if raw.AppPorts == nil {
 		raw.AppPorts = &PortRange{Min: 20000, Max: 20999}
@@ -184,7 +194,7 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes") {
 		return false
 	}
 	for key, allowed := range map[string][]string{"app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {

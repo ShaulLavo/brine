@@ -28,21 +28,25 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
-	SchemaVersion int                 `json:"schema_version"`
-	Name          spec.Name           `json:"name"`
-	Image         spec.ImageReference `json:"image"`
-	ContainerPort spec.Port           `json:"container_port"`
-	Domains       []spec.Domain       `json:"domains"`
-	Health        Health              `json:"health"`
-	Resources     Resources           `json:"resources"`
-	Environment   []Environment       `json:"environment"`
-	Secrets       []Secret            `json:"secrets"`
-	PolicyVersion string              `json:"policy_version"`
-	PolicyHash    string              `json:"policy_hash"`
-	AppPorts      PortRange           `json:"app_ports"`
+	SchemaVersion        int                 `json:"schema_version"`
+	Name                 spec.Name           `json:"name"`
+	Image                spec.ImageReference `json:"image"`
+	ContainerPort        spec.Port           `json:"container_port"`
+	Domains              []spec.Domain       `json:"domains"`
+	Health               Health              `json:"health"`
+	Resources            Resources           `json:"resources"`
+	Environment          []Environment       `json:"environment"`
+	Secrets              []Secret            `json:"secrets"`
+	PolicyVersion        string              `json:"policy_version"`
+	PolicyHash           string              `json:"policy_hash"`
+	AppPorts             PortRange           `json:"app_ports"`
+	MinimumFreeDiskBytes uint64              `json:"minimum_free_disk_bytes"`
 }
 
 func (d Desired) CanonicalBytes() ([]byte, error) {
+	if d.MinimumFreeDiskBytes == 0 {
+		d.MinimumFreeDiskBytes = DefaultMinimumFreeDiskBytes
+	}
 	d.Domains = slices.Clone(d.Domains)
 	slices.Sort(d.Domains)
 	d.Environment = slices.Clone(d.Environment)
@@ -127,7 +131,7 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 			return Desired{}, refuse("policy.secret_denied", "secrets", "secret reference is not allowed for this app")
 		}
 	}
-	d := Desired{SchemaVersion: SchemaVersion, Name: app.Name, Image: app.Image, ContainerPort: app.ContainerPort, Domains: app.Domains, Health: Health{Path: app.Health.Path, ExpectedStatus: app.Health.ExpectedStatus, StartupDeadlineSeconds: app.Health.StartupDeadlineSeconds, TimeoutSeconds: app.Health.TimeoutSeconds}, Resources: resources, Environment: []Environment{}, Secrets: []Secret{}, PolicyVersion: c.Version, PolicyHash: p.hash, AppPorts: *c.AppPorts}
+	d := Desired{SchemaVersion: SchemaVersion, Name: app.Name, Image: app.Image, ContainerPort: app.ContainerPort, Domains: app.Domains, Health: Health{Path: app.Health.Path, ExpectedStatus: app.Health.ExpectedStatus, StartupDeadlineSeconds: app.Health.StartupDeadlineSeconds, TimeoutSeconds: app.Health.TimeoutSeconds}, Resources: resources, Environment: []Environment{}, Secrets: []Secret{}, PolicyVersion: c.Version, PolicyHash: p.hash, AppPorts: *c.AppPorts, MinimumFreeDiskBytes: *c.MinimumFreeDiskBytes}
 	slices.Sort(d.Domains)
 	for name, value := range app.Environment {
 		d.Environment = append(d.Environment, Environment{Name: name, Value: value})
