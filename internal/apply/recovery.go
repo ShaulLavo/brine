@@ -189,6 +189,14 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	x.quiesced = x.hasPrevious && boundary >= slices.Index(forwardSteps, "quiesce_old")
 	x.installed = boundary >= slices.Index(forwardSteps, "install_unit")
 	x.started = boundary >= slices.Index(forwardSteps, "start_unit")
+	// Journaled installation is not ownership of the artifact now on disk.
+	// Prove ownership before rollback can stop its service, not in rollback_unit.
+	if x.quiesced || x.installed {
+		hash, known := observedUnitHash(x.facts, p.App, x.unit.Name())
+		if !known || hash != x.unit.Hash() && hash != x.previousUnitHash() || x.installed && hash == "" {
+			return r, nil
+		}
+	}
 	// A published route cannot be restored from live facts alone. The original
 	// generation was not persisted by this executor, so never invent it.
 	if boundary >= slices.Index(forwardSteps, "publish_route") {

@@ -100,7 +100,7 @@ func TestRecoveryIntentCrashMatrix(t *testing.T) {
 			}
 			want := RequireRecovery
 			switch step {
-			case "preflight", "pull_image", "verify_image", "ensure_secrets", "quiesce_old", "check_direct":
+			case "preflight", "pull_image", "verify_image", "ensure_secrets", "quiesce_old":
 				want = ResumeForward
 			}
 			if assessment.Action != want {

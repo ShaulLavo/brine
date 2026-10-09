@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -227,6 +228,48 @@ func TestRepeatedResolutionRefusesInvalidAncestry(t *testing.T) {
 			assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, recoveryEvents("preflight"))
 			if err != nil || assessment.Action != RequireRecovery || len(r.effects) != 0 {
 				t.Fatal(assessment, err, r.effects)
+			}
+		})
+	}
+}
+
+func healthBoundaryResolution(t *testing.T) (*rig, Operation, Operation, []Event) {
+	t.Helper()
+	r := newRig(t, true)
+	r.state = Queued
+	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
+	unit, err := quadlet.Render(r.desired, r.plan, *r.plan.Image.ManifestDigest.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	(*r.facts.Input.Snapshot.Apps.Value)[0].QuadletUnits = target.Known([]target.Unit{{Name: unit.Name(), Hash: unit.Hash()}})
+	manager := r.executor.Systemd.(*systemd.Fake)
+	manager.ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+		return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
+	}
+	manager.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
+	r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
+		return podman.ContainerState{Running: true, Status: "running"}, nil
+	}
+	events := recoveryEvents(forwardSteps[:10]...)
+	events[len(events)-1].Payload, _ = json.Marshal(ops.StepPayload{Step: "check_direct", Outcome: "completed"})
+	source := Operation{ID: "earlier", Kind: ops.Deploy, PlanID: r.plan.Hash, State: RecoveryRequired}
+	successor := Operation{ID: "operation", Kind: ops.Resolve, RecoveryOf: source.ID, PlanID: r.plan.Hash, State: Queued}
+	return r, source, successor, events
+}
+
+func TestResolveHealthBoundaryRefusesForeignUnitBeforeStopping(t *testing.T) {
+	for _, known := range []bool{true, false} {
+		t.Run(fmt.Sprint(known), func(t *testing.T) {
+			r, source, successor, events := healthBoundaryResolution(t)
+			if known {
+				(*(*r.facts.Input.Snapshot.Apps.Value)[0].QuadletUnits.Value)[0].Hash = "sha256:foreign"
+			} else {
+				(*r.facts.Input.Snapshot.Apps.Value)[0].QuadletUnits = target.Observation[[]target.Unit]{}
+			}
+			assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, events)
+			if err != nil || assessment.Action != RequireRecovery || len(r.effects) != 0 || !r.active {
+				t.Fatalf("assessment=%+v err=%v effects=%v active=%v", assessment, err, r.effects, r.active)
 			}
 		})
 	}
