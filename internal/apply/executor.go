@@ -434,6 +434,9 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		if errors.As(err, &classified) && classified.Code != "" {
 			code = classified.Code
 		}
+		if name == "preflight" && errors.Is(err, context.DeadlineExceeded) {
+			code = "inventory_failed"
+		}
 		if errors.Is(err, context.DeadlineExceeded) && (name == "check_direct" || name == "check_routed" || name == "rollback_check") {
 			code = "health_timeout"
 		}

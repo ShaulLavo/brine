@@ -259,7 +259,6 @@ func TestRecoveryPreflightKeepsEffectDeadline(t *testing.T) {
 	r := newRig(t, false)
 	r.state = Preparing
 	r.intent = "pull_image"
-	r.executor.EffectTimeout = 10 * time.Millisecond
 	reads := 0
 	r.executor.Facts = FactsFunc(func(ctx context.Context) (Facts, error) {
 		reads++
@@ -275,6 +274,7 @@ func TestRecoveryPreflightKeepsEffectDeadline(t *testing.T) {
 	if err != nil || assessment.Action != ResumeForward {
 		t.Fatalf("action %s error %v", assessment.Action, err)
 	}
+	r.executor.EffectTimeout = 10 * time.Millisecond
 	start := time.Now()
 	err = r.executor.Recover(ctx, assessment)
 	if time.Since(start) > 200*time.Millisecond {
