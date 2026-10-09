@@ -331,6 +331,9 @@ func (r Runner) runReconcile(ctx context.Context, op ops.Operation) error {
 		if result.Classify(runErr).Code() == result.RecoveryRequired {
 			code = "recovery_required"
 		}
+		if errors.Is(runErr, ops.ErrLockUnavailable) {
+			to, code = ops.Failed, "lock_unavailable"
+		}
 		_, eventErr = r.Store.AppendEvent(journal, op.ID, failureEvent(code))
 	}
 	stateErr := r.Store.TransitionOperation(journal, op.ID, ops.Preflight, to)

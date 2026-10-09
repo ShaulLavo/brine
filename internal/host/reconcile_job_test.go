@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/reconcile"
+	"github.com/ShaulLavo/brine/internal/systemd"
 )
 
 type observerBoundRecovery struct{ calls int }
@@ -105,5 +107,52 @@ func TestDetachedRecoveryOutlivesObserverAndIsPollable(t *testing.T) {
 	}
 	if err := r.runner.Run(worker, accepted.OperationID); err == nil {
 		t.Fatal("terminal recovery job ran twice")
+	}
+}
+
+func TestDetachedRecoveryLockTimeoutFailsWithoutInspection(t *testing.T) {
+	for _, fence := range []string{"host", "launch"} {
+		t.Run(fence, func(t *testing.T) {
+			r := newDeployRig(t)
+			accepted := r.call(t, "reconcile", dispatch.ReconcileArgs{DryRun: false}).Data.(jobs.Accepted)
+			acquire := r.store.AcquireHostLock
+			if fence == "launch" {
+				acquire = r.store.AcquireLaunchLock
+			}
+			lock, err := acquire(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Release()
+			engine := r.server.Reconciler.(reconcile.Reconciler)
+			engine.Systemd = &systemd.Fake{ShowFunc: func(context.Context, systemd.Unit) (systemd.Properties, error) {
+				t.Fatal("recovery inspected without both locks")
+				return systemd.Properties{}, nil
+			}}
+			r.runner.Recovery = recoveryJob(engine)
+			worker, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+			defer cancel()
+			if err := r.runner.Run(worker, accepted.OperationID); !errors.Is(err, context.DeadlineExceeded) || !errors.Is(err, ops.ErrLockUnavailable) {
+				t.Fatalf("lock-only timeout not classified: %v", err)
+			}
+			status := r.call(t, "operation", dispatch.OperationArgs{OperationID: accepted.OperationID}).Data.(jobs.Status)
+			if status.Operation.State != ops.Failed {
+				t.Fatalf("lock-only recovery requires intervention: %+v", status.Operation)
+			}
+			failures := 0
+			for _, event := range status.Events {
+				if event.Kind != "failure" {
+					continue
+				}
+				var failure ops.FailurePayload
+				if err := json.Unmarshal(event.Payload, &failure); err != nil || failure.Code != "lock_unavailable" {
+					t.Fatalf("bad lock failure: %+v error %v", event, err)
+				}
+				failures++
+			}
+			if failures != 1 {
+				t.Fatalf("lock failures=%d, want 1", failures)
+			}
+		})
 	}
 }
