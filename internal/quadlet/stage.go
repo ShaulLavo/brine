@@ -14,20 +14,16 @@ import (
 	"strings"
 	"sync"
 	"syscall"
-
-	"github.com/ShaulLavo/brine/internal/target"
 )
 
 const (
-	ActiveDirectory   = ".config/containers/systemd"
-	stagingDirectory  = ".local/share/brine/quadlet/staging"
-	rollbackDirectory = ".local/share/brine/quadlet/rollback"
-	maxUnitBytes      = 4 << 20
+	ActiveDirectory  = ".config/containers/systemd"
+	stagingDirectory = ".local/share/brine/quadlet/staging"
+	maxUnitBytes     = 4 << 20
 )
 
-// Candidate isolates the rendered unit. The adapter runs the generator with
-// --user --dryrun and QUADLET_UNIT_DIRS=Directory, verifies the expected service,
-// and bounds time/output. Literal environment settings must not be logged.
+// Candidate is isolated from active Quadlet files. The adapter must bound its
+// generator dry-run and verify the expected service without logging env values.
 type Candidate struct {
 	Directory string
 	UnitName  string
@@ -52,7 +48,6 @@ const (
 	UnsafeParent    OwnershipReason = "unsafe_parent"
 )
 
-// OwnershipError contains no file contents or untrusted input.
 type OwnershipError struct{ Reason OwnershipReason }
 
 func (e *OwnershipError) Error() string {
@@ -66,56 +61,16 @@ func (e *OwnershipError) Unwrap() error {
 }
 func refuseOwnership(reason OwnershipReason) error { return &OwnershipError{Reason: reason} }
 
-// Each state names the next step, not an effect assumed to have succeeded.
-// Sync states remain pending when fsync fails, including after rename/removal.
-type PublicationState string
-
-const (
-	PathsPending        PublicationState = "paths_pending"
-	PredecessorPending  PublicationState = "predecessor_pending"
-	CandidatePending    PublicationState = "candidate_pending"
-	RenamePending       PublicationState = "rename_pending"
-	ActiveSyncPending   PublicationState = "active_sync_pending"
-	SourceSyncPending   PublicationState = "source_sync_pending"
-	CleanupPending      PublicationState = "cleanup_pending"
-	StagingSyncPending  PublicationState = "staging_sync_pending"
-	PublicationComplete PublicationState = "complete"
-)
-
-type Publication struct {
-	State     PublicationState `json:"state"`
-	Directory string           `json:"directory,omitempty"`
-}
-
-// Receipt is trusted operation/control state, never input from an app or client.
-// PrepareActivation is effect-free. Production callers persist its result before
-// AdvanceActivation, and persist each returned state before advancing again.
-// Rollback uses the recorded old/new hashes, never an in-file ownership marker.
-type Receipt struct {
-	UnitName      string      `json:"unit_name"`
-	InstalledHash string      `json:"installed_hash"`
-	PreviousHash  string      `json:"previous_hash,omitempty"`
-	Home          string      `json:"home"`
-	Activation    Publication `json:"activation"`
-	Rollback      Publication `json:"rollback"`
-}
-
-func (r Receipt) PreviousPath() string {
-	if r.PreviousHash == "" {
-		return ""
-	}
-	return filepath.Join(rollbackDirectory, r.UnitName+"-"+strings.TrimPrefix(r.PreviousHash, "sha256:"))
-}
-
-// Manager requires D1's host mutation lock across processes and the D7 runner
-// directory layout. Activate/Resume are convenience loops; durable apply uses
-// Prepare/Advance with its own journal. This package never starts services.
+// Manager has no operation state. Callers journal intent and hold D1's host lock
+// across each operation. Empty hashes mean absence, never unknown ownership.
+// The per-unit .brine-prev slot and .brine-*.tmp namespace are reserved outputs.
 type Manager struct {
 	mu        sync.Mutex
 	root      *os.Root
 	validator Validator
 	syncDir   func(string) error
 	syncFile  func(*os.File) error
+	after     func(string, string) error
 }
 
 func NewManager(home string, v Validator) (*Manager, error) { return newManager(home, v, nil) }
@@ -147,334 +102,343 @@ func (m *Manager) Close() error { m.mu.Lock(); defer m.mu.Unlock(); return m.roo
 var unitNamePattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.container$`)
 var stageTokenPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{20,128}$`)
 
-// Owned units must come from authoritative BrineState, not host inventory or
-// comments in unit files. A missing entry grants creation only at an absent path.
-func (m *Manager) PrepareActivation(u Unit, owned []target.Unit) (Receipt, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if !unitNamePattern.MatchString(u.name) || u.content == "" || len(u.content) > maxUnitBytes {
-		return Receipt{}, fmt.Errorf("quadlet: rendered unit required")
-	}
-	previous := ""
-	seen := map[string]bool{}
-	for _, record := range owned {
-		if record.Name == "" || filepath.Base(record.Name) != record.Name || !hashPattern.MatchString(record.Hash) || seen[record.Name] {
-			return Receipt{}, fmt.Errorf("quadlet: invalid committed unit records")
-		}
-		seen[record.Name] = true
-		if record.Name == u.name {
-			previous = record.Hash
-		}
-	}
-	return Receipt{UnitName: u.name, InstalledHash: u.Hash(), PreviousHash: previous, Home: m.root.Name(), Activation: newPublication()}, nil
-}
-func newPublication() Publication {
-	return Publication{State: PathsPending, Directory: filepath.Join(stagingDirectory, rand.Text())}
-}
-
-func (m *Manager) Activate(ctx context.Context, u Unit, owned []target.Unit) (Receipt, error) {
-	r, err := m.PrepareActivation(u, owned)
-	if err != nil {
-		return Receipt{}, err
-	}
-	err = m.ResumeActivation(ctx, u, &r)
-	return r, err
-}
-func (m *Manager) AdvanceActivation(ctx context.Context, u Unit, r *Receipt) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.validateReceipt(r); err != nil {
-		return err
-	}
-	if u.name != r.UnitName || u.Hash() != r.InstalledHash {
-		return fmt.Errorf("quadlet: resumed unit differs from recorded intent")
-	}
-	return m.advance(ctx, r, u.Bytes(), r.PreviousHash, r.InstalledHash, &r.Activation, true, false)
-}
-func (m *Manager) ResumeActivation(ctx context.Context, u Unit, r *Receipt) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.validateReceipt(r); err != nil {
-		return err
-	}
-	if u.name != r.UnitName || u.Hash() != r.InstalledHash {
-		return fmt.Errorf("quadlet: resumed unit differs from recorded intent")
-	}
-	for {
-		if err := m.advance(ctx, r, u.Bytes(), r.PreviousHash, r.InstalledHash, &r.Activation, true, false); err != nil {
-			return err
-		}
-		if r.Activation.State == PublicationComplete {
-			return nil
-		}
-	}
-}
-
-// PrepareRollback can be journaled before its first filesystem effect. Repeated
-// Rollback calls also reconcile a restored/absent file by redoing pending syncs.
-func (m *Manager) PrepareRollback(r *Receipt) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.validateReceipt(r); err != nil {
-		return err
-	}
-	if r.Rollback.State == "" {
-		r.Rollback = newPublication()
-	}
-	return nil
-}
-func (m *Manager) AdvanceRollback(ctx context.Context, r *Receipt) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.validateReceipt(r); err != nil {
-		return err
-	}
-	if r.Rollback.State == "" {
-		return fmt.Errorf("quadlet: rollback intent required")
-	}
-	data, err := m.rollbackData(r)
-	if err != nil {
-		return err
-	}
-	return m.advance(ctx, r, data, r.InstalledHash, r.PreviousHash, &r.Rollback, false, true)
-}
-func (m *Manager) Rollback(ctx context.Context, r *Receipt) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.validateReceipt(r); err != nil {
-		return err
-	}
-	if r.Rollback.State == "" {
-		r.Rollback = newPublication()
-	}
-	for {
-		data, err := m.rollbackData(r)
-		if err != nil {
-			return err
-		}
-		if err = m.advance(ctx, r, data, r.InstalledHash, r.PreviousHash, &r.Rollback, false, true); err != nil {
-			return err
-		}
-		if r.Rollback.State == PublicationComplete {
-			return nil
-		}
-	}
-}
-func (m *Manager) rollbackData(r *Receipt) ([]byte, error) {
-	if r.PreviousHash == "" {
-		return nil, nil
-	}
-	data, exists, err := m.readArtifact(r.PreviousPath())
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, refuseOwnership(MissingRecorded)
-	}
-	if digest(data) != r.PreviousHash {
-		return nil, refuseOwnership(HashMismatch)
-	}
-	return data, nil
-}
-func (m *Manager) validateReceipt(r *Receipt) error {
-	if r == nil || r.Home != m.root.Name() || !unitNamePattern.MatchString(r.UnitName) || !hashPattern.MatchString(r.InstalledHash) || (r.PreviousHash != "" && !hashPattern.MatchString(r.PreviousHash)) || !validPublication(r.Activation, false) || !validPublication(r.Rollback, true) {
-		return fmt.Errorf("quadlet: invalid operation receipt")
-	}
-	return nil
-}
-func validPublication(p Publication, optional bool) bool {
-	if p.State == "" {
-		return optional && p.Directory == ""
-	}
-	switch p.State {
-	case PathsPending, PredecessorPending, CandidatePending, RenamePending, ActiveSyncPending, SourceSyncPending, CleanupPending, StagingSyncPending, PublicationComplete:
-	default:
+func validHash(hash string) bool       { return hash == "" || hashPattern.MatchString(hash) }
+func previousPath(name string) string  { return filepath.Join(ActiveDirectory, name+".brine-prev") }
+func temporaryName(name string) string { return "." + name + ".brine-" + rand.Text() + ".tmp" }
+func isTemporary(entry, name string) bool {
+	prefix := "." + name + ".brine-"
+	if !strings.HasPrefix(entry, prefix) || !strings.HasSuffix(entry, ".tmp") {
 		return false
 	}
-	return filepath.Dir(p.Directory) == stagingDirectory && stageTokenPattern.MatchString(filepath.Base(p.Directory))
+	return stageTokenPattern.MatchString(strings.TrimSuffix(strings.TrimPrefix(entry, prefix), ".tmp"))
 }
 
-func (m *Manager) advance(ctx context.Context, r *Receipt, data []byte, expected, next string, p *Publication, retain, reconcile bool) error {
+// Install receives a rendered unit and its committed predecessor hash from
+// BrineState, not inventory. The desired hash is inseparable from Unit's bytes.
+func (m *Manager) Install(ctx context.Context, u Unit, oldHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !unitNamePattern.MatchString(u.name) || u.content == "" || len(u.content) > maxUnitBytes || !validHash(oldHash) {
+		return fmt.Errorf("quadlet: invalid install intent")
+	}
+	return m.replace(ctx, u.name, oldHash, u.Hash(), u.Bytes(), true)
+}
+
+// Rollback repeats the same reconciliation with installed/previous hashes
+// swapped. The retained slot must match the committed previous hash exactly.
+func (m *Manager) Rollback(ctx context.Context, name, installedHash, previousHash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !unitNamePattern.MatchString(name) || !hashPattern.MatchString(installedHash) || !validHash(previousHash) {
+		return fmt.Errorf("quadlet: invalid rollback intent")
+	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if p.State != PathsPending {
-		for _, directory := range []string{ActiveDirectory, stagingDirectory, rollbackDirectory} {
-			if err := m.verifyDirectories(directory); err != nil {
-				return err
-			}
-		}
-	}
-	info, err := m.root.Lstat(p.Directory)
-	if err == nil {
-		if err = checkDirectory(info); err != nil {
-			return err
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
+	if err := m.checkDirectories(); err != nil {
 		return err
 	}
-	active := filepath.Join(ActiveDirectory, r.UnitName)
-	candidate := filepath.Join(p.Directory, r.UnitName)
-	switch p.State {
-	case PathsPending:
-		if err := m.checkDirectories(); err != nil {
-			return err
-		}
-		current, exists, err := m.readArtifact(active)
+	var data []byte
+	if previousHash != "" {
+		var exists bool
+		var err error
+		data, exists, err = m.readArtifact(previousPath(name))
 		if err != nil {
 			return err
 		}
-		if reconcile && matches(current, exists, next) {
-			p.State = ActiveSyncPending
-			return nil
-		}
-		if err = checkExpected(current, exists, expected); err != nil {
+		if err = checkExpected(data, exists, previousHash); err != nil {
 			return err
 		}
-		p.State = PredecessorPending
-	case PredecessorPending:
-		if retain && expected != "" {
-			old, exists, err := m.readArtifact(active)
-			if err != nil {
-				return err
-			}
-			if err = checkExpected(old, exists, expected); err != nil {
-				return err
-			}
-			if err = m.retain(r.PreviousPath(), old, expected); err != nil {
-				return err
-			}
-		}
-		p.State = CandidatePending
-	case CandidatePending:
-		if next == "" {
-			p.State = RenamePending
-			return nil
-		}
-		if err := m.ensureDirectories(p.Directory); err != nil {
+	}
+	return m.replace(ctx, name, installedHash, previousHash, data, false)
+}
+
+func (m *Manager) replace(ctx context.Context, name, oldHash, newHash string, data []byte, retain bool) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := m.checkDirectories(); err != nil {
+		return err
+	}
+	active := filepath.Join(ActiveDirectory, name)
+	current, exists, err := m.readArtifact(active)
+	if err != nil {
+		return err
+	}
+	done := matches(current, exists, newHash)
+	// Drift must cause no cleanup writes, even when abandoned temps are present.
+	if !done {
+		if err = checkExpected(current, exists, oldHash); err != nil {
 			return err
 		}
-		staged, exists, err := m.readArtifact(candidate)
+	}
+	if retain && done && oldHash != "" && oldHash != newHash {
+		prior, present, err := m.readArtifact(previousPath(name))
 		if err != nil {
 			return err
 		}
-		if exists {
-			if digest(staged) != next {
-				return refuseOwnership(HashMismatch)
-			}
-			if err = m.syncArtifact(candidate, next); err != nil {
-				return err
-			}
-		} else if err = m.writeNew(candidate, data); err != nil {
+		if err = checkExpected(prior, present, oldHash); err != nil {
 			return err
 		}
-		if err = m.syncDir(p.Directory); err != nil {
-			return err
-		}
-		if err = m.validator.Validate(ctx, Candidate{Directory: filepath.Join(m.root.Name(), p.Directory), UnitName: r.UnitName}); err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return fmt.Errorf("quadlet: generator validation failed")
-		}
-		if err = ctx.Err(); err != nil {
-			return err
-		}
-		staged, exists, err = m.readArtifact(candidate)
-		if err != nil {
-			return err
-		}
-		if !exists || digest(staged) != next {
-			return refuseOwnership(HashMismatch)
-		}
-		p.State = RenamePending
-	case RenamePending:
-		if err := m.checkDirectories(); err != nil {
-			return err
-		}
-		current, exists, err := m.readArtifact(active)
-		if err != nil {
-			return err
-		}
-		staged, stageExists, err := m.readArtifact(candidate)
-		if err != nil {
-			return err
-		}
-		if matches(current, exists, next) && (!stageExists || next == "") {
-			p.State = ActiveSyncPending
-			return nil
-		}
-		if err = checkExpected(current, exists, expected); err != nil {
-			return err
-		}
-		if next == "" {
-			if err = m.root.Remove(active); err != nil {
-				return err
-			}
-		} else {
-			if !stageExists || digest(staged) != next {
-				return refuseOwnership(HashMismatch)
-			}
-			if err = m.root.Rename(candidate, active); err != nil {
+	}
+	if err = m.cleanTemporaryFiles(name); err != nil {
+		return err
+	}
+	if done {
+		if retain && oldHash != "" && oldHash != newHash {
+			if err = m.syncArtifact(previousPath(name), oldHash); err != nil {
 				return err
 			}
 		}
-		p.State = ActiveSyncPending
-	case ActiveSyncPending:
-		current, exists, err := m.readArtifact(active)
+		return m.finish(active, newHash)
+	}
+	if newHash != "" {
+		if err = m.validate(ctx, name, data, newHash); err != nil {
+			return err
+		}
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = m.verifyDirectories(ActiveDirectory); err != nil {
+		return err
+	}
+	current, exists, err = m.readArtifact(active)
+	if err != nil {
+		return err
+	}
+	if err = checkExpected(current, exists, oldHash); err != nil {
+		return err
+	}
+	candidate := ""
+	if newHash != "" {
+		candidate, err = m.writeTemporary(ActiveDirectory, name, data)
 		if err != nil {
 			return err
 		}
-		if !matches(current, exists, next) {
-			return refuseOwnership(HashMismatch)
+	}
+	if retain && oldHash != "" {
+		if err = m.retain(name, current, oldHash); err != nil {
+			return err
 		}
-		if next != "" {
-			if err = m.syncArtifact(active, next); err != nil {
-				return ErrPublicationUnknown
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = m.verifyDirectories(ActiveDirectory); err != nil {
+		return err
+	}
+	current, exists, err = m.readArtifact(active)
+	if err != nil {
+		return err
+	}
+	if err = checkExpected(current, exists, oldHash); err != nil {
+		return err
+	}
+	if newHash == "" {
+		err = m.remove(active)
+	} else {
+		staged, present, readErr := m.readArtifact(candidate)
+		if readErr != nil {
+			return readErr
+		}
+		if err = checkExpected(staged, present, newHash); err != nil {
+			return err
+		}
+		err = m.rename(candidate, active)
+	}
+	if err != nil {
+		return ErrPublicationUnknown
+	}
+	return m.finish(active, newHash)
+}
+func (m *Manager) finish(active, hash string) error {
+	if hash != "" {
+		if err := m.syncArtifact(active, hash); err != nil {
+			return errors.Join(ErrPublicationUnknown, err)
+		}
+	}
+	if err := m.syncDir(ActiveDirectory); err != nil {
+		return ErrPublicationUnknown
+	}
+	data, exists, err := m.readArtifact(active)
+	if err != nil {
+		return err
+	}
+	return checkExpected(data, exists, hash)
+}
+func (m *Manager) retain(name string, data []byte, hash string) error {
+	path := previousPath(name)
+	prior, exists, err := m.readArtifact(path)
+	if err != nil {
+		return err
+	}
+	if exists && digest(prior) == hash {
+		if err = m.syncArtifact(path, hash); err != nil {
+			return err
+		}
+	} else {
+		// A recorded active unit owns this reserved backup slot. Replace it atomically
+		// so a crash cannot leave a partial predecessor or lose the current unit.
+		temporary, err := m.writeTemporary(ActiveDirectory, name, data)
+		if err != nil {
+			return err
+		}
+		if err = m.rename(temporary, path); err != nil {
+			return err
+		}
+	}
+	return m.syncDir(ActiveDirectory)
+}
+func (m *Manager) validate(ctx context.Context, name string, data []byte, hash string) error {
+	directory := filepath.Join(stagingDirectory, temporaryName(name))
+	if err := m.ensureDirectories(directory); err != nil {
+		return err
+	}
+	temporary, err := m.writeTemporary(directory, name, data)
+	if err != nil {
+		return err
+	}
+	candidate := filepath.Join(directory, name)
+	if err = m.rename(temporary, candidate); err != nil {
+		return err
+	}
+	if err = m.syncDir(directory); err != nil {
+		return err
+	}
+	if err = m.validator.Validate(ctx, Candidate{Directory: filepath.Join(m.root.Name(), directory), UnitName: name}); err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return fmt.Errorf("quadlet: generator validation failed")
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = m.verifyDirectories(directory); err != nil {
+		return err
+	}
+	staged, exists, err := m.readArtifact(candidate)
+	if err != nil {
+		return err
+	}
+	if err = checkExpected(staged, exists, hash); err != nil {
+		return err
+	}
+	if err = m.remove(candidate); err != nil {
+		return err
+	}
+	if err = m.remove(directory); err != nil {
+		return err
+	}
+	return m.syncDir(stagingDirectory)
+}
+func (m *Manager) cleanTemporaryFiles(name string) error {
+	for _, directory := range []string{ActiveDirectory, stagingDirectory} {
+		entries, err := m.readDirectory(directory)
+		if err != nil {
+			return err
+		}
+		for _, entry := range entries {
+			if !isTemporary(entry.Name(), name) {
+				continue
+			}
+			path := filepath.Join(directory, entry.Name())
+			if directory == stagingDirectory {
+				if err = m.verifyDirectories(path); err != nil {
+					return err
+				}
+				children, err := m.readDirectory(path)
+				if err != nil {
+					return err
+				}
+				for _, child := range children {
+					if child.Name() != name && !isTemporary(child.Name(), name) {
+						return refuseOwnership(Unrecorded)
+					}
+				}
+				for _, child := range children {
+					if err = m.removeTemporary(filepath.Join(path, child.Name())); err != nil {
+						return err
+					}
+				}
+				if err = m.remove(path); err != nil {
+					return err
+				}
+			} else if err = m.removeTemporary(path); err != nil {
+				return err
 			}
 		}
-		if err = m.syncDir(ActiveDirectory); err != nil {
-			return ErrPublicationUnknown
-		}
-		if next == "" {
-			p.State = PublicationComplete
-		} else {
-			p.State = SourceSyncPending
-		}
-	case SourceSyncPending:
-		info, err := m.root.Lstat(p.Directory)
-		if errors.Is(err, os.ErrNotExist) {
-			p.State = StagingSyncPending
-			return nil
-		}
-		if err != nil {
+		if err = m.syncDir(directory); err != nil {
 			return err
 		}
-		if err = checkDirectory(info); err != nil {
-			return err
-		}
-		if err = m.syncDir(p.Directory); err != nil {
-			return ErrPublicationUnknown
-		}
-		p.State = CleanupPending
-	case CleanupPending:
-		if err := m.root.Remove(p.Directory); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		p.State = StagingSyncPending
-	case StagingSyncPending:
-		if err := m.syncDir(stagingDirectory); err != nil {
-			return ErrPublicationUnknown
-		}
-		p.State = PublicationComplete
-	case PublicationComplete:
-		current, exists, err := m.readArtifact(active)
-		if err != nil {
-			return err
-		}
-		return checkExpected(current, exists, next)
-	default:
-		return fmt.Errorf("quadlet: invalid publication state")
+	}
+	return nil
+}
+func (m *Manager) readDirectory(path string) ([]os.DirEntry, error) {
+	f, err := m.root.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return f.ReadDir(-1)
+}
+func (m *Manager) removeTemporary(path string) error {
+	f, exists, err := m.openArtifact(path)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		return nil
+	}
+	if err = f.Close(); err != nil {
+		return err
+	}
+	return m.remove(path)
+}
+func (m *Manager) writeTemporary(directory, name string, data []byte) (string, error) {
+	path := filepath.Join(directory, temporaryName(name))
+	f, err := m.root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	if err = m.checkpoint("file-created", path); err != nil {
+		return path, err
+	}
+	n, err := f.Write(data)
+	if err != nil {
+		return path, err
+	}
+	if n != len(data) {
+		return path, io.ErrShortWrite
+	}
+	if err = m.checkpoint("file-written", path); err != nil {
+		return path, err
+	}
+	if err = m.syncFile(f); err != nil {
+		return path, err
+	}
+	if err = m.checkpoint("file-synced", path); err != nil {
+		return path, err
+	}
+	return path, f.Close()
+}
+func (m *Manager) remove(path string) error {
+	if err := m.root.Remove(path); err != nil {
+		return err
+	}
+	return m.checkpoint("removed", path)
+}
+func (m *Manager) rename(source, destination string) error {
+	if err := m.root.Rename(source, destination); err != nil {
+		return err
+	}
+	return m.checkpoint("renamed", destination)
+}
+func (m *Manager) checkpoint(event, path string) error {
+	if m.after != nil {
+		return m.after(event, path)
 	}
 	return nil
 }
@@ -500,50 +464,6 @@ func checkExpected(data []byte, exists bool, hash string) error {
 	return nil
 }
 
-func (m *Manager) retain(path string, data []byte, hash string) error {
-	existing, exists, err := m.readArtifact(path)
-	if err != nil {
-		return err
-	}
-	if exists {
-		if digest(existing) != hash {
-			return refuseOwnership(HashMismatch)
-		}
-		if err = m.syncArtifact(path, hash); err != nil {
-			return err
-		}
-	} else {
-		temporary := path + "." + rand.Text()
-		if err = m.writeNew(temporary, data); err != nil {
-			return err
-		}
-		defer m.root.Remove(temporary)
-		if err = m.root.Rename(temporary, path); err != nil {
-			return err
-		}
-	}
-	// Presence and identical bytes do not prove that an earlier fsync succeeded.
-	return m.syncDir(rollbackDirectory)
-}
-func (m *Manager) writeNew(path string, data []byte) error {
-	f, err := m.root.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL|syscall.O_NOFOLLOW, 0600)
-	if err != nil {
-		return err
-	}
-	_, err = f.Write(data)
-	if err == nil {
-		err = m.syncFile(f)
-	}
-	closeErr := f.Close()
-	if err != nil {
-		m.root.Remove(path)
-		return err
-	}
-	if closeErr != nil {
-		m.root.Remove(path)
-	}
-	return closeErr
-}
 func (m *Manager) readArtifact(path string) ([]byte, bool, error) {
 	f, exists, err := m.openArtifact(path)
 	if err != nil || !exists {
@@ -605,7 +525,10 @@ func (m *Manager) syncArtifact(path, hash string) error {
 	if len(data) > maxUnitBytes || digest(data) != hash {
 		return refuseOwnership(HashMismatch)
 	}
-	return m.syncFile(f)
+	if err = m.syncFile(f); err != nil {
+		return err
+	}
+	return m.checkpoint("file-synced", path)
 }
 func (m *Manager) syncDirectory(path string) error {
 	dir, err := m.root.Open(path)
@@ -613,10 +536,13 @@ func (m *Manager) syncDirectory(path string) error {
 		return err
 	}
 	defer dir.Close()
-	return dir.Sync()
+	if err = dir.Sync(); err != nil {
+		return err
+	}
+	return m.checkpoint("directory-synced", path)
 }
 func (m *Manager) checkDirectories() error {
-	for _, dir := range []string{ActiveDirectory, stagingDirectory, rollbackDirectory} {
+	for _, dir := range []string{ActiveDirectory, stagingDirectory} {
 		if err := m.ensureDirectories(dir); err != nil {
 			return err
 		}
