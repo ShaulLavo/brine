@@ -129,3 +129,73 @@ func TestRegistryRedirectConfinement(t *testing.T) {
 		t.Fatal("token service redirected")
 	}
 }
+
+func TestRegistryDockerHub(t *testing.T) {
+	config := []byte(`{"os":"linux","architecture":"arm64"}`)
+	manifest, _ := json.Marshal(map[string]any{"schemaVersion": 2, "config": map[string]string{"digest": hashBytes(config)}})
+	transport := roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		status, raw, header := 200, manifest, http.Header{}
+		if req.URL.Host == "auth.docker.io" {
+			if req.URL.Path != "/token" || req.URL.Query().Get("service") != "registry.docker.io" || req.URL.Query().Get("scope") != "repository:library/fixture:pull" || req.Header.Get("Authorization") != "" {
+				t.Fatalf("unexpected token request %s", req.URL)
+			}
+			raw = []byte(`{"token":"fixture-token"}`)
+		} else {
+			if req.URL.Host != "registry-1.docker.io" {
+				t.Errorf("Docker Hub registry host = %s", req.URL.Host)
+			}
+			if req.Header.Get("Authorization") == "" {
+				status = 401
+				raw = nil
+				header.Set("WWW-Authenticate", `Bearer realm="https://auth.docker.io/token",service="registry.docker.io"`)
+			} else if strings.Contains(req.URL.Path, "/blobs/") {
+				raw = config
+			}
+		}
+		return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(string(raw))), Header: header}, nil
+	})
+	_, err := (Registry{Transport: transport}).Resolve(context.Background(), spec.ImageReference("docker.io/library/fixture@"+hashBytes(manifest)), target.Platform{OS: "linux", Arch: "arm64"})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRegistryDockerHubRedirectConfinement(t *testing.T) {
+	original, _ := http.NewRequest(http.MethodGet, "https://registry-1.docker.io/v2/library/fixture/blobs/sha256:fixture", nil)
+	for _, host := range []string{"production.cloudfront.docker.com", "production.cloudflare.docker.com"} {
+		req, _ := http.NewRequest(http.MethodGet, "https://"+host+"/blob", nil)
+		req.Header.Set("Authorization", "Bearer fixture-token")
+		if err := registryRedirect(req, []*http.Request{original}); err != nil || req.Header.Get("Authorization") != "" {
+			t.Fatalf("Docker CDN %s rejected or received credentials: %v", host, err)
+		}
+	}
+	for _, endpoint := range []string{"https://other.docker.com/blob", "https://production.cloudfront.docker.com:444/blob", "http://production.cloudfront.docker.com/blob"} {
+		req, _ := http.NewRequest(http.MethodGet, endpoint, nil)
+		if registryRedirect(req, []*http.Request{original}) == nil {
+			t.Fatalf("untrusted Docker CDN accepted %s", endpoint)
+		}
+	}
+	manifest, _ := http.NewRequest(http.MethodGet, "https://registry-1.docker.io/v2/library/fixture/manifests/sha256:fixture", nil)
+	req, _ := http.NewRequest(http.MethodGet, "https://production.cloudfront.docker.com/blob", nil)
+	if registryRedirect(req, []*http.Request{manifest}) == nil {
+		t.Fatal("manifest redirected")
+	}
+}
+
+func TestRegistryDockerHubTokenConfinement(t *testing.T) {
+	transport := roundTripFunc(func(*http.Request) (*http.Response, error) {
+		t.Fatal("untrusted token endpoint requested")
+		return nil, nil
+	})
+	for _, tc := range []struct{ host, realm, service string }{
+		{"registry.example", "https://auth.docker.io/token", "registry.docker.io"},
+		{"registry-1.docker.io", "https://auth.docker.io/other", "registry.docker.io"},
+		{"registry-1.docker.io", "https://auth.docker.io/token", "other"},
+		{"registry-1.docker.io", "https://auth.docker.io:444/token", "registry.docker.io"},
+	} {
+		challenge := fmt.Sprintf(`Bearer realm="%s",service="%s"`, tc.realm, tc.service)
+		if _, err := registryToken(context.Background(), &http.Client{Transport: transport}, challenge, tc.host, "library/fixture"); err == nil {
+			t.Fatal("untrusted Docker token service accepted")
+		}
+	}
+}
