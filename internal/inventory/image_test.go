@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -24,6 +25,10 @@ type imageRunner struct {
 func (r imageRunner) Execute(_ context.Context, cmd localexec.Command) (localexec.Result, error) {
 	if cmd.Mutation || len(cmd.Stdin) > 0 {
 		return localexec.Result{}, fmt.Errorf("mutation refused")
+	}
+	// Model a registry read longer than the three-second local-probe budget.
+	if len(cmd.Args) > 0 && cmd.Args[0] == "manifest" && cmd.Timeout < 4*time.Second {
+		return localexec.Result{}, &localexec.Error{Kind: localexec.Timeout}
 	}
 	out, ok := r.results[strings.Join(cmd.Args, " ")]
 	if !ok {

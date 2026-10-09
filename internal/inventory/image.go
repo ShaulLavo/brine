@@ -71,7 +71,9 @@ func (c Collector) liveImage(ctx context.Context, home string, units []target.Un
 	if !ok {
 		return unknownImage
 	}
-	session, err := localexec.NewSession(executor, uint32(os.Getuid()), home, 3*time.Second)
+	// Index inspection can require a registry read, unlike local host probes.
+	// Collection's one-minute deadline still bounds all apps together.
+	session, err := localexec.NewSession(executor, uint32(os.Getuid()), home, 30*time.Second)
 	if err != nil {
 		return unknownImage
 	}

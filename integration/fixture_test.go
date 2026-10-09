@@ -42,7 +42,7 @@ const secretName = "brine-fixture-token-v1"
 const fixtureHost = "fixture.localhost"
 const caddyRoot = "/etc/caddy/brine"
 
-var stage = flag.String("fixture-stage", "", "explicitly authorized runner fixture stage: prepare, drills, probe, cleanup")
+var stage = flag.String("fixture-stage", "", "explicitly authorized runner fixture stage: prepare, drills, plans, probe, cleanup")
 
 type receipt struct {
 	Plan     plan.Plan
@@ -123,7 +123,7 @@ func TestPiFixture(t *testing.T) {
 	if *stage == "" {
 		t.Skip("requires named disposable host authorization and -fixture-stage")
 	}
-	if *stage != "prepare" && *stage != "probe" && *stage != "cleanup" && *stage != "drills" {
+	if *stage != "prepare" && *stage != "probe" && *stage != "cleanup" && *stage != "drills" && *stage != "plans" {
 		t.Fatal("unknown fixture stage")
 	}
 	identity := must(user.Current())
@@ -141,6 +141,11 @@ func TestPiFixture(t *testing.T) {
 	case "drills":
 		r := f.load()
 		f.caddyFailureChecks(&r, must(os.ReadFile("/etc/caddy/Caddyfile")))
+	case "plans":
+		r := f.load()
+		snapshot := f.collect()
+		check(f.t, validateFixtureInventory(snapshot, r))
+		f.checkInstalledPlans(snapshot, r)
 	case "probe":
 		f.probe()
 	case "cleanup":
