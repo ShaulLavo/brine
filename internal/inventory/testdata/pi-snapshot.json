@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "identity": {
+    "id": "host-0000000000000000000000000000000000000000000000000000000000000000",
+    "host_key_fingerprint": "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+  },
+  "os": {
+    "id": "debian",
+    "version": "13"
+  },
+  "arch": "arm64",
+  "versions": {
+    "systemd": {
+      "status": "known",
+      "value": "257"
+    },
+    "podman": {
+      "status": "known",
+      "value": "5.4.2"
+    },
+    "passt": {
+      "status": "known",
+      "value": "0.0~git20250503.587980c-2+deb13u1"
+    },
+    "caddy": {
+      "status": "known",
+      "value": "2.6.2"
+    },
+    "litestream": {
+      "status": "absent"
+    }
+  },
+  "cgroup_v2": {
+    "status": "known",
+    "value": true
+  },
+  "runner": {
+    "user": {
+      "status": "absent"
+    },
+    "linger": {
+      "status": "unknown"
+    }
+  },
+  "generation": {
+    "status": "known",
+    "value": 0
+  },
+  "caddy_config": {
+    "status": "absent"
+  },
+  "apps": {
+    "status": "known",
+    "value": []
+  },
+  "used_ports": {
+    "status": "known",
+    "value": [
+      22,
+      20001,
+      20002,
+      20003,
+      20004,
+      20005,
+      20006,
+      20007,
+      20008,
+      20009,
+      20010,
+      20011
+    ]
+  },
+  "live_caddy_files": {
+    "status": "unknown"
+  },
+  "port_owners": {
+    "status": "known",
+    "value": [
+      {
+        "port": 22,
+        "app": "",
+        "process": "sshd",
+        "unit": "ssh.service"
+      },
+      {
+        "port": 20001,
+        "app": "",
+        "process": "fixture-process-1",
+        "unit": "fixture-1.service"
+      },
+      {
+        "port": 20003,
+        "app": "",
+        "process": "fixture-process-2",
+        "unit": "fixture-2.service"
+      },
+      {
+        "port": 20004,
+        "app": "",
+        "process": "fixture-process-3",
+        "unit": "fixture-3.service"
+      },
+      {
+        "port": 20009,
+        "app": "",
+        "process": "fixture-process-4",
+        "unit": "fixture-4.service"
+      },
+      {
+        "port": 20011,
+        "app": "",
+        "process": "fixture-process-5",
+        "unit": "fixture-5.service"
+      }
+    ]
+  },
+  "free_disk_bytes": {
+    "status": "known",
+    "value": 123456789
+  }
+}
