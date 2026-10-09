@@ -462,3 +462,40 @@ func TestRealRunnerPermissionAndRuntimeFailuresStayUnknown(t *testing.T) {
 		})
 	}
 }
+
+func TestAppUnitActiveObservation(t *testing.T) {
+	for _, state := range []string{"active", "inactive", "failed", "", "unexpected"} {
+		t.Run(state, func(t *testing.T) {
+			f := baseFixture()
+			f.files["/etc/passwd"] = "brine:x:1001:1001::/home/brine:/bin/sh\n"
+			f.files["/proc/self/status"] = "Uid:\t1001\t1001\t1001\t1001\n"
+			dir := "/home/brine/.config/containers/systemd"
+			f.dirs[dir] = []fs.DirEntry{fixtureEntry("brine-api.container")}
+			f.files[dir+"/brine-api.container"] = "[Container]\nImage=example.test/api:latest\n"
+			runner := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "", "systemctl --user show brine-api.service --property=ActiveState --value": state}
+			s, e := (Collector{FS: f, Runner: runner, IdentityKey: []byte("fixture")}).Collect(context.Background())
+			if e != nil {
+				t.Fatal(e)
+			}
+			active := (*s.Apps.Value)[0].UnitActive
+			if active == nil {
+				t.Fatal("missing measurement")
+			}
+			if state == "active" || state == "inactive" || state == "failed" {
+				if active.Value == nil || *active.Value != (state == "active") {
+					t.Fatal(active)
+				}
+			} else if active.Status != target.Unknown || active.Value != nil {
+				t.Fatal(active)
+			}
+			encoded, e := target.Encode(s)
+			if e != nil {
+				t.Fatal(e)
+			}
+			decoded, e := target.Decode(encoded)
+			if e != nil || (*decoded.Apps.Value)[0].UnitActive.Status != active.Status {
+				t.Fatal(decoded, e)
+			}
+		})
+	}
+}

@@ -1,6 +1,7 @@
 package dispatch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"strings"
@@ -114,6 +115,33 @@ func TestOperationResponseRejectsUnsafeJournal(t *testing.T) {
 	} {
 		if _, err := DecodeResponse([]byte(raw), "operation"); err == nil {
 			t.Fatalf("accepted %s", raw)
+		}
+	}
+}
+
+func TestAppOperationClassesAndRollbackAuthorization(t *testing.T) {
+	for op, want := range map[string]Class{"status": ReadOnly, "rollback": Mutating} {
+		if got, ok := ClassOf(op); !ok || got != want {
+			t.Fatal(op, got, ok)
+		}
+	}
+	server := NewServer("fixture", nil)
+	for _, tc := range []struct {
+		op, args string
+		code     result.Code
+	}{{"status", `{"app":""}`, result.DependencyMissing}, {"rollback", `{"app":"hello","release_id":""}`, result.DispatchOperationRefused}} {
+		raw, e := EncodeRequest(Request{SchemaVersion: SchemaVersion, Op: tc.op, RequestID: "fixture", Args: json.RawMessage(tc.args)})
+		if e != nil {
+			t.Fatal(e)
+		}
+		response, e := server.Handle(context.Background(), bytes.NewReader(raw))
+		if e == nil || response.Error.Code != tc.code {
+			t.Fatal(response, e)
+		}
+	}
+	for _, raw := range []string{`{"schema_version":1,"op":"status","request_id":"fixture","args":{"app":"../escape"}}`, `{"schema_version":1,"op":"rollback","request_id":"fixture","args":{"app":"hello","release_id":"../escape"}}`, `{"schema_version":1,"op":"rollback","request_id":"fixture","args":{"app":"hello","release_id":"previous","apply":true}}`} {
+		if _, e := DecodeRequest([]byte(raw)); e == nil {
+			t.Fatal("accepted", raw)
 		}
 	}
 }

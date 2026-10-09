@@ -131,7 +131,7 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 				}
 			}
 		}
-		if item.Drift.State == "in_sync" && item.Health.UnitActive.Value != nil && *item.Health.UnitActive.Value && probes < DirectProbeLimit {
+		if item.Drift.State != "drifted" && observedPortMatches(snap, r) && item.Health.UnitActive.Value != nil && *item.Health.UnitActive.Value && probes < DirectProbeLimit {
 			if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > DirectProbeTimeout {
 				probe := s.Probe
 				if probe == nil {
@@ -260,8 +260,8 @@ func drift(s target.Snapshot, r plan.CurrentRelease) Drift {
 	}
 	if observed != nil {
 		a := observed
-		check("image", a.Image.Status == target.KnownStatus && a.Image.Value != nil, a.Image.Value != nil && a.Image.Value.Digest == r.Image.Digest && a.Image.Value.Platform == r.Image.Platform)
-		check("port", a.AllocatedHostPort.Status == target.KnownStatus && a.AllocatedHostPort.Value != nil, a.AllocatedHostPort.Value != nil && *a.AllocatedHostPort.Value == r.HostPort)
+		check("image", a.Image.Status == target.Absent || a.Image.Status == target.KnownStatus && a.Image.Value != nil, a.Image.Value != nil && a.Image.Value.Digest == r.Image.Digest && a.Image.Value.Platform == r.Image.Platform)
+		check("port", a.AllocatedHostPort.Status == target.Absent || a.AllocatedHostPort.Status == target.KnownStatus && a.AllocatedHostPort.Value != nil, a.AllocatedHostPort.Value != nil && *a.AllocatedHostPort.Value == r.HostPort)
 		units := slices.Clone(r.Units)
 		slices.SortFunc(units, func(a, b target.Unit) int { return strings.Compare(a.Name, b.Name) })
 		live := []target.Unit{}
@@ -327,4 +327,16 @@ func containsSecrets(live, expected []target.Secret) bool {
 		}
 	}
 	return true
+}
+
+func observedPortMatches(s target.Snapshot, r plan.CurrentRelease) bool {
+	if s.Apps.Value == nil {
+		return false
+	}
+	for _, app := range *s.Apps.Value {
+		if app.Name == r.App {
+			return app.AllocatedHostPort.Status == target.KnownStatus && app.AllocatedHostPort.Value != nil && *app.AllocatedHostPort.Value == r.HostPort
+		}
+	}
+	return false
 }

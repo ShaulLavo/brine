@@ -66,7 +66,7 @@ func DecodeRollback(raw []byte) (RollbackPlan, error) {
 	if exact(raw, reflect.TypeFor[RollbackPlan]()) != nil || json.Unmarshal(raw, &p) != nil || !digestPattern.MatchString(p.PlanID) || !idPattern.MatchString(p.ReleaseID) || p.Compatibility != "stateless_compatible" || p.Kind != plan.Update && p.Kind != plan.Conflict {
 		return RollbackPlan{}, strictjson.ErrObject
 	}
-	if p.Kind == plan.Update && (p.Diff == nil || len(p.Conflicts) != 0) || p.Kind == plan.Conflict && len(p.Conflicts) == 0 {
+	if p.Kind == plan.Update && len(p.Conflicts) != 0 || p.Kind == plan.Conflict && len(p.Conflicts) == 0 {
 		return RollbackPlan{}, strictjson.ErrObject
 	}
 	return p, nil

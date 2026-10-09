@@ -3,6 +3,7 @@ package apps
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -101,6 +102,12 @@ func fixture(t *testing.T) (Service, *fakeStore, target.Snapshot) {
 	oldImage.Digest = "sha256:" + strings.Repeat("e", 64)
 	previous := ops.Release{ID: "previous", PlanID: "old-plan", Image: oldImage}
 	s := &fakeStore{state: plan.BrineState{Releases: []plan.CurrentRelease{current}}, previous: previous, releases: map[string]ops.Release{"previous": previous, "current": {ID: "current", PlanID: "current-plan"}}, desired: map[string]policy.Desired{"old-plan": old}, plans: map[string]plan.Plan{"old-plan": {App: "hello", Target: snap.Identity, Image: oldImage}}}
+	older := previous
+	older.ID = "older"
+	older.PlanID = "older-plan"
+	s.releases["older"] = older
+	s.desired["older-plan"] = old
+	s.plans["older-plan"] = s.plans["old-plan"]
 	return Service{Store: s, Inventory: inventory{snap}, Probe: probeFunc(func(context.Context, target.Port, policy.Health) (bool, error) { return true, nil })}, s, snap
 }
 func TestStatus(t *testing.T) {
@@ -155,14 +162,14 @@ func TestStatus(t *testing.T) {
 	}
 }
 func TestRollback(t *testing.T) {
-	for _, id := range []string{"", "previous"} {
+	for _, id := range []string{"", "older"} {
 		t.Run("target_"+id, func(t *testing.T) {
 			service, s, _ := fixture(t)
 			got, e := service.Rollback(context.Background(), "hello", id)
 			if e != nil {
 				t.Fatal(e)
 			}
-			if got.PlanID == "" || got.ReleaseID != "previous" || got.Compatibility != "stateless_compatible" || len(s.saved) != 1 || s.saved[0].Kind != plan.Update {
+			if got.PlanID == "" || got.ReleaseID != expectedRelease(id) || got.Compatibility != "stateless_compatible" || len(s.saved) != 1 || s.saved[0].Kind != plan.Update {
 				t.Fatal(got, s.saved)
 			}
 			diff := got.Diff.Image
@@ -230,5 +237,42 @@ func TestStatusProbeBounds(t *testing.T) {
 	got, e = service.Status(ctx, "hello")
 	if e != nil || calls != 1 || got.Apps[0].Health.Direct != "not_checked" {
 		t.Fatal(got, e, calls)
+	}
+}
+
+func expectedRelease(id string) string {
+	if id == "" {
+		return "previous"
+	}
+	return id
+}
+
+func TestRollbackNoOpAndDriftedPlanning(t *testing.T) {
+	for _, kind := range []string{"no_op", "drift"} {
+		t.Run(kind, func(t *testing.T) {
+			service, s, snap := fixture(t)
+			if kind == "no_op" {
+				current := s.state.Releases[0]
+				s.previous.Image = current.Image
+				s.desired["old-plan"] = current.Desired
+				if _, e := service.Rollback(context.Background(), "hello", ""); result.Classify(e).Code() != result.RollbackNoOp || len(s.saved) != 0 {
+					t.Fatal(e, s.saved)
+				}
+			} else {
+				(*(*snap.Apps.Value)[0].QuadletUnits.Value)[0].Hash = "sha256:" + strings.Repeat("f", 64)
+				service.Inventory = inventory{snap}
+				got, e := service.Rollback(context.Background(), "hello", "")
+				if e != nil || got.Kind != plan.Conflict || len(s.saved) != 1 || len(s.saved[0].Changes) != 0 {
+					t.Fatal(got, e)
+				}
+				encoded, e := json.Marshal(got)
+				if e != nil {
+					t.Fatal(e)
+				}
+				if _, e := DecodeRollback(encoded); e != nil {
+					t.Fatal(e, string(encoded))
+				}
+			}
+		})
 	}
 }
