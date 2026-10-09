@@ -49,7 +49,11 @@ func TestExecRunner(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			output, err := (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestRunnerHelper$", "--", "BRINE_RUNNER_HELPER=1", tt.mode)
-			if output != tt.want || (err != nil) != tt.wantError {
+			want := tt.want
+			if tt.mode != "output" {
+				want += helperCoverageWarning()
+			}
+			if output != want || (err != nil) != tt.wantError {
 				t.Fatalf("output = %q, error = %v", output, err)
 			}
 		})
