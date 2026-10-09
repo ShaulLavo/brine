@@ -1,7 +1,7 @@
 [
   {
     "Id": "748902c9f9368aa7437b05e353c23968266b0bc882ac1d74067fc1768a102ba6",
-    "Digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "Digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     "RepoTags": [
       "registry.example/app:3.21"
     ],

@@ -129,6 +129,9 @@ func (c *Client) exists(ctx context.Context, args []string) (bool, error) {
 	}
 	return false, e
 }
+
+// CreateSecret borrows input for the synchronous call. The caller owns the slice
+// and its best-effort clearing after the call returns.
 func (c *Client) CreateSecret(ctx context.Context, name Name, input []byte) error {
 	// Podman 5.4 rejects empty data and data at or above 512000 bytes.
 	if name.value == "" || len(input) == 0 || len(input) >= 512000 {
@@ -179,8 +182,57 @@ func (c *Client) ContainerState(ctx context.Context, name Name) (ContainerState,
 	return *rows[0].State, nil
 }
 
-// Inspect observes local image metadata and the pinned registry manifest. The
-// latter may contact the registry, but never pulls or changes the image store.
+const ociManifest = "application/vnd.oci.image.manifest.v1+json"
+const dockerManifest = "application/vnd.docker.distribution.manifest.v2+json"
+
+type localImage struct {
+	ID           string
+	Digest       string
+	RepoDigests  []string
+	Os           string
+	Architecture string
+	ManifestType string
+}
+
+func (i Image) repository() string {
+	repo, _, _ := strings.Cut(i.value, "@")
+	if colon := strings.LastIndexByte(repo, ':'); colon > strings.LastIndexByte(repo, '/') {
+		repo = repo[:colon]
+	}
+	return repo
+}
+func (i Image) digest() string { return i.value[strings.LastIndexByte(i.value, '@')+1:] }
+func (row localImage) associates(image Image) bool {
+	ref := image.repository() + "@" + image.digest()
+	for _, associated := range row.RepoDigests {
+		if associated == ref {
+			return true
+		}
+	}
+	return false
+}
+func (c *Client) localImage(ctx context.Context, image Image) (localImage, error) {
+	r, e := c.run(ctx, []string{"image", "inspect", image.value}, nil, false)
+	if e != nil {
+		return localImage{}, e
+	}
+	var rows []localImage
+	if json.Unmarshal([]byte(r.Stdout), &rows) != nil || len(rows) != 1 {
+		return localImage{}, malformed()
+	}
+	row := rows[0]
+	if !digestPattern.MatchString("sha256:"+row.ID) || !digestPattern.MatchString(row.Digest) || row.Os == "" || row.Architecture == "" || !row.associates(image) {
+		return localImage{}, malformed()
+	}
+	if row.ManifestType != ociManifest && row.ManifestType != dockerManifest {
+		return localImage{}, malformed()
+	}
+	return row, nil
+}
+
+// Inspect observes local image metadata and the pinned registry manifest. It
+// binds candidate platform manifests back to the same stored image ID, rather
+// than guessing from architecture or the store's primary lookup digest.
 func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 	if image.value == "" {
 		return ImageInfo{}, invalid()
@@ -192,22 +244,21 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 	if !found {
 		return ImageInfo{}, &localexec.Error{Kind: localexec.NotFound}
 	}
-	r, e := c.run(ctx, []string{"image", "inspect", image.value}, nil, false)
+	row, e := c.localImage(ctx, image)
 	if e != nil {
 		return ImageInfo{}, e
 	}
-	var rows []struct{ Digest, Os, Architecture, Variant, ManifestType string }
-	if json.Unmarshal([]byte(r.Stdout), &rows) != nil || len(rows) != 1 {
-		return ImageInfo{}, malformed()
-	}
-	row := rows[0]
-	pin := image.value[strings.LastIndexByte(image.value, '@')+1:]
-	if row.Digest != pin || row.Os == "" || row.Architecture == "" {
-		return ImageInfo{}, malformed()
-	}
-	info := ImageInfo{IndexDigest: pin, Platform: Platform{OS: row.Os, Architecture: row.Architecture, Variant: row.Variant}}
-	r, e = c.run(ctx, []string{"manifest", "inspect", image.value}, nil, false)
+	info := ImageInfo{IndexDigest: image.digest(), Platform: Platform{OS: row.Os, Architecture: row.Architecture}}
+	r, e := c.run(ctx, []string{"manifest", "inspect", image.value}, nil, false)
 	if e != nil {
+		// Podman 5.4's list-only parser rejects OCI single manifests. Only its
+		// captured capability refusal permits using the already-verified local pin.
+		var re *localexec.Error
+		unsupported := strings.HasPrefix(r.Stderr, "Error: parsing manifest blob ") && strings.HasSuffix(strings.TrimSpace(r.Stderr), `as a "application/vnd.oci.image.manifest.v1+json": Treating single images as manifest lists is not implemented`)
+		if row.ManifestType == ociManifest && !r.Truncated && errors.As(e, &re) && re.Kind == localexec.Failed && re.ExitCode == 125 && unsupported {
+			info.ManifestDigest = image.digest()
+			return info, nil
+		}
 		return ImageInfo{}, e
 	}
 	var manifest struct {
@@ -216,7 +267,6 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 			Digest   string
 			Platform Platform
 		}
-		Config *json.RawMessage
 	}
 	if json.Unmarshal([]byte(r.Stdout), &manifest) != nil {
 		return ImageInfo{}, malformed()
@@ -224,19 +274,36 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 	switch manifest.MediaType {
 	case "application/vnd.oci.image.index.v1+json", "application/vnd.docker.distribution.manifest.list.v2+json":
 		for _, m := range manifest.Manifests {
-			if m.Platform.OS == info.Platform.OS && m.Platform.Architecture == info.Platform.Architecture && (row.Variant == "" || m.Platform.Variant == row.Variant) {
-				if info.ManifestDigest != "" || !digestPattern.MatchString(m.Digest) {
-					return ImageInfo{}, malformed()
-				}
-				info.ManifestDigest = m.Digest
-				info.Platform = m.Platform
+			if m.Platform.OS != row.Os || m.Platform.Architecture != row.Architecture {
+				continue
 			}
+			candidate, e := ParseImage(image.repository() + "@" + m.Digest)
+			if e != nil {
+				return ImageInfo{}, malformed()
+			}
+			if !row.associates(candidate) {
+				continue
+			}
+			selected, e := c.localImage(ctx, candidate)
+			if e != nil {
+				return ImageInfo{}, e
+			}
+			if selected.ID != row.ID || selected.Os != row.Os || selected.Architecture != row.Architecture {
+				continue
+			}
+			if info.ManifestDigest != "" {
+				return ImageInfo{}, malformed()
+			}
+			info.ManifestDigest = m.Digest
+			info.Platform = m.Platform
 		}
-	case "application/vnd.oci.image.manifest.v1+json", "application/vnd.docker.distribution.manifest.v2+json":
-		if manifest.Config == nil {
+	case dockerManifest:
+		// The schema-2 single-image result loses config/layers when Podman converts
+		// it to ManifestListData. The supported local lookup verifies this pin.
+		if row.ManifestType != dockerManifest || len(manifest.Manifests) != 0 {
 			return ImageInfo{}, malformed()
 		}
-		info.ManifestDigest = pin
+		info.ManifestDigest = image.digest()
 	default:
 		return ImageInfo{}, malformed()
 	}

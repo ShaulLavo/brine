@@ -6,8 +6,10 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -61,11 +63,43 @@ func (ExecRunner) Execute(ctx context.Context, c Command) (Result, error) {
 	if ctx.Err() != nil {
 		return Result{}, &Error{Kind: Timeout, cause: ctx.Err()}
 	}
+	path, err := trustedExecutable(c.Path)
+	if err != nil {
+		return Result{}, err
+	}
+	identity, err := user.Current()
+	if err != nil || !filepath.IsAbs(identity.HomeDir) {
+		return Result{}, &Error{Kind: Failed}
+	}
+	for _, entry := range c.Env {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok {
+			return Result{}, &Error{Kind: Invalid}
+		}
+		switch key {
+		case "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS":
+		case "LC_ALL":
+			if value != "C" {
+				return Result{}, &Error{Kind: Invalid}
+			}
+		default:
+			return Result{}, &Error{Kind: Invalid}
+		}
+	}
 	stdout, stderr := &commandOutput{}, &commandOutput{}
-	cmd := exec.CommandContext(ctx, c.Path, c.Args...)
+	cmd := exec.CommandContext(ctx, path, c.Args...)
 	configureProcessGroup(cmd)
 	cmd.Dir = c.Dir
-	cmd.Env = append(os.Environ(), c.Env...)
+	cmd.Env = append([]string{
+		"HOME=" + identity.HomeDir,
+		"USER=" + identity.Username,
+		"LOGNAME=" + identity.Username,
+		"PATH=/usr/bin:/bin",
+		"XDG_CONFIG_HOME=" + filepath.Join(identity.HomeDir, ".config"),
+		"XDG_DATA_HOME=" + filepath.Join(identity.HomeDir, ".local", "share"),
+		"XDG_CACHE_HOME=" + filepath.Join(identity.HomeDir, ".cache"),
+		"LC_ALL=C",
+	}, c.Env...)
 	cmd.Stdin = bytes.NewReader(c.Stdin)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
@@ -77,7 +111,7 @@ func (ExecRunner) Execute(ctx context.Context, c Command) (Result, error) {
 		}
 		return Result{}, &Error{Kind: kind, ExitCode: -1}
 	}
-	err := cmd.Wait()
+	err = cmd.Wait()
 	out, outTruncated := stdout.snapshot()
 	errout, errTruncated := stderr.snapshot()
 	result := Result{Stdout: out, Stderr: errout, ExitCode: cmd.ProcessState.ExitCode(), Truncated: outTruncated || errTruncated}
@@ -98,6 +132,24 @@ func (ExecRunner) Execute(ctx context.Context, c Command) (Result, error) {
 		return result, &Error{Kind: kind, ExitCode: result.ExitCode}
 	}
 	return result, nil
+}
+
+// Executable lookup must use the same controlled path as the child environment.
+// exec.Command would otherwise search the dispatcher's ambient PATH first.
+func trustedExecutable(name string) (string, error) {
+	if filepath.IsAbs(name) {
+		return name, nil
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return "", &Error{Kind: Invalid}
+	}
+	for _, dir := range []string{"/usr/bin", "/bin"} {
+		path := filepath.Join(dir, name)
+		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
+			return path, nil
+		}
+	}
+	return "", &Error{Kind: Failed, ExitCode: -1}
 }
 
 type commandOutput struct {

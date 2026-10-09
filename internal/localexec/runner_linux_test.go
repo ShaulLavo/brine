@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -15,7 +16,7 @@ import (
 )
 
 func TestProcessTreeHelper(t *testing.T) {
-	if os.Getenv("BRINE_PROCESS_TREE_HELPER") != "1" {
+	if os.Getenv("BRINE_PROCESS_TREE_HELPER") != "1" && !slices.Contains(os.Args, "BRINE_PROCESS_TREE_HELPER=1") {
 		return
 	}
 	if os.Args[len(os.Args)-1] == "signal" {
@@ -27,14 +28,20 @@ func TestProcessTreeHelper(t *testing.T) {
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	}
-	child := exec.Command(os.Args[0], "-test.run=^TestProcessTreeHelper$", "--", "child")
+	child := exec.Command(os.Args[0], "-test.run=^TestProcessTreeHelper$", "--", "BRINE_PROCESS_TREE_HELPER=1", "child")
 	child.Stdout = os.Stdout
 	child.Stderr = os.Stderr
 	if err := child.Start(); err != nil {
 		os.Exit(2)
 	}
 	pids := fmt.Sprintf("%d %d", os.Getpid(), child.Process.Pid)
-	if err := os.WriteFile(os.Getenv("BRINE_PROCESS_TREE_PIDFILE"), []byte(pids), 0600); err != nil {
+	pidfile := os.Getenv("BRINE_PROCESS_TREE_PIDFILE")
+	for _, arg := range os.Args {
+		if value, ok := strings.CutPrefix(arg, "BRINE_PROCESS_TREE_PIDFILE="); ok {
+			pidfile = value
+		}
+	}
+	if err := os.WriteFile(pidfile, []byte(pids), 0600); err != nil {
 		_ = child.Process.Kill()
 		_ = child.Wait()
 		os.Exit(2)
@@ -62,7 +69,7 @@ func testTimeoutTerminatesDescendants(t *testing.T, execute bool) {
 	go func() {
 		var err error
 		if execute {
-			_, err = (ExecRunner{}).Execute(ctx, Command{Path: os.Args[0], Args: []string{"-test.run=^TestProcessTreeHelper$", "--", "parent"}, Timeout: 3 * time.Second, Mutation: true})
+			_, err = (ExecRunner{}).Execute(ctx, Command{Path: os.Args[0], Args: []string{"-test.run=^TestProcessTreeHelper$", "--", "BRINE_PROCESS_TREE_HELPER=1", "BRINE_PROCESS_TREE_PIDFILE=" + pidfile, "parent"}, Timeout: 3 * time.Second, Mutation: true})
 		} else {
 			_, err = (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestProcessTreeHelper$", "--", "parent")
 		}
@@ -167,7 +174,7 @@ func TestProcessStatRunning(t *testing.T) {
 func TestExecuteSignalLeavesMutationOutcomeUnknown(t *testing.T) {
 	t.Setenv("BRINE_PROCESS_TREE_HELPER", "1")
 	for _, mutation := range []bool{false, true} {
-		_, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestProcessTreeHelper$", "--", "signal"}, Timeout: 3 * time.Second, Mutation: mutation})
+		_, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestProcessTreeHelper$", "--", "BRINE_PROCESS_TREE_HELPER=1", "signal"}, Timeout: 3 * time.Second, Mutation: mutation})
 		var re *Error
 		want := Failed
 		if mutation {

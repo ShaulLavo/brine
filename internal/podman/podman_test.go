@@ -2,9 +2,11 @@ package podman
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,21 +19,27 @@ type recorder struct {
 	inputs   []string
 	results  []localexec.Result
 	err      error
+	errors   []error
 }
 
 func (r *recorder) Execute(_ context.Context, c localexec.Command) (localexec.Result, error) {
 	r.commands = append(r.commands, c)
+	err := r.err
+	if len(r.errors) > 0 {
+		err = r.errors[0]
+		r.errors = r.errors[1:]
+	}
 	input := ""
 	if c.Stdin != nil {
 		input = string(c.Stdin)
 	}
 	r.inputs = append(r.inputs, input)
 	if len(r.results) == 0 {
-		return localexec.Result{}, r.err
+		return localexec.Result{}, err
 	}
 	result := r.results[0]
 	r.results = r.results[1:]
-	return result, r.err
+	return result, err
 }
 func client(t *testing.T, r *recorder) *Client {
 	t.Helper()
@@ -114,15 +122,15 @@ func TestRealVersionFixture(t *testing.T) {
 	}
 }
 
-// The image fixtures are synthetic. Both rootless and rootful stores were empty
-// during read-only capture, so no image was pulled to manufacture live evidence.
+// Captured from one public multi-arch image in throwaway rootless vfs storage
+// on Podman 5.4.2. Repository names, lookup digests and storage paths are scrubbed.
 func TestInspectBindsIndexAndPlatform(t *testing.T) {
-	r := &recorder{results: []localexec.Result{{}, {Stdout: fixture(t, "image-inspect.json")}, {Stdout: fixture(t, "manifest-inspect.json")}}}
+	r := &recorder{results: []localexec.Result{{}, {Stdout: fixture(t, "image-inspect.json")}, {Stdout: fixture(t, "manifest-inspect.json")}, {Stdout: fixture(t, "platform-image-inspect.json")}}}
 	got, e := client(t, r).Inspect(context.Background(), image(t))
 	if e != nil || got.IndexDigest != "sha256:"+strings.Repeat("a", 64) || got.ManifestDigest != "sha256:"+strings.Repeat("b", 64) || got.Platform.Architecture != "arm64" {
 		t.Fatalf("inspect = %#v %v", got, e)
 	}
-	want := [][]string{{"image", "exists", image(t).String()}, {"image", "inspect", image(t).String()}, {"manifest", "inspect", image(t).String()}}
+	want := [][]string{{"image", "exists", image(t).String()}, {"image", "inspect", image(t).String()}, {"manifest", "inspect", image(t).String()}, {"image", "inspect", "registry.example/app@sha256:" + strings.Repeat("b", 64)}}
 	for i, c := range r.commands {
 		if !reflect.DeepEqual(c.Args, want[i]) {
 			t.Fatalf("argv = %#v", c.Args)
@@ -145,12 +153,12 @@ func TestExistsClassification(t *testing.T) {
 	}
 }
 func TestRejectInputsAndZeroValues(t *testing.T) {
-	for _, v := range []string{"--help", "a; echo secret", "a\nname", ""} {
+	for _, v := range []string{"--help", "a; echo secret", "a\nname", "a=flag", ""} {
 		if _, e := ParseName(v); e == nil {
 			t.Fatalf("accepted %q", v)
 		}
 	}
-	for _, v := range []string{"registry.example/app:latest", "--help@sha256:" + strings.Repeat("a", 64), "registry.example/app@sha256:abc"} {
+	for _, v := range []string{"registry.example/app=flag@sha256:" + strings.Repeat("a", 64), "registry.example/app:latest", "--help@sha256:" + strings.Repeat("a", 64), "registry.example/app@sha256:abc"} {
 		if _, e := ParseImage(v); e == nil {
 			t.Fatalf("accepted %q", v)
 		}
@@ -216,7 +224,6 @@ func TestInspectRejectsUnboundOrAmbiguousManifest(t *testing.T) {
 		{"[]", manifest},
 		{strings.ReplaceAll(inspect, strings.Repeat("a", 64), strings.Repeat("d", 64)), manifest},
 		{inspect, `{"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[]}`},
-		{inspect, strings.ReplaceAll(manifest, "amd64", "arm64")},
 		{inspect, strings.ReplaceAll(manifest, strings.Repeat("b", 64), "invalid")},
 		{inspect, "private-secret"},
 		{inspect, `{"mediaType":"application/vnd.oci.image.manifest.v1+json"}`},
@@ -227,11 +234,6 @@ func TestInspectRejectsUnboundOrAmbiguousManifest(t *testing.T) {
 		if e == nil || strings.Contains(e.Error(), "private-secret") {
 			t.Fatalf("unbound manifest accepted: %v", e)
 		}
-	}
-	r := &recorder{results: []localexec.Result{{}, {Stdout: inspect}, {Stdout: `{"mediaType":"application/vnd.oci.image.manifest.v1+json","config":{"digest":"sha256:fixture"}}`}}}
-	got, e := client(t, r).Inspect(context.Background(), image(t))
-	if e != nil || got.ManifestDigest != got.IndexDigest {
-		t.Fatalf("single-platform = %#v %v", got, e)
 	}
 }
 func TestMissingObjectsAndFailedContainerProbe(t *testing.T) {
@@ -311,5 +313,80 @@ func TestAllFakeOperations(t *testing.T) {
 		if err == nil {
 			t.Fatal("unconfigured fake succeeded")
 		}
+	}
+}
+
+func TestStoredPrimaryDigestDoesNotOverrideAssociatedIndex(t *testing.T) {
+	r := &recorder{results: []localexec.Result{{}, {Stdout: fixture(t, "platform-image-inspect.json")}, {Stdout: fixture(t, "manifest-inspect.json")}, {Stdout: fixture(t, "platform-image-inspect.json")}}}
+	got, e := client(t, r).Inspect(context.Background(), image(t))
+	if e != nil || got.IndexDigest == got.ManifestDigest {
+		t.Fatalf("associated index rejected: %#v %v", got, e)
+	}
+}
+func TestRealOCIPlatformPin(t *testing.T) {
+	pin, e := ParseImage("registry.example/app@sha256:" + strings.Repeat("b", 64))
+	if e != nil {
+		t.Fatal(e)
+	}
+	code, err := strconv.Atoi(strings.TrimSpace(fixture(t, "platform-manifest.exit")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &recorder{results: []localexec.Result{{}, {Stdout: fixture(t, "platform-image-inspect.json")}, {Stdout: fixture(t, "platform-manifest.stdout"), Stderr: fixture(t, "platform-manifest.stderr")}}, errors: []error{nil, nil, &localexec.Error{Kind: localexec.Failed, ExitCode: code}}}
+	got, e := client(t, r).Inspect(context.Background(), pin)
+	if e != nil || got.ManifestDigest != got.IndexDigest || got.ManifestDigest != pin.String()[len("registry.example/app@"):] {
+		t.Fatalf("OCI single pin = %#v %v", got, e)
+	}
+}
+
+func TestDockerSchema2SingleUsesLocalLookupNotMissingConfig(t *testing.T) {
+	pin, _ := ParseImage("registry.example/app@sha256:" + strings.Repeat("b", 64))
+	local := strings.ReplaceAll(fixture(t, "platform-image-inspect.json"), ociManifest, dockerManifest)
+	// Source-derived Docker schema-2 output. The one live image uses OCI.
+	r := &recorder{results: []localexec.Result{{}, {Stdout: local}, {Stdout: `{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","manifests":null}`}}}
+	got, e := client(t, r).Inspect(context.Background(), pin)
+	if e != nil || got.ManifestDigest != pin.digest() {
+		t.Fatalf("schema2 = %#v %v", got, e)
+	}
+}
+func TestSinglePinNeverHidesRealRuntimeFailures(t *testing.T) {
+	pin, _ := ParseImage("registry.example/app@sha256:" + strings.Repeat("b", 64))
+	for _, tt := range []struct {
+		err       error
+		stderr    string
+		truncated bool
+	}{{&localexec.Error{Kind: localexec.Failed, ExitCode: 125}, "private-secret", false}, {&localexec.Error{Kind: localexec.Timeout}, fixture(t, "platform-manifest.stderr"), false}, {&localexec.Error{Kind: localexec.Failed, ExitCode: 125}, fixture(t, "platform-manifest.stderr"), true}} {
+		r := &recorder{results: []localexec.Result{{}, {Stdout: fixture(t, "platform-image-inspect.json")}, {Stderr: tt.stderr, Truncated: tt.truncated}}, errors: []error{nil, nil, tt.err}}
+		_, e := client(t, r).Inspect(context.Background(), pin)
+		if e == nil || strings.Contains(e.Error(), "private-secret") {
+			t.Fatalf("runtime failure hidden: %v", e)
+		}
+	}
+}
+func TestSelectedManifestMustResolveToSameLocalImage(t *testing.T) {
+	var rows []map[string]any
+	if e := json.Unmarshal([]byte(fixture(t, "platform-image-inspect.json")), &rows); e != nil {
+		t.Fatal(e)
+	}
+	rows[0]["Id"] = strings.Repeat("c", 64)
+	b, _ := json.Marshal(rows)
+	r := &recorder{results: []localexec.Result{{}, {Stdout: fixture(t, "image-inspect.json")}, {Stdout: fixture(t, "manifest-inspect.json")}, {Stdout: string(b)}}}
+	if _, e := client(t, r).Inspect(context.Background(), image(t)); e == nil {
+		t.Fatal("different selected image ID accepted")
+	}
+}
+func TestAssociatedDigestDisambiguatesSameArchitecture(t *testing.T) {
+	manifest := strings.ReplaceAll(fixture(t, "manifest-inspect.json"), "amd64", "arm64")
+	r := &recorder{results: []localexec.Result{{}, {Stdout: fixture(t, "image-inspect.json")}, {Stdout: manifest}, {Stdout: fixture(t, "platform-image-inspect.json")}}}
+	got, e := client(t, r).Inspect(context.Background(), image(t))
+	if e != nil || got.ManifestDigest != "sha256:"+strings.Repeat("b", 64) {
+		t.Fatal(got, e)
+	}
+}
+func TestMultipleLocallyAssociatedCandidatesFailClosed(t *testing.T) {
+	manifest := `{"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[{"digest":"sha256:` + strings.Repeat("b", 64) + `","platform":{"os":"linux","architecture":"arm64","variant":"v8"}},{"digest":"sha256:` + strings.Repeat("b", 64) + `","platform":{"os":"linux","architecture":"arm64","variant":"v9"}}]}`
+	r := &recorder{results: []localexec.Result{{}, {Stdout: fixture(t, "image-inspect.json")}, {Stdout: manifest}, {Stdout: fixture(t, "platform-image-inspect.json")}, {Stdout: fixture(t, "platform-image-inspect.json")}}}
+	if _, e := client(t, r).Inspect(context.Background(), image(t)); e == nil {
+		t.Fatal("ambiguous local candidates accepted")
 	}
 }

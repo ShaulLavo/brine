@@ -141,7 +141,7 @@ func TestIsActiveExitClassification(t *testing.T) {
 	}
 }
 func TestUnits(t *testing.T) {
-	for _, v := range []string{"", "--help", "a.service b.service", "*.service", "a;cmd.service", "a\n.service", "a/../b.service", "a.socket", "a@@b.service"} {
+	for _, v := range []string{"", "--help", "a.service b.service", "*.service", "a;cmd.service", "a\n.service", "a/../b.service", "a.socket", "a@@b.service", "a=flag.service"} {
 		if _, e := ParseUnit(v); e == nil {
 			t.Fatalf("accepted %q", v)
 		}

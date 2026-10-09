@@ -6,13 +6,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestCommandHelper(t *testing.T) {
-	if os.Getenv("BRINE_COMMAND_HELPER") != "1" {
+	if !slices.Contains(os.Args, "BRINE_COMMAND_HELPER=1") {
 		return
 	}
 	switch os.Args[len(os.Args)-1] {
@@ -36,14 +38,18 @@ func TestCommandHelper(t *testing.T) {
 func TestExecuteInputEnvironmentDirectory(t *testing.T) {
 	t.Setenv("BRINE_COMMAND_HELPER", "1")
 	dir := t.TempDir()
-	result, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestCommandHelper$", "--", "input"}, Stdin: []byte("secret"), Env: []string{"XDG_RUNTIME_DIR=/run/user/1234"}, Dir: dir, Timeout: 3 * time.Second})
-	if err != nil || result.Stdout != "secret|/run/user/1234|"+dir || result.Stderr != "diagnostic" {
+	result, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestCommandHelper$", "--", "BRINE_COMMAND_HELPER=1", "input"}, Stdin: []byte("secret"), Env: []string{"XDG_RUNTIME_DIR=/run/user/1234"}, Dir: dir, Timeout: 3 * time.Second})
+	wantStderr := "diagnostic"
+	if testing.CoverMode() != "" {
+		wantStderr += "warning: GOCOVERDIR not set, no coverage data emitted\n"
+	}
+	if err != nil || result.Stdout != "secret|/run/user/1234|"+dir || result.Stderr != wantStderr {
 		t.Fatalf("unexpected execution result: %#v %v", result, err)
 	}
 }
 func TestExecuteBoundsBothStreams(t *testing.T) {
 	t.Setenv("BRINE_COMMAND_HELPER", "1")
-	result, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestCommandHelper$", "--", "large"}, Timeout: 3 * time.Second})
+	result, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestCommandHelper$", "--", "BRINE_COMMAND_HELPER=1", "large"}, Timeout: 3 * time.Second})
 	if err != nil || len(result.Stdout) != CommandOutputLimit || len(result.Stderr) != CommandOutputLimit || !result.Truncated {
 		t.Fatalf("bounds not enforced: %v", err)
 	}
@@ -59,7 +65,7 @@ func TestExecuteClassification(t *testing.T) {
 		if tt.mode == "fail" {
 			timeout = 3 * time.Second
 		}
-		_, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestCommandHelper$", "--", tt.mode}, Timeout: timeout, Mutation: tt.mutation})
+		_, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestCommandHelper$", "--", "BRINE_COMMAND_HELPER=1", tt.mode}, Timeout: timeout, Mutation: tt.mutation})
 		var e *Error
 		if !errors.As(err, &e) || e.Kind != tt.want || strings.Contains(err.Error(), "private-secret") {
 			t.Fatalf("error = %v", err)
@@ -87,12 +93,12 @@ func TestSessionValidationAndTruncation(t *testing.T) {
 		t.Fatal("nil executor accepted")
 	}
 	t.Setenv("BRINE_COMMAND_HELPER", "1")
-	s, e := NewSession(ExecRunner{}, 1234, t.TempDir(), 3*time.Second)
+	s, e := NewSession(helperExecutor{}, 1234, t.TempDir(), 3*time.Second)
 	if e != nil {
 		t.Fatal(e)
 	}
 	for _, mutation := range []bool{false, true} {
-		_, e := s.Execute(context.Background(), os.Args[0], []string{"-test.run=^TestCommandHelper$", "--", "large"}, nil, mutation)
+		_, e := s.Execute(context.Background(), os.Args[0], []string{"-test.run=^TestCommandHelper$", "--", "BRINE_COMMAND_HELPER=1", "large"}, nil, mutation)
 		var re *Error
 		want := Failed
 		if mutation {
@@ -122,6 +128,51 @@ func TestSessionDoesNotLeakExecutorErrors(t *testing.T) {
 		var re *Error
 		if !errors.As(e, &re) || strings.Contains(e.Error(), "private-secret") {
 			t.Fatalf("unsafe error: %v", e)
+		}
+	}
+}
+
+func TestExecuteIgnoresAmbientRuntimeOverrides(t *testing.T) {
+	for _, key := range []string{"CONTAINER_HOST", "CONTAINER_CONNECTION", "CONTAINERS_CONF", "CONTAINERS_STORAGE_CONF", "DOCKER_HOST", "LD_PRELOAD", "LD_LIBRARY_PATH", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS", "HOME", "USER", "LOGNAME"} {
+		t.Setenv(key, "/ambient-poison")
+	}
+	dir := t.TempDir()
+	if e := os.WriteFile(filepath.Join(dir, "env"), []byte("#!/bin/sh\necho AMBIENT_EXECUTABLE\n"), 0700); e != nil {
+		t.Fatal(e)
+	}
+	t.Setenv("PATH", dir)
+	r, e := (ExecRunner{}).Execute(context.Background(), Command{Path: "env", Timeout: time.Second})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if strings.Contains(r.Stdout, "ambient-poison") || strings.Contains(r.Stdout, "AMBIENT_EXECUTABLE") {
+		t.Fatal("ambient environment or executable reached child")
+	}
+	for _, key := range []string{"CONTAINER_HOST=", "CONTAINER_CONNECTION=", "CONTAINERS_CONF=", "CONTAINERS_STORAGE_CONF=", "DOCKER_HOST=", "LD_PRELOAD=", "LD_LIBRARY_PATH="} {
+		if strings.Contains(r.Stdout, key) {
+			t.Fatalf("inherited %s", key)
+		}
+	}
+	if !strings.Contains(r.Stdout, "PATH=/usr/bin:/bin\n") {
+		t.Fatal("uncontrolled child search path")
+	}
+}
+
+type helperExecutor struct{}
+
+func (helperExecutor) Execute(ctx context.Context, c Command) (Result, error) {
+	if len(c.Args) > 0 {
+		c.Args = append(c.Args[:len(c.Args)-1], "BRINE_COMMAND_HELPER=1", c.Args[len(c.Args)-1])
+	}
+	return (ExecRunner{}).Execute(ctx, c)
+}
+
+func TestExecuteRejectsExplicitRuntimeRedirects(t *testing.T) {
+	for _, key := range []string{"CONTAINER_HOST", "CONTAINERS_CONF", "LD_PRELOAD", "PATH", "HOME", "XDG_CONFIG_HOME"} {
+		_, e := (ExecRunner{}).Execute(context.Background(), Command{Path: "env", Env: []string{key + "=/untrusted"}, Timeout: time.Second})
+		var re *Error
+		if !errors.As(e, &re) || re.Kind != Invalid {
+			t.Fatalf("explicit override accepted: %s", key)
 		}
 	}
 }
