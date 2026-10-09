@@ -312,3 +312,19 @@ func TestAtomicReadersAndHostLockSerialization(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestStageLeavesActiveWriterArtifactUnchanged(t *testing.T) {
+	home := t.TempDir()
+	m := manager(t, home)
+	defer m.Close()
+	previous, candidate := rendered(t, "previous"), rendered(t, "candidate")
+	if err := m.Install(context.Background(), previous, ""); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := m.Stage(context.Background(), candidate); err != nil {
+			t.Fatal(err)
+		}
+		checkFile(t, filepath.Join(home, ActiveDirectory, previous.Name()), previous.Bytes())
+	}
+}

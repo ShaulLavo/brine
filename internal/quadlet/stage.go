@@ -597,3 +597,20 @@ func (m *Manager) ensureDirectories(path string) error {
 	}
 	return nil
 }
+
+// Stage validates isolated candidate bytes without touching the active unit.
+// Install repeats validation and ownership checks before publication.
+func (m *Manager) Stage(ctx context.Context, u Unit) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !unitNamePattern.MatchString(u.name) || u.content == "" || len(u.content) > maxUnitBytes {
+		return fmt.Errorf("quadlet: invalid stage intent")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := m.checkDirectories(); err != nil {
+		return err
+	}
+	return m.validate(ctx, u.name, u.Bytes(), u.Hash())
+}

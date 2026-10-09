@@ -643,3 +643,38 @@ func TestPruneFailureStillReportsApplied(t *testing.T) {
 		t.Fatal("cleanup failure poisoned active state", err)
 	}
 }
+
+func TestRestoreRetainedGeneration(t *testing.T) {
+	m, root, main, before, v, r := setup(t)
+	published, err := m.Apply(context.Background(), main, before, Put(fixtureSite(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := m.Restore(context.Background(), main, published.Next, before); err != nil {
+			t.Fatal(err)
+		}
+		requireCurrent(t, root, "gen-0")
+	}
+	if len(v.paths) != 3 || r.calls != 3 {
+		t.Fatalf("validation/reload calls %d/%d", len(v.paths), r.calls)
+	}
+}
+
+func TestRestoreUnknownReloadStops(t *testing.T) {
+	m, root, main, before, _, r := setup(t)
+	published, err := m.Apply(context.Background(), main, before, Put(fixtureSite(t)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.errors = []error{nil, context.DeadlineExceeded}
+	err = m.Restore(context.Background(), main, published.Next, before)
+	var unknown *UnknownOutcomeError
+	if !errors.As(err, &unknown) {
+		t.Fatalf("want unknown, got %v", err)
+	}
+	requireCurrent(t, root, "gen-0")
+	if err = m.Restore(context.Background(), main, published.Next, before); err == nil || r.calls != 2 {
+		t.Fatalf("retried unknown reload: %v calls %d", err, r.calls)
+	}
+}
