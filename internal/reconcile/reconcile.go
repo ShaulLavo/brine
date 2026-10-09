@@ -19,7 +19,7 @@ const EventPageSize = 128
 const MaxEvents = 4096
 
 type Store interface {
-	AcquireHostLock(context.Context) (ops.Lock, error)
+	TryAcquireHostLock(context.Context) (ops.Lock, error)
 	AcquireLaunchLock(context.Context) (ops.Lock, error)
 	ListUnfinished(context.Context) ([]ops.Operation, error)
 	GetOperation(context.Context, string) (ops.Operation, error)
@@ -72,21 +72,16 @@ func (r Reconciler) withLock(ctx context.Context, dry bool) (report Report, err 
 		bound = 100 * time.Millisecond
 	}
 	wait, cancel := context.WithTimeout(ctx, bound)
-	launch, err := r.Store.AcquireLaunchLock(wait)
+	launch, lock, err := r.acquireLocks(wait)
+	cancel()
 	if err != nil {
-		cancel()
-		return report, err
+		return report, errors.Join(ops.ErrLockUnavailable, err)
 	}
 	defer func() {
 		if launch != nil {
 			err = errors.Join(err, launch.Release())
 		}
 	}()
-	lock, err := r.Store.AcquireHostLock(wait)
-	cancel()
-	if err != nil {
-		return report, err
-	}
 	defer func() { err = errors.Join(err, lock.Release()) }()
 	// Only launch-state settlement needs the fence. Do not hold it through a
 	// potentially long resumed deployment or rollback.
@@ -102,6 +97,34 @@ func (r Reconciler) withLock(ctx context.Context, dry bool) (report Report, err 
 	rest, err := r.reconcileUnderLocks(ctx, lock, nil, r.ExcludeID, dry, false, true)
 	report.Outcomes = append(report.Outcomes, rest.Outcomes...)
 	return report, err
+}
+
+// Never wait on the host lock while holding the launch fence. Every attempt
+// takes launch before host; both are released before the next attempt.
+func (r Reconciler) acquireLocks(ctx context.Context) (ops.Lock, ops.Lock, error) {
+	for {
+		launch, err := r.Store.AcquireLaunchLock(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		host, err := r.Store.TryAcquireHostLock(ctx)
+		if err == nil {
+			return launch, host, nil
+		}
+		if releaseErr := launch.Release(); releaseErr != nil {
+			return nil, nil, errors.Join(err, releaseErr)
+		}
+		if !errors.Is(err, ops.ErrLockUnavailable) {
+			return nil, nil, err
+		}
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
 }
 
 // ReconcileUnderLock is for run-op after acquiring its host lock and before

@@ -19,6 +19,8 @@ func (s *Store) AcquireHostLock(context.Context) (Lock, error) { return nil, err
 
 func (s *Store) AcquireLaunchLock(context.Context) (Lock, error) { return nil, errHostOnly }
 
+func (s *Store) TryAcquireHostLock(context.Context) (Lock, error) { return nil, errHostOnly }
+
 func secureStateDir(string) error { return errHostOnly }
 
 func readOnlyOwner(string) error { return errHostOnly }

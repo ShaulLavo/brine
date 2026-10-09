@@ -62,6 +62,15 @@ func (s *Store) AcquireHostLock(ctx context.Context) (Lock, error) {
 	return s.acquireLock(ctx, filepath.Join(s.dir, "mutation.lock"))
 }
 
+// TryAcquireHostLock takes the mutation lock without waiting. Contention returns
+// ops.ErrLockUnavailable so callers can release the launch fence before retrying.
+func (s *Store) TryAcquireHostLock(ctx context.Context) (Lock, error) {
+	if s.previewHost != nil {
+		return previewLock{}, nil
+	}
+	return s.lock(ctx, filepath.Join(s.dir, "mutation.lock"), false)
+}
+
 // AcquireLaunchLock fences operation creation and launch settlement independently
 // of long-running deployments. When both are needed, take launch before host.
 func (s *Store) AcquireLaunchLock(ctx context.Context) (Lock, error) {
@@ -75,6 +84,10 @@ func acquireLock(ctx context.Context, path string) (Lock, error) {
 	return (&Store{}).acquireLock(ctx, path)
 }
 func (s *Store) acquireLock(ctx context.Context, path string) (Lock, error) {
+	return s.lock(ctx, path, true)
+}
+
+func (s *Store) lock(ctx context.Context, path string, wait bool) (Lock, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -115,6 +128,10 @@ func (s *Store) acquireLock(ctx context.Context, path string) (Lock, error) {
 		if !errors.Is(err, unix.EWOULDBLOCK) && !errors.Is(err, unix.EAGAIN) && !errors.Is(err, unix.EINTR) {
 			f.Close()
 			return nil, err
+		}
+		if !wait {
+			f.Close()
+			return nil, ops.ErrLockUnavailable
 		}
 		select {
 		case <-ctx.Done():

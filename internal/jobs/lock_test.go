@@ -10,6 +10,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/result"
 )
 
 type lockErrorStore struct {
@@ -134,5 +135,52 @@ func TestRunnerWaitsForLockBeforeExecution(t *testing.T) {
 	case <-executed:
 	default:
 		t.Fatal("executor did not start after lock acquisition")
+	}
+}
+
+func TestRecoveryReceiptDistinguishesLockRefusalFromUnsettledWork(t *testing.T) {
+	cases := []struct {
+		name        string
+		cause       error
+		lockRefusal bool
+		want        ops.State
+		code        string
+	}{
+		{name: "lock_timeout", cause: context.DeadlineExceeded, lockRefusal: true, want: ops.Failed, code: "lock_unavailable"},
+		{name: "lock_canceled", cause: context.Canceled, lockRefusal: true, want: ops.Failed, code: "lock_unavailable"},
+		{name: "lock_error", cause: errors.New("fixture acquisition failed"), lockRefusal: true, want: ops.Failed, code: "lock_unavailable"},
+		{name: "inspection_timeout", cause: context.DeadlineExceeded, want: ops.RecoveryRequired, code: "interrupted"},
+		{name: "execution_canceled", cause: context.Canceled, want: ops.RecoveryRequired, code: "interrupted"},
+		{name: "execution_error", cause: errors.New("fixture execution failed"), want: ops.RecoveryRequired, code: "executor_failed"},
+		{name: "unsettled_outcome", cause: result.New(result.RecoveryRequired, nil), want: ops.RecoveryRequired, code: "recovery_required"},
+	}
+	for _, initial := range []ops.State{ops.Queued, ops.LaunchUnknown} {
+		for _, tc := range cases {
+			t.Run(string(initial)+"/"+tc.name, func(t *testing.T) {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				base := &fakeStore{operation: ops.Operation{ID: "recovery1", Kind: "reconcile", State: initial}}
+				s := &lockErrorStore{fakeStore: base}
+				runner := Runner{Store: s, Recovery: func(context.Context, string) error {
+					if tc.cause == context.Canceled {
+						cancel()
+					}
+					if tc.lockRefusal {
+						return errors.Join(ops.ErrLockUnavailable, tc.cause)
+					}
+					return tc.cause
+				}}
+				if err := runner.Run(ctx, "recovery1"); !errors.Is(err, tc.cause) {
+					t.Fatalf("failure cause lost: %v", err)
+				}
+				if base.operation.State != tc.want || len(base.events) != 1 {
+					t.Fatalf("receipt state=%s events=%+v, want %s", base.operation.State, base.events, tc.want)
+				}
+				var failure ops.FailurePayload
+				if err := json.Unmarshal(base.events[0].Payload, &failure); err != nil || failure.Code != tc.code {
+					t.Fatalf("failure code=%s error=%v, want %s", failure.Code, err, tc.code)
+				}
+			})
+		}
 	}
 }

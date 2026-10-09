@@ -181,3 +181,68 @@ func TestReconcileReleasesLaunchFenceBeforeDeployRecovery(t *testing.T) {
 		t.Fatal("deployment not inspected")
 	}
 }
+
+type observedLaunchStore struct {
+	*store.Store
+	acquired chan struct{}
+	once     sync.Once
+}
+
+func (s *observedLaunchStore) AcquireLaunchLock(ctx context.Context) (ops.Lock, error) {
+	lock, err := s.Store.AcquireLaunchLock(ctx)
+	if err == nil {
+		s.once.Do(func() { close(s.acquired) })
+	}
+	return lock, err
+}
+
+func TestWaitingReconcileDoesNotDelayApplyAcceptance(t *testing.T) {
+	s, op, _ := fixture(t)
+	host, err := s.AcquireHostLock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer host.Release()
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+	observed := &observedLaunchStore{Store: s, acquired: make(chan struct{})}
+	done := make(chan error, 1)
+	finished := make(chan struct{})
+	defer func() { cancel(); <-finished }()
+	go func() {
+		defer close(finished)
+		_, err := (Reconciler{Store: observed, Systemd: absentRunner(), LockTimeout: 20 * time.Second}).Reconcile(ctx)
+		done <- err
+	}()
+	select {
+	case <-observed.acquired:
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	launched := false
+	service := jobs.Service{Store: s, Requester: "fixture-requester", Launcher: slowLauncher(func(context.Context, systemd.OperationID) error {
+		launched = true
+		return nil
+	})}
+	start := time.Now()
+	accepted, err := service.Apply(ctx, op.PlanID, "waiting-recovery-key")
+	if err != nil || !launched || accepted.OperationID == "" || time.Since(start) >= jobs.LaunchLockWaitTimeout {
+		t.Fatalf("waiting recovery blocked apply acceptance: accepted %+v elapsed %s error %v", accepted, time.Since(start), err)
+	}
+	select {
+	case err := <-done:
+		t.Fatalf("recovery did not wait for the running deploy: %v", err)
+	default:
+	}
+	if err := host.Release(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+}
