@@ -229,10 +229,26 @@ func TestConnectedDeployAndIdempotency(t *testing.T) {
 }
 func TestStalePlanRefusedUnderHostLock(t *testing.T) {
 	changes := map[string]func(*deployRig){
-		"identity":         func(r *deployRig) { r.inventory.snapshot.Identity.ID = "changed-fixture" },
-		"generation":       func(r *deployRig) { r.inventory.generationOffset = 1 },
-		"versions":         func(r *deployRig) { r.inventory.snapshot.Versions.Systemd = target.Known("257.1") },
-		"ports":            func(r *deployRig) { r.inventory.snapshot.UsedPorts = target.Known([]target.Port{20000}) },
+		"identity":   func(r *deployRig) { r.inventory.snapshot.Identity.ID = "changed-fixture" },
+		"generation": func(r *deployRig) { r.inventory.generationOffset = 1 },
+		"versions":   func(r *deployRig) { r.inventory.snapshot.Versions.Systemd = target.Known("257.1") },
+		"ports":      func(r *deployRig) { r.inventory.snapshot.UsedPorts = target.Known([]target.Port{20000}) },
+		"policy_content": func(r *deployRig) {
+			raw, err := os.ReadFile("../policy/testdata/operator.toml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw = bytes.ReplaceAll(raw, []byte("Registry.Example.com:5000"), []byte("ghcr.io"))
+			raw = bytes.ReplaceAll(raw, []byte("memory_mb = 512"), []byte("memory_mb = 256"))
+			pol, err := policy.Parse(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.policy.p = pol
+		},
+		"routing_generation": func(r *deployRig) {
+			r.inventory.snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: 1, Files: []target.CaddyFile{}})
+		},
 		"policy_missing":   func(r *deployRig) { r.policy.err = fmt.Errorf("missing policy") },
 		"image_digest":     func(r *deployRig) { r.images.image.Digest = "sha256:" + strings.Repeat("b", 64) },
 		"unknown_manifest": func(r *deployRig) { r.images.image.ManifestDigest = target.Observation[string]{Status: target.Unknown} },

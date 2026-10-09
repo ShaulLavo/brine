@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -17,5 +18,19 @@ func TestPolicyRejectsRunnerOwnedFile(t *testing.T) {
 	}
 	if _, err := (DiskPolicy{Path: path}).Load(context.Background()); err == nil {
 		t.Fatal("untrusted policy accepted")
+	}
+}
+
+func TestProductionPolicyRequiresSupportedHTTPSListener(t *testing.T) {
+	fixture, err := os.ReadFile("../policy/testdata/operator.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, port := range []int{0, 22, 80, 443, 8443, 20000} {
+		raw := append([]byte(fmt.Sprintf("caddy_port = %d\n", port)), fixture...)
+		_, err := productionPolicy(raw)
+		if (err == nil) != (port == 443) {
+			t.Fatalf("port=%d error=%v", port, err)
+		}
 	}
 }

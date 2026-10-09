@@ -181,18 +181,10 @@ func (h *host) undoPreflight() error {
 	if err := h.checkUndoHome(); err != nil {
 		return err
 	}
-	for p, old := range h.r.Files {
-		data, err := boundedRead(p)
-		if errors.Is(err, os.ErrNotExist) && !old.Existed {
-			continue
-		}
-		if err != nil {
-			return err
-		}
-		if hash(data) != old.Hash && (!old.Existed || hash(data) != hash(old.Before)) {
-			return errors.New("undo refused: recorded file hash changed")
-		}
+	if err := verifyUndoFiles(h.r.Files, boundedRead, (diskOperatorPolicy{h}).Read); err != nil {
+		return err
 	}
+
 	if _, ok := h.r.Dirs["/etc/caddy/brine"]; ok {
 		link, err := os.Readlink("/etc/caddy/brine/current")
 		if err == nil && link != "gen-0" {
@@ -288,6 +280,29 @@ func (h *host) checkRecordedTransaction(ctx context.Context, f Facts) error {
 			return errors.New("confirmed transaction differs from unfinished package intent")
 		}
 		delete(versions, pkg.Name)
+	}
+	return nil
+}
+
+func verifyUndoFiles(files map[string]ownedFile, read func(string) ([]byte, error), policyRead func() ([]byte, error)) error {
+	for p, old := range files {
+		if p == operatorPolicyPath {
+			_, err := policyRead()
+			if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			continue
+		}
+		data, err := read(p)
+		if errors.Is(err, os.ErrNotExist) && !old.Existed {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if hash(data) != old.Hash && (!old.Existed || hash(data) != hash(old.Before)) {
+			return errors.New("undo refused: recorded file hash changed")
+		}
 	}
 	return nil
 }

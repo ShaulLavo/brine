@@ -54,6 +54,7 @@ type ownedDir struct {
 	GID     int    `json:"gid"`
 }
 type hostRecord struct {
+	RetainedPolicy   bool                   `json:"retained_policy,omitempty"`
 	SSHReloadPending bool                   `json:"ssh_reload_pending,omitempty"`
 	Runtime          map[string]runtimeFile `json:"runtime"`
 	Journal          Journal                `json:"journal"`
@@ -305,7 +306,7 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		if err = os.Remove(recordDir); err != nil {
 			return nil, err
 		}
-		return map[string]bool{"removed": true}, nil
+		return UndoResult{Removed: true, RetainedPolicy: h.r.RetainedPolicy}, nil
 	}
 	if req.Action == "verify" {
 		if h.r.Journal.Phase != Enrolled {
@@ -588,11 +589,7 @@ func (h *host) steps() []Step {
 		}, Apply: func(ctx context.Context) error {
 			return h.file(ctx, sshIdentityPath, h.identityKey, 0644, false)
 		}, Undo: func(context.Context) error { return h.restoreFile(sshIdentityPath) }},
-		{Name: "operator-policy", Check: func(context.Context) (bool, error) {
-			return h.fileMatches(operatorPolicyPath, hash([]byte(defaultOperatorPolicy)))
-		}, Apply: func(ctx context.Context) error {
-			return h.file(ctx, operatorPolicyPath, []byte(defaultOperatorPolicy), 0644, false)
-		}, Undo: func(context.Context) error { return h.restoreFile(operatorPolicyPath) }},
+		operatorPolicyStep(diskOperatorPolicy{h}),
 		{Name: "requester", Check: func(context.Context) (bool, error) {
 			return h.fileMatches(requesterPath, hash([]byte("deploy:"+hash([]byte(h.r.Key))+"\n")))
 		}, Apply: func(ctx context.Context) error {

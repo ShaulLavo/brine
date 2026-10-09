@@ -27,9 +27,12 @@ func (p DiskPolicy) Load(ctx context.Context) (policy.Policy, error) {
 	if err != nil {
 		return policy.Policy{}, err
 	}
+	return productionPolicy(raw)
+}
+func productionPolicy(raw []byte) (policy.Policy, error) {
 	pol, err := policy.Parse(raw)
-	if err == nil && pol.CaddyPort() == 0 {
-		return policy.Policy{}, errors.New("host: explicit Caddy listener port required")
+	if err == nil && pol.CaddyPort() != 443 {
+		return policy.Policy{}, errors.New("host: explicit Caddy HTTPS listener port 443 required")
 	}
 	return pol, err
 }
