@@ -1,9 +1,11 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/policy"
 	"maps"
 	"os"
 	"path/filepath"
@@ -288,5 +290,43 @@ func TestConnectedRemoveNoOpAndStalePlan(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("stale_plan missing", events)
+	}
+}
+
+func TestRemoveDoesNotReauthorizeCommittedDeployments(t *testing.T) {
+	for _, app := range []string{"hello", "never-installed"} {
+		t.Run(app, func(t *testing.T) {
+			h := newRemovalHost(t, t.TempDir(), true)
+			raw, err := os.ReadFile("../policy/testdata/operator.toml")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// The installed app uses ghcr.io. Today's operator policy denies that
+			// registry (and its old domain), but withdrawing its route is still allowed.
+			raw = bytes.ReplaceAll(raw, []byte("*.Example.com"), []byte("revoked.example.net"))
+			h.policy.p, err = policy.Parse(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			p := h.call(t, "lifecycle", dispatch.LifecycleArgs{App: app, Action: plan.RemoveApp}).Data.(apps.ConfigPlan)
+			accepted := h.call(t, "apply", dispatch.ApplyArgs{PlanID: p.PlanID, IdempotencyKey: "remove-revoked"}).Data.(jobs.Accepted)
+			if err = h.runner.Run(context.Background(), accepted.OperationID); err != nil {
+				t.Fatal(err)
+			}
+			status := h.call(t, "operation", dispatch.OperationArgs{OperationID: accepted.OperationID}).Data.(jobs.Status)
+			if status.Operation.State != ops.Succeeded {
+				t.Fatal(status)
+			}
+			disk, err := h.read()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if app == "hello" && (disk.Active || !disk.RouteReloaded) {
+				t.Fatal("revoked app still running", disk)
+			}
+			if app == "never-installed" && (!disk.Active || disk.RouteReloaded) {
+				t.Fatal("no-op touched unrelated revoked app", disk)
+			}
+		})
 	}
 }

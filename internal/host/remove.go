@@ -41,7 +41,7 @@ func (s Service) removalFacts(ctx context.Context, d policy.Desired) (apply.Fact
 	}
 	out := apply.Facts{Input: plan.Input{Desired: d, Snapshot: snap, State: state, Image: image}, Routing: caddy.State{Files: map[string]string{}, Sites: map[string]caddy.Site{}}}
 	for _, release := range state.Releases {
-		site, err := caddy.NewSite(App(release.Desired), pol, spec.Port(release.HostPort))
+		site, err := caddy.CommittedSite(release.Desired, spec.Port(release.HostPort))
 		if err != nil {
 			return out, err
 		}
