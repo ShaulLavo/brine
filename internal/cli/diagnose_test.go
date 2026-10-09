@@ -162,3 +162,26 @@ func TestDiagnoseHostAndValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestEveryDiagnosisSuggestionIsRegistered(t *testing.T) {
+	failed := diagnose.App{Name: "demo", Unit: diagnose.Known(diagnose.Unit{ActiveState: "failed", Restarts: 3}), ContainerRunning: diagnose.Known(false), Health: diagnose.Known(false), RoutePresent: diagnose.Known(false), Drift: diagnose.Known([]string{"units"}), Operations: diagnose.Known([]diagnose.RecentOperation{{ID: "op-fixture", State: ops.Failed, FailureCode: "stale_plan"}})}
+	recovering := diagnose.App{Name: "demo-recovery", Operations: diagnose.Known([]diagnose.RecentOperation{{ID: "op-recovery", State: ops.RecoveryRequired}})}
+	report := diagnose.Report{Host: diagnose.Host{FreeDiskBytes: diagnose.Known(uint64(1)), MinimumFreeDiskBytes: diagnose.Known(uint64(2)), Linger: diagnose.Known(false)}, Apps: []diagnose.App{failed, recovering}}
+	findings := diagnose.Findings(report)
+	if len(findings) != 11 {
+		t.Fatalf("must exercise every finding rule, got %d", len(findings))
+	}
+	root := NewRootCommand(Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}})
+	for _, finding := range findings {
+		for _, suggestion := range finding.NextOperations {
+			words := strings.Fields(suggestion)
+			if len(words) < 2 || words[0] != "brine" {
+				t.Fatalf("invalid suggestion %q", suggestion)
+			}
+			cmd, _, err := root.Find(words[1:])
+			if err != nil || cmd == root || cmd.Name() != words[1] {
+				t.Fatalf("%s suggests unregistered command %q: %v", finding.Code, suggestion, err)
+			}
+		}
+	}
+}

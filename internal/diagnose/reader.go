@@ -10,12 +10,12 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
@@ -304,11 +304,11 @@ func (r Reader) app(ctx context.Context, s target.Snapshot, name string) App {
 		previous, e := bounded(ctx, ProbeTimeout, func(ctx context.Context) (ops.Release, error) { return r.Store.PreviousRelease(ctx, name) })
 		a.PreviousRelease = releaseFact(previous, e)
 		if a.CurrentRelease.Value != nil {
-			a.Drift = drift(s, observedApp, current)
 			desired := fact(ctx, func(ctx context.Context) (policy.Desired, error) {
 				_, d, e := r.Store.LoadPlan(ctx, current.PlanID)
 				return d, e
 			})
+			a.Drift = drift(s, name, current, desired)
 			if desired.Value == nil {
 				a.Health = unknown[bool](desired.Reason)
 			}
@@ -380,53 +380,44 @@ func parseUnit(name, out string) (Unit, error) {
 	n, e := strconv.ParseUint(fields["NRestarts"], 10, 64)
 	return Unit{Name: name, ActiveState: fields["ActiveState"], SubState: fields["SubState"], Restarts: n}, e
 }
-func drift(s target.Snapshot, a *target.App, r ops.Release) Fact[[]string] {
-	if a == nil {
-		if s.Apps.Value != nil {
-			return Known([]string{"app_missing"})
-		}
-		return unknown[[]string]("inventory_unknown")
+func drift(s target.Snapshot, name string, r ops.Release, desired Fact[policy.Desired]) Fact[[]string] {
+	current := plan.CurrentRelease{App: name, ID: r.ID, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile}
+	if desired.Value != nil {
+		current.Desired = *desired.Value
+	} else {
+		// Without the committed desired domains, no live-domain comparison is justified.
+		s.LiveCaddyFiles = target.Observation[[]target.LiveCaddyFile]{Status: target.Unknown}
 	}
-	if a.QuadletUnits.Value == nil || a.Image.Value == nil || a.AllocatedHostPort.Value == nil || s.CaddyConfig.Value == nil || a.Secrets.Value == nil {
+	comparison := apps.CompareDrift(s, current)
+	if comparison.State == "unknown" {
 		return unknown[[]string]("artifact_observation_unknown")
 	}
 	changes := []string{}
-	actual := slices.Clone(*a.QuadletUnits.Value)
-	expected := slices.Clone(r.Units)
-	less := func(a, b target.Unit) int { return strings.Compare(a.Name, b.Name) }
-	slices.SortFunc(actual, less)
-	slices.SortFunc(expected, less)
-	if !reflect.DeepEqual(actual, expected) {
-		changes = append(changes, "units")
-	}
-	if a.Image.Value.Digest != r.Image.Digest || a.Image.Value.Platform != r.Image.Platform {
-		changes = append(changes, "image")
-	}
-	if *a.AllocatedHostPort.Value != r.HostPort {
-		changes = append(changes, "host_port")
-	}
-	actualSecrets := map[string]string{}
-	for _, secret := range *a.Secrets.Value {
-		actualSecrets[secret.Name] = secret.ID
-	}
-	expectedSecrets := map[string]string{}
-	for _, secret := range r.Secrets {
-		expectedSecrets[secret.VersionName] = secret.ID
-	}
-	if !reflect.DeepEqual(actualSecrets, expectedSecrets) {
-		changes = append(changes, "secret_bindings")
-	}
-	found := false
-	for _, file := range s.CaddyConfig.Value.Files {
-		if file.Name == r.CaddyFile.Name {
-			found = true
-			if file.Hash != r.CaddyFile.Hash {
-				changes = append(changes, "caddy_file")
+	for _, field := range comparison.Fields {
+		switch field {
+		case "app":
+			changes = append(changes, "app_missing")
+		case "port":
+			changes = append(changes, "host_port")
+		case "secrets":
+			changes = append(changes, "secret_bindings")
+		case "caddy":
+			code := "caddy_file"
+			if s.CaddyConfig.Status == target.Absent {
+				code = "caddy_file_missing"
+			} else if s.CaddyConfig.Value != nil {
+				found := false
+				for _, file := range s.CaddyConfig.Value.Files {
+					found = found || file.Name == r.CaddyFile.Name
+				}
+				if !found {
+					code = "caddy_file_missing"
+				}
 			}
+			changes = append(changes, code)
+		default:
+			changes = append(changes, field)
 		}
-	}
-	if !found {
-		changes = append(changes, "caddy_file_missing")
 	}
 	return Known(changes)
 }

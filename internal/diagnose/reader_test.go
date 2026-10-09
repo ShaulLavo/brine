@@ -189,9 +189,10 @@ func TestDriftUnknownAndEveryArtifact(t *testing.T) {
 	reader := fixtureReader()
 	release := reader.Store.(fakeStore).release
 	s := fixtureSnapshot()
-	a := (*s.Apps.Value)[0]
+	a := &(*s.Apps.Value)[0]
 	release.Units = *a.QuadletUnits.Value
-	if got := drift(s, &a, release); got.Value == nil || len(*got.Value) != 0 {
+	s.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{App: "demo", Domains: target.Known([]string{})}})
+	if got := drift(s, "demo", release, Known(policy.Desired{})); got.Value == nil || len(*got.Value) != 0 {
 		t.Fatal(got)
 	}
 	tests := []struct {
@@ -211,16 +212,21 @@ func TestDriftUnknownAndEveryArtifact(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.code, func(t *testing.T) {
 			s := fixtureSnapshot()
-			a := (*s.Apps.Value)[0]
-			tt.change(&s, &a)
-			got := drift(s, &a, release)
+			s.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{App: "demo", Domains: target.Known([]string{})}})
+			expected := release
+			if tt.code == "secret_bindings" {
+				expected.Secrets = []plan.SecretBinding{{VersionName: "brine-demo-key-v2", ID: "expected"}}
+			}
+			a := &(*s.Apps.Value)[0]
+			tt.change(&s, a)
+			got := drift(s, "demo", expected, Known(policy.Desired{}))
 			if got.Value == nil || !reflect.DeepEqual(*got.Value, []string{tt.code}) {
 				t.Fatal(got)
 			}
 		})
 	}
 	a.Image = target.Observation[target.Image]{Status: target.Unknown}
-	if got := drift(s, &a, release); got.Status != "unknown" {
+	if got := drift(s, "demo", release, Known(policy.Desired{})); got.Status != "unknown" {
 		t.Fatal(got)
 	}
 }
@@ -362,5 +368,85 @@ func TestHealthyFactsDoNotMatchFailureRules(t *testing.T) {
 	report := Report{Host: Host{FreeDiskBytes: Known(uint64(2)), MinimumFreeDiskBytes: Known(uint64(2)), Linger: Known(true)}, Apps: []App{{Name: "demo", Unit: Known(Unit{ActiveState: "active", Restarts: 2}), ContainerRunning: Known(true), Health: Known(true), Operations: Known([]RecentOperation{{State: ops.Succeeded}}), RoutePresent: Known(true), Drift: Known([]string{})}}}
 	if got := Findings(report); len(got) != 0 {
 		t.Fatal(got)
+	}
+}
+
+func TestReaderRetainedSecretsAndPartialDrift(t *testing.T) {
+	for _, scenario := range []string{"retained_secrets", "unknown_image_changed_units", "absent_caddy", "unknown_image_absent_caddy"} {
+		t.Run(scenario, func(t *testing.T) {
+			r := fixtureReader()
+			s := fixtureSnapshot()
+			stored := r.Store.(fakeStore)
+			stored.release.Units = append([]target.Unit{}, *(*s.Apps.Value)[0].QuadletUnits.Value...)
+			a := &(*s.Apps.Value)[0]
+			want := []string{}
+			switch scenario {
+			case "retained_secrets":
+				stored.release.Secrets = []plan.SecretBinding{{VersionName: "brine-demo-key-v2", ID: "version-two"}}
+				a.Secrets = target.Known([]target.Secret{{Name: "brine-demo-key-v1", ID: "version-one"}, {Name: "brine-demo-key-v2", ID: "version-two"}})
+			case "unknown_image_changed_units":
+				a.Image = target.Observation[target.Image]{Status: target.Unknown}
+				a.QuadletUnits = target.Known([]target.Unit{{Name: "demo.container", Hash: "sha256:" + strings.Repeat("c", 64)}})
+				want = []string{"units"}
+			case "absent_caddy", "unknown_image_absent_caddy":
+				s.CaddyConfig = target.Observation[target.CaddyConfigSet]{Status: target.Absent}
+				if scenario == "unknown_image_absent_caddy" {
+					a.Image = target.Observation[target.Image]{Status: target.Unknown}
+				}
+				want = []string{"caddy_file_missing"}
+			}
+			r.Store = stored
+			r.Inventory = fakeInventory{snapshot: s}
+			report, err := r.Read(context.Background(), Request{App: "demo"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := report.Apps[0].Drift
+			if len(want) == 0 {
+				if got.Value != nil && len(*got.Value) != 0 {
+					t.Fatalf("retained versions are expected leftovers: %+v", got)
+				}
+			} else if got.Value == nil || !reflect.DeepEqual(*got.Value, want) {
+				t.Fatalf("proven drift must survive unrelated unknowns: got %+v, want %v", got, want)
+			}
+			found := false
+			for _, finding := range report.Findings {
+				if finding.Code == "artifact_drift" {
+					found = true
+				}
+			}
+			if found != (len(want) > 0) {
+				t.Fatalf("artifact finding=%v, want %v", found, len(want) > 0)
+			}
+		})
+	}
+}
+
+func TestDriftSharesAppScopedDomainEvidence(t *testing.T) {
+	for _, scenario := range []string{"own_domains", "other_site", "unattributed", "desired_unavailable"} {
+		t.Run(scenario, func(t *testing.T) {
+			s := fixtureSnapshot()
+			r := fixtureReader().Store.(fakeStore).release
+			r.Units = *(*s.Apps.Value)[0].QuadletUnits.Value
+			file := target.LiveCaddyFile{App: "demo", Domains: target.Known([]string{"unexpected.invalid"})}
+			desired := Known(policy.Desired{})
+			switch scenario {
+			case "other_site":
+				file.App = "other"
+			case "unattributed":
+				file.App = ""
+			case "desired_unavailable":
+				desired = unknown[policy.Desired]("store_unavailable")
+			}
+			s.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{file})
+			got := drift(s, "demo", r, desired)
+			if scenario == "own_domains" {
+				if got.Value == nil || !reflect.DeepEqual(*got.Value, []string{"domains"}) {
+					t.Fatal(got)
+				}
+			} else if got.Status != "unknown" {
+				t.Fatalf("must not guess this app's domains: %+v", got)
+			}
+		})
 	}
 }

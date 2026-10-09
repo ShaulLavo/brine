@@ -183,11 +183,11 @@ func DecodeReport(raw []byte) (Report, error) {
 			}
 		}
 		if a.Drift.Value != nil {
-			if *a.Drift.Value == nil || len(*a.Drift.Value) > 7 {
+			if *a.Drift.Value == nil || len(*a.Drift.Value) > 8 {
 				return bad()
 			}
 			for _, change := range *a.Drift.Value {
-				if !slices.Contains([]string{"app_missing", "units", "image", "host_port", "secret_bindings", "caddy_file", "caddy_file_missing"}, change) {
+				if !slices.Contains([]string{"app_missing", "units", "image", "host_port", "secret_bindings", "caddy_file", "caddy_file_missing", "domains"}, change) {
 					return bad()
 				}
 			}
