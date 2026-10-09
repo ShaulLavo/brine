@@ -39,3 +39,5 @@
 An authorized stateless test app deploys successfully. An invalid release never reports success; old release is either restored safely or the operation records a precise `recovery_required` state. Parallel applies conflict cleanly, and job outcomes remain observable after the CLI process exits.
 
 **Evidence:** T04, T07-T11, T16-T17, T21-T22. Include automated fault-injection tests and one physical test-host disconnect/reboot drill; do not claim zero downtime.
+
+**Physical run, 2026-10-09:** blocked before deployment. The current arm64 binary builds, but re-enrollment refuses its different hash against the existing protected binary intent. The target lacks the current trusted policy, requester, authentication marker, boot recovery files, and any v1 control database. No documented operator update or manual installation path supplies those prerequisites together. [Captured refusals and the unchanged empty-app baseline](../evidence/p03-pi.md) leave this exit gate, P03-04's stateless evidence, and the physical portions of P03-03, P03-07, and P03-08 open. The installation follow-up is recorded under P06-03; no acceptance checkbox changed.
