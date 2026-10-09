@@ -2,7 +2,7 @@
 
 **Status: Approved.** No deployment functionality is implemented by writing this file. Architecture decisions live in [DECISIONS.md](DECISIONS.md) and take precedence over older wording here.
 
-**Product goal:** a small, fast, trustworthy self-hosted deployment tool on a single Linux VPS, operated either by an AI agent using stable JSON or by a person using Charm.
+**Product goal:** a small, fast, trustworthy self-hosted deployment tool on a single Linux VPS that an AI agent can run end to end (deploy, change, troubleshoot, remove and maintain, per D8) using stable JSON, with a person able to do the same through Charm.
 
 ## Current baseline
 
