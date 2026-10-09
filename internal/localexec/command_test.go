@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -191,5 +192,25 @@ func TestExecuteRejectsExplicitRuntimeRedirects(t *testing.T) {
 		if !errors.As(e, &re) || re.Kind != Invalid {
 			t.Fatalf("explicit override accepted: %s", key)
 		}
+	}
+}
+
+func TestMissingExecutableHasTypedNotFound(t *testing.T) {
+	_, err := LookPath("brine-fixture-nonexistent-executable-8da960f7")
+	var runtimeError *Error
+	if !errors.As(err, &runtimeError) || runtimeError.Kind != NotFound || !errors.Is(err, exec.ErrNotFound) {
+		t.Fatalf("missing executable error = %v", err)
+	}
+}
+
+func TestLookupNonExecutableIsNotAbsent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "tool"), []byte("not executable"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := findExecutable("tool", []string{dir})
+	var runtimeError *Error
+	if !errors.As(err, &runtimeError) || runtimeError.Kind != Failed || errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("non-executable error = %v", err)
 	}
 }

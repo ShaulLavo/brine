@@ -123,11 +123,24 @@ func LookPath(name string) (string, error) {
 	if strings.ContainsAny(name, "/\\") {
 		return "", &Error{Kind: Invalid}
 	}
-	for _, dir := range []string{"/usr/bin", "/bin"} {
+	return findExecutable(name, []string{"/usr/bin", "/bin"})
+}
+
+func findExecutable(name string, directories []string) (string, error) {
+	missing := true
+	for _, dir := range directories {
 		path := filepath.Join(dir, name)
-		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
+		info, err := os.Stat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		missing = false
+		if err == nil && info.Mode().IsRegular() && info.Mode().Perm()&0111 != 0 {
 			return path, nil
 		}
+	}
+	if missing {
+		return "", &Error{Kind: NotFound, ExitCode: -1, cause: exec.ErrNotFound}
 	}
 	return "", &Error{Kind: Failed, ExitCode: -1}
 }

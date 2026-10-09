@@ -390,3 +390,53 @@ func TestMultipleLocallyAssociatedCandidatesFailClosed(t *testing.T) {
 		t.Fatal("ambiguous local candidates accepted")
 	}
 }
+
+func TestInspectCanonicalDockerHubRepositories(t *testing.T) {
+	pin := "@sha256:" + strings.Repeat("a", 64)
+	for _, repository := range []string{"docker.io/alpine", "index.docker.io/alpine", "docker.io/library/alpine", "index.docker.io/library/alpine"} {
+		t.Run(repository, func(t *testing.T) {
+			ref, err := ParseImage(repository + pin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			metadata := strings.ReplaceAll(fixture(t, "platform-image-inspect.json"), "registry.example/app", "docker.io/library/alpine")
+			r := &recorder{results: []localexec.Result{{}, {Stdout: metadata}, {Stdout: fixture(t, "manifest-inspect.json")}, {Stdout: metadata}}}
+			info, err := client(t, r).Inspect(context.Background(), ref)
+			if err != nil || info.IndexDigest != "sha256:"+strings.Repeat("a", 64) || info.ManifestDigest != "sha256:"+strings.Repeat("b", 64) {
+				t.Fatalf("inspection = %#v, %v", info, err)
+			}
+		})
+	}
+}
+
+func TestAssociatedRepositoryNormalizationPreservesBinding(t *testing.T) {
+	pin := "@sha256:" + strings.Repeat("a", 64)
+	for _, tt := range []struct {
+		requested, stored string
+		want              bool
+	}{
+		{"docker.io/alpine", "index.docker.io/library/alpine", true},
+		{"library/alpine", "docker.io/library/alpine", true},
+		{"team/alpine", "docker.io/team/alpine", true},
+		{"docker.io/team/alpine", "index.docker.io/team/alpine", true},
+		{"localhost/alpine", "docker.io/library/alpine", false},
+		{"docker.io:5000/alpine", "docker.io/library/alpine", false},
+		{"docker.io/team/alpine", "docker.io/library/alpine", false},
+		{"registry.example/alpine", "docker.io/library/alpine", false},
+	} {
+		t.Run(tt.requested+"/"+tt.stored, func(t *testing.T) {
+			ref, err := ParseImage(tt.requested + pin)
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := localImage{RepoDigests: []string{tt.stored + pin}}
+			if row.associates(ref) != tt.want {
+				t.Fatal("incorrect repository binding")
+			}
+			row.RepoDigests = []string{tt.stored + "@sha256:" + strings.Repeat("b", 64)}
+			if row.associates(ref) {
+				t.Fatal("different digest bound")
+			}
+		})
+	}
+}

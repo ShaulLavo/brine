@@ -199,13 +199,24 @@ func (i Image) repository() string {
 	if colon := strings.LastIndexByte(repo, ':'); colon > strings.LastIndexByte(repo, '/') {
 		repo = repo[:colon]
 	}
-	return repo
+	domain, path, _ := strings.Cut(repo, "/")
+	if domain != "localhost" && !strings.ContainsAny(domain, ".:") {
+		domain, path = "docker.io", repo
+	}
+	if domain == "index.docker.io" {
+		domain = "docker.io"
+	}
+	if domain == "docker.io" && !strings.ContainsRune(path, '/') {
+		path = "library/" + path
+	}
+	return domain + "/" + path
 }
 func (i Image) digest() string { return i.value[strings.LastIndexByte(i.value, '@')+1:] }
 func (row localImage) associates(image Image) bool {
 	ref := image.repository() + "@" + image.digest()
 	for _, associated := range row.RepoDigests {
-		if associated == ref {
+		candidate, err := ParseImage(associated)
+		if err == nil && candidate.repository()+"@"+candidate.digest() == ref {
 			return true
 		}
 	}
