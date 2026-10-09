@@ -26,7 +26,7 @@ func TestReportWireRejectsMalformedAndValueBearingFields(t *testing.T) {
 			t.Fatal("accepted", raw)
 		}
 	}
-	report.Apps[0].LastOperation = &ops.Operation{ID: "op1", PlanID: digest, State: ops.State("unknown_state")}
+	report.Apps[0].LastOperation = &ops.Operation{Kind: ops.Deploy, ID: "op1", PlanID: digest, State: ops.State("unknown_state")}
 	encoded, _ = json.Marshal(report)
 	if _, e := DecodeReport(encoded); e == nil {
 		t.Fatal("invalid operation accepted")

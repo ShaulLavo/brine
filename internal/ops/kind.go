@@ -1,6 +1,7 @@
 package ops
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -22,7 +23,7 @@ type Intent struct {
 }
 
 var appName = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-var secretRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,252}$`)
+var secretRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 var planID = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func ValidIntent(i Intent) bool {
@@ -30,7 +31,7 @@ func ValidIntent(i Intent) bool {
 	case Deploy:
 		return planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == ""
 	case SecretSet:
-		return i.PlanID == "" && appName.MatchString(i.App) && secretRef.MatchString(i.SecretRef) && len("brine-"+i.App+"-"+i.SecretRef+"-v18446744073709551615") <= 253
+		return i.PlanID == "" && appName.MatchString(i.App) && secretRef.MatchString(i.SecretRef) && len("brine."+i.App+"."+i.SecretRef+".v18446744073709551615") <= 253
 	default:
 		return false
 	}
@@ -72,26 +73,33 @@ type SecretVersionPayload struct {
 }
 
 func ValidSecretVersionName(name string) bool {
-	if len(name) > 253 || !strings.HasPrefix(name, "brine-") {
+	parts := strings.Split(name, ".")
+	if len(name) > 253 || len(parts) != 4 || parts[0] != "brine" || !appName.MatchString(parts[1]) || !secretRef.MatchString(parts[2]) || !strings.HasPrefix(parts[3], "v") {
 		return false
 	}
-	stem, version, ok := strings.Cut(name, "-v")
-	if !ok {
-		return false
-	}
-	// References can themselves contain -v. Only the final delimiter is a version.
-	if index := strings.LastIndex(name, "-v"); index >= 0 {
-		stem, version = name[:index], name[index+2:]
-	}
+	version := strings.TrimPrefix(parts[3], "v")
 	n, err := strconv.ParseUint(version, 10, 64)
-	if err != nil || n == 0 || version != strconv.FormatUint(n, 10) {
-		return false
+	return err == nil && n > 0 && version == strconv.FormatUint(n, 10)
+}
+
+func ValidateOperationEvent(op Operation, e Event) error {
+	if ValidateEvent(e) != nil {
+		return ErrInvalidEvent
 	}
-	stem = strings.TrimPrefix(stem, "brine-")
-	for index := 0; index < len(stem); index++ {
-		if stem[index] == '-' && appName.MatchString(stem[:index]) && secretRef.MatchString(stem[index+1:]) {
-			return true
+	if op.Kind == Deploy {
+		if e.Kind == "secret_version" {
+			return ErrInvalidEvent
+		}
+		return nil
+	}
+	if op.Kind != SecretSet || e.Kind != "secret_version" && e.Kind != "state" && e.Kind != "failure" {
+		return ErrInvalidEvent
+	}
+	if e.Kind == "secret_version" {
+		var p SecretVersionPayload
+		if json.Unmarshal(e.Payload, &p) != nil || !strings.HasPrefix(p.Name, "brine."+op.App+"."+op.SecretRef+".v") {
+			return ErrInvalidEvent
 		}
 	}
-	return false
+	return nil
 }

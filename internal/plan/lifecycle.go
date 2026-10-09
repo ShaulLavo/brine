@@ -2,6 +2,7 @@ package plan
 
 import (
 	"fmt"
+	"reflect"
 	"slices"
 
 	"github.com/ShaulLavo/brine/internal/target"
@@ -22,6 +23,9 @@ func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
 	}
 	if current == nil {
 		return Plan{}, fmt.Errorf("lifecycle requires a committed release")
+	}
+	if configurationDiff(in.Desired, in.Image, current.HostPort, current.Secrets, current) != nil || !reflect.DeepEqual(in.Desired.Secrets, current.Desired.Secrets) {
+		return Plan{}, fmt.Errorf("lifecycle cannot change configuration")
 	}
 	original := in.Snapshot
 	// Preserve all decision facts for the fingerprint. The normal planner first

@@ -10,6 +10,8 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/spec"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func configFixture(t *testing.T) (Service, *fakeStore) {
@@ -48,6 +50,7 @@ func TestConfigEdits(t *testing.T) {
 		{"pids_denied", []Edit{{Key: "resources.pids_limit", Value: "129"}}, true},
 		{"health_invalid", []Edit{{Key: "health.path", Value: "//unsafe"}}, true},
 		{"health_type", []Edit{{Key: "health.expected_status", Value: "two"}}, true},
+		{"unset_invalid", []Edit{{Key: "environment.9BAD", Action: "unset"}}, true},
 		{"env_invalid", []Edit{{Key: "environment.9BAD", Value: "PLANTED_PRIVATE_SETTING"}}, true},
 		{"env_nul", []Edit{{Key: "environment.API_KEY", Value: "PLANTED_PRIVATE_SETTING\x00"}}, true},
 		{"secret_denied", []Edit{{Key: "secrets.TOKEN", Value: "other-app-ref"}}, true},
@@ -99,5 +102,77 @@ func TestLifecyclePlanShapes(t *testing.T) {
 				t.Fatalf("bad lifecycle plan: %#v", p)
 			}
 		})
+	}
+}
+
+func TestConfigCanRepairConfigurationAfterPolicyCeilingDrops(t *testing.T) {
+	s, db := configFixture(t)
+	old := db.desired["current-plan"]
+	old.Resources.MemoryMB = 1024
+	db.desired["current-plan"] = old
+	db.state.Releases[0].Desired = old
+	got, err := s.ConfigSet(context.Background(), "hello", []Edit{{Key: "resources.memory_mb", Value: "256"}})
+	if err != nil || db.desired[got.PlanID].Resources.MemoryMB != 256 {
+		t.Fatal(got, err)
+	}
+}
+
+func TestLifecycleRejectsHiddenConfigurationChange(t *testing.T) {
+	s, _ := configFixture(t)
+	in, _, err := s.currentInput(context.Background(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Desired.Resources.MemoryMB--
+	if _, err := plan.BuildLifecycle(in, plan.StartApp); err == nil {
+		t.Fatal("lifecycle changed configuration")
+	}
+}
+
+func TestConfigBindsNewestSecretButLifecycleKeepsCommittedVersion(t *testing.T) {
+	s, db := configFixture(t)
+	snap := s.Inventory.(inventory).snapshot
+	d := db.desired["current-plan"]
+	d.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "hello-token"}}
+	db.desired["current-plan"] = d
+	db.state.Releases[0].Desired = d
+	db.state.Releases[0].Secrets = []plan.SecretBinding{{Environment: "TOKEN", Reference: "hello-token", VersionName: "brine.hello.hello-token.v1", ID: "id-one"}}
+	(*snap.Apps.Value)[0].Secrets = target.Known([]target.Secret{{Name: "brine.hello.hello-token.v1", ID: "id-one"}, {Name: "brine.hello.hello-token.v2", ID: "id-two"}})
+	got, err := s.Lifecycle(context.Background(), "hello", plan.RestartApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := db.saved[len(db.saved)-1]
+	if p.Kind != plan.Update || len(p.Secrets) != 1 || p.Secrets[0].VersionName != "brine.hello.hello-token.v1" {
+		t.Fatal(p)
+	}
+	got, err = s.ConfigSet(context.Background(), "hello", []Edit{{Key: "secrets.TOKEN", Value: "hello-token"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p = db.saved[len(db.saved)-1]
+	if p.Kind != plan.Update || len(p.Secrets) != 1 || p.Secrets[0].VersionName != "brine.hello.hello-token.v2" || got.Diff == nil || len(got.Diff.Secrets) != 1 {
+		t.Fatal(p)
+	}
+}
+
+func TestConfigDomainRemovalAndUnset(t *testing.T) {
+	s, db := configFixture(t)
+	d := db.desired["current-plan"]
+	d.Domains = append(d.Domains, spec.Domain("other.example.net"))
+	d.Environment = []policy.Environment{{Name: "REMOVE", Value: "PLANTED_PRIVATE_SETTING"}}
+	db.desired["current-plan"] = d
+	db.state.Releases[0].Desired = d
+	got, err := s.ConfigSet(context.Background(), "hello", []Edit{{Key: "domains", Action: "remove", Value: "other.example.net"}, {Key: "environment.REMOVE", Action: "unset"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := db.desired[got.PlanID]
+	if len(edited.Domains) != 1 || len(edited.Environment) != 0 {
+		t.Fatal("edits did not take effect")
+	}
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "PLANTED_PRIVATE_SETTING") {
+		t.Fatal("old setting leaked")
 	}
 }

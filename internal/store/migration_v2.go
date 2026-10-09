@@ -18,7 +18,7 @@ CREATE TABLE operations_v2 (
  kind TEXT NOT NULL CHECK(kind IN ('deploy','secret_set')), app TEXT NOT NULL, secret_ref TEXT NOT NULL,
  CHECK((kind='deploy' AND plan_id IS NOT NULL AND secret_ref='') OR (kind='secret_set' AND plan_id IS NULL AND secret_ref<>'' AND state IN ('queued','preparing','succeeded','failed','recovery_required'))),
  UNIQUE(requester,idempotency_key));
-INSERT INTO operations_v2 SELECT o.*, 'deploy', json_extract(p.canonical,'$.app'), '' FROM operations o JOIN plans p ON p.id=o.plan_id;
+INSERT INTO operations_v2 SELECT o.*, 'deploy', json_extract(p.canonical,'$.app'), '' FROM operations o LEFT JOIN plans p ON p.id=o.plan_id;
 CREATE TABLE events_v2 (operation_id TEXT NOT NULL REFERENCES operations_v2(id), seq INTEGER NOT NULL CHECK(seq>0), kind TEXT NOT NULL, state TEXT NOT NULL, payload BLOB NOT NULL CHECK(length(payload)<=4096), created_at TEXT NOT NULL, PRIMARY KEY(operation_id,seq));
 INSERT INTO events_v2 SELECT * FROM events;
 DROP TABLE events;

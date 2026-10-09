@@ -361,7 +361,7 @@ func Build(in Input) (Plan, error) {
 	for _, secret := range in.Desired.Secrets {
 		binding := SecretBinding{Environment: secret.Name, Reference: secret.Reference}
 		var latest uint64
-		prefix := "brine-" + p.App + "-" + string(secret.Reference) + "-v"
+		prefix := "brine." + p.App + "." + string(secret.Reference) + ".v"
 		if current != nil && current.Secrets.Status == target.KnownStatus {
 			for _, s := range *current.Secrets.Value {
 				if !strings.HasPrefix(s.Name, prefix) {
@@ -619,7 +619,7 @@ func canonicalState(state BrineState) ([]byte, error) {
 		}
 		slices.SortFunc(r.Secrets, func(a, b SecretBinding) int { return strings.Compare(a.Environment, b.Environment) })
 		for j, binding := range r.Secrets {
-			if binding.Environment == "" || binding.Reference == "" || binding.ID == "" || !strings.HasPrefix(binding.VersionName, "brine-"+r.App+"-"+string(binding.Reference)+"-v") || (j > 0 && binding.Environment == r.Secrets[j-1].Environment) {
+			if binding.Environment == "" || binding.Reference == "" || binding.ID == "" || !strings.HasPrefix(binding.VersionName, "brine."+r.App+"."+string(binding.Reference)+".v") || (j > 0 && binding.Environment == r.Secrets[j-1].Environment) {
 				return nil, fmt.Errorf("invalid committed secret binding")
 			}
 		}

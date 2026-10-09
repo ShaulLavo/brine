@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -20,6 +21,7 @@ type Name struct{ value string }
 func (n Name) String() string { return n.value }
 
 var namePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,252}$`)
+var secretNamePattern = regexp.MustCompile(`^brine\.[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?\.[A-Za-z0-9][A-Za-z0-9_-]{0,252}\.v[1-9][0-9]*$`)
 var imagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)+(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?@sha256:[a-fA-F0-9]{64}$`)
 var digestPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 
@@ -35,6 +37,18 @@ func ParseName(s string) (Name, error) {
 		return Name{}, invalid()
 	}
 	return Name{s}, nil
+}
+
+// ParseSecretName accepts immutable Brine names, not generic runtime names.
+func ParseSecretName(s string) (Name, error) {
+	if !secretNamePattern.MatchString(s) {
+		return Name{}, invalid()
+	}
+	version := s[strings.LastIndex(s, ".v")+2:]
+	if _, err := strconv.ParseUint(version, 10, 64); err != nil {
+		return Name{}, invalid()
+	}
+	return ParseName(s)
 }
 func invalid() error   { return &localexec.Error{Kind: localexec.Invalid} }
 func malformed() error { return &localexec.Error{Kind: localexec.Failed} }

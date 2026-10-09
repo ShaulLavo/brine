@@ -147,6 +147,9 @@ func DecodeConfigPlan(raw []byte) (ConfigPlan, error) {
 	if exact(raw, reflect.TypeFor[ConfigPlan]()) != nil || json.Unmarshal(raw, &p) != nil || !digestPattern.MatchString(p.PlanID) || p.Kind != plan.Update && p.Kind != plan.NoOp && p.Kind != plan.Conflict {
 		return ConfigPlan{}, strictjson.ErrObject
 	}
+	if p.Lifecycle != "" && p.Lifecycle != plan.RestartApp && p.Lifecycle != plan.StopApp && p.Lifecycle != plan.StartApp {
+		return ConfigPlan{}, strictjson.ErrObject
+	}
 	if p.Kind == plan.Conflict && len(p.Conflicts) == 0 || p.Kind != plan.Conflict && len(p.Conflicts) != 0 {
 		return ConfigPlan{}, strictjson.ErrObject
 	}

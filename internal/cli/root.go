@@ -6,6 +6,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/transport"
 	"github.com/spf13/cobra"
@@ -36,6 +37,8 @@ type Dependencies struct {
 	LogsClient            LogsClient
 	HostApps              dispatch.AppOperations
 	HostDiagnose          dispatch.DiagnosticReader
+	HostConfig            dispatch.ConfigurationOperations
+	HostSecrets           dispatch.SecretOperations
 }
 
 // NewRootCommand builds an independent command tree without executing it.
@@ -68,6 +71,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
 	root.AddCommand(newHostCmd(deps))
+	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp))
 	root.AddCommand(newLogsCmd(deps, &modes))
 	root.AddCommand(newDiagnoseCmd(deps, &modes))
 	root.AddCommand(newEnrollCmd(deps, &noInput, &modes))

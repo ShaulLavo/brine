@@ -49,7 +49,7 @@ func (s *fakeStore) ReleaseByID(_ context.Context, _ string, id string) (ops.Rel
 }
 func (s *fakeStore) LastOperation(context.Context, string) (ops.Operation, error) {
 	if s.last.ID == "" {
-		return ops.Operation{}, store.ErrNotFound
+		return ops.Operation{Kind: ops.Deploy}, store.ErrNotFound
 	}
 	return s.last, nil
 }
@@ -121,7 +121,7 @@ func TestStatus(t *testing.T) {
 				(*(*snap.Apps.Value)[0].QuadletUnits.Value)[0].Hash = "sha256:" + strings.Repeat("f", 64)
 			}
 			if kind == "failed" {
-				s.last = ops.Operation{ID: "failed-op", State: ops.Failed}
+				s.last = ops.Operation{Kind: ops.Deploy, ID: "failed-op", State: ops.Failed}
 			}
 			if kind == "empty" {
 				s.state.Releases = []plan.CurrentRelease{}

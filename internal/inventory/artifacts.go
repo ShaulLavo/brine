@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -84,11 +85,11 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			return appArtifacts{}
 		}
 		for _, secret := range secrets {
-			if !strings.HasPrefix(secret.Name, "brine-") {
+			if !strings.HasPrefix(secret.Name, "brine.") {
 				continue
 			}
 			candidates := secretAppNames(secret.Name)
-			// Names are not self-delimiting. Do not guess app/reference boundaries.
+			// Dotted names identify app ownership without guessing.
 			if len(candidates) != 1 {
 				return appArtifacts{}
 			}
@@ -135,7 +136,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			}
 			observed := []target.Secret{}
 			for _, secret := range secrets {
-				if strings.HasPrefix(secret.Name, "brine-"+app+"-") {
+				if strings.HasPrefix(secret.Name, "brine."+app+".") {
 					observed = append(observed, secret)
 				}
 			}
@@ -395,17 +396,9 @@ func sameJSON(a, b []byte) bool {
 	return json.Unmarshal(a, &left) == nil && json.Unmarshal(b, &right) == nil && reflect.DeepEqual(left, right)
 }
 
-var secretReferenceName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,252}$`)
-var secretVersionSuffix = regexp.MustCompile(`-v[0-9]+$`)
-
 func secretAppNames(name string) []string {
-	stem := strings.TrimPrefix(name, "brine-")
-	stem = secretVersionSuffix.ReplaceAllString(stem, "")
-	names := []string{}
-	for i, ch := range stem {
-		if ch == '-' && appName.MatchString(stem[:i]) && secretReferenceName.MatchString(stem[i+1:]) {
-			names = append(names, stem[:i])
-		}
+	if !ops.ValidSecretVersionName(name) {
+		return nil
 	}
-	return names
+	return []string{strings.Split(name, ".")[1]}
 }

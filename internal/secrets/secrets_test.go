@@ -20,6 +20,7 @@ import (
 )
 
 type fakePodman struct {
+	dir     string
 	mu      sync.Mutex
 	names   []string
 	calls   []localexec.Command
@@ -71,7 +72,7 @@ func secretFixture(t *testing.T) (Service, *store.Store, *fakePodman) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fake := &fakePodman{}
+	fake := &fakePodman{dir: dir}
 	session, err := localexec.NewSession(fake, 1000, dir, time.Second)
 	if err != nil {
 		t.Fatal(err)
@@ -85,7 +86,7 @@ func TestSecretSetBeforeDeployAndNoValueInAudit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.VersionName != "brine-hello-hello-token-v1" {
+	if got.VersionName != "brine.hello.hello-token.v1" {
 		t.Fatal(got)
 	}
 	op, err := db.GetOperation(context.Background(), got.OperationID)
@@ -136,6 +137,13 @@ func TestSecretPolicyRefusal(t *testing.T) {
 }
 func TestSecretConcurrentVersions(t *testing.T) {
 	s, _, f := secretFixture(t)
+	second, err := store.Open(f.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	s2 := s
+	s2.Store = second
 	const n = 24
 	var wg sync.WaitGroup
 	fail := make(chan error, n)
@@ -143,7 +151,11 @@ func TestSecretConcurrentVersions(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			_, err := s.Set(context.Background(), "hello", "hello-token", fmt.Sprintf("request%d", i), []byte("PRIVATE"))
+			service := s
+			if i%2 == 0 {
+				service = s2
+			}
+			_, err := service.Set(context.Background(), "hello", "hello-token", fmt.Sprintf("request%d", i), []byte("PRIVATE"))
 			fail <- err
 		}(i)
 	}
@@ -159,7 +171,7 @@ func TestSecretConcurrentVersions(t *testing.T) {
 		names[name] = true
 	}
 	for i := 1; i <= n; i++ {
-		if !names["brine-hello-hello-token-v"+strconv.Itoa(i)] {
+		if !names["brine.hello.hello-token.v"+strconv.Itoa(i)] {
 			t.Fatal("missing version", i)
 		}
 	}
@@ -204,5 +216,76 @@ func TestUnknownSecretCreateInspectsRatherThanRetries(t *testing.T) {
 				t.Fatal("blind retry")
 			}
 		})
+	}
+}
+
+func TestUnknownVersionReservationSurvivesAbsentRuntimeName(t *testing.T) {
+	s, db, f := secretFixture(t)
+	f.unknown = true
+	if _, err := s.Set(context.Background(), "hello", "hello-token", "uncertain", []byte("PRIVATE")); err == nil {
+		t.Fatal("expected unknown")
+	}
+	latest, err := db.LatestSecretVersion(context.Background(), "hello", "hello-token")
+	if err != nil || latest != 1 {
+		t.Fatal(latest, err)
+	}
+	f.unknown = false
+	got, err := s.Set(context.Background(), "hello", "hello-token", "next", []byte("PRIVATE"))
+	if err != nil || got.VersionName != "brine.hello.hello-token.v2" {
+		t.Fatal(got, err)
+	}
+}
+
+func TestPreparingSecretReconcilesWithoutCreating(t *testing.T) {
+	for _, exists := range []bool{false, true} {
+		t.Run(strconv.FormatBool(exists), func(t *testing.T) {
+			s, db, f := secretFixture(t)
+			ctx := context.Background()
+			op, _, err := db.CreateOperation(ctx, ops.Intent{Kind: ops.SecretSet, App: "hello", SecretRef: "hello-token"}, "agent", "crashed")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err = db.SetOperationState(ctx, op.ID, ops.Preparing); err != nil {
+				t.Fatal(err)
+			}
+			name := "brine.hello.hello-token.v7"
+			payload, _ := json.Marshal(ops.SecretVersionPayload{Name: name, Outcome: "intent"})
+			if _, err = db.AppendEvent(ctx, op.ID, ops.Event{Kind: "secret_version", Payload: payload}); err != nil {
+				t.Fatal(err)
+			}
+			if exists {
+				f.names = []string{name}
+			}
+			got, err := s.Set(ctx, "hello", "hello-token", "crashed", []byte("DIFFERENT_PRIVATE_VALUE"))
+			if exists && (err != nil || got.VersionName != name) || !exists && err == nil {
+				t.Fatal(got, err)
+			}
+			for _, c := range f.calls {
+				if c.Args[1] == "create" {
+					t.Fatal("replayed uncertain effect")
+				}
+			}
+			after, err := db.GetOperation(ctx, op.ID)
+			want := ops.RecoveryRequired
+			if exists {
+				want = ops.Succeeded
+			}
+			if err != nil || after.State != want {
+				t.Fatal(after, err)
+			}
+		})
+	}
+}
+
+func TestVersionExhaustionDoesNotCreate(t *testing.T) {
+	s, _, f := secretFixture(t)
+	f.names = []string{"brine.hello.hello-token.v18446744073709551615"}
+	if _, err := s.Set(context.Background(), "hello", "hello-token", "overflow", []byte("PRIVATE")); err == nil {
+		t.Fatal("version overflow accepted")
+	}
+	for _, c := range f.calls {
+		if c.Args[1] == "create" {
+			t.Fatal("created overflowing version")
+		}
 	}
 }

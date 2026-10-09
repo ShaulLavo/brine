@@ -20,7 +20,7 @@ func (s *operationStub) Apply(_ context.Context, planID, key string) (jobs.Accep
 	return jobs.Accepted{Status: "accepted", OperationID: "op1"}, nil
 }
 func (s *operationStub) Operation(_ context.Context, id string, cursor uint64) (jobs.Status, error) {
-	return jobs.Status{Operation: ops.Operation{ID: id, PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Succeeded}, Events: []ops.Event{}, NextCursor: cursor}, nil
+	return jobs.Status{Operation: ops.Operation{Kind: ops.Deploy, ID: id, PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Succeeded}, Events: []ops.Event{}, NextCursor: cursor}, nil
 }
 
 type dispatcherSSH struct {

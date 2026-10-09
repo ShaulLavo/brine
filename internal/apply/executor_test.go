@@ -26,6 +26,7 @@ import (
 var injected = errors.New("injected failure with private app output")
 
 type rig struct {
+	operationKind   ops.Kind
 	executor        Executor
 	plan            plan.Plan
 	desired         policy.Desired
@@ -92,7 +93,7 @@ func newRig(t testing.TB, update bool) *rig {
 		// Include a real immutable secret binding in the executor matrix.
 		desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
 		r.oldDesired = desired
-		secret := plan.SecretBinding{Environment: "TOKEN", Reference: "token", VersionName: "brine-hello-token-v2", ID: "fixture-secret-002"}
+		secret := plan.SecretBinding{Environment: "TOKEN", Reference: "token", VersionName: "brine.hello.token.v2", ID: "fixture-secret-002"}
 		current := plan.CurrentRelease{App: "hello", ID: "previous-release", Desired: desired, Image: image, HostPort: *a.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{secret}, Units: *a.QuadletUnits.Value, CaddyFile: snapshot.CaddyConfig.Value.Files[0]}
 		state.Releases = append(state.Releases, current)
 		oldInput := plan.Input{Desired: desired, Snapshot: snapshot, Image: image, State: state}
@@ -799,4 +800,12 @@ func testRollbackHealthDeadline(t *testing.T, seconds int) {
 	if probes != 2 {
 		t.Fatalf("health probes %d", probes)
 	}
+}
+
+func (r *rig) GetOperation(_ context.Context, id string) (ops.Operation, error) {
+	kind := r.operationKind
+	if kind == "" {
+		kind = ops.Deploy
+	}
+	return ops.Operation{ID: id, Kind: kind, PlanID: r.plan.Hash, State: r.state}, nil
 }

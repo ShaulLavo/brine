@@ -104,3 +104,24 @@ func TestMigrateV1Operations(t *testing.T) {
 		t.Fatal("foreign key violations", violations)
 	}
 }
+
+func TestSecretAuditBoundToOperationIdentity(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	op, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.SecretSet, App: "hello", SecretRef: "hello-token"}, "requester", "audit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"brine.other.hello-token.v1", "brine.hello.other-ref.v1"} {
+		payload, _ := json.Marshal(ops.SecretVersionPayload{Name: name, Outcome: "intent"})
+		if _, err := s.AppendEvent(ctx, op.ID, ops.Event{Kind: "secret_version", Payload: payload}); err == nil {
+			t.Fatal("foreign assignment accepted", name)
+		}
+	}
+	if _, err := s.AppendEvent(ctx, op.ID, ops.Event{Kind: "launch", Payload: json.RawMessage(`{"outcome":"intent"}`)}); err == nil {
+		t.Fatal("secret accepted deploy event")
+	}
+	if _, err := s.db.Exec("UPDATE operations SET secret_ref='other' WHERE id=?", op.ID); err == nil {
+		t.Fatal("operation identity mutable")
+	}
+}

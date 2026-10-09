@@ -90,7 +90,7 @@ func (p Policy) AppPorts() PortRange {
 }
 
 var revisionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
-var referencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,252}$`)
+var referencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 
 func Parse(data []byte) (Policy, error) {
 	bad := func(code, field, message string) (Policy, error) { return Policy{}, refuse(code, field, message) }
@@ -173,7 +173,8 @@ func Parse(data []byte) (Policy, error) {
 			return bad("policy.invalid_secrets", "allowed_secrets", "expected valid app names")
 		}
 		for _, ref := range refs {
-			if !referencePattern.MatchString(ref) {
+			stem := "brine." + name + "." + ref
+			if !referencePattern.MatchString(ref) || len(stem+".v18446744073709551615") > 253 {
 				return bad("policy.invalid_secrets", "allowed_secrets", "expected secret reference names, never values")
 			}
 		}

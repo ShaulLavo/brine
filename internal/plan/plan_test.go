@@ -224,9 +224,9 @@ func TestSecretVersionsAndRotation(t *testing.T) {
 	in := installed(t)
 	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
 	app := &(*in.Snapshot.Apps.Value)[0]
-	*app.Secrets.Value = append(*app.Secrets.Value, target.Secret{Name: "brine-hello-token-v10", ID: "synthetic-10"}, target.Secret{Name: "brine-other-token-v99", ID: "synthetic-99"})
+	*app.Secrets.Value = append(*app.Secrets.Value, target.Secret{Name: "brine.hello.token.v10", ID: "synthetic-10"}, target.Secret{Name: "brine.other.token.v99", ID: "synthetic-99"})
 	initial := build(t, in)
-	if initial.Kind != Update || len(initial.Secrets) != 1 || initial.Secrets[0].VersionName != "brine-hello-token-v10" || initial.Secrets[0].ID != "synthetic-10" {
+	if initial.Kind != Update || len(initial.Secrets) != 1 || initial.Secrets[0].VersionName != "brine.hello.token.v10" || initial.Secrets[0].ID != "synthetic-10" {
 		t.Fatal(initial)
 	}
 	in.State.Releases[0].Desired = in.Desired
@@ -234,9 +234,9 @@ func TestSecretVersionsAndRotation(t *testing.T) {
 	if p := build(t, in); p.Kind != NoOp {
 		t.Fatal(p.Kind)
 	}
-	*app.Secrets.Value = append(*app.Secrets.Value, target.Secret{Name: "brine-hello-token-v11", ID: "synthetic-11"})
+	*app.Secrets.Value = append(*app.Secrets.Value, target.Secret{Name: "brine.hello.token.v11", ID: "synthetic-11"})
 	p := build(t, in)
-	if p.Kind != Update || p.Secrets[0].VersionName != "brine-hello-token-v11" || p.Hash == initial.Hash {
+	if p.Kind != Update || p.Secrets[0].VersionName != "brine.hello.token.v11" || p.Hash == initial.Hash {
 		t.Fatal(p)
 	}
 }

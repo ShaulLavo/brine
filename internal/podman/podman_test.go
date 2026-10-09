@@ -440,3 +440,16 @@ func TestAssociatedRepositoryNormalizationPreservesBinding(t *testing.T) {
 		})
 	}
 }
+
+func TestImmutableSecretNameGrammar(t *testing.T) {
+	for _, name := range []string{"brine.hello.token.v1", "brine.hello-team.team-token.v18446744073709551615"} {
+		if _, err := ParseSecretName(name); err != nil {
+			t.Fatal(name, err)
+		}
+	}
+	for _, name := range []string{"brine-hello-token-v1", "brine.hello.token.with-dot.v1", "brine.hello.token.v0", "brine.hello.token.v01", "brine.hello.token.v18446744073709551616"} {
+		if _, err := ParseSecretName(name); err == nil {
+			t.Fatal("invalid secret name accepted", name)
+		}
+	}
+}

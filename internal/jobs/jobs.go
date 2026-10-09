@@ -218,6 +218,13 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 func (r Runner) lockUnavailable(ctx context.Context, id string, cause error) error {
 	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
 	defer cancel()
+	op, err := r.Store.GetOperation(journal, id)
+	if err != nil {
+		return err
+	}
+	if op.Kind != ops.Deploy {
+		return result.New(result.Conflict, nil)
+	}
 	_, eventErr := r.Store.AppendEvent(journal, id, failureEvent("lock_unavailable"))
 	stateErr := r.Store.TransitionOperation(journal, id, ops.Queued, ops.Failed)
 	if errors.Is(stateErr, ops.ErrStateConflict) {

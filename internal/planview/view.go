@@ -37,6 +37,7 @@ type secret struct {
 
 type presentation struct {
 	SchemaVersion      int                        `json:"schema_version"`
+	Lifecycle          plan.ChangeKind            `json:"lifecycle,omitempty"`
 	Kind               plan.Kind                  `json:"kind"`
 	App                string                     `json:"app"`
 	Target             target.Identity            `json:"target"`
@@ -56,7 +57,7 @@ type presentation struct {
 
 func project(p plan.Plan) presentation {
 	v := presentation{
-		SchemaVersion: p.SchemaVersion, Kind: p.Kind, App: p.App,
+		SchemaVersion: p.SchemaVersion, Kind: p.Kind, Lifecycle: p.Lifecycle, App: p.App,
 		Target: p.Target, ObservedGeneration: p.ObservedGeneration,
 		PolicyVersion: p.PolicyVersion, PolicyHash: p.PolicyHash,
 		DesiredHash: p.DesiredHash, ConfigHash: p.ConfigHash,
@@ -161,6 +162,10 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 			add(fmt.Sprintf("~ routing generation: %d -> %d", c.PreviousGeneration, c.NextGeneration))
 		case plan.RestartApp:
 			add("~ restart app")
+		case plan.StopApp:
+			add("~ stop app (data preserved)")
+		case plan.StartApp:
+			add("~ start app")
 		default:
 			add("? unsupported plan change")
 		}

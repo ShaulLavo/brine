@@ -69,7 +69,7 @@ func (x *execution) reconcileUnknown(ctx context.Context, step string) resolutio
 				result = notApplied
 			}
 		}
-	case "quiesce_old", "rollback_quiesce":
+	case "quiesce_old", "rollback_quiesce", "stop_unit":
 		if writer == writerStopped {
 			result = applied
 		} else if writer == writerRunning {

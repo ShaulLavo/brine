@@ -22,6 +22,7 @@ const JournalTimeout = 5 * time.Second
 
 type Store interface {
 	AcquireHostLock(context.Context) (ops.Lock, error)
+	LatestSecretVersion(context.Context, string, string) (uint64, error)
 	CreateOperation(context.Context, ops.Intent, string, string) (ops.Operation, bool, error)
 	SetOperationState(context.Context, string, ops.State) error
 	AppendEvent(context.Context, string, ops.Event) (uint64, error)
@@ -102,8 +103,11 @@ func (s Service) Set(ctx context.Context, app, ref, key string, value []byte) (S
 	if err != nil {
 		return Stored{}, s.finish(ctx, op.ID, ops.Failed)
 	}
-	prefix := "brine-" + app + "-" + ref + "-v"
-	var latest uint64
+	prefix := "brine." + app + "." + ref + ".v"
+	latest, err := s.Store.LatestSecretVersion(ctx, app, ref)
+	if err != nil {
+		return Stored{}, s.finish(ctx, op.ID, ops.Failed)
+	}
 	for _, name := range names {
 		suffix, ok := strings.CutPrefix(name.String(), prefix)
 		if !ok {
@@ -118,7 +122,7 @@ func (s Service) Set(ctx context.Context, app, ref, key string, value []byte) (S
 		return Stored{}, s.finish(ctx, op.ID, ops.Failed)
 	}
 	version := prefix + strconv.FormatUint(latest+1, 10)
-	name, err := podman.ParseName(version)
+	name, err := podman.ParseSecretName(version)
 	if err != nil {
 		return Stored{}, s.finish(ctx, op.ID, ops.Failed)
 	}
@@ -164,7 +168,7 @@ func (s Service) complete(ctx context.Context, id, name string) (Stored, error) 
 	return Stored{OperationID: id, VersionName: name}, nil
 }
 func (s Service) reconcile(ctx context.Context, id, version string) (Stored, error) {
-	name, err := podman.ParseName(version)
+	name, err := podman.ParseSecretName(version)
 	if err != nil {
 		return Stored{}, result.New(result.RecoveryRequired, nil)
 	}

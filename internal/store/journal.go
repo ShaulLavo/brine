@@ -135,14 +135,15 @@ func appendEvent(ctx context.Context, tx *sql.Tx, id OpID, event Event) (uint64,
 	if err := ops.ValidateEvent(event); err != nil {
 		return 0, err
 	}
-	var exists int
-	if err := tx.QueryRowContext(ctx, "SELECT 1 FROM operations WHERE id=?", id).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
-		return 0, ErrNotFound
-	} else if err != nil {
+	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref FROM operations WHERE id=?", id))
+	if err != nil {
+		return 0, err
+	}
+	if err = ops.ValidateOperationEvent(op, event); err != nil {
 		return 0, err
 	}
 	var seq uint64
-	err := tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE operation_id=?", id).Scan(&seq)
+	err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(seq),0)+1 FROM events WHERE operation_id=?", id).Scan(&seq)
 	if err != nil {
 		return 0, err
 	}
@@ -172,7 +173,8 @@ func (s *Store) EventsAfter(ctx context.Context, id OpID, cursor uint64, limit i
 	if limit < 1 || limit > 1024 || cursor > 1<<63-1 {
 		return nil, ErrInvalid
 	}
-	if _, err := s.GetOperation(ctx, id); err != nil {
+	op, err := s.GetOperation(ctx, id)
+	if err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, "SELECT seq,kind,state,payload,created_at FROM events WHERE operation_id=? AND seq>? ORDER BY seq LIMIT ?", id, cursor, limit)
@@ -188,7 +190,7 @@ func (s *Store) EventsAfter(ctx context.Context, id OpID, cursor uint64, limit i
 			return nil, err
 		}
 		e.CreatedAt, err = time.Parse(time.RFC3339Nano, created)
-		if err != nil || ops.ValidateEvent(e) != nil {
+		if err != nil || ops.ValidateOperationEvent(op, e) != nil {
 			return nil, &IntegrityError{}
 		}
 		events = append(events, e)

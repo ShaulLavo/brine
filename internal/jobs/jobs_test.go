@@ -277,3 +277,14 @@ func TestLaunchOutcomeCannotOverwriteExecutorProgress(t *testing.T) {
 		}
 	}
 }
+
+func TestRunnerRefusesSecretOperation(t *testing.T) {
+	for _, busy := range []bool{false, true} {
+		s := &fakeStore{locked: busy, operation: ops.Operation{ID: "op1", Kind: ops.SecretSet, App: "hello", SecretRef: "token", State: ops.Queued}}
+		called := false
+		r := Runner{Store: s, Executor: execFunc(func(context.Context, string, plan.Plan, policy.Desired) error { called = true; return nil })}
+		if err := r.Run(context.Background(), "op1"); err == nil || called || len(s.events) != 0 || s.operation.State != ops.Queued {
+			t.Fatal("secret entered deployment runner", err)
+		}
+	}
+}

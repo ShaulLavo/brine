@@ -123,7 +123,7 @@ type Unit struct {
 }
 
 // Secret.Name is the actual Podman name, not a logical app-spec reference.
-// New releases bind immutable names brine-<app>-<ref>-v<n> and never values.
+// New releases bind immutable names brine.<app>.<ref>.v<n> and never values.
 type Secret struct {
 	Name string `json:"name"`
 	ID   string `json:"id"`

@@ -23,6 +23,7 @@ type Edit struct {
 	Action string `json:"action"`
 }
 type ConfigPlan struct {
+	Lifecycle plan.ChangeKind         `json:"lifecycle,omitempty"`
 	PlanID    string                  `json:"plan_id"`
 	Kind      plan.Kind               `json:"kind"`
 	Diff      *plan.ConfigurationDiff `json:"diff"`
@@ -54,16 +55,12 @@ func applyEdits(d policy.Desired, edits []Edit, p policy.Policy) (policy.Desired
 			return bad()
 		}
 		if name, ok := strings.CutPrefix(edit.Key, "environment."); ok {
-			if name == "" || edit.Action == "add" || edit.Action == "remove" {
+			if !spec.ValidEnvironmentName(name) || edit.Action == "add" || edit.Action == "remove" {
 				return bad()
 			}
 			if edit.Action == "unset" {
 				if edit.Value != "" {
 					return bad()
-				}
-				a.Environment[name] = ""
-				if _, err := policy.Normalize(a, p); err != nil {
-					return policy.Desired{}, err
 				}
 				delete(a.Environment, name)
 			} else {
@@ -152,11 +149,7 @@ func (s Service) currentInput(ctx context.Context, app string) (plan.Input, poli
 		if stored.App != app || stored.Target != snap.Identity || string(d.Name) != app {
 			return plan.Input{}, pol, result.New(result.Conflict, nil)
 		}
-		desired, err := policy.Normalize(SpecFromDesired(d), pol)
-		if err != nil {
-			return plan.Input{}, pol, err
-		}
-		return plan.Input{Desired: desired, Snapshot: snap, State: state, Image: r.Image}, pol, nil
+		return plan.Input{Desired: d, Snapshot: snap, State: state, Image: r.Image}, pol, nil
 	}
 	return plan.Input{}, pol, result.New(result.AppNotFound, nil)
 }
@@ -165,7 +158,7 @@ func (s Service) saveConfig(ctx context.Context, p plan.Plan, d policy.Desired) 
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	return ConfigPlan{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}, nil
+	return ConfigPlan{Lifecycle: p.Lifecycle, PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}, nil
 }
 func (s Service) ConfigSet(ctx context.Context, app string, edits []Edit) (ConfigPlan, error) {
 	in, pol, err := s.currentInput(ctx, app)
@@ -183,7 +176,11 @@ func (s Service) ConfigSet(ctx context.Context, app string, edits []Edit) (Confi
 	return s.saveConfig(ctx, p, in.Desired)
 }
 func (s Service) Lifecycle(ctx context.Context, app string, action plan.ChangeKind) (ConfigPlan, error) {
-	in, _, err := s.currentInput(ctx, app)
+	in, pol, err := s.currentInput(ctx, app)
+	if err != nil {
+		return ConfigPlan{}, err
+	}
+	in.Desired, err = policy.Normalize(SpecFromDesired(in.Desired), pol)
 	if err != nil {
 		return ConfigPlan{}, err
 	}
