@@ -45,3 +45,12 @@ func executeHostServe(deps Dependencies) error {
 	}
 	return err
 }
+
+// HostServeRequested resolves the command before interpreting machine flags.
+// Setup and execution share this predicate so leading global flags cannot select
+// a dispatcher path that missed the process safeguards.
+func HostServeRequested(args []string) bool {
+	root := NewRootCommand(Dependencies{Context: context.Background()})
+	command, _, err := root.Find(args)
+	return err == nil && command != nil && command.CommandPath() == "brine host serve"
+}

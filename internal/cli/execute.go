@@ -14,7 +14,7 @@ import (
 // a partial success response. An unavailable stdout still returns a write error.
 func Execute(deps Dependencies, args []string) error {
 	// Forced-command requests cannot select presentation or options through argv.
-	if len(args) >= 2 && args[0] == "host" && args[1] == "serve" {
+	if HostServeRequested(args) {
 		return executeHostServe(deps)
 	}
 	modes := requestedModes(args)

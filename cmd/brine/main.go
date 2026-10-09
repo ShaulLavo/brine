@@ -15,7 +15,7 @@ import (
 func main() {
 	originalCommandLength := 0
 	var stdin io.Reader = os.Stdin
-	if len(os.Args) >= 3 && os.Args[1] == "host" && os.Args[2] == "serve" {
+	if cli.HostServeRequested(os.Args[1:]) {
 		originalCommandLength = len(os.Getenv("SSH_ORIGINAL_COMMAND"))
 		os.Clearenv()
 		input := hostInput()

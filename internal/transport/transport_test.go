@@ -32,7 +32,7 @@ func validTarget() Target {
 	return Target{Name: "fixture", Destination: "runner@fixture.invalid", IdentityPath: "/fixture/identity", PinnedHostKey: fakeKey()}
 }
 func TestTargetRefusesInjection(t *testing.T) {
-	for _, bad := range []string{"-oProxyCommand=touch", "root@fixture.invalid", "runner@fixture.invalid;touch", "runner@fixture.invalid -oForwardAgent=yes", "ssh://runner@fixture.invalid", "runner@fixture.invalid:22", "runner@fixture.invalid\n", "a@b@fixture.invalid", "runner@-fixture.invalid"} {
+	for _, bad := range []string{"-oProxyCommand=touch", "-fixture", "fixture -oForwardAgent=yes", "root@fixture.invalid", "runner@fixture.invalid;touch", "runner@fixture.invalid -oForwardAgent=yes", "ssh://runner@fixture.invalid", "runner@fixture.invalid:22", "runner@fixture.invalid\n", "a@b@fixture.invalid", "runner@-fixture.invalid"} {
 		target := validTarget()
 		target.Destination = bad
 		if err := target.Validate(); result.ExitCode(err) != 2 {
@@ -87,12 +87,12 @@ func TestSSHArgumentsGolden(t *testing.T) {
 		t.Fatal(err)
 	}
 	known := filepath.Join(client.KnownHostsDir, "fixture.known_hosts")
-	want := []string{"-F", os.DevNull, "-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=" + known, "-o", "GlobalKnownHostsFile=" + os.DevNull, "-o", "HostKeyAlgorithms=ssh-ed25519", "-o", "ForwardAgent=no", "-o", "ClearAllForwardings=yes", "-o", "IdentitiesOnly=yes", "-o", "IdentityAgent=none", "-o", "IdentityFile=none", "-o", "PreferredAuthentications=publickey", "-o", "ProxyCommand=none", "-o", "ProxyJump=none", "-o", "VerifyHostKeyDNS=no", "-o", "UpdateHostKeys=no", "-o", "CheckHostIP=no", "-o", "HostKeyAlias=brine-pin", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=1", "-i", "/fixture/identity", "--", "runner@fixture.invalid", "brine host serve"}
+	want := []string{"-T", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=" + known, "-o", "GlobalKnownHostsFile=none", "-o", "HostKeyAlgorithms=ssh-ed25519", "-o", "ForwardAgent=no", "-o", "ClearAllForwardings=yes", "-o", "IdentitiesOnly=yes", "-o", "RequestTTY=no", "-o", "PermitLocalCommand=no", "-o", "PreferredAuthentications=publickey", "-o", "VerifyHostKeyDNS=no", "-o", "UpdateHostKeys=no", "-o", "CheckHostIP=no", "-o", "HostKeyAlias=brine-pin", "-o", "ConnectTimeout=5", "-o", "ServerAliveInterval=5", "-o", "ServerAliveCountMax=1", "-i", "/fixture/identity", "--", "runner@fixture.invalid", "brine host serve"}
 	if !reflect.DeepEqual(f.command.Args, want) {
 		t.Fatalf("argv=%q\nwant=%q", f.command.Args, want)
 	}
-	if len(f.command.Env) != 0 {
-		t.Fatalf("inherited env %q", f.command.Env)
+	if !reflect.DeepEqual(f.command.Env, os.Environ()) {
+		t.Fatal("client environment not preserved")
 	}
 	decoded, err := dispatch.DecodeRequest(f.command.Stdin)
 	if err != nil || decoded.Op != "ping" {

@@ -72,3 +72,16 @@ func TestHostServeCanceledInput(t *testing.T) {
 		t.Fatal("canceled input did not stop")
 	}
 }
+
+func TestHostCommandResolution(t *testing.T) {
+	for _, args := range [][]string{{"host", "serve"}, {"--json", "host", "serve"}, {"--no-input=false", "host", "serve"}, {"host", "--json", "serve"}, {"--json", "host", "serve", "--jsonl", "--help"}} {
+		if !HostServeRequested(args) {
+			t.Fatalf("missed %q", args)
+		}
+	}
+	for _, args := range [][]string{nil, {"version", "host", "serve"}, {"help", "host", "serve"}, {"--json", "host"}, {"host", "unknown"}} {
+		if HostServeRequested(args) {
+			t.Fatalf("misidentified %q", args)
+		}
+	}
+}

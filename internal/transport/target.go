@@ -25,7 +25,7 @@ type Target struct {
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 var userPattern = regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`)
-var hostLabel = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$`)
+var destinationPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,252}$`)
 var pathPattern = regexp.MustCompile(`^/[A-Za-z0-9_./-]+$`)
 
 func safePath(path string) bool {
@@ -38,13 +38,17 @@ func (t Target) Validate() error {
 		return invalid()
 	}
 	parts := strings.Split(t.Destination, "@")
-	if len(parts) != 2 || parts[0] == "root" || !userPattern.MatchString(parts[0]) || len(parts[1]) > 253 {
-		return invalid()
-	}
-	for _, label := range strings.Split(parts[1], ".") {
-		if !hostLabel.MatchString(label) {
+	host := t.Destination
+	if len(parts) == 2 {
+		if parts[0] == "root" || !userPattern.MatchString(parts[0]) {
 			return invalid()
 		}
+		host = parts[1]
+	} else if len(parts) != 1 {
+		return invalid()
+	}
+	if !destinationPattern.MatchString(host) {
+		return invalid()
 	}
 	key := strings.Split(t.PinnedHostKey, " ")
 	if len(key) != 2 || key[0] != "ssh-ed25519" {

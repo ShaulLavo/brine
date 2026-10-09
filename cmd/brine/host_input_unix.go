@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"io"
 	"os"
 	"syscall"
@@ -23,6 +24,12 @@ func hostInput() io.ReadCloser {
 	// nonblocking duplicate gives this wrapper interruptible reads and deadlines.
 	file := os.NewFile(uintptr(fd), "dispatcher-stdin")
 	if err := file.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		if errors.Is(err, os.ErrNoDeadline) {
+			info, statErr := file.Stat()
+			if statErr == nil && info.Mode().IsRegular() {
+				return &boundedFileInput{file: file, closed: make(chan struct{})}
+			}
+		}
 		_ = file.Close()
 		return failedInput{err}
 	}

@@ -43,12 +43,12 @@ func (c Client) Call(ctx context.Context, t Target, request dispatch.Request) (r
 	if err != nil {
 		return result.Envelope{}, result.New(result.DependencyMissing, err)
 	}
-	args := []string{"-F", os.DevNull, "-T"}
+	args := []string{"-T"}
 	for _, option := range []string{
 		"BatchMode=yes", "StrictHostKeyChecking=yes", "UserKnownHostsFile=" + path,
-		"GlobalKnownHostsFile=" + os.DevNull, "HostKeyAlgorithms=ssh-ed25519", "ForwardAgent=no", "ClearAllForwardings=yes",
-		"IdentitiesOnly=yes", "IdentityAgent=none", "IdentityFile=none", "PreferredAuthentications=publickey",
-		"ProxyCommand=none", "ProxyJump=none", "VerifyHostKeyDNS=no", "UpdateHostKeys=no",
+		"GlobalKnownHostsFile=none", "HostKeyAlgorithms=ssh-ed25519", "ForwardAgent=no", "ClearAllForwardings=yes",
+		"IdentitiesOnly=yes", "RequestTTY=no", "PermitLocalCommand=no", "PreferredAuthentications=publickey",
+		"VerifyHostKeyDNS=no", "UpdateHostKeys=no",
 		"CheckHostIP=no", "HostKeyAlias=brine-pin", "ConnectTimeout=5", "ServerAliveInterval=5", "ServerAliveCountMax=1",
 	} {
 		args = append(args, "-o", option)
@@ -60,7 +60,7 @@ func (c Client) Call(ctx context.Context, t Target, request dispatch.Request) (r
 	}
 	ctx, cancel := context.WithTimeout(ctx, CallTimeout)
 	defer cancel()
-	output, runErr := runner.RunInput(ctx, localexec.Command{Path: ssh, Args: args, Stdin: input, OutputLimit: dispatch.ResponseLimit})
+	output, runErr := runner.RunInput(ctx, localexec.Command{Path: ssh, Args: args, Stdin: input, Env: os.Environ(), OutputLimit: dispatch.ResponseLimit})
 	if ctx.Err() != nil {
 		return result.Envelope{}, result.New(result.TransportFailure, ctx.Err())
 	}
