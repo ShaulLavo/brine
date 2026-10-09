@@ -176,7 +176,7 @@ The client selects the system `ssh` from `/usr/bin:/bin`, then uses `localexec` 
 
 Connection establishment is limited to five seconds, keepalive failure to one five-second interval, and the complete call to fifteen seconds or the caller's earlier deadline. Stdout and stderr each have a **1 MiB** bound; any overflow fails the call, even when a valid response prefix exists. Raw diagnostics are not presented. Responses are decoded strictly at every declared nesting level, including inventory snapshots, and the error code, fixed message, retryability and SSH exit category must agree. Exit 255 is transport failure. Calls never retry automatically. A timeout or lost connection is not proof of a remote mutation's outcome.
 
-Enrollment, key installation, protected ownership and live restricted-key/PAM/startup-file verification remain pending. This protocol and fake-SSH evidence do not establish the full P06-01 boundary on a real host.
+Operator enrollment and live restricted-key/PAM/startup-file verification are described below. The initial protocol and fake-SSH tests alone do not establish the full P06-01 production boundary.
 
 ## App definition
 
