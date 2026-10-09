@@ -36,6 +36,7 @@ func (m *Manager) verifyRemove(ctx context.Context, name, hash string) error {
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		key, _, ok := strings.Cut(strings.TrimSpace(line), "=")
+		key = strings.TrimSpace(key)
 		if ok && (key == "Volume" || key == "Mount" || key == "ReadWritePaths") {
 			return plan.ErrPersistentData
 		}

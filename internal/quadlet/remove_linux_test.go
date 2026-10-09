@@ -50,22 +50,26 @@ func TestRemoveOwnedUnitOnlyAndTwice(t *testing.T) {
 	}
 }
 func TestRemoveMountedDataRefusesArchive(t *testing.T) {
-	home := t.TempDir()
-	m := manager(t, home)
-	defer m.Close()
-	u := rendered(t, "value")
-	path := filepath.Join(home, ActiveDirectory, u.Name())
-	data := append(u.Bytes(), []byte("Volume=/srv/app:/data\n")...)
-	if err := os.WriteFile(path, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	if err := m.VerifyRemove(context.Background(), u.Name(), digest(data)); !errors.Is(err, plan.ErrPersistentData) {
-		t.Fatal(err)
-	}
-	if err := m.Remove(context.Background(), u.Name(), digest(data)); !errors.Is(err, plan.ErrPersistentData) {
-		t.Fatal(err)
-	}
-	if got, err := os.ReadFile(path); err != nil || string(got) != string(data) {
-		t.Fatal("changed persistent unit", err)
+	for _, directive := range []string{"Volume=/srv/app:/data", "Volume = /srv/app:/data", "Mount = type=bind,source=/srv/app,destination=/data", "ReadWritePaths = /srv/app", "\tVolume\t = /srv/app:/data"} {
+		t.Run(directive, func(t *testing.T) {
+			home := t.TempDir()
+			m := manager(t, home)
+			defer m.Close()
+			u := rendered(t, "value")
+			path := filepath.Join(home, ActiveDirectory, u.Name())
+			data := append(u.Bytes(), []byte(directive+"\n")...)
+			if err := os.WriteFile(path, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := m.VerifyRemove(context.Background(), u.Name(), digest(data)); !errors.Is(err, plan.ErrPersistentData) {
+				t.Fatal(err)
+			}
+			if err := m.Remove(context.Background(), u.Name(), digest(data)); !errors.Is(err, plan.ErrPersistentData) {
+				t.Fatal(err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != string(data) {
+				t.Fatal("changed persistent unit", err)
+			}
+		})
 	}
 }
