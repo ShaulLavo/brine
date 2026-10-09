@@ -2,7 +2,7 @@
 
 **Status: Approved.** No deployment functionality is implemented by writing this file. Architecture decisions live in [DECISIONS.md](DECISIONS.md) and take precedence over older wording here.
 
-**Product goal:** a small, fast, trustworthy self-hosted deployment tool on a single Linux VPS that an AI agent can run end to end (deploy, change, troubleshoot, remove and maintain, per D8) using stable JSON, with a person able to do the same through Charm.
+**Product goal:** Vercel-fast deploys on your own server (D9): a small, fast, trustworthy self-hosted deployment tool on a single Linux VPS that an AI agent can run end to end (deploy, change, troubleshoot, remove and maintain, per D8) using stable JSON, with a person able to do the same through Charm.
 
 ## Current baseline
 
@@ -55,6 +55,7 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 | 04 | [SQLite/R2](plans/04-sqlite-and-backups.md) | Persistent data and testable backup/restore workflows | Restore isolated R2 copy with SQLite integrity checks |
 | 05 | [Charm and agents](plans/05-charm-and-agents.md) | Usable TUI and stable machine workflows calling same API | Equivalent operations and outcomes across both UIs |
 | 06 | [Release hardening](plans/06-release-and-ops.md) | Policy gates, disaster drills, binaries and runbooks | End-to-end checklist passes on reference host |
+| 07 | [Drops and previews](plans/07-drops-and-previews.md) | Temporary websites with short links, git branch/PR previews (D9) | One-command drop with pill controls; pull request gets a preview URL |
 
 **Start with P00-01.** Phases are intended as small, reviewable pull requests, not a single mega-implementation. TUI styling can be prototyped against fake data after phase 00, but must not be represented as a working deployment engine.
 

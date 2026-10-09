@@ -11,6 +11,7 @@ Start with [the roadmap](../PLAN.md) and [decisions](../DECISIONS.md), then read
 | 04 | [SQLite and R2](04-sqlite-and-backups.md) | Persistence and verified recovery |
 | 05 | [Charm and agents](05-charm-and-agents.md) | Full TUI and reliable JSON interface |
 | 06 | [Release and operations](06-release-and-ops.md) | Permission boundaries, drills, distribution |
+| 07 | [Drops and previews](07-drops-and-previews.md) | Temporary sites, short links, git previews |
 
 ## Prompt for an implementation agent
 

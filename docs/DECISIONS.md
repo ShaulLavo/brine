@@ -125,3 +125,20 @@ Host maintenance is planned like everything else:
 - D4 still holds: the runner's polkit rule stays reload-only. A Caddy restart is a separate helper verb, gated by policy. It validates the live config first and is declared as affecting every site on the host, Brine's or not.
 
 **Still out of reach for agents:** any shell or raw Podman, systemd or Caddy access; uninstalling or changing software Brine didn't install; other users' files; firewall, Tailscale and DNS changes; and creating or deleting cloud machines. The operator policy can narrow the allowlist further by operation class, but can't widen it past this list.
+
+## D9. Drops and git previews: Vercel-fast deploys on our own server
+
+Added 2026-10-09 by the owner. Deploying a website should take one command or one `git push`. Two new concepts sit beside full apps:
+
+- A **drop** is a temporary website an agent or person publishes to show something: static files, or a small server. It gets a short, readable link such as `https://7k3d.<drops domain>`.
+- A **preview** is a deployment of a git branch or pull request. Pushing to main deploys production as before.
+
+**Drops.** Every drop starts private. The owner's link carries a one-time capability that becomes a host-only cookie. Share hands out view-only links. Making a drop public is one-way; after that it is managed only from the CLI, never the browser. Delete always works. A drop lives 24 hours from its last real visit, so traffic keeps it alive, unless it is pinned with `--keep`. Static drops are served straight from files. Server drops run as tightly limited rootless containers that stop when idle and restart on the next request. A floating pill badge, ported from mesh's app pill at mesh commit `78eeeaa`, gives owners copy, share, make-public and delete in the browser.
+
+**One gateway.** Debian's Caddy can't inject the pill, check per-drop capabilities or record traffic. So `*.<drops domain>` routes to one Brine-owned gateway service behind Caddy, which does all three and serves or proxies each drop. Caddy keeps TLS and the front door. Full apps keep their own routes (D4).
+
+**Previews build in CI, not on the server.** This keeps D1/D2's rule that hosts don't build. A GitHub Action builds static output or an image, then calls Brine with a CI deploy key that policy limits to that repository's app and its previews. Branches and pull requests get preview URLs, commented on the pull request and deleted when it closes. A preview gets fresh, empty data and never touches production databases. A GitHub App for zero-config previews comes later, after its own security review.
+
+**Still to decide** (P07-01): how `*.<drops domain>` gets TLS. The choice is a wildcard certificate via DNS-01, which needs a Caddy build with the Cloudflare module, or on-demand per-host certificates, which stay on Debian's Caddy but hit Let's Encrypt rate limits sooner. The drops domain itself is the owner's choice.
+
+The plan is [Phase 07](plans/07-drops-and-previews.md).
