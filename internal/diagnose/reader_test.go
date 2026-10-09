@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -67,9 +69,15 @@ func (fakeRuntime) RunStdout(_ context.Context, path string, args ...string) (st
 	return "", errors.New("password=runtime-secret")
 }
 
-type fakeJournal struct{}
+type fakeLogExecutor struct{}
 
-func (fakeJournal) Execute(context.Context, localexec.Command) (localexec.Result, error) {
+func (fakeLogExecutor) Execute(_ context.Context, c localexec.Command) (localexec.Result, error) {
+	if c.Path == "podman" {
+		if c.Args[1] == "inspect" {
+			return localexec.Result{Stdout: `{"id":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","name":"systemd-demo","unit":"demo.service","driver":"k8s-file"}`}, nil
+		}
+		return localexec.Result{Stderr: "2026-10-09T00:00:00.000000000Z password=journal-secret Authorization: Bearer token-secret\n"}, nil
+	}
 	return localexec.Result{Stdout: `{"__REALTIME_TIMESTAMP":"1791504000000000","PRIORITY":"3","MESSAGE":"password=journal-secret Authorization: Bearer token-secret"}` + "\n"}, nil
 }
 func fixtureSnapshot() target.Snapshot {
@@ -79,7 +87,7 @@ func fixtureSnapshot() target.Snapshot {
 func fixtureReader() Reader {
 	snapshot := fixtureSnapshot()
 	hash := "sha256:" + strings.Repeat("a", 64)
-	return Reader{Inventory: fakeInventory{snapshot: snapshot}, Runner: fakeRuntime{}, Logs: logs.Reader{Inventory: fakeInventory{snapshot: snapshot}, Executor: fakeJournal{}}, Store: fakeStore{names: []string{"demo"}, records: []ops.OperationRecord{{Operation: ops.Operation{ID: "op-fixture", State: ops.Failed, UpdatedAt: time.Unix(0, 0).UTC()}, FailureCode: "stale_plan"}}, release: ops.Release{ID: "release-2", PlanID: hash, CaddyGeneration: 2, HostPort: 20000, Image: plan.Image{Digest: hash, Platform: target.Platform{OS: "linux", Arch: "arm64"}}, Units: []target.Unit{{Name: "demo.container", Hash: "sha256:" + strings.Repeat("b", 64)}}, Secrets: []plan.SecretBinding{}, CaddyFile: target.CaddyFile{Name: "demo.caddy", Hash: hash}}}, MinimumFreeDiskBytes: func(context.Context) (uint64, error) { return 2, nil }}
+	return Reader{Inventory: fakeInventory{snapshot: snapshot}, Runner: fakeRuntime{}, Logs: logs.Reader{Inventory: fakeInventory{snapshot: snapshot}, Executor: fakeLogExecutor{}}, UnitLogs: logs.JournalReader{Inventory: fakeInventory{snapshot: snapshot}, Executor: fakeLogExecutor{}}, Store: fakeStore{names: []string{"demo"}, records: []ops.OperationRecord{{Operation: ops.Operation{ID: "op-fixture", State: ops.Failed, UpdatedAt: time.Unix(0, 0).UTC()}, FailureCode: "stale_plan"}}, release: ops.Release{ID: "release-2", PlanID: hash, CaddyGeneration: 2, HostPort: 20000, Image: plan.Image{Digest: hash, Platform: target.Platform{OS: "linux", Arch: "arm64"}}, Units: []target.Unit{{Name: "demo.container", Hash: "sha256:" + strings.Repeat("b", 64)}}, Secrets: []plan.SecretBinding{}, CaddyFile: target.CaddyFile{Name: "demo.caddy", Hash: hash}}}, MinimumFreeDiskBytes: func(context.Context) (uint64, error) { return 2, nil }}
 }
 func TestReaderEndToEndAndRedaction(t *testing.T) {
 	report, err := fixtureReader().Read(context.Background(), Request{App: "demo"})
@@ -448,5 +456,126 @@ func TestDriftSharesAppScopedDomainEvidence(t *testing.T) {
 				t.Fatalf("must not guess this app's domains: %+v", got)
 			}
 		})
+	}
+}
+
+type failedJournal struct{ err error }
+
+func (f failedJournal) Execute(context.Context, localexec.Command) (localexec.Result, error) {
+	return localexec.Result{Stdout: "API_KEY=planted-secret", Stderr: "Bearer planted-secret", ExitCode: 1}, f.err
+}
+
+func TestLogCollectionFailureReasonSurvivesReport(t *testing.T) {
+	for _, tt := range []struct {
+		err  error
+		code result.Code
+	}{
+		{&localexec.Error{Kind: localexec.Failed, ExitCode: 1}, "logs_journal_failed"},
+		{&localexec.Error{Kind: localexec.Timeout}, "logs_journal_timeout"},
+		{context.DeadlineExceeded, "logs_journal_timeout"},
+		{&localexec.Error{Kind: localexec.NotFound}, "logs_journal_unavailable"},
+	} {
+		reader := fixtureReader()
+		reader.UnitLogs = logs.JournalReader{Inventory: fakeInventory{snapshot: fixtureSnapshot()}, Executor: failedJournal{tt.err}}
+		report, err := reader.Read(context.Background(), Request{App: "demo"})
+		if err != nil || len(report.Apps) != 1 {
+			t.Fatalf("report=%+v error=%v", report, err)
+		}
+		if got := report.Apps[0].UnitLogs; got.Status != "unknown" || got.Value != nil || got.Reason != string(tt.code) {
+			t.Fatalf("logs=%+v want reason=%s", got, tt.code)
+		}
+		raw, err := json.Marshal(report)
+		if err != nil || strings.Contains(string(raw), "planted-secret") {
+			t.Fatal("report leaked failed command output")
+		}
+		decoded, err := DecodeReport(raw)
+		if err != nil || !reflect.DeepEqual(report, decoded) {
+			t.Fatalf("round trip: %v", err)
+		}
+	}
+}
+
+type diagnosticLogRuntime struct{ journal localexec.Result }
+
+func (diagnosticLogRuntime) RunStdout(ctx context.Context, path string, args ...string) (string, error) {
+	return (fakeRuntime{}).RunStdout(ctx, path, args...)
+}
+
+func (r diagnosticLogRuntime) Execute(ctx context.Context, c localexec.Command) (localexec.Result, error) {
+	if c.Path == "journalctl" {
+		if r.journal.ExitCode != 0 {
+			return r.journal, &localexec.Error{Kind: localexec.Failed, ExitCode: r.journal.ExitCode}
+		}
+		return r.journal, nil
+	}
+	return (fakeLogExecutor{}).Execute(ctx, c)
+}
+
+func TestDefaultAppLogReaderWorksWithVolatileAndPersistentJournals(t *testing.T) {
+	raw, err := os.ReadFile("../logs/testdata/debian13-volatile-journal.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var denied struct {
+		ExitCode int    `json:"exit_code"`
+		Stderr   string `json:"stderr"`
+	}
+	if err := json.Unmarshal(raw, &denied); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range []struct {
+		name       string
+		journal    localexec.Result
+		unitReason string
+	}{
+		{"volatile", localexec.Result{ExitCode: denied.ExitCode, Stderr: denied.Stderr}, "logs_journal_unavailable"},
+		{"persistent", localexec.Result{Stdout: `{"__REALTIME_TIMESTAMP":"1791504000000000","PRIORITY":"6","MESSAGE":"unit ready"}` + "\n"}, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			reader := fixtureReader()
+			reader.Logs = nil
+			reader.UnitLogs = nil
+			reader.Runner = diagnosticLogRuntime{journal: tt.journal}
+			report, err := reader.Read(context.Background(), Request{App: "demo"})
+			if err != nil || len(report.Apps) != 1 {
+				t.Fatalf("report=%+v error=%v", report, err)
+			}
+			a := report.Apps[0]
+			if a.Logs.Value == nil || len(*a.Logs.Value) != 1 || strings.Contains((*a.Logs.Value)[0].Message, "journal-secret") {
+				t.Fatalf("container logs unavailable or unredacted: %+v", a.Logs)
+			}
+			if a.UnitLogs.Reason != tt.unitReason || (a.UnitLogs.Value == nil) != (tt.unitReason != "") {
+				t.Fatalf("unit logs=%+v want reason=%s", a.UnitLogs, tt.unitReason)
+			}
+			found := false
+			for _, finding := range report.Findings {
+				if finding.Code == "unit_journal_unavailable" {
+					found = true
+					if len(finding.NextOperations) != 1 || !strings.Contains(finding.Message, "without widening deploy credentials") {
+						t.Fatal("missing safe next step")
+					}
+				}
+			}
+			if found != (tt.unitReason != "") {
+				t.Fatal("wrong journal finding")
+			}
+			raw, err := json.Marshal(report)
+			if err != nil {
+				t.Fatal(err)
+			}
+			decoded, err := DecodeReport(raw)
+			if err != nil || !reflect.DeepEqual(decoded, report) {
+				t.Fatalf("round trip failed: %v", err)
+			}
+		})
+	}
+}
+
+func TestUnitLogLimitsAreIndependentOfAppLogs(t *testing.T) {
+	reader := fixtureReader()
+	reader.UnitLogs = oversizedLogs{}
+	report, err := reader.Read(context.Background(), Request{App: "demo"})
+	if err != nil || report.Apps[0].UnitLogs.Reason != "logs_limit_exceeded" || report.Apps[0].Logs.Value == nil {
+		t.Fatalf("report=%+v error=%v", report, err)
 	}
 }

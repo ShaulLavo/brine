@@ -22,6 +22,7 @@ App demo
   previous_release: absent (no_committed_release)
   route_present: false
   unit: {"active_state":"failed","name":"demo.service","restarts":3,"sub_state":"failed"}
+  unit_logs: unknown (log_reader_unavailable)
 
 Findings
 [error] disk_below_minimum (host): Free disk is below the operator policy minimum. Free space before deploying.

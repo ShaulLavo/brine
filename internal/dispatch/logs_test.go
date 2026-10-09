@@ -6,8 +6,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 type logFake struct{ requests []logs.Request }
@@ -38,6 +40,70 @@ func TestLogsDispatch(t *testing.T) {
 		response, err := server.Handle(context.Background(), strings.NewReader(bad))
 		if err == nil || response.Error.Code != result.DispatchInvalidRequest || len(fake.requests) != 1 {
 			t.Fatalf("accepted %s %+v %v", args, response, err)
+		}
+	}
+}
+
+type logInventory struct{}
+
+func (logInventory) Collect(context.Context) (target.Snapshot, error) {
+	return target.Snapshot{Apps: target.Known([]target.App{{Name: "api", QuadletUnits: target.Known([]target.Unit{{Name: "api.container"}})}})}, nil
+}
+
+type logExecutionFailure struct{ kind localexec.ErrorKind }
+
+func (f logExecutionFailure) Execute(context.Context, localexec.Command) (localexec.Result, error) {
+	return localexec.Result{Stdout: "API_KEY=planted-secret", Stderr: "Bearer planted-secret", ExitCode: 1}, &localexec.Error{Kind: f.kind, ExitCode: 1}
+}
+
+func TestUnitJournalCollectionFailureTransport(t *testing.T) {
+	for _, tt := range []struct {
+		kind localexec.ErrorKind
+		code result.Code
+	}{
+		{localexec.Failed, result.LogsJournalFailed},
+		{localexec.Timeout, result.LogsJournalTimeout},
+		{localexec.NotFound, result.LogsJournalUnavailable},
+	} {
+		server := NewServer("test", nil)
+		server.Logs = logs.JournalReader{Inventory: logInventory{}, Executor: logExecutionFailure{tt.kind}}
+		response, err := server.Handle(context.Background(), strings.NewReader(`{"schema_version":1,"op":"logs","request_id":"logs-test","args":{"app":"api","tail":5}}`))
+		if err == nil || response.OK || response.Error == nil || response.Error.Code != tt.code || response.Data != nil {
+			t.Fatalf("response=%+v error=%v", response, err)
+		}
+		raw, err := json.Marshal(response)
+		if err != nil || strings.Contains(string(raw), "planted-secret") {
+			t.Fatal("transport leaked failed subprocess output")
+		}
+		decoded, err := DecodeResponse(raw, "logs")
+		if err != nil || decoded.Error == nil || decoded.Error.Code != tt.code || decoded.Data != nil {
+			t.Fatalf("decoded=%+v error=%v", decoded, err)
+		}
+	}
+}
+
+func TestContainerLogFailureTransport(t *testing.T) {
+	for _, tt := range []struct {
+		kind localexec.ErrorKind
+		code result.Code
+	}{
+		{localexec.Failed, result.LogsContainerFailed},
+		{localexec.Timeout, result.LogsContainerTimeout},
+		{localexec.NotFound, result.LogsContainerUnavailable},
+	} {
+		server := NewServer("test", nil)
+		server.Logs = logs.Reader{Inventory: logInventory{}, Executor: logExecutionFailure{tt.kind}}
+		response, err := server.Handle(context.Background(), strings.NewReader(`{"schema_version":1,"op":"logs","request_id":"logs-test","args":{"app":"api","tail":5}}`))
+		if err == nil || response.Error == nil || response.Error.Code != tt.code {
+			t.Fatalf("response=%+v error=%v", response, err)
+		}
+		raw, err := json.Marshal(response)
+		if err != nil || strings.Contains(string(raw), "planted-secret") {
+			t.Fatal("transport leaked failed subprocess output")
+		}
+		decoded, err := DecodeResponse(raw, "logs")
+		if err != nil || decoded.Error == nil || decoded.Error.Code != tt.code || decoded.Data != nil {
+			t.Fatalf("decoded=%+v error=%v", decoded, err)
 		}
 	}
 }
