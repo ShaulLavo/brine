@@ -21,7 +21,8 @@
 
 - [ ] **P03-08** Config operations per D8: `config set` (environment, resources, domains, health), `secret set` (stdin, new immutable version, bound only by a plan) and `restart`/`stop`/`start`, each a plan through the same apply path under the host lock, journaled and reconcilable. Domain changes reuse the planner's ownership and policy checks; there is no second permissive path. Depends on P03-01 to P03-05.
 - [ ] **P03-09** `remove APP` for stateless apps per D8: plan and apply that stops the app and removes its unit and route under the host lock. Persistent-data archival is P04-08. Depends on P03-01 to P03-05.
-- [ ] **P03-10** (depends on P03-01, P03-06 and P02-01) `diagnose [APP]`: one read-only report, built for agents, combining status, health, recent operations and diffs, a bounded redacted log tail, Caddy routing state and host resources, with plain-language findings and suggested next operations.
+- [x] **P03-10** (depends on P03-01, P03-06 and P02-01) `diagnose [APP]`: one read-only report, built for agents, combining status, health, recent operations and diffs, a bounded redacted log tail, Caddy routing state and host resources, with plain-language findings and suggested next operations.
+  - Evidence: deterministic rule tests, fake-store/inventory/journal reports, client-to-dispatcher round trips, human/JSON/JSONL goldens, deadline and planted-secret tests. Collection is limited to 12 seconds, 16 apps, 10 operations per app and 20 redacted log lines per app. Regressions cover retained rollback secrets, proven drift alongside unknown facts, known-missing Caddy files and every suggested command in the merged command tree. Drift uses the same comparison as app status. No physical host was used for this read-only task. Unknown policy or live-generation evidence stays explicitly unknown.
 
 ### Exit gate
 

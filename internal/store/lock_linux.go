@@ -103,3 +103,14 @@ func secureStateDir(path string) error {
 	}
 	return unix.Fchmod(fd, 0700)
 }
+
+func readOnlyOwner(path string) error {
+	var stat unix.Stat_t
+	if err := unix.Lstat(path, &stat); err != nil {
+		return err
+	}
+	if stat.Uid != uint32(os.Geteuid()) {
+		return ErrInvalid
+	}
+	return nil
+}

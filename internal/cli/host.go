@@ -7,8 +7,10 @@ import (
 	"io"
 	"os"
 	"os/user"
+	"path/filepath"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -55,6 +57,14 @@ func executeHostServe(deps Dependencies) error {
 		server.Apps = deps.HostApps
 		if deps.HostLogs != nil {
 			server.Logs = deps.HostLogs
+		}
+		server.Diagnose = deps.HostDiagnose
+		if server.Diagnose == nil {
+			reader := diagnose.Reader{Inventory: collector, Logs: deps.HostLogs, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}}
+			if identity, e := user.LookupId(fmt.Sprint(uid())); e == nil && identity.Username == "brine" {
+				reader.Store = diagnose.DiskStore{Dir: filepath.Join(identity.HomeDir, ".local/state/brine")}
+			}
+			server.Diagnose = reader
 		}
 		envelope, err = server.Handle(ctx, deps.Stdin)
 	}

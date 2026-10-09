@@ -123,7 +123,7 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return report, err
 		}
-		item.Drift = drift(snap, r)
+		item.Drift = CompareDrift(snap, r)
 		if snap.Apps.Status == target.KnownStatus && snap.Apps.Value != nil {
 			for _, a := range *snap.Apps.Value {
 				if a.Name == r.App && a.UnitActive != nil {
@@ -231,7 +231,9 @@ type statelessDesiredV1 struct {
 
 func stateless(d policy.Desired) bool { return statelessDesiredV1(d).SchemaVersion == 1 }
 
-func drift(s target.Snapshot, r plan.CurrentRelease) Drift {
+// CompareDrift compares only this release's artifacts, preserving proven differences
+// even when other observations are unavailable. Retained secret versions are allowed.
+func CompareDrift(s target.Snapshot, r plan.CurrentRelease) Drift {
 	d := Drift{State: "in_sync", Fields: []string{}}
 	unknown := false
 	check := func(field string, known, equal bool) {

@@ -174,3 +174,9 @@ type StateConflictError struct{ Current State }
 
 func (*StateConflictError) Error() string { return "operation state conflict" }
 func (*StateConflictError) Unwrap() error { return ErrStateConflict }
+
+// OperationRecord contains a bounded, value-free diagnostic summary.
+type OperationRecord struct {
+	Operation   Operation `json:"operation"`
+	FailureCode string    `json:"failure_code,omitempty"`
+}
