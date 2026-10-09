@@ -31,17 +31,14 @@ func TestSSHSourceChecks(t *testing.T) {
 		input string
 		want  bool
 	}{
-		{"PermitUserEnvironment no\n", true},
-		{"Match User fixture\n PermitUserEnvironment yes\n", false},
-		{"Include relative.conf\n", false},
-		{"Include /etc/ssh/sshd_config.d/*.conf\n", true},
-		{"PermitUserEnvironment LANG\n", false},
-		{"PermitUserEnvironment\n", false},
+		{"# comment\nInclude /etc/ssh/sshd_config.d/*.conf\n", true},
+		{"Include /etc/ssh/sshd_config.d/*.conf\nMatch Address 192.0.2.0/24\n AuthorizedKeysFile=.ssh/authorized_keys .local/keys\n AuthorizedKeysCommand=/fixture\n Include=relative.conf\n", true},
+		{"PermitUserEnvironment no\n", false}, {"Include relative.conf\n", false},
 	} {
-		p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": tt.input}}}
-		err := p.sshConfig(context.Background(), "/etc/ssh/sshd_config", map[string]bool{}, 0)
+		p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": tt.input}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": nil}}}
+		err := p.sshConfig(context.Background(), "/etc/ssh/sshd_config", nil, 0)
 		if (err == nil) != tt.want {
-			t.Errorf("%q %v", tt.input, err)
+			t.Fatalf("%q: %v", tt.input, err)
 		}
 	}
 }
@@ -103,6 +100,19 @@ func TestProtectedEffectiveKeyLocations(t *testing.T) {
 	for _, paths := range [][]string{nil, {"none"}, {".ssh/authorized_keys2"}, {".ssh/authorized_keys", ".ssh/../.config/keys"}, {".ssh/authorized_keys", "/tmp/keys"}} {
 		if err := safeAuthorizedKeysFiles(paths); err == nil {
 			t.Fatalf("unsafe paths accepted: %v", paths)
+		}
+	}
+}
+
+func TestSSHRequiresUnconditionalFirstDebianInclude(t *testing.T) {
+	for _, input := range []string{
+		"AuthorizedKeysFile=.ssh/authorized_keys\nInclude /etc/ssh/sshd_config.d/*.conf\n",
+		"Match Address 192.0.2.0/24\nInclude /etc/ssh/sshd_config.d/*.conf\n",
+		"Include=/etc/ssh/sshd_config.d/*.conf\n",
+	} {
+		p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": input}}}
+		if err := p.sshConfig(context.Background(), "/etc/ssh/sshd_config", map[string]bool{}, 0); err == nil {
+			t.Fatalf("unsafe first directive accepted: %q", input)
 		}
 	}
 }

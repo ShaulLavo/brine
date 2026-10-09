@@ -3,7 +3,6 @@ package enroll
 import (
 	"context"
 	"errors"
-	"io/fs"
 	"regexp"
 	"strings"
 
@@ -127,53 +126,36 @@ func (p Prober) Collect(ctx context.Context) (Facts, error) {
 	}
 	return f, nil
 }
-func (p Prober) sshConfig(ctx context.Context, path string, seen map[string]bool, depth int) error {
-	if depth > 16 || seen[path] {
-		return errors.New("SSH configuration recursion refused")
+func (p Prober) sshConfig(ctx context.Context, path string, _ map[string]bool, depth int) error {
+	if path != "/etc/ssh/sshd_config" || depth != 0 {
+		return errors.New("SSH first-include precondition unavailable")
 	}
-	seen[path] = true
 	data, err := p.FS.ReadFile(ctx, path)
 	if err != nil {
-		return errors.New("SSH configuration unavailable")
+		return err
 	}
+	found := false
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(strings.SplitN(line, "#", 2)[0])
 		if len(fields) == 0 {
 			continue
 		}
-		switch strings.ToLower(fields[0]) {
-		case "authorizedkeysfile":
-			if err := safeAuthorizedKeysFiles(fields[1:]); err != nil {
-				return err
-			}
-		case "authorizedkeyscommand":
-			if len(fields) != 2 || fields[1] != "none" {
-				return errors.New("SSH authorized-key commands are unsupported")
-			}
-		case "permituserenvironment":
-			if len(fields) != 2 || fields[1] != "no" {
-				return errors.New("SSH per-user environment is enabled")
-			}
-		case "include":
-			// The Debian default glob is the only include form supported here. Other
-			// forms need a real sshd source resolver, not an unchecked assumption.
-			if len(fields) != 2 || fields[1] != "/etc/ssh/sshd_config.d/*.conf" {
-				return errors.New("SSH include form unsupported for enrollment")
-			}
-			entries, err := p.FS.ReadDir(ctx, "/etc/ssh/sshd_config.d")
-			if errors.Is(err, fs.ErrNotExist) {
-				continue
-			}
-			if err != nil {
-				return err
-			}
-			for _, entry := range entries {
-				if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".conf") {
-					if err := p.sshConfig(ctx, "/etc/ssh/sshd_config.d/"+entry.Name(), seen, depth+1); err != nil {
-						return err
-					}
-				}
-			}
+		if len(fields) != 2 || strings.ToLower(fields[0]) != "include" || fields[1] != "/etc/ssh/sshd_config.d/*.conf" {
+			return errors.New("SSH main configuration must begin with the unconditional Debian include")
+		}
+		found = true
+		break
+	}
+	if !found {
+		return errors.New("SSH first include missing")
+	}
+	entries, err := p.FS.ReadDir(ctx, "/etc/ssh/sshd_config.d")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if strings.HasSuffix(entry.Name(), ".conf") && entry.Name() < "00-brine-brine.conf" {
+			return errors.New("SSH drop-in precedes the Brine authorization policy")
 		}
 	}
 	return nil
