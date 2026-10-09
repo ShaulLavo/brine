@@ -23,7 +23,7 @@ const ReadTimeout = 10 * time.Second
 type Request struct {
 	App   string `json:"app"`
 	Tail  int    `json:"tail"`
-	Since string `json:"since,omitempty"`
+	Since string `json:"since"`
 }
 type Line struct {
 	Timestamp string `json:"timestamp"`
@@ -57,7 +57,10 @@ func (r Request) Validate() error {
 func DecodeRequest(raw []byte) (Request, error) {
 	fields, err := strictjson.Object(raw, "app", "tail", "since")
 	if err != nil {
-		return Request{}, err
+		fields, err = strictjson.Object(raw, "app", "tail")
+		if err != nil {
+			return Request{}, err
+		}
 	}
 	var r Request
 	r.App, err = strictjson.Value[string](fields["app"])
@@ -80,6 +83,9 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	if err := request.Validate(); err != nil {
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, result.Classify(err)
+	}
 	if r.Inventory == nil || r.Executor == nil {
 		return nil, result.New(result.DependencyMissing, nil)
 	}
@@ -87,6 +93,9 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	defer cancel()
 	snapshot, err := r.Inventory.Collect(ctx)
 	if err != nil {
+		return nil, result.Classify(err)
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, result.Classify(err)
 	}
 	unit, err := ownedUnit(snapshot, request.App)
@@ -160,7 +169,7 @@ func parse(raw string, tail int) ([]Line, error) {
 			return fail()
 		}
 		micros, err := strconv.ParseInt(timestamp, 10, 64)
-		if err != nil || micros < 0 {
+		if err != nil || micros < 0 || micros > 253402300799999999 {
 			return fail()
 		}
 		p, err := strconv.Atoi(priority)
@@ -191,16 +200,34 @@ func DecodeLines(raw []byte) ([]Line, error) {
 	if len(raw) > MaxBytes {
 		return nil, result.New(result.TransportInvalidResponse, nil)
 	}
-	var lines []Line
-	if err := json.Unmarshal(raw, &lines); err != nil || lines == nil || len(lines) > MaxTail {
+	var entries []json.RawMessage
+	if err := json.Unmarshal(raw, &entries); err != nil || entries == nil || len(entries) > MaxTail {
 		return nil, result.New(result.TransportInvalidResponse, nil)
 	}
+	lines := make([]Line, 0, len(entries))
 	var r redactor
-	for i := range lines {
-		if _, err := time.Parse(time.RFC3339Nano, lines[i].Timestamp); err != nil || lines[i].Priority < 0 || lines[i].Priority > 7 {
+	for _, entry := range entries {
+		fields, err := strictjson.Object(entry, "timestamp", "priority", "message")
+		if err != nil {
 			return nil, result.New(result.TransportInvalidResponse, nil)
 		}
-		lines[i].Message = r.clean(lines[i].Message)
+		timestamp, err := strictjson.Value[string](fields["timestamp"])
+		if err != nil {
+			return nil, result.New(result.TransportInvalidResponse, nil)
+		}
+		priority, err := strictjson.Value[int](fields["priority"])
+		if err != nil || priority < 0 || priority > 7 {
+			return nil, result.New(result.TransportInvalidResponse, nil)
+		}
+		message, err := strictjson.Value[string](fields["message"])
+		if err != nil {
+			return nil, result.New(result.TransportInvalidResponse, nil)
+		}
+		parsed, err := time.Parse(time.RFC3339Nano, timestamp)
+		if err != nil {
+			return nil, result.New(result.TransportInvalidResponse, nil)
+		}
+		lines = append(lines, Line{Timestamp: parsed.UTC().Format(time.RFC3339Nano), Priority: priority, Message: r.clean(message)})
 	}
 	return lines, nil
 }

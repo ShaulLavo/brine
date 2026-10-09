@@ -24,7 +24,9 @@ func (r *redactor) clean(input string) string {
 		if r.private {
 			end := privateEnd.FindStringIndex(text)
 			if end == nil {
-				return out.String() + "[REDACTED]"
+				out.WriteString("[REDACTED]")
+				text = ""
+				break
 			}
 			out.WriteString("[REDACTED]")
 			text = text[end[1]:]
@@ -40,7 +42,7 @@ func (r *redactor) clean(input string) string {
 		text = text[begin[1]:]
 		r.private = true
 	}
-	if r.private {
+	if r.private && !strings.HasSuffix(out.String(), "[REDACTED]") {
 		out.WriteString("[REDACTED]")
 	}
 	text = out.String()
@@ -53,6 +55,11 @@ func stripANSI(s string) string {
 	var b strings.Builder
 	state := byte(0)
 	for _, r := range strings.ToValidUTF8(s, "\uFFFD") {
+		if r == '\n' {
+			state = 0
+			b.WriteRune(r)
+			continue
+		}
 		switch state {
 		case 0:
 			switch r {
@@ -74,7 +81,11 @@ func stripANSI(s string) string {
 			case ']', 'P', 'X', '^', '_':
 				state = 3
 			default:
-				state = 0
+				if r >= 0x20 && r <= 0x2f {
+					state = 5
+				} else {
+					state = 0
+				}
 			}
 		case 2:
 			if r >= 0x40 && r <= 0x7e {
@@ -85,6 +96,10 @@ func stripANSI(s string) string {
 				state = 0
 			} else if r == 0x1b {
 				state = 4
+			}
+		case 5:
+			if r >= 0x30 && r <= 0x7e {
+				state = 0
 			}
 		case 4:
 			if r == '\\' {

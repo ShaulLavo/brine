@@ -74,6 +74,7 @@ func TestRefusals(t *testing.T) {
 func TestCapsAndMalformed(t *testing.T) {
 	for _, output := range []localexec.Result{
 		{Stdout: strings.Repeat("x", MaxBytes+1)}, {Stdout: journal, Truncated: true}, {Stdout: strings.Repeat(journal, 6)},
+		{Stdout: `{ "__REALTIME_TIMESTAMP":"9223372036854775807", "PRIORITY":"6", "MESSAGE":"secret" }`},
 		{Stdout: journal + "{bad"}, {Stdout: `{"MESSAGE":"secret"}`}, {Stdout: `{"__REALTIME_TIMESTAMP":"0","PRIORITY":"99","MESSAGE":"secret"}`},
 	} {
 		lines, err := (Reader{Inventory: owned("api.container"), Executor: &executor{output: output}}).Read(context.Background(), Request{App: "api", Tail: 5})
@@ -94,6 +95,11 @@ func TestDebianFixture(t *testing.T) {
 }
 func TestRedaction(t *testing.T) {
 	for _, tt := range []struct{ input, want string }{
+		{"API_KEY=planted-secret-value\n-----BEGIN PRIVATE KEY-----\nabc", "API_KEY=[REDACTED]\n[REDACTED]"},
+		{"\x1b(Bready", "ready"},
+		{"\x1b]0;window title\x07ready", "ready"},
+		{"Bearer short-secret", "Bearer [REDACTED]"},
+		{"https://user:short-secret@example.test", "https://user:[REDACTED]@example.test"},
 		{"ready", "ready"}, {"\x1b[31mready\x1b[0m", "ready"},
 		{"API_KEY=short-secret OK=yes", "API_KEY=[REDACTED] OK=yes"},
 		{`password="words with spaces"`, `password=[REDACTED]`},
@@ -140,4 +146,50 @@ func FuzzPlantedSecrets(f *testing.F) {
 			t.Fatal(err)
 		}
 	})
+}
+
+func TestHardTailBoundary(t *testing.T) {
+	lines, err := parse(strings.Repeat(journal, MaxTail), MaxTail)
+	if err != nil || len(lines) != MaxTail {
+		t.Fatalf("count=%d error=%v", len(lines), err)
+	}
+	_, err = parse(strings.Repeat(journal, MaxTail+1), MaxTail)
+	if result.Classify(err).Code() != result.LogsLimitExceeded {
+		t.Fatal(err)
+	}
+}
+func TestRedactionExpansionCap(t *testing.T) {
+	raw, _ := json.Marshal(map[string]string{"__REALTIME_TIMESTAMP": "1791542008366482", "PRIORITY": "6", "MESSAGE": strings.Repeat("API_KEY=x ", 11000)})
+	if len(raw) > MaxBytes {
+		t.Fatal("fixture exceeds input cap")
+	}
+	lines, err := parse(string(raw), 1)
+	if lines != nil || result.Classify(err).Code() != result.LogsLimitExceeded {
+		t.Fatalf("error=%v", err)
+	}
+}
+func TestAmbiguousOwnership(t *testing.T) {
+	inv := owned("api.container")
+	*(*inv.snapshot.Apps.Value)[0].QuadletUnits.Value = append(*(*inv.snapshot.Apps.Value)[0].QuadletUnits.Value, target.Unit{Name: "brine-api.container"})
+	e := &executor{}
+	_, err := (Reader{Inventory: inv, Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
+	if result.Classify(err).Code() != result.LogsOwnershipRefused || len(e.commands) != 0 {
+		t.Fatalf("%v", err)
+	}
+}
+func TestSubprocessFailureDoesNotPublish(t *testing.T) {
+	for _, err := range []error{&localexec.Error{Kind: localexec.Timeout}, &localexec.Error{Kind: localexec.Failed}, context.Canceled} {
+		e := &executor{output: localexec.Result{Stdout: journal + "API_KEY=planted-secret", Stderr: "Bearer planted-secret"}, err: err}
+		lines, got := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
+		if got == nil || lines != nil || strings.Contains(got.Error(), "planted-secret") {
+			t.Fatal("subprocess failure leaked output")
+		}
+	}
+}
+func TestDecodeLinesBoundary(t *testing.T) {
+	for _, raw := range []string{`null`, `[null]`, `[{"timestamp":"2026-10-09T00:00:00Z","priority":6,"message":null}]`, `[{"timestamp":"2026-10-09T00:00:00Z","priority":6,"message":"ready","extra":"secret"}]`, `[{"Timestamp":"2026-10-09T00:00:00Z","priority":6,"message":"ready"}]`, `[{"timestamp":"2026-10-09T00:00:00Z","priority":6,"priority":7,"message":"ready"}]`} {
+		if _, err := DecodeLines([]byte(raw)); err == nil {
+			t.Fatalf("accepted %s", raw)
+		}
+	}
 }
