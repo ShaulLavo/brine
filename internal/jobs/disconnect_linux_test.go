@@ -51,15 +51,16 @@ func (s disconnectStore) write(record fixtureRecord) error {
 	}
 	return os.WriteFile(filepath.Join(s.dir, "record.json"), raw, 0600)
 }
-func (s disconnectStore) CreateOperation(_ context.Context, planID, requester, key string) (ops.Operation, bool, error) {
+func (s disconnectStore) CreateOperation(_ context.Context, intent ops.Intent, requester, key string) (ops.Operation, bool, error) {
+	planID := intent.PlanID
 	record, err := s.read()
 	if err == nil {
 		return record.Operation, true, nil
 	}
 	if !errors.Is(err, os.ErrNotExist) {
-		return ops.Operation{}, false, err
+		return ops.Operation{Kind: ops.Deploy}, false, err
 	}
-	op := ops.Operation{ID: "op1", PlanID: planID, Requester: requester, IdempotencyKey: key, State: ops.Queued, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
+	op := ops.Operation{Kind: ops.Deploy, ID: "op1", PlanID: planID, Requester: requester, IdempotencyKey: key, State: ops.Queued, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 	return op, false, s.write(fixtureRecord{Operation: op, Events: []ops.Event{}})
 }
 func (s disconnectStore) GetOperation(context.Context, string) (ops.Operation, error) {

@@ -30,9 +30,10 @@ type Inventory interface {
 	Collect(context.Context) (target.Snapshot, error)
 }
 type Service struct {
-	Store     Store
-	Inventory Inventory
-	Probe     HealthProbe
+	Store      Store
+	Inventory  Inventory
+	Probe      HealthProbe
+	LoadPolicy func(context.Context) (policy.Policy, error)
 }
 type Report struct {
 	Apps []Status `json:"apps"`

@@ -51,14 +51,17 @@ type operation struct {
 }
 
 var operations = map[string]operation{
-	"diagnose":  {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
-	"status":    {ReadOnly, decodeAppStatus},
-	"rollback":  {Mutating, decodeRollback},
-	"logs":      {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
-	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
-	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
-	"apply":     {Mutating, decodeApply},
-	"operation": {ReadOnly, decodeOperation},
+	"config_set": {Mutating, decodeConfig},
+	"lifecycle":  {Mutating, decodeLifecycle},
+	"secret_set": {Mutating, decodeSecret},
+	"diagnose":   {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
+	"status":     {ReadOnly, decodeAppStatus},
+	"rollback":   {Mutating, decodeRollback},
+	"logs":       {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
+	"ping":       {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
+	"inventory":  {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
+	"apply":      {Mutating, decodeApply},
+	"operation":  {ReadOnly, decodeOperation},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
@@ -124,6 +127,8 @@ type DiagnosticReader interface {
 }
 
 type Server struct {
+	Config    ConfigurationOperations
+	Secrets   SecretOperations
 	Diagnose  DiagnosticReader
 	Apps      AppOperations
 	Logs      LogReader
@@ -144,6 +149,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		return fail(err)
 	}
 	data, err := io.ReadAll(io.LimitReader(stdin, RequestLimit+1))
+	defer clear(data)
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
@@ -151,6 +157,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		return fail(result.New(result.DispatchInvalidRequest, err))
 	}
 	request, err := DecodeRequest(data)
+	defer clear(request.Args)
 	if err != nil {
 		return fail(err)
 	}
@@ -169,6 +176,35 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	args, _ := operations[request.Op].decode(request.Args)
 	var value any
 	switch args := args.(type) {
+	case ConfigArgs:
+		if s.Config == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.Config.ConfigSet(ctx, args.App, args.Edits)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = p
+	case LifecycleArgs:
+		if s.Config == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.Config.Lifecycle(ctx, args.App, args.Action)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = p
+	case SecretArgs:
+		defer clear(args.Value)
+		if s.Secrets == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		stored, err := s.Secrets.Set(ctx, args.App, args.Reference, request.RequestID, args.Value)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = stored
+
 	case diagnose.Request:
 		reader := s.Diagnose
 		if reader == nil {

@@ -46,6 +46,19 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "config_set", "lifecycle":
+			p, err := apps.DecodeConfigPlan(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "secret_set":
+			stored, err := decodeStored(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = stored
+
 		case "diagnose":
 			report, err := diagnose.DecodeReport(fields["data"])
 			if err != nil {

@@ -32,7 +32,7 @@ type RunnerStore interface {
 type Store interface {
 	RunnerStore
 	// The store atomically binds requester+key to one plan and one operation.
-	CreateOperation(context.Context, string, string, string) (ops.Operation, bool, error)
+	CreateOperation(context.Context, ops.Intent, string, string) (ops.Operation, bool, error)
 	EventsAfter(context.Context, string, uint64, int) ([]ops.Event, error)
 }
 type Launcher interface {
@@ -64,7 +64,7 @@ func (s Service) Apply(ctx context.Context, planID, key string) (Accepted, error
 	if !ValidPlanID(planID) || !ValidID(key) {
 		return Accepted{}, result.New(result.DispatchInvalidRequest, nil)
 	}
-	op, existing, err := s.Store.CreateOperation(ctx, planID, s.Requester, key)
+	op, existing, err := s.Store.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: planID}, s.Requester, key)
 	if err != nil {
 		return Accepted{}, err
 	}
@@ -185,7 +185,7 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	if err != nil {
 		return err
 	}
-	if op.State != ops.Queued && op.State != ops.LaunchUnknown {
+	if op.Kind != ops.Deploy || op.State != ops.Queued && op.State != ops.LaunchUnknown {
 		return result.New(result.Conflict, nil)
 	}
 	intent, desired, err := r.Store.LoadPlan(ctx, op.PlanID)

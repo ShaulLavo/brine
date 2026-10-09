@@ -118,6 +118,8 @@ const (
 	RenderQuadlet ChangeKind = "render_quadlet"
 	StageCaddy    ChangeKind = "stage_caddy_generation"
 	RestartApp    ChangeKind = "restart_app"
+	StopApp       ChangeKind = "stop_app"
+	StartApp      ChangeKind = "start_app"
 )
 
 // Change is a tagged payload. Build populates exactly the payload named by Kind.
@@ -130,6 +132,8 @@ type Change struct {
 	Quadlet    *Quadlet         `json:"quadlet,omitempty"`
 	Caddy      *CaddyGeneration `json:"caddy,omitempty"`
 	Restart    *Restart         `json:"restart,omitempty"`
+	Stop       *Restart         `json:"stop,omitempty"`
+	Start      *Restart         `json:"start,omitempty"`
 }
 type PortAllocation struct {
 	App  string      `json:"app"`
@@ -156,6 +160,7 @@ type Restart struct {
 type Plan struct {
 	SchemaVersion      int                        `json:"schema_version"`
 	Kind               Kind                       `json:"kind"`
+	Lifecycle          ChangeKind                 `json:"lifecycle,omitempty"`
 	App                string                     `json:"app"`
 	Target             target.Identity            `json:"target"`
 	ObservedGeneration target.Observation[uint64] `json:"observed_generation"`

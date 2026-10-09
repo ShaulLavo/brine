@@ -58,6 +58,9 @@ func (s State) IsTerminal() bool {
 
 type Operation struct {
 	ID             string    `json:"id"`
+	Kind           Kind      `json:"kind"`
+	App            string    `json:"app"`
+	SecretRef      string    `json:"secret_ref"`
 	PlanID         string    `json:"plan_id"`
 	Requester      string    `json:"-"`
 	IdempotencyKey string    `json:"-"`
@@ -129,6 +132,11 @@ func ValidateEvent(e Event) error {
 	}
 	outcome := func(s string) bool { return slices.Contains([]string{"intent", "completed", "unknown"}, s) }
 	switch e.Kind {
+	case "secret_version":
+		var p SecretVersionPayload
+		if decode(&p, "name", "outcome") != nil || !ValidSecretVersionName(p.Name) || !outcome(p.Outcome) {
+			return ErrInvalidEvent
+		}
 	case "state":
 		if e.State == "" || len(e.Payload) != 0 {
 			return ErrInvalidEvent

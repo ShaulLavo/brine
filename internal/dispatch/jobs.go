@@ -82,12 +82,12 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 	if err != nil {
 		return bad()
 	}
-	opFields, err := strictjson.Object(f["operation"], "id", "plan_id", "state", "created_at", "updated_at")
+	opFields, err := strictjson.Object(f["operation"], "id", "plan_id", "kind", "app", "secret_ref", "state", "created_at", "updated_at")
 	if err != nil {
 		return bad()
 	}
 	op, err := strictjson.Value[ops.Operation](f["operation"])
-	if err != nil || !jobs.ValidID(op.ID) || !jobs.ValidPlanID(op.PlanID) || !ops.ValidState(op.State) {
+	if err != nil || !jobs.ValidID(op.ID) || !ops.ValidOperation(op) {
 		return bad()
 	}
 	// Decode each timestamp as well as the object to reject null timestamps.

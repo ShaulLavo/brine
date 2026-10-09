@@ -25,24 +25,25 @@ type fakeStore struct {
 	beforeTransition func()
 }
 
-func (s *fakeStore) CreateOperation(_ context.Context, planID, requester, key string) (ops.Operation, bool, error) {
+func (s *fakeStore) CreateOperation(_ context.Context, intent ops.Intent, requester, key string) (ops.Operation, bool, error) {
+	planID := intent.PlanID
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.operation.ID != "" {
 		if s.operation.PlanID != planID || s.operation.Requester != requester || s.operation.IdempotencyKey != key {
-			return ops.Operation{}, false, errors.New("conflict")
+			return ops.Operation{Kind: ops.Deploy}, false, errors.New("conflict")
 		}
 		return s.operation, true, nil
 	}
 	s.creates++
-	s.operation = ops.Operation{ID: "op1", PlanID: planID, Requester: requester, IdempotencyKey: key, State: ops.Queued}
+	s.operation = ops.Operation{Kind: ops.Deploy, ID: "op1", PlanID: planID, Requester: requester, IdempotencyKey: key, State: ops.Queued}
 	return s.operation, false, nil
 }
 func (s *fakeStore) GetOperation(_ context.Context, id string) (ops.Operation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if id != s.operation.ID {
-		return ops.Operation{}, errors.New("missing")
+		return ops.Operation{Kind: ops.Deploy}, errors.New("missing")
 	}
 	return s.operation, nil
 }
@@ -192,7 +193,7 @@ func TestConcurrentIdempotentApply(t *testing.T) {
 }
 
 func TestRunnerOwnsLockAndLoadsExactDesired(t *testing.T) {
-	s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, desired: policy.Desired{PolicyVersion: "retained"}}
+	s := &fakeStore{operation: ops.Operation{Kind: ops.Deploy, ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}, desired: policy.Desired{PolicyVersion: "retained"}}
 	ran := false
 	runner := Runner{Store: s, Executor: execFunc(func(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
 		ran = true
@@ -215,7 +216,7 @@ func TestRunnerOwnsLockAndLoadsExactDesired(t *testing.T) {
 
 func TestRunnerNeverInventsSuccess(t *testing.T) {
 	for _, fail := range []bool{false, true} {
-		s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}}
+		s := &fakeStore{operation: ops.Operation{Kind: ops.Deploy, ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Queued}}
 		runner := Runner{Store: s, Executor: execFunc(func(context.Context, string, plan.Plan, policy.Desired) error {
 			s.operation.State = ops.Preparing
 			if fail {
@@ -233,7 +234,7 @@ func TestRunnerNeverInventsSuccess(t *testing.T) {
 }
 
 func TestOperationCursor(t *testing.T) {
-	s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Succeeded}, events: []ops.Event{{Sequence: 1, Kind: "state", State: ops.Preflight}, {Sequence: 2, Kind: "state", State: ops.Succeeded}}}
+	s := &fakeStore{operation: ops.Operation{Kind: ops.Deploy, ID: "op1", PlanID: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: ops.Succeeded}, events: []ops.Event{{Sequence: 1, Kind: "state", State: ops.Preflight}, {Sequence: 2, Kind: "state", State: ops.Succeeded}}}
 	got, err := (Service{Store: s}).Operation(context.Background(), "op1", 1)
 	if err != nil || got.NextCursor != 2 || len(got.Events) != 1 || got.Events[0].Sequence != 2 {
 		t.Fatalf("%+v %v", got, err)
