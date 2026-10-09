@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -250,6 +251,22 @@ func TestPendingDirectoryCheckpoints(t *testing.T) {
 	if done, err := h.checkDirectory(path, d); done || err != nil {
 		t.Fatalf("after chmod before inode checkpoint: %v %v", done, err)
 	}
+	info, _ := os.Lstat(path)
+	d.Inode = info.Sys().(*syscall.Stat_t).Ino
+	d.Pending = true
+	if done, err := h.checkDirectory(path, d); done || err != nil {
+		t.Fatalf("after inode checkpoint: %v %v", done, err)
+	}
+	drift := d
+	drift.Inode++
+	if _, err := h.checkDirectory(path, drift); err == nil {
+		t.Fatal("pending inode drift accepted")
+	}
+	d.Pending = false
+	if done, err := h.checkDirectory(path, d); !done || err != nil {
+		t.Fatalf("completed directory: %v %v", done, err)
+	}
+	d.Pending = true
 	if err := os.WriteFile(filepath.Join(path, "unowned"), []byte("data"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -281,7 +298,7 @@ func TestCaddyCandidateFailureDoesNotTouchLiveRoot(t *testing.T) {
 		}}
 		h := host{exec: f}
 		promoted := false
-		err := h.validateAndPromote(context.Background(), candidate, func() error { promoted = true; return os.WriteFile(live, []byte("changed"), 0600) })
+		err := h.validateAndPromote(context.Background(), candidate, func() error { promoted = true; return os.WriteFile(live, []byte("changed"), 0600) }, func() error { t.Fatal("validation failure attempted live recovery"); return nil })
 		if err == nil || promoted {
 			t.Fatalf("validation failure promoted=%v error=%v", promoted, err)
 		}
@@ -301,7 +318,7 @@ func TestCaddyCandidateValidatedBeforePromotion(t *testing.T) {
 			t.Fatal("promotion preceded validation")
 		}
 		return nil
-	}); err != nil {
+	}, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -339,5 +356,82 @@ func TestResumedTransactionCannotInstallAnOlderUnconfirmedIntent(t *testing.T) {
 	current.PackageInstall = append(current.PackageInstall, Package{"new-dependency", "1.0"})
 	if err := h.checkRecordedTransaction(context.Background(), current); err == nil {
 		t.Fatal("new dependency accepted on resume")
+	}
+}
+
+func TestInterruptedCaddyPromotionRestoresObservedOriginal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Caddyfile")
+	original := []byte("original bytes\n")
+	want := []byte("intended bytes\n")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeAdmin{handle: func(localexec.Command) (localexec.Result, error) { return localexec.Result{}, nil }}
+	h := host{exec: f}
+	restored := false
+	err := h.validateAndPromote(context.Background(), "candidate", func() error {
+		if err := os.WriteFile(path, want, 0600); err != nil {
+			return err
+		}
+		if err := os.Chmod(path, 0644); err != nil {
+			return err
+		}
+		return context.DeadlineExceeded
+	}, func() error {
+		data, err := os.ReadFile(path)
+		if err != nil || hash(data) != hash(want) {
+			return errors.New("unknown file contents; no blind rollback")
+		}
+		restored = true
+		if err := os.WriteFile(path, original, 0600); err != nil {
+			return err
+		}
+		return os.Chmod(path, 0600)
+	})
+	data, _ := os.ReadFile(path)
+	info, _ := os.Stat(path)
+	if err == nil || !restored || string(data) != string(original) || info.Mode().Perm() != 0600 {
+		t.Fatalf("promotion recovery: restored=%v error=%v", restored, err)
+	}
+}
+
+type keyOwnershipInfo struct {
+	os.FileInfo
+	UID uint32
+}
+
+func (i keyOwnershipInfo) Sys() any {
+	st := *i.FileInfo.Sys().(*syscall.Stat_t)
+	st.Uid = i.UID
+	return &st
+}
+func TestKeyNodesRequireRootOwnershipAndNonWritableMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "key")
+	if err := os.WriteFile(path, []byte("fixture"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := os.Lstat(path)
+	if err := protectedKeyNode(keyOwnershipInfo{info, 0}, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := protectedKeyNode(keyOwnershipInfo{info, 1234}, false); err == nil {
+		t.Fatal("runner-owned key accepted")
+	}
+	if err := os.Chmod(path, 0664); err != nil {
+		t.Fatal(err)
+	}
+	info, _ = os.Lstat(path)
+	if err := protectedKeyNode(keyOwnershipInfo{info, 0}, false); err == nil {
+		t.Fatal("group-writable root key accepted")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("fixture", path); err != nil {
+		t.Fatal(err)
+	}
+	info, _ = os.Lstat(path)
+	if err := protectedKeyNode(keyOwnershipInfo{info, 0}, false); err == nil {
+		t.Fatal("symlink key accepted")
 	}
 }

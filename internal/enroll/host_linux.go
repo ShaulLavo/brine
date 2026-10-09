@@ -806,10 +806,7 @@ func (h *host) caddyImport(ctx context.Context) error {
 	if err := h.file(ctx, candidate, next, 0644, false); err != nil {
 		return err
 	}
-	err = h.validateAndPromote(ctx, candidate, func() error { return h.file(ctx, mainPath, next, 0644, true) })
-	if err != nil {
-		err = errors.Join(err, h.restoreFile(mainPath))
-	}
+	err = h.validateAndPromote(ctx, candidate, func() error { return h.file(ctx, mainPath, next, 0644, true) }, func() error { return h.restoreFile(mainPath) })
 	return errors.Join(err, h.removeCandidate())
 }
 func (h *host) removeCaddyTree(context.Context) error {
@@ -1090,11 +1087,14 @@ func (h *host) reconcilePendingDirectories() error {
 	return nil
 }
 
-func (h *host) validateAndPromote(ctx context.Context, candidate string, promote func() error) error {
+func (h *host) validateAndPromote(ctx context.Context, candidate string, promote func() error, restore func() error) error {
 	if _, err := h.run(ctx, false, "caddy", "validate", "--adapter", "caddyfile", "--config", candidate); err != nil {
 		return err
 	}
-	return promote()
+	if err := promote(); err != nil {
+		return errors.Join(err, restore())
+	}
+	return nil
 }
 
 func (h *host) removeCandidate() error {
