@@ -54,18 +54,19 @@ type ownedDir struct {
 	GID     int    `json:"gid"`
 }
 type hostRecord struct {
-	Runtime      map[string]runtimeFile `json:"runtime"`
-	Journal      Journal                `json:"journal"`
-	ID           string                 `json:"id"`
-	Key          string                 `json:"key"`
-	BinaryHash   string                 `json:"binary_hash"`
-	GID          int                    `json:"gid"`
-	UID          int                    `json:"uid"`
-	Files        map[string]ownedFile   `json:"files"`
-	Dirs         map[string]ownedDir    `json:"dirs"`
-	Packages     []Package              `json:"packages"`
-	CaddyActive  bool                   `json:"caddy_active"`
-	CaddyEnabled bool                   `json:"caddy_enabled"`
+	SSHReloadPending bool                   `json:"ssh_reload_pending,omitempty"`
+	Runtime          map[string]runtimeFile `json:"runtime"`
+	Journal          Journal                `json:"journal"`
+	ID               string                 `json:"id"`
+	Key              string                 `json:"key"`
+	BinaryHash       string                 `json:"binary_hash"`
+	GID              int                    `json:"gid"`
+	UID              int                    `json:"uid"`
+	Files            map[string]ownedFile   `json:"files"`
+	Dirs             map[string]ownedDir    `json:"dirs"`
+	Packages         []Package              `json:"packages"`
+	CaddyActive      bool                   `json:"caddy_active"`
+	CaddyEnabled     bool                   `json:"caddy_enabled"`
 }
 type host struct {
 	r           hostRecord
@@ -223,6 +224,9 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		return nil, errors.New("unknown enrollment action")
 	}
 	if req.Action == "apply" {
+		if h.r.SSHReloadPending {
+			return nil, errors.New("SSH reload outcome unknown; inspect and explicitly undo")
+		}
 		facts, err := h.facts(ctx, req.IdentityKey)
 		if err != nil {
 			return nil, err
@@ -500,6 +504,7 @@ func (h *host) steps() []Step {
 	}
 	noop := func(context.Context) error { return nil }
 	return []Step{
+		{Name: "ssh-layout", Check: h.checkSSHLayout, Apply: h.sshLayout, Undo: h.removeSSHLayout},
 		{Name: "mask", Check: h.masked, Apply: h.mask, Undo: h.unmask},
 		{Name: "packages", Check: h.packagesInstalled, Apply: h.installPackages, Undo: h.removePackages},
 		{Name: "user", Check: h.checkUser, Apply: h.createUser, Undo: h.removeUser},
@@ -555,16 +560,17 @@ func (h *host) steps() []Step {
 		}},
 		{Name: "caddy-writable", Check: h.caddyWritable, Apply: h.allowCaddyWrites, Undo: h.protectCaddyTree},
 		{Name: "inventory-key", Check: func(context.Context) (bool, error) {
-			return h.fileMatches(home+"/.ssh/inventory-key", hash(h.identityKey))
+			return h.fileMatches(sshIdentityPath, hash(h.identityKey))
 		}, Apply: func(ctx context.Context) error {
-			return h.file(ctx, home+"/.ssh/inventory-key", h.identityKey, 0644, false)
-		}, Undo: func(context.Context) error { return h.restoreFile(home + "/.ssh/inventory-key") }},
+			return h.file(ctx, sshIdentityPath, h.identityKey, 0644, false)
+		}, Undo: func(context.Context) error { return h.restoreFile(sshIdentityPath) }},
 		{Name: "key", Check: func(context.Context) (bool, error) {
-			return h.fileMatches(home+"/.ssh/authorized_keys", hash(h.keyFile()))
+			return h.fileMatches(sshKeyPath, hash(h.keyFile()))
 		}, Apply: func(ctx context.Context) error {
-			return h.file(ctx, home+"/.ssh/authorized_keys", h.keyFile(), 0644, false)
-		}, Undo: func(context.Context) error { return h.restoreFile(home + "/.ssh/authorized_keys") }},
-		{Name: "bypass", Check: h.bypass, Apply: noop, Undo: func(context.Context) error { return h.restoreFile(home + "/.bashrc") }},
+			return h.file(ctx, sshKeyPath, h.keyFile(), 0644, false)
+		}, Undo: func(context.Context) error { return h.restoreFile(sshKeyPath) }},
+		{Name: "ssh-policy", Check: h.checkSSH, Apply: h.installSSH, Undo: h.undoSSH},
+		{Name: "bypass", Check: h.bypass, Apply: noop, Undo: func(context.Context) error { return h.removeBypassFiles() }},
 	}
 }
 func (h *host) fileMatches(path, want string) (bool, error) {
@@ -849,16 +855,18 @@ func (h *host) removeCaddyTree(context.Context) error {
 }
 func (h *host) bypass(ctx context.Context) (bool, error) {
 	scripts := []string{
-		"test ! -w /home && test ! -w /home/brine && test ! -w /home/brine/.ssh && test ! -w /home/brine/.ssh/authorized_keys",
+		"test ! -w /home && test ! -w /home/brine && test ! -w /home/brine/.ssh && test ! -w /etc/ssh/brine/authorized_keys/brine",
 		"! mv /home/brine /home/brine.bypass",
 		"! mv /home/brine/.ssh /home/brine/.ssh.bypass",
-		"! mv /home/brine/.ssh/authorized_keys /home/brine/.ssh/authorized_keys.bypass",
+		"! mv /etc/ssh/brine/authorized_keys/brine /etc/ssh/brine/authorized_keys/brine.bypass",
 		"! touch /home/brine/.profile",
 		"! touch /home/brine/.bashrc",
 		"! touch /home/brine/.bash_logout",
 		"! touch /home/brine/.pam_environment",
 		"! touch /home/brine/.ssh/environment",
 		"! touch /home/brine/.ssh/authorized_keys2",
+		"! touch /home/brine/.ssh/authorized_keys",
+		"test ! -w /etc/ssh && test ! -w /etc/ssh/sshd_config.d && test ! -w /etc/ssh/brine && test ! -w /etc/ssh/brine/authorized_keys",
 	}
 	for _, script := range scripts {
 		if _, err := h.run(ctx, false, "runuser", "-u", "brine", "--", "/bin/sh", "-c", script); err != nil {
@@ -879,6 +887,15 @@ func (h *host) bypass(ctx context.Context) (bool, error) {
 			return false, errors.New("unexpected home startup entry")
 		}
 	}
+	for _, p := range plantedSSH {
+		data := []byte(h.r.Key + "\n")
+		if strings.HasSuffix(p, "/environment") {
+			data = []byte("BRINE_BYPASS=planted\n")
+		}
+		if err = h.file(ctx, p, data, 0644, false); err != nil {
+			return false, err
+		}
+	}
 	data := []byte("touch /home/brine/.local/state/brine/startup-ran\n")
 	if err = h.file(ctx, home+"/.bashrc", data, 0644, false); err != nil {
 		return false, err
@@ -886,6 +903,12 @@ func (h *host) bypass(ctx context.Context) (bool, error) {
 	return true, nil
 }
 func (h *host) finishVerification(ctx context.Context) error {
+	if ok, err := h.checkSSH(ctx); err != nil || !ok {
+		return errors.Join(err, errors.New("SSH policy incomplete"))
+	}
+	if err := h.cleanSSHCandidates(); err != nil {
+		return err
+	}
 	if err := h.removeCandidate(); err != nil {
 		return err
 	}
@@ -895,7 +918,7 @@ func (h *host) finishVerification(ctx context.Context) error {
 	if _, err := os.Lstat(home + "/.local/state/brine/startup-ran"); !errors.Is(err, os.ErrNotExist) {
 		return errors.New("planted startup file ran")
 	}
-	if err := h.restoreFile(home + "/.bashrc"); err != nil {
+	if err := h.removeBypassFiles(); err != nil {
 		return err
 	}
 	delete(h.r.Files, home+"/.bashrc")
@@ -1003,7 +1026,7 @@ func (p probeRunner) RunStdout(ctx context.Context, path string, args ...string)
 }
 
 func (h *host) preflight(ctx context.Context) error {
-	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath} {
+	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath} {
 		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("preexisting enrollment resource refused")
 		}
@@ -1115,15 +1138,15 @@ func (h *host) removeCandidate() error {
 }
 
 func (h *host) checkAuthorizedKeyPaths(context.Context) error {
-	for _, path := range []string{"/", "/home", home, home + "/.ssh", home + "/.ssh/authorized_keys", home + "/.ssh/authorized_keys2"} {
+	for _, path := range []string{"/", "/etc", "/etc/ssh", "/etc/ssh/sshd_config.d", "/etc/ssh/sshd_config", sshPolicyPath, sshDir, sshKeyDir, sshKeyPath, sshIdentityPath, "/home", home, home + "/.ssh", home + "/.ssh/authorized_keys", home + "/.ssh/authorized_keys2"} {
 		info, err := os.Lstat(path)
-		if errors.Is(err, os.ErrNotExist) && strings.HasPrefix(path, home) {
+		if errors.Is(err, os.ErrNotExist) && (strings.HasPrefix(path, home) || strings.HasPrefix(path, sshDir) || path == sshPolicyPath) {
 			continue
 		}
 		if err != nil {
 			return err
 		}
-		directory := path == "/" || path == "/home" || path == home || path == home+"/.ssh"
+		directory := slices.Contains([]string{"/", "/etc", "/etc/ssh", "/etc/ssh/sshd_config.d", sshDir, sshKeyDir, "/home", home, home + "/.ssh"}, path)
 		if err := protectedKeyNode(info, directory); err != nil {
 			return err
 		}

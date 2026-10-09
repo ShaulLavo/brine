@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/user"
-	"path/filepath"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
@@ -45,8 +44,8 @@ func executeHostServe(deps Dependencies) error {
 		collector := deps.HostInventory
 		if collector == nil {
 			identity, e := user.LookupId(fmt.Sprint(uid()))
-			if e == nil {
-				key, e := os.ReadFile(filepath.Join(identity.HomeDir, ".ssh/inventory-key"))
+			if e == nil && identity.Username == "brine" {
+				key, e := os.ReadFile("/etc/ssh/brine/inventory-key")
 				if e == nil && len(key) == 32 {
 					collector = inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key}
 				}

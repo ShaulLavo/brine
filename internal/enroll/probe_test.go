@@ -91,19 +91,6 @@ func TestAlternateAuthorizationSourcesRefused(t *testing.T) {
 	}
 }
 
-func TestProtectedEffectiveKeyLocations(t *testing.T) {
-	for _, paths := range [][]string{{".ssh/authorized_keys", ".ssh/authorized_keys2"}, {"%h/.ssh/authorized_keys", "/home/brine/.ssh/authorized_keys2"}} {
-		if err := safeAuthorizedKeysFiles(paths); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, paths := range [][]string{nil, {"none"}, {".ssh/authorized_keys2"}, {".ssh/authorized_keys", ".ssh/../.config/keys"}, {".ssh/authorized_keys", "/tmp/keys"}} {
-		if err := safeAuthorizedKeysFiles(paths); err == nil {
-			t.Fatalf("unsafe paths accepted: %v", paths)
-		}
-	}
-}
-
 func TestSSHRequiresUnconditionalFirstDebianInclude(t *testing.T) {
 	for _, input := range []string{
 		"AuthorizedKeysFile=.ssh/authorized_keys\nInclude /etc/ssh/sshd_config.d/*.conf\n",
