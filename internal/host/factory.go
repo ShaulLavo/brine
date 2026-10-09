@@ -44,6 +44,7 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	}
 	f.closeRuntime = runtime.Close
 	server := dispatch.NewServer(f.version, runtime.Inventory).WithJobs(runtime.Jobs, runtime.Authorize)
+	server.Reconciler = runtime.Reconciler
 	server.Planner = runtime.Planner
 	server.Apps = runtime.Apps
 	server.Logs = runtime.Logs

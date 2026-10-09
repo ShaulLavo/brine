@@ -173,7 +173,6 @@ type Reconciler interface {
 }
 
 type Runner struct {
-	// TODO(P03-07): provide the host reconciler once its package is available.
 	Reconciler      Reconciler
 	Store           RunnerStore
 	Executor        Executor

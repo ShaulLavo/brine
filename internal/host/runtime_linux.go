@@ -95,8 +95,9 @@ func Open(ctx context.Context, authenticated string) (_ *Runtime, err error) {
 			return caddy.NewSite(App(d), p, spec.Port(port))
 		},
 	}}
+	reconciler := newReconciler(service, engine, runtimeSystemd)
 	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
-	r := &Runtime{Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}}, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
+	r := &Runtime{Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}}, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
 		p, err := loader.Load(ctx)
 		if err != nil {
 			return 0, err

@@ -105,6 +105,7 @@ func MakePlan(f Facts) (Plan, error) {
 		"Install only the supplied public deploy key, restricted to the absolute binary path's host serve dispatcher, with no shell, PTY or forwarding access.",
 		"Install a root-owned polkit rule granting only caddy.service reload, never restart or reload-or-restart.",
 		"Create /etc/caddy/brine/gen-0 and current; add only import /etc/caddy/brine/current/*.caddy to the main Caddyfile; refuse other imports, validate, then unmask, enable and start Caddy.",
+		"Install a root-owned brine-reconcile.service oneshot user unit and a root-owned user generator that activates it only for the Brine runner at boot; reconcile unfinished operations without relaunching jobs, and undo only the journaled unit and generator.",
 		"Record enrollment ownership, original Caddy configuration and service state in a root-owned journal; undo only recorded and verified changes.",
 		"Write a private client target config with the authenticated SSH host key; verify the real restricted deploy key through ping and rerun read-only inventory.",
 		"Make no firewall, DNS, Tailscale, other-user, app-data or root-helper changes; unwired lifecycle capabilities remain refused.",

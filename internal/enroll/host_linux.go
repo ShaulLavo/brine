@@ -602,6 +602,7 @@ func (h *host) steps() []Step {
 		}, Undo: func(context.Context) error { return h.restoreFile(sshKeyPath) }},
 		{Name: "ssh-policy", Check: h.checkSSH, Apply: h.installSSH, Undo: h.undoSSH},
 		{Name: "bypass", Check: h.bypass, Apply: noop, Undo: func(context.Context) error { return h.removeBypassFiles() }},
+		{Name: "boot-reconcile", Check: h.checkBootReconcile, Apply: h.installBootReconcile, Undo: h.undoBootReconcile},
 	}
 }
 func (h *host) fileMatches(path, want string) (bool, error) {
@@ -1073,7 +1074,7 @@ func (p probeRunner) RunStdout(ctx context.Context, path string, args ...string)
 }
 
 func (h *host) preflight(ctx context.Context) error {
-	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath} {
+	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath, reconcileUnitPath, reconcileGeneratorPath} {
 		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("preexisting enrollment resource refused")
 		}

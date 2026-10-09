@@ -16,6 +16,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -128,7 +129,9 @@ type deployRig struct {
 	spec      string
 }
 
-func newDeployRig(t *testing.T) *deployRig {
+func newDeployRig(t *testing.T) *deployRig { return newDeployRigAt(t, t.TempDir()) }
+
+func newDeployRigAt(t *testing.T, dir string) *deployRig {
 	t.Helper()
 	read := func(path string) []byte {
 		b, err := os.ReadFile(path)
@@ -137,7 +140,7 @@ func newDeployRig(t *testing.T) *deployRig {
 		}
 		return b
 	}
-	state, err := store.Open(t.TempDir())
+	state, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -157,9 +160,15 @@ func newDeployRig(t *testing.T) *deployRig {
 		return podman.ImageInfo{IndexDigest: r.images.image.Digest, ManifestDigest: *r.images.image.ManifestDigest.Value, Platform: podman.Platform{OS: "linux", Architecture: "arm64"}}, nil
 	}}
 	manager := &systemd.Fake{DaemonReloadFunc: func(context.Context) error { return nil }, StartFunc: func(context.Context, systemd.Unit) error { return nil }, IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return true, nil }}
+	manager.ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+		return systemd.Properties{}, &localexec.Error{Kind: localexec.NotFound}
+	}
+	manager.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 	engine := apply.Executor{Journal: state, Releases: releases{state}, Plans: state, Podman: runtime, Systemd: manager, Units: r.units, Routes: fakeRoutes{pol}, Health: r.health}
-	r.runner = jobs.Runner{Store: state, Executor: Executor{Service: r.service, Engine: engine}}
+	reconciler := newReconciler(r.service, engine, manager)
+	r.runner = jobs.Runner{Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: r.service, Engine: engine}}
 	r.server = dispatch.NewServer("fixture", r.inventory).WithJobs(jobs.Service{Store: state, Launcher: r.launcher, Requester: r.service.Requester}, r.service.Authorize)
+	r.server.Reconciler = reconciler
 	r.server.Planner = r.service
 	r.server.Apps = apps.Service{Store: state, Inventory: r.inventory}
 	return r

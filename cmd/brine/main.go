@@ -49,6 +49,7 @@ func main() {
 		if err == nil {
 			closeRuntime = runtime.Close
 			deps.HostOperationRunner = runtime.Runner
+			deps.HostReconciler = runtime.Reconciler
 		} else {
 			fmt.Fprintln(os.Stderr, "Host runtime initialization failed:", result.Classify(err).Code())
 		}

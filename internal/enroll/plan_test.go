@@ -91,3 +91,14 @@ func TestMissingRuntimeCandidatesMustBeSupported(t *testing.T) {
 		})
 	}
 }
+
+func TestBootRecoveryIsAnExplicitEnrollmentChange(t *testing.T) {
+	p, err := MakePlan(supported())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.Join(p.Changes, "\n")
+	if !strings.Contains(text, "brine-reconcile.service") || !strings.Contains(text, "user generator") {
+		t.Fatal("boot recovery missing from operator-visible change list")
+	}
+}
