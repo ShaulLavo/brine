@@ -1,0 +1,5 @@
+other.example.net, web.example.com {
+	reverse_proxy 127.0.0.1:20001
+	header X-Content-Type-Options nosniff
+	header Referrer-Policy no-referrer
+}
