@@ -50,11 +50,34 @@ type Diagnostic struct {
 	Field string       `json:"field"`
 }
 
+// Image binds the requested index (or single-image) digest to the selected
+// platform manifest. Callers without registry or runtime evidence record unknown.
+type Image struct {
+	Digest         string                     `json:"digest"`
+	Platform       target.Platform            `json:"platform"`
+	ManifestDigest target.Observation[string] `json:"manifest_digest"`
+}
+
+func (i Image) validManifest() bool {
+	switch i.ManifestDigest.Status {
+	case target.Unknown:
+		return i.ManifestDigest.Value == nil
+	case target.KnownStatus:
+		return i.ManifestDigest.Value != nil && validHash(*i.ManifestDigest.Value)
+	default:
+		return false
+	}
+}
+
+func (i Image) observed() target.Image {
+	return target.Image{Digest: i.Digest, Platform: i.Platform}
+}
+
 type Input struct {
 	Desired  policy.Desired
 	Snapshot target.Snapshot
 	// Image is manifest metadata supplied by the caller, never looked up by Build.
-	Image target.Image
+	Image Image
 	State BrineState
 }
 
@@ -71,7 +94,7 @@ type CurrentRelease struct {
 	App       string           `json:"app"`
 	ID        string           `json:"id"`
 	Desired   policy.Desired   `json:"desired"`
-	Image     target.Image     `json:"image"`
+	Image     Image            `json:"image"`
 	HostPort  target.Port      `json:"host_port"`
 	Secrets   []SecretBinding  `json:"secrets"`
 	Units     []target.Unit    `json:"units"`
@@ -101,7 +124,7 @@ const (
 type Change struct {
 	Kind       ChangeKind       `json:"kind"`
 	Allocation *PortAllocation  `json:"allocation,omitempty"`
-	Image      *target.Image    `json:"image,omitempty"`
+	Image      *Image           `json:"image,omitempty"`
 	Secret     *SecretBinding   `json:"secret,omitempty"`
 	Quadlet    *Quadlet         `json:"quadlet,omitempty"`
 	Caddy      *CaddyGeneration `json:"caddy,omitempty"`
@@ -139,7 +162,7 @@ type Plan struct {
 	PolicyHash         string                     `json:"policy_hash"`
 	DesiredHash        string                     `json:"desired_hash"`
 	ConfigHash         string                     `json:"config_hash"`
-	Image              target.Image               `json:"image"`
+	Image              Image                      `json:"image"`
 	HostPort           target.Port                `json:"host_port"`
 	Secrets            []SecretBinding            `json:"secrets"`
 	Changes            []Change                   `json:"changes"`
@@ -186,6 +209,12 @@ func Build(in Input) (Plan, error) {
 	in.State = BrineState{}
 	if e = json.Unmarshal(state, &in.State); e != nil {
 		return Plan{}, e
+	}
+	if !in.Image.validManifest() {
+		return Plan{}, fmt.Errorf("image requires a known digest or unknown manifest observation")
+	}
+	if in.Image.ManifestDigest.Value != nil {
+		in.Image.ManifestDigest = target.Known(*in.Image.ManifestDigest.Value)
 	}
 	if !validHash(in.Image.Digest) || !strings.HasSuffix(string(in.Desired.Image), "@"+in.Image.Digest) {
 		return Plan{}, fmt.Errorf("image metadata must match pinned desired digest")
@@ -365,7 +394,7 @@ func Build(in Input) (Plan, error) {
 		if current == nil || current.QuadletUnits.Status != target.KnownStatus || !reflect.DeepEqual(*current.QuadletUnits.Value, release.Units) {
 			add(ArtifactDrift, "units")
 		}
-		if current != nil && current.Image.Status == target.KnownStatus && *current.Image.Value != release.Image {
+		if current != nil && current.Image.Status == target.KnownStatus && *current.Image.Value != release.Image.observed() {
 			add(ArtifactDrift, "image")
 		}
 	} else if current != nil && ((current.Image.Status == target.KnownStatus) || (current.QuadletUnits.Status == target.KnownStatus && len(*current.QuadletUnits.Value) > 0)) {
@@ -378,7 +407,7 @@ func Build(in Input) (Plan, error) {
 	if release != nil {
 		p.Kind = Update
 	}
-	if release != nil && configHash(release.Desired, release.Image, release.HostPort, release.Secrets) == p.ConfigHash && current.Image.Status == target.KnownStatus && *current.Image.Value == in.Image && !allocated && ownHash != "" && hasContainer(*current.QuadletUnits.Value, p.App) {
+	if release != nil && configHash(release.Desired, release.Image, release.HostPort, release.Secrets) == p.ConfigHash && current.Image.Status == target.KnownStatus && *current.Image.Value == in.Image.observed() && !allocated && ownHash != "" && hasContainer(*current.QuadletUnits.Value, p.App) {
 		p.Kind = NoOp
 	} else {
 		for _, committed := range in.State.Releases {
@@ -512,14 +541,14 @@ func hashJSON(v any) string {
 	}
 	return hash(b)
 }
-func configHash(d policy.Desired, image target.Image, port target.Port, secrets []SecretBinding) string {
+func configHash(d policy.Desired, image Image, port target.Port, secrets []SecretBinding) string {
 	desired, e := d.CanonicalBytes()
 	if e != nil {
 		panic(e)
 	}
 	return hashJSON(struct {
 		Desired json.RawMessage `json:"desired"`
-		Image   target.Image    `json:"image"`
+		Image   Image           `json:"image"`
 		Port    target.Port     `json:"port"`
 		Secrets []SecretBinding `json:"secrets"`
 	}{desired, image, port, secrets})
@@ -558,7 +587,7 @@ func canonicalState(state BrineState) ([]byte, error) {
 	}
 	slices.SortFunc(state.Releases, func(a, b CurrentRelease) int { return strings.Compare(a.App, b.App) })
 	for i, r := range state.Releases {
-		if r.App == "" || r.ID == "" || string(r.Desired.Name) != r.App || (i > 0 && state.Releases[i-1].App == r.App) || !validHash(r.Image.Digest) || r.HostPort == 0 || r.HostPort > 65535 || r.Units == nil || r.Secrets == nil || r.CaddyFile.Name != r.App+".caddy" || !validHash(r.CaddyFile.Hash) {
+		if r.App == "" || r.ID == "" || string(r.Desired.Name) != r.App || (i > 0 && state.Releases[i-1].App == r.App) || !validHash(r.Image.Digest) || !r.Image.validManifest() || r.HostPort == 0 || r.HostPort > 65535 || r.Units == nil || r.Secrets == nil || r.CaddyFile.Name != r.App+".caddy" || !validHash(r.CaddyFile.Hash) {
 			return nil, fmt.Errorf("invalid committed release state")
 		}
 		desired, e := r.Desired.CanonicalBytes()

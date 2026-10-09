@@ -39,11 +39,11 @@ func fixture(t testing.TB, name string) Input {
 	if e != nil {
 		t.Fatal(e)
 	}
-	image := target.Image{Digest: strings.Split(string(d.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: s.Arch}}
+	image := Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: strings.Split(string(d.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: s.Arch}}
 	state := BrineState{Target: s.Identity, Generation: *s.Generation.Value, Releases: []CurrentRelease{}}
 	for _, app := range *s.Apps.Value {
 		if app.Name == "hello" && app.Image.Status == target.KnownStatus {
-			state.Releases = append(state.Releases, CurrentRelease{App: "hello", ID: "release-0001", Desired: d, Image: *app.Image.Value, HostPort: *app.AllocatedHostPort.Value, Secrets: []SecretBinding{}, Units: *app.QuadletUnits.Value, CaddyFile: s.CaddyConfig.Value.Files[0]})
+			state.Releases = append(state.Releases, CurrentRelease{App: "hello", ID: "release-0001", Desired: d, Image: Image{Digest: app.Image.Value.Digest, Platform: app.Image.Value.Platform, ManifestDigest: target.Observation[string]{Status: target.Unknown}}, HostPort: *app.AllocatedHostPort.Value, Secrets: []SecretBinding{}, Units: *app.QuadletUnits.Value, CaddyFile: s.CaddyConfig.Value.Files[0]})
 		}
 	}
 	raw, _ := json.Marshal(state)
@@ -333,6 +333,11 @@ func TestGolden(t *testing.T) {
 			b, e := build(t, in).CanonicalBytes()
 			if e != nil {
 				t.Fatal(e)
+			}
+			if os.Getenv("UPDATE_GOLDEN") == "1" {
+				if e := os.WriteFile("testdata/"+name+".json", b, 0644); e != nil {
+					t.Fatal(e)
+				}
 			}
 			want, e := os.ReadFile("testdata/" + name + ".json")
 			if e != nil {

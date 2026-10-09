@@ -1,5 +1,6 @@
 create  hello
-+ image: sha256:aaaaaaaaaaaa... (linux/arm64)
+  Platform manifest: unknown
++ image: sha256:aaaaaaaaaaaa... (linux/arm64, manifest unknown)
 + domain: hello.example.com
 + host port: 20000
 + container port: 3000
