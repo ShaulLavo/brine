@@ -21,6 +21,9 @@ func TestRootlessListenerOwnership(t *testing.T) {
 		{"pasta service descendant", cgroup, listener, "127.0.0.1:20080:8080", true},
 		{"rootlessport service descendant", cgroup, strings.ReplaceAll(listener, "pasta", "rootlessport"), "127.0.0.1:20080:8080", true},
 		{"foreign service", strings.ReplaceAll(cgroup, "api.service", "foreign.service"), listener, "127.0.0.1:20080:8080", false},
+		{"foreign listener sharing port", cgroup, listener + "\n" + strings.ReplaceAll(listener, "4242", "4243"), "127.0.0.1:20080:8080", true},
+		{"non-loopback socket", cgroup, strings.ReplaceAll(listener, "127.0.0.1:20080", "0.0.0.0:20080"), "127.0.0.1:20080:8080", false},
+		{"ambiguous cgroups", cgroup + "0::/system.slice/foreign.service\n", listener, "127.0.0.1:20080:8080", false},
 		{"system unit with same name", "0::/system.slice/api.service\n", listener, "127.0.0.1:20080:8080", false},
 		{"other user", strings.ReplaceAll(cgroup, "1001", "1002"), listener, "127.0.0.1:20080:8080", false},
 		{"service prefix collision", strings.ReplaceAll(cgroup, "api.service/", "api.service-other/"), listener, "127.0.0.1:20080:8080", false},
@@ -47,18 +50,51 @@ func TestRootlessListenerOwnership(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if s.PortOwners.Value == nil || len(*s.PortOwners.Value) != 1 {
+			expected := 1
+			if strings.Contains(tc.listener, "4243") {
+				expected = 2
+			}
+			if s.PortOwners.Value == nil || len(*s.PortOwners.Value) != expected {
 				t.Fatalf("owners=%+v", s.PortOwners)
 			}
-			owner := (*s.PortOwners.Value)[0]
-			if (owner.App == "api") != tc.owned {
-				t.Fatalf("owner=%+v", owner)
+			owned := 0
+			for _, owner := range *s.PortOwners.Value {
+				if owner.App == "api" {
+					owned++
+				} else if owner.App != "" {
+					t.Fatalf("foreign owner=%+v", owner)
+				}
 			}
-			if !tc.owned && owner.App != "" {
-				t.Fatalf("foreign owner=%+v", owner)
+			if (owned == 1) != tc.owned || owned > 1 {
+				t.Fatalf("owners=%+v", *s.PortOwners.Value)
 			}
 			if s.Apps.Status != target.KnownStatus {
 				t.Fatal("apps not observed")
+			}
+		})
+	}
+}
+
+func TestListenerBindingRequiresUnchangedOwnedUnit(t *testing.T) {
+	const path = "/home/brine/.config/containers/systemd/api.container"
+	original := "# Brine-owned plan=sha256:" + strings.Repeat("a", 64) + "\n[Container]\nPublishPort=127.0.0.1:20080:8080\n"
+	for _, tc := range []struct{ name, data string }{
+		{"changed bytes", original + "Environment=CHANGED=yes\n"},
+		{"unreadable", ""},
+		{"unowned", "[Container]\nPublishPort=127.0.0.1:20080:8080\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := secretOnlyFixture()
+			hash := digest([]byte(original))
+			if tc.data != "" {
+				f.files[path] = tc.data
+			}
+			if tc.name == "unowned" {
+				hash = digest([]byte(tc.data))
+			}
+			s := target.Snapshot{Apps: target.Known([]target.App{{Name: "api", AllocatedHostPort: target.Known(target.Port(20080)), QuadletUnits: target.Known([]target.Unit{{Name: "api.container", Hash: hash}})}})}
+			if got := (Collector{FS: f, RunnerUser: "brine"}).listenerBindings(context.Background(), &s, "/home/brine"); len(got) != 0 {
+				t.Fatalf("unverified binding=%+v", got)
 			}
 		})
 	}
