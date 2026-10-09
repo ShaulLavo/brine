@@ -1,4 +1,4 @@
-// Package localexec runs typed local subprocesses with bounded output.
+// Package localexec runs typed local processes with deadlines and bounded output.
 package localexec
 
 import (
@@ -29,8 +29,18 @@ func (ExecRunner) RunStdout(ctx context.Context, path string, args ...string) (s
 	return run(ctx, true, path, args...)
 }
 func run(ctx context.Context, stdoutOnly bool, path string, args ...string) (string, error) {
+	path, err := LookPath(path)
+	if err != nil {
+		return "", err
+	}
+	env, home, err := commandEnvironment(nil, false)
+	if err != nil {
+		return "", err
+	}
 	output := &boundedOutput{}
 	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Env = env
+	cmd.Dir = home
 	configureProcessGroup(cmd)
 	cmd.Stdout = output
 	cmd.Stderr = output
@@ -39,7 +49,7 @@ func run(ctx context.Context, stdoutOnly bool, path string, args ...string) (str
 	}
 	// Bound pipe draining if a descendant keeps the output descriptors open.
 	cmd.WaitDelay = 100 * time.Millisecond
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}

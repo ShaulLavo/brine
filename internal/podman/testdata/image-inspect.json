@@ -1,0 +1,70 @@
+[
+  {
+    "Id": "748902c9f9368aa7437b05e353c23968266b0bc882ac1d74067fc1768a102ba6",
+    "Digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "RepoTags": [
+      "registry.example/app:3.21"
+    ],
+    "RepoDigests": [
+      "registry.example/app@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "registry.example/app@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    ],
+    "Parent": "",
+    "Comment": "buildkit.dockerfile.v0",
+    "Created": "2026-09-17T20:38:00.361973766Z",
+    "Config": {
+      "Env": [
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      ],
+      "Cmd": [
+        "/bin/sh"
+      ],
+      "WorkingDir": "/"
+    },
+    "Version": "",
+    "Author": "",
+    "Architecture": "arm64",
+    "Os": "linux",
+    "Size": 8432247,
+    "VirtualSize": 8432247,
+    "GraphDriver": {
+      "Name": "vfs",
+      "Data": null
+    },
+    "RootFS": {
+      "Type": "layers",
+      "Layers": [
+        "sha256:545d2c9a9459641b6e79f68d7e5cc87f1a8c03461997e936d0fd77485887cd69"
+      ]
+    },
+    "Labels": null,
+    "Annotations": {
+      "com.docker.official-images.bashbrew.arch": "arm64v8",
+      "org.opencontainers.image.base.name": "scratch",
+      "org.opencontainers.image.created": "2026-09-17T20:37:38Z",
+      "org.opencontainers.image.revision": "45ca5a796a9e1c0b9de1e279514331000b7ff921",
+      "org.opencontainers.image.source": "https://github.com/alpinelinux/docker-alpine.git#45ca5a796a9e1c0b9de1e279514331000b7ff921:aarch64",
+      "org.opencontainers.image.url": "https://hub.docker.com/_/alpine",
+      "org.opencontainers.image.version": "3.21.8"
+    },
+    "ManifestType": "application/vnd.oci.image.manifest.v1+json",
+    "User": "",
+    "History": [
+      {
+        "created": "2026-09-17T20:38:00.361973766Z",
+        "created_by": "ADD alpine-minirootfs-3.21.8-aarch64.tar.gz / # buildkit",
+        "comment": "buildkit.dockerfile.v0"
+      },
+      {
+        "created": "2026-09-17T20:38:00.361973766Z",
+        "created_by": "CMD [\"/bin/sh\"]",
+        "comment": "buildkit.dockerfile.v0",
+        "empty_layer": true
+      }
+    ],
+    "NamesHistory": [
+      "registry.example/app@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "registry.example/app:3.21"
+    ]
+  }
+]

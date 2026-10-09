@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -428,4 +430,34 @@ func (r fakeRunner) RunStdout(ctx context.Context, p string, args ...string) (st
 }
 func (r probeRunner) RunStdout(ctx context.Context, p string, args ...string) (string, error) {
 	return r.Run(ctx, p, args...)
+}
+
+func TestRealRunnerMissingToolIsAbsent(t *testing.T) {
+	c := Collector{Runner: localexec.ExecRunner{}}
+	got := c.version(context.Background(), "brine-fixture-nonexistent-executable-8da960f7", nil)
+	if got.Status != target.Absent {
+		t.Fatalf("missing tool status = %s", got.Status)
+	}
+}
+
+func TestRealRunnerPermissionAndRuntimeFailuresStayUnknown(t *testing.T) {
+	for _, tt := range []struct {
+		name, content string
+		mode          fs.FileMode
+	}{
+		{"permission", "#!/bin/sh\nexit 0\n", 0600},
+		{"runtime", "#!/bin/sh\nexit 7\n", 0700},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "tool")
+			if err := os.WriteFile(path, []byte(tt.content), tt.mode); err != nil {
+				t.Fatal(err)
+			}
+			c := Collector{Runner: localexec.ExecRunner{}}
+			got := c.version(context.Background(), path, nil)
+			if got.Status != target.Unknown {
+				t.Fatalf("failed tool status = %s", got.Status)
+			}
+		})
+	}
 }
