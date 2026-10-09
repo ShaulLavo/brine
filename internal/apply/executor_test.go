@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -118,6 +119,9 @@ func newRig(t testing.TB, update bool) *rig {
 	r.facts = Facts{Input: in, Routing: route}
 	r.executor = Executor{Journal: r, Releases: r, Plans: r, Facts: FactsFunc(func(context.Context) (Facts, error) { err := r.hit("preflight"); return r.facts, err }), Units: r, Routes: r, Health: r, Compatibility: r, EffectTimeout: time.Second}
 	r.executor.Podman = &podman.Fake{
+		ContainerStateFunc: func(context.Context, podman.Name) (podman.ContainerState, error) {
+			return podman.ContainerState{Running: r.active, Status: "exited"}, nil
+		},
 		PullFunc: func(context.Context, podman.Image) error { return r.hit("pull_image") },
 		InspectFunc: func(context.Context, podman.Image) (podman.ImageInfo, error) {
 			err := r.hit("verify_image")
@@ -307,11 +311,11 @@ func TestFailureAtEveryForwardStep(t *testing.T) {
 		{"quiesce_old", RolledBack, []string{"rollback_start", "rollback_check", "rollback_check"}},
 		{"install_unit", RolledBack, []string{"rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
 		{"reload_units", RolledBack, []string{"rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
-		{"start_unit", RolledBack, []string{"rollback_quiesce", "check_compatibility", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
-		{"check_direct", RolledBack, []string{"rollback_quiesce", "check_compatibility", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
-		{"publish_route", RolledBack, []string{"rollback_quiesce", "check_compatibility", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
-		{"check_routed", RolledBack, []string{"rollback_quiesce", "check_compatibility", "rollback_route", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
-		{"commit", RolledBack, []string{"rollback_quiesce", "check_compatibility", "rollback_route", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
+		{"start_unit", RolledBack, []string{"rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
+		{"check_direct", RolledBack, []string{"rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
+		{"publish_route", RolledBack, []string{"rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
+		{"check_routed", RolledBack, []string{"rollback_quiesce", "rollback_route", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
+		{"commit", RolledBack, []string{"rollback_quiesce", "rollback_route", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_check"}},
 	}
 	for _, test := range tests {
 		t.Run(test.step, func(t *testing.T) {
@@ -336,7 +340,7 @@ func TestFailureAtEveryForwardStep(t *testing.T) {
 }
 
 func TestRollbackFailureRequiresRecovery(t *testing.T) {
-	for _, step := range []string{"rollback_quiesce", "check_compatibility", "rollback_route", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check"} {
+	for _, step := range []string{"rollback_quiesce", "rollback_route", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check"} {
 		t.Run(step, func(t *testing.T) {
 			r := newRig(t, true)
 			original := r.executor.Health
@@ -442,15 +446,49 @@ func TestUnknownRestoreStopsWithoutFurtherEffects(t *testing.T) {
 		t.Fatal(r.effects)
 	}
 }
-func TestUnknownCompatibilityLeavesCandidateStopped(t *testing.T) {
+func TestStatelessRollbackNeedsNoExternalEvidence(t *testing.T) {
 	r := newRig(t, true)
 	r.failStep = "check_direct"
-	r.compatibility = false
-	failure(t, r.run(), RecoveryRequired, "check_compatibility")
-	if r.active || !r.candidate {
-		t.Fatal("candidate not stopped and retained for recovery")
+	r.executor.Compatibility = nil
+	failure(t, r.run(), RolledBack, "check_direct")
+	found := false
+	for _, e := range r.events {
+		if e.Kind == "step" {
+			var p ops.StepPayload
+			json.Unmarshal(e.Payload, &p)
+			if p.Step == "check_compatibility" && p.Outcome == "completed" {
+				found = p.Code == "stateless_compatible"
+			}
+		}
+	}
+	if !found {
+		t.Fatal("missing typed stateless compatibility evidence")
 	}
 }
+func TestUnclassifiedDataRequiresCompatibilityEvidence(t *testing.T) {
+	for _, safe := range []bool{false, true} {
+		r := newRig(t, true)
+		r.compatibility = safe
+		r.intent = "check_compatibility"
+		x := &execution{executor: &r.executor, previousDesired: r.oldDesired, desired: r.desired}
+		x.desired.SchemaVersion = 2
+		err := x.checkCompatibility(context.Background())
+		if safe && (err != nil || x.compatibilityBasis != "compatibility_verified") {
+			t.Fatalf("%v %s", err, x.compatibilityBasis)
+		}
+		if !safe && err == nil {
+			t.Fatal("unknown data classified as safe")
+		}
+	}
+	r := newRig(t, true)
+	r.executor.Compatibility = nil
+	x := &execution{executor: &r.executor, previousDesired: r.oldDesired, desired: r.desired}
+	x.desired.SchemaVersion = 2
+	if err := x.checkCompatibility(context.Background()); err == nil {
+		t.Fatal("missing evidence accepted")
+	}
+}
+
 func TestHealthTimeoutRollsBack(t *testing.T) {
 	r := newRig(t, true)
 	r.healthTimeout = true
@@ -581,5 +619,78 @@ func TestNoOpDoesNotTouchHost(t *testing.T) {
 	}
 	if r.state != Succeeded || !reflect.DeepEqual(r.effects, []string{"preflight"}) || r.committed {
 		t.Fatalf("%s %v", r.state, r.effects)
+	}
+}
+
+func TestLingeringContainerRefusesSecondWriter(t *testing.T) {
+	r := newRig(t, true)
+	r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
+		return podman.ContainerState{Running: true, Status: "running"}, nil
+	}
+	failure(t, r.run(), RecoveryRequired, "quiesce_old")
+	if r.effects[len(r.effects)-1] != "quiesce_old" {
+		t.Fatal(r.effects)
+	}
+}
+func TestMissingContainerProvesQuiescence(t *testing.T) {
+	r := newRig(t, true)
+	r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
+		return podman.ContainerState{}, &localexec.Error{Kind: localexec.NotFound}
+	}
+	if err := r.run(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUnclassifiedRollbackStopsBeforeRestoringOldWriter(t *testing.T) {
+	r := newRig(t, true)
+	r.state = Checking
+	r.candidate = true
+	r.active = true
+	r.executor.Compatibility = nil
+	service, err := systemd.ParseUnit("hello.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := &execution{executor: &r.executor, id: "operation-1", plan: r.plan, desired: r.desired, previous: r.release, previousDesired: r.oldDesired, hasPrevious: true, state: Checking, started: true, installed: true, service: service}
+	x.previousDesired.SchemaVersion = 2
+	failure(t, x.fail(context.Background(), &Error{Step: "check_direct", Code: "health_failed", Cause: injected}), RecoveryRequired, "check_compatibility")
+	if r.active || !r.candidate {
+		t.Fatal("candidate must remain stopped with artifacts retained")
+	}
+	if !reflect.DeepEqual(r.effects, []string{"rollback_quiesce"}) {
+		t.Fatal(r.effects)
+	}
+}
+func TestUnknownImagePullIsRecordedForReconciliation(t *testing.T) {
+	r := newRig(t, true)
+	r.executor.Podman.(*podman.Fake).PullFunc = func(context.Context, podman.Image) error { r.hit("pull_image"); return context.DeadlineExceeded }
+	failure(t, r.run(), RecoveryRequired, "pull_image")
+	if r.effects[len(r.effects)-1] != "pull_image" {
+		t.Fatal(r.effects)
+	}
+}
+
+func TestRollbackJournalGolden(t *testing.T) {
+	r := newRig(t, true)
+	r.failStep = "check_routed"
+	failure(t, r.run(), RolledBack, "check_routed")
+	raw, err := json.MarshalIndent(r.events, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, '\n')
+	path := "testdata/rollback.events.json"
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(path, raw, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	golden, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, golden) {
+		t.Fatalf("rollback journal differs from golden:\n%s", raw)
 	}
 }

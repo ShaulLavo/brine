@@ -11,9 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
@@ -51,6 +54,7 @@ type execution struct {
 	route                                   caddy.State
 	quiesced, installed, started, published bool
 	state                                   State
+	compatibilityBasis                      string
 }
 
 func desiredMatches(p plan.Plan, d policy.Desired) bool {
@@ -64,7 +68,7 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 	}
 	x := &execution{executor: e, id: opID, plan: p, desired: d}
 	err := x.step(ctx, "preflight", Preflight, "drift", func(ctx context.Context) error {
-		if opID == "" || !desiredMatches(p, d) || (p.Kind != plan.Create && p.Kind != plan.Update && p.Kind != plan.NoOp) || len(p.Conflicts) != 0 {
+		if opID == "" || p.Image.ManifestDigest.Status != target.KnownStatus || p.Image.ManifestDigest.Value == nil || !desiredMatches(p, d) || (p.Kind != plan.Create && p.Kind != plan.Update && p.Kind != plan.NoOp) || len(p.Conflicts) != 0 {
 			return errors.New("unverified input")
 		}
 		if e.Facts == nil || e.Releases == nil {
@@ -73,7 +77,7 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		var err error
 		x.facts, err = e.Facts.Read(ctx)
 		if err != nil {
-			return err
+			return &Error{Step: "preflight", Code: "inventory_failed", Cause: err}
 		}
 		fresh, err := plan.Build(x.facts.Input)
 		if err != nil {
@@ -236,7 +240,15 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		}},
 		{"check_routed", Checking, "health_failed", func(ctx context.Context) error { return x.check(ctx, d, p.HostPort, true) }},
 		{"commit", Committing, "commit_failed", func(ctx context.Context) error {
-			release := Release{ID: opID, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: p.Secrets, Units: []target.Unit{{Name: x.unit.Name(), Hash: x.unit.Hash()}}, CaddyFile: target.CaddyFile{Name: p.App + ".caddy", Hash: x.route.Files[p.App+".caddy"]}, CaddyGeneration: x.route.Generation}
+			units := []target.Unit{}
+			for _, old := range x.previous.Units {
+				if old.Name != x.unit.Name() {
+					units = append(units, old)
+				}
+			}
+			units = append(units, target.Unit{Name: x.unit.Name(), Hash: x.unit.Hash()})
+			slices.SortFunc(units, func(a, b target.Unit) int { return strings.Compare(a.Name, b.Name) })
+			release := Release{ID: opID, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: p.Secrets, Units: units, CaddyFile: target.CaddyFile{Name: p.App + ".caddy", Hash: x.route.Files[p.App+".caddy"]}, CaddyGeneration: x.route.Generation}
 			err := e.Releases.CommitRelease(ctx, p.App, release)
 			if err == nil {
 				return nil
@@ -281,6 +293,18 @@ func (x *execution) stop(ctx context.Context) error {
 	}
 	if active {
 		return errors.New("writer still active")
+	}
+	name, err := podman.ParseName("systemd-" + x.plan.App)
+	if err != nil {
+		return err
+	}
+	container, err := x.executor.Podman.ContainerState(ctx, name)
+	var runtimeErr *localexec.Error
+	if errors.As(err, &runtimeErr) && runtimeErr.Kind == localexec.NotFound {
+		return nil
+	}
+	if err != nil || container.Running {
+		return &Error{Step: x.service.String(), Code: "interrupted", Cause: err}
 	}
 	return nil
 }
@@ -333,8 +357,13 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		if errors.Is(err, context.DeadlineExceeded) && (name == "check_direct" || name == "check_routed" || name == "rollback_check") {
 			code = "health_timeout"
 		}
-		if isUnknown(err) && name != "check_direct" && name != "check_routed" && name != "rollback_check" && name != "pull_image" && name != "verify_image" && name != "ensure_secrets" && name != "stage_unit" && name != "preflight" && name != "check_compatibility" {
+		if isUnknown(err) && name != "check_direct" && name != "check_routed" && name != "rollback_check" && name != "verify_image" && name != "ensure_secrets" && name != "stage_unit" && name != "preflight" && name != "check_compatibility" {
 			code = "interrupted"
+			outcome = "unknown"
+		}
+		var reloadUnknown *caddy.UnknownOutcomeError
+		if errors.As(err, &reloadUnknown) {
+			code = "reload_unknown"
 			outcome = "unknown"
 		}
 		if classified != nil && (classified.Code == "reload_unknown" || classified.Code == "interrupted") {
@@ -348,6 +377,8 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 	eventCode := ""
 	if err != nil {
 		eventCode = code
+	} else if name == "check_compatibility" {
+		eventCode = x.compatibilityBasis
 	}
 	if journalErr := x.event(recordCtx, name, outcome, eventCode); journalErr != nil {
 		return journalErr
@@ -417,19 +448,7 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 			return x.terminal(ctx, RecoveryRequired, err)
 		}
 		if x.hasPrevious {
-			if err := step("check_compatibility", "compatibility_unknown", func(ctx context.Context) error {
-				if x.executor.Compatibility == nil {
-					return errors.New("data compatibility unknown")
-				}
-				safe, err := x.executor.Compatibility.Safe(ctx, x.previousDesired, x.desired)
-				if err != nil {
-					return err
-				}
-				if !safe {
-					return errors.New("data compatibility unknown")
-				}
-				return nil
-			}); err != nil {
+			if err := step("check_compatibility", "compatibility_unknown", x.checkCompatibility); err != nil {
 				return x.terminal(ctx, RecoveryRequired, err)
 			}
 		}

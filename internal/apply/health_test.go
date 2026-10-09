@@ -49,6 +49,9 @@ func TestHTTPHealthDeadlineAndNoRedirect(t *testing.T) {
 	calls := 0
 	h := HTTPHealth{PollInterval: time.Millisecond, Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
 		calls++
+		if r.URL.String() != "http://127.0.0.1:20000/" {
+			t.Errorf("followed redirect to %s", r.URL)
+		}
 		return &http.Response{StatusCode: 302, Body: io.NopCloser(strings.NewReader("")), Header: http.Header{"Location": []string{"https://unowned.example.com/"}}}, nil
 	})}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)

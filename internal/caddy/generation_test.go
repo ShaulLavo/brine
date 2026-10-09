@@ -678,3 +678,38 @@ func TestRestoreUnknownReloadStops(t *testing.T) {
 		t.Fatalf("retried unknown reload: %v calls %d", err, r.calls)
 	}
 }
+
+func TestRestoreRefusalsPreserveInstalledGeneration(t *testing.T) {
+	for _, fault := range []string{"validation", "adaptation", "retained-drift", "current-drift"} {
+		t.Run(fault, func(t *testing.T) {
+			m, root, main, before, v, r := setup(t)
+			first, err := m.Apply(context.Background(), main, before, Put(fixtureSite(t)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			second, err := m.Apply(context.Background(), main, first.Next, Put(otherSite(t)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			switch fault {
+			case "validation":
+				v.err = errors.New("invalid candidate")
+			case "adaptation":
+				v.adapted = []byte(`{"apps":{}}`)
+			case "retained-drift":
+				if err := os.WriteFile(filepath.Join(root, "gen-1", "web.caddy"), []byte("changed"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			case "current-drift":
+				second.Next.Files = map[string]string{}
+			}
+			if err := m.Restore(context.Background(), main, second.Next, first.Next); err == nil {
+				t.Fatal("restore accepted drift")
+			}
+			requireCurrent(t, root, "gen-2")
+			if r.calls != 2 {
+				t.Fatalf("reload ran after refusal: %d", r.calls)
+			}
+		})
+	}
+}

@@ -675,6 +675,9 @@ func (m *Manager) prune(previous, current uint64) error {
 func (m *Manager) Restore(ctx context.Context, main []byte, installed, previous State) (err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if installed.Files == nil || previous.Files == nil {
+		return errors.New("caddy: recorded restore generations required")
+	}
 	if m.stopped {
 		return errors.New("caddy: manager closed or requires reconciliation")
 	}

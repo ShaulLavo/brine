@@ -46,8 +46,7 @@ func (h HTTPHealth) Check(ctx context.Context, d policy.Desired, port target.Por
 	}
 	transport := h.Transport
 	if transport == nil {
-		t := http.DefaultTransport.(*http.Transport).Clone()
-		t.Proxy = nil
+		t := &http.Transport{ForceAttemptHTTP2: true, TLSHandshakeTimeout: 10 * time.Second}
 		defer t.CloseIdleConnections()
 		transport = t
 	}
