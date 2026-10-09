@@ -22,6 +22,8 @@ Brine is an **agent-first deployment CLI** with a beautiful Charm human interfac
 
 ## Very important: agent authority
 
+This section governs coding agents building Brine. What enrolled runtime agents may do to a host through Brine is defined separately by the operator policy and [D8](docs/DECISIONS.md).
+
 A request to build Brine **does not authorize** removing Coolify, Podman, Caddy, databases, app volumes, servers, Tailscale, DNS or firewalls. Do not run install/uninstall scripts on a real server without approval naming that target and action.
 
 An agent's own `--yes` flag is not authorization. Routine agent credentials must not have unrestricted root SSH, raw Docker/Podman socket access, privileged Caddy admin access, or the ability to delete cloud resources. Explicitly document and test the boundary before autonomous production use.
