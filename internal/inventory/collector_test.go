@@ -64,7 +64,7 @@ func baseFixture() fixtureFS {
 }
 func TestFreshHost(t *testing.T) {
 	f := baseFixture()
-	r := fakeRunner{"uname -m": "aarch64\n", "ss -H -ltnp": "", "ss -H -lunp": "", "df -B1 --output=avail /home": "Avail\n42\n"}
+	r := fakeRunner{"uname -m": "aarch64\n", "ss -H -ltnpe": "", "ss -H -lunp": "", "df -B1 --output=avail /home": "Avail\n42\n"}
 	s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture-only-key")}).Collect(context.Background())
 	if e != nil {
 		t.Fatal(e)
@@ -179,7 +179,7 @@ func TestRoutingAndPortsWithOwners(t *testing.T) {
 	f.files["/proc/99/cgroup"] = "0::/system.slice/unrelated.service\n"
 	f.files["/etc/caddy/Caddyfile"] = "api.example.test { respond ok }\n"
 	jsonConfig := `{"apps":{"http":{"servers":{"srv0":{"routes":[{"match":[{"host":["API.EXAMPLE.TEST","*.example.test"]}],"handle":[{"handler":"static_response","body":"ok"}]}]}}}}}`
-	r := fakeRunner{"uname -m": "aarch64", "ss -H -ltnp": `LISTEN 0 4096 [::]:20001 [::]:* users:(("unrelated",pid=99,fd=3))`, "ss -H -lunp": "UNCONN 0 0 *:20002 *:*", "caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile": jsonConfig, "curl --disable --noproxy * --silent --fail --max-time 2 http://127.0.0.1:2019/config/": jsonConfig}
+	r := fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": `LISTEN 0 4096 [::]:20001 [::]:* users:(("unrelated",pid=99,fd=3))`, "ss -H -lunp": "UNCONN 0 0 *:20002 *:*", "caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile": jsonConfig, "curl --disable --noproxy * --silent --fail --max-time 2 http://127.0.0.1:2019/config/": jsonConfig}
 	s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 	if e != nil {
 		t.Fatal(e)
@@ -458,6 +458,43 @@ func TestRealRunnerPermissionAndRuntimeFailuresStayUnknown(t *testing.T) {
 			got := c.version(context.Background(), path, nil)
 			if got.Status != target.Unknown {
 				t.Fatalf("failed tool status = %s", got.Status)
+			}
+		})
+	}
+}
+
+func TestAppUnitActiveObservation(t *testing.T) {
+	for _, state := range []string{"active", "inactive", "failed", "", "unexpected"} {
+		t.Run(state, func(t *testing.T) {
+			f := baseFixture()
+			f.files["/etc/passwd"] = "brine:x:1001:1001::/home/brine:/bin/sh\n"
+			f.files["/proc/self/status"] = "Uid:\t1001\t1001\t1001\t1001\n"
+			dir := "/home/brine/.config/containers/systemd"
+			f.dirs[dir] = []fs.DirEntry{fixtureEntry("brine-api.container")}
+			f.files[dir+"/brine-api.container"] = "[Container]\nImage=example.test/api:latest\n"
+			runner := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "", "systemctl --user show brine-api.service --property=ActiveState --value": state}
+			s, e := (Collector{FS: f, Runner: runner, IdentityKey: []byte("fixture")}).Collect(context.Background())
+			if e != nil {
+				t.Fatal(e)
+			}
+			active := (*s.Apps.Value)[0].UnitActive
+			if active == nil {
+				t.Fatal("missing measurement")
+			}
+			if state == "active" || state == "inactive" || state == "failed" {
+				if active.Value == nil || *active.Value != (state == "active") {
+					t.Fatal(active)
+				}
+			} else if active.Status != target.Unknown || active.Value != nil {
+				t.Fatal(active)
+			}
+			encoded, e := target.Encode(s)
+			if e != nil {
+				t.Fatal(e)
+			}
+			decoded, e := target.Decode(encoded)
+			if e != nil || (*decoded.Apps.Value)[0].UnitActive.Status != active.Status {
+				t.Fatal(decoded, e)
 			}
 		})
 	}

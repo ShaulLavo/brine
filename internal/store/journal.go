@@ -203,3 +203,19 @@ func (s *Store) ListUnfinished(ctx context.Context) ([]Operation, error) {
 	}
 	return result, rows.Err()
 }
+
+// LastOperation includes failed and unfinished attempts, not just committed releases.
+func (s *Store) LastOperation(ctx context.Context, app string) (Operation, error) {
+	op, err := scanOperation(s.db.QueryRowContext(ctx, `SELECT o.id,o.plan_id,o.requester,o.idempotency_key,o.state,o.created_at,o.updated_at FROM operations o JOIN plans p ON p.id=o.plan_id WHERE json_extract(p.desired,'$.name')=? ORDER BY o.created_at DESC,o.id DESC LIMIT 1`, app))
+	if err != nil {
+		return Operation{}, err
+	}
+	p, _, err := s.LoadPlan(ctx, op.PlanID)
+	if err != nil {
+		return Operation{}, err
+	}
+	if p.App != app {
+		return Operation{}, &IntegrityError{}
+	}
+	return op, nil
+}

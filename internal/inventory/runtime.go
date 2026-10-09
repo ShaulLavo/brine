@@ -14,9 +14,14 @@ var renderedUnitMarker = regexp.MustCompile(`^# Brine-owned plan=sha256:[0-9a-f]
 
 const runtimePortFormat = `{"name":{{json .Name}},"running":{{json .State.Running}},"unit":{{json (index .Config.Labels "PODMAN_SYSTEMD_UNIT")}},"ports":{{json .NetworkSettings.Ports}}}`
 
+type publication struct {
+	Host      target.Port
+	Container target.Port
+}
+
 // Runtime observations never grant replacement authority. Only committed state does.
-func (c Collector) livePort(ctx context.Context, units []target.Unit) target.Observation[target.Port] {
-	unknownPort := unknown[target.Port]()
+func (c Collector) livePublication(ctx context.Context, units []target.Unit) target.Observation[publication] {
+	unknownPort := unknown[publication]()
 	container := ""
 	for _, u := range units {
 		if strings.HasSuffix(u.Name, ".container") {
@@ -45,14 +50,14 @@ func (c Collector) livePort(ctx context.Context, units []target.Unit) target.Obs
 	if json.Unmarshal([]byte(out), &runtime) != nil || !runtime.Running || runtime.Name != "systemd-"+container || runtime.Unit != container+".service" {
 		return unknownPort
 	}
-	var publishedPort target.Port
+	var published publication
 	for protocol, bindings := range runtime.Ports {
 		// Image EXPOSE entries may have null/empty bindings; they do not allocate
 		// a host port. Inspect every published entry before accepting one.
 		if len(bindings) == 0 {
 			continue
 		}
-		if publishedPort != 0 {
+		if published.Host != 0 {
 			return unknownPort
 		}
 		portText, ok := strings.CutSuffix(protocol, "/tcp")
@@ -64,10 +69,10 @@ func (c Collector) livePort(ctx context.Context, units []target.Unit) target.Obs
 		if e != nil || port < 1024 {
 			return unknownPort
 		}
-		publishedPort = target.Port(port)
+		published = publication{Host: target.Port(port), Container: target.Port(inside)}
 	}
-	if publishedPort == 0 {
+	if published.Host == 0 {
 		return unknownPort
 	}
-	return target.Known(publishedPort)
+	return target.Known(published)
 }

@@ -17,23 +17,30 @@ import (
 
 var appName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
-func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) {
+type appArtifacts struct {
+	publications map[string]publication
+	containers   map[string][]byte
+	runner       bool
+}
+
+func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) appArtifacts {
 	if s.Runner.User.Status == target.Unknown {
-		return
+		return appArtifacts{}
 	}
 	if !exists {
 		s.Apps = target.Known([]target.App{})
-		return
+		return appArtifacts{}
 	}
 	dir := filepath.Join(home, ".config/containers/systemd")
 	entries, e := c.FS.ReadDir(ctx, dir)
 	if e != nil && !errors.Is(e, fs.ErrNotExist) {
-		return
+		return appArtifacts{}
 	}
 	if errors.Is(e, fs.ErrNotExist) {
 		entries = []fs.DirEntry{}
 	}
 	byApp := map[string][]target.Unit{}
+	containerData := map[string][]byte{}
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() {
@@ -47,7 +54,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		}
 		data, err := c.FS.ReadFile(ctx, filepath.Join(dir, name))
 		if err != nil {
-			return
+			return appArtifacts{}
 		}
 		app := strings.TrimSuffix(strings.TrimPrefix(name, "brine-"), ext)
 		if renderedUnitMarker.Match(data) {
@@ -59,6 +66,9 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			continue
 		}
 		byApp[app] = append(byApp[app], target.Unit{Name: name, Hash: digest(data)})
+		if ext == ".container" {
+			containerData[name] = data
+		}
 	}
 
 	secrets := []target.Secret{}
@@ -66,12 +76,12 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	if runnerIdentity {
 		out, err := c.probe(ctx, "podman", "--remote=false", "secret", "ls", "--format", "{{.ID}} {{.Name}}")
 		if err != nil {
-			return
+			return appArtifacts{}
 		}
 		var ok bool
 		secrets, ok = secretRecords(out)
 		if !ok {
-			return
+			return appArtifacts{}
 		}
 		for _, secret := range secrets {
 			if !strings.HasPrefix(secret.Name, "brine-") {
@@ -80,15 +90,16 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 			candidates := secretAppNames(secret.Name)
 			// Names are not self-delimiting. Do not guess app/reference boundaries.
 			if len(candidates) != 1 {
-				return
+				return appArtifacts{}
 			}
 			if _, ok := byApp[candidates[0]]; !ok {
 				byApp[candidates[0]] = []target.Unit{}
 			}
 		}
 	} else if len(byApp) == 0 {
-		return
+		return appArtifacts{}
 	}
+	publications := map[string]publication{}
 	apps := make([]target.App, 0, len(byApp))
 	for app, units := range byApp {
 		sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
@@ -101,7 +112,26 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		}
 		if runnerIdentity {
 			if len(units) > 0 {
-				a.AllocatedHostPort = c.livePort(ctx, units)
+				active := unknown[bool]()
+				for _, unit := range units {
+					if strings.HasSuffix(unit.Name, ".container") {
+						state, err := c.probe(ctx, "systemctl", "--user", "show", strings.TrimSuffix(unit.Name, ".container")+".service", "--property=ActiveState", "--value")
+						if err == nil {
+							switch state {
+							case "active", "reloading", "refreshing":
+								active = target.Known(true)
+							case "inactive", "failed", "activating", "deactivating", "maintenance":
+								active = target.Known(false)
+							}
+						}
+					}
+				}
+				a.UnitActive = &active
+				measured := c.livePublication(ctx, units)
+				if measured.Status == target.KnownStatus {
+					publications[app] = *measured.Value
+					a.AllocatedHostPort = target.Known(measured.Value.Host)
+				}
 			}
 			observed := []target.Secret{}
 			for _, secret := range secrets {
@@ -117,6 +147,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
 
 	s.Apps = target.Known(apps)
+	return appArtifacts{publications: publications, containers: containerData, runner: runnerIdentity}
 }
 
 func (c Collector) isRunner(ctx context.Context, home string) bool {

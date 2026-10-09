@@ -136,7 +136,7 @@ func TestHostRunOpBoundary(t *testing.T) {
 }
 
 func TestJobCLIMissingOrUnsafeIDs(t *testing.T) {
-	for _, args := range [][]string{{"apply", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {"apply", "../x", "--target", "fixture"}, {"status", "--target", "fixture"}, {"status", "--operation", "op1", "--target", "../fixture"}} {
+	for _, args := range [][]string{{"apply", "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, {"apply", "../x", "--target", "fixture"}, {"status", "--operation", "", "--target", "fixture"}, {"status", "--operation", "op1", "--target", "../fixture"}} {
 		var out, stderr bytes.Buffer
 		deps := testDependencies(t, &out, &stderr)
 		deps.LoadOperationTarget = func(string, string) (transport.Target, error) {

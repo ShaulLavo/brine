@@ -23,6 +23,9 @@ const (
 type Code string
 
 const (
+	AppNotFound               Code = "app_not_found"
+	ReleaseNotFound           Code = "release_not_found"
+	RollbackNoOp              Code = "rollback_no_op"
 	LogsOwnershipRefused      Code = "logs_ownership_refused"
 	LogsTruncated             Code = "logs_truncated"
 	LogsLimitExceeded         Code = "logs_limit_exceeded"
@@ -54,6 +57,9 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
+	AppNotFound:               {Validation, "The app has no committed Brine release.", false},
+	ReleaseNotFound:           {Validation, "The rollback release is not known for this app.", false},
+	RollbackNoOp:              {StateConflict, "The rollback target is already current or requires no changes.", false},
 	LogsTruncated:             {Operational, "The journal output was truncated; request a smaller tail.", false},
 	LogsOwnershipRefused:      {Policy, "Logs are readable only for an observed Brine-owned app unit.", false},
 	LogsLimitExceeded:         {Operational, "The log response exceeds its bounded tail or byte limit; request a smaller tail.", false},
