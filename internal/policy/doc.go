@@ -12,6 +12,14 @@ requires both endpoints, from 1024 through 65535 inclusive. Normalize retains
 this range but does not allocate a host port; observed ports and stable recorded
 allocations belong to P01-03 and the host operation engine.
 
+minimum_free_disk_bytes is an optional positive integer in bytes. Omission
+resolves to 1073741824 (1 GiB). Explicit zero, negative, noninteger and out-of-range
+TOML integers are refused. The canonical policy and normalized Desired retain the
+resolved minimum. Desired.CanonicalBytes also resolves a zero Go field to this
+default without mutating its input. The planner requires known free disk at or
+above the minimum and hashes that decision and observation status, not the raw
+measurement. This is a reserve floor, not an estimate of image or release size.
+
 allowed_registries is an array of tables with host and optional
 repository_prefixes. Hosts are exact ASCII DNS names with optional ports;
 case is folded, but a missing port does not match a rule with an explicit port.

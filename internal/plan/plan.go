@@ -43,6 +43,7 @@ const (
 	ArtifactDrift      ConflictCode = "artifact_drift"
 	RuntimeUnavailable ConflictCode = "runtime_unavailable"
 	StaleState         ConflictCode = "stale_brine_state"
+	InsufficientDisk   ConflictCode = "insufficient_disk"
 )
 
 type Diagnostic struct {
@@ -202,6 +203,10 @@ func Build(in Input) (Plan, error) {
 	if e = json.Unmarshal(snapshot, &in.Snapshot); e != nil {
 		return Plan{}, e
 	}
+	snapshot, e = canonicalDecisionFacts(in.Snapshot, in.Desired.MinimumFreeDiskBytes)
+	if e != nil {
+		return Plan{}, e
+	}
 	state, e := canonicalState(in.State)
 	if e != nil {
 		return Plan{}, e
@@ -240,13 +245,16 @@ func Build(in Input) (Plan, error) {
 		field  string
 		status target.Status
 	}{
-		{"generation", in.Snapshot.Generation.Status}, {"apps", in.Snapshot.Apps.Status}, {"used_ports", in.Snapshot.UsedPorts.Status}, {"caddy_config", in.Snapshot.CaddyConfig.Status}, {"live_caddy_files", in.Snapshot.LiveCaddyFiles.Status}, {"port_owners", in.Snapshot.PortOwners.Status},
+		{"generation", in.Snapshot.Generation.Status}, {"apps", in.Snapshot.Apps.Status}, {"used_ports", in.Snapshot.UsedPorts.Status}, {"caddy_config", in.Snapshot.CaddyConfig.Status}, {"live_caddy_files", in.Snapshot.LiveCaddyFiles.Status}, {"port_owners", in.Snapshot.PortOwners.Status}, {"free_disk_bytes", in.Snapshot.FreeDiskBytes.Status},
 	} {
 		if f.status == target.Unsupported {
 			add(UnsupportedTarget, f.field)
 		} else if f.status != target.KnownStatus && !(f.field == "caddy_config" && f.status == target.Absent) {
 			add(UnknownFacts, f.field)
 		}
+	}
+	if disk := sufficientDisk(in.Snapshot, in.Desired.MinimumFreeDiskBytes); disk.Status == target.KnownStatus && !*disk.Value {
+		add(InsufficientDisk, "free_disk_bytes")
 	}
 	deploymentCapabilities(in.Snapshot, add)
 	if in.State.Target != p.Target || (p.ObservedGeneration.Status == target.KnownStatus && in.State.Generation != *p.ObservedGeneration.Value) {

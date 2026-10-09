@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | T01 | Human and JSON version/doctor output | Valid schema, no ANSI or prompts in machine output | 00 |
 | T02 | Invalid config, unknown field, unsafe path/domain/image | Validation refusal; no host or control-plane effects | 01 |
-| T03 | Repeated same plan input | Same canonical hash and ordered changes | 01 |
+| T03 | Repeated same plan decision facts, including different disk-byte measurements within the same sufficient/insufficient class | Same canonical hash and ordered changes; sampled perturbations of every snapshot decision field change hash material | 01 |
 | T04 | Changed observed state or policy before apply | Stale plan refused; no mutation | 01/03 |
 | T05 | Unknown/unowned service, port or Caddy route | Conflict reported; no overwrite/uninstall | 02 |
 | T06 | Rootless fixture restart and full VPS reboot | App resumes with expected status; no Brine process required | 02 |
@@ -24,7 +24,7 @@
 | T18 | Agent key attempts an operation outside the allowlist (shell, raw Podman/Caddy, non-Brine software, purge or live restore when policy forbids), invokes the root helper directly, forges an operation record, or substitutes a path/symlink | Dispatcher and root helper each refuse independently of CLI flags and runner-writable state | 06 |
 | T19 | Operator performs real R2 restore drill to disposable destination | Restore procedure and resulting DB independently verified | 04/06 |
 | T20 | Machine/human parity | Same operation ID and status across JSON CLI/TUI | 05 |
-| T21 | Limited disk space, killed process, partial write | Safe recoverable state; no loss of previous release/config | 03/06 |
+| T21 | Limited disk space, killed process, partial write | Planning below the policy disk minimum or with unobserved disk conflicts with no changes; crossing the minimum changes the hash; safe recoverable state and no loss of previous release/config after runtime failures | 03/06 |
 | T22 | App removal, recreate, expiry and purge | Removal archives under an immutable ID with a restorable backup set for 30 days; remove-recreate-expire never touches the new app; purge only when policy allows; interrupted archive/purge recovers | 03/04/06 |
 | T23 | Secrets in logs, plans, TUI or JSON errors | Redaction tests and audit of subprocess output paths | 00-06 |
 | T24 | Release binary from fresh environment | Go tests, vet, build and version metadata pass | 06 |
