@@ -289,3 +289,62 @@ func TestVersionExhaustionDoesNotCreate(t *testing.T) {
 		}
 	}
 }
+
+type slowList struct{ Runtime }
+
+func (s slowList) SecretNames(ctx context.Context) ([]podman.Name, error) {
+	select {
+	case <-time.After(JournalTimeout + 100*time.Millisecond):
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	return s.Runtime.SecretNames(ctx)
+}
+func TestSlowSuccessfulListHasFreshReservationJournal(t *testing.T) {
+	s, db, _ := secretFixture(t)
+	s.Podman = slowList{s.Podman}
+	got, err := s.Set(context.Background(), "hello", "hello-token", "slow", []byte("PRIVATE"))
+	if err != nil {
+		t.Fatal("allocation outlived journal context", err)
+	}
+	op, err := db.GetOperation(context.Background(), got.OperationID)
+	if err != nil || op.State != ops.Succeeded {
+		t.Fatal(op, err)
+	}
+	latest, err := db.LatestSecretVersion(context.Background(), "hello", "hello-token")
+	if err != nil || latest != 1 {
+		t.Fatal("reservation missing", latest, err)
+	}
+}
+
+type failedIntent struct{ Store }
+
+func (s failedIntent) AppendEvent(ctx context.Context, id string, e ops.Event) (uint64, error) {
+	if e.Kind == "secret_version" {
+		canceled, cancel := context.WithCancel(ctx)
+		cancel()
+		return s.Store.AppendEvent(canceled, id, e)
+	}
+	return s.Store.AppendEvent(ctx, id, e)
+}
+func TestFailedIntentLeavesNoReservationOrRuntimeCreate(t *testing.T) {
+	s, db, f := secretFixture(t)
+	s.Store = failedIntent{s.Store}
+	if _, err := s.Set(context.Background(), "hello", "hello-token", "failed-intent", []byte("PRIVATE")); err == nil {
+		t.Fatal("intent failure accepted")
+	}
+	latest, err := db.LatestSecretVersion(context.Background(), "hello", "hello-token")
+	if err != nil || latest != 0 {
+		t.Fatal("failed journal reserved a name", latest, err)
+	}
+	for _, call := range f.calls {
+		if call.Args[1] == "create" {
+			t.Fatal("created before reservation commit")
+		}
+	}
+	s.Store = db
+	got, err := s.Set(context.Background(), "hello", "hello-token", "next-intent", []byte("PRIVATE"))
+	if err != nil || got.VersionName != "brine.hello.hello-token.v1" {
+		t.Fatal("uncommitted reservation consumed version", got, err)
+	}
+}

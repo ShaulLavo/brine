@@ -59,6 +59,22 @@ func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	// A stopped unit cannot own a live listener. Keep ordinary deployment
+	// planning independent of volatile health, but refuse contradictory lifecycle
+	// evidence even if a caller claims the socket belongs to this app.
+	if original.Apps.Value != nil && original.PortOwners.Value != nil {
+		for _, app := range *original.Apps.Value {
+			if app.Name != current.App || app.UnitActive == nil || app.UnitActive.Status != target.KnownStatus || *app.UnitActive.Value {
+				continue
+			}
+			for _, owner := range *original.PortOwners.Value {
+				if owner.Port == current.HostPort && owner.App == current.App {
+					p.Conflicts = append(p.Conflicts, Diagnostic{Code: PortOwned, Field: "host_port"})
+					p.Kind = Conflict
+				}
+			}
+		}
+	}
 	p.Hash = ""
 	p.Lifecycle = action
 	p.Diff = nil

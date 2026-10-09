@@ -65,7 +65,9 @@ func (s Service) Set(ctx context.Context, app, ref, key string, value []byte) (S
 	if err = pol.CheckSecret(spec.Name(app), spec.SecretReference(ref)); err != nil {
 		return Stored{}, err
 	}
-	op, existing, err := s.Store.CreateOperation(ctx, intent, s.Requester, key)
+	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
+	op, existing, err := s.Store.CreateOperation(journal, intent, s.Requester, key)
+	cancel()
 	if err != nil {
 		return Stored{}, err
 	}
@@ -94,9 +96,7 @@ func (s Service) Set(ctx context.Context, app, ref, key string, value []byte) (S
 		// Never reinterpret a replay's input as permission to execute it again.
 		return Stored{}, result.New(result.RecoveryRequired, nil)
 	}
-	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
-	defer cancel()
-	if err = s.Store.SetOperationState(journal, op.ID, ops.Preparing); err != nil {
+	if err = s.state(ctx, op.ID, ops.Preparing); err != nil {
 		return Stored{}, err
 	}
 	names, err := s.Podman.SecretNames(ctx)
@@ -126,7 +126,7 @@ func (s Service) Set(ctx context.Context, app, ref, key string, value []byte) (S
 	if err != nil {
 		return Stored{}, s.finish(ctx, op.ID, ops.Failed)
 	}
-	if err = s.event(journal, op.ID, version, "intent"); err != nil {
+	if err = s.event(ctx, op.ID, version, "intent"); err != nil {
 		return Stored{}, err
 	}
 	err = s.Podman.CreateSecret(ctx, name, value)
@@ -147,22 +147,29 @@ func (s Service) Set(ctx context.Context, app, ref, key string, value []byte) (S
 	return s.complete(ctx, op.ID, version)
 }
 func (s Service) event(ctx context.Context, id, name, outcome string) error {
+	// The intent event IS the reservation: AppendEvent commits it in one
+	// SQLite transaction. Never reserve separately or create before it commits.
+	// Reads may use the whole request deadline; each journal write gets a fresh
+	// detached bounded deadline, even when an allocation read ran slowly.
+	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
+	defer cancel()
 	b, _ := json.Marshal(ops.SecretVersionPayload{Name: name, Outcome: outcome})
-	_, err := s.Store.AppendEvent(ctx, id, ops.Event{Kind: "secret_version", Payload: b})
+	_, err := s.Store.AppendEvent(work, id, ops.Event{Kind: "secret_version", Payload: b})
 	return err
 }
-func (s Service) finish(ctx context.Context, id string, state ops.State) error {
+func (s Service) state(ctx context.Context, id string, state ops.State) error {
 	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
 	defer cancel()
-	return errors.Join(result.New(result.RecoveryRequired, nil), s.Store.SetOperationState(work, id, state))
+	return s.Store.SetOperationState(work, id, state)
+}
+func (s Service) finish(ctx context.Context, id string, state ops.State) error {
+	return errors.Join(result.New(result.RecoveryRequired, nil), s.state(ctx, id, state))
 }
 func (s Service) complete(ctx context.Context, id, name string) (Stored, error) {
-	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
-	defer cancel()
-	if err := s.event(work, id, name, "completed"); err != nil {
+	if err := s.event(ctx, id, name, "completed"); err != nil {
 		return Stored{}, err
 	}
-	if err := s.Store.SetOperationState(work, id, ops.Succeeded); err != nil {
+	if err := s.state(ctx, id, ops.Succeeded); err != nil {
 		return Stored{}, err
 	}
 	return Stored{OperationID: id, VersionName: name}, nil

@@ -29,6 +29,7 @@ func TestRootlessListenerOwnership(t *testing.T) {
 		{"system unit with same name", "0::/system.slice/api.service\n", listener, "127.0.0.1:20080:8080", false},
 		{"other user", strings.ReplaceAll(cgroup, "1001", "1002"), listener, "127.0.0.1:20080:8080", false},
 		{"service prefix collision", strings.ReplaceAll(cgroup, "api.service/", "api.service-other/"), listener, "127.0.0.1:20080:8080", false},
+		{"inactive unit cannot own socket", cgroup, listener, "127.0.0.1:20080:8080", false},
 		{"missing cgroup", "", listener, "127.0.0.1:20080:8080", false},
 		{"different pinned port", cgroup, listener, "127.0.0.1:20081:8080", false},
 		{"container-side drift", cgroup, listener, "127.0.0.1:20080:8080", false},
@@ -51,6 +52,10 @@ func TestRootlessListenerOwnership(t *testing.T) {
 				"podman --remote=false secret ls --format {{.ID}} {{.Name}}":                                    "",
 				"podman --remote=false inspect --type container --format " + runtimePortFormat + " systemd-api": `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`,
 			}
+			if tc.name == "inactive unit cannot own socket" {
+				r["systemctl --user show api.service --property=ActiveState --value"] = "inactive"
+			}
+
 			if tc.name == "container-side drift" {
 				key := "podman --remote=false inspect --type container --format " + runtimePortFormat + " systemd-api"
 				r[key] = strings.ReplaceAll(r[key], "8080/tcp", "9090/tcp")

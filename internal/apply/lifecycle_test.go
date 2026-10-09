@@ -11,6 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/systemd"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func lifecycleRig(t *testing.T, action plan.ChangeKind) *rig {
@@ -102,5 +103,54 @@ func TestExecutorRefusesSecretOperation(t *testing.T) {
 	r.operationKind = ops.SecretSet
 	if err := r.executor.Run(context.Background(), "operation-1", r.plan, r.desired); err == nil || len(r.effects) != 0 {
 		t.Fatal("non-deploy executed", err, r.effects)
+	}
+}
+
+func TestLifecycleStopThenFreshPlanAndApply(t *testing.T) {
+	for _, action := range []plan.ChangeKind{plan.StartApp, plan.StopApp} {
+		t.Run(string(action), func(t *testing.T) {
+			r := lifecycleRig(t, plan.StopApp)
+			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
+				if r.active {
+					return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
+				}
+				return systemd.Properties{ActiveState: "inactive", SubState: "dead"}, nil
+			}
+			if err := r.executor.Run(context.Background(), "operation-1", r.plan, r.desired); err != nil {
+				t.Fatal(err)
+			}
+			if r.active {
+				t.Fatal("stop did not stop")
+			}
+			// Fresh inventory: no runtime publication or listener, but independently
+			// verified owned-unit pins retain image and port allocation (inventory tests).
+			inactive := target.Known(false)
+			(*r.facts.Input.Snapshot.Apps.Value)[0].UnitActive = &inactive
+			r.facts.Input.Snapshot.UsedPorts = target.Known([]target.Port{})
+			r.facts.Input.Snapshot.PortOwners = target.Known([]target.PortOwner{})
+			p, err := plan.BuildLifecycle(r.facts.Input, action)
+			if err != nil || p.Kind != plan.Update {
+				t.Fatal(p, err)
+			}
+			r.plan = p
+			r.state = Queued
+			r.events = nil
+			r.states = nil
+			r.effects = nil
+			r.intent = ""
+			if err := r.executor.Run(context.Background(), "operation-2", p, r.desired); err != nil {
+				t.Fatal("fresh preflight refused", err)
+			}
+			if r.state != Succeeded || r.active != (action == plan.StartApp) || r.committed {
+				t.Fatal(r.state, r.active, r.committed)
+			}
+			if action == plan.StopApp {
+				for _, effect := range r.effects {
+					if effect == "stop_unit" {
+						t.Fatal("repeated stop mutated unit")
+					}
+				}
+			}
+		})
 	}
 }

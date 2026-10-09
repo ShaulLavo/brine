@@ -22,6 +22,7 @@ type appArtifacts struct {
 	publications map[string]publication
 	containers   map[string][]byte
 	runner       bool
+	inactive     map[string]bool
 }
 
 func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) appArtifacts {
@@ -101,6 +102,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 		return appArtifacts{}
 	}
 	publications := map[string]publication{}
+	inactive := map[string]bool{}
 	apps := make([]target.App, 0, len(byApp))
 	for app, units := range byApp {
 		sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
@@ -121,7 +123,10 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 							switch state {
 							case "active", "reloading", "refreshing":
 								active = target.Known(true)
-							case "inactive", "failed", "activating", "deactivating", "maintenance":
+							case "inactive":
+								inactive[app] = true
+								active = target.Known(false)
+							case "failed", "activating", "deactivating", "maintenance":
 								active = target.Known(false)
 							}
 						}
@@ -129,7 +134,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 				}
 				a.UnitActive = &active
 				measured := c.livePublication(ctx, units)
-				if measured.Status == target.KnownStatus {
+				if measured.Status == target.KnownStatus && !inactive[app] {
 					publications[app] = *measured.Value
 					a.AllocatedHostPort = target.Known(measured.Value.Host)
 				}
@@ -148,7 +153,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })
 
 	s.Apps = target.Known(apps)
-	return appArtifacts{publications: publications, containers: containerData, runner: runnerIdentity}
+	return appArtifacts{publications: publications, containers: containerData, runner: runnerIdentity, inactive: inactive}
 }
 
 func (c Collector) isRunner(ctx context.Context, home string) bool {

@@ -256,6 +256,62 @@ func (c *Client) localImage(ctx context.Context, image Image) (localImage, error
 	return row, nil
 }
 
+// InspectStored verifies both pins against the same local stored image without
+// consulting a registry or requiring a running container. Each lookup must carry
+// its exact digest and repository association; contradictory aliases fail closed.
+func (c *Client) InspectStored(ctx context.Context, index, manifest Image) (ImageInfo, error) {
+	if index.value == "" || manifest.value == "" || index.repository() != manifest.repository() {
+		return ImageInfo{}, invalid()
+	}
+	indexed, err := c.localImage(ctx, index)
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	selected, err := c.localImage(ctx, manifest)
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	if indexed.Digest != index.digest() || selected.Digest != manifest.digest() || indexed.ID != selected.ID || indexed.Os != selected.Os || indexed.Architecture != selected.Architecture {
+		return ImageInfo{}, malformed()
+	}
+	return ImageInfo{ImageID: selected.ID, IndexDigest: index.digest(), ManifestDigest: manifest.digest(), Platform: Platform{OS: selected.Os, Architecture: selected.Architecture}}, nil
+}
+
+// StoppedContainerImage verifies locally retained pins and, when a container
+// remains, its stopped state, unit ownership and image identity. Absence is only
+// accepted after Podman's explicit exists probe, never an inspect failure.
+func (c *Client) StoppedContainerImage(ctx context.Context, name Name, unit string, index, manifest Image) (ImageInfo, error) {
+	if name.value == "" || unit == "" {
+		return ImageInfo{}, invalid()
+	}
+	found, err := c.exists(ctx, []string{"container", "exists", name.value})
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	info, err := c.InspectStored(ctx, index, manifest)
+	if err != nil || !found {
+		return info, err
+	}
+	r, err := c.run(ctx, []string{"container", "inspect", name.value}, nil, false)
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	var rows []struct {
+		Name   string
+		Image  string
+		State  *ContainerState
+		Config struct{ Labels map[string]string }
+	}
+	if json.Unmarshal([]byte(r.Stdout), &rows) != nil || len(rows) != 1 {
+		return ImageInfo{}, malformed()
+	}
+	row := rows[0]
+	if row.Name != name.value || row.Image != info.ImageID || row.Config.Labels["PODMAN_SYSTEMD_UNIT"] != unit || row.State == nil || row.State.Running || (row.State.Status != "exited" && row.State.Status != "stopped") {
+		return ImageInfo{}, malformed()
+	}
+	return info, nil
+}
+
 // Inspect observes local image metadata and the pinned registry manifest. It
 // binds candidate platform manifests back to the same stored image ID, rather
 // than guessing from architecture or the store's primary lookup digest.
