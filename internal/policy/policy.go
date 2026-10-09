@@ -45,6 +45,7 @@ type Registry struct {
 	RepositoryPrefixes []string `toml:"repository_prefixes" json:"repository_prefixes"`
 }
 type document struct {
+	CaddyPort            uint16              `toml:"caddy_port" json:"caddy_port,omitempty"`
 	SchemaVersion        int                 `toml:"schema_version" json:"schema_version"`
 	Version              string              `toml:"version" json:"version"`
 	AllowedRegistries    []Registry          `toml:"allowed_registries" json:"allowed_registries"`
@@ -63,6 +64,18 @@ type Policy struct {
 	hash   string
 }
 
+func (p Policy) CaddyPort() uint16 {
+	if p.config == nil {
+		return 0
+	}
+	return p.config.CaddyPort
+}
+func (p Policy) MinimumFreeDiskBytes() uint64 {
+	if p.config == nil {
+		return 0
+	}
+	return *p.config.MinimumFreeDiskBytes
+}
 func (p Policy) Hash() string { return p.hash }
 func (p Policy) Version() string {
 	if p.config == nil {
@@ -194,7 +207,7 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port") {
 		return false
 	}
 	for key, allowed := range map[string][]string{"app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {

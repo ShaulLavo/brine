@@ -156,6 +156,10 @@ func commandEnvironment(overrides []string, allowAgent bool) ([]string, string, 
 			return nil, "", &Error{Kind: Invalid}
 		}
 		switch key {
+		case "QUADLET_UNIT_DIRS":
+			if !filepath.IsAbs(value) || filepath.Clean(value) != value {
+				return nil, "", &Error{Kind: Invalid}
+			}
 		case "XDG_RUNTIME_DIR", "DBUS_SESSION_BUS_ADDRESS":
 		case "SSH_AUTH_SOCK":
 			if !allowAgent {

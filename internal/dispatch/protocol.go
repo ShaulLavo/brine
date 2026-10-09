@@ -11,6 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -58,6 +59,7 @@ var operations = map[string]operation{
 	"ping":      {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
 	"inventory": {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
 	"apply":     {Mutating, decodeApply},
+	"plan":      {Mutating, decodePlan},
 	"operation": {ReadOnly, decodeOperation},
 }
 
@@ -124,6 +126,7 @@ type DiagnosticReader interface {
 }
 
 type Server struct {
+	Planner   Planner
 	Diagnose  DiagnosticReader
 	Apps      AppOperations
 	Logs      LogReader
@@ -169,6 +172,15 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	args, _ := operations[request.Op].decode(request.Args)
 	var value any
 	switch args := args.(type) {
+	case spec.App:
+		if s.Planner == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.Planner.Plan(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = p
 	case diagnose.Request:
 		reader := s.Diagnose
 		if reader == nil {

@@ -588,6 +588,16 @@ func (h *host) steps() []Step {
 		}, Apply: func(ctx context.Context) error {
 			return h.file(ctx, sshIdentityPath, h.identityKey, 0644, false)
 		}, Undo: func(context.Context) error { return h.restoreFile(sshIdentityPath) }},
+		{Name: "operator-policy", Check: func(context.Context) (bool, error) {
+			return h.fileMatches(operatorPolicyPath, hash([]byte(defaultOperatorPolicy)))
+		}, Apply: func(ctx context.Context) error {
+			return h.file(ctx, operatorPolicyPath, []byte(defaultOperatorPolicy), 0644, false)
+		}, Undo: func(context.Context) error { return h.restoreFile(operatorPolicyPath) }},
+		{Name: "requester", Check: func(context.Context) (bool, error) {
+			return h.fileMatches(requesterPath, hash([]byte("deploy:"+hash([]byte(h.r.Key))+"\n")))
+		}, Apply: func(ctx context.Context) error {
+			return h.file(ctx, requesterPath, []byte("deploy:"+hash([]byte(h.r.Key))+"\n"), 0644, false)
+		}, Undo: func(context.Context) error { return h.restoreFile(requesterPath) }},
 		{Name: "key", Check: func(context.Context) (bool, error) {
 			return h.fileMatches(sshKeyPath, hash(h.keyFile()))
 		}, Apply: func(ctx context.Context) error {
@@ -634,7 +644,7 @@ func (h *host) fileMatches(path, want string) (bool, error) {
 	return true, nil
 }
 func (h *host) keyFile() []byte {
-	return []byte("restrict,command=\"" + binaryPath + " host serve\" " + h.r.Key + "\n")
+	return []byte("restrict,command=\"/usr/bin/env BRINE_AUTHENTICATED=deploy " + binaryPath + " host serve\" " + h.r.Key + "\n")
 }
 func (h *host) checkUser(ctx context.Context) (bool, error) {
 	owned, err := h.owned(ctx)
@@ -1178,7 +1188,7 @@ func (h *host) removeCandidate() error {
 }
 
 func (h *host) checkAuthorizedKeyPaths(context.Context) error {
-	for _, path := range []string{"/", "/etc", "/etc/ssh", "/etc/ssh/sshd_config.d", "/etc/ssh/sshd_config", sshPolicyPath, sshDir, sshKeyDir, sshKeyPath, sshIdentityPath, "/home", home, home + "/.ssh", home + "/.ssh/authorized_keys", home + "/.ssh/authorized_keys2"} {
+	for _, path := range []string{"/", "/etc", "/etc/ssh", "/etc/ssh/sshd_config.d", "/etc/ssh/sshd_config", sshPolicyPath, sshDir, sshKeyDir, sshKeyPath, sshIdentityPath, operatorPolicyPath, requesterPath, "/home", home, home + "/.ssh", home + "/.ssh/authorized_keys", home + "/.ssh/authorized_keys2"} {
 		info, err := os.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) && (strings.HasPrefix(path, home) || strings.HasPrefix(path, sshDir) || path == sshPolicyPath) {
 			continue

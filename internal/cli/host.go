@@ -54,6 +54,7 @@ func executeHostServe(deps Dependencies) error {
 			}
 		}
 		server := dispatch.NewServer(deps.Version, collector).WithJobs(deps.HostJobs, deps.HostAuthorization)
+		server.Planner = deps.HostPlanner
 		server.Apps = deps.HostApps
 		if deps.HostLogs != nil {
 			server.Logs = deps.HostLogs
@@ -81,4 +82,10 @@ func HostServeRequested(args []string) bool {
 	root := NewRootCommand(Dependencies{Context: context.Background()})
 	command, _, err := root.Find(args)
 	return err == nil && command != nil && command.CommandPath() == "brine host serve"
+}
+
+func HostRuntimeRequested(args []string) bool {
+	root := NewRootCommand(Dependencies{Context: context.Background()})
+	command, _, err := root.Find(args)
+	return err == nil && command != nil && (command.CommandPath() == "brine host serve" || command.CommandPath() == "brine host run-op")
 }
