@@ -134,7 +134,7 @@ func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
 	}
 
 	var version, foreignKeys int
-	if err := migrated.db.QueryRow("SELECT version FROM schema_version").Scan(&version); err != nil || version != 2 {
+	if err := migrated.db.QueryRow("SELECT version FROM schema_version").Scan(&version); err != nil || version != SchemaVersion {
 		t.Fatalf("schema %d %v", version, err)
 	}
 	if err := migrated.db.QueryRow("PRAGMA foreign_keys").Scan(&foreignKeys); err != nil || foreignKeys != 1 {
