@@ -82,9 +82,11 @@ func TestLifecycleUnknownStopSettlesManagerJobs(t *testing.T) {
 	for _, settled := range []bool{false, true} {
 		t.Run(strings.ToLower(strings.TrimSpace(map[bool]string{false: "pending", true: "settled"}[settled])), func(t *testing.T) {
 			r := lifecycleRig(t, plan.StopApp)
-			r.executor.EffectTimeout = 15 * time.Millisecond
 			r.executor.Systemd.(*systemd.Fake).StopFunc = func(context.Context, systemd.Unit) error {
 				r.active = false
+				if !settled {
+					r.executor.EffectTimeout = 15 * time.Millisecond
+				}
 				return &localexec.Error{Kind: localexec.UnknownOutcome}
 			}
 			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
@@ -95,6 +97,9 @@ func TestLifecycleUnknownStopSettlesManagerJobs(t *testing.T) {
 			}
 			r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return !r.active && !settled, nil }
 			err := r.executor.Run(context.Background(), "operation-1", r.plan, r.desired)
+			if !hasUnknownEvent(r, "stop_unit") {
+				t.Fatal("stop outcome was not unknown", err, r.effects)
+			}
 			if settled && (err != nil || r.state != Succeeded) || !settled && (err == nil || r.state != RecoveryRequired) {
 				t.Fatal(err, r.state)
 			}

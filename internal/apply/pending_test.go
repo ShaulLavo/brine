@@ -79,7 +79,6 @@ func TestUnknownServiceActionWaitsForItsManagerJob(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/settles=%v", step, settles), func(t *testing.T) {
 				r := newRig(t, true)
 				r.unknownStep = step
-				r.executor.EffectTimeout = 200 * time.Millisecond
 				if strings.HasPrefix(step, "rollback_") {
 					r.failStep = "check_direct"
 				}
@@ -116,6 +115,9 @@ func TestUnknownServiceActionWaitsForItsManagerJob(t *testing.T) {
 					err := baseStop(ctx, unit)
 					if r.intent == step {
 						unknownPending = true
+						if !settles {
+							r.executor.EffectTimeout = 200 * time.Millisecond
+						}
 					}
 					return err
 				}
@@ -126,6 +128,9 @@ func TestUnknownServiceActionWaitsForItsManagerJob(t *testing.T) {
 					err := baseStart(ctx, unit)
 					if r.intent == step {
 						unknownPending = true
+						if !settles {
+							r.executor.EffectTimeout = 200 * time.Millisecond
+						}
 					}
 					return err
 				}
@@ -198,11 +203,14 @@ func TestJobQueuedBetweenStateProbesCannotLookSettled(t *testing.T) {
 func TestPendingRestartAfterUnknownStartHealthCannotContinue(t *testing.T) {
 	r := newRig(t, true)
 	r.unknownStep = "start_unit"
-	r.executor.EffectTimeout = 200 * time.Millisecond
 	stoppedOrRunningProbes(r)
 	restartPending := false
 	r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return restartPending, nil }
-	r.executor.Health = healthFunc(func(context.Context, policy.Desired, target.Port, bool) error { restartPending = true; return nil })
+	r.executor.Health = healthFunc(func(context.Context, policy.Desired, target.Port, bool) error {
+		restartPending = true
+		r.executor.EffectTimeout = 200 * time.Millisecond
+		return nil
+	})
 	failure(t, r.run(), RecoveryRequired, "start_unit")
 	if r.effects[len(r.effects)-1] != "start_unit" {
 		t.Fatalf("mutation while restart remained queued: %v", r.effects)

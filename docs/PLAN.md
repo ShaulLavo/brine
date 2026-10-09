@@ -56,6 +56,9 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 | 05 | [Charm and agents](plans/05-charm-and-agents.md) | Usable TUI and stable machine workflows calling same API | Equivalent operations and outcomes across both UIs |
 | 06 | [Release hardening](plans/06-release-and-ops.md) | Policy gates, disaster drills, binaries and runbooks | End-to-end checklist passes on reference host |
 | 07 | [Drops and previews](plans/07-drops-and-previews.md) | Temporary websites with short links, git branch/PR previews (D9) | One-command drop with pill controls; pull request gets a preview URL |
+| 08 | [WebTransport apps](plans/08-webtransport.md) | Policy-approved app-terminated QUIC, then separately gated shared UDP 443 and previews (D10) | Browser streams/datagrams, verified UDP reachability, certificate rotation and recovery on both architectures |
+
+Phase 08 research starts while Phase 03 finishes. Its initial full-app implementation follows Phase 03's physical exit gate and can run beside Phase 04. Shared-port ingress coordinates with P07-01; WebTransport drops/previews wait for both phases' authorization and isolation gates. See Phase 08 for the unmerged Caddy session-proxy blocker and the direct-UDP first delivery.
 
 **Start with P00-01.** Phases are intended as small, reviewable pull requests, not a single mega-implementation. TUI styling can be prototyped against fake data after phase 00, but must not be represented as a working deployment engine.
 

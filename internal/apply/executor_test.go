@@ -842,3 +842,23 @@ func (r *rig) setLiveUnits(units []target.Unit) {
 	}
 	(*r.facts.Input.Snapshot.Apps.Value)[0].QuadletUnits = target.Known(units)
 }
+func TestPreflightTimeoutIsNotDrift(t *testing.T) {
+	for _, honorsContext := range []bool{false, true} {
+		t.Run(map[bool]string{false: "late_facts", true: "read_error"}[honorsContext], func(t *testing.T) {
+			r := newRig(t, false)
+			r.executor.EffectTimeout = 10 * time.Millisecond
+			r.executor.Facts = FactsFunc(func(ctx context.Context) (Facts, error) {
+				<-ctx.Done()
+				if honorsContext {
+					return Facts{}, ctx.Err()
+				}
+				return r.facts, nil
+			})
+			err := r.run()
+			var failure *Error
+			if !errors.As(err, &failure) || failure.Step != "preflight" || failure.Code != "inventory_failed" || r.state != Failed || !errors.Is(err, context.DeadlineExceeded) || len(r.effects) != 0 {
+				t.Fatalf("error %v state %s effects %v", err, r.state, r.effects)
+			}
+		})
+	}
+}
