@@ -205,3 +205,28 @@ func TestStartupBypassHasNoCallerInput(t *testing.T) {
 		t.Fatal("accepted failed bypass probe")
 	}
 }
+
+func TestJournaledOriginalFileIsPendingNotDrift(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "Caddyfile")
+	original := []byte("fixture { respond original }\n")
+	if err := os.WriteFile(path, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	h := host{r: hostRecord{Files: map[string]ownedFile{path: {Existed: true, Before: original, Hash: hash([]byte("replacement")), Mode: 0644, OriginalMode: 0600, OriginalUID: os.Getuid(), OriginalGID: os.Getgid()}}}}
+	done, err := h.fileMatches(path, h.r.Files[path].Hash)
+	if done || err != nil {
+		t.Fatalf("original pending state: done=%v error=%v", done, err)
+	}
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.fileMatches(path, h.r.Files[path].Hash); err == nil {
+		t.Fatal("original metadata drift accepted")
+	}
+	if err := os.WriteFile(path, []byte("unrelated"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.fileMatches(path, h.r.Files[path].Hash); err == nil {
+		t.Fatal("unrelated bytes accepted")
+	}
+}

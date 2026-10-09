@@ -550,10 +550,22 @@ func (h *host) fileMatches(path, want string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	old, ok := h.r.Files[path]
+	if ok && old.Existed && hash(data) == hash(old.Before) && hash(data) != want {
+		info, e := os.Lstat(path)
+		if e != nil {
+			return false, e
+		}
+		st := info.Sys().(*syscall.Stat_t)
+		if uint32(info.Mode().Perm()) != old.OriginalMode || int(st.Uid) != old.OriginalUID || int(st.Gid) != old.OriginalGID {
+			return false, errors.New("enrollment original file metadata drift")
+		}
+		return false, nil
+	}
 	if hash(data) != want {
 		return false, errors.New("enrollment file hash drift")
 	}
-	old, ok := h.r.Files[path]
+
 	if !ok {
 		return false, errors.New("unrecorded file refused")
 	}
