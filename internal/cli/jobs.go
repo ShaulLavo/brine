@@ -177,7 +177,11 @@ func newOperationStatusCmd(machine *bool, modes *machineModes, deps Dependencies
 		}
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Operation %s: %s\nEvents: %d; next cursor: %d\n", id, status.Operation.State, len(status.Events), status.NextCursor)
 		if err == nil && status.Operation.State == ops.RecoveryRequired {
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect and resolve with: brine resolve %s --target %s\n", id, flags.target)
+			if status.Operation.Kind == ops.Reconcile {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect affected app operation status; preview remaining recovery with: brine reconcile --dry-run --target %s\n", flags.target)
+			} else {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect and resolve with: brine resolve %s --target %s\n", id, flags.target)
+			}
 		}
 		return err
 	}}
