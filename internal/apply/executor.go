@@ -3,12 +3,13 @@
 // an offline plan, acquires an agent credential, or rewinds application data.
 //
 // With context-honoring adapters, the maximum operation duration is
-// 30*E + 3*Hcandidate + 3*Hprevious + 10 minutes, where E is EffectTimeout
+// 32*E + 3*Hcandidate + 3*Hprevious + 10 minutes, where E is EffectTimeout
 // (one minute by default) and H is the validated startup deadline. At the
-// spec maximum of 3600 seconds per H and default E, this is 6 hours 40 minutes.
+// spec maximum of 3600 seconds per H and default E, this is 6 hours 42 minutes.
 // Caller cancellation can shorten execution. Rollback detaches cancellation
 // but retains a budget for effects, health probes, read-only reconciliation
-// of unknown outcomes and journal writes. No indeterminate mutation is retried.
+// of unknown outcomes and journal writes. Manager-job settlement uses E; health
+// keeps its full H deadline. No indeterminate mutation is retried.
 package apply
 
 import (
@@ -487,7 +488,7 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 	if !x.quiesced && !x.installed {
 		return x.terminal(ctx, Failed, cause)
 	}
-	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 11*x.executor.effectTimeout()+3*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second+4*time.Minute)
+	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 12*x.executor.effectTimeout()+3*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second+4*time.Minute)
 	defer cancel()
 	step := func(name, code string, effect func(context.Context) error) error {
 		return x.step(rollbackCtx, name, RollingBack, code, effect)

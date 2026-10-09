@@ -14,6 +14,7 @@ type Fake struct {
 	RestartFunc      func(context.Context, Unit) error
 	IsActiveFunc     func(context.Context, Unit) (bool, error)
 	ShowFunc         func(context.Context, Unit) (Properties, error)
+	JobPendingFunc   func(context.Context, Unit) (bool, error)
 	ReloadCaddyFunc  func(context.Context) error
 }
 
@@ -53,6 +54,12 @@ func (f *Fake) Show(c context.Context, u Unit) (Properties, error) {
 		return f.ShowFunc(c, u)
 	}
 	return Properties{}, unconfigured()
+}
+func (f *Fake) JobPending(c context.Context, u Unit) (bool, error) {
+	if f.JobPendingFunc != nil {
+		return f.JobPendingFunc(c, u)
+	}
+	return false, unconfigured()
 }
 func (f *Fake) ReloadCaddy(c context.Context) error {
 	if f.ReloadCaddyFunc != nil {

@@ -26,6 +26,7 @@ const (
 	writerUnknown writerState = iota
 	writerStopped
 	writerRunning
+	writerPending
 )
 
 // Inspection is read-only and happens only after the unknown outcome is durable.
@@ -33,15 +34,15 @@ const (
 func (x *execution) reconcileUnknown(ctx context.Context, step string) resolution {
 	budget := x.executor.effectTimeout()
 	if step == "start_unit" {
-		budget += time.Duration(x.desired.Health.StartupDeadlineSeconds) * time.Second
+		budget += x.executor.effectTimeout() + time.Duration(x.desired.Health.StartupDeadlineSeconds)*time.Second
 	}
 	if step == "rollback_start" {
-		budget += time.Duration(x.previousDesired.Health.StartupDeadlineSeconds) * time.Second
+		budget += x.executor.effectTimeout() + time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
 	defer cancel()
 	probeCtx, probeCancel := context.WithTimeout(ctx, x.executor.effectTimeout())
-	writer := x.inspectWriter(probeCtx)
+	writer := x.waitWriter(probeCtx)
 	probeCancel()
 	var result resolution
 	switch step {
@@ -58,7 +59,15 @@ func (x *execution) reconcileUnknown(ctx context.Context, step string) resolutio
 			desired, port = x.previousDesired, x.previous.HostPort
 		}
 		if x.executor.Health != nil && x.check(ctx, desired, port, false) == nil {
-			result = applied
+			// Health cannot fence a manager job queued while the probe was in flight.
+			settledCtx, settledCancel := context.WithTimeout(ctx, x.executor.effectTimeout())
+			settled := x.waitWriter(settledCtx)
+			settledCancel()
+			if settled == writerRunning {
+				result = applied
+			} else if settled == writerStopped {
+				result = notApplied
+			}
 		}
 	case "quiesce_old", "rollback_quiesce":
 		if writer == writerStopped {
@@ -140,12 +149,30 @@ func (x *execution) inspectWriter(ctx context.Context) writerState {
 	if err != nil {
 		return writerUnknown
 	}
+	pendingBefore, jobErr := x.executor.Systemd.JobPending(ctx, unit)
 	properties, unitErr := x.executor.Systemd.Show(ctx, unit)
 	container, containerErr := x.executor.Podman.ContainerState(ctx, name)
+	pendingAfter, afterJobErr := x.executor.Systemd.JobPending(ctx, unit)
 	if ctx.Err() != nil {
 		return writerUnknown
 	}
-	unitStopped := isNotFound(unitErr) || (unitErr == nil && (properties.ActiveState == "inactive" || properties.ActiveState == "failed"))
+	if (jobErr == nil && pendingBefore) || (afterJobErr == nil && pendingAfter) {
+		return writerPending
+	}
+	if unitErr == nil {
+		switch properties.ActiveState {
+		case "activating", "deactivating", "reloading", "refreshing":
+			return writerPending
+		}
+		switch properties.SubState {
+		case "start", "start-pre", "start-post", "stop", "stop-sigterm", "stop-sigkill", "stop-post", "auto-restart", "reload":
+			return writerPending
+		}
+	}
+	if jobErr != nil || afterJobErr != nil {
+		return writerUnknown
+	}
+	unitStopped := isNotFound(unitErr) || (unitErr == nil && ((properties.ActiveState == "inactive" && properties.SubState == "dead") || (properties.ActiveState == "failed" && properties.SubState == "failed")))
 	containerStopped := isNotFound(containerErr) || (containerErr == nil && !container.Running && (container.Status == "exited" || container.Status == "stopped" || container.Status == "created"))
 	if unitStopped && containerStopped {
 		return writerStopped
@@ -180,4 +207,22 @@ func observedUnitHash(facts Facts, app, name string) (string, bool) {
 		return "", true
 	}
 	return "", true
+}
+
+// Poll only manager jobs or explicit unit transitions, under the caller's
+// bounded probe deadline. An unreadable queue is not a settled empty queue.
+func (x *execution) waitWriter(ctx context.Context) writerState {
+	for {
+		writer := x.inspectWriter(ctx)
+		if writer != writerPending {
+			return writer
+		}
+		timer := time.NewTimer(25 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return writerUnknown
+		case <-timer.C:
+		}
+	}
 }

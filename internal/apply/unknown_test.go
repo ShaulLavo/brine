@@ -71,6 +71,7 @@ func TestUnknownStartInspectsBeforeAnyFurtherMutation(t *testing.T) {
 			inspected := false
 			startCalls := 0
 			system := r.executor.Systemd.(*systemd.Fake)
+			system.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 			system.StartFunc = func(context.Context, systemd.Unit) error {
 				if err := r.hit(r.intent); err != nil {
 					return err
@@ -91,7 +92,14 @@ func TestUnknownStartInspectsBeforeAnyFurtherMutation(t *testing.T) {
 					t.Fatal("inspection before unknown journal outcome")
 				}
 				inspected = true
-				return systemd.Properties{ActiveState: tc.unit, SubState: tc.container}, nil
+				sub := tc.container
+				if tc.unit == "inactive" {
+					sub = "dead"
+				}
+				if tc.unit == "failed" {
+					sub = "failed"
+				}
+				return systemd.Properties{ActiveState: tc.unit, SubState: sub}, nil
 			}
 			r.executor.Podman.(*podman.Fake).ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
 				if startCalls == 1 {
@@ -205,6 +213,7 @@ func TestPreflightUsesMergedDecisionFactsProjection(t *testing.T) {
 }
 
 func stoppedOrRunningProbes(r *rig) {
+	r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 	r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
 		if r.active {
 			return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
@@ -438,14 +447,15 @@ func TestWriterInspectionRejectsPartialAndTransitionalEvidence(t *testing.T) {
 		{"both absent", "", "", "", false, &localexec.Error{Kind: localexec.NotFound}, &localexec.Error{Kind: localexec.NotFound}, writerStopped},
 		{"unit unreadable", "", "", "exited", false, injected, nil, writerUnknown},
 		{"container unreadable", "inactive", "dead", "", false, nil, injected, writerUnknown},
-		{"activating", "activating", "start", "running", true, nil, nil, writerUnknown},
-		{"deactivating", "deactivating", "stop", "exited", false, nil, nil, writerUnknown},
+		{"activating", "activating", "start", "running", true, nil, nil, writerPending},
+		{"deactivating", "deactivating", "stop", "exited", false, nil, nil, writerPending},
 		{"unknown container status", "inactive", "dead", "", false, nil, nil, writerUnknown},
 		{"paused container", "inactive", "dead", "paused", false, nil, nil, writerUnknown},
 		{"active oneshot", "active", "exited", "running", true, nil, nil, writerUnknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := newRig(t, true)
+			r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
 				return systemd.Properties{ActiveState: tc.active, SubState: tc.sub}, tc.unitErr
 			}
@@ -507,6 +517,7 @@ func TestCapacityAdmissionRemainsStateless(t *testing.T) {
 func TestUnknownStartWithAbsentUnitAndContainerRollsBackFirstRelease(t *testing.T) {
 	r := newRig(t, false)
 	system := r.executor.Systemd.(*systemd.Fake)
+	system.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 	system.StartFunc = func(context.Context, systemd.Unit) error {
 		r.hit("start_unit")
 		return &localexec.Error{Kind: localexec.UnknownOutcome}
@@ -547,6 +558,7 @@ func TestUnknownReloadAndStageCannotBeProvenByWriterHealth(t *testing.T) {
 func TestAbsentUnitCannotHideAWriterAppearingDuringRollback(t *testing.T) {
 	r := newRig(t, false)
 	system := r.executor.Systemd.(*systemd.Fake)
+	system.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 	system.StartFunc = func(context.Context, systemd.Unit) error {
 		r.hit("start_unit")
 		return &localexec.Error{Kind: localexec.UnknownOutcome}
