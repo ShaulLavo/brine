@@ -229,3 +229,24 @@ T07 first stateless release is physically verified. The routed-health failure de
 Docker-specific and restrictive-umask regressions failed before their fixes and passed afterward. The original and resumed code gates passed all 30 Go packages, vet, client build, Linux arm64 cross-build, empty formatting, diff check, and Darwin arm64 vet. The systemd regression likewise failed first. Final verification passed `go test ./...` (30 packages), `go test -race ./...` (30 packages), `go vet ./...`, `go build ./cmd/brine`, the Linux arm64 cross-build, empty `gofmt -l ./cmd ./internal`, `git diff --check`, and `GOOS=darwin GOARCH=arm64 go vet ./...`. The targeted actual-systemd serialization regressions also passed with `-count=1`. Checks used `GOTMPDIR` under the private task scratch and `GOCACHE=/work/cache/go-build`. An initial local rerun hit the host's `/tmp` disk quota; subsequent build scratch was redirected to `/work`, without deleting other sessions' files.
 
 The exit gate remains open in [Phase 03](../plans/03-deploy-and-recovery.md). Operator installation, readiness, and reported undo follow-ups remain in [Phase 06](../plans/06-release-and-ops.md).
+
+## Resumed physical run, 2026-10-10: real v2-to-v3 migration
+
+This run starts from `52977d3`, including imported-route provenance, owned container logs, preflight deadline reporting, and explicit terminal resolution. A new worktree was created from main after preserving the pushed earlier work. The current D3 standing test-host authorization was read from the repository. Application operations continue exclusively through the restricted client; operator access is used only for installation, read-only observation, backups and authorized fault injection. No tailnet, firewall or operator SSH configuration changed.
+
+The current client and Linux arm64 executable were built from that commit. The previous host binary and a consistent read-only-source SQLite backup were preserved in a root-private drill backup directory. Installation used the same authorized binary-only replacement described earlier, not a supported upgrade command. The protected enrollment record was not rewritten and still has the stale enrolled binary hash; supported journal-aware updates remain P06-03 work.
+
+Before replacement, read-only SQL observation of the actual control database reported schema 2. After installing the new executable, restricted operation status opened it and performed the production migration to schema 3. This was existing host history, not a synthesized migration fixture. The stuck removal receipt survived unchanged:
+
+```text
+operation 01a121b1e29e45390eb6945d6b142cabb2c2d61c6584
+kind deploy; app fixture; state recovery_required
+created 2026-10-09T17:24:28.446946677Z
+updated 2026-10-09T17:24:33.295523865Z
+events 13
+before/after event-row SHA256 10a4342d6d17d74e4ac936dd81d93b5119e5e16238b205a24c53496aa9e66335
+```
+
+The event fingerprint hashes the ordered exact `seq`, `kind`, `state`, hex-encoded stored payload bytes and `created_at` rows. Original operation identity, plan association, state and timestamps matched before/after. `PRAGMA integrity_check` returned `ok` and `PRAGMA foreign_key_check` returned zero rows on both versions. No source events, runtime artifacts or release heads were manually edited. This proves real v2-to-v3 preservation; it does not retroactively claim physical v1-to-v2 evidence.
+
+Local baseline gates passed all 30 Go packages, vet, client and Linux arm64 builds, empty formatting, diff check, and Darwin arm64 vet. No concurrency code changed in this resumed run. A local Quadlet test package took 329 seconds but completed successfully; no local gate failed or was bypassed.
