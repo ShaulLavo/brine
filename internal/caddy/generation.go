@@ -668,3 +668,118 @@ func (m *Manager) prune(previous, current uint64) error {
 	}
 	return m.syncDir(".")
 }
+
+// Restore validates a retained generation and points current back to it. Both
+// current and retained bytes must still match journaled hashes. A failed or
+// interrupted publication stops this handle; only reconciliation may continue.
+func (m *Manager) Restore(ctx context.Context, main []byte, installed, previous State) (err error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if installed.Files == nil || previous.Files == nil {
+		return errors.New("caddy: recorded restore generations required")
+	}
+	if m.stopped {
+		return errors.New("caddy: manager closed or requires reconciliation")
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	observed, _, err := m.observe()
+	if err != nil {
+		return err
+	}
+	if compareState(observed, previous) != nil {
+		if err = compareState(observed, installed); err != nil {
+			return err
+		}
+	}
+	files, err := m.readGeneration(gen(previous.Generation))
+	if err != nil {
+		return err
+	}
+	if !maps.Equal(hashFiles(files), previous.Files) {
+		return errors.New("caddy: retained generation drift")
+	}
+	sites, err := boundSites(previous, files)
+	if err != nil {
+		return err
+	}
+	candidate, err := candidateRoot(main, m.path, gen(previous.Generation))
+	if err != nil {
+		return err
+	}
+	name := "candidate-" + gen(previous.Generation) + ".caddy"
+	if err = m.restoreCandidate(name, candidate); err != nil {
+		return err
+	}
+	if err = m.syncDir("."); err != nil {
+		return err
+	}
+	validateCtx, cancel := context.WithTimeout(ctx, commandTimeout)
+	err = m.validator.Validate(validateCtx, filepath.Join(m.path, name))
+	if validateCtx.Err() != nil {
+		err = errors.Join(err, validateCtx.Err())
+	}
+	cancel()
+	if err != nil {
+		return err
+	}
+	adaptCtx, adaptCancel := context.WithTimeout(ctx, commandTimeout)
+	adapted, err := m.validator.Adapt(adaptCtx, filepath.Join(m.path, name))
+	if adaptCtx.Err() != nil {
+		err = errors.Join(err, adaptCtx.Err())
+	}
+	adaptCancel()
+	if err != nil {
+		return err
+	}
+	if err = checkAdapted(adapted, sites, installed.Sites); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	// After pointer promotion an error leaves the served generation uncertain.
+	defer func() {
+		if err != nil {
+			m.stopped = true
+		}
+	}()
+	result := Result{Current: observed.Generation}
+	if observed.Generation != previous.Generation {
+		if err = m.point(gen(previous.Generation), ".restore-"+gen(installed.Generation), &result, "restore-"); err != nil {
+			return err
+		}
+	}
+	if err = m.reload(ctx); unknown(err) {
+		return &UnknownOutcomeError{Stage: "restore-reload", Cause: err}
+	}
+	return err
+}
+
+func (m *Manager) restoreCandidate(name string, candidate []byte) error {
+	err := m.write(name, candidate)
+	if !errors.Is(err, os.ErrExist) {
+		return err
+	}
+	info, err := m.root.Lstat(name)
+	if err != nil {
+		return err
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxFileBytes {
+		return errors.New("caddy: unsafe restore candidate")
+	}
+	f, err := m.root.Open(name)
+	if err != nil {
+		return err
+	}
+	data, err := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
+	closeErr := f.Close()
+	if err != nil || closeErr != nil {
+		return errors.Join(err, closeErr)
+	}
+	if !bytes.Equal(data, candidate) {
+		return errors.New("caddy: restore candidate drift")
+	}
+	return nil
+}

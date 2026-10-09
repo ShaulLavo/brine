@@ -17,6 +17,12 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// MaxStartupDeadlineSeconds is the shared validation and orchestration bound.
+const MaxStartupDeadlineSeconds = 3600
+
+// MaxHealthTimeoutSeconds bounds one HTTP request within startup health.
+const MaxHealthTimeoutSeconds = 300
+
 type Name string
 type Domain string
 type ImageReference string
@@ -253,8 +259,8 @@ func validate(raw rawApp) (App, error) {
 			dest     *int
 		}{
 			{h.ExpectedStatus, "expected_status", 100, 599, &app.Health.ExpectedStatus},
-			{h.StartupDeadlineSeconds, "startup_deadline_seconds", 1, 3600, &app.Health.StartupDeadlineSeconds},
-			{h.TimeoutSeconds, "timeout_seconds", 1, 300, &app.Health.TimeoutSeconds},
+			{h.StartupDeadlineSeconds, "startup_deadline_seconds", 1, MaxStartupDeadlineSeconds, &app.Health.StartupDeadlineSeconds},
+			{h.TimeoutSeconds, "timeout_seconds", 1, MaxHealthTimeoutSeconds, &app.Health.TimeoutSeconds},
 		}
 		for _, f := range fields {
 			if f.value == nil {

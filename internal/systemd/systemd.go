@@ -35,6 +35,7 @@ type Adapter interface {
 	Restart(context.Context, Unit) error
 	IsActive(context.Context, Unit) (bool, error)
 	Show(context.Context, Unit) (Properties, error)
+	JobPending(context.Context, Unit) (bool, error)
 	ReloadCaddy(context.Context) error
 }
 type Client struct{ session localexec.Session }
@@ -103,6 +104,24 @@ func (c *Client) Show(ctx context.Context, u Unit) (Properties, error) {
 	}
 	return parseProperties(r.Stdout)
 }
+
+// JobPending observes the manager job attached to this exact unit. Zero means
+// no queued/running job; failed, absent or malformed reads never imply zero.
+func (c *Client) JobPending(ctx context.Context, u Unit) (bool, error) {
+	if u.value == "" {
+		return false, &localexec.Error{Kind: localexec.Invalid}
+	}
+	r, err := c.run(ctx, []string{"--user", "show", u.value, "--property=Job", "--value"}, false)
+	if err != nil {
+		return false, err
+	}
+	id, err := strconv.ParseUint(strings.TrimSpace(r.Stdout), 10, 32)
+	if err != nil {
+		return false, &localexec.Error{Kind: localexec.Failed}
+	}
+	return id != 0, nil
+}
+
 func parseProperties(output string) (Properties, error) {
 	bad := func() (Properties, error) { return Properties{}, &localexec.Error{Kind: localexec.Failed} }
 	fields := map[string]string{}
