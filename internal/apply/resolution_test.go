@@ -292,3 +292,53 @@ func TestResolveHealthBoundaryRefusesUnsettledManagerJob(t *testing.T) {
 		})
 	}
 }
+
+func TestResolutionAdvancedPhaseNeverOvershootsDestination(t *testing.T) {
+	path := []State{Preflight, Preparing, Quiescing, Starting, Checking, Committing}
+	for i, state := range path {
+		t.Run(string(state), func(t *testing.T) {
+			r := newRig(t, false)
+			r.state = state
+			destination := state
+			if i > 0 {
+				destination = path[i-1]
+			}
+			x := execution{executor: &r.executor, id: "operation", state: state}
+			err := x.prepareResolution(context.Background(), destination)
+			if err != nil || x.state != state || r.state != state || len(r.states) != 0 {
+				t.Fatalf("err=%v durable=%s execution=%s transitions=%v", err, r.state, x.state, r.states)
+			}
+		})
+	}
+}
+
+func TestResolutionRemovalTransitionBeforeIntentConverges(t *testing.T) {
+	for i, next := range []State{Preparing, Quiescing, Starting, Checking, Committing} {
+		t.Run(string(next), func(t *testing.T) {
+			r := newRemoveRig(t)
+			for _, step := range removeSteps[1 : i+1] {
+				applyRemoveBoundary(t, r, step)
+			}
+			events := recoveryEvents(removeSteps[:i+1]...)
+			events[len(events)-1].Payload, _ = json.Marshal(ops.StepPayload{Step: removeSteps[i], Outcome: "completed"})
+			r.state = next
+			r.effects = nil
+			source := Operation{ID: "earlier", Kind: ops.Deploy, PlanID: r.plan.Hash, State: RecoveryRequired}
+			successor := Operation{ID: "operation", Kind: ops.Resolve, RecoveryOf: source.ID, PlanID: r.plan.Hash, State: next}
+			assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, events)
+			if err != nil || assessment.Action != ResumeForward {
+				t.Fatalf("action=%s err=%v", assessment.Action, err)
+			}
+			if err = r.executor.Recover(context.Background(), assessment); err != nil || r.state != Succeeded {
+				t.Fatalf("err=%v state=%s effects=%v", err, r.state, r.effects)
+			}
+			for _, effect := range r.effects {
+				for _, completed := range removeSteps[:i+1] {
+					if effect == completed {
+						t.Fatalf("replayed %s", effect)
+					}
+				}
+			}
+		})
+	}
+}

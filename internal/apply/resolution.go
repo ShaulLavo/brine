@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -56,10 +57,19 @@ func (x *execution) prepareResolution(ctx context.Context, destination State) er
 		return nil
 	}
 	path := []State{Preflight, Preparing, Quiescing, Starting, Checking, Committing}
+	destinationIndex := slices.Index(path, destination)
+	if destinationIndex < 0 {
+		return errors.New("apply: invalid resolution phase")
+	}
+	// The durable transition can precede its step intent. Preserve a phase
+	// already reached; never walk past the phase justified by the step prefix.
+	if slices.Index(path, x.state) >= destinationIndex {
+		return nil
+	}
 	if x.state == LaunchUnknown {
 		x.state = Queued
 	}
-	for _, state := range path {
+	for _, state := range path[:destinationIndex+1] {
 		if x.state == destination {
 			return nil
 		}

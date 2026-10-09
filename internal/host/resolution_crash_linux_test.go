@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"reflect"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ import (
 )
 
 func TestResolutionRunOpSIGKILLConvergesRemainingRemovalSteps(t *testing.T) {
-	for _, step := range []string{"remove_unit", "reload_units", "retire_app"} {
+	for _, step := range []string{"remove_unit", "reload_units", "retire_app", "phase:preflight", "phase:preparing", "phase:quiescing", "phase:starting", "phase:checking", "phase:committing"} {
 		t.Run(step, func(t *testing.T) {
 			dir := t.TempDir()
 			h := newRemovalHost(t, dir, true)
@@ -33,6 +34,11 @@ func TestResolutionRunOpSIGKILLConvergesRemainingRemovalSteps(t *testing.T) {
 			defer cancel()
 			child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRemoveRunOpCrashChild$")
 			child.Env = append(os.Environ(), "BRINE_REMOVE_CRASH_CHILD=1", "BRINE_REMOVE_CRASH_STATE="+dir, "BRINE_REMOVE_CRASH_OP="+accepted.OperationID, "BRINE_REMOVE_CRASH_STEP="+step)
+			phase := strings.TrimPrefix(step, "phase:")
+			phaseCrash := phase != step
+			if phaseCrash {
+				child.Env = append(child.Env, "BRINE_RESOLUTION_CRASH_PHASE="+phase)
+			}
 			child.ExtraFiles = []*os.File{write}
 			if err = child.Start(); err != nil {
 				write.Close()
@@ -83,9 +89,32 @@ func TestResolutionRunOpSIGKILLConvergesRemainingRemovalSteps(t *testing.T) {
 			if err != nil || op.State.IsTerminal() {
 				t.Fatal(op, err)
 			}
+			if phaseCrash && op.State != ops.State(phase) {
+				t.Fatalf("durable phase %s want %s", op.State, phase)
+			}
 			events, err := h.store.EventsAfter(ctx, accepted.OperationID, 0, 128)
 			if err != nil {
 				t.Fatal(err)
+			}
+			if phaseCrash {
+				want := "stop_unit"
+				if phase == "checking" {
+					want = "remove_unit"
+				}
+				if phase == "committing" {
+					want = "reload_units"
+				}
+				last := ops.StepPayload{}
+				for _, event := range events {
+					if event.Kind == "step" {
+						if e := json.Unmarshal(event.Payload, &last); e != nil {
+							t.Fatal(e)
+						}
+					}
+				}
+				if last.Step != want || last.Outcome == "intent" {
+					t.Fatalf("phase write did not precede next step intent: %+v", last)
+				}
 			}
 			disk, err := h.read()
 			if err != nil {
@@ -131,7 +160,7 @@ func TestResolutionRunOpSIGKILLConvergesRemainingRemovalSteps(t *testing.T) {
 					unknown = true
 				}
 			}
-			if !unknown {
+			if !phaseCrash && !unknown {
 				t.Fatal("interrupted effect was not journaled unknown")
 			}
 		})

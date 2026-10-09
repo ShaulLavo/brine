@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
@@ -24,6 +25,11 @@ func TestRemoveRunOpCrashChild(t *testing.T) {
 		return
 	}
 	h := newRemovalHost(t, os.Getenv("BRINE_REMOVE_CRASH_STATE"), false)
+	if phase := os.Getenv("BRINE_RESOLUTION_CRASH_PHASE"); phase != "" {
+		engine := h.runner.Executor.(Executor).Engine
+		engine.Journal = phaseCrashJournal{Journal: engine.Journal, phase: ops.State(phase)}
+		h.runner.Reconciler = runnerReconciler{newReconciler(h.service, engine, engine.Systemd)}
+	}
 	h.boundary = func(step string) {
 		if step != os.Getenv("BRINE_REMOVE_CRASH_STEP") {
 			return
@@ -157,4 +163,23 @@ func TestRemoveRunOpSIGKILLConvergesEveryEffectBoundary(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Stop exactly after the durable phase write, before step intent can be appended.
+type phaseCrashJournal struct {
+	apply.Journal
+	phase ops.State
+}
+
+func (j phaseCrashJournal) SetOperationState(ctx context.Context, id string, state ops.State) error {
+	if err := j.Journal.SetOperationState(ctx, id, state); err != nil {
+		return err
+	}
+	if state == j.phase {
+		pipe := os.NewFile(3, "ready")
+		fmt.Fprintln(pipe, "ready")
+		pipe.Close()
+		select {}
+	}
+	return nil
 }
