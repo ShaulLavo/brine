@@ -236,3 +236,21 @@ and must not reuse the fixture-only routing projection. No amd64 deployment,
 fresh-package activation, all-users-logged-out recovery, power-loss durability,
 production apply, database rollback, Litestream/R2 restore or public TLS was
 verified. Database and application rollback remain separate operations.
+
+Review follow-up: exposed versus published ports (2026-10-09)
+-----------------------------------------------------------
+Podman 5.4 inspect includes image EXPOSE entries with null/empty bindings in
+NetworkSettings.Ports. Failing-first regressions reproduced a valid published
+loopback port being marked unknown when either unbound shape was also present.
+The collector now ignores only entries without host bindings and inspects all
+published entries before accepting exactly one loopback TCP binding. Tests
+retain multiple-published-port refusal and additionally cover multiple bindings
+on one port, only-unbound exposure, UDP/invalid protocols and invalid port
+numbers. Wrong-service, stopped-container and off-loopback refusals still pass.
+
+These are representative inspect-output-shape regressions, not a new hardware
+capture. No Pi access or harness changes occurred; the previously cleaned,
+enrolled host was left untouched. origin/main was merged (already up to date,
+no rebase). The targeted regression changed from two failing cases to passing.
+Full test/vet/build/race, tagged integration test/vet, formatting and diff checks
+passed locally; tagged hardware stages skipped without opt-in, as intended.

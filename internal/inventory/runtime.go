@@ -42,10 +42,19 @@ func (c Collector) livePort(ctx context.Context, units []target.Unit) target.Obs
 			HostPort string `json:"HostPort"`
 		} `json:"ports"`
 	}
-	if json.Unmarshal([]byte(out), &runtime) != nil || !runtime.Running || runtime.Name != "systemd-"+container || runtime.Unit != container+".service" || len(runtime.Ports) != 1 {
+	if json.Unmarshal([]byte(out), &runtime) != nil || !runtime.Running || runtime.Name != "systemd-"+container || runtime.Unit != container+".service" {
 		return unknownPort
 	}
+	var publishedPort target.Port
 	for protocol, bindings := range runtime.Ports {
+		// Image EXPOSE entries may have null/empty bindings; they do not allocate
+		// a host port. Inspect every published entry before accepting one.
+		if len(bindings) == 0 {
+			continue
+		}
+		if publishedPort != 0 {
+			return unknownPort
+		}
 		portText, ok := strings.CutSuffix(protocol, "/tcp")
 		inside, e := strconv.ParseUint(portText, 10, 16)
 		if !ok || e != nil || inside < 1024 || len(bindings) != 1 || bindings[0].HostIP != "127.0.0.1" {
@@ -55,7 +64,10 @@ func (c Collector) livePort(ctx context.Context, units []target.Unit) target.Obs
 		if e != nil || port < 1024 {
 			return unknownPort
 		}
-		return target.Known(target.Port(port))
+		publishedPort = target.Port(port)
 	}
-	return unknownPort
+	if publishedPort == 0 {
+		return unknownPort
+	}
+	return target.Known(publishedPort)
 }

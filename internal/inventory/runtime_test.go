@@ -17,6 +17,16 @@ func TestRenderedUnitDiscoveryAndLivePort(t *testing.T) {
 		known        bool
 	}{
 		{"running", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, true},
+		// Podman 5.4 inspect includes image-exposed ports even without publication:
+		// null/empty arrays are not HostIp/HostPort bindings.
+		{"published with null exposed port", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}],"9090/tcp":null}}`, true},
+		{"published with empty exposed port", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}],"9090/tcp":[]}}`, true},
+		{"only unbound exposed ports", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":null,"9090/tcp":[]}}`, false},
+		{"multiple bindings on one port", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"},{"HostIp":"127.0.0.1","HostPort":"20081"}]}}`, false},
+		{"published UDP", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/udp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, false},
+		{"invalid published protocol", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/invalid":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, false},
+		{"invalid published container port", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"invalid/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, false},
+		{"invalid published host port", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"invalid"}]}}`, false},
 		{"stopped", `{"name":"systemd-api","running":false,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, false},
 		{"wrong unit", `{"name":"systemd-api","running":true,"unit":"other.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, false},
 		{"off loopback", `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"0.0.0.0","HostPort":"20080"}]}}`, false},
