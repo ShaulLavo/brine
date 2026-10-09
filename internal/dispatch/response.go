@@ -1,0 +1,93 @@
+package dispatch
+
+import (
+	"bytes"
+
+	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/strictjson"
+	"github.com/ShaulLavo/brine/internal/target"
+)
+
+func DecodeResponse(data []byte, op string) (result.Envelope, error) {
+	invalid := func() (result.Envelope, error) {
+		return result.Envelope{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	if len(data) > ResponseLimit {
+		return invalid()
+	}
+	fields, err := strictjson.Object(data, "schema_version", "command", "ok", "data", "error")
+	if err != nil {
+		return invalid()
+	}
+	version, err := strictjson.Value[int](fields["schema_version"])
+	if err != nil || version != result.SchemaVersion {
+		return invalid()
+	}
+	command, err := strictjson.Value[string](fields["command"])
+	if err != nil {
+		return invalid()
+	}
+	ok, err := strictjson.Value[bool](fields["ok"])
+	if err != nil {
+		return invalid()
+	}
+	if _, known := ClassOf(op); !known {
+		return invalid()
+	}
+	if command != "brine host "+op && (ok || command != "brine host serve") {
+		return invalid()
+	}
+	if ok {
+		if !bytes.Equal(bytes.TrimSpace(fields["error"]), []byte("null")) {
+			return invalid()
+		}
+		var value any
+		switch op {
+		case "ping":
+			ping, err := strictjson.Object(fields["data"], "server_version", "protocol_versions")
+			if err != nil {
+				return invalid()
+			}
+			serverVersion, err := strictjson.Value[string](ping["server_version"])
+			if err != nil || serverVersion == "" {
+				return invalid()
+			}
+			versions, err := strictjson.Value[[]int](ping["protocol_versions"])
+			if err != nil || len(versions) != 1 || versions[0] != SchemaVersion {
+				return invalid()
+			}
+			value = PingData{serverVersion, versions}
+		case "inventory":
+			snapshot, err := target.Decode(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = snapshot
+		}
+		return result.Success(command, value), nil
+	}
+	if !bytes.Equal(bytes.TrimSpace(fields["data"]), []byte("null")) {
+		return invalid()
+	}
+	machine, err := strictjson.Object(fields["error"], "code", "message", "retryable")
+	if err != nil {
+		return invalid()
+	}
+	code, err := strictjson.Value[result.Code](machine["code"])
+	if err != nil || !result.KnownCode(code) {
+		return invalid()
+	}
+	message, err := strictjson.Value[string](machine["message"])
+	if err != nil {
+		return invalid()
+	}
+	retryable, err := strictjson.Value[bool](machine["retryable"])
+	if err != nil {
+		return invalid()
+	}
+	response := result.Failure(command, result.New(code, nil))
+	if message != response.Error.Message || retryable != response.Error.Retryable {
+		return invalid()
+	}
+	return response, nil
+}

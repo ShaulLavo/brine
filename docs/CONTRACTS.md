@@ -120,6 +120,13 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `tui_terminal_required` | 2 | false | tui requires terminal input and output. |
 | `offline_required` | 2 | false | Connected planning is not available; use --offline with --snapshot and --policy. |
 | `input_required` | 2 | false | Interactive input is required; supply explicit arguments or use an interactive terminal. |
+| `dispatch_invalid_request` | 2 | false | The dispatcher request is invalid. |
+| `dispatch_unsupported_schema` | 3 | false | The dispatcher protocol version is incompatible. |
+| `dispatch_operation_refused` | 4 | false | The dispatcher operation is not allowed. |
+| `dispatch_root_refused` | 4 | false | The host dispatcher cannot run as root. |
+| `transport_invalid_target` | 2 | false | The SSH target configuration is invalid. |
+| `transport_failure` | 1 | false | The SSH transport failed; reconcile before retrying any mutation. |
+| `transport_invalid_response` | 1 | false | The SSH dispatcher response is invalid. |
 
 | Exit | Category |
 | --- | --- |
@@ -133,6 +140,32 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | 130 | Interrupted client, including context cancellation and SIGINT. |
 
 The domain error model lives in `internal/result` and has no Cobra or Charm dependency. Error causes remain available for internal inspection but are never rendered. Wrapped context cancellation takes priority over other categories. `internal/cli.Execute` owns the complete invocation response, including Cobra failures. `NewRootCommand` constructs a command tree for embedded use but does not own final error presentation. `main` maps the returned error to the exit status.
+
+## Restricted dispatcher and client transport (first half of P02-02)
+
+`brine host serve` is hidden and always speaks JSON, independent of presentation flags. Its canonical invocation ignores every argument after `serve`. It refuses effective UID 0 before reading stdin. It clears the process environment and records only the byte length of `SSH_ORIGINAL_COMMAND` on stderr. That variable never selects an operation or contributes response text. A pipe read deadline limits incomplete requests to five seconds. Processing has a fifteen-second context deadline; inventory implementations must honor cancellation. Enrollment must still enforce D7. Clearing the environment inside a binary cannot undo code run by a login shell or dynamic loader before it starts.
+
+The dispatcher reads stdin through EOF, with a **64 KiB** bound including whitespace. It accepts exactly one UTF-8 JSON object with these required, exact-case fields:
+
+~~~json
+{"schema_version":1,"op":"ping","request_id":"example-1","args":{}}
+~~~
+
+Duplicate or unknown fields, case aliases, null fields, wrong types, missing fields, trailing data and a second request are refused before dispatch. `request_id` is caller-supplied correlation input, limited to 1-128 ASCII letters, digits, hyphens and underscores. It does not grant authority or provide idempotency. The result envelope is unchanged and does not echo this ID. Each SSH call carries one request and its one response.
+
+The immutable operation registry declares `ping` and `inventory` as `read_only`, with separate typed empty argument decoders. Both require `args: {}`. `ping` returns `data: {"server_version":"<binary version>","protocol_versions":[1]}`. `inventory` calls `dispatch.Inventory.Collect(context.Context) (target.Snapshot, error)` and returns the validated snapshot. Without that provider it returns `dependency_missing`; live collection is a separate task. No mutating operation is enabled. A future mutating entry remains refused until operator policy and durable operation state are implemented.
+
+Responses use the existing `result.Envelope`, with `command` equal to `brine host ping` or `brine host inventory`. Pre-dispatch refusals use `brine host serve`. They have a **1 MiB** bound including the terminal newline. These two operations are not streams. Future streaming operations must declare and test JSONL explicitly; callers cannot request a stream through argv. Wrong request schemas exit 3, unknown operations exit 4, malformed or oversized input exits 2, and root invocation exits 4. Other failures use the existing categories above.
+
+`transport.LoadTarget` reads a client-side file with a **16 KiB** bound. Its required fields are `name`, `destination`, `identity_path` and `pinned_host_key`; decoding rejects unknown fields, aliases, duplicates, nulls and trailing data. Names are lowercase ASCII labels. Destinations are explicit `user@host` values with an ASCII username and DNS-style host labels, without a port, URI scheme or SSH options. The root username is refused. Numeric dotted host labels are accepted. Identity paths are clean absolute Unix paths containing only ASCII letters, digits, underscores, dots, slashes and hyphens. The initial pin format is one `ssh-ed25519 <base64>` public key without a comment, with its SSH binary structure validated. IPv6 literals, custom SSH ports, other host-key algorithms and paths containing whitespace or SSH expansion tokens are not accepted in this initial transport.
+
+The caller supplies an existing or newly created private `KnownHostsDir` outside the repository. Each target has a mode-0600 `<name>.known_hosts` file in a mode-0700 directory. The pin uses the fixed host-key alias `brine-pin`. Existing pins must match byte-for-byte; they are never replaced automatically. Final-component symlinks and unsafe file modes are refused. Local configuration, its parent directories and identity files are trusted operator-owned input, not a sandbox against another process running as the same client user.
+
+The client selects the system `ssh` on its trusted PATH, then uses `localexec` with separate arguments, request bytes on stdin, an empty child environment and separately bounded stdout/stderr. It disables PTYs, prompts, forwarding, agent identities, DNS host-key trust and key updates; it requires strict host-key checking, the per-target pin and an explicit identity file. OpenSSH configuration is disabled with `-F /dev/null`, and global known-hosts trust, `ProxyCommand` and `ProxyJump` are disabled. This deliberately narrows D1's general SSH-config compatibility at the authorization boundary. Config-file hooks, proxy commands and implicit identities cannot be safely preserved without a separate reviewed allowlist. Tailscale DNS addressing still works through an explicit destination.
+
+Connection establishment is limited to five seconds, keepalive failure to one five-second interval, and the complete call to fifteen seconds or the caller's earlier deadline. Stdout and stderr each have a **1 MiB** bound; any overflow fails the call, even when a valid response prefix exists. Raw diagnostics are not presented. Responses are decoded strictly at every declared nesting level, including inventory snapshots, and the error code, fixed message, retryability and SSH exit category must agree. Exit 255 is transport failure. Calls never retry automatically. A timeout or lost connection is not proof of a remote mutation's outcome.
+
+Enrollment, key installation, protected ownership and live restricted-key/PAM/startup-file verification remain pending. This protocol and fake-SSH evidence do not establish the full P06-01 boundary on a real host.
 
 ## App definition
 
