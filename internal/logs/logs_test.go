@@ -3,6 +3,7 @@ package logs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"reflect"
 	"strings"
@@ -288,5 +289,58 @@ func TestTruncatedCaptureMarker(t *testing.T) {
 	lines, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1})
 	if lines != nil || err == nil || result.Classify(err).Code() != result.LogsTruncated {
 		t.Fatalf("missing explicit truncated refusal: %v", err)
+	}
+}
+
+func TestJournalFailureIdentifiesCollectionStep(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		err  error
+		code result.Code
+	}{
+		{"exit", &localexec.Error{Kind: localexec.Failed, ExitCode: 1}, "logs_journal_failed"},
+		{"missing", &localexec.Error{Kind: localexec.NotFound, ExitCode: -1}, "logs_journal_unavailable"},
+		{"timeout", &localexec.Error{Kind: localexec.Timeout}, "logs_journal_timeout"},
+		{"deadline", context.DeadlineExceeded, "logs_journal_timeout"},
+		{"unexpected", errors.New("password=planted-secret"), "logs_journal_failed"},
+		{"canceled", context.Canceled, result.Interrupted},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			e := &executor{output: localexec.Result{Stdout: journal + "API_KEY=planted-secret", Stderr: "Bearer planted-secret", ExitCode: 1}, err: tt.err}
+			lines, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
+			if lines != nil || err == nil || result.Classify(err).Code() != tt.code || !errors.Is(err, tt.err) {
+				t.Fatalf("lines=%v error=%v want code=%s", lines, err, tt.code)
+			}
+			raw, marshalErr := json.Marshal(result.Failure("brine logs", err))
+			if marshalErr != nil || strings.Contains(string(raw), "planted-secret") {
+				t.Fatal("failure exposed subprocess output or cause")
+			}
+		})
+	}
+}
+
+type failedInventory struct{ err error }
+
+func (i failedInventory) Collect(context.Context) (target.Snapshot, error) {
+	return target.Snapshot{}, i.err
+}
+
+func TestInventoryFailureIdentifiesCollectionStep(t *testing.T) {
+	for _, tt := range []struct {
+		err  error
+		code result.Code
+	}{
+		{errors.New("password=planted-secret"), "logs_inventory_failed"},
+		{context.DeadlineExceeded, "logs_inventory_timeout"},
+		{context.Canceled, result.Interrupted},
+	} {
+		e := &executor{}
+		lines, err := (Reader{Inventory: failedInventory{tt.err}, Executor: e}).Read(context.Background(), Request{App: "api", Tail: 5})
+		if lines != nil || err == nil || result.Classify(err).Code() != tt.code || !errors.Is(err, tt.err) || len(e.commands) != 0 {
+			t.Fatalf("lines=%v error=%v calls=%d", lines, err, len(e.commands))
+		}
+		if strings.Contains(err.Error(), "planted-secret") {
+			t.Fatal("inventory cause leaked")
+		}
 	}
 }

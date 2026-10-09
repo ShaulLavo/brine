@@ -31,6 +31,11 @@ const (
 	LogsTruncated             Code = "logs_truncated"
 	LogsLimitExceeded         Code = "logs_limit_exceeded"
 	LogsInvalidJournal        Code = "logs_invalid_journal"
+	LogsInventoryFailed       Code = "logs_inventory_failed"
+	LogsInventoryTimeout      Code = "logs_inventory_timeout"
+	LogsJournalFailed         Code = "logs_journal_failed"
+	LogsJournalTimeout        Code = "logs_journal_timeout"
+	LogsJournalUnavailable    Code = "logs_journal_unavailable"
 	InternalError             Code = "internal_error"
 	InvalidUsage              Code = "invalid_usage"
 	DependencyMissing         Code = "dependency_missing"
@@ -66,6 +71,11 @@ var descriptions = map[Code]description{
 	LogsOwnershipRefused:      {Policy, "Logs are readable only for an observed Brine-owned app unit.", false},
 	LogsLimitExceeded:         {Operational, "The log response exceeds its bounded tail or byte limit; request a smaller tail.", false},
 	LogsInvalidJournal:        {Operational, "The journal response is malformed.", false},
+	LogsInventoryFailed:       {Operational, "Log collection failed while checking app ownership in host inventory.", false},
+	LogsInventoryTimeout:      {Operational, "Log collection timed out while checking app ownership in host inventory.", false},
+	LogsJournalFailed:         {Operational, "Log collection failed while running journalctl as the enrolled runner; inspect its journal access and command exit.", false},
+	LogsJournalTimeout:        {Operational, "Log collection timed out while running journalctl as the enrolled runner.", false},
+	LogsJournalUnavailable:    {Dependency, "Log collection requires journalctl on the enrolled host.", false},
 	DispatchInvalidRequest:    {Validation, "The dispatcher request is invalid.", false},
 	DispatchUnsupportedSchema: {Dependency, "The dispatcher protocol version is incompatible.", false},
 	DispatchOperationRefused:  {Policy, "The dispatcher operation is not allowed.", false},

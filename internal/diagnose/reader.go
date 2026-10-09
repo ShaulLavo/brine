@@ -84,12 +84,12 @@ func bounded[T any](ctx context.Context, timeout time.Duration, fn func(context.
 	}
 }
 func reason(err error) string {
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
-		return "probe_timeout"
-	}
 	var safe *result.Error
 	if errors.As(err, &safe) {
 		return string(safe.Code())
+	}
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return "probe_timeout"
 	}
 	return "probe_failed"
 }

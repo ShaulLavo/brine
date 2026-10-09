@@ -20,6 +20,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -448,5 +449,41 @@ func TestDriftSharesAppScopedDomainEvidence(t *testing.T) {
 				t.Fatalf("must not guess this app's domains: %+v", got)
 			}
 		})
+	}
+}
+
+type failedJournal struct{ err error }
+
+func (f failedJournal) Execute(context.Context, localexec.Command) (localexec.Result, error) {
+	return localexec.Result{Stdout: "API_KEY=planted-secret", Stderr: "Bearer planted-secret", ExitCode: 1}, f.err
+}
+
+func TestLogCollectionFailureReasonSurvivesReport(t *testing.T) {
+	for _, tt := range []struct {
+		err  error
+		code result.Code
+	}{
+		{&localexec.Error{Kind: localexec.Failed, ExitCode: 1}, "logs_journal_failed"},
+		{&localexec.Error{Kind: localexec.Timeout}, "logs_journal_timeout"},
+		{context.DeadlineExceeded, "logs_journal_timeout"},
+		{&localexec.Error{Kind: localexec.NotFound}, "logs_journal_unavailable"},
+	} {
+		reader := fixtureReader()
+		reader.Logs = logs.Reader{Inventory: fakeInventory{snapshot: fixtureSnapshot()}, Executor: failedJournal{tt.err}}
+		report, err := reader.Read(context.Background(), Request{App: "demo"})
+		if err != nil || len(report.Apps) != 1 {
+			t.Fatalf("report=%+v error=%v", report, err)
+		}
+		if got := report.Apps[0].Logs; got.Status != "unknown" || got.Value != nil || got.Reason != string(tt.code) {
+			t.Fatalf("logs=%+v want reason=%s", got, tt.code)
+		}
+		raw, err := json.Marshal(report)
+		if err != nil || strings.Contains(string(raw), "planted-secret") {
+			t.Fatal("report leaked failed command output")
+		}
+		decoded, err := DecodeReport(raw)
+		if err != nil || !reflect.DeepEqual(report, decoded) {
+			t.Fatalf("round trip: %v", err)
+		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -132,6 +133,33 @@ func TestEscapedSecretsNeverReachClientOutput(t *testing.T) {
 		}
 		if strings.Contains(out.String(), "short-secret-suffix") || strings.Contains(out.String(), "prefix") {
 			t.Fatalf("%s leaked escaped secret", mode)
+		}
+	}
+}
+
+func TestLogsCollectionFailurePresentation(t *testing.T) {
+	for _, code := range []result.Code{result.LogsInventoryFailed, result.LogsInventoryTimeout, result.LogsJournalFailed, result.LogsJournalTimeout, result.LogsJournalUnavailable} {
+		for _, mode := range []string{"human", "--json", "--jsonl"} {
+			var out, diag bytes.Buffer
+			client := &logsCaller{err: result.New(code, errors.New("password=planted-secret"))}
+			args := []string{"logs", "api", "--target", "fixture", "--config-dir", targetConfig(t)}
+			if mode != "human" {
+				args = append(args, mode)
+			}
+			err := Execute(Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &diag, LogsClient: client}, args)
+			if err == nil || result.Classify(err).Code() != code || strings.Contains(out.String()+diag.String(), "planted-secret") {
+				t.Fatalf("mode=%s code=%s error=%v output=%q stderr=%q", mode, code, err, out.String(), diag.String())
+			}
+			if mode == "human" {
+				if !strings.Contains(diag.String(), client.err.Error()) {
+					t.Fatalf("human error lost collection step: %q", diag.String())
+				}
+				continue
+			}
+			var envelope result.Envelope
+			if strings.Count(out.String(), "\n") != 1 || json.Unmarshal(out.Bytes(), &envelope) != nil || envelope.Error == nil || envelope.Error.Code != code || envelope.Data != nil {
+				t.Fatalf("mode=%s output=%q", mode, out.String())
+			}
 		}
 	}
 }
