@@ -3,6 +3,8 @@ package enroll
 import (
 	"context"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -101,5 +103,20 @@ func TestSSHRequiresUnconditionalFirstDebianInclude(t *testing.T) {
 		if err := p.sshConfig(context.Background(), "/etc/ssh/sshd_config", map[string]bool{}, 0); err == nil {
 			t.Fatalf("unsafe first directive accepted: %q", input)
 		}
+	}
+}
+
+func TestEarlierDropinRefused(t *testing.T) {
+	d := t.TempDir()
+	if err := os.WriteFile(filepath.Join(d, "00-aaa.conf"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": "Include /etc/ssh/sshd_config.d/*.conf\n"}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": entries}}}
+	if p.sshConfig(context.Background(), "/etc/ssh/sshd_config", nil, 0) == nil {
+		t.Fatal("earlier policy can override Brine")
 	}
 }

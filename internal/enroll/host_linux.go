@@ -887,6 +887,15 @@ func (h *host) bypass(ctx context.Context) (bool, error) {
 			return false, errors.New("unexpected home startup entry")
 		}
 	}
+	sshEntries, err := os.ReadDir(home + "/.ssh")
+	if err != nil {
+		return false, err
+	}
+	for _, e := range sshEntries {
+		if _, ok := h.r.Files[home+"/.ssh/"+e.Name()]; !ok {
+			return false, errors.New("unexpected home SSH entry")
+		}
+	}
 	for _, p := range plantedSSH {
 		data := []byte(h.r.Key + "\n")
 		if strings.HasSuffix(p, "/environment") {
@@ -920,6 +929,13 @@ func (h *host) finishVerification(ctx context.Context) error {
 	}
 	if err := h.removeBypassFiles(); err != nil {
 		return err
+	}
+	entries, err := os.ReadDir(home + "/.ssh")
+	if err != nil {
+		return err
+	}
+	if len(entries) != 0 {
+		return errors.New("home SSH directory not empty after verification")
 	}
 	delete(h.r.Files, home+"/.bashrc")
 	delete(h.r.Journal.Intents, "bypass")

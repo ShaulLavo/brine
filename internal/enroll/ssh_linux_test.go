@@ -42,6 +42,22 @@ func TestSSHPolicyAgainstRealOpenSSH(t *testing.T) {
 		if out, err := exec.Command(sshd, "-t", "-f", path).CombinedOutput(); err != nil {
 			t.Fatalf("sshd validation: %v %s", err, out)
 		}
+		original := filepath.Join(d, "original.conf")
+		if err := os.WriteFile(original, main, 0600); err != nil {
+			t.Fatal(err)
+		}
+		other := "user=ordinaryfixture,host=remote.example,addr=192.0.2.1,laddr=198.51.100.1,lport=22"
+		before, err := exec.Command(sshd, "-T", "-f", original, "-C", other).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		after, err := exec.Command(sshd, "-T", "-f", path, "-C", other).Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(before) != string(after) {
+			t.Fatal("policy changed other-user settings")
+		}
 		for _, c := range sshConnections {
 			out, err := exec.Command(sshd, "-T", "-f", path, "-C", c).Output()
 			if err != nil {
@@ -101,5 +117,11 @@ func TestForcedPolicyMissingAndDuplicateFields(t *testing.T) {
 	}
 	if checkGlobalSSH(strings.Repeat("permituserenvironment no\n", 2)) == nil {
 		t.Fatal("duplicates accepted")
+	}
+}
+
+func TestPolicyForcesDispatcherForAnyAuthorizationSource(t *testing.T) {
+	if !strings.Contains(sshPolicy, "ForceCommand /usr/local/bin/brine host serve") {
+		t.Fatal("certificate or future authorization could bypass key-local forced command")
 	}
 }

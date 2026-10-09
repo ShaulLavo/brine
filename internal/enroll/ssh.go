@@ -14,6 +14,7 @@ const sshPolicyPath = "/etc/ssh/sshd_config.d/00-brine-brine.conf"
 const sshPolicyCandidate = "/var/lib/brine-enrollment/candidate-ssh-policy.conf"
 const sshMainCandidate = "/var/lib/brine-enrollment/candidate-sshd.conf"
 const sshPolicy = `Match User brine
+    ForceCommand /usr/local/bin/brine host serve
     AuthorizedKeysFile /etc/ssh/brine/authorized_keys/%u
     AuthorizedKeysCommand none
     AuthorizedPrincipalsFile none
@@ -43,7 +44,7 @@ func checkSSHValues(out string, want map[string]string) error {
 		}
 		f[0] = strings.ToLower(f[0])
 		if v, ok := want[f[0]]; ok {
-			if len(f) != 2 || f[1] != v || seen[f[0]] {
+			if len(f) < 2 || strings.Join(f[1:], " ") != v || seen[f[0]] {
 				return errors.New("SSH safe setting overridden")
 			}
 			seen[f[0]] = true
@@ -66,5 +67,5 @@ func checkForcedSSH(out string) error {
 	if err := checkGlobalSSH(out); err != nil {
 		return err
 	}
-	return checkSSHValues(out, map[string]string{"authorizedkeysfile": "/etc/ssh/brine/authorized_keys/%u", "authorizedkeyscommand": "none", "authorizedprincipalsfile": "none", "allowtcpforwarding": "no", "allowagentforwarding": "no", "x11forwarding": "no", "permittty": "no", "permittunnel": "no", "gatewayports": "no", "allowstreamlocalforwarding": "no"})
+	return checkSSHValues(out, map[string]string{"forcecommand": "/usr/local/bin/brine host serve", "authorizedkeysfile": "/etc/ssh/brine/authorized_keys/%u", "authorizedkeyscommand": "none", "authorizedprincipalsfile": "none", "allowtcpforwarding": "no", "allowagentforwarding": "no", "x11forwarding": "no", "permittty": "no", "permittunnel": "no", "gatewayports": "no", "allowstreamlocalforwarding": "no"})
 }
