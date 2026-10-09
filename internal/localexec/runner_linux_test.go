@@ -18,6 +18,11 @@ func TestProcessTreeHelper(t *testing.T) {
 	if os.Getenv("BRINE_PROCESS_TREE_HELPER") != "1" {
 		return
 	}
+	if os.Args[len(os.Args)-1] == "signal" {
+		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
+		time.Sleep(time.Second)
+		os.Exit(2)
+	}
 	if os.Args[len(os.Args)-1] == "child" {
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
@@ -39,6 +44,15 @@ func TestProcessTreeHelper(t *testing.T) {
 }
 
 func TestExecRunnerTimeoutTerminatesDescendants(t *testing.T) {
+	testTimeoutTerminatesDescendants(t, false)
+}
+
+func TestExecuteTimeoutTerminatesDescendants(t *testing.T) {
+	testTimeoutTerminatesDescendants(t, true)
+}
+
+func testTimeoutTerminatesDescendants(t *testing.T, execute bool) {
+	t.Helper()
 	t.Setenv("BRINE_PROCESS_TREE_HELPER", "1")
 	pidfile := filepath.Join(t.TempDir(), "pids")
 	t.Setenv("BRINE_PROCESS_TREE_PIDFILE", pidfile)
@@ -46,7 +60,12 @@ func TestExecRunnerTimeoutTerminatesDescendants(t *testing.T) {
 	defer cancel()
 	done := make(chan error, 1)
 	go func() {
-		_, err := (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestProcessTreeHelper$", "--", "parent")
+		var err error
+		if execute {
+			_, err = (ExecRunner{}).Execute(ctx, Command{Path: os.Args[0], Args: []string{"-test.run=^TestProcessTreeHelper$", "--", "parent"}, Timeout: 3 * time.Second, Mutation: true})
+		} else {
+			_, err = (ExecRunner{}).Run(ctx, os.Args[0], "-test.run=^TestProcessTreeHelper$", "--", "parent")
+		}
 		done <- err
 	}()
 	var pids []int
@@ -142,5 +161,20 @@ func TestProcessStatRunning(t *testing.T) {
 				t.Fatalf("running = %t, error = %v", running, err)
 			}
 		})
+	}
+}
+
+func TestExecuteSignalLeavesMutationOutcomeUnknown(t *testing.T) {
+	t.Setenv("BRINE_PROCESS_TREE_HELPER", "1")
+	for _, mutation := range []bool{false, true} {
+		_, err := (ExecRunner{}).Execute(context.Background(), Command{Path: os.Args[0], Args: []string{"-test.run=^TestProcessTreeHelper$", "--", "signal"}, Timeout: 3 * time.Second, Mutation: mutation})
+		var re *Error
+		want := Failed
+		if mutation {
+			want = UnknownOutcome
+		}
+		if !errors.As(err, &re) || re.Kind != want || re.ExitCode != -1 {
+			t.Fatal(err)
+		}
 	}
 }
