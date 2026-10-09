@@ -51,6 +51,7 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"reconcile": {Mutating, decodeReconcile},
 	"diagnose":  {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
 	"status":    {ReadOnly, decodeAppStatus},
 	"rollback":  {Mutating, decodeRollback},
@@ -124,13 +125,14 @@ type DiagnosticReader interface {
 }
 
 type Server struct {
-	Diagnose  DiagnosticReader
-	Apps      AppOperations
-	Logs      LogReader
-	version   string
-	inventory Inventory
-	jobs      JobOperations
-	authorize Authorization
+	Reconciler ReconcileOperations
+	Diagnose   DiagnosticReader
+	Apps       AppOperations
+	Logs       LogReader
+	version    string
+	inventory  Inventory
+	jobs       JobOperations
+	authorize  Authorization
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -158,7 +160,11 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
+	args, _ := operations[request.Op].decode(request.Args)
 	class := operations[request.Op].class
+	if reconcile, ok := args.(ReconcileArgs); ok && reconcile.DryRun {
+		class = ReadOnly
+	}
 	if s.authorize == nil {
 		if class != ReadOnly {
 			return fail(result.New(result.DispatchOperationRefused, nil))
@@ -166,9 +172,23 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	} else if err := s.authorize(ctx, class); err != nil {
 		return fail(result.Classify(err))
 	}
-	args, _ := operations[request.Op].decode(request.Args)
 	var value any
 	switch args := args.(type) {
+	case ReconcileArgs:
+		if s.Reconciler == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		var report any
+		var err error
+		if args.DryRun {
+			report, err = s.Reconciler.DryRun(ctx)
+		} else {
+			report, err = s.Reconciler.Reconcile(ctx)
+		}
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = report
 	case diagnose.Request:
 		reader := s.Diagnose
 		if reader == nil {
