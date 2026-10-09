@@ -6,12 +6,11 @@ import (
 	"context"
 	"errors"
 	"os"
-
-	"github.com/ShaulLavo/brine/internal/ops"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/ops"
 	"golang.org/x/sys/unix"
 )
 
@@ -57,10 +56,20 @@ func openPrivateFile(path string) (*os.File, error) {
 	return f, nil
 }
 func (s *Store) AcquireHostLock(ctx context.Context) (Lock, error) {
+	return acquireLock(ctx, filepath.Join(s.dir, "mutation.lock"))
+}
+
+// AcquireLaunchLock fences operation creation and launch settlement independently
+// of long-running deployments. When both are needed, take launch before host.
+func (s *Store) AcquireLaunchLock(ctx context.Context) (Lock, error) {
+	return acquireLock(ctx, filepath.Join(s.dir, "launch.lock"))
+}
+
+func acquireLock(ctx context.Context, path string) (Lock, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	f, err := openPrivateFile(filepath.Join(s.dir, "mutation.lock"))
+	f, err := openPrivateFile(path)
 	if err != nil {
 		return nil, err
 	}

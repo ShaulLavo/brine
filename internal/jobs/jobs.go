@@ -19,6 +19,7 @@ import (
 const EventPageLimit = 128
 const JournalTimeout = 5 * time.Second
 const HostLockWaitTimeout = time.Minute
+const LaunchLockWaitTimeout = 15 * time.Second
 
 type Lock = ops.Lock
 type RunnerStore interface {
@@ -31,6 +32,7 @@ type RunnerStore interface {
 }
 type Store interface {
 	RunnerStore
+	AcquireLaunchLock(context.Context) (ops.Lock, error)
 	// The store atomically binds requester+key to one plan and one operation.
 	CreateOperation(context.Context, string, string, string) (ops.Operation, bool, error)
 	EventsAfter(context.Context, string, uint64, int) ([]ops.Event, error)
@@ -57,13 +59,22 @@ type Service struct {
 	Requester string
 }
 
-func (s Service) Apply(ctx context.Context, planID, key string) (Accepted, error) {
+func (s Service) Apply(ctx context.Context, planID, key string) (accepted Accepted, err error) {
 	if s.Store == nil || s.Launcher == nil || s.Requester == "" {
 		return Accepted{}, result.New(result.DependencyMissing, nil)
 	}
 	if !ValidPlanID(planID) || !ValidID(key) {
 		return Accepted{}, result.New(result.DispatchInvalidRequest, nil)
 	}
+	// The launcher holds only the short launch fence, never the deploy lock.
+	// Acquiring this fence after process death proves no creator/launcher remains.
+	wait, stop := context.WithTimeout(ctx, LaunchLockWaitTimeout)
+	lock, err := s.Store.AcquireLaunchLock(wait)
+	stop()
+	if err != nil {
+		return Accepted{}, err
+	}
+	defer func() { err = errors.Join(err, lock.Release()) }()
 	op, existing, err := s.Store.CreateOperation(ctx, planID, s.Requester, key)
 	if err != nil {
 		return Accepted{}, err
@@ -72,7 +83,7 @@ func (s Service) Apply(ctx context.Context, planID, key string) (Accepted, error
 	if err != nil {
 		return Accepted{}, result.New(result.InternalError, err)
 	}
-	accepted := Accepted{Status: "accepted", OperationID: op.ID}
+	accepted = Accepted{Status: "accepted", OperationID: op.ID}
 	if existing {
 		return accepted, nil
 	}

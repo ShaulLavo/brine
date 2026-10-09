@@ -20,6 +20,7 @@ const MaxEvents = 4096
 
 type Store interface {
 	AcquireHostLock(context.Context) (ops.Lock, error)
+	AcquireLaunchLock(context.Context) (ops.Lock, error)
 	ListUnfinished(context.Context) ([]ops.Operation, error)
 	GetOperation(context.Context, string) (ops.Operation, error)
 	EventsAfter(context.Context, string, uint64, int) ([]ops.Event, error)
@@ -69,19 +70,48 @@ func (r Reconciler) withLock(ctx context.Context, dry bool) (report Report, err 
 		bound = 100 * time.Millisecond
 	}
 	wait, cancel := context.WithTimeout(ctx, bound)
+	launch, err := r.Store.AcquireLaunchLock(wait)
+	if err != nil {
+		cancel()
+		return report, err
+	}
+	defer func() {
+		if launch != nil {
+			err = errors.Join(err, launch.Release())
+		}
+	}()
 	lock, err := r.Store.AcquireHostLock(wait)
 	cancel()
 	if err != nil {
 		return report, err
 	}
 	defer func() { err = errors.Join(err, lock.Release()) }()
-	return r.ReconcileUnderLock(ctx, lock, "", dry)
+	// Only launch-state settlement needs the fence. Do not hold it through a
+	// potentially long resumed deployment or rollback.
+	report, err = r.reconcileUnderLocks(ctx, lock, launch, "", dry, true, false)
+	if err != nil {
+		return report, err
+	}
+	releaseErr := launch.Release()
+	launch = nil
+	if releaseErr != nil {
+		return report, releaseErr
+	}
+	rest, err := r.reconcileUnderLocks(ctx, lock, nil, "", dry, false, true)
+	report.Outcomes = append(report.Outcomes, rest.Outcomes...)
+	return report, err
 }
 
 // ReconcileUnderLock is for run-op after acquiring its host lock and before
 // loading or executing its own operation. excludeID is that trusted runner's ID.
 // The caller retains and releases the lock; this method never launches a job.
+// Queued/launch-unknown records are deferred. Taking their launch fence while
+// already holding the host lock would reverse the required lock order.
 func (r Reconciler) ReconcileUnderLock(ctx context.Context, lock ops.Lock, excludeID string, dry bool) (Report, error) {
+	return r.reconcileUnderLocks(ctx, lock, nil, excludeID, dry, false, false)
+}
+
+func (r Reconciler) reconcileUnderLocks(ctx context.Context, lock, launch ops.Lock, excludeID string, dry, launchOnly, skipLaunch bool) (Report, error) {
 	report := Report{DryRun: dry, Outcomes: []Outcome{}}
 	if lock == nil || r.Store == nil || r.Systemd == nil {
 		return report, errors.New("reconcile: lock and dependencies required")
@@ -104,6 +134,14 @@ func (r Reconciler) ReconcileUnderLock(ctx context.Context, lock ops.Lock, exclu
 			return report, err
 		}
 		if op.State.IsTerminal() {
+			continue
+		}
+		launchState := op.State == ops.Queued || op.State == ops.LaunchUnknown
+		if (launchOnly && !launchState) || (skipLaunch && launchState) {
+			continue
+		}
+		if launch == nil && (op.State == ops.Queued || op.State == ops.LaunchUnknown) {
+			report.Outcomes = append(report.Outcomes, Outcome{OperationID: op.ID, Before: op.State, After: op.State, Action: "unchanged"})
 			continue
 		}
 		outcome, recovery, err := r.inspect(ctx, op)

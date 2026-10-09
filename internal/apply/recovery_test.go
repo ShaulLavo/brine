@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,6 +198,7 @@ func TestRecoveryCommitReadBackFinishesWithoutEffects(t *testing.T) {
 	r.state = Committing
 	r.effects = nil
 	r.events = nil
+	observeCommittedRelease(r)
 	r.facts.Routing.Generation = r.release.CaddyGeneration
 	r.facts.Routing.Files = map[string]string{r.release.CaddyFile.Name: r.release.CaddyFile.Hash}
 	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
@@ -250,5 +252,135 @@ func TestRecoveryAssessmentCannotBeReusedOrChanged(t *testing.T) {
 	count := len(r.effects)
 	if err := r.executor.Recover(context.Background(), assessment); err == nil || len(r.effects) != count {
 		t.Fatalf("repeat error %v effects %v", err, r.effects)
+	}
+}
+
+func TestRecoveryPreflightKeepsEffectDeadline(t *testing.T) {
+	r := newRig(t, false)
+	r.state = Preparing
+	r.intent = "pull_image"
+	r.executor.EffectTimeout = 10 * time.Millisecond
+	reads := 0
+	r.executor.Facts = FactsFunc(func(ctx context.Context) (Facts, error) {
+		reads++
+		if reads == 1 {
+			return r.facts, nil
+		}
+		<-ctx.Done()
+		return Facts{}, ctx.Err()
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	assessment, err := r.executor.InspectRecovery(ctx, Operation{ID: "operation", PlanID: r.plan.Hash, State: Preparing}, r.plan, r.desired, recoveryEvents("preflight", "pull_image"))
+	if err != nil || assessment.Action != ResumeForward {
+		t.Fatalf("action %s error %v", assessment.Action, err)
+	}
+	start := time.Now()
+	err = r.executor.Recover(ctx, assessment)
+	if time.Since(start) > 200*time.Millisecond {
+		t.Fatal("resumed preflight lost the per-effect deadline")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) || r.state != RecoveryRequired || len(r.effects) != 0 {
+		t.Fatalf("error %v state %s effects %v", err, r.state, r.effects)
+	}
+}
+
+func TestRecoveryCommitRequiresLiveInstalledUnit(t *testing.T) {
+	for _, evidence := range []string{"absent", "unknown", "mismatched"} {
+		t.Run(evidence, func(t *testing.T) {
+			r := newRig(t, false)
+			if err := r.run(); err != nil {
+				t.Fatal(err)
+			}
+			r.state = Committing
+			r.effects = nil
+			observeCommittedRelease(r)
+			if evidence == "absent" {
+				r.facts.Input.Snapshot.Apps = target.Known([]target.App{})
+			}
+			r.facts.Routing.Generation = r.release.CaddyGeneration
+			r.facts.Routing.Files = map[string]string{r.release.CaddyFile.Name: r.release.CaddyFile.Hash}
+			if evidence == "unknown" {
+				r.facts.Input.Snapshot.Apps = target.Observation[[]target.App]{Status: target.Unknown}
+			}
+			if evidence == "mismatched" {
+				r.facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: r.plan.App, QuadletUnits: target.Known([]target.Unit{{Name: r.plan.App + ".container", Hash: "sha256:" + strings.Repeat("f", 64)}})}})
+			}
+			r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
+			assessment, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "operation-1", PlanID: r.plan.Hash, State: Committing}, r.plan, r.desired, recoveryEvents(forwardSteps...))
+			if err != nil || assessment.Action != RequireRecovery {
+				t.Fatalf("action %s error %v", assessment.Action, err)
+			}
+			if len(r.effects) != 0 {
+				t.Fatal(r.effects)
+			}
+		})
+	}
+}
+
+func observeCommittedRelease(r *rig) {
+	secrets := []target.Secret{}
+	for _, binding := range r.release.Secrets {
+		secrets = append(secrets, target.Secret{Name: binding.VersionName, ID: binding.ID})
+	}
+	r.facts.Input.Snapshot.Apps = target.Known([]target.App{{
+		Name:              r.plan.App,
+		Image:             target.Known(target.Image{Digest: r.release.Image.Digest, Platform: r.release.Image.Platform}),
+		AllocatedHostPort: target.Known(r.release.HostPort),
+		QuadletUnits:      target.Known(append([]target.Unit{}, r.release.Units...)),
+		Secrets:           target.Known(secrets),
+	}})
+	r.facts.Input.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: r.release.CaddyGeneration, Files: []target.CaddyFile{r.release.CaddyFile}})
+	r.facts.Routing.Generation = r.release.CaddyGeneration
+	r.facts.Routing.Files = map[string]string{r.release.CaddyFile.Name: r.release.CaddyFile.Hash}
+}
+
+func TestRecoveryCommitRequiresOtherLiveArtifacts(t *testing.T) {
+	cases := map[string]func(*rig){
+		"retained_unit_missing": func(r *rig) {
+			app := &(*r.facts.Input.Snapshot.Apps.Value)[0]
+			app.QuadletUnits = target.Known((*app.QuadletUnits.Value)[:1])
+		},
+		"units_unknown": func(r *rig) {
+			(*r.facts.Input.Snapshot.Apps.Value)[0].QuadletUnits = target.Observation[[]target.Unit]{Status: target.Unknown}
+		},
+		"image_mismatch": func(r *rig) {
+			(*r.facts.Input.Snapshot.Apps.Value)[0].Image.Value.Digest = "sha256:" + strings.Repeat("f", 64)
+		},
+		"port_mismatch": func(r *rig) {
+			(*r.facts.Input.Snapshot.Apps.Value)[0].AllocatedHostPort = target.Known(target.Port(21000))
+		},
+		"secret_missing": func(r *rig) { (*r.facts.Input.Snapshot.Apps.Value)[0].Secrets = target.Known([]target.Secret{}) },
+		"secret_unknown": func(r *rig) {
+			(*r.facts.Input.Snapshot.Apps.Value)[0].Secrets = target.Observation[[]target.Secret]{Status: target.Unknown}
+		},
+		"caddy_unknown": func(r *rig) {
+			r.facts.Input.Snapshot.CaddyConfig = target.Observation[target.CaddyConfigSet]{Status: target.Unknown}
+		},
+		"caddy_generation_mismatch": func(r *rig) { r.facts.Input.Snapshot.CaddyConfig.Value.Generation++ },
+		"caddy_file_mismatch": func(r *rig) {
+			r.facts.Input.Snapshot.CaddyConfig.Value.Files[0].Hash = "sha256:" + strings.Repeat("f", 64)
+		},
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			r := newRig(t, true)
+			if err := r.run(); err != nil {
+				t.Fatal(err)
+			}
+			r.state = Committing
+			r.effects = nil
+			observeCommittedRelease(r)
+			change(r)
+			r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
+			assessment, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "operation-1", PlanID: r.plan.Hash, State: Committing}, r.plan, r.desired, recoveryEvents(forwardSteps...))
+			if err != nil || assessment.Action != RequireRecovery {
+				t.Fatalf("action %s error %v", assessment.Action, err)
+			}
+			r.executor.Recover(context.Background(), assessment)
+			if r.state != RecoveryRequired || len(r.effects) != 0 {
+				t.Fatalf("state %s effects %v", r.state, r.effects)
+			}
+		})
 	}
 }

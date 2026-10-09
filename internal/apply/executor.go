@@ -172,7 +172,12 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		err = x.step(ctx, "preflight", Preflight, "drift", preflight)
 	} else {
 		x.state = recovery.operation.State
-		err = preflight(ctx)
+		preflightCtx, preflightCancel := context.WithTimeout(ctx, e.effectTimeout())
+		err = preflight(preflightCtx)
+		if preflightCtx.Err() != nil {
+			err = errors.Join(err, preflightCtx.Err())
+		}
+		preflightCancel()
 		if err == nil && !recovery.completed["preflight"] {
 			err = x.event(ctx, "preflight", "completed", "")
 			if err == nil {

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/ShaulLavo/brine/internal/target"
 	"reflect"
 	"slices"
 	"sync/atomic"
@@ -15,6 +14,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/systemd"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 type RecoveryAction string
@@ -116,7 +116,7 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 				unitFound = true
 			}
 		}
-		if !unitFound || candidate.CaddyFile.Name != p.App+".caddy" || candidate.CaddyFile.Hash == "" || candidate.CaddyFile.Hash != x.facts.Routing.Files[p.App+".caddy"] || candidate.CaddyGeneration != x.facts.Routing.Generation {
+		if !unitFound || !committedArtifactsObserved(x.facts, candidate, p.App) || candidate.CaddyFile.Name != p.App+".caddy" || candidate.CaddyFile.Hash == "" || candidate.CaddyFile.Hash != x.facts.Routing.Files[p.App+".caddy"] || candidate.CaddyGeneration != x.facts.Routing.Generation {
 			return r, nil
 		}
 		x.nextRelease = &candidate
@@ -236,4 +236,67 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 	default:
 		return x.terminal(ctx, RecoveryRequired, &Error{Step: r.Step, Code: "interrupted"})
 	}
+}
+
+func committedArtifactsObserved(facts Facts, release Release, app string) bool {
+	apps := facts.Input.Snapshot.Apps
+	if apps.Status != target.KnownStatus || apps.Value == nil {
+		return false
+	}
+	var installed *target.App
+	for i := range *apps.Value {
+		if (*apps.Value)[i].Name == app {
+			installed = &(*apps.Value)[i]
+			break
+		}
+	}
+	if installed == nil {
+		return false
+	}
+	units := installed.QuadletUnits
+	if units.Status != target.KnownStatus || units.Value == nil || len(*units.Value) != len(release.Units) {
+		return false
+	}
+	for _, unit := range release.Units {
+		hash, known := observedUnitHash(facts, app, unit.Name)
+		if !known || hash != unit.Hash {
+			return false
+		}
+	}
+	image := installed.Image
+	if image.Status != target.KnownStatus || image.Value == nil || image.Value.Digest != release.Image.Digest || image.Value.Platform != release.Image.Platform {
+		return false
+	}
+	port := installed.AllocatedHostPort
+	if port.Status != target.KnownStatus || port.Value == nil || *port.Value != release.HostPort {
+		return false
+	}
+	if len(release.Secrets) > 0 {
+		secrets := installed.Secrets
+		if secrets.Status != target.KnownStatus || secrets.Value == nil {
+			return false
+		}
+		for _, binding := range release.Secrets {
+			found := false
+			for _, secret := range *secrets.Value {
+				if secret.Name == binding.VersionName && secret.ID == binding.ID {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return false
+			}
+		}
+	}
+	config := facts.Input.Snapshot.CaddyConfig
+	if config.Status != target.KnownStatus || config.Value == nil || config.Value.Generation != release.CaddyGeneration {
+		return false
+	}
+	for _, file := range config.Value.Files {
+		if file == release.CaddyFile {
+			return true
+		}
+	}
+	return false
 }
