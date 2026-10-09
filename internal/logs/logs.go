@@ -38,6 +38,8 @@ type Reader struct {
 	Executor  localexec.Executor
 }
 
+var sincePattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]{1,9})?(?:Z|[+-](?:[01][0-9]|2[0-3]):[0-5][0-9])$`)
+
 var appName = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 func (r Request) Validate() error {
@@ -45,10 +47,10 @@ func (r Request) Validate() error {
 		return result.New(result.InvalidUsage, nil)
 	}
 	if r.Since != "" {
-		if len(r.Since) > 40 {
+		if !sincePattern.MatchString(r.Since) {
 			return result.New(result.InvalidUsage, nil)
 		}
-		if _, err := time.Parse(time.RFC3339Nano, r.Since); err != nil {
+		if _, err := time.Parse(time.RFC3339, r.Since); err != nil {
 			return result.New(result.InvalidUsage, nil)
 		}
 	}
@@ -102,9 +104,10 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"--user", "-u", unit.String(), "-n", strconv.Itoa(request.Tail), "-o", "json", "--no-pager"}
+	args := []string{"--user", "-u", unit.String(), "-n", strconv.Itoa(request.Tail), "-o", "json", "--no-pager", "--all"}
 	if request.Since != "" {
-		args = append(args, "--since", request.Since)
+		since, _ := time.Parse(time.RFC3339, request.Since)
+		args = append(args, "--since", since.UTC().Format(time.RFC3339Nano))
 	}
 	out, err := r.Executor.Execute(ctx, localexec.Command{Path: "journalctl", Args: args, Timeout: ReadTimeout})
 	if err != nil {
@@ -113,7 +116,10 @@ func (r Reader) Read(ctx context.Context, request Request) ([]Line, error) {
 	if ctx.Err() != nil {
 		return nil, result.Classify(ctx.Err())
 	}
-	if out.Truncated || len(out.Stdout) > MaxBytes {
+	if out.Truncated {
+		return nil, result.New(result.LogsTruncated, nil)
+	}
+	if len(out.Stdout) > MaxBytes {
 		return nil, result.New(result.LogsLimitExceeded, nil)
 	}
 	return parse(out.Stdout, request.Tail)
@@ -176,7 +182,8 @@ func parse(raw string, tail int) ([]Line, error) {
 		if err != nil || p < 0 || p > 7 {
 			return fail()
 		}
-		if err := json.Unmarshal(fields["MESSAGE"], &message); err != nil {
+		message, err = strictjson.Value[string](fields["MESSAGE"])
+		if err != nil {
 			var binary []uint8
 			if json.Unmarshal(fields["MESSAGE"], &binary) != nil || binary == nil {
 				return fail()

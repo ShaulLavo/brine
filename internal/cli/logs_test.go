@@ -104,7 +104,7 @@ func TestLogsFailuresAndEmpty(t *testing.T) {
 		err    error
 		frames int
 	}{
-		{"5", "api", nil, 1}, {"5", "api", result.New(result.LogsOwnershipRefused, nil), 1}, {"1001", "api", nil, 1}, {"5", "api;id", nil, 1},
+		{"5", "api", nil, 1}, {"5", "api", result.New(result.LogsOwnershipRefused, nil), 1}, {"5", "api", result.New(result.LogsTruncated, nil), 1}, {"1001", "api", nil, 1}, {"5", "api;id", nil, 1},
 	} {
 		var out, diag bytes.Buffer
 		client := &logsCaller{lines: []logs.Line{}, err: tt.err}
@@ -114,6 +114,24 @@ func TestLogsFailuresAndEmpty(t *testing.T) {
 		}
 		if strings.Count(out.String(), "\n") != tt.frames || !json.Valid(bytes.TrimSpace(out.Bytes())) {
 			t.Fatal(out.String())
+		}
+	}
+}
+
+func TestEscapedSecretsNeverReachClientOutput(t *testing.T) {
+	for _, mode := range []string{"human", "--json", "--jsonl"} {
+		var out, diag bytes.Buffer
+		client := &logsCaller{lines: []logs.Line{{Timestamp: "2026-10-09T00:00:00Z", Priority: 6, Message: `{"password":"prefix\"words short-secret-suffix"}`}, {Timestamp: "2026-10-09T00:00:01Z", Priority: 6, Message: `{"password":"prefix\" words short-secret-suffix"}`}}}
+		args := []string{"logs", "api", "--target", "fixture", "--config-dir", targetConfig(t)}
+		if mode != "human" {
+			args = append(args, mode)
+		}
+		err := Execute(Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &diag, LogsClient: client}, args)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(out.String(), "short-secret-suffix") || strings.Contains(out.String(), "prefix") {
+			t.Fatalf("%s leaked escaped secret", mode)
 		}
 	}
 }

@@ -24,6 +24,7 @@ type Code string
 
 const (
 	LogsOwnershipRefused      Code = "logs_ownership_refused"
+	LogsTruncated             Code = "logs_truncated"
 	LogsLimitExceeded         Code = "logs_limit_exceeded"
 	LogsInvalidJournal        Code = "logs_invalid_journal"
 	InternalError             Code = "internal_error"
@@ -53,6 +54,7 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
+	LogsTruncated:             {Operational, "The journal output was truncated; request a smaller tail.", false},
 	LogsOwnershipRefused:      {Policy, "Logs are readable only for an observed Brine-owned app unit.", false},
 	LogsLimitExceeded:         {Operational, "The log response exceeds its bounded tail or byte limit; request a smaller tail.", false},
 	LogsInvalidJournal:        {Operational, "The journal response is malformed.", false},

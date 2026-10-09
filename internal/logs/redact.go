@@ -9,7 +9,7 @@ import (
 var (
 	privateBegin = regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----`)
 	privateEnd   = regexp.MustCompile(`-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----`)
-	secretPair   = regexp.MustCompile(`(?i)([a-z0-9_.-]*(?:secret|password|passwd|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization)[a-z0-9_.-]*["']?\s*[:=]\s*)(?:bearer\s+[^\s,;]+|"[^"\n]*"|'[^'\n]*'|[^\s,;]+)`)
+	secretPair   = regexp.MustCompile(`(?i)([a-z0-9_.-]*(?:secret|password|passwd|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|authorization)[a-z0-9_.-]*["']?\s*[:=]\s*)(?:bearer\s+[^\s,;]+|"(?:\\[^\n]|[^"\\\n])*(?:"|\n|$)|'(?:\\[^\n]|[^'\\\n])*(?:'|\n|$)|[^\s,;]+)`)
 	bearer       = regexp.MustCompile(`(?i)(bearer\s+)[^\s,"';]+`)
 	longToken    = regexp.MustCompile(`[A-Za-z0-9_+/=-]{32,}`)
 	urlPassword  = regexp.MustCompile(`(://[^\s:/]+:)[^\s@/]+(@)`)

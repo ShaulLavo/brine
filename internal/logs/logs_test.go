@@ -42,7 +42,7 @@ func TestReaderArgv(t *testing.T) {
 			t.Fatalf("%+v %v", lines, err)
 		}
 		c := e.commands[0]
-		want := []string{"--user", "-u", strings.TrimSuffix(unit, ".container") + ".service", "-n", "5", "-o", "json", "--no-pager", "--since", "2026-10-01T00:00:00Z"}
+		want := []string{"--user", "-u", strings.TrimSuffix(unit, ".container") + ".service", "-n", "5", "-o", "json", "--no-pager", "--all", "--since", "2026-10-01T00:00:00Z"}
 		if c.Path != "journalctl" || !reflect.DeepEqual(c.Args, want) || c.Timeout != ReadTimeout || c.Mutation {
 			t.Fatalf("%+v", c)
 		}
@@ -191,5 +191,102 @@ func TestDecodeLinesBoundary(t *testing.T) {
 		if _, err := DecodeLines([]byte(raw)); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}
+	}
+}
+
+func TestEscapedQuotedSecrets(t *testing.T) {
+	for _, message := range []string{
+		`{"password":"prefix\"words short-secret-suffix"}`,
+		`{"password":"prefix\\\" words short-secret-suffix"}`,
+		`password='prefix\' words short-secret-suffix'`,
+		`{"password":"prefix` + string(rune(92)) + `u0022 words short-secret-suffix"}`,
+	} {
+		var r redactor
+		got := r.clean(message)
+		for range 3 {
+			got = r.clean(got)
+		}
+		if strings.Contains(got, "short-secret-suffix") || strings.Contains(got, "prefix") {
+			t.Fatalf("escaped secret leaked: %q", got)
+		}
+	}
+}
+func FuzzEscapedQuotedSecrets(f *testing.F) {
+	f.Add("prefix", `\"`)
+	f.Add(`\\`, "words")
+	f.Fuzz(func(t *testing.T, prefix, escaped string) {
+		if len(prefix)+len(escaped) > 4096 {
+			t.Skip()
+		}
+		const suffix = "planted-short-secret-suffix"
+		value, _ := json.Marshal(prefix + escaped + `" words ` + suffix)
+		raw := `{"password":` + string(value) + `}`
+		var r redactor
+		got := r.clean(raw)
+		for range 3 {
+			got = r.clean(got)
+		}
+		if strings.Contains(got, suffix) {
+			t.Fatal("escaped JSON secret survived")
+		}
+	})
+}
+func TestFullJournalMessages(t *testing.T) {
+	for _, tt := range []struct {
+		message string
+		want    result.Code
+	}{
+		{strings.Repeat("ordinary log words. ", 300), ""},
+		{strings.Repeat("ordinary log words. ", 10000), result.LogsLimitExceeded},
+	} {
+		raw, _ := json.Marshal(map[string]string{"__REALTIME_TIMESTAMP": "1791542008366482", "PRIORITY": "6", "MESSAGE": tt.message})
+		e := &executor{output: localexec.Result{Stdout: string(raw)}}
+		lines, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1})
+		if tt.want == "" {
+			if err != nil || len(lines) != 1 || lines[0].Message != tt.message {
+				t.Fatal("long message was lost")
+			}
+		} else if err == nil || lines != nil || result.Classify(err).Code() != tt.want {
+			t.Fatalf("oversize: %v", err)
+		}
+		if !strings.Contains(strings.Join(e.commands[0].Args, " "), "--all") {
+			t.Fatal("journalctl must request full messages")
+		}
+	}
+	for _, message := range []string{`null`, ""} {
+		raw := `{"__REALTIME_TIMESTAMP":"1791542008366482","PRIORITY":"6"`
+		if message != "" {
+			raw += `,"MESSAGE":` + message
+		}
+		raw += `}`
+		if lines, err := parse(raw, 1); err == nil || lines != nil {
+			t.Fatal("omitted/null message accepted")
+		}
+	}
+}
+func TestStrictSince(t *testing.T) {
+	for _, since := range []string{"2026-10-09T1:00:00Z", "2026-10-09T00:00:00,123Z", "2026-10-09T00:00:00+24:60", "2026-10-09T00:00:00+24:00", "2026-10-09T00:00:00+01:60"} {
+		e := &executor{output: localexec.Result{Stdout: journal}}
+		_, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1, Since: since})
+		if err == nil || result.Classify(err).Code() != result.InvalidUsage || len(e.commands) != 0 {
+			t.Fatalf("accepted invalid since %q", since)
+		}
+	}
+	e := &executor{output: localexec.Result{Stdout: journal}}
+	_, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1, Since: "2026-10-09T02:00:00.123456+02:00"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := e.commands[0].Args
+	if args[len(args)-1] != "2026-10-09T00:00:00.123456Z" {
+		t.Fatalf("non-normalized since: %q", args[len(args)-1])
+	}
+}
+
+func TestTruncatedCaptureMarker(t *testing.T) {
+	e := &executor{output: localexec.Result{Stdout: journal, Truncated: true}}
+	lines, err := (Reader{Inventory: owned("api.container"), Executor: e}).Read(context.Background(), Request{App: "api", Tail: 1})
+	if lines != nil || err == nil || result.Classify(err).Code() != result.LogsTruncated {
+		t.Fatalf("missing explicit truncated refusal: %v", err)
 	}
 }
