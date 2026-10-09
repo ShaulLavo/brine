@@ -7,6 +7,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/transport"
 	"github.com/spf13/cobra"
 )
 
@@ -26,6 +27,11 @@ type Dependencies struct {
 	HostInventory         dispatch.Inventory
 	HostUID               func() int // Optional; nil reads the effective process UID.
 	OriginalCommandLength int
+	HostJobs              dispatch.JobOperations
+	HostAuthorization     dispatch.Authorization
+	HostOperationRunner   OperationRunner
+	OperationClient       OperationClient
+	LoadOperationTarget   func(string, string) (transport.Target, error)
 	HostLogs              dispatch.LogReader
 	LogsClient            LogsClient
 }
@@ -64,6 +70,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newEnrollCmd(deps, &noInput, &modes))
 	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath, deps.DoctorRunner))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
+	root.AddCommand(newApplyCmd(&jsonOutput, deps), newOperationStatusCmd(&jsonOutput, deps))
 	root.AddCommand(newValidateCmd(&jsonOutput))
 	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps))

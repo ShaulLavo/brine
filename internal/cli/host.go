@@ -19,7 +19,7 @@ import (
 func newHostCmd(deps Dependencies) *cobra.Command {
 	host := &cobra.Command{Use: "host", Hidden: true}
 	serve := &cobra.Command{Use: "serve", Hidden: true, DisableFlagParsing: true, RunE: func(_ *cobra.Command, _ []string) error { return executeHostServe(deps) }}
-	host.AddCommand(serve, newHostEnrollmentCmd(deps))
+	host.AddCommand(serve, newHostEnrollmentCmd(deps), newHostRunOpCmd(deps))
 	return host
 }
 
@@ -51,7 +51,7 @@ func executeHostServe(deps Dependencies) error {
 				}
 			}
 		}
-		server := dispatch.NewServer(deps.Version, collector)
+		server := dispatch.NewServer(deps.Version, collector).WithJobs(deps.HostJobs, deps.HostAuthorization)
 		if deps.HostLogs != nil {
 			server.Logs = deps.HostLogs
 		}

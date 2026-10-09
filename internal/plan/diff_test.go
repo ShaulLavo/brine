@@ -8,7 +8,6 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
-	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func TestUpdateComparisonAndEnvironmentRedaction(t *testing.T) {
@@ -85,7 +84,7 @@ func TestDiffIsHashMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := target.Encode(in.Snapshot)
+	snapshot, err := canonicalDecisionFacts(in.Snapshot, in.Desired.MinimumFreeDiskBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
