@@ -80,6 +80,7 @@ func pingBytes(t *testing.T) []byte {
 	return b
 }
 func TestSSHArgumentsGolden(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
 	f := &captureRunner{output: localexec.Output{Stdout: pingBytes(t)}}
 	client := Client{Runner: f, LookPath: func(string) (string, error) { return "/fixture/ssh", nil }, KnownHostsDir: filepath.Join(t.TempDir(), "pins")}
 	request := dispatch.Request{SchemaVersion: 1, Op: "ping", RequestID: "fixture", Args: json.RawMessage(`{}`)}
@@ -91,8 +92,8 @@ func TestSSHArgumentsGolden(t *testing.T) {
 	if !reflect.DeepEqual(f.command.Args, want) {
 		t.Fatalf("argv=%q\nwant=%q", f.command.Args, want)
 	}
-	if !reflect.DeepEqual(f.command.Env, os.Environ()) {
-		t.Fatal("client environment not preserved")
+	if len(f.command.Env) != 0 {
+		t.Fatal("client supplied ambient environment")
 	}
 	decoded, err := dispatch.DecodeRequest(f.command.Stdin)
 	if err != nil || decoded.Op != "ping" {
@@ -115,7 +116,7 @@ func TestSSHArgumentsGolden(t *testing.T) {
 	}
 }
 
-func TestFakeSSHOnPATH(t *testing.T) {
+func TestFakeSSHExecutable(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "ssh")
 	response := string(pingBytes(t))
@@ -124,7 +125,7 @@ func TestFakeSSHOnPATH(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
-	client := Client{KnownHostsDir: filepath.Join(dir, "pins")}
+	client := Client{KnownHostsDir: filepath.Join(dir, "pins"), LookPath: func(string) (string, error) { return binary, nil }}
 	request := dispatch.Request{SchemaVersion: 1, Op: "ping", RequestID: "fixture", Args: json.RawMessage(`{}`)}
 	responseValue, err := client.Call(context.Background(), validTarget(), request)
 	if err != nil || !responseValue.OK {
@@ -151,7 +152,7 @@ func TestFakeSSHRefusalsAndExitAgreement(t *testing.T) {
 	dir := t.TempDir()
 	binary := filepath.Join(dir, "ssh")
 	t.Setenv("PATH", dir)
-	client := Client{KnownHostsDir: filepath.Join(dir, "pins")}
+	client := Client{KnownHostsDir: filepath.Join(dir, "pins"), LookPath: func(string) (string, error) { return binary, nil }}
 	request := dispatch.Request{SchemaVersion: 1, Op: "ping", RequestID: "test", Args: json.RawMessage(`{}`)}
 	failure, _ := json.Marshal(result.Failure("brine host serve", result.New(result.DispatchRootRefused, nil)))
 	for _, tt := range []struct {
@@ -232,5 +233,28 @@ func TestLoadTargetBounds(t *testing.T) {
 	}
 	if _, err := LoadTarget(path); result.ExitCode(err) != 2 {
 		t.Fatal("target size not bounded")
+	}
+}
+
+func TestSSHDefaultIgnoresAmbientExecutableAndEnvironment(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte("#!/bin/sh\nexit 99\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir)
+	t.Setenv("LD_PRELOAD", "/ambient-poison")
+	t.Setenv("CONTAINER_HOST", "/ambient-poison")
+	t.Setenv("SSH_AUTH_SOCK", "/fixture/agent.sock")
+	f := &captureRunner{output: localexec.Output{Stdout: pingBytes(t)}}
+	c := Client{Runner: f, KnownHostsDir: filepath.Join(dir, "pins")}
+	_, err := c.Call(context.Background(), validTarget(), dispatch.Request{SchemaVersion: 1, Op: "ping", RequestID: "fixture", Args: json.RawMessage(`{}`)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f.command.Path != "/usr/bin/ssh" && f.command.Path != "/bin/ssh" {
+		t.Fatal("ambient SSH executable selected")
+	}
+	if !reflect.DeepEqual(f.command.Env, []string{"SSH_AUTH_SOCK=/fixture/agent.sock"}) {
+		t.Fatal("unexpected environment forwarded")
 	}
 }

@@ -6,13 +6,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
 
 func TestInputHelper(t *testing.T) {
-	if os.Getenv("BRINE_INPUT_HELPER") != "1" {
+	if !slices.Contains(os.Args, "BRINE_INPUT_HELPER=1") {
 		return
 	}
 	switch os.Args[len(os.Args)-1] {
@@ -44,10 +45,10 @@ func TestInputExecutionBoundsAndEnvironment(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
-			output, err := (ExecRunner{}).RunInput(ctx, Command{Path: os.Args[0], Args: []string{"-test.run=^TestInputHelper$", "--", mode}, Stdin: []byte("request input"), Env: []string{"BRINE_INPUT_HELPER=1", "GOCOVERDIR=" + t.TempDir()}, OutputLimit: 64})
+			output, err := (ExecRunner{}).RunInput(ctx, Command{Path: os.Args[0], Args: []string{"-test.run=^TestInputHelper$", "--", "BRINE_INPUT_HELPER=1", mode}, Stdin: []byte("request input"), OutputLimit: 256})
 			switch mode {
 			case "echo":
-				if err != nil || string(output.Stdout) != "request input" || len(output.Stderr) != 0 {
+				if err != nil || string(output.Stdout) != "request input" || string(output.Stderr) != helperCoverageWarning() {
 					t.Fatalf("%+v %v", output, err)
 				}
 			case "timeout":
@@ -55,10 +56,17 @@ func TestInputExecutionBoundsAndEnvironment(t *testing.T) {
 					t.Fatalf("%v", err)
 				}
 			default:
-				if !errors.Is(err, ErrOutputLimit) || len(output.Stdout) > 64 || len(output.Stderr) > 64 {
+				if !errors.Is(err, ErrOutputLimit) || len(output.Stdout) > 256 || len(output.Stderr) > 256 {
 					t.Fatalf("%+v %v", output, err)
 				}
 			}
 		})
 	}
+}
+
+func helperCoverageWarning() string {
+	if testing.CoverMode() != "" {
+		return "warning: GOCOVERDIR not set, no coverage data emitted\n"
+	}
+	return ""
 }

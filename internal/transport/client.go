@@ -37,7 +37,7 @@ func (c Client) Call(ctx context.Context, t Target, request dispatch.Request) (r
 	}
 	lookup := c.LookPath
 	if lookup == nil {
-		lookup = exec.LookPath
+		lookup = localexec.LookPath
 	}
 	ssh, err := lookup("ssh")
 	if err != nil {
@@ -60,7 +60,11 @@ func (c Client) Call(ctx context.Context, t Target, request dispatch.Request) (r
 	}
 	ctx, cancel := context.WithTimeout(ctx, CallTimeout)
 	defer cancel()
-	output, runErr := runner.RunInput(ctx, localexec.Command{Path: ssh, Args: args, Stdin: input, Env: os.Environ(), OutputLimit: dispatch.ResponseLimit})
+	var env []string
+	if agent := os.Getenv("SSH_AUTH_SOCK"); agent != "" {
+		env = []string{"SSH_AUTH_SOCK=" + agent}
+	}
+	output, runErr := runner.RunInput(ctx, localexec.Command{Path: ssh, Args: args, Stdin: input, Env: env, OutputLimit: dispatch.ResponseLimit})
 	if ctx.Err() != nil {
 		return result.Envelope{}, result.New(result.TransportFailure, ctx.Err())
 	}

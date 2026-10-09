@@ -11,13 +11,6 @@ import (
 
 var ErrOutputLimit = errors.New("subprocess output exceeded limit")
 
-type Command struct {
-	Path        string
-	Args        []string
-	Stdin       []byte
-	Env         []string
-	OutputLimit int
-}
 type Output struct{ Stdout, Stderr []byte }
 type InputRunner interface {
 	RunInput(context.Context, Command) (Output, error)
@@ -28,15 +21,27 @@ func (ExecRunner) RunInput(ctx context.Context, command Command) (Output, error)
 	if command.OutputLimit <= 0 {
 		return Output{}, ErrOutputLimit
 	}
+	path, err := LookPath(command.Path)
+	if err != nil {
+		return Output{}, err
+	}
+	env, home, err := commandEnvironment(command.Env, true)
+	if err != nil {
+		return Output{}, err
+	}
 	stdout := &limitedCapture{limit: command.OutputLimit}
 	stderr := &limitedCapture{limit: command.OutputLimit}
-	cmd := exec.CommandContext(ctx, command.Path, command.Args...)
-	cmd.Env = append([]string{}, command.Env...)
+	cmd := exec.CommandContext(ctx, path, command.Args...)
+	cmd.Env = env
+	cmd.Dir = command.Dir
+	if cmd.Dir == "" {
+		cmd.Dir = home
+	}
 	cmd.Stdin = bytes.NewReader(command.Stdin)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	configureProcessGroup(cmd)
 	cmd.WaitDelay = 100 * time.Millisecond
-	err := cmd.Run()
+	err = cmd.Run()
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	} else if stdout.overflow || stderr.overflow {
