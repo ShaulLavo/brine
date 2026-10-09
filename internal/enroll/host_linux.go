@@ -515,7 +515,7 @@ func (h *host) steps() []Step {
 			}
 			return h.fileMatches(mainPath, old.Hash)
 		}, Apply: h.caddyImport, Undo: func(ctx context.Context) error {
-			if err := h.restoreFile(mainPath); err != nil {
+			if err := errors.Join(h.restoreFile(mainPath), h.removeCandidate()); err != nil {
 				return err
 			}
 			if h.r.CaddyActive {
@@ -529,7 +529,10 @@ func (h *host) steps() []Step {
 		}},
 		{Name: "caddy-validate", Check: func(ctx context.Context) (bool, error) {
 			_, err := h.run(ctx, false, "caddy", "validate", "--adapter", "caddyfile", "--config", mainPath)
-			return err == nil, err
+			if err != nil {
+				return false, errors.Join(err, h.restoreFile(mainPath))
+			}
+			return true, nil
 		}, Apply: noop, Undo: noop},
 		{Name: "unmask", Check: func(ctx context.Context) (bool, error) {
 			r, _ := h.run(ctx, false, "systemctl", "is-enabled", "caddy.service")
@@ -796,7 +799,15 @@ func (h *host) caddyImport(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return h.file(ctx, mainPath, next, 0644, true)
+	candidate := recordDir + "/candidate.caddy"
+	if err := h.file(ctx, candidate, next, 0644, false); err != nil {
+		return err
+	}
+	err = h.validateAndPromote(ctx, candidate, func() error { return h.file(ctx, mainPath, next, 0644, true) })
+	if err != nil {
+		err = errors.Join(err, h.restoreFile(mainPath))
+	}
+	return errors.Join(err, h.removeCandidate())
 }
 func (h *host) removeCaddyTree(context.Context) error {
 	if _, ok := h.r.Dirs["/etc/caddy/brine"]; !ok {
@@ -1070,4 +1081,23 @@ func (h *host) reconcilePendingDirectories() error {
 		}
 	}
 	return nil
+}
+
+func (h *host) validateAndPromote(ctx context.Context, candidate string, promote func() error) error {
+	if _, err := h.run(ctx, false, "caddy", "validate", "--adapter", "caddyfile", "--config", candidate); err != nil {
+		return err
+	}
+	return promote()
+}
+
+func (h *host) removeCandidate() error {
+	path := recordDir + "/candidate.caddy"
+	if _, ok := h.r.Files[path]; !ok {
+		return nil
+	}
+	if err := h.restoreFile(path); err != nil {
+		return err
+	}
+	delete(h.r.Files, path)
+	return h.Save(h.r.Journal)
 }

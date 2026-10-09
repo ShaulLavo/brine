@@ -257,3 +257,51 @@ func TestPendingDirectoryCheckpoints(t *testing.T) {
 		t.Fatal("nonempty pending directory adopted")
 	}
 }
+
+func TestCaddyCandidateFailureDoesNotTouchLiveRoot(t *testing.T) {
+	dir := t.TempDir()
+	live := filepath.Join(dir, "Caddyfile")
+	original := []byte("original root\n")
+	if err := os.WriteFile(live, original, 0600); err != nil {
+		t.Fatal(err)
+	}
+	candidate := filepath.Join(dir, "candidate.caddy")
+	if err := os.WriteFile(candidate, []byte("candidate import\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, unknown := range []bool{false, true} {
+		f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) {
+			if c.Args[len(c.Args)-1] != candidate {
+				t.Fatal("validated live file instead of candidate")
+			}
+			if unknown {
+				return localexec.Result{}, context.DeadlineExceeded
+			}
+			return localexec.Result{}, errors.New("missing certificate")
+		}}
+		h := host{exec: f}
+		promoted := false
+		err := h.validateAndPromote(context.Background(), candidate, func() error { promoted = true; return os.WriteFile(live, []byte("changed"), 0600) })
+		if err == nil || promoted {
+			t.Fatalf("validation failure promoted=%v error=%v", promoted, err)
+		}
+		data, _ := os.ReadFile(live)
+		info, _ := os.Stat(live)
+		if string(data) != string(original) || info.Mode().Perm() != 0600 {
+			t.Fatal("original bytes/metadata changed")
+		}
+	}
+}
+func TestCaddyCandidateValidatedBeforePromotion(t *testing.T) {
+	validated := false
+	f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) { validated = true; return localexec.Result{}, nil }}
+	h := host{exec: f}
+	if err := h.validateAndPromote(context.Background(), "candidate.caddy", func() error {
+		if !validated {
+			t.Fatal("promotion preceded validation")
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
