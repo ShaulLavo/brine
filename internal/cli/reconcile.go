@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"slices"
+	"strings"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/reconcile"
@@ -12,6 +14,20 @@ import (
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/spf13/cobra"
 )
+
+// HostReconcilePreviewRequested selects a non-writing initializer before Cobra
+// runs. Invalid preview flags still cannot accidentally initialize the store.
+func HostReconcilePreviewRequested(args []string) bool {
+	if !HostRuntimeRequested(args) || !slices.Contains(args, "reconcile") {
+		return false
+	}
+	for _, arg := range args {
+		if arg == "--dry-run" || strings.HasPrefix(arg, "--dry-run=") && arg != "--dry-run=false" {
+			return true
+		}
+	}
+	return false
+}
 
 func newReconcileCmd(machine *bool, deps Dependencies) *cobra.Command {
 	var flags operationFlags
@@ -29,6 +45,9 @@ func newReconcileCmd(machine *bool, deps Dependencies) *cobra.Command {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), report))
 		}
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Reconciliation inspected %d unfinished operations (dry-run: %t).\n", len(report.Outcomes), report.DryRun)
+		if report.ControlState != "" && err == nil {
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Control state: %s. No recovery assessment was made.\n", report.ControlState)
+		}
 		for _, outcome := range report.Outcomes {
 			if err != nil {
 				return err

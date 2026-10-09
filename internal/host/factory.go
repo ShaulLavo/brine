@@ -11,6 +11,7 @@ type ServerFactory struct {
 	version       string
 	authenticated string
 	open          func(context.Context, string) (*Runtime, error)
+	previewOpen   func(context.Context, string) (*Runtime, error)
 	inventory     func(context.Context) (dispatch.Inventory, error)
 	closeRuntime  func() error
 }
@@ -19,7 +20,7 @@ func NewServerFactory(version, capturedMarker string) *ServerFactory {
 	return newServerFactory(version, capturedMarker, Open, func(ctx context.Context) (dispatch.Inventory, error) { return NewInventory(ctx) })
 }
 func newServerFactory(version, marker string, open func(context.Context, string) (*Runtime, error), inventory func(context.Context) (dispatch.Inventory, error)) *ServerFactory {
-	return &ServerFactory{version: version, authenticated: marker, open: open, inventory: inventory}
+	return &ServerFactory{version: version, authenticated: marker, open: open, previewOpen: OpenPreview, inventory: inventory}
 }
 func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server, error) {
 	if _, ok := dispatch.ClassOf(op); !ok {
@@ -38,7 +39,11 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 		}
 		return dispatch.NewServer(f.version, collector), nil
 	}
-	runtime, err := f.open(ctx, f.authenticated)
+	open := f.open
+	if op == "reconcile" && dispatch.IsReconcilePreview(ctx) {
+		open = f.previewOpen
+	}
+	runtime, err := open(ctx, f.authenticated)
 	if err != nil {
 		return nil, err
 	}

@@ -52,7 +52,7 @@ func OpenReadOnly(ctx context.Context, stateDir string) (*Store, error) {
 		}
 		return nil, &SchemaError{version}
 	}
-	return &Store{db: db, dir: dir}, nil
+	return &Store{db: db, dir: dir, readOnly: true}, nil
 }
 
 // AppNames includes committed apps and apps with pending or failed operations.

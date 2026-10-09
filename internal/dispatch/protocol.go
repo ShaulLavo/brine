@@ -126,6 +126,14 @@ type DiagnosticReader interface {
 	Read(context.Context, diagnose.Request) (diagnose.Report, error)
 }
 
+// previewRequestKey is set only after strict request/argument validation.
+type previewRequestKey struct{}
+
+func IsReconcilePreview(ctx context.Context) bool {
+	dry, _ := ctx.Value(previewRequestKey{}).(bool)
+	return dry
+}
+
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
@@ -166,6 +174,10 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
+	args, _ := operations[request.Op].decode(request.Args)
+	if preview, ok := args.(ReconcileArgs); ok && preview.DryRun {
+		ctx = context.WithValue(ctx, previewRequestKey{}, true)
+	}
 	if s.Factory != nil {
 		configured, err := s.Factory(ctx, request.Op)
 		if err != nil {
@@ -175,7 +187,6 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			s = configured
 		}
 	}
-	args, _ := operations[request.Op].decode(request.Args)
 	class := operations[request.Op].class
 	if reconcile, ok := args.(ReconcileArgs); ok && reconcile.DryRun {
 		class = ReadOnly

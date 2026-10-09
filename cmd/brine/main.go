@@ -45,7 +45,11 @@ func main() {
 		deps.HostServerFactory = factory.Build
 		closeRuntime = factory.Close
 	} else if cli.HostRuntimeRequested(os.Args[1:]) {
-		runtime, err := host.Open(ctx, authenticated)
+		open := host.Open
+		if cli.HostReconcilePreviewRequested(os.Args[1:]) {
+			open = host.OpenPreview
+		}
+		runtime, err := open(ctx, authenticated)
 		if err == nil {
 			closeRuntime = runtime.Close
 			deps.HostOperationRunner = runtime.Runner

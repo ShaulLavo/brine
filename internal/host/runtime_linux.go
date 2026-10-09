@@ -30,7 +30,13 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-func Open(ctx context.Context, authenticated string) (_ *Runtime, err error) {
+func Open(ctx context.Context, authenticated string) (*Runtime, error) {
+	return openRuntime(ctx, authenticated, false)
+}
+func OpenPreview(ctx context.Context, authenticated string) (*Runtime, error) {
+	return openRuntime(ctx, authenticated, true)
+}
+func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Runtime, err error) {
 	identity, err := user.LookupId(strconv.Itoa(os.Geteuid()))
 	if err != nil || identity.Username != "brine" || identity.HomeDir != "/home/brine" || os.Geteuid() == 0 {
 		return nil, result.New(result.DispatchOperationRefused, nil)
@@ -39,7 +45,20 @@ func Open(ctx context.Context, authenticated string) (_ *Runtime, err error) {
 	if e != nil {
 		return nil, e
 	}
-	state, err := store.Open(filepath.Join(identity.HomeDir, ".local/state/brine"))
+	var state *store.Store
+	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
+	if preview {
+		read, e := openPreviewState(ctx, stateDir)
+		if e != nil {
+			return nil, e
+		}
+		if read.previewStore == nil {
+			return read, nil
+		}
+		state = read.previewStore
+	} else {
+		state, err = store.Open(stateDir)
+	}
 	if err != nil {
 		return nil, result.New(result.DependencyMissing, err)
 	}
@@ -104,6 +123,9 @@ func Open(ctx context.Context, authenticated string) (_ *Runtime, err error) {
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
+	if preview {
+		r.Reconciler = readOnlyReconciler{reconciler}
+	}
 	r.Authorize = service.Authorize
 	r.close = func() error {
 		var errs []error

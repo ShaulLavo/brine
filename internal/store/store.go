@@ -59,8 +59,11 @@ type StateConflictError = ops.StateConflictError
 var ErrStateConflict = ops.ErrStateConflict
 
 type Store struct {
-	db  *sql.DB
-	dir string
+	db                         *sql.DB
+	dir                        string
+	readOnly                   bool
+	previewHost, previewLaunch ops.Lock
+	cleanup                    func() error
 }
 
 // Open requires an existing private runner state directory. The connection pool
@@ -104,7 +107,13 @@ func Open(stateDir string) (*Store, error) {
 	}
 	return s, nil
 }
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	err := s.db.Close()
+	if s.cleanup != nil {
+		err = errors.Join(err, s.cleanup())
+	}
+	return err
+}
 
 func (s *Store) migrate(ctx context.Context) error {
 	tx, err := s.db.BeginTx(ctx, nil)

@@ -44,8 +44,9 @@ type Outcome struct {
 	Step        string    `json:"step,omitempty"`
 }
 type Report struct {
-	DryRun   bool      `json:"dry_run"`
-	Outcomes []Outcome `json:"outcomes"`
+	ControlState string    `json:"control_state,omitempty"`
+	DryRun       bool      `json:"dry_run"`
+	Outcomes     []Outcome `json:"outcomes"`
 }
 type Reconciler struct {
 	Store    Store

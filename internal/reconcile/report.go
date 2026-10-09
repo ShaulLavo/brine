@@ -10,7 +10,17 @@ import (
 )
 
 func DecodeReport(raw json.RawMessage) (Report, error) {
-	fields, err := strictjson.Object(raw, "dry_run", "outcomes")
+	var header struct {
+		ControlState string `json:"control_state"`
+	}
+	if json.Unmarshal(raw, &header) != nil {
+		return Report{}, strictjson.ErrObject
+	}
+	keys := []string{"dry_run", "outcomes"}
+	if header.ControlState != "" {
+		keys = append(keys, "control_state")
+	}
+	fields, err := strictjson.Object(raw, keys...)
 	if err != nil {
 		return Report{}, err
 	}
@@ -22,7 +32,13 @@ func DecodeReport(raw json.RawMessage) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	report := Report{DryRun: dry, Outcomes: []Outcome{}}
+	report := Report{DryRun: dry, Outcomes: []Outcome{}, ControlState: header.ControlState}
+	if header.ControlState != "" {
+		state, e := strictjson.Value[string](fields["control_state"])
+		if e != nil || !dry || len(raws) != 0 || !slices.Contains([]string{"database_missing", "schema_upgrade_required", "schema_unsupported", "preview_unavailable"}, state) {
+			return Report{}, strictjson.ErrObject
+		}
+	}
 	for _, raw := range raws {
 		var outcome Outcome
 		if json.Unmarshal(raw, &outcome) != nil {
