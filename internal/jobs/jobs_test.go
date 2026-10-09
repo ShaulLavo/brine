@@ -11,6 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/systemd"
 )
 
@@ -274,5 +275,51 @@ func TestLaunchOutcomeCannotOverwriteExecutorProgress(t *testing.T) {
 		if err != nil || accepted.OperationID != "op1" || s.operation.State != ops.Preflight {
 			t.Fatalf("clobbered progress: %+v state=%s err=%v", accepted, s.operation.State, err)
 		}
+	}
+}
+
+type reconcileFunc func(context.Context, ops.Lock, string, bool) error
+
+func (f reconcileFunc) ReconcileUnderLock(ctx context.Context, lock ops.Lock, id string, dry bool) error {
+	return f(ctx, lock, id, dry)
+}
+
+func TestRunnerReconcilesUnderLockBeforeExecution(t *testing.T) {
+	for _, refuse := range []bool{false, true} {
+		s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "sha256:" + strings.Repeat("a", 64), State: ops.Queued}}
+		called, executed := false, false
+		blocked := errors.New("reconcile refused")
+		r := Runner{Store: s, Reconciler: reconcileFunc(func(_ context.Context, lock ops.Lock, id string, dry bool) error {
+			called = true
+			if !s.locked || lock == nil || id != "op1" || dry {
+				t.Fatal("reconciliation must share the held lock and exclude the current operation")
+			}
+			if refuse {
+				return blocked
+			}
+			return nil
+		}), Executor: execFunc(func(context.Context, string, plan.Plan, policy.Desired) error {
+			executed = true
+			if !called || !s.locked {
+				t.Fatal("execution preceded locked reconciliation")
+			}
+			s.operation.State = ops.Succeeded
+			return nil
+		})}
+		err := r.Run(context.Background(), "op1")
+		if !called || s.locked || executed == refuse || (refuse && !errors.Is(err, blocked)) || (!refuse && err != nil) {
+			t.Fatalf("called=%v executed=%v locked=%v error=%v", called, executed, s.locked, err)
+		}
+	}
+}
+
+func TestConflictAfterEffectsRequiresRecovery(t *testing.T) {
+	s := &fakeStore{operation: ops.Operation{ID: "op1", PlanID: "sha256:" + strings.Repeat("a", 64), State: ops.Queued}}
+	r := Runner{Store: s, Executor: execFunc(func(context.Context, string, plan.Plan, policy.Desired) error {
+		s.operation.State = ops.Preparing
+		return result.New(result.Conflict, nil)
+	})}
+	if err := r.Run(context.Background(), "op1"); err == nil || s.operation.State != ops.RecoveryRequired {
+		t.Fatalf("conflict after effects became safe refusal: state=%s error=%v", s.operation.State, err)
 	}
 }

@@ -24,6 +24,8 @@ type Dependencies struct {
 	LookPath              func(string) (string, error)
 	RunTUI                func(context.Context, io.Reader, io.Writer) error
 	DoctorRunner          localexec.Runner // Optional; nil uses bounded local execution.
+	HostServerFactory     dispatch.Factory
+	HostPlanner           dispatch.Planner
 	HostInventory         dispatch.Inventory
 	HostUID               func() int // Optional; nil reads the effective process UID.
 	OriginalCommandLength int
@@ -75,7 +77,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newApplyCmd(&jsonOutput, deps), newOperationStatusCmd(&jsonOutput, &modes, deps), newRollbackCmd(deps, &modes))
 	root.AddCommand(newValidateCmd(&jsonOutput))
-	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version))
+	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version, deps))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps))
 	for _, cmd := range root.Commands() {
 		if cmd.Args == nil {

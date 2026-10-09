@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/planfile"
 	"github.com/ShaulLavo/brine/internal/planview"
@@ -50,17 +51,49 @@ func newValidateCmd(machine *bool) *cobra.Command {
 	return cmd
 }
 
-func newPlanCmd(machine *bool, version string) *cobra.Command {
+func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command {
 	var offline bool
+	var connected operationFlags
 	var snapshotPath, policyPath, statePath, outDir string
 	cmd := &cobra.Command{
-		Use:   "plan <brine.toml> --offline --snapshot <snapshot.json> --policy <policy file>",
-		Short: "Preview a non-applyable offline plan without contacting a host",
-		Long:  "Preview a non-applyable offline plan. Connected planning is not available until Phase 02/03. Image platform is an offline assumption from the snapshot, not a registry verification.",
+		Use:   "plan <brine.toml> --target NAME | --offline --snapshot <snapshot.json> --policy <policy file>",
+		Short: "Plan on an enrolled host or preview a non-applyable offline plan",
+		Long:  "Preview a non-applyable offline plan. Use --target NAME for connected planning on an enrolled host. Image platform is an offline assumption from the snapshot, not a registry verification.",
 		Args:  offlineSpecArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !offline {
-				return result.New(result.OfflineRequired, nil)
+				if connected.target == "" {
+					return result.New(result.OfflineRequired, nil)
+				}
+				if snapshotPath != "" || policyPath != "" || statePath != "" || outDir != "" {
+					return result.New(result.InvalidUsage, nil)
+				}
+				raw, err := readOfflineInput(args[0], dispatch.RequestLimit/2)
+				if err != nil {
+					return err
+				}
+				if _, err = spec.Parse(raw); err != nil {
+					return err
+				}
+				response, err := connected.call(cmd.Context(), deps, "plan", dispatch.PlanArgs{Spec: string(raw)})
+				if err != nil {
+					return err
+				}
+				p, ok := response.Data.(dispatch.Planned)
+				if !response.OK || !ok {
+					return result.New(result.TransportInvalidResponse, nil)
+				}
+				if *machine {
+					return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), p))
+				}
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Plan %s: %s\n", p.PlanID, p.Kind)
+				if err == nil && p.Diff != nil {
+					err = json.NewEncoder(cmd.OutOrStdout()).Encode(p.Diff)
+				}
+				return err
+			}
+			if connected.target != "" {
+				return result.New(result.InvalidUsage, nil)
 			}
 			if snapshotPath == "" || (cmd.Flags().Changed("state") && statePath == "") || (cmd.Flags().Changed("out") && outDir == "") {
 				return result.New(result.InvalidUsage, nil)
@@ -142,6 +175,7 @@ func newPlanCmd(machine *bool, version string) *cobra.Command {
 			return err
 		},
 	}
+	connected.register(cmd)
 	cmd.Flags().BoolVar(&offline, "offline", false, "Require local snapshot planning; never contact infrastructure")
 	cmd.Flags().StringVar(&snapshotPath, "snapshot", "", "Target snapshot JSON file")
 	cmd.Flags().StringVar(&policyPath, "policy", "", "Explicit operator policy TOML file")

@@ -122,7 +122,7 @@ func TestForcedPolicyMissingAndDuplicateFields(t *testing.T) {
 }
 
 func TestPolicyForcesDispatcherForAnyAuthorizationSource(t *testing.T) {
-	if !strings.Contains(sshPolicy, "ForceCommand /usr/local/bin/brine host serve") {
+	if !strings.Contains(sshPolicy, "ForceCommand /usr/bin/env BRINE_AUTHENTICATED=deploy /usr/local/bin/brine host serve") {
 		t.Fatal("certificate or future authorization could bypass key-local forced command")
 	}
 }

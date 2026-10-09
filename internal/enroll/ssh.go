@@ -9,12 +9,30 @@ import (
 const sshDir = "/etc/ssh/brine"
 const sshKeyDir = sshDir + "/authorized_keys"
 const sshKeyPath = sshKeyDir + "/brine"
+const operatorPolicyPath = sshDir + "/operator-policy.toml"
+const requesterPath = sshDir + "/requester"
+const defaultOperatorPolicy = `schema_version = 1
+version = "enrollment-1"
+caddy_port = 443
+allowed_registries = []
+allowed_domains = []
+persistent_roots = []
+minimum_free_disk_bytes = 1073741824
+[app_ports]
+min = 20000
+max = 20999
+[resources]
+memory_mb = 512
+pids_limit = 128
+[allowed_secrets]
+`
+
 const sshIdentityPath = sshDir + "/inventory-key"
 const sshPolicyPath = "/etc/ssh/sshd_config.d/00-brine-brine.conf"
 const sshPolicyCandidate = "/var/lib/brine-enrollment/candidate-ssh-policy.conf"
 const sshMainCandidate = "/var/lib/brine-enrollment/candidate-sshd.conf"
 const sshPolicy = `Match User brine
-    ForceCommand /usr/local/bin/brine host serve
+    ForceCommand /usr/bin/env BRINE_AUTHENTICATED=deploy /usr/local/bin/brine host serve
     AuthorizedKeysFile /etc/ssh/brine/authorized_keys/%u
     AuthorizedKeysCommand none
     AuthorizedPrincipalsFile none
@@ -70,7 +88,7 @@ func checkForcedSSH(out string) error {
 	if err := checkGlobalSSH(out); err != nil {
 		return err
 	}
-	return checkSSHValues(out, map[string]string{"forcecommand": "/usr/local/bin/brine host serve", "authorizedkeysfile": "/etc/ssh/brine/authorized_keys/%u", "authorizedkeyscommand": "none", "authorizedprincipalsfile": "none", "allowtcpforwarding": "no", "allowagentforwarding": "no", "x11forwarding": "no", "permittty": "no", "permittunnel": "no", "gatewayports": "no", "allowstreamlocalforwarding": "no"})
+	return checkSSHValues(out, map[string]string{"forcecommand": "/usr/bin/env BRINE_AUTHENTICATED=deploy /usr/local/bin/brine host serve", "authorizedkeysfile": "/etc/ssh/brine/authorized_keys/%u", "authorizedkeyscommand": "none", "authorizedprincipalsfile": "none", "allowtcpforwarding": "no", "allowagentforwarding": "no", "x11forwarding": "no", "permittty": "no", "permittunnel": "no", "gatewayports": "no", "allowstreamlocalforwarding": "no"})
 }
 
 // Client environment permits locale patterns and exact display-only names.
