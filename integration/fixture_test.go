@@ -260,6 +260,8 @@ func (f fixture) prepare() {
 	f.health(p.HostPort)
 	f.runtimeChecks()
 	f.caddyFailureChecks(&r, main)
+	check(f.t, validateFixtureInventory(f.collect(), r))
+	f.t.Log("live inventory exactly matches recorded unit, secret and Caddy hashes/bindings")
 	f.t.Log("prepare complete; fixture persists, reboot controlled by operator")
 }
 
@@ -331,21 +333,28 @@ func (f fixture) probe() {
 	f.runtimeChecks()
 	props := must(f.sd.Show(f.ctx, f.service))
 	f.t.Logf("unit active at %.3f seconds after boot", float64(props.ActiveEnterTimestampMonotonic)/1e6)
-	s := f.collect()
+	check(f.t, validateFixtureInventory(f.collect(), r))
+	f.t.Log("post-reboot inventory binds app, live port, unit hash, generation and secret name/ID")
+}
+
+func validateFixtureInventory(s target.Snapshot, r receipt) error {
 	if s.Apps.Value == nil || len(*s.Apps.Value) != 1 || (*s.Apps.Value)[0].Name != fixtureName {
-		f.t.Fatal("inventory lost fixture app")
+		return fmt.Errorf("inventory lost fixture app")
 	}
 	app := (*s.Apps.Value)[0]
-	if app.Secrets.Value == nil || len(*app.Secrets.Value) != 1 || (*app.Secrets.Value)[0].Name != secretName {
-		f.t.Fatal("inventory lost fixture secret")
+	if app.QuadletUnits.Value == nil || len(*app.QuadletUnits.Value) != 1 || (*app.QuadletUnits.Value)[0] != (target.Unit{Name: "fixture.container", Hash: r.UnitHash}) {
+		return fmt.Errorf("inventory unit hash differs from fixture receipt")
+	}
+	if len(r.Plan.Secrets) != 1 || r.Plan.Secrets[0].ID == "" || r.Plan.Secrets[0].VersionName != secretName || app.Secrets.Value == nil || len(*app.Secrets.Value) != 1 || (*app.Secrets.Value)[0] != (target.Secret{Name: secretName, ID: r.Plan.Secrets[0].ID}) {
+		return fmt.Errorf("inventory secret binding differs from fixture plan")
 	}
 	if app.AllocatedHostPort.Value == nil || *app.AllocatedHostPort.Value != r.Plan.HostPort {
-		f.t.Fatal("inventory lost running fixture port")
+		return fmt.Errorf("inventory lost running fixture port")
 	}
-	if s.CaddyConfig.Value == nil || s.CaddyConfig.Value.Generation != r.Caddy.Generation || len(s.CaddyConfig.Value.Files) != 1 {
-		f.t.Fatal("inventory lost Caddy generation")
+	if s.CaddyConfig.Value == nil || s.CaddyConfig.Value.Generation != r.Caddy.Generation || len(s.CaddyConfig.Value.Files) != 1 || s.CaddyConfig.Value.Files[0] != (target.CaddyFile{Name: "fixture.caddy", Hash: r.Caddy.Files["fixture.caddy"]}) {
+		return fmt.Errorf("inventory Caddy binding differs from fixture receipt")
 	}
-	f.t.Log("post-reboot inventory binds app, live port, unit hash, generation and secret name/ID")
+	return nil
 }
 
 func (f fixture) cleanup() {

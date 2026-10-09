@@ -1,0 +1,238 @@
+Phase 02 fixture integration evidence
+Date: 2026-10-09
+Status: Completed for the explicitly authorized Debian 13 arm64 fixture host.
+Scope: P02-06 and the remaining runtime portions of P02-07. This is adapter
+integration, not a production deployment endpoint or Phase 03 apply engine.
+
+Execution boundary
+------------------
+The integration package requires linux + pi_integration and an explicit
+-fixture-stage. Ordinary tests skip hardware execution; normal CLI builds do
+not contain these stages. The release dispatcher still permits only ping and
+inventory. The test executable ran as the existing unprivileged enrolled
+runner, using account-derived home, runtime directory and user bus, an
+accessible working directory, typed adapter arguments and bounded deadlines.
+Operator access only installed/removed the test executable, performed the two
+authorized reboots and removed the fixture's generated TLS certificate files.
+No account removal, SSH configuration change, package installation, tailnet,
+DNS, firewall, VPS or unrelated-service change was performed by this lane.
+The existing enrollment, linger, release binary and package-default site remain.
+
+Important planner exception: fixture-only route projection
+---------------------------------------------------------
+Real inventory observes the packaged default HTTP site as an unowned catch-all.
+The real planner correctly refuses this input with exactly domain_owned. The
+harness asserts that refusal, then passes a fixture-only snapshot projection
+with an empty LiveCaddyFiles observation to the pure planner. This is not a
+conflict-free connected-apply plan. Production ownership checks were not
+weakened, and this projection must NEVER be used by connected apply. Whole-root
+Caddy validation still includes the untouched packaged site and its exact
+original main-file bytes. The separately scoped local fixture route is the
+only added route. Phase 03 must resolve ownership explicitly or refuse.
+
+Pins and exact versions
+-----------------------
+Go toolchain: go1.27.2; existing go.mod dependency pins unchanged.
+Image: docker.io/nginxinc/nginx-unprivileged
+Index digest:
+ sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8
+Selected linux/arm64 manifest:
+ sha256:e00b7e2763a0dfec9ec6d99253612510c253df47d7218cdd35c4e465b4e9ad1f
+Both were checked by the real Podman pull/inspect adapters. No mutable tag was
+used in the fixture spec or unit. The known plan.Image.ManifestDigest value was
+passed directly to quadlet.Render. A different manifest now fails rendering
+when the plan records a known digest; its regression test failed before the fix.
+
+Installed package revisions, queried directly after final cleanup:
+ caddy             2.6.2-12+deb13u1
+ conmon            2.1.12-4
+ crun              1.21-1
+ dbus-user-session 1.16.2-2
+ passt             0.0~git20250503.587980c-2+deb13u1
+ podman            5.4.2+ds1-2+b2
+ systemd           257.13-1~deb13u1
+ uidmap            1:4.17.4-2
+Second-reboot arm64 test executable SHA-256:
+ 4a2275bd3a77d86ef6c8689087212ce4950079224e8770851f2b227696b6d9d7
+Final binding-check executable SHA-256:
+ 9e390f611a3e935d8bed79ed085b1c4b153715090958c44cf1ab3e1a84dee125
+Each remote copy matched before its removal.
+
+Real adapter path
+-----------------
+Spec parsing and policy normalization allocate one nonprivileged loopback host
+port and container port, memory/PID limits and one immutable Podman secret
+binding. The secret has public fixture-only bytes, travels through adapter
+stdin and is verified inside the running container without logging its value.
+Ordinary environment text containing quote, slash, percent, dollar and Unicode
+characters also round-trips through the executed generated unit.
+
+Quadlet renders from the typed desired input and recorded plan. The stateless
+installer validates an isolated candidate with the real user generator, then
+atomically installs it. The generator seam is test-only: it adds the fixed
+QUADLET_UNIT_DIRS override needed for isolated validation, without expanding
+the release subprocess environment allowlist. The real user-manager adapter
+reloads and starts the generated service. No shell-generated unit is used.
+
+Caddy stages, validates and adapts the complete candidate root, publishes a
+checked generation and calls the real systemd reload adapter through the
+existing reload-only polkit rule. Direct and routed probes require HTTP 200
+and the expected image welcome body. The harness polls for at most 45 seconds,
+with two-second requests, one-second dials and a bounded response body. The
+reserved local fixture name is explicitly dialed on loopback. Fixture HTTPS
+certificate verification is disabled only in this test client: this is not
+public ACME, public DNS or publicly trusted TLS evidence.
+
+Before each isolation probe, host-side Caddy admin access succeeds. Container
+requests to admin then fail through container loopback and both generated
+host aliases. This positive control avoids a vacuous denial test.
+
+Live inventory discovered the actual renderer-owned, unprefixed unit. A narrow
+Podman inspect observation verifies a running container, its generated-service
+label and exactly one loopback TCP binding before returning a known live port.
+Stopped/malformed/wrong-label/multiple-port/off-loopback cases remain unknown.
+Markers and runtime observations do not confer replacement authority. The
+unit-discovery and port regression tests first failed, then passed after the
+collector fix. Image identity in generic inventory remains unknown.
+
+Failure drills
+--------------
+1. A real invalid candidate fails validation before activation. Prior disk
+   hashes and the healthy served route remain unchanged.
+2. The test seam inserts an invalid directive only into the newly activated
+   fixture file, after validation. A real systemd Caddy reload fails. The seam
+   restores those bytes; the adapter restores the prior generation and reloads
+   it. Outcome is RolledBack with exactly two reload calls. Health still passes.
+3. A real successful reload is followed by an injected lost acknowledgement
+   (context deadline error). Outcome is Unknown after exactly one reload call;
+   the uncertain manager refuses further use. A fresh observation checks the
+   intended generation hashes, and full adapted disk JSON equals live admin
+   JSON. The caller reconciles without another mutation or blind retry.
+   This acknowledgement loss is injected, not a naturally occurring timeout.
+   It proves this caller seam, not durable restart-time apply reconciliation.
+
+The private fixture receipt uses atomic rename plus file/directory sync. It is
+not an operation journal, authorization record, lock or production BrineState.
+
+Two full reboot observations
+----------------------------
+Both preflights found no update process, no held package-manager lock and no
+running Brine process. Each recorded three interactive sessions: one operator
+SSH session and two local console sessions. The owner had explicitly allowed
+the reboot interruption. No individual session was killed or reconfigured.
+Exactly two reboots were performed, the maximum authorized by the brief.
+
+External polling waited for a changed boot ID and, BEFORE invoking any Brine
+or fixture test process, independently checked the active user unit, direct
+expected body and routed expected body using systemctl and curl only.
+
+ Reboot 1: unit active at 26.005415 seconds after boot;
+           first independent healthy observation at uptime 26.97 seconds.
+ Reboot 2: unit active at 25.599697 seconds after boot;
+           first independent healthy observation at uptime 28.17 seconds.
+
+These are measured first-observation upper bounds, not exact HTTP-ready times
+or a production performance baseline. Both independent checks passed without
+postboot start, restart or daemon reload. The subsequent read-only probe stage
+checked the changed boot ID, runtime/secret/environment/admin isolation and
+inventory app identity, live port, generation and secret name.
+
+The reboot-tested source was redeployed after the first cleanup, proving
+repeatability from the retained empty nonzero Caddy generation. That prepare
+included all three failure drills and passed in 38.70 seconds. Its postboot
+probe passed in 2.45 seconds; cleanup passed in 3.14 seconds.
+
+Final review found that the probe's log overstated its assertions: it observed
+unit hashes and secret IDs but did not compare them with the fixture receipt.
+The final helper now checks exact unit name/hash, secret name/ID, Caddy file
+name/hash, generation and live port. Synthetic regressions reject each altered
+binding. A further real prepare/cleanup cycle, WITHOUT another reboot, verified
+the strengthened comparisons against live inventory and repeated all failure
+drills: prepare 51.32 seconds, cleanup 7.49 seconds. The helper is shared with
+postboot probe, but its extra exact-binding assertions were not rerun across a
+reboot because the two-reboot authorization limit had already been reached.
+
+Scrubbed final output excerpts
+-----------------------------
+ verified immutable multi-platform index and arm64 manifest
+ real planner refuses the unowned catch-all; fixture-only route scope does not authorize connected apply
+ direct and routed HTTP 200 with expected fixture body
+ secret and escaped environment delivered; admin denied via loopback and both aliases
+ invalid candidate rejected; prior disk and live route unchanged
+ real systemd reload rejected invalid activated fixture config; adapter rolled back and reloaded prior generation
+ lost-success acknowledgement injected after real reload; fresh disk and live admin reads reconciled without another mutation
+ active_unit_direct_route_pass_without_brine
+ live inventory exactly matches recorded unit, secret and Caddy hashes/bindings
+ fixture resources removed; enrollment and empty Caddy generation retained
+ pinned transport ping and ignored shell-command probe pass; restricted inventory has an empty app set
+ fixture_certificate_and_test_binary_removed; no_fixture_listener_or_live_route; empty_generation_and_enrollment_retained
+
+Cleanup and retained state
+--------------------------
+Cleanup removes the fixture Caddy entry, stops its unit, removes the installed
+Quadlet source by exact recorded hash, reloads the user manager, and removes
+only its named secret and pinned image. It checks prior-generation bytes and
+candidate-root bytes before removing fixture-generated artifacts. The main
+Caddyfile hash remains unchanged. Final Podman container/image/secret listings
+are empty, there is no fixture listener or live route, and the Caddy tree has
+only current plus one empty generation. The private receipt is absent.
+
+Operator cleanup required exactly the three regular, singly linked,
+Caddy-owned certificate files in the fixture-local directory before removal.
+The shared Caddy internal CA remains shared service state. The lane-installed
+root-owned test executable was removed only after its checksum matched the
+local executable. No preexisting key material was inspected or deleted.
+
+After cleanup, the real pinned restricted transport passed ping, ignored an
+unrelated requested shell command and returned an empty app set and empty
+Caddy files through inventory. Existing enrollment and linger remain intact.
+P02-07 account-deletion/D7 acceptance comes from the earlier merged enrollment
+evidence in the Phase 02 plan, not from deleting the enrolled runner again.
+
+Reproduction entry points (require fresh explicit host authorization)
+--------------------------------------------------------------------
+Local, no hardware mutation:
+ go test ./...
+ go vet ./...
+ go build -o "$SCRATCH/brine" ./cmd/brine
+ go test -tags pi_integration ./integration/...
+ go vet -tags pi_integration ./integration/...
+ go test -race ./...
+ gofmt -l ./cmd ./internal ./integration
+ git diff --check
+
+Cross-compile the test executable:
+ CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go test -tags pi_integration -c -o "$SCRATCH/pi-fixture.test" ./integration
+
+On a separately authorized, already-enrolled empty fixture host, install that
+executable through operator access and invoke as the unprivileged runner:
+ pi-fixture.test -test.v -test.run '^TestPiFixture$' -fixture-stage prepare
+The prepare stage includes the failure drills. Optional drills reruns those
+checks against the existing receipt. Reboot is intentionally an operator
+operation, NOT a harness stage. Check update locks/processes and sessions
+first; independently inspect recovery before running:
+ pi-fixture.test -test.v -test.run '^TestPiFixture$' -fixture-stage probe
+ pi-fixture.test -test.v -test.run '^TestPiFixture$' -fixture-stage cleanup
+
+Read-only restricted-client check with private enrollment config:
+ go test -tags pi_integration ./integration/... -run TestRestrictedClientAfterCleanup -v -args -fixture-target "$PRIVATE_TARGET_CONFIG"
+Never commit the config, receipt, boot IDs, SSH identifiers or raw inventory.
+Also remove the checked test executable and fixture-only certificate files.
+
+Acceptance and deferrals
+------------------------
+T05: real generator/install/start and runtime escaping/secret injection.
+T06: independent recovery after two full host reboots.
+T11: real route validation/reload, invalid candidate and rollback; injected
+     unknown acknowledgement reconciled by fresh read-only observations.
+T17: container admin isolation and retained restricted dispatcher access;
+     wider enrollment bypass coverage is earlier merged evidence.
+This does not claim complete coverage of every scenario in those matrix rows.
+
+Phase 03 must provide the durable operation journal, mutation locks,
+restart-time reconciliation, committed ownership/state, authorization and
+restricted-dispatcher-driven apply. It must reject unknown image manifests
+and must not reuse the fixture-only routing projection. No amd64 deployment,
+fresh-package activation, all-users-logged-out recovery, power-loss durability,
+production apply, database rollback, Litestream/R2 restore or public TLS was
+verified. Database and application rollback remain separate operations.
