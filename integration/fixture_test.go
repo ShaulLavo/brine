@@ -42,7 +42,7 @@ const secretName = "brine-fixture-token-v1"
 const fixtureHost = "fixture.localhost"
 const caddyRoot = "/etc/caddy/brine"
 
-var stage = flag.String("fixture-stage", "", "explicitly authorized runner fixture stage: prepare, drills, probe, cleanup")
+var stage = flag.String("fixture-stage", "", "explicitly authorized runner fixture stage: prepare, drills, plans, probe, cleanup")
 
 type receipt struct {
 	Plan     plan.Plan
@@ -123,7 +123,7 @@ func TestPiFixture(t *testing.T) {
 	if *stage == "" {
 		t.Skip("requires named disposable host authorization and -fixture-stage")
 	}
-	if *stage != "prepare" && *stage != "probe" && *stage != "cleanup" && *stage != "drills" {
+	if *stage != "prepare" && *stage != "probe" && *stage != "cleanup" && *stage != "drills" && *stage != "plans" {
 		t.Fatal("unknown fixture stage")
 	}
 	identity := must(user.Current())
@@ -141,6 +141,11 @@ func TestPiFixture(t *testing.T) {
 	case "drills":
 		r := f.load()
 		f.caddyFailureChecks(&r, must(os.ReadFile("/etc/caddy/Caddyfile")))
+	case "plans":
+		r := f.load()
+		snapshot := f.collect()
+		check(f.t, validateFixtureInventory(snapshot, r))
+		f.checkInstalledPlans(snapshot, r)
 	case "probe":
 		f.probe()
 	case "cleanup":
@@ -260,7 +265,9 @@ func (f fixture) prepare() {
 	f.health(p.HostPort)
 	f.runtimeChecks()
 	f.caddyFailureChecks(&r, main)
-	check(f.t, validateFixtureInventory(f.collect(), r))
+	snapshot := f.collect()
+	check(f.t, validateFixtureInventory(snapshot, r))
+	f.checkInstalledPlans(snapshot, r)
 	f.t.Log("live inventory exactly matches recorded unit, secret and Caddy hashes/bindings")
 	f.t.Log("prepare complete; fixture persists, reboot controlled by operator")
 }
@@ -342,6 +349,9 @@ func validateFixtureInventory(s target.Snapshot, r receipt) error {
 		return fmt.Errorf("inventory lost fixture app")
 	}
 	app := (*s.Apps.Value)[0]
+	if app.Image.Status != target.KnownStatus || app.Image.Value == nil || *app.Image.Value != (target.Image{Digest: r.Plan.Image.Digest, Platform: r.Plan.Image.Platform}) {
+		return fmt.Errorf("inventory image differs from fixture receipt")
+	}
 	if app.QuadletUnits.Value == nil || len(*app.QuadletUnits.Value) != 1 || (*app.QuadletUnits.Value)[0] != (target.Unit{Name: "fixture.container", Hash: r.UnitHash}) {
 		return fmt.Errorf("inventory unit hash differs from fixture receipt")
 	}
@@ -567,4 +577,23 @@ func writeSynced(path string, b []byte) error {
 		e = file.Sync()
 	}
 	return errors.Join(e, file.Close())
+}
+
+func (f fixture) checkInstalledPlans(snapshot target.Snapshot, r receipt) {
+	// The package catch-all remains protected. Scope only this adapter fixture's
+	// route, as prepare does; this does not grant connected apply authority.
+	snapshot.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{Name: "fixture.caddy", App: fixtureName, Domains: target.Known([]string{fixtureHost})}})
+	units := *(*snapshot.Apps.Value)[0].QuadletUnits.Value
+	state := plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{{App: fixtureName, ID: "fixture-release", Desired: f.desired, Image: r.Plan.Image, HostPort: r.Plan.HostPort, Secrets: r.Plan.Secrets, Units: units, CaddyFile: target.CaddyFile{Name: "fixture.caddy", Hash: r.Caddy.Files["fixture.caddy"]}}}}
+	input := plan.Input{Desired: f.desired, Snapshot: snapshot, Image: r.Plan.Image, State: state}
+	p := must(plan.Build(input))
+	if p.Kind != plan.NoOp {
+		f.t.Fatalf("installed fixture no-op refused: %+v", p.Conflicts)
+	}
+	input.Desired.Environment = append(append([]policy.Environment(nil), f.desired.Environment...), policy.Environment{Name: "FIXTURE_UPDATE", Value: "planning-only"})
+	p = must(plan.Build(input))
+	if p.Kind != plan.Update {
+		f.t.Fatalf("installed fixture update refused: %+v", p.Conflicts)
+	}
+	f.t.Log("live installed image supports no-op and update plans; no update applied")
 }

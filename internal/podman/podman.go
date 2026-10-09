@@ -52,6 +52,7 @@ type Version struct {
 // IndexDigest is the requested pin. For a single-platform image it is the
 // manifest digest itself; a multi-platform index has a separate ManifestDigest.
 type ImageInfo struct {
+	ImageID        string
 	IndexDigest    string
 	ManifestDigest string
 	Platform       Platform
@@ -259,7 +260,7 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 	if e != nil {
 		return ImageInfo{}, e
 	}
-	info := ImageInfo{IndexDigest: image.digest(), Platform: Platform{OS: row.Os, Architecture: row.Architecture}}
+	info := ImageInfo{ImageID: row.ID, IndexDigest: image.digest(), Platform: Platform{OS: row.Os, Architecture: row.Architecture}}
 	r, e := c.run(ctx, []string{"manifest", "inspect", image.value}, nil, false)
 	if e != nil {
 		// Podman 5.4's list-only parser rejects OCI single manifests. Only its
@@ -325,3 +326,42 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 }
 
 var _ Adapter = (*Client)(nil)
+
+// RunningContainerImage binds a running systemd container to a verified image pin.
+func (c *Client) RunningContainerImage(ctx context.Context, name Name, unit string, image Image) (ImageInfo, error) {
+	if name.value == "" || unit == "" || image.value == "" {
+		return ImageInfo{}, invalid()
+	}
+	found, err := c.exists(ctx, []string{"container", "exists", name.value})
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	if !found {
+		return ImageInfo{}, &localexec.Error{Kind: localexec.NotFound}
+	}
+	r, err := c.run(ctx, []string{"container", "inspect", name.value}, nil, false)
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	var rows []struct {
+		Name   string
+		Image  string
+		State  *ContainerState
+		Config struct{ Labels map[string]string }
+	}
+	if json.Unmarshal([]byte(r.Stdout), &rows) != nil || len(rows) != 1 {
+		return ImageInfo{}, malformed()
+	}
+	row := rows[0]
+	if row.Name != name.value || row.State == nil || !row.State.Running || row.State.Status != "running" || row.Config.Labels["PODMAN_SYSTEMD_UNIT"] != unit || !digestPattern.MatchString("sha256:"+row.Image) {
+		return ImageInfo{}, malformed()
+	}
+	info, err := c.Inspect(ctx, image)
+	if err != nil {
+		return ImageInfo{}, err
+	}
+	if row.Image != info.ImageID {
+		return ImageInfo{}, malformed()
+	}
+	return info, nil
+}

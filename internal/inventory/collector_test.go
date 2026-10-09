@@ -64,7 +64,7 @@ func baseFixture() fixtureFS {
 }
 func TestFreshHost(t *testing.T) {
 	f := baseFixture()
-	r := fakeRunner{"uname -m": "aarch64\n", "ss -H -ltnp": "", "ss -H -lunp": "", "df -B1 --output=avail /home": "Avail\n42\n"}
+	r := fakeRunner{"uname -m": "aarch64\n", "ss -H -ltnpe": "", "ss -H -lunp": "", "df -B1 --output=avail /home": "Avail\n42\n"}
 	s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture-only-key")}).Collect(context.Background())
 	if e != nil {
 		t.Fatal(e)
@@ -179,7 +179,7 @@ func TestRoutingAndPortsWithOwners(t *testing.T) {
 	f.files["/proc/99/cgroup"] = "0::/system.slice/unrelated.service\n"
 	f.files["/etc/caddy/Caddyfile"] = "api.example.test { respond ok }\n"
 	jsonConfig := `{"apps":{"http":{"servers":{"srv0":{"routes":[{"match":[{"host":["API.EXAMPLE.TEST","*.example.test"]}],"handle":[{"handler":"static_response","body":"ok"}]}]}}}}}`
-	r := fakeRunner{"uname -m": "aarch64", "ss -H -ltnp": `LISTEN 0 4096 [::]:20001 [::]:* users:(("unrelated",pid=99,fd=3))`, "ss -H -lunp": "UNCONN 0 0 *:20002 *:*", "caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile": jsonConfig, "curl --disable --noproxy * --silent --fail --max-time 2 http://127.0.0.1:2019/config/": jsonConfig}
+	r := fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": `LISTEN 0 4096 [::]:20001 [::]:* users:(("unrelated",pid=99,fd=3))`, "ss -H -lunp": "UNCONN 0 0 *:20002 *:*", "caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile": jsonConfig, "curl --disable --noproxy * --silent --fail --max-time 2 http://127.0.0.1:2019/config/": jsonConfig}
 	s, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 	if e != nil {
 		t.Fatal(e)
