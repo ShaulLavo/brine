@@ -168,6 +168,9 @@ func (h *host) owned(ctx context.Context) (bool, error) {
 	return h.r.ID != "" && fields[4] == "brine-enrollment-"+h.r.ID && fields[5] == home && fields[6] == "/bin/sh", nil
 }
 func (h *host) facts(ctx context.Context, key []byte) (Facts, error) {
+	if err := h.verifySSHSourceManifest(ctx, "/etc/ssh/sshd_config"); err != nil {
+		return Facts{}, err
+	}
 	return (Prober{FS: inventory.HostFS{}, Runner: probeRunner{h.exec}, IdentityKey: key, OwnedRunner: h.owned, CheckAuthorization: h.checkAuthorizedKeyPaths}).Collect(ctx)
 }
 func readRecord() (hostRecord, error) {

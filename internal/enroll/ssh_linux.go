@@ -12,19 +12,23 @@ func sshCandidate(main []byte, policy string) []byte {
 	return append([]byte("Include "+policy+"\n"), main...)
 }
 func (h *host) validateSSH(ctx context.Context, path string) error {
-	if err := (Prober{FS: inventory.HostFS{}}).sshEnvironmentSources(ctx, path); err != nil {
+	sources, err := (Prober{FS: inventory.HostFS{}}).sshAuditedSources(ctx, path)
+	if err != nil {
 		return err
 	}
 	if _, err := h.run(ctx, false, "/usr/sbin/sshd", "-t", "-f", path); err != nil {
 		return err
 	}
 	for _, connection := range sshConnections {
-		r, err := h.run(ctx, false, "/usr/sbin/sshd", "-T", "-f", path, "-C", connection)
+		r, err := h.run(ctx, false, "/usr/sbin/sshd", "-ddd", "-T", "-f", path, "-C", connection)
 		if err != nil {
 			return err
 		}
 		if r.Truncated {
 			return errors.New("SSH settings truncated")
+		}
+		if err := checkSSHSourceTrace(sources, r.Stderr); err != nil {
+			return err
 		}
 		if err := checkForcedSSH(r.Stdout); err != nil {
 			return err
@@ -189,4 +193,19 @@ func (h *host) removeBypassFiles() error {
 		delete(h.r.Files, p)
 	}
 	return h.Save(h.r.Journal)
+}
+
+func (h *host) verifySSHSourceManifest(ctx context.Context, path string) error {
+	sources, err := (Prober{FS: inventory.HostFS{}}).sshAuditedSources(ctx, path)
+	if err != nil {
+		return err
+	}
+	r, err := h.run(ctx, false, "/usr/sbin/sshd", "-ddd", "-T", "-f", path, "-C", sshConnections[0])
+	if err != nil {
+		return err
+	}
+	if r.Truncated {
+		return errors.New("SSH source trace truncated")
+	}
+	return checkSSHSourceTrace(sources, r.Stderr)
 }

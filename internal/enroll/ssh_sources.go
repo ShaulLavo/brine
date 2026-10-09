@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io/fs"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 )
 
@@ -12,14 +14,24 @@ import (
 // cannot override unsafe entries. Audit every included branch conservatively,
 // even branches for other users, so synthetic -C samples are not the boundary.
 func (p Prober) sshEnvironmentSources(ctx context.Context, path string) error {
+	_, err := p.sshAuditedSources(ctx, path)
+	return err
+}
+
+func (p Prober) sshAuditedSources(ctx context.Context, path string) ([]string, error) {
+	mainPath := path
+	var sources []string
 	count, total := 0, 0
 	seen := map[string]bool{}
 	var visit func(string, int, bool) error
 	visit = func(path string, depth int, required bool) error {
-		if depth > 16 {
+		if depth > 1 {
 			return errors.New("SSH environment include depth exceeded")
 		}
 		if seen[path] {
+			if path == mainPath && depth != 0 {
+				return errors.New("SSH recursive main include unsupported")
+			}
 			return nil
 		}
 		seen[path] = true
@@ -30,6 +42,7 @@ func (p Prober) sshEnvironmentSources(ctx context.Context, path string) error {
 		if err != nil {
 			return errors.New("SSH environment configuration unavailable")
 		}
+		sources = append(sources, path)
 		count++
 		total += len(data)
 		if count > 128 || total > 4<<20 {
@@ -52,39 +65,42 @@ func (p Prober) sshEnvironmentSources(ctx context.Context, path string) error {
 					return err
 				}
 			case "include":
+				if depth != 0 {
+					return errors.New("SSH nested includes unsupported")
+				}
 				if len(fields) < 2 {
 					return errors.New("SSH environment include incomplete")
 				}
 				for _, pattern := range fields[1:] {
-					if !filepath.IsAbs(pattern) {
-						pattern = filepath.Join("/etc/ssh", pattern)
-					}
-					if !strings.ContainsAny(pattern, "*?[") {
-						if err := visit(filepath.Clean(pattern), depth+1, false); err != nil {
-							return err
+					if pattern == "/etc/ssh/sshd_config.d/*.conf" {
+						const dir = "/etc/ssh/sshd_config.d"
+						entries, err := p.FS.ReadDir(ctx, dir)
+						if errors.Is(err, fs.ErrNotExist) {
+							continue
 						}
-						continue
-					}
-					dir, base := filepath.Dir(pattern), filepath.Base(pattern)
-					if strings.ContainsAny(dir, "*?[") {
-						return errors.New("SSH environment include directory glob unsupported")
-					}
-					entries, err := p.FS.ReadDir(ctx, dir)
-					if errors.Is(err, fs.ErrNotExist) {
-						continue
-					}
-					if err != nil {
-						return errors.New("SSH environment include directory unavailable")
-					}
-					for _, entry := range entries {
-						matched, err := filepath.Match(base, entry.Name())
 						if err != nil {
-							return errors.New("SSH environment include pattern unsupported")
+							return errors.New("SSH environment include directory unavailable")
 						}
-						if matched {
-							if err := visit(filepath.Join(dir, entry.Name()), depth+1, true); err != nil {
+						var names []string
+						// glob(3) excludes leading dots; LC_ALL=C gives bytewise ordering.
+						for _, entry := range entries {
+							name := entry.Name()
+							if !strings.HasPrefix(name, ".") && strings.HasSuffix(name, ".conf") {
+								names = append(names, name)
+							}
+						}
+						sort.Strings(names)
+						for _, name := range names {
+							if err := visit(filepath.Join(dir, name), 1, true); err != nil {
 								return err
 							}
+						}
+					} else {
+						if !filepath.IsAbs(pattern) || strings.ContainsAny(pattern, "*?[]{}~") {
+							return errors.New("SSH environment include pattern unsupported")
+						}
+						if err := visit(pattern, 1, false); err != nil {
+							return err
 						}
 					}
 				}
@@ -92,7 +108,8 @@ func (p Prober) sshEnvironmentSources(ctx context.Context, path string) error {
 		}
 		return nil
 	}
-	return visit(path, 0, true)
+	err := visit(path, 0, true)
+	return sources, err
 }
 
 // Tokenize only enough OpenSSH syntax to find includes and additive environment
@@ -148,4 +165,23 @@ func sshSourceFields(line string) ([]string, error) {
 	}
 	fields[0] = strings.ToLower(fields[0])
 	return fields, nil
+}
+
+// Compare unique load order, not reprocessing messages, with the audited source manifest.
+func checkSSHSourceTrace(sources []string, trace string) error {
+	var loaded []string
+	seen := map[string]bool{}
+	const prefix = "debug2: load_server_config: filename "
+	for _, line := range strings.Split(trace, "\n") {
+		if path, ok := strings.CutPrefix(strings.TrimSuffix(line, "\r"), prefix); ok {
+			if !seen[path] {
+				seen[path] = true
+				loaded = append(loaded, path)
+			}
+		}
+	}
+	if len(sources) == 0 || !slices.Equal(sources, loaded) {
+		return errors.New("SSH loaded source manifest differs from audit")
+	}
+	return nil
 }

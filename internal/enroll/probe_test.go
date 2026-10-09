@@ -35,7 +35,7 @@ func TestSSHSourceChecks(t *testing.T) {
 		want  bool
 	}{
 		{"# comment\nInclude /etc/ssh/sshd_config.d/*.conf\n", true},
-		{"Include /etc/ssh/sshd_config.d/*.conf\nMatch Address 192.0.2.0/24\n AuthorizedKeysFile=.ssh/authorized_keys .local/keys\n AuthorizedKeysCommand=/fixture\n Include=relative.conf\n", true},
+		{"Include /etc/ssh/sshd_config.d/*.conf\nMatch Address 192.0.2.0/24\n AuthorizedKeysFile=.ssh/authorized_keys .local/keys\n AuthorizedKeysCommand=/fixture\n Include=relative.conf\n", false},
 		{"PermitUserEnvironment no\n", false}, {"Include relative.conf\n", false},
 	} {
 		p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": tt.input}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": nil}}}
@@ -154,6 +154,75 @@ func TestEnvironmentSourcesQuotedGlobAndHashPath(t *testing.T) {
 	for _, line := range []string{"Include \"unterminated", "Include /unsafe\\path"} {
 		if _, err := sshSourceFields(line); err == nil {
 			t.Fatal("ambiguous include accepted")
+		}
+	}
+}
+
+func TestIncludePOSIXNegationMustFailClosed(t *testing.T) {
+	d := t.TempDir()
+	if err := os.WriteFile(filepath.Join(d, "unsafe.conf"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := Prober{FS: configFS{files: map[string]string{"/etc/ssh/sshd_config": "Include /etc/ssh/sshd_config.d/*.conf\nInclude /fixture/[!x]*.conf\n", "/fixture/unsafe.conf": "Match Address 203.0.113.0/24\nAcceptEnv LD_PRELOAD\n"}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": nil, "/fixture": entries}}}
+	if p.sshConfig(context.Background(), "/etc/ssh/sshd_config", nil, 0) == nil {
+		t.Fatal("Go/POSIX negated-class mismatch skips unsafe branch")
+	}
+}
+func TestIncludesRestrictedToLiteralOrDebianGlob(t *testing.T) {
+	for _, pattern := range []string{"/fixture/[!x]*.conf", "/fixture/[[:alpha:]]*.conf", "/fixture/?.conf", "/fixture/{a,b}.conf", "~/config", "relative.conf", "/fixture/*.conf", "/etc/ssh/sshd_config.d/**.conf"} {
+		p := Prober{FS: configFS{files: map[string]string{"/root.conf": "Include " + pattern + "\n"}, dirs: map[string][]fs.DirEntry{"/fixture": nil, "/etc/ssh/sshd_config.d": nil}}}
+		if p.sshEnvironmentSources(context.Background(), "/root.conf") == nil {
+			t.Fatalf("unsupported pattern accepted: %s", pattern)
+		}
+	}
+	p := Prober{FS: configFS{files: map[string]string{"/root.conf": "Include /leaf.conf\n", "/leaf.conf": "Include /second.conf\n", "/second.conf": "AcceptEnv LANG\n"}}}
+	if p.sshEnvironmentSources(context.Background(), "/root.conf") == nil {
+		t.Fatal("nested include accepted")
+	}
+}
+
+func TestDebianIncludeMatchesGlob3OrderAndDotRule(t *testing.T) {
+	d := t.TempDir()
+	for _, name := range []string{"z.conf", "a.conf", ".hidden.conf", "ignored.txt"} {
+		if err := os.WriteFile(filepath.Join(d, name), nil, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, err := os.ReadDir(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Deliberately unsorted filesystem results must not change glob(3)'s C-locale order.
+	for i, j := 0, len(entries)-1; i < j; i, j = i+1, j-1 {
+		entries[i], entries[j] = entries[j], entries[i]
+	}
+	p := Prober{FS: configFS{files: map[string]string{"/root.conf": "Include /etc/ssh/sshd_config.d/*.conf\nInclude /literal.conf\n", "/etc/ssh/sshd_config.d/a.conf": "AcceptEnv LANG\n", "/etc/ssh/sshd_config.d/z.conf": "AcceptEnv LC_*\n", "/etc/ssh/sshd_config.d/.hidden.conf": "AcceptEnv LD_PRELOAD\n", "/literal.conf": "AcceptEnv NO_COLOR\n"}, dirs: map[string][]fs.DirEntry{"/etc/ssh/sshd_config.d": entries}}}
+	got, err := p.sshAuditedSources(context.Background(), "/root.conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"/root.conf", "/etc/ssh/sshd_config.d/a.conf", "/etc/ssh/sshd_config.d/z.conf", "/literal.conf"}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("manifest %v", got)
+	}
+	p.FS = configFS{files: map[string]string{"/root.conf": "Include /etc/ssh/sshd_config.d/.hidden.conf\n", "/etc/ssh/sshd_config.d/.hidden.conf": "AcceptEnv LD_PRELOAD\n"}}
+	if p.sshEnvironmentSources(context.Background(), "/root.conf") == nil {
+		t.Fatal("literal dotfile not audited")
+	}
+}
+func TestSSHSourceTraceRequiresCompleteExactManifest(t *testing.T) {
+	sources := []string{"/main.conf", "/leaf.conf"}
+	trace := "debug2: load_server_config: filename /main.conf\r\ndebug2: load_server_config: filename /leaf.conf\r\n"
+	if err := checkSSHSourceTrace(sources, trace+trace); err != nil {
+		t.Fatal(err)
+	}
+	for _, bad := range []string{"", "debug2: load_server_config: filename /main.conf\n", trace + "debug2: load_server_config: filename /unsafe.conf\n", "debug2: load_server_config: filename /leaf.conf\ndebug2: load_server_config: filename /main.conf\n"} {
+		if checkSSHSourceTrace(sources, bad) == nil {
+			t.Fatal("missing, extra, or reordered sources accepted")
 		}
 	}
 }

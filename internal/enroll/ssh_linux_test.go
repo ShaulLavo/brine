@@ -3,6 +3,7 @@ package enroll
 import (
 	"context"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"os"
 	"os/exec"
@@ -160,5 +161,64 @@ func TestUnsafeEnvironmentRejectedAgainstRealOpenSSH(t *testing.T) {
 		if err := checkForcedSSH(string(out)); err == nil {
 			t.Fatalf("unsafe real sshd environment accepted: %s", env)
 		}
+	}
+}
+
+func TestIncludeNegationAndSourceManifestAgainstRealOpenSSH(t *testing.T) {
+	sshd, err := exec.LookPath("sshd")
+	if err != nil {
+		t.Skip("OpenSSH server unavailable")
+	}
+	keygen, err := exec.LookPath("ssh-keygen")
+	if err != nil {
+		t.Skip("keygen unavailable")
+	}
+	d := t.TempDir()
+	key := filepath.Join(d, "hostkey")
+	if out, err := exec.Command(keygen, "-q", "-t", "ed25519", "-N", "", "-f", key).CombinedOutput(); err != nil {
+		t.Fatalf("keygen %v %s", err, out)
+	}
+	leaf := filepath.Join(d, "unsafe.conf")
+	path := filepath.Join(d, "main")
+	if err := os.WriteFile(leaf, []byte("Match Address 203.0.113.0/24\nAcceptEnv LD_PRELOAD\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, include := range []string{filepath.Join(d, "[!x]*.conf"), leaf} {
+		if err := os.WriteFile(path, []byte("HostKey "+key+"\nInclude "+include+"\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command(sshd, "-ddd", "-T", "-f", path, "-C", "user=brine,host=fixture,addr=203.0.113.1,laddr=198.51.100.1,lport=22")
+		cmd.Env = append(os.Environ(), "LC_ALL=C")
+		var stderr strings.Builder
+		cmd.Stderr = &stderr
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("sshd %v %s", err, stderr.String())
+		}
+		if !strings.Contains(strings.ToLower(string(out)), "acceptenv ld_preload") {
+			t.Fatal("sshd did not load unsafe negated-class fixture")
+		}
+		if err := checkSSHSourceTrace([]string{path, leaf}, stderr.String()); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := (Prober{FS: inventory.HostFS{}}).sshAuditedSources(context.Background(), path); err == nil {
+			t.Fatal("unsafe literal or unsupported negated-class accepted")
+		}
+	}
+	if err := os.WriteFile(leaf, []byte("AcceptEnv LANG LC_*\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	sources, err := (Prober{FS: inventory.HostFS{}}).sshAuditedSources(context.Background(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command(sshd, "-ddd", "-T", "-f", path)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	if _, err := cmd.Output(); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkSSHSourceTrace(sources, stderr.String()); err != nil {
+		t.Fatal(err)
 	}
 }

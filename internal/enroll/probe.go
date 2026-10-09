@@ -139,7 +139,7 @@ func (p Prober) sshConfig(ctx context.Context, path string, _ map[string]bool, d
 		return err
 	}
 	for _, entry := range entries {
-		if strings.HasSuffix(entry.Name(), ".conf") && entry.Name() < "00-brine-brine.conf" {
+		if !strings.HasPrefix(entry.Name(), ".") && strings.HasSuffix(entry.Name(), ".conf") && entry.Name() < "00-brine-brine.conf" {
 			return errors.New("SSH drop-in precedes the Brine authorization policy")
 		}
 	}
