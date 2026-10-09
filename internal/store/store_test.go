@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -442,3 +443,75 @@ func TestSecretReferenceOnlyJournalAndDBPermissions(t *testing.T) {
 var _ interface {
 	AcquireHostLock(context.Context) (ops.Lock, error)
 } = (*Store)(nil)
+
+func TestConditionalTransitionsRaceWithoutOverwritingWinner(t *testing.T) {
+	ctx := context.Background()
+	dir := stateDir(t)
+	a, e := Open(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer a.Close()
+	b, e := Open(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer b.Close()
+	id, _ := saved(t, a)
+	for iteration := 0; iteration < 64; iteration++ {
+		op, _, e := a.CreateOperation(ctx, id, "requester", fmt.Sprintf("race-%d", iteration))
+		if e != nil {
+			t.Fatal(e)
+		}
+		type result struct {
+			state ops.State
+			err   error
+		}
+		results := make(chan result, 2)
+		start := make(chan struct{})
+		for i, state := range []ops.State{ops.Failed, ops.Preflight} {
+			s := a
+			if i == 1 {
+				s = b
+			}
+			go func(s *Store, state ops.State) {
+				<-start
+				results <- result{state, s.TransitionOperation(ctx, op.ID, ops.Queued, state)}
+			}(s, state)
+		}
+		close(start)
+		first, second := <-results, <-results
+		winner, loser := first, second
+		if winner.err != nil {
+			winner, loser = loser, winner
+		}
+		if winner.err != nil {
+			t.Fatalf("no winner: %v / %v", first.err, second.err)
+		}
+		var conflict *ErrStateConflict
+		if !errors.As(loser.err, &conflict) || conflict.Actual != winner.state {
+			t.Fatalf("loser conflict: %#v %v", conflict, loser.err)
+		}
+		got, e := a.GetOperation(ctx, op.ID)
+		if e != nil || got.State != winner.state {
+			t.Fatalf("winner overwritten: %s %v", got.State, e)
+		}
+		events, e := a.EventsAfter(ctx, op.ID, 0, 10)
+		if e != nil || len(events) != 1 || events[0].State != winner.state {
+			t.Fatalf("loser changed journal: %+v %v", events, e)
+		}
+	}
+}
+func TestConditionalTransitionRefusesIllegalEdge(t *testing.T) {
+	s := openTest(t)
+	op := operation(t, s)
+	e := s.TransitionOperation(context.Background(), op, ops.Queued, ops.Checking)
+	var conflict *ErrStateConflict
+	if !errors.As(e, &conflict) || conflict.Actual != ops.Queued {
+		t.Fatalf("illegal edge: %v", e)
+	}
+	events, e := s.EventsAfter(context.Background(), op, 0, 10)
+	if e != nil || len(events) != 0 {
+		t.Fatal("illegal transition changed journal")
+	}
+}

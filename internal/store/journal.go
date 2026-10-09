@@ -80,6 +80,17 @@ func (s *Store) GetOperation(ctx context.Context, id OpID) (Operation, error) {
 	return scanOperation(s.db.QueryRowContext(ctx, "SELECT id,plan_id,requester,idempotency_key,state,created_at,updated_at FROM operations WHERE id=?", id))
 }
 func (s *Store) SetOperationState(ctx context.Context, id OpID, state State) error {
+	return s.transitionOperation(ctx, id, nil, state)
+}
+
+// TransitionOperation is a compare-and-transition for competing lifecycle actors.
+// A loser changes neither the operation nor its journal. It never retries using
+// the newer state, since that could overwrite the executor's progress.
+func (s *Store) TransitionOperation(ctx context.Context, id OpID, from, to ops.State) error {
+	return s.transitionOperation(ctx, id, &from, to)
+}
+
+func (s *Store) transitionOperation(ctx context.Context, id OpID, expected *State, state State) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -92,7 +103,11 @@ func (s *Store) SetOperationState(ctx context.Context, id OpID, state State) err
 	if err != nil {
 		return err
 	}
-	if from == state {
+	if expected != nil {
+		if from != *expected || !ops.CanTransition(from, state) {
+			return &ErrStateConflict{Expected: *expected, Actual: from, Requested: state}
+		}
+	} else if from == state {
 		return tx.Commit()
 	}
 	if !ops.CanTransition(from, state) {
