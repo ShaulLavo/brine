@@ -453,3 +453,63 @@ func TestImmutableSecretNameGrammar(t *testing.T) {
 		}
 	}
 }
+
+func TestInspectStoredAcceptsAssociatedIndexWithPrimaryManifest(t *testing.T) {
+	platform, _ := ParseImage("registry.example/app@sha256:" + strings.Repeat("b", 64))
+	r := &recorder{results: []localexec.Result{{Stdout: fixture(t, "platform-image-inspect.json")}, {Stdout: fixture(t, "platform-image-inspect.json")}}}
+	got, err := client(t, r).InspectStored(context.Background(), image(t), platform)
+	if err != nil || got.IndexDigest != image(t).digest() || got.ManifestDigest != platform.digest() || got.Platform.Architecture != "arm64" {
+		t.Fatal("stored index alias rejected", got, err)
+	}
+	for _, cmd := range r.commands {
+		if cmd.Args[0] == "manifest" {
+			t.Fatal("associated local aliases required registry", cmd.Args)
+		}
+	}
+}
+
+func TestInspectStoredAliasLayoutsAndRefusals(t *testing.T) {
+	index := image(t)
+	platform, _ := ParseImage("registry.example/app@sha256:" + strings.Repeat("b", 64))
+	layout := func(refs []string, digest string) string {
+		var rows []map[string]any
+		if err := json.Unmarshal([]byte(fixture(t, "platform-image-inspect.json")), &rows); err != nil {
+			t.Fatal(err)
+		}
+		rows[0]["RepoDigests"] = refs
+		rows[0]["Digest"] = digest
+		raw, err := json.Marshal(rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(raw)
+	}
+	onlyManifest := layout([]string{platform.String()}, platform.digest())
+	onlyIndex := layout([]string{index.String()}, platform.digest())
+	primaryIndex := layout([]string{index.String(), platform.String()}, index.digest())
+	foreign := strings.ReplaceAll(fixture(t, "platform-image-inspect.json"), "registry.example/app", "registry.example/foreign")
+	for _, tc := range []struct {
+		name, indexed, selected, list string
+		known                         bool
+	}{
+		{"only selected manifest association with index list", onlyManifest, onlyManifest, fixture(t, "manifest-inspect.json"), true},
+		{"only index association with primary platform digest", onlyIndex, onlyIndex, "", true},
+		{"primary index on platform alias", primaryIndex, primaryIndex, "", true},
+		{"unrelated repository", foreign, foreign, "", false},
+		{"different stored identity", fixture(t, "platform-image-inspect.json"), strings.ReplaceAll(fixture(t, "platform-image-inspect.json"), "748902c9f9368aa7437b05e353c23968266b0bc882ac1d74067fc1768a102ba6", strings.Repeat("f", 64)), "", false},
+		{"different platform", fixture(t, "platform-image-inspect.json"), strings.ReplaceAll(fixture(t, "platform-image-inspect.json"), "arm64", "amd64"), "", false},
+		{"unresolved index without index association", onlyManifest, onlyManifest, `{"mediaType":"application/vnd.oci.image.index.v1+json","manifests":[]}`, false},
+		{"index list selects unrelated manifest", onlyManifest, onlyManifest, strings.ReplaceAll(fixture(t, "manifest-inspect.json"), strings.Repeat("b", 64), strings.Repeat("e", 64)), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &recorder{results: []localexec.Result{{Stdout: tc.indexed}, {Stdout: tc.selected}, {Stdout: tc.list}, {Stdout: tc.selected}}}
+			got, err := client(t, r).InspectStored(context.Background(), index, platform)
+			if (err == nil) != tc.known {
+				t.Fatal(got, err)
+			}
+			if tc.known && (got.IndexDigest != index.digest() || got.ManifestDigest != platform.digest() || got.Platform.Architecture != "arm64") {
+				t.Fatal(got)
+			}
+		})
+	}
+}

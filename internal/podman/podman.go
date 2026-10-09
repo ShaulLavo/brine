@@ -228,16 +228,28 @@ func (i Image) repository() string {
 }
 func (i Image) digest() string { return i.value[strings.LastIndexByte(i.value, '@')+1:] }
 func (row localImage) associates(image Image) bool {
-	ref := image.repository() + "@" + image.digest()
+	// Primary Digest also proves an alias, but only with an association to
+	// the requested repository. A matching digest or tag alone is not ownership.
 	for _, associated := range row.RepoDigests {
 		candidate, err := ParseImage(associated)
-		if err == nil && candidate.repository()+"@"+candidate.digest() == ref {
+		if err == nil && candidate.repository() == image.repository() && (candidate.digest() == image.digest() || row.Digest == image.digest()) {
 			return true
 		}
 	}
 	return false
 }
 func (c *Client) localImage(ctx context.Context, image Image) (localImage, error) {
+	row, err := c.readLocalImage(ctx, image)
+	if err != nil {
+		return localImage{}, err
+	}
+	if !row.associates(image) {
+		return localImage{}, malformed()
+	}
+	return row, nil
+}
+
+func (c *Client) readLocalImage(ctx context.Context, image Image) (localImage, error) {
 	r, e := c.run(ctx, []string{"image", "inspect", image.value}, nil, false)
 	if e != nil {
 		return localImage{}, e
@@ -247,7 +259,7 @@ func (c *Client) localImage(ctx context.Context, image Image) (localImage, error
 		return localImage{}, malformed()
 	}
 	row := rows[0]
-	if !digestPattern.MatchString("sha256:"+row.ID) || !digestPattern.MatchString(row.Digest) || row.Os == "" || row.Architecture == "" || !row.associates(image) {
+	if !digestPattern.MatchString("sha256:"+row.ID) || !digestPattern.MatchString(row.Digest) || row.Os == "" || row.Architecture == "" {
 		return localImage{}, malformed()
 	}
 	if row.ManifestType != ociManifest && row.ManifestType != dockerManifest {
@@ -257,13 +269,14 @@ func (c *Client) localImage(ctx context.Context, image Image) (localImage, error
 }
 
 // InspectStored verifies both pins against the same local stored image without
-// consulting a registry or requiring a running container. Each lookup must carry
-// its exact digest and repository association; contradictory aliases fail closed.
+// requiring a running container. Repository-qualified associated aliases prove
+// local pins without a registry read. If the index association was not retained,
+// the shared manifest resolver must bind that exact index to the local image.
 func (c *Client) InspectStored(ctx context.Context, index, manifest Image) (ImageInfo, error) {
 	if index.value == "" || manifest.value == "" || index.repository() != manifest.repository() {
 		return ImageInfo{}, invalid()
 	}
-	indexed, err := c.localImage(ctx, index)
+	indexed, err := c.readLocalImage(ctx, index)
 	if err != nil {
 		return ImageInfo{}, err
 	}
@@ -271,8 +284,18 @@ func (c *Client) InspectStored(ctx context.Context, index, manifest Image) (Imag
 	if err != nil {
 		return ImageInfo{}, err
 	}
-	if indexed.Digest != index.digest() || selected.Digest != manifest.digest() || indexed.ID != selected.ID || indexed.Os != selected.Os || indexed.Architecture != selected.Architecture {
+	if indexed.ID != selected.ID || indexed.Os != selected.Os || indexed.Architecture != selected.Architecture {
 		return ImageInfo{}, malformed()
+	}
+	if !indexed.associates(index) && !selected.associates(index) {
+		resolved, err := c.inspectManifest(ctx, index, indexed)
+		if err != nil {
+			return ImageInfo{}, err
+		}
+		if resolved.ImageID != selected.ID || resolved.ManifestDigest != manifest.digest() || resolved.Platform.OS != selected.Os || resolved.Platform.Architecture != selected.Architecture {
+			return ImageInfo{}, malformed()
+		}
+		return resolved, nil
 	}
 	return ImageInfo{ImageID: selected.ID, IndexDigest: index.digest(), ManifestDigest: manifest.digest(), Platform: Platform{OS: selected.Os, Architecture: selected.Architecture}}, nil
 }
@@ -330,6 +353,12 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 	if e != nil {
 		return ImageInfo{}, e
 	}
+	return c.inspectManifest(ctx, image, row)
+}
+
+// inspectManifest shares the index/platform binding rules across running and
+// stopped observations. A primary lookup digest is not an alias identity.
+func (c *Client) inspectManifest(ctx context.Context, image Image, row localImage) (ImageInfo, error) {
 	info := ImageInfo{ImageID: row.ID, IndexDigest: image.digest(), Platform: Platform{OS: row.Os, Architecture: row.Architecture}}
 	r, e := c.run(ctx, []string{"manifest", "inspect", image.value}, nil, false)
 	if e != nil {
@@ -337,7 +366,7 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 		// captured capability refusal permits using the already-verified local pin.
 		var re *localexec.Error
 		unsupported := strings.HasPrefix(r.Stderr, "Error: parsing manifest blob ") && strings.HasSuffix(strings.TrimSpace(r.Stderr), `as a "application/vnd.oci.image.manifest.v1+json": Treating single images as manifest lists is not implemented`)
-		if row.ManifestType == ociManifest && !r.Truncated && errors.As(e, &re) && re.Kind == localexec.Failed && re.ExitCode == 125 && unsupported {
+		if row.associates(image) && row.ManifestType == ociManifest && !r.Truncated && errors.As(e, &re) && re.Kind == localexec.Failed && re.ExitCode == 125 && unsupported {
 			info.ManifestDigest = image.digest()
 			return info, nil
 		}
@@ -382,7 +411,7 @@ func (c *Client) Inspect(ctx context.Context, image Image) (ImageInfo, error) {
 	case dockerManifest:
 		// The schema-2 single-image result loses config/layers when Podman converts
 		// it to ManifestListData. The supported local lookup verifies this pin.
-		if row.ManifestType != dockerManifest || len(manifest.Manifests) != 0 {
+		if !row.associates(image) || row.ManifestType != dockerManifest || len(manifest.Manifests) != 0 {
 			return ImageInfo{}, malformed()
 		}
 		info.ManifestDigest = image.digest()

@@ -107,7 +107,7 @@ func TestExecutorRefusesSecretOperation(t *testing.T) {
 }
 
 func TestLifecycleStopThenFreshPlanAndApply(t *testing.T) {
-	for _, action := range []plan.ChangeKind{plan.StartApp, plan.StopApp} {
+	for _, action := range []plan.ChangeKind{plan.StartApp, plan.RestartApp, plan.StopApp} {
 		t.Run(string(action), func(t *testing.T) {
 			r := lifecycleRig(t, plan.StopApp)
 			r.executor.Systemd.(*systemd.Fake).ShowFunc = func(context.Context, systemd.Unit) (systemd.Properties, error) {
@@ -141,7 +141,7 @@ func TestLifecycleStopThenFreshPlanAndApply(t *testing.T) {
 			if err := r.executor.Run(context.Background(), "operation-2", p, r.desired); err != nil {
 				t.Fatal("fresh preflight refused", err)
 			}
-			if r.state != Succeeded || r.active != (action == plan.StartApp) || r.committed {
+			if r.state != Succeeded || r.active != (action != plan.StopApp) || r.committed {
 				t.Fatal(r.state, r.active, r.committed)
 			}
 			if action == plan.StopApp {
