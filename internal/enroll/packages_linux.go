@@ -175,6 +175,9 @@ func (h *host) protectCaddyTree(context.Context) error {
 	return os.Chmod(p, 0755)
 }
 func (h *host) undoPreflight() error {
+	if err := h.reconcilePendingDirectories(); err != nil {
+		return err
+	}
 	if err := h.checkUndoHome(); err != nil {
 		return err
 	}
@@ -218,6 +221,11 @@ func (h *host) undoPreflight() error {
 }
 
 func (h *host) checkUndoHome() error {
+	if _, err := os.Lstat(home); errors.Is(err, os.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
 	if _, ok := h.r.Dirs[home]; !ok {
 		return nil
 	}

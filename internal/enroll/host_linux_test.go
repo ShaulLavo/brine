@@ -230,3 +230,30 @@ func TestJournaledOriginalFileIsPendingNotDrift(t *testing.T) {
 		t.Fatal("unrelated bytes accepted")
 	}
 }
+
+func TestPendingDirectoryCheckpoints(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pending")
+	h := host{}
+	d := ownedDir{UID: os.Getuid(), GID: os.Getgid(), Mode: 0755}
+	if done, err := h.checkDirectory(path, d); done || err != nil {
+		t.Fatalf("before mkdir: %v %v", done, err)
+	}
+	if err := os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if done, err := h.checkDirectory(path, d); done || err != nil {
+		t.Fatalf("after mkdir/chown before inode checkpoint: %v %v", done, err)
+	}
+	if err := os.Chmod(path, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if done, err := h.checkDirectory(path, d); done || err != nil {
+		t.Fatalf("after chmod before inode checkpoint: %v %v", done, err)
+	}
+	if err := os.WriteFile(filepath.Join(path, "unowned"), []byte("data"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.checkDirectory(path, d); err == nil {
+		t.Fatal("nonempty pending directory adopted")
+	}
+}

@@ -47,10 +47,11 @@ type ownedFile struct {
 	OriginalGID  int    `json:"original_gid"`
 }
 type ownedDir struct {
-	Inode uint64 `json:"inode"`
-	Mode  uint32 `json:"mode"`
-	UID   int    `json:"uid"`
-	GID   int    `json:"gid"`
+	Pending bool   `json:"pending,omitempty"`
+	Inode   uint64 `json:"inode"`
+	Mode    uint32 `json:"mode"`
+	UID     int    `json:"uid"`
+	GID     int    `json:"gid"`
 }
 type hostRecord struct {
 	Runtime      map[string]runtimeFile `json:"runtime"`
@@ -432,13 +433,13 @@ func (h *host) dir(path string, mode os.FileMode, uid, gid int) error {
 		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("preexisting directory refused")
 		}
-		old = ownedDir{Mode: uint32(mode), UID: uid, GID: gid}
+		old = ownedDir{Mode: uint32(mode), UID: uid, GID: gid, Pending: true}
 		h.r.Dirs[path] = old
 		if err := h.Save(h.r.Journal); err != nil {
 			return err
 		}
 	}
-	err := os.Mkdir(path, mode)
+	err := os.Mkdir(path, 0700)
 	if err != nil && !errors.Is(err, os.ErrExist) {
 		return err
 	}
@@ -450,14 +451,23 @@ func (h *host) dir(path string, mode os.FileMode, uid, gid int) error {
 	if old.Inode != 0 && old.Inode != st.Ino {
 		return errors.New("enrollment directory identity drift")
 	}
-	if old.Inode == 0 {
-		if err = os.Chown(path, uid, gid); err != nil {
-			return err
-		}
-		if err = os.Chmod(path, mode); err != nil {
+	if old.Inode == 0 || old.Pending {
+		if _, err := h.checkDirectory(path, old); err != nil {
 			return err
 		}
 		old.Inode = st.Ino
+		old.Pending = true
+		h.r.Dirs[path] = old
+		if err := h.Save(h.r.Journal); err != nil {
+			return err
+		}
+		if err := os.Chown(path, uid, gid); err != nil {
+			return err
+		}
+		if err := os.Chmod(path, mode); err != nil {
+			return err
+		}
+		old.Pending = false
 		h.r.Dirs[path] = old
 		return h.Save(h.r.Journal)
 	}
@@ -644,22 +654,48 @@ func (h *host) layout(ctx context.Context) error {
 	_, err = h.run(ctx, true, "runuser", "-u", "brine", "--", "/bin/sh", "-c", "umask 077; mkdir -p /home/brine/.local/state/brine")
 	return err
 }
+func (h *host) checkDirectory(p string, d ownedDir) (bool, error) {
+	s, err := os.Lstat(p)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil || !s.IsDir() {
+		return false, errors.New("directory type drift")
+	}
+	st := s.Sys().(*syscall.Stat_t)
+	if d.Inode == 0 || d.Pending {
+		if d.Inode != 0 && st.Ino != d.Inode {
+			return false, errors.New("pending directory identity drift")
+		}
+		if !(st.Uid == 0 && st.Gid == 0) && !(int(st.Uid) == d.UID && int(st.Gid) == d.GID) {
+			return false, errors.New("pending directory owner drift")
+		}
+		if s.Mode().Perm()&0022 != 0 {
+			return false, errors.New("pending directory writable by others")
+		}
+		entries, err := os.ReadDir(p)
+		if err != nil {
+			return false, err
+		}
+		if len(entries) != 0 {
+			return false, errors.New("pending directory has unowned data")
+		}
+		return false, nil
+	}
+	if st.Ino != d.Inode || int(st.Uid) != d.UID || int(st.Gid) != d.GID || uint32(s.Mode().Perm()) != d.Mode {
+		return false, errors.New("directory ownership drift")
+	}
+	return true, nil
+}
 func (h *host) checkLayout(ctx context.Context) (bool, error) {
 	for _, p := range []string{home, home + "/.ssh", home + "/.config", home + "/.local", home + "/.cache"} {
 		d, ok := h.r.Dirs[p]
 		if !ok {
 			return false, nil
 		}
-		s, err := os.Lstat(p)
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		if err != nil || !s.IsDir() {
-			return false, errors.New("runner directory drift")
-		}
-		st := s.Sys().(*syscall.Stat_t)
-		if st.Ino != d.Inode || int(st.Uid) != d.UID || int(st.Gid) != d.GID || uint32(s.Mode().Perm()) != d.Mode {
-			return false, errors.New("runner ownership drift")
+		done, err := h.checkDirectory(p, d)
+		if err != nil || !done {
+			return done, err
 		}
 	}
 	return true, nil
@@ -692,6 +728,9 @@ func (h *host) checkCaddyTree(context.Context) (bool, error) {
 		d, ok := h.r.Dirs[p]
 		if !ok {
 			return false, nil
+		}
+		if d.Inode == 0 || d.Pending {
+			return h.checkDirectory(p, d)
 		}
 		s, err := os.Lstat(p)
 		if err != nil || !s.IsDir() {
@@ -1000,6 +1039,25 @@ func (h *host) deleteAccount(ctx context.Context) error {
 		var e *localexec.Error
 		if !errors.As(deleteErr, &e) {
 			return errors.New("account deletion outcome needs reconciliation")
+		}
+	}
+	return nil
+}
+
+func (h *host) reconcilePendingDirectories() error {
+	for path, d := range h.r.Dirs {
+		if d.Inode != 0 && !d.Pending {
+			continue
+		}
+		_, err := os.Lstat(path)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := h.dir(path, os.FileMode(d.Mode), d.UID, d.GID); err != nil {
+			return err
 		}
 	}
 	return nil
