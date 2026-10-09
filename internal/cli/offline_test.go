@@ -67,7 +67,7 @@ func offlineState(t *testing.T) string {
 		t.Fatal(err)
 	}
 	current := (*snapshot.Apps.Value)[0]
-	state := plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{{App: "hello", ID: "release-0001", Desired: desired, Image: *current.Image.Value, HostPort: *current.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: *current.QuadletUnits.Value, CaddyFile: snapshot.CaddyConfig.Value.Files[0]}}}
+	state := plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{{App: "hello", ID: "release-0001", Desired: desired, Image: plan.Image{Digest: current.Image.Value.Digest, Platform: current.Image.Value.Platform, ManifestDigest: target.Observation[string]{Status: target.Unknown}}, HostPort: *current.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: *current.QuadletUnits.Value, CaddyFile: snapshot.CaddyConfig.Value.Files[0]}}}
 	data, err := json.Marshal(state)
 	if err != nil {
 		t.Fatal(err)
@@ -135,6 +135,9 @@ func TestOfflineCommandsEndToEnd(t *testing.T) {
 					if exit == 0 && tt.args[0] == "plan" && !strings.Contains(out, "OFFLINE PLAN — NOT APPLYABLE") {
 						t.Fatal("missing offline warning")
 					}
+					if exit == 0 && tt.args[0] == "plan" && !strings.Contains(out, "Platform manifest: unknown") {
+						t.Fatal("offline plan inferred a manifest digest")
+					}
 					return
 				}
 				var envelope result.Envelope
@@ -144,6 +147,9 @@ func TestOfflineCommandsEndToEnd(t *testing.T) {
 				}
 				if err := dec.Decode(new(any)); err != io.EOF {
 					t.Fatal("extra machine output")
+				}
+				if exit == 0 && tt.args[0] == "plan" && !strings.Contains(out, `"manifest_digest":{"status":"unknown"}`) {
+					t.Fatal("offline JSON must retain the unknown manifest observation")
 				}
 				if envelope.OK != (exit == 0) {
 					t.Fatal("wrong ok status")
@@ -379,6 +385,14 @@ func TestOfflineStateSchemaRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := [][]byte{[]byte("null"), []byte("{}"), append(append([]byte{}, valid...), []byte(" {}")...), bytes.Replace(valid, []byte(`"releases":[`), []byte(`"Releases":[`), 1), bytes.Replace(valid, []byte(`"generation":4`), []byte(`"generation":4,"generation":4`), 1), bytes.Replace(valid, []byte(`"environment":[`), []byte(`"environment":null,"ignored":[`), 1)}
+	tests = append(tests,
+		bytes.Replace(valid, []byte(`,"manifest_digest":{"status":"unknown"}`), nil, 1),
+		bytes.Replace(valid, []byte(`"manifest_digest":{"status":"unknown"}`), []byte(`"manifest_digest":{"status":"known"}`), 1),
+		bytes.Replace(valid, []byte(`"manifest_digest":{"status":"unknown"}`), []byte(`"manifest_digest":{"status":"unknown","value":null}`), 1),
+		bytes.Replace(valid, []byte(`"manifest_digest":{"status":"unknown"}`), []byte(`"manifest_digest":{"status":"unknown","value":"invalid"}`), 1),
+		bytes.Replace(valid, []byte(`"manifest_digest":{"status":"unknown"}`), []byte(`"manifest_digest":{"status":"unknown","Status":"known"}`), 1),
+		bytes.Replace(valid, []byte(`"manifest_digest":{"status":"unknown"}`), []byte(`"manifest_digest":{"status":"unknown","status":"known"}`), 1),
+	)
 	for i, data := range tests {
 		path := filepath.Join(t.TempDir(), "state.json")
 		if err := os.WriteFile(path, data, 0600); err != nil {
@@ -442,5 +456,36 @@ func TestOfflineReadOnlyAndCancellation(t *testing.T) {
 	}
 	if len(files) != 0 {
 		t.Fatal("cancelled command wrote files")
+	}
+}
+
+func TestOfflineStateKnownManifest(t *testing.T) {
+	raw, err := os.ReadFile(offlineState(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := "sha256:" + strings.Repeat("b", 64)
+	raw = bytes.Replace(raw, []byte(`"manifest_digest":{"status":"unknown"}`), []byte(`"manifest_digest":{"status":"known","value":"`+digest+`"}`), 1)
+	state, err := decodeBrineState(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Releases[0].Image.ManifestDigest.Status != target.KnownStatus || *state.Releases[0].Image.ManifestDigest.Value != digest {
+		t.Fatal("lost known committed manifest")
+	}
+	path := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(path, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	out, diagnostics, exit := offlineExecute(t, append(offlineArgs("host-with-app"), "--state", path, "--json")...)
+	if exit != 0 || diagnostics != "" {
+		t.Fatalf("%d %s %s", exit, out, diagnostics)
+	}
+	var response struct{ Data struct{ Image plan.Image } }
+	if err := json.Unmarshal([]byte(out), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.Data.Image.ManifestDigest.Status != target.Unknown || response.Data.Image.ManifestDigest.Value != nil {
+		t.Fatal("offline CLI promoted retained metadata to a verified manifest")
 	}
 }

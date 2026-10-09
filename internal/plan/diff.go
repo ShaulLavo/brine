@@ -42,7 +42,7 @@ type SecretChange struct {
 // ConfigurationDiff records only changed settings. Environment values are
 // compared transiently and never retained here or in the returned plan.
 type ConfigurationDiff struct {
-	Image         *ValueChange[target.Image]     `json:"image,omitempty"`
+	Image         *ValueChange[Image]            `json:"image,omitempty"`
 	Domains       *SetChange[spec.Domain]        `json:"domains,omitempty"`
 	HostPort      *ValueChange[target.Port]      `json:"host_port,omitempty"`
 	ContainerPort *ValueChange[spec.Port]        `json:"container_port,omitempty"`
@@ -52,19 +52,19 @@ type ConfigurationDiff struct {
 	Secrets       []SecretChange                 `json:"secrets"`
 }
 
-func valueChange[T comparable](old *T, next T) *ValueChange[T] {
-	if old != nil && *old == next {
+func valueChange[T any](old *T, next T) *ValueChange[T] {
+	if old != nil && reflect.DeepEqual(*old, next) {
 		return nil
 	}
 	return &ValueChange[T]{From: old, To: &next}
 }
 
-func configurationDiff(next policy.Desired, image target.Image, port target.Port, secrets []SecretBinding, previous *CurrentRelease) *ConfigurationDiff {
+func configurationDiff(next policy.Desired, image Image, port target.Port, secrets []SecretBinding, previous *CurrentRelease) *ConfigurationDiff {
 	d := &ConfigurationDiff{Secrets: []SecretChange{}}
 	old := policy.Desired{}
 	oldSecrets := []SecretBinding{}
 	if previous == nil {
-		d.Image = valueChange[target.Image](nil, image)
+		d.Image = valueChange[Image](nil, image)
 		d.HostPort = valueChange[target.Port](nil, port)
 		d.ContainerPort = valueChange[spec.Port](nil, next.ContainerPort)
 		d.Resources = valueChange[policy.Resources](nil, next.Resources)

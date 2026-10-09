@@ -1,6 +1,7 @@
 update  hello
-~ image: sha256:bbbbbbbbbbbb... (linux/arm64) -> sha256:aaaaaaaaaaaa...
-(linux/arm64)
+  Platform manifest: unknown
+~ image: sha256:bbbbbbbbbbbb... (linux/arm64, manifest unknown) ->
+sha256:aaaaaaaaaaaa... (linux/arm64, manifest unknown)
 - domain: old.example.com
 + domain: hello.example.com
 ~ host port: 21000 -> 20000

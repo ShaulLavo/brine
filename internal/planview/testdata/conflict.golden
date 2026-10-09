@@ -1,3 +1,4 @@
 conflict  hello
+  Platform manifest: unknown
 ! A domain is already served by another app or route. [domains]
 ! A required secret reference has no installed version. [secrets.TOKEN]

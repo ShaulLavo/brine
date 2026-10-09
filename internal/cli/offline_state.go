@@ -26,9 +26,12 @@ func decodeBrineState(data []byte) (plan.BrineState, error) {
 	return state, nil
 }
 
-// The committed state has no optional struct fields. Check exact keys before
-// encoding/json can silently accept duplicates, aliases or missing hash input.
+// Check exact keys before encoding/json can accept duplicates, aliases or
+// missing hash input. Observation values are optional; Build checks their status.
 func checkStateJSON(decoder *json.Decoder, t reflect.Type) error {
+	if t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
 	token, err := decoder.Token()
 	if err != nil {
 		return err
@@ -42,10 +45,14 @@ func checkStateJSON(decoder *json.Decoder, t reflect.Type) error {
 			return fmt.Errorf("state object required")
 		}
 		fields := map[string]reflect.Type{}
+		required := map[string]bool{}
 		for i := 0; i < t.NumField(); i++ {
 			field := t.Field(i)
-			name := strings.Split(field.Tag.Get("json"), ",")[0]
-			fields[name] = field.Type
+			tag := strings.Split(field.Tag.Get("json"), ",")
+			fields[tag[0]] = field.Type
+			if len(tag) == 1 || tag[1] != "omitempty" {
+				required[tag[0]] = true
+			}
 		}
 		seen := map[string]bool{}
 		for decoder.More() {
@@ -66,8 +73,10 @@ func checkStateJSON(decoder *json.Decoder, t reflect.Type) error {
 				return err
 			}
 		}
-		if len(seen) != len(fields) {
-			return fmt.Errorf("missing state field")
+		for name := range required {
+			if !seen[name] {
+				return fmt.Errorf("missing state field")
+			}
 		}
 		closing, err := decoder.Token()
 		if err != nil {
