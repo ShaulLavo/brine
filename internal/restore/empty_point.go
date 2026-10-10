@@ -69,6 +69,7 @@ func CreateEmptySnapshot(ctx context.Context, root string, b Binding, c Credenti
 	transport := &http.Transport{DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 15 * time.Second, MaxResponseHeaderBytes: 32 << 10, DisableCompression: true}
 	defer transport.CloseIdleConnections()
 	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	var uploadedAt time.Time
 	for attempt := 0; attempt < 2; attempt++ {
 		request, err := http.NewRequestWithContext(ctx, http.MethodPut, u.String(), bytes.NewReader(raw))
 		if err != nil {
@@ -88,11 +89,14 @@ func CreateEmptySnapshot(ctx context.Context, root string, b Binding, c Credenti
 		if attempt == 0 && (code != http.StatusOK && code != http.StatusCreated && code != http.StatusNoContent) {
 			return source, time.Time{}, refuse("snapshot_create_only_failed")
 		}
+		if attempt == 0 {
+			uploadedAt = time.Now().UTC()
+		}
 		if attempt == 1 && code != http.StatusPreconditionFailed {
 			return source, time.Time{}, refuse("snapshot_create_only_unsupported")
 		}
 	}
-	return source, time.Now().UTC(), nil
+	return source, uploadedAt, nil
 }
 
 // EmptySchemaObserver accepts only a catalog with no application objects.

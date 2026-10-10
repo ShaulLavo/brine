@@ -15,6 +15,7 @@ import (
 func TestEmptySnapshotCreateOnlyAndIndependentRestore(t *testing.T) {
 	var payload []byte
 	var puts, gets int
+	var capabilityObserved atomic.Int64
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/bucket/epochs/e1/restore-points/p1/snapshot.sqlite" {
 			t.Errorf("wrong key %s", r.URL.Path)
@@ -29,6 +30,7 @@ func TestEmptySnapshotCreateOnlyAndIndependentRestore(t *testing.T) {
 				t.Error("unsigned create-only condition")
 			}
 			if payload != nil {
+				capabilityObserved.Store(time.Now().UnixNano())
 				w.WriteHeader(http.StatusPreconditionFailed)
 				return
 			}
@@ -56,6 +58,9 @@ func TestEmptySnapshotCreateOnlyAndIndependentRestore(t *testing.T) {
 	source, uploaded, err := CreateEmptySnapshot(context.Background(), root, binding, credentials, "p1", time.Minute, true)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if !uploaded.Before(time.Unix(0, capabilityObserved.Load())) {
+		t.Fatal("capability check refreshed the upload age")
 	}
 	engine := Engine{Root: root, AllowHTTPForTests: true, MaxSnapshotBytes: 1 << 20, Observer: EmptySchemaObserver{}, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) { return credentials, nil })}
 	request := Request{OperationID: "empty-proof", Source: RestoreSource{Kind: SQLiteSnapshot, Snapshot: &source}, Budget: time.Minute, ExpectedSchema: SchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}}
