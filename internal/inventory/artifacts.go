@@ -76,7 +76,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	secrets := []target.Secret{}
 	runnerIdentity := c.isRunner(ctx, home)
 	if runnerIdentity {
-		out, err := c.probe(ctx, "podman", "--remote=false", "secret", "ls", "--format", "{{.ID}} {{.Name}}")
+		out, err := c.probe(ctx, secretOutputLimit, "podman", "--remote=false", "secret", "ls", "--format", "{{.ID}} {{.Name}}")
 		if err != nil {
 			return appArtifacts{}
 		}
@@ -119,7 +119,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 				active := unknown[bool]()
 				for _, unit := range units {
 					if strings.HasSuffix(unit.Name, ".container") {
-						state, err := c.probe(ctx, "systemctl", "--user", "show", strings.TrimSuffix(unit.Name, ".container")+".service", "--property=ActiveState", "--value")
+						state, err := c.probe(ctx, scalarOutputLimit, "systemctl", "--user", "show", strings.TrimSuffix(unit.Name, ".container")+".service", "--property=ActiveState", "--value")
 						if err == nil {
 							switch state {
 							case "active", "reloading", "refreshing":
@@ -223,7 +223,7 @@ func (c Collector) caddy(ctx context.Context, s *target.Snapshot) error {
 	}
 
 	// Check the active endpoint even if adaptation of disk configuration fails.
-	live, liveErr := c.probe(ctx, "curl", "--disable", "--noproxy", "*", "--silent", "--fail", "--max-time", "2", "http://127.0.0.1:2019/config/")
+	live, liveErr := c.probe(ctx, caddyOutputLimit, "curl", "--disable", "--noproxy", "*", "--silent", "--fail", "--max-time", "2", "http://127.0.0.1:2019/config/")
 	liveAdmin := unknown[bool]()
 	if liveErr == nil {
 		liveAdmin = adminBinding([]byte(live))
@@ -232,7 +232,7 @@ func (c Collector) caddy(ctx context.Context, s *target.Snapshot) error {
 		}
 	}
 	// Adapt resolves matchers without guessing hosts from Caddyfile text.
-	out, adaptErr := c.probe(ctx, "caddy", "adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile")
+	out, adaptErr := c.probe(ctx, caddyOutputLimit, "caddy", "adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile")
 	if adaptErr != nil {
 		return nil
 	}
