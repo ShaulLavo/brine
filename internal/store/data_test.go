@@ -149,3 +149,28 @@ func TestCredentialReferenceRecord(t *testing.T) {
 		}
 	}
 }
+
+func TestUnrelatedPolicyChangePreservesDataIdentities(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	req := dataRequest()
+	before, err := s.ReserveDatabase(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.PolicyHash = "sha256:" + strings.Repeat("e", 64)
+	after, err := s.ReserveDatabase(ctx, req)
+	if err != nil || before != after {
+		t.Fatalf("unchanged database wedged after policy change: %v", err)
+	}
+	req.Database.Name = "second"
+	req.Database.MountPath = "/second"
+	second, err := s.ReserveDatabase(ctx, req)
+	if err != nil || second.Database.IncarnationID != before.Database.IncarnationID || second.Database.DatabaseID == before.Database.DatabaseID {
+		t.Fatalf("new database wedged after policy change: %v", err)
+	}
+	scopes, err := s.ReadCredentialScopes(ctx, "example")
+	if err != nil || len(scopes) != 2 || scopes[0].PolicyHash != req.PolicyHash || scopes[1].PolicyHash != req.PolicyHash {
+		t.Fatalf("scope did not bind current admission policy: %v", err)
+	}
+}

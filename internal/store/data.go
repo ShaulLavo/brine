@@ -53,7 +53,9 @@ func (p ReplicaPermit) AllowsReplica(binding data.ReplicaBindingID, epoch data.R
 }
 
 // ReserveDatabase allocates identities exactly once. The caller holds the host
-// mutation lock. This writes no directories and grants no startup permission.
+// mutation lock after rechecking root/filesystem/destination admission against
+// the current policy. Policy hashes belong to append-only admission records,
+// never immutable incarnation identity. This grants no startup permission.
 func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (ReservedDatabase, error) {
 	if req.App == "" || len(req.App) > 63 || !digestPattern.MatchString(req.PolicyHash) || req.Database.Validate() != nil || req.Destination.Validate() != nil || req.Database.BackupDestination != req.Destination.Reference {
 		return ReservedDatabase{}, ErrInvalid
@@ -63,15 +65,12 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 		return ReservedDatabase{}, err
 	}
 	defer tx.Rollback()
-	var incarnation, policyHash string
-	err = tx.QueryRowContext(ctx, "SELECT id,policy_hash FROM data_incarnations WHERE app=?", req.App).Scan(&incarnation, &policyHash)
-	if err == nil && policyHash != req.PolicyHash {
-		return ReservedDatabase{}, ErrConflict
-	}
+	var incarnation string
+	err = tx.QueryRowContext(ctx, "SELECT id FROM data_incarnations WHERE app=?", req.App).Scan(&incarnation)
 	if errors.Is(err, sql.ErrNoRows) {
 		incarnation, err = data.NewID()
 		if err == nil {
-			_, err = tx.ExecContext(ctx, "INSERT INTO data_incarnations VALUES(?,?,?)", incarnation, req.App, req.PolicyHash)
+			_, err = tx.ExecContext(ctx, "INSERT INTO data_incarnations VALUES(?,?)", incarnation, req.App)
 		}
 	}
 	if err != nil {
@@ -86,6 +85,9 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 		}
 		if existing.Database.Root != req.Database.PersistentRoot || existing.Database.MountPath != req.Database.MountPath || existing.Database.Filename != req.Database.Filename || existing.Replica.Destination != req.Destination {
 			return ReservedDatabase{}, ErrConflict
+		}
+		if err = recordDataAdmission(ctx, tx, existing.Database.DatabaseID, req.PolicyHash); err != nil {
+			return ReservedDatabase{}, err
 		}
 		return existing, tx.Commit()
 	}
@@ -128,6 +130,9 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 		return ReservedDatabase{}, err
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_replica_bindings VALUES(?,?,?,?,?,?,?)", binding, database, epoch, req.Destination.Endpoint, req.Destination.Bucket, prefix, replicaRaw); err != nil {
+		return ReservedDatabase{}, err
+	}
+	if err = recordDataAdmission(ctx, tx, reserved.Database.DatabaseID, req.PolicyHash); err != nil {
 		return ReservedDatabase{}, err
 	}
 	return reserved, tx.Commit()
@@ -342,7 +347,7 @@ func (s *Store) ReadCredentialScopes(ctx context.Context, app string) ([]Credent
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT d.id,i.policy_hash FROM data_databases d JOIN data_incarnations i ON i.id=d.incarnation_id WHERE i.app=? ORDER BY d.name", app)
+	rows, err := tx.QueryContext(ctx, "SELECT d.id,(SELECT a.policy_hash FROM data_admissions a WHERE a.database_id=d.id ORDER BY a.version DESC LIMIT 1) FROM data_databases d JOIN data_incarnations i ON i.id=d.incarnation_id WHERE i.app=? ORDER BY d.name", app)
 	if err != nil {
 		return nil, err
 	}
@@ -544,4 +549,17 @@ func (s *Store) validateReplicaPermit(ctx context.Context, q dataQuerier, p Repl
 		return &IntegrityError{}
 	}
 	return nil
+}
+
+func recordDataAdmission(ctx context.Context, tx *sql.Tx, id data.DatabaseID, policyHash string) error {
+	var previous string
+	err := tx.QueryRowContext(ctx, "SELECT policy_hash FROM data_admissions WHERE database_id=? ORDER BY version DESC LIMIT 1", id).Scan(&previous)
+	if err == nil && previous == policyHash {
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, "INSERT INTO data_admissions SELECT ?,COALESCE(MAX(version),0)+1,? FROM data_admissions WHERE database_id=?", id, policyHash, id)
+	return err
 }
