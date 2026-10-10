@@ -315,3 +315,9 @@ The first rollback operation `01a1236f4e35118f6721b8497c95415092f6e96f73c9` fail
 ### Invalid release and restricted log tail
 
 Operation `01a1237124fb21710cca0733fe6fd9e6a06730d2cc40` attempted the new digest/environment with a deliberately nonexistent health path and settled `rolled_back`. The previous writer regained `RELEASE=one` and routed HTTPS 200. Restricted `logs fixture --tail 40` returned 22 nonempty entries after real HTTP requests; restricted `diagnose fixture` succeeded with the app report. No host journal privilege was granted.
+
+### Config, immutable secret and lifecycle
+
+Config set completed, then immutable secret operation `01a1237390c9f0e66c1c72616d98199d5817433b0ba1` stored v2 via stdin only. A later config plan bound v2 without overwriting v1; secret values are omitted from evidence. `stop`, `start` and `restart` all succeeded through restricted plan/apply (operations `01a1237457994ac67bb75ca67829656edcae3649457a`, `01a12374819623e0a9c4c771aafa02bbd09c247978c2`, `01a12374a9824e30a20d538ee03d7d16f3ac6c9e45d6`). Standalone app logs are nonempty, but diagnose app logs remain `unknown:probe_timeout`; unit logs remain `unknown:logs_journal_unavailable`. Diagnose tail acceptance is not claimed.
+
+The full local suite passed all 30 packages with `GOFLAGS=-timeout=30m`, `TMPDIR`/`GOTMPDIR` on the data SSD. Default ten-minute suite runs had timed out in different progressing filesystem-effect subtests; the longer run completed rather than suppressing a test. Vet, Linux/client builds, Darwin arm64 vet, formatting and diff checks also passed.
