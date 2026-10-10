@@ -20,9 +20,15 @@ import (
 	"time"
 )
 
-type initializationDeadRunner struct{ unknown bool }
+type initializationDeadRunner struct {
+	unknown bool
+	running bool
+}
 
 func (r initializationDeadRunner) Show(context.Context, systemd.Unit) (systemd.Properties, error) {
+	if r.running {
+		return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
+	}
 	if r.unknown {
 		return systemd.Properties{}, errors.New("unknown manager")
 	}
@@ -33,8 +39,8 @@ func (r initializationDeadRunner) JobPending(context.Context, systemd.Unit) (boo
 }
 
 func TestInitializationStandaloneReconcileReleasesUntouchedFenceWithoutReplay(t *testing.T) {
-	for _, unknown := range []bool{false, true} {
-		t.Run(map[bool]string{false: "absent", true: "unknown"}[unknown], func(t *testing.T) {
+	for _, status := range []string{"absent", "unknown", "running"} {
+		t.Run(status, func(t *testing.T) {
 			ctx := context.Background()
 			state, engine, p := initializationJobFixture(t, datainit.LocalOperatorRequester())
 			uploads := 0
@@ -58,7 +64,7 @@ func TestInitializationStandaloneReconcileReleasesUntouchedFenceWithoutReplay(t 
 			}
 			// Simulate a dead process after the durable fence claim, before a task outcome.
 
-			r := initializationReconciler{Reconciler: reconcile.Reconciler{Store: state, Systemd: initializationDeadRunner{unknown: unknown}}, service: Service{Store: state}, engine: func(context.Context, ops.Operation) (datainit.Service, error) { return engine, nil }}
+			r := initializationReconciler{Reconciler: reconcile.Reconciler{Store: state, Systemd: initializationDeadRunner{unknown: status == "unknown", running: status == "running"}}, service: Service{Store: state}, engine: func(context.Context, ops.Operation) (datainit.Service, error) { return engine, nil }}
 			report, err := r.Reconcile(ctx)
 			if err != nil || len(report.Outcomes) != 1 {
 				t.Fatal("standalone reconcile failed", err, report)
@@ -71,9 +77,9 @@ func TestInitializationStandaloneReconcileReleasesUntouchedFenceWithoutReplay(t 
 			if err != nil {
 				t.Fatal(err)
 			}
-			if unknown {
+			if status != "absent" {
 				if retained.State != "intent" || permit.FenceState != "held" {
-					t.Fatal("unknown runner released fence")
+					t.Fatal("unsettled runner released fence")
 				}
 			} else {
 				if retained.State != "not_initialized" || permit.FenceState == "held" || report.Outcomes[0].After != ops.Failed {
@@ -139,14 +145,16 @@ func TestDetachedInitializationRecoveryAtEveryBoundary(t *testing.T) {
 			if boundary == "unknown_schema" || boundary == "missing_schema_receipt" {
 				cursor = "mutation_completed"
 			}
+			uploads := 0
 			engine.Journal = interruptedInitializationJournal{Journal: state, boundary: cursor}
 			engine.PrepareRestorePoint = func(_ context.Context, p datainit.Plan, op datainit.Operation) (datainit.VerifiedRestorePoint, error) {
+				uploads++
 				return initializationRecoveryPoint(p, op), nil
 			}
 			if boundary == "upload" {
 				engine.Journal = interruptedInitializationJournal{Journal: state, boundary: "never"}
 				engine.PrepareRestorePoint = func(_ context.Context, p datainit.Plan, op datainit.Operation) (datainit.VerifiedRestorePoint, error) {
-					_ = initializationRecoveryPoint(p, op)
+					uploads++
 					panic("interrupted initialization")
 				}
 			}
@@ -195,6 +203,13 @@ func TestDetachedInitializationRecoveryAtEveryBoundary(t *testing.T) {
 				t.Fatal(err)
 			}
 			unsafe := boundary == "unknown_schema" || boundary == "missing_schema_receipt"
+			wantUploads := 1
+			if boundary == "intent" || boundary == "quiesced" || boundary == "restore_point_intent" {
+				wantUploads = 0
+			}
+			if uploads != wantUploads {
+				t.Fatalf("upload calls=%d, want %d", uploads, wantUploads)
+			}
 			if unsafe {
 				if runErr == nil || result.State != ops.RecoveryRequired || retained.State != "mutation_completed" || permit.FenceState != "held" {
 					t.Fatalf("unsafe initialization settled: %v %+v %+v %s", runErr, result, retained, permit.FenceState)

@@ -97,7 +97,6 @@ func recoveryJob(reconciler reconcile.Reconciler) func(context.Context, string) 
 		copy.LockTimeout = jobs.HostLockWaitTimeout
 		return recoveryResult(copy.Reconcile(ctx))
 	}
-
 }
 
 func (r runnerReconciler) RunResolution(ctx context.Context, lock ops.Lock, id string) error {

@@ -101,8 +101,9 @@ func (r initializationReconciler) settleInitialization(ctx context.Context) (out
 
 func (r initializationReconciler) recoveryJob() func(context.Context, string) error {
 	return func(ctx context.Context, id string) error {
-		r.Reconciler.ExcludeID = id
-		r.Reconciler.LockTimeout = jobs.HostLockWaitTimeout
-		return recoveryResult(r.Reconciler.Reconcile(ctx))
+		copy := r
+		copy.ExcludeID = id
+		copy.LockTimeout = jobs.HostLockWaitTimeout
+		return recoveryResult(copy.Reconcile(ctx))
 	}
 }

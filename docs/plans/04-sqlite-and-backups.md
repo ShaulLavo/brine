@@ -50,3 +50,62 @@ The contract enables independent package work immediately. Shared schema and orc
 | Restore | P04-05. New `internal/restore/` and fixtures under its `testdata/`. | Isolated restore/checker tests start in parallel against injected binding/credential readers. Connected command/dispatcher wiring is serialized after P04-01 to P04-03. Real S3-compatible storage gate also needs P04-04's remote evidence. |
 
 P04-04 follows working replication/credential boundaries and owns backup observation/runbook files plus serialized command wiring. P04-06 follows P04-01 to P04-05 and owns physical drill evidence/runbooks. P04-07 may draft migration invariants/runbook tests in parallel, but its spec/policy/apply integration waits for those owners; no implicit migrations ship meanwhile. P04-08 follows P04-01 to P04-04 and P03-09, then owns archive/purge store/apply extensions after the foundational owners release them. P04-09 follows P04-05/P04-06 and the archive/recovery integration contract; it owns live-swap store/apply extensions after P04-08. Do not mark a task done for a config renderer, mock or this design alone.
+
+### P04-08 prepared-incarnation retirement
+
+**Status: Approved.** This is required execution work within P04-08, not a
+completed cleanup capability.
+
+**Problem and evidence.** A physical interruption drill killed an empty-data
+initialization runner after `restore_point_intent`. The retained journal had
+`intent`, `quiesced`, `restore_point_intent`; its fence stayed held. The detached
+reconcile runner previously used only deployment reconciliation, leaving the
+inner initialization untouched. The initialization-aware runner now observes
+empty data, records `not_initialized` and atomically releases that attempt's
+fence, without replaying upload or schema statements. Unknown data or a
+committed schema without its exact verified restore receipt remains fenced.
+The outer interrupted task receipt stays immutable. This does not free the
+active incarnation, allocated directory or replica destination reservations.
+
+With no committed release, `brine remove APP --target TARGET --json` still
+returns `kind: "no-op"`, `diff: null`, `conflicts: []` for this prepared
+incarnation. `internal/store/data_init.go` retains the consumed attempt and
+active incarnation; the removal planner is bound to committed release heads.
+Reproduce on an authorized disposable fixture by preparing data, planning
+initialization, interrupting after the durable restore-point intent, running
+reconcile, and then planning remove. Record the inner journal and fence,
+active incarnation, bindings and filesystem identities before and after.
+The current schema-v3 `resolve` contract accepts deploy and secret assignment
+receipts only. It cannot retire initialization or data allocations. Do not
+broaden resolve to replay initialization or clear unknown fences.
+
+**Operation to implement.** Extend planned `remove_app` to recognize an active
+prepared incarnation even without a release head. Bind its incarnation,
+databases, replica bindings/epochs, allocation receipts, initialization attempt
+and fences in the immutable ownership baseline. Under the host lock, freshly
+prove that no writer, replica process, manager job or lifetime-lock owner exists.
+Require initialization settlement first; uncertain evidence must refuse without
+clearing a fence. Archive the owned same-filesystem data tree by journaled
+rename and retain immutable identities/history. Commit an archive receipt and
+retire only that incarnation's active reservations atomically. Never delete data
+or remote objects. Recreate must get new incarnation and destination prefixes.
+
+The archive contract must explicitly distinguish a never-written allocation
+from initialized data. For affirmatively empty data with no writer history,
+retain the allocation/empty observation as archive evidence instead of inventing
+a remote backup receipt. This narrow case must not weaken P04-08's fresh remote
+restore-point and 30-day retention requirements for any initialized or unknown
+data. Define its retention and expiry behavior with the archive model before
+implementation. A filesystem-only deletion or SQL reservation release is not a
+contract-consistent shortcut.
+
+**Acceptance criteria.** Add T22 cases for prepared-only, consumed
+`not_initialized`, successful initialization without a release, and unknown
+initialization. Prepared and settled-empty cases must produce an executable
+archive plan rather than no-op. Unknown/held-fence and active writer/replica
+cases must refuse without effects. Interrupt archive intent, rename and
+retirement commit; reconcile by exact receipt/ownership inspection. Repeated
+remove must be a no-op only after retirement. Remove/recreate/expire must not
+touch the new incarnation or reuse its remote prefix. Retain schema/restore and
+initialization receipts, enforce archive retention and purge policy, and prove
+all boundaries on a separately authorized disposable physical fixture.
