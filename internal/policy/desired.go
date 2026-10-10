@@ -29,6 +29,8 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
+	DatabaseEnvironment []Environment `json:"database_environment,omitempty"`
+
 	RestoreInvariants    []data.RestoreInvariant    `json:"restore_invariants,omitempty"`
 	BackupRetention      []data.RetentionEvidence   `json:"backup_retention,omitempty"`
 	PersistentRoots      []data.PersistentRoot      `json:"persistent_roots,omitempty"`
@@ -54,6 +56,7 @@ type Desired struct {
 }
 
 func (d Desired) CanonicalBytes() ([]byte, error) {
+	d.DatabaseEnvironment = d.DatabaseEnvironmentValues()
 	if d.MinimumFreeDiskBytes == 0 {
 		d.MinimumFreeDiskBytes = DefaultMinimumFreeDiskBytes
 	}
@@ -248,6 +251,7 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		d.Secrets = append(d.Secrets, Secret{Name: name, Reference: ref})
 	}
 	slices.SortFunc(d.Secrets, func(a, b Secret) int { return strings.Compare(a.Name, b.Name) })
+	d.DatabaseEnvironment = d.DatabaseEnvironmentValues()
 	return d, nil
 }
 

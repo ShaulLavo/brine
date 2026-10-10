@@ -1,4 +1,4 @@
-// Package planview presents deployment intent without exposing environment values
+// Package planview presents deployment intent without exposing user environment values
 // or immutable secret IDs. It does not serialize an executable plan file.
 package planview
 
@@ -37,6 +37,8 @@ type secret struct {
 }
 
 type presentation struct {
+	DatabaseEnvironment []policy.Environment `json:"database_environment,omitempty"`
+
 	SchemaVersion      int                        `json:"schema_version"`
 	Lifecycle          plan.ChangeKind            `json:"lifecycle,omitempty"`
 	Kind               plan.Kind                  `json:"kind"`
@@ -58,7 +60,8 @@ type presentation struct {
 
 func project(p plan.Plan) presentation {
 	v := presentation{
-		SchemaVersion: p.SchemaVersion, Kind: p.Kind, Lifecycle: p.Lifecycle, App: p.App,
+		DatabaseEnvironment: slices.Clone(p.DatabaseEnvironment),
+		SchemaVersion:       p.SchemaVersion, Kind: p.Kind, Lifecycle: p.Lifecycle, App: p.App,
 		Target: p.Target, ObservedGeneration: p.ObservedGeneration,
 		PolicyVersion: p.PolicyVersion, PolicyHash: p.PolicyHash,
 		DesiredHash: p.DesiredHash, ConfigHash: p.ConfigHash,
@@ -66,6 +69,7 @@ func project(p plan.Plan) presentation {
 		Secrets: []secret{}, Changes: []change{},
 		Diff: canonicalDiff(p.Diff), Conflicts: slices.Clone(p.Conflicts), Hash: p.Hash,
 	}
+	slices.SortFunc(v.DatabaseEnvironment, func(a, b policy.Environment) int { return strings.Compare(a.Name, b.Name) })
 	if v.Conflicts == nil {
 		v.Conflicts = []plan.Diagnostic{}
 	}
@@ -144,6 +148,9 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 		manifest = shortDigest(*v.Image.ManifestDigest.Value, v)
 	}
 	add("  Platform manifest: " + manifest)
+	for _, e := range v.DatabaseEnvironment {
+		add("  " + e.Name + "=" + e.Value)
+	}
 	renderDiff(v, add)
 	for _, c := range v.Changes {
 		switch c.Kind {

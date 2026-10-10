@@ -18,10 +18,13 @@ The runtime uses `scratch` (an empty filesystem, with no registry base image
 or floating tag) and one CGO-disabled Go binary. No compiler, shell, or
 package manager ships. It runs as **UID/GID 10001:10001**; declare those numeric
 IDs in Brine's persistent runtime so its keep-id mapping owns DB/WAL/SHM files.
-Brine mounts the database declaration's directory; there is no automatically
-injected Brine database-path environment variable. Declare mount path `/data`
-and filename `app.db`. The app reads **`SQLITE_PATH`**, default `/data/app.db`;
-set it explicitly if changing the declaration. Parent directories are never
+Brine mounts the database declaration's directory and injects the database
+connection settings. Declare database name `main`, mount path `/data` and
+filename `app.db`. The app requires **`BRINE_DB_MAIN_PATH`** and opens exactly
+that path, with no default or legacy variable fallback. Brine also supplies
+`BRINE_DB_MAIN_ENGINE=sqlite` and `BRINE_DB_MAIN_ACCEPTS=fixture-v1` from the
+spec. These names cannot be overridden by app environment settings or secrets.
+Parent directories are never
 created by the app. Brine supplies private filesystem modes and umask.
 
 HTTP listens on **8080**. Configure Brine's health path as `/health`.

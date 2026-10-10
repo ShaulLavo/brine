@@ -168,3 +168,14 @@ func TestWriteCountLatestAndPreserve(t *testing.T) {
 		t.Fatalf("drift wrote row: %d %v", count, err)
 	}
 }
+
+func TestRuntimeRequiresBrineDatabasePath(t *testing.T) {
+	t.Setenv("BRINE_DB_MAIN_PATH", "")
+	if err := run(); err == nil || !strings.Contains(err.Error(), "BRINE_DB_MAIN_PATH is required") {
+		t.Fatalf("missing path not refused: %v", err)
+	}
+	t.Setenv("BRINE_DB_MAIN_PATH", filepath.Join(t.TempDir(), "absent.db"))
+	if err := run(); err == nil || !strings.Contains(err.Error(), "database startup refused") {
+		t.Fatalf("Brine path not read: %v", err)
+	}
+}

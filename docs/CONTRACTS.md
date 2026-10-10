@@ -8,6 +8,41 @@ Brine owns policy-approved UDP allocation/publishing, scoped TLS file delivery w
 
 Default readiness combines existing HTTP health with ownership of the exact expected UDP mapping/listener. Protocol-session verification and remote UDP reachability are separate facts and remain unverified unless actually probed. Optional WebTransport health requires an explicit bounded echo contract or a supported app-specific protocol; ordinary-health Rust servers do not implement it merely to deploy. P08-05 specifies the optional nonce exchange and refusal budgets. A successful HTTP/3 GET never substitutes for that opted-in protocol check. Shared UDP 443 and private previews remain separately gated.
 
+## App database environment (P10-01)
+
+Apps need no Brine SDK. They use any standard-format SQLite build or driver
+and open the container path Brine supplies. Each declared database receives:
+
+| Variable | Value |
+| --- | --- |
+| `BRINE_DB_<NAME>_ENGINE` | `sqlite` |
+| `BRINE_DB_<NAME>_PATH` | The declared mount path joined with the filename, such as `/data/app.db` |
+| `BRINE_DB_<NAME>_ACCEPTS` | Accepted schema markers, sorted and comma-separated |
+
+`<NAME>` is the database name upper-cased with `-` mapped to `_`. Database
+names remain lower-case letters, digits and hyphens under the existing grammar;
+duplicate names and mapped-name collisions are refused. The spec reserves every
+`BRINE_` name in both `[environment]` and `[secrets]`, even without databases.
+App environment files are not supported and the generated app unit never reads
+one. The image's defaults are superseded by explicit container environment
+settings. Read-only means Brine-owned deployment input, not an OS restriction
+on a process changing its own environment.
+
+The values derive from normalized database declarations and compatibility sets.
+Both sources and generated values are canonical desired-hash material; changing the name, mount
+path, filename or accepted markers changes the desired hash. Generated values
+appear in the plan's `database_environment` field and in JSON and human plan
+presentations, including conflict and no-op deployment plans. Ordinary user
+environment values remain redacted. Quadlet renders the generated variables as
+explicit, escaped `Environment` assignments. Missing schema compatibility still
+refuses deployment at admission; these settings do not initialize or migrate a
+database and do not weaken D11/D12 startup checks.
+
+Local spec, policy, plan, presentation and Quadlet tests establish this contract.
+The SQLite fixture now requires `BRINE_DB_MAIN_PATH`. Container environment and
+SQLite behavior on physical hardware remain unverified here; P10-06 owns that
+Pi drill.
+
 ## Command surface
 
 ~~~text
