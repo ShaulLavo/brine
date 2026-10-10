@@ -1,1 +1,1 @@
-{"schema_version":1,"command":"brine plan","ok":false,"data":null,"error":{"code":"offline_required","message":"Connected planning is not available; use --offline with --snapshot and --policy.","retryable":false}}
+{"schema_version":1,"command":"brine plan","ok":false,"data":null,"error":{"code":"offline_required","message":"Choose --target NAME for connected planning, or use --offline with --snapshot and --policy.","retryable":false}}
