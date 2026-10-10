@@ -42,6 +42,7 @@ type Dependencies struct {
 	HostDiagnose          dispatch.DiagnosticReader
 	HostConfig            dispatch.ConfigurationOperations
 	HostSecrets           dispatch.SecretOperations
+	HostBackupCredentials dispatch.BackupCredentialOperations
 }
 
 // NewRootCommand builds an independent command tree without executing it.
@@ -73,7 +74,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.json, "json", false, "Machine-readable JSON output")
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
-	root.AddCommand(newHostCmd(deps))
+	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes))
 	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp), newLifecycleCmd(deps, &modes, "remove", plan.RemoveApp))
 	root.AddCommand(newReconcileCmd(&jsonOutput, deps))
 	root.AddCommand(newResolveCmd(&jsonOutput, deps))
