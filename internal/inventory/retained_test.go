@@ -154,6 +154,8 @@ func TestRetainedAbsenceRequiresAffirmativeEvidence(t *testing.T) {
 		{"unowned listener", func(_ *Collector, r fakeRunner) { r["ss -H -ltnpe"] = "LISTEN 0 128 127.0.0.1:20000 0.0.0.0:*" }},
 		{"unowned UDP listener", func(_ *Collector, r fakeRunner) { r["ss -H -lunp"] = "UNCONN 0 0 *:20000 *:*" }},
 		{"unreadable listeners", func(_ *Collector, r fakeRunner) { delete(r, "ss -H -ltnpe") }},
+		{"unreadable UDP listeners", func(_ *Collector, r fakeRunner) { delete(r, "ss -H -lunp") }},
+		{"malformed UDP listeners", func(_ *Collector, r fakeRunner) { r["ss -H -lunp"] = "unreadable row" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, r, in := retainedFixture(t)
@@ -185,8 +187,56 @@ func TestRetiredAllocationCanBeOwnedByAnotherApp(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.Identity = *state.Target
-	c.absence(context.Background(), &s, appArtifacts{runner: true}, &state)
+	c.absence(context.Background(), &s, appArtifacts{runner: true}, &state, target.Known([]target.Port{}))
 	if (*s.Apps.Value)[0].AllocatedHostPort.Status != target.Absent {
 		t.Fatal("retired allocation treated as a live reservation")
+	}
+}
+
+func TestRetiredTCPAllocationDoesNotHideUDPRemnant(t *testing.T) {
+	for _, udp := range []bool{false, true} {
+		t.Run(map[bool]string{false: "TCP owned by another app", true: "same port also has unowned UDP"}[udp], func(t *testing.T) {
+			c, r, in := retainedFixture(t)
+			f := c.FS.(fixtureFS)
+			unit := "# Brine-owned plan=sha256:" + strings.Repeat("a", 64) + "\n[Container]\nPublishPort=127.0.0.1:20000:8080\n"
+			f.files["/home/brine/.config/containers/systemd/another.container"] = unit
+			f.files["/proc/4242/cgroup"] = "0::/user.slice/user-1001.slice/user@1001.service/app.slice/another.service/runtime\n"
+			f.files["/proc/4242/stat"] = "4242 (pasta (fixture)) S " + strings.Repeat("0 ", 18) + "123 0\n"
+			f.links["/proc/4242/fd/6"] = "socket:[77777]"
+			r["ss -H -ltnpe"] = `LISTEN 0 128 127.0.0.1:20000 0.0.0.0:* users:(("pasta",pid=4242,fd=6)) ino:77777 sk:1`
+			if udp {
+				r["ss -H -lunp"] = "UNCONN 0 0 *:20000 *:*"
+			}
+			in.Snapshot.Apps = target.Known([]target.App{
+				{Name: "fixture", Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{{ID: "fixture-id", Name: "brine.fixture.fixture-token.v1"}})},
+				{Name: "another", Image: target.Known(target.Image{Digest: in.Image.Digest, Platform: in.Image.Platform}), AllocatedHostPort: target.Known(target.Port(20000)), QuadletUnits: target.Known([]target.Unit{{Name: "another.container", Hash: digest([]byte(unit))}}), Secrets: target.Known([]target.Secret{})},
+			})
+			c.RunnerUser = "brine"
+			udpPorts := c.listeners(context.Background(), &in.Snapshot, "/home/brine", map[string]publication{"another": {Host: 20000, Container: 8080}})
+			if in.Snapshot.PortOwners.Value == nil || len(*in.Snapshot.PortOwners.Value) != 1 || (*in.Snapshot.PortOwners.Value)[0].App != "another" {
+				t.Fatalf("TCP ownership fixture failed: %+v", in.Snapshot.PortOwners)
+			}
+			state, err := c.StateInventory(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			c.absence(context.Background(), &in.Snapshot, appArtifacts{runner: true}, &state, udpPorts)
+			imageStatus := (*in.Snapshot.Apps.Value)[0].Image.Status
+			p, err := plan.Build(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			removal, err := plan.BuildRemove(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if udp {
+				if imageStatus != target.Unknown || p.Kind != plan.Conflict || removal.Kind != plan.Conflict {
+					t.Fatalf("TCP owner concealed UDP remnant: image=%s recreate=%s remove=%s", imageStatus, p.Kind, removal.Kind)
+				}
+			} else if p.Kind != plan.Create || p.HostPort != 20001 || removal.Kind != plan.NoOp {
+				t.Fatalf("another app's TCP allocation should permit retirement: recreate=%s/%d remove=%s", p.Kind, p.HostPort, removal.Kind)
+			}
+		})
 	}
 }

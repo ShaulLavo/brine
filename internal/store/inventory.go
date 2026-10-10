@@ -23,15 +23,18 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 	if err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)").Scan(&result.Generation); err != nil {
 		return result, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT app,EXISTS(SELECT 1 FROM release_heads h WHERE h.app=r.app) FROM releases r GROUP BY app`)
+	rows, err := tx.QueryContext(ctx, `SELECT app,EXISTS(SELECT 1 FROM release_heads h WHERE h.app=r.app),(SELECT id FROM releases latest WHERE latest.app=r.app ORDER BY rowid DESC LIMIT 1) FROM releases r GROUP BY app`)
 	if err != nil {
 		return result, err
 	}
+	// Immutable release rows are appended in commit order; IDs and wall-clock
+	// timestamps do not establish that order. A receipt must retire the last row.
+	latest := map[string]string{}
 	apps := map[string]target.ControlApp{}
 	for rows.Next() {
-		var name string
+		var name, releaseID string
 		var head bool
-		if err = rows.Scan(&name, &head); err != nil {
+		if err = rows.Scan(&name, &head, &releaseID); err != nil {
 			rows.Close()
 			return result, err
 		}
@@ -40,6 +43,7 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 			status = target.KnownStatus
 		}
 		apps[name] = target.ControlApp{Name: name, Status: status}
+		latest[name] = releaseID
 	}
 	err = rows.Err()
 	rows.Close()
@@ -88,9 +92,9 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 			if err != nil {
 				return result, err
 			}
-			if settled {
+			if settled && receipt.release == latest[receipt.app] {
 				app.Status = target.Absent
-			} else {
+			} else if !settled {
 				unsettled[receipt.app] = true
 			}
 			app.RetiredPorts = append(app.RetiredPorts, r.HostPort)
@@ -144,7 +148,8 @@ func removalSettled(ctx context.Context, tx *sql.Tx, id, app, planID string) (bo
  UNION ALL
  SELECT o.id,o.state,f.depth+1 FROM operations o JOIN family f ON o.recovery_of=f.id
  WHERE f.depth<64 AND o.app=? AND o.plan_id=? AND o.kind='resolve'
- ) SELECT EXISTS(SELECT 1 FROM family WHERE state='succeeded')`, id, app, planID, app, planID).Scan(&settled)
+ ) SELECT EXISTS(SELECT 1 FROM family f WHERE f.state='succeeded'
+ AND EXISTS(SELECT 1 FROM events e WHERE e.operation_id=f.id AND e.kind='state' AND e.state='succeeded'))`, id, app, planID, app, planID).Scan(&settled)
 	return settled, err
 }
 

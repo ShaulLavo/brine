@@ -153,3 +153,62 @@ func TestReadInventoryRejectsUnreadableState(t *testing.T) {
 		t.Fatal("missing state accepted")
 	}
 }
+
+func assertInventoryReadersUnknown(t *testing.T, s *Store, generation uint64) {
+	t.Helper()
+	assertInventoryApp(t, s, target.Unknown, generation)
+	state, err := ReadInventoryState(context.Background(), s.dir)
+	if err != nil || len(state.Apps) != 1 || state.Apps[0].Status != target.Unknown || state.Generation != generation {
+		t.Fatal("read-only inventory invented absence", state, err)
+	}
+}
+
+func TestInventoryOldRetirementCannotRetireRecreatedRelease(t *testing.T) {
+	s, op, r := inventoryRemoval(t)
+	ctx := context.Background()
+	advanceRemoval(t, s, op.ID)
+	if err := s.RetireApp(ctx, op.ID, "hello", r.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOperationState(ctx, op.ID, ops.Succeeded); err != nil {
+		t.Fatal(err)
+	}
+	assertInventoryApp(t, s, target.Absent, 2)
+	r.ID = "recreated-release"
+	if err := s.CommitRelease(ctx, "hello", r); err != nil {
+		t.Fatal(err)
+	}
+	assertInventoryApp(t, s, target.KnownStatus, 3)
+	if _, err := s.db.Exec("DELETE FROM release_heads WHERE app='hello'"); err != nil {
+		t.Fatal(err)
+	}
+	assertInventoryReadersUnknown(t, s, 3)
+}
+
+func TestInventoryRetirementRequiresJournaledSuccess(t *testing.T) {
+	for _, descendant := range []bool{false, true} {
+		t.Run(map[bool]string{false: "source", true: "resolution descendant"}[descendant], func(t *testing.T) {
+			s, op, r := inventoryRemoval(t)
+			ctx := context.Background()
+			advanceRemoval(t, s, op.ID)
+			if err := s.RetireApp(ctx, op.ID, "hello", r.ID); err != nil {
+				t.Fatal(err)
+			}
+			if descendant {
+				if err := s.SetOperationState(ctx, op.ID, ops.RecoveryRequired); err != nil {
+					t.Fatal(err)
+				}
+				child, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, PlanID: op.PlanID, RecoveryOf: op.ID}, "fixture", "unjournaled-child")
+				if err != nil {
+					t.Fatal(err)
+				}
+				op = child
+				advanceRemoval(t, s, op.ID)
+			}
+			if _, err := s.db.Exec("UPDATE operations SET state='succeeded' WHERE id=?", op.ID); err != nil {
+				t.Fatal(err)
+			}
+			assertInventoryReadersUnknown(t, s, 2)
+		})
+	}
+}

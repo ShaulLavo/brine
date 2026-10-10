@@ -9,8 +9,8 @@ import (
 
 const containerInventoryFormat = `{{.Names}} {{.Label "PODMAN_SYSTEMD_UNIT"}}`
 
-func (c Collector) absence(ctx context.Context, s *target.Snapshot, artifacts appArtifacts, control *target.ControlInventory) {
-	if !artifacts.runner || s.Apps.Status != target.KnownStatus || s.Generation.Status != target.KnownStatus || s.UsedPorts.Status != target.KnownStatus || s.PortOwners.Status != target.KnownStatus {
+func (c Collector) absence(ctx context.Context, s *target.Snapshot, artifacts appArtifacts, control *target.ControlInventory, udpPorts target.Observation[[]target.Port]) {
+	if udpPorts.Status != target.KnownStatus || !artifacts.runner || s.Apps.Status != target.KnownStatus || s.Generation.Status != target.KnownStatus || s.UsedPorts.Status != target.KnownStatus || s.PortOwners.Status != target.KnownStatus {
 		return
 	}
 	if control == nil && *s.Generation.Value != 0 {
@@ -58,7 +58,7 @@ func (c Collector) absence(ctx context.Context, s *target.Snapshot, artifacts ap
 		}
 		state := states[app.Name]
 		state.Name = app.Name
-		if !listenersAbsent(*s, state) {
+		if !listenersAbsent(*s, state, *udpPorts.Value) {
 			continue
 		}
 		app.Image = absent[target.Image]()
@@ -66,13 +66,18 @@ func (c Collector) absence(ctx context.Context, s *target.Snapshot, artifacts ap
 	}
 }
 
-func listenersAbsent(s target.Snapshot, app target.ControlApp) bool {
+func listenersAbsent(s target.Snapshot, app target.ControlApp, udpPorts []target.Port) bool {
 	for _, owner := range *s.PortOwners.Value {
 		if owner.App == app.Name || app.Name != "" && (owner.Unit == app.Name+".service" || owner.Unit == "brine-"+app.Name+".service") {
 			return false
 		}
 	}
 	for _, port := range app.RetiredPorts {
+		for _, udpPort := range udpPorts {
+			if udpPort == port {
+				return false
+			}
+		}
 		for _, used := range *s.UsedPorts.Value {
 			if used != port {
 				continue

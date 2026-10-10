@@ -145,8 +145,8 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	}
 	c.disk(ctx, &s, home)
 	artifacts := c.apps(ctx, &s, home, exists, control)
-	c.listeners(ctx, &s, home, artifacts.publications)
-	c.absence(ctx, &s, artifacts, control)
+	udpPorts := c.listeners(ctx, &s, home, artifacts.publications)
+	c.absence(ctx, &s, artifacts, control, udpPorts)
 	if e = c.caddy(ctx, &s); e != nil {
 		return s, e
 	}
