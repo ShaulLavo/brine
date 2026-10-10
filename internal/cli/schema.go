@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newSchemaCmd() *cobra.Command {
+func newSchemaCmd(modes *machineModes) *cobra.Command {
 	var database string
 	cmd := &cobra.Command{Use: "schema <brine.toml> --database NAME", Short: "Write the derived initializer JSON for operator review and installation", Args: offlineSpecArg, RunE: func(cmd *cobra.Command, args []string) error {
 		raw, err := readOfflineInput(args[0], dispatch.RequestLimit/2)
@@ -28,9 +29,15 @@ func newSchemaCmd() *cobra.Command {
 			if string(initializer.Definition.Database) != database {
 				continue
 			}
-			_, raw, err := initializer.Artifact()
+			artifact, raw, err := initializer.Artifact()
 			if err != nil {
 				return err
+			}
+			if modes.enabled() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), struct {
+					Artifact data.SchemaArtifact `json:"artifact"`
+					Bytes    string              `json:"bytes"`
+				}{artifact, string(raw)}))
 			}
 			_, err = cmd.OutOrStdout().Write(raw)
 			return err

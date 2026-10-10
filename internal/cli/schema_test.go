@@ -46,6 +46,23 @@ func TestSchemaExportAndConnectedPlanDigest(t *testing.T) {
 	}
 	sum := sha256.Sum256(exported.Bytes())
 	digest := "sha256:" + hex.EncodeToString(sum[:])
+	for _, mode := range []string{"--json", "--jsonl"} {
+		var out bytes.Buffer
+		deps := testDependencies(t, &out, &diagnostics)
+		if err := Execute(deps, []string{"data", "schema", path, "--database", "main", mode}); err != nil {
+			t.Fatal(err)
+		}
+		var response struct {
+			OK   bool `json:"ok"`
+			Data struct {
+				Bytes    string              `json:"bytes"`
+				Artifact data.SchemaArtifact `json:"artifact"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(out.Bytes(), &response); err != nil || !response.OK || response.Data.Bytes != exported.String() || response.Data.Artifact.Digest != digest {
+			t.Fatalf("artifact machine envelope changed exact bytes: %s %v", out.String(), err)
+		}
+	}
 	for _, operation := range []string{"plan", "data_prepare_plan"} {
 		for _, mode := range []string{"", "--json"} {
 			var out bytes.Buffer

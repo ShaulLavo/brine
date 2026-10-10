@@ -622,7 +622,7 @@ metadata against declared databases and markers, while actual initialization
 still requires an operator-installed digest-addressed artifact and independently
 recompiles it before live-file creation. Metadata alone grants no data authority.
 Plans show derived artifact digests. `brine data schema <brine.toml> --database
-NAME` exports the exact canonical JSON bytes without a trailing newline.
+NAME` exports the exact canonical JSON bytes without a trailing newline. Machine modes use the standard envelope with `data.artifact` metadata and the exact JSON in the `data.bytes` string.
 P10-03 owns delivery without manual installation.
 
 ### Release compatibility declaration

@@ -50,7 +50,7 @@ Export the exact initializer JSON for review and installation:
 brine data schema brine.toml --database main > reviewed-schema.json
 ```
 
-Export writes canonical JSON bytes with no added newline. Its SHA-256 matches
+Without a machine flag, export writes canonical JSON bytes with no added newline. With `--json` or `--jsonl`, the normal result envelope contains `data.artifact` metadata and a `data.bytes` string holding those exact bytes. Its SHA-256 matches
 the initializer digest shown in deployment and data-preparation plans, including
 machine output. Plan transport carries only catalog/marker/digest metadata,
 never SQL or initializer bytes. Deployment still changes no schema.
