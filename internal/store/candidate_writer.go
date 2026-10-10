@@ -11,7 +11,7 @@ import (
 // CandidateWriterSchema resolves an exact plan candidate before a first release
 // exists. It returns no compatibility verdict: the host must freshly observe
 // Bindings with WriterCompatibleWithAllocations. All held fences refuse.
-func (s *Store) CandidateWriterSchema(ctx context.Context, id data.AppIncarnationID, desired policy.Desired) (WriterSchema, error) {
+func (s *Store) CandidateWriterSchema(ctx context.Context, id data.AppIncarnationID, desired policy.Desired) (_ WriterSchema, resultErr error) {
 	if !data.ValidID(string(id)) {
 		return WriterSchema{}, ErrInvalid
 	}
@@ -19,7 +19,7 @@ func (s *Store) CandidateWriterSchema(ctx context.Context, id data.AppIncarnatio
 	if err != nil {
 		return WriterSchema{}, err
 	}
-	defer tx.Rollback()
+	defer rollbackOnExit(tx, &resultErr)
 	out, err := candidateWriterSchema(ctx, tx, s, id, desired)
 	if err != nil {
 		return WriterSchema{}, err

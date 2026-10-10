@@ -15,7 +15,7 @@ const maxSchemaDefinitions = 16 * 128
 
 // RegisterSchemaDefinitions is append-only within an incarnation. The caller
 // holds the mutation lock; new releases cannot redefine an existing marker.
-func (s *Store) RegisterSchemaDefinitions(ctx context.Context, incarnation data.AppIncarnationID, definitions []data.SchemaDefinition) error {
+func (s *Store) RegisterSchemaDefinitions(ctx context.Context, incarnation data.AppIncarnationID, definitions []data.SchemaDefinition) (resultErr error) {
 	if !data.ValidID(string(incarnation)) || len(definitions) > maxSchemaDefinitions {
 		return ErrInvalid
 	}
@@ -23,7 +23,7 @@ func (s *Store) RegisterSchemaDefinitions(ctx context.Context, incarnation data.
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer rollbackOnExit(tx, &resultErr)
 	seen := map[[2]string]bool{}
 	for _, definition := range definitions {
 		key := [2]string{string(definition.Database), definition.Marker}
@@ -67,13 +67,17 @@ func registerSchema(ctx context.Context, tx *sql.Tx, database data.DatabaseID, m
 	}
 	return nil
 }
-func readSchemaDefinitions(ctx context.Context, q dataQuerier, incarnation data.AppIncarnationID) ([]data.SchemaDefinition, error) {
+func readSchemaDefinitions(ctx context.Context, q dataQuerier, incarnation data.AppIncarnationID) (definitions []data.SchemaDefinition, resultErr error) {
 	rows, err := q.QueryContext(ctx, "SELECT d.name,s.marker,s.catalog_sha256 FROM data_schema_definitions s JOIN data_databases d ON d.id=s.database_id WHERE d.incarnation_id=? ORDER BY d.name,s.marker", incarnation)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	definitions := []data.SchemaDefinition{}
+	defer func() {
+		if err := rows.Close(); err != nil {
+			definitions, resultErr = nil, errors.Join(resultErr, err)
+		}
+	}()
+	definitions = []data.SchemaDefinition{}
 	for rows.Next() {
 		var d data.SchemaDefinition
 		if err = rows.Scan(&d.Database, &d.Marker, &d.CatalogSHA256); err != nil {
