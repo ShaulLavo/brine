@@ -64,6 +64,9 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if !prefixOK {
 		return r, nil
 	}
+	if p.Lifecycle == plan.ReviseReplica {
+		return e.inspectReplicaRevisionRecovery(ctx, op, p, d, events, r)
+	}
 	if p.Lifecycle == plan.PrepareData {
 		return e.inspectDataPreparationRecovery(ctx, op, p, d, events, r)
 	}
@@ -327,6 +330,9 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 	}
 	switch r.Action {
 	case ResumeForward:
+		if x.plan.Lifecycle == plan.ReviseReplica {
+			return x.reviseReplica(ctx, r.completed)
+		}
 		if x.plan.Lifecycle == plan.RemoveApp {
 			return x.remove(ctx, r.completed, !r.completed["withdraw_route"] && removalRouteState(x.plan, x.facts) == applied)
 		}

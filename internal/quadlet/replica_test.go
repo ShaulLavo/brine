@@ -19,7 +19,8 @@ func replicaOptions(t *testing.T) ReplicaUnitOptions {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ReplicaUnitOptions{Binding: b, Config: raw, ConfigPath: "/srv/state/replication/" + binding + "/litestream.yml", CredentialPath: "/srv/state/credentials/s3/destination/v1.env", LifetimeLock: "/srv/state/replica-locks/" + binding + ".lock"}
+	//nolint:gosec // CredentialPath is only a synthetic reference; no credential material.
+	return ReplicaUnitOptions{Binding: b, Config: raw, ConfigPath: "/srv/state/replication/" + binding + "/configs/" + replication.ConfigHash(raw)[7:] + ".yml", CredentialPath: "/srv/state/credentials/s3/destination/v1.env", LifetimeLock: "/srv/state/replica-locks/" + binding + ".lock"}
 }
 func TestReplicaUnitStartsThroughPermitAndLifetimeLock(t *testing.T) {
 	o := replicaOptions(t)

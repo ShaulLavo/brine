@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/replication"
 )
 
 var ErrActivationUnknown = errors.New("backup credential activation requires reconciliation")
@@ -105,67 +106,8 @@ func (r Rotator) Activate(ctx context.Context, receipt Receipt) (Receipt, error)
 		}
 		return nil
 	}
-	if record.Stage == data.RotationPrepared {
-		if err := advance(data.RotationStopIssued); err != nil {
-			return Receipt{}, err
-		}
-		// Even a failed Stop may have taken effect. Independently inspect below.
-		_ = r.Host.Stop(ctx, record.Before)
-	}
-	if record.Stage == data.RotationStopIssued {
-		stopped, err := r.Host.Stopped(ctx, record.Before)
-		if err != nil || !stopped {
-			return Receipt{}, ErrActivationUnknown
-		}
-		if err := advance(data.RotationStopped); err != nil {
-			return Receipt{}, err
-		}
-	}
-	if record.Stage == data.RotationStopped {
-		release, err := r.Host.Acquire(ctx, record.Before)
-		if err != nil {
-			return Receipt{}, ErrActivationUnknown
-		}
-		commitErr := func() error {
-			observed, fenced, err := r.Host.Inspect(ctx, record.Before.BindingID)
-			if err != nil || fenced || observed != record.Before && observed != record.After {
-				return ErrActivationUnknown
-			}
-			if err := r.Host.Commit(ctx, record.Before, record.After); err != nil {
-				return ErrActivationUnknown
-			}
-			return advance(data.RotationCommitted)
-		}()
-		releaseErr := release()
-		if commitErr != nil || releaseErr != nil {
-			return Receipt{}, ErrActivationUnknown
-		}
-	}
-	if record.Stage == data.RotationCommitted {
-		observed, fenced, err := r.Host.Inspect(ctx, record.After.BindingID)
-		if err != nil || fenced || observed != record.After {
-			return Receipt{}, ErrActivationUnknown
-		}
-		if r.Host.Reload(ctx) != nil || r.Host.Permit(ctx, record.After) != nil {
-			return Receipt{}, ErrActivationUnknown
-		}
-		if err := advance(data.RotationStartIssued); err != nil {
-			return Receipt{}, err
-		}
-		// Do not compensate or repeat an uncertain start. Running is independent.
-		_ = r.Host.Start(ctx, record.After)
-	}
-	if record.Stage != data.RotationStartIssued && record.Stage != data.RotationActive && record.Stage != data.RotationVerified {
+	if err := replication.Restart(ctx, r.Host, record.Before, record.After, record.Stage, advance); err != nil {
 		return Receipt{}, ErrActivationUnknown
-	}
-	running, err := r.Host.Running(ctx, record.After)
-	if err != nil || !running {
-		return Receipt{}, ErrActivationUnknown
-	}
-	if record.Stage == data.RotationStartIssued {
-		if err := advance(data.RotationActive); err != nil {
-			return Receipt{}, err
-		}
 	}
 	if err := r.Host.VerifyRemote(ctx, receipt, record.After); err != nil {
 		return Receipt{}, ErrRemoteAccess

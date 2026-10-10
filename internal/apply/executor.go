@@ -71,6 +71,7 @@ type execution struct {
 	recoveryRollback                        map[string]bool
 	writerStartOwners                       []string
 	nextRelease                             *Release
+	replicaOperation                        string
 }
 
 func desiredMatches(p plan.Plan, d policy.Desired) bool {
@@ -158,6 +159,12 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		if p.Kind == plan.NoOp {
 			return nil
 		}
+		if p.Lifecycle == plan.ReviseReplica {
+			if e.PersistentData == nil {
+				return errors.New("replica preparation adapter required")
+			}
+			return nil
+		}
 		if p.Lifecycle != "" {
 			if e.Podman == nil || e.Systemd == nil || p.Lifecycle != plan.StopApp && e.Health == nil {
 				return errors.New("lifecycle adapters required")
@@ -220,6 +227,9 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 	}
 	if p.Kind == plan.NoOp {
 		return x.terminal(ctx, Succeeded, nil)
+	}
+	if p.Lifecycle == plan.ReviseReplica {
+		return x.reviseReplica(ctx, nil)
 	}
 	if p.Lifecycle != "" {
 		return x.lifecycle(ctx)

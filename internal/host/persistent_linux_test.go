@@ -13,28 +13,59 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/replicapermits"
 	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 type preparedServices struct {
-	starts int
-	active bool
+	starts, stops             int
+	active                    bool
+	unknownStop, unknownStart bool
 }
 
-func (s *preparedServices) Start(context.Context, string) error {
+func (s *preparedServices) Start(_ context.Context, name string) error {
+	if !strings.HasPrefix(name, "brine-litestream-") {
+		return replication.ErrPermit
+	}
 	s.starts++
+	if s.unknownStart {
+		return replication.ErrRestartUnknown
+	}
 	s.active = true
 	return nil
 }
-func (s *preparedServices) Stop(context.Context, string) error { s.active = false; return nil }
+func (s *preparedServices) Stop(_ context.Context, name string) error {
+	if !strings.HasPrefix(name, "brine-litestream-") {
+		return replication.ErrPermit
+	}
+	s.stops++
+	if s.unknownStop {
+		return replication.ErrRestartUnknown
+	}
+	s.active = false
+	return nil
+}
 func (s *preparedServices) ReplicaStopped(context.Context, string) (bool, error) {
 	return !s.active, nil
 }
 
-func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *testing.T) {
+type preparationFixture struct {
+	preparation DataPreparation
+	planned     plan.Plan
+	desired     policy.Desired
+	facts       DataFacts
+	fact        target.PersistentDatabase
+	record      store.CredentialRecord
+	services    *preparedServices
+	manager     *systemd.Fake
+}
+
+func newPreparationFixture(t *testing.T) preparationFixture {
+	t.Helper()
 	ctx := context.Background()
 	_, desired, facts := persistentHostFixture(t)
 	// Socket paths include immutable binding IDs. Keep this small state fixture
@@ -44,12 +75,20 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(stateRoot) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(stateRoot); err != nil {
+			t.Error(err)
+		}
+	})
 	state, err := store.Open(stateRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = state.Close() })
+	t.Cleanup(func() {
+		if err := state.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	facts.Store = state
 	fact := collectPersistent(t, facts, desired)
 	home := t.TempDir()
@@ -72,7 +111,7 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 		t.Fatal(err)
 	}
 	services := &preparedServices{}
-	manager := &systemd.Fake{DaemonReloadFunc: func(context.Context) error { return nil }, ShowFunc: func(context.Context, systemd.Unit) (systemd.Properties, error) {
+	manager := &systemd.Fake{JobPendingFunc: func(context.Context, systemd.Unit) (bool, error) { return false, nil }, DaemonReloadFunc: func(context.Context) error { return nil }, ShowFunc: func(context.Context, systemd.Unit) (systemd.Properties, error) {
 		if services.active {
 			return systemd.Properties{ActiveState: "active", SubState: "running"}, nil
 		}
@@ -80,6 +119,17 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 	}}
 	preparation := DataPreparation{Runner: &preparationPullRunner{}, ProbeRoot: facts.ProbeRoot, ProbeMapping: facts.ProbeMapping, State: state, StateRoot: stateRoot, Home: home, Permits: replicapermits.StorePermits{State: state, Configs: replication.DiskConfigs{}}, Publisher: replication.ArtifactPublisher{StateRoot: stateRoot, UnitRoot: filepath.Join(home, ".config/systemd/user")}, Services: services, Units: manager}
 	planned := plan.Plan{DataCredentials: []data.CredentialEvidence{{BindingID: record.BindingID, EpochID: record.EpochID, Destination: record.Destination, Reference: record.CredentialRef, Version: record.Version, PolicyHash: record.PolicyHash, ReceivedAt: record.ReceivedAt}}, DataMounts: []data.Mount{{Database: fact.Database, HostPath: filepath.Join(string(fact.Database.Root), fact.Database.RelativeDirectory), ContainerPath: fact.Database.MountPath, BindingID: fact.Database.ReplicaBindingID}}}
+	return preparationFixture{preparation, planned, desired, facts, fact, record, services, manager}
+}
+
+func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *testing.T) {
+	ctx := context.Background()
+	fixture := newPreparationFixture(t)
+	preparation, planned, desired := fixture.preparation, fixture.planned, fixture.desired
+	facts, fact, record := fixture.facts, fixture.fact, fixture.record
+	services, manager := fixture.services, fixture.manager
+	state, stateRoot, home := preparation.State, preparation.StateRoot, preparation.Home
+	var err error
 	if ready, _ := preparation.PersistentPrepared(ctx, "fixture", planned, desired); ready {
 		t.Fatal("unpublished artifacts claimed prepared")
 	}
@@ -126,6 +176,21 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 	if err != nil || committed.Replica.CredentialVersion != 1 {
 		t.Fatal("new delivery substituted after approval", err)
 	}
+	manager.JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
+	planned.Lifecycle = plan.ReviseReplica
+	before := committed.Replica
+	desired.Databases[0].SyncInterval = 2 * time.Minute
+	if err = preparation.PreparePersistent(ctx, "cadence-change", planned, desired); err != nil {
+		t.Fatal("admitted 1m -> 2m cadence must activate a new config revision", err)
+	}
+	changed, err := state.ReadReplicaPermit(ctx, fact.Database.DatabaseID)
+	if err != nil || changed.Replica.ConfigFile == before.ConfigFile || changed.Replica.ConfigSHA256 == before.ConfigSHA256 || changed.Replica.EpochID != before.EpochID || services.starts != 2 {
+		t.Fatal("cadence did not revise only its replica", changed.Replica, err)
+	}
+	if raw, err := os.ReadFile(before.ConfigFile); err != nil || string(raw) != before.ConfigContent {
+		t.Fatal("accepted config revision was overwritten", err)
+	}
+	starts := services.starts
 	facts.StateRoot = stateRoot
 	refreshed := collectPersistent(t, facts, desired)
 	if refreshed.Credentials.Value == nil || refreshed.Credentials.Value.Version != 1 {
@@ -149,7 +214,7 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 	if err = preparation.PreparePersistent(ctx, "fixture", planned, desired); err == nil {
 		t.Fatal("foreign artifact silently replaced")
 	}
-	if services.starts != 1 {
+	if services.starts != starts {
 		t.Fatal("uncertain preparation restarted replica")
 	}
 }

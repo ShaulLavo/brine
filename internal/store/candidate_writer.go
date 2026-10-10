@@ -11,7 +11,17 @@ import (
 // CandidateWriterSchema resolves an exact plan candidate before a first release
 // exists. It returns no compatibility verdict: the host must freshly observe
 // Bindings with WriterCompatibleWithAllocations. All held fences refuse.
-func (s *Store) CandidateWriterSchema(ctx context.Context, id data.AppIncarnationID, desired policy.Desired) (_ WriterSchema, resultErr error) {
+func (s *Store) CandidateWriterSchema(ctx context.Context, id data.AppIncarnationID, desired policy.Desired) (WriterSchema, error) {
+	return s.candidateSchema(ctx, id, desired, false)
+}
+
+// ReplicaRevisionSchema validates replica-only preparation, not writer admission.
+// A held fence permits storing a revision; fresh ReplicaPermit gates activation.
+func (s *Store) ReplicaRevisionSchema(ctx context.Context, id data.AppIncarnationID, desired policy.Desired) (WriterSchema, error) {
+	return s.candidateSchema(ctx, id, desired, true)
+}
+
+func (s *Store) candidateSchema(ctx context.Context, id data.AppIncarnationID, desired policy.Desired, allowHeld bool) (_ WriterSchema, resultErr error) {
 	if !data.ValidID(string(id)) {
 		return WriterSchema{}, ErrInvalid
 	}
@@ -20,13 +30,16 @@ func (s *Store) CandidateWriterSchema(ctx context.Context, id data.AppIncarnatio
 		return WriterSchema{}, err
 	}
 	defer rollbackOnExit(tx, &resultErr)
-	out, err := candidateWriterSchema(ctx, tx, s, id, desired)
+	out, err := candidateSchema(ctx, tx, s, id, desired, allowHeld)
 	if err != nil {
 		return WriterSchema{}, err
 	}
 	return out, tx.Commit()
 }
 func candidateWriterSchema(ctx context.Context, tx *sql.Tx, s *Store, id data.AppIncarnationID, desired policy.Desired) (WriterSchema, error) {
+	return candidateSchema(ctx, tx, s, id, desired, false)
+}
+func candidateSchema(ctx context.Context, tx *sql.Tx, s *Store, id data.AppIncarnationID, desired policy.Desired, allowHeld bool) (WriterSchema, error) {
 	if len(desired.Databases) == 0 || len(desired.Databases) > 16 || desired.Runtime == nil || desired.Runtime.Validate() != nil {
 		return WriterSchema{}, ErrConflict
 	}
@@ -77,7 +90,7 @@ func candidateWriterSchema(ctx context.Context, tx *sql.Tx, s *Store, id data.Ap
 			return WriterSchema{}, err
 		}
 		binding := permit.Database
-		if binding.IncarnationID != id || binding.Root != declaration.PersistentRoot || binding.MountPath != declaration.MountPath || binding.Filename != declaration.Filename || permit.Replica.Destination.Reference != declaration.BackupDestination || permit.FenceState == "held" {
+		if binding.IncarnationID != id || binding.Root != declaration.PersistentRoot || binding.MountPath != declaration.MountPath || binding.Filename != declaration.Filename || permit.Replica.Destination.Reference != declaration.BackupDestination || (!allowHeld && permit.FenceState == "held") {
 			return WriterSchema{}, ErrConflict
 		}
 		complete := false

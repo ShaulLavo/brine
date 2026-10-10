@@ -32,13 +32,14 @@ type DataPreparation struct {
 	Permits         replication.PermitReader
 	Publisher       interface {
 		Publish(context.Context, replication.Artifacts) error
+		PublishConfig(context.Context, replication.Artifacts) error
 	}
 	Services apply.ReplicaServices
 	Units    systemd.Adapter
 }
 
-// PreparePersistent is journaled under the operation's host lock. It never stops an
-// existing replicator, initializes SQLite, or deletes data during compensation.
+// PreparePersistent runs under the journaled host lock. Cadence revisions restart
+// only the selected replica; no path initializes SQLite or deletes application data.
 func (p DataPreparation) PreparePersistent(ctx context.Context, operation string, planned plan.Plan, desired policy.Desired) error {
 	if planned.Lifecycle == plan.PrepareData {
 		return p.prepareAllocation(ctx, planned, desired)
@@ -60,24 +61,11 @@ func (p DataPreparation) PreparePersistent(ctx context.Context, operation string
 		return err
 	}
 	for i, artifact := range artifacts {
-		if err = p.Publisher.Publish(ctx, artifact); err != nil {
-			return err
-		}
-		if err = p.State.CommitReplicaBinding(ctx, bindings[i]); err != nil {
+		if err = p.prepareReplica(ctx, operation, desired, artifact, bindings[i]); err != nil {
 			return err
 		}
 	}
-	if err = p.Units.DaemonReload(ctx); err != nil {
-		return err
-	}
-	orchestrator := apply.ReplicaOrchestrator{Permits: p.Permits, Services: p.Services, Locks: apply.KernelReplicaLocks{}}
-	for i, artifact := range artifacts {
-		binding := bindings[i]
-		request := replication.ReplicaPermitRequest{DatabaseID: string(binding.DatabaseID), BindingID: string(binding.BindingID), EpochID: string(binding.EpochID), ConfigHash: replication.ConfigHash(artifact.Config)}
-		if err = orchestrator.Activate(ctx, apply.ReplicaActivation{ReplicaPermitRequest: request, LifetimeLock: artifact.LifetimeLock}); err != nil {
-			return err
-		}
-	}
+
 	return nil
 }
 func (p DataPreparation) PersistentPrepared(ctx context.Context, operation string, planned plan.Plan, desired policy.Desired) (bool, error) {
@@ -96,6 +84,15 @@ func (p DataPreparation) PersistentPrepared(ctx context.Context, operation strin
 	}
 	for i, artifact := range artifacts {
 		binding := bindings[i]
+		if planned.Lifecycle == plan.ReviseReplica {
+			record, err := p.State.ReadReplicaRevision(ctx, revisionID(operation, binding))
+			if err == nil && (record.After != binding || record.Stage != data.RotationActive) {
+				return false, replication.ErrRestartUnknown
+			}
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return false, err
+			}
+		}
 		committed, err := p.State.ReadReplicaPermitByBinding(ctx, binding.BindingID)
 		if err != nil || !committed.Replica.Committed || committed.Replica != binding {
 			return false, replication.ErrPermit
@@ -129,7 +126,11 @@ func (p DataPreparation) expected(ctx context.Context, planned plan.Plan, desire
 	if len(planned.DataMounts) == 0 || len(planned.DataMounts) != len(desired.Databases) || desired.Backup == nil {
 		return nil, nil, replication.ErrPermit
 	}
-	schema, err := p.State.CandidateWriterSchema(ctx, planned.DataMounts[0].Database.IncarnationID, desired)
+	readSchema := p.State.CandidateWriterSchema
+	if planned.Lifecycle == plan.ReviseReplica {
+		readSchema = p.State.ReplicaRevisionSchema
+	}
+	schema, err := readSchema(ctx, planned.DataMounts[0].Database.IncarnationID, desired)
 	if err != nil || !data.WriterCompatibleWithAllocations(ctx, schema.Bindings, desired.SchemaCompatibility, schema.Definitions, schema.Allocations) {
 		return nil, nil, replication.ErrPermit
 	}
@@ -185,13 +186,13 @@ func (p DataPreparation) expected(ctx context.Context, planned plan.Plan, desire
 			return nil, nil, err
 		}
 		configDir := filepath.Join(p.StateRoot, "replication", string(binding.BindingID))
-		configPath := filepath.Join(configDir, "litestream.yml")
 		lockPath := filepath.Join(p.StateRoot, "replica-locks", string(binding.BindingID)+".lock")
 		projected := replication.Binding{IncarnationID: string(mount.Database.IncarnationID), DatabaseID: string(mount.Database.DatabaseID), BindingID: string(binding.BindingID), EpochID: string(binding.EpochID), DBPath: filepath.Join(mount.HostPath, string(mount.Database.Filename)), SocketPath: filepath.Join(configDir, "control.sock"), Endpoint: binding.Destination.Endpoint, Bucket: binding.Destination.Bucket, Prefix: binding.RemotePrefix, Region: binding.Destination.Region, ForcePathStyle: binding.Destination.PathStyle, Cadence: replication.Cadence{SyncInterval: declaration.SyncInterval, SnapshotInterval: desired.Backup.SnapshotInterval}}
 		config, err := replication.RenderConfig(projected)
 		if err != nil {
 			return nil, nil, err
 		}
+		configPath := filepath.Join(configDir, "configs", strings.TrimPrefix(replication.ConfigHash(config), "sha256:")+".yml")
 		unit, err := quadlet.RenderReplica(quadlet.ReplicaUnitOptions{Binding: projected, Config: config, ConfigPath: configPath, CredentialPath: credentialPath, LifetimeLock: lockPath})
 		if err != nil {
 			return nil, nil, err

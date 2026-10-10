@@ -127,6 +127,7 @@ const (
 	StartApp      ChangeKind = "start_app"
 	RemoveApp     ChangeKind = "remove_app"
 	PrepareData   ChangeKind = "prepare_data"
+	ReviseReplica ChangeKind = "revise_replica"
 	WithdrawRoute ChangeKind = "withdraw_route"
 	RemoveUnit    ChangeKind = "remove_unit"
 	RetireApp     ChangeKind = "retire_app"
@@ -169,7 +170,16 @@ type Restart struct {
 	App string `json:"app"`
 }
 
+// ReplicaPrevious freezes the untouched app artifacts for a metadata-only change.
+type ReplicaPrevious struct {
+	ReleaseID       string           `json:"release_id"`
+	Units           []target.Unit    `json:"units"`
+	CaddyFile       target.CaddyFile `json:"caddy_file"`
+	CaddyGeneration uint64           `json:"caddy_generation"`
+}
+
 type Plan struct {
+	ReplicaPrevious    *ReplicaPrevious           `json:"replica_previous,omitempty"`
 	DataAllocations    []data.AllocationProposal  `json:"data_allocations,omitempty"`
 	PreparationRoots   []data.RootEvidence        `json:"preparation_roots,omitempty"`
 	MappingImage       string                     `json:"mapping_image,omitempty"`
@@ -256,6 +266,11 @@ func Build(in Input) (Plan, error) {
 	p := Plan{SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{}}
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
+	}
+	for _, release := range in.State.Releases {
+		if release.App == p.App && CadenceOnly(in.Desired, release.Desired) && reflect.DeepEqual(in.Image, release.Image) {
+			p.Lifecycle = ReviseReplica
+		}
 	}
 	persistent := !in.Desired.Stateless()
 	for _, release := range in.State.Releases {
@@ -481,6 +496,10 @@ func Build(in Input) (Plan, error) {
 	}
 	if release != nil && configHash(release.Desired, release.Image, release.HostPort, release.Secrets) == p.ConfigHash && current.Image.Status == target.KnownStatus && *current.Image.Value == in.Image.observed() && !allocated && ownHash != "" && hasContainer(*current.QuadletUnits.Value, p.App) {
 		p.Kind = NoOp
+	} else if p.Lifecycle == ReviseReplica {
+		p.ReplicaPrevious = &ReplicaPrevious{ReleaseID: release.ID, Units: slices.Clone(release.Units), CaddyFile: release.CaddyFile, CaddyGeneration: caddy.Generation}
+		p.Diff = configurationDiff(in.Desired, in.Image, p.HostPort, p.Secrets, release)
+		p.Changes = []Change{{Kind: ReviseReplica}}
 	} else {
 		for _, committed := range in.State.Releases {
 			if committed.App != p.App {

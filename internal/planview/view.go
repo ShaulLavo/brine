@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -160,6 +161,8 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 			add("~ render app service")
 		case plan.StageCaddy:
 			add(fmt.Sprintf("~ routing generation: %d -> %d", c.PreviousGeneration, c.NextGeneration))
+		case plan.ReviseReplica:
+			add("~ activate replica cadence revision (app unchanged)")
 		case plan.RestartApp:
 			add("~ restart app")
 		case plan.StopApp:
@@ -281,6 +284,16 @@ func renderDiff(v presentation, add func(string)) {
 			add("+ domain: " + string(domain))
 		}
 	}
+	names := make([]string, 0, len(d.ReplicaSync))
+	for name := range d.ReplicaSync {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	for _, name := range names {
+		change := d.ReplicaSync[name]
+		renderValue("replica sync "+name, &change, func(interval time.Duration) string { return interval.String() }, add)
+	}
+	renderValue("replica snapshot", d.ReplicaSnapshot, func(interval time.Duration) string { return interval.String() }, add)
 	renderValue("host port", d.HostPort, func(p target.Port) string { return fmt.Sprint(p) }, add)
 	renderValue("container port", d.ContainerPort, func(p spec.Port) string { return fmt.Sprint(p) }, add)
 	renderValue("resources", d.Resources, func(r policy.Resources) string { return fmt.Sprintf("%d MiB, %d PIDs", r.MemoryMB, r.PIDsLimit) }, add)

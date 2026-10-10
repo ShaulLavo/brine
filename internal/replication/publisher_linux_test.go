@@ -46,7 +46,7 @@ func publisherFixture(t *testing.T) (ArtifactPublisher, Artifacts) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ArtifactPublisher{StateRoot: state, UnitRoot: units}, Artifacts{Binding: b, Config: config, Service: []byte("# Brine-owned replica=" + b.BindingID + " config=" + ConfigHash(config) + "\n[Service]\nType=simple\n"), ConfigPath: filepath.Join(state, "replication", b.BindingID, "litestream.yml"), LifetimeLock: filepath.Join(state, "replica-locks", b.BindingID+".lock"), ServicePath: filepath.Join(units, name)}
+	return ArtifactPublisher{StateRoot: state, UnitRoot: units}, Artifacts{Binding: b, Config: config, Service: []byte("# Brine-owned replica=" + b.BindingID + " config=" + ConfigHash(config) + "\n[Service]\nType=simple\n"), ConfigPath: filepath.Join(state, "replication", b.BindingID, "configs", ConfigHash(config)[7:]+".yml"), LifetimeLock: filepath.Join(state, "replica-locks", b.BindingID+".lock"), ServicePath: filepath.Join(units, name)}
 }
 func TestPublisherExactIdempotencePrivateModesAndDriftRefusal(t *testing.T) {
 	p, a := publisherFixture(t)

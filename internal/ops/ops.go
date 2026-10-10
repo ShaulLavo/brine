@@ -36,7 +36,7 @@ func Transitions() map[State][]State {
 		Queued:        {LaunchUnknown, Preflight, Failed, RecoveryRequired},
 		LaunchUnknown: {Preflight, Failed, RecoveryRequired},
 		Preflight:     {Preparing, Succeeded, Failed, RecoveryRequired},
-		Preparing:     {Quiescing, Starting, Succeeded, Failed, RollingBack, RecoveryRequired},
+		Preparing:     {Quiescing, Starting, Committing, Succeeded, Failed, RollingBack, RecoveryRequired},
 		Quiescing:     {Starting, Succeeded, Failed, RollingBack, RecoveryRequired},
 		Starting:      {Checking, Failed, RollingBack, RecoveryRequired},
 		Checking:      {Committing, Succeeded, Failed, RollingBack, RecoveryRequired},

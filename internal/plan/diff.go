@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -42,14 +43,16 @@ type SecretChange struct {
 // ConfigurationDiff records only changed settings. Environment values are
 // compared transiently and never retained here or in the returned plan.
 type ConfigurationDiff struct {
-	Image         *ValueChange[Image]            `json:"image,omitempty"`
-	Domains       *SetChange[spec.Domain]        `json:"domains,omitempty"`
-	HostPort      *ValueChange[target.Port]      `json:"host_port,omitempty"`
-	ContainerPort *ValueChange[spec.Port]        `json:"container_port,omitempty"`
-	Resources     *ValueChange[policy.Resources] `json:"resources,omitempty"`
-	Health        *ValueChange[policy.Health]    `json:"health,omitempty"`
-	Environment   *EnvironmentChange             `json:"environment,omitempty"`
-	Secrets       []SecretChange                 `json:"secrets"`
+	ReplicaSync     map[string]ValueChange[time.Duration] `json:"replica_sync,omitempty"`
+	ReplicaSnapshot *ValueChange[time.Duration]           `json:"replica_snapshot,omitempty"`
+	Image           *ValueChange[Image]                   `json:"image,omitempty"`
+	Domains         *SetChange[spec.Domain]               `json:"domains,omitempty"`
+	HostPort        *ValueChange[target.Port]             `json:"host_port,omitempty"`
+	ContainerPort   *ValueChange[spec.Port]               `json:"container_port,omitempty"`
+	Resources       *ValueChange[policy.Resources]        `json:"resources,omitempty"`
+	Health          *ValueChange[policy.Health]           `json:"health,omitempty"`
+	Environment     *EnvironmentChange                    `json:"environment,omitempty"`
+	Secrets         []SecretChange                        `json:"secrets"`
 }
 
 func valueChange[T any](old *T, next T) *ValueChange[T] {
@@ -77,6 +80,19 @@ func configurationDiff(next policy.Desired, image Image, port target.Port, secre
 		d.ContainerPort = valueChange(&old.ContainerPort, next.ContainerPort)
 		d.Resources = valueChange(&old.Resources, next.Resources)
 		d.Health = valueChange(&old.Health, next.Health)
+	}
+	if previous != nil && next.Backup != nil && old.Backup != nil {
+		d.ReplicaSnapshot = valueChange(&old.Backup.SnapshotInterval, next.Backup.SnapshotInterval)
+		for _, database := range next.Databases {
+			for _, prior := range old.Databases {
+				if database.Name == prior.Name && database.SyncInterval != prior.SyncInterval {
+					if d.ReplicaSync == nil {
+						d.ReplicaSync = map[string]ValueChange[time.Duration]{}
+					}
+					d.ReplicaSync[string(database.Name)] = *valueChange(&prior.SyncInterval, database.SyncInterval)
+				}
+			}
+		}
 	}
 	domains := &SetChange[spec.Domain]{Added: []spec.Domain{}, Removed: []spec.Domain{}}
 	for _, domain := range next.Domains {

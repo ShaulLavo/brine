@@ -24,7 +24,7 @@ func RenderReplica(o ReplicaUnitOptions) (Unit, error) {
 	if _, err := replication.ParseConfig(o.Config, o.Binding); err != nil {
 		return Unit{}, err
 	}
-	suffix := "/replication/" + o.Binding.BindingID + "/litestream.yml"
+	suffix := "/replication/" + o.Binding.BindingID + "/configs/" + strings.TrimPrefix(replication.ConfigHash(o.Config), "sha256:") + ".yml"
 	if !strings.HasSuffix(o.ConfigPath, suffix) {
 		return Unit{}, replication.ErrInvalid
 	}

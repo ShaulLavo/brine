@@ -11,23 +11,7 @@ import (
 )
 
 func (s *Store) ReadCredentialRotation(ctx context.Context, planID string) (data.CredentialRotation, error) {
-	var raw []byte
-	err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_credential_rotations WHERE plan_id=?", planID).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return data.CredentialRotation{}, ErrNotFound
-	}
-	if err != nil {
-		return data.CredentialRotation{}, err
-	}
-	var record data.CredentialRotation
-	if len(raw) > 32<<10 || json.Unmarshal(raw, &record) != nil || record.Validate() != nil || record.PlanID != planID {
-		return data.CredentialRotation{}, &IntegrityError{}
-	}
-	canonical, _ := json.Marshal(record)
-	if !bytes.Equal(raw, canonical) {
-		return data.CredentialRotation{}, &IntegrityError{}
-	}
-	return record, nil
+	return readReplicaCursor(s.db.QueryRowContext(ctx, "SELECT canonical FROM data_credential_rotations WHERE plan_id=?", planID), 32<<10, func(record data.CredentialRotation) bool { return record.Validate() == nil && record.PlanID == planID })
 }
 func (s *Store) WriteCredentialRotation(ctx context.Context, previous data.RotationStage, record data.CredentialRotation) error {
 	if s.readOnly || record.Validate() != nil || !record.Follows(previous) {
@@ -45,6 +29,10 @@ func (s *Store) WriteCredentialRotation(ctx context.Context, previous data.Rotat
 	defer func() { _ = tx.Rollback() }()
 	permit, err := readReplicaPermit(ctx, tx, record.Before.DatabaseID)
 	if err != nil || permit.Replica != record.Before && permit.Replica != record.After {
+		return ErrConflict
+	}
+	var pending int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_replica_revisions WHERE binding_id=? AND stage!='active'", record.Before.BindingID).Scan(&pending); err != nil || pending != 0 {
 		return ErrConflict
 	}
 	var app string

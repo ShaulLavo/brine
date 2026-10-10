@@ -97,7 +97,7 @@ func committedDataFixture(t *testing.T) (*Store, data.ReplicaBinding) {
 	binding.ConfigContent = "dbs: []\n"
 	sum := sha256.Sum256([]byte(binding.ConfigContent))
 	binding.ConfigSHA256 = hex.EncodeToString(sum[:])
-	binding.ConfigFile = filepath.Join(state.dir, "replication", string(binding.BindingID), "litestream.yml")
+	binding.ConfigFile = filepath.Join(state.dir, "replication", string(binding.BindingID), "configs", binding.ConfigSHA256+".yml")
 	binding.SocketFile = filepath.Join(state.dir, "replication", string(binding.BindingID), "control.sock")
 	binding.LifetimeLockFile = filepath.Join(state.dir, "replica-locks", string(binding.BindingID)+".lock")
 	binding.UnitSHA256 = strings.Repeat("c", 64)
