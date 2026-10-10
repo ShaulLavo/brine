@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // SchemaInitializer is an operator-reviewed artifact, not a deploy/request SQL
@@ -20,6 +21,8 @@ type SchemaInitializer struct {
 }
 
 func (a SchemaInitializer) Validate(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	if !ValidMarker(a.Definition.Marker) || a.Definition.Marker == EmptyMarker || !ValidCatalogHash(a.Definition.CatalogSHA256) || !namePattern.MatchString(string(a.Definition.Database)) || len(a.Statements) == 0 || len(a.Statements) > 128 {
 		return ErrInvalid
 	}
@@ -52,6 +55,8 @@ func (a SchemaInitializer) Validate(ctx context.Context) error {
 // leave a zero-byte file; a failed/unknown commit must be inspected by the
 // journal owner, never replayed. App schema and marker commit atomically.
 func InitializeSchema(ctx context.Context, b DatabaseBinding, a SchemaInitializer, allocation *AllocationReceipt) error {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
 	if a.Definition.Database != b.Name {
 		return ErrInvalid
 	}

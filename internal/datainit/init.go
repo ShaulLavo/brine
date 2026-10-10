@@ -121,6 +121,8 @@ func (s Service) guard(ctx context.Context) (func(), error) {
 	return s.Lock(ctx)
 }
 func (s Service) Plan(ctx context.Context, r Request) (Plan, error) {
+	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
 	release, err := s.guard(ctx)
 	if err != nil {
 		return Plan{}, err
@@ -137,6 +139,9 @@ func (s Service) Plan(ctx context.Context, r Request) (Plan, error) {
 	if p.Source != data.AllocatedEmpty && p.Source != data.VerifiedEmpty {
 		return Plan{}, ErrRefused
 	}
+	if f.Initializer.Definition != p.Definition {
+		return Plan{}, ErrRefused
+	}
 	if err = f.Initializer.Validate(ctx); err != nil {
 		return Plan{}, ErrRefused
 	}
@@ -151,6 +156,8 @@ func (s Service) Plan(ctx context.Context, r Request) (Plan, error) {
 	return p, s.Journal.SaveInitPlan(ctx, p)
 }
 func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
 	release, err := s.guard(ctx)
 	if err != nil {
 		return Operation{}, err
@@ -195,7 +202,7 @@ func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
 		// invokes the initializer, even when the source is still affirmatively empty.
 		return s.Journal.SetInitState(ctx, old, "succeeded")
 	}
-	if f.Observation.State != p.Source {
+	if f.Observation.State != p.Source || f.Initializer.Definition != p.Definition {
 		return Operation{}, ErrRefused
 	}
 	op, err := s.Journal.ClaimInitialization(ctx, p)
@@ -237,7 +244,7 @@ func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
 	fresh.Requester = p.Requester
 	fresh.Source = p.Source
 	fresh.RestorePointID = p.RestorePointID
-	if !fresh.Valid() || !point.Admits(p, time.Now().UTC()) {
+	if !fresh.Valid() || f.Initializer.Definition != p.Definition || !point.Admits(p, time.Now().UTC()) {
 		return op, ErrRecovery
 	}
 	op, err = s.Journal.SetInitState(ctx, op, "mutation_intent")

@@ -3,12 +3,10 @@
 package host
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -18,30 +16,39 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/restore"
+	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
 const initializationEvidenceRoot = "/etc/ssh/brine/data-init"
 
-func trustedInitJSON(ctx context.Context, kind, id string, out any) error {
+func trustedInitJSON(ctx context.Context, id string, out *data.SchemaInitializer) error {
 	if !datainit.ValidID(id) {
 		return datainit.ErrRefused
 	}
-	raw, err := trustedRead(ctx, filepath.Join(initializationEvidenceRoot, kind, strings.TrimPrefix(id, "sha256:")+".json"), 1<<20)
+	raw, err := trustedRead(ctx, filepath.Join(initializationEvidenceRoot, "schemas", strings.TrimPrefix(id, "sha256:")+".json"), 1<<20)
 	if err != nil {
 		return err
+	}
+	return decodeReviewedInitialization(raw, id, out)
+}
+
+func decodeReviewedInitialization(raw []byte, id string, out *data.SchemaInitializer) error {
+	if !datainit.ValidID(id) || len(raw) > 1<<20 {
+		return datainit.ErrRefused
 	}
 	sum := sha256.Sum256(raw)
 	if "sha256:"+hex.EncodeToString(sum[:]) != id {
 		return datainit.ErrRefused
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(out); err != nil {
+	fields, err := strictjson.Object(raw, "definition", "statements")
+	if err != nil {
 		return datainit.ErrRefused
 	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF {
+	if _, err = strictjson.Object(fields["definition"], "database", "marker", "catalog_sha256"); err != nil {
+		return datainit.ErrRefused
+	}
+	if err = json.Unmarshal(raw, out); err != nil {
 		return datainit.ErrRefused
 	}
 	return nil
@@ -109,7 +116,7 @@ func initializationFacts(ctx context.Context, s Service, stateRoot string, r dat
 	if !ok || destination != permit.Replica.Destination {
 		return f, datainit.ErrRefused
 	}
-	if err = trustedInitJSON(ctx, "schemas", r.Artifact, &f.Initializer); err != nil {
+	if err = trustedInitJSON(ctx, r.Artifact, &f.Initializer); err != nil {
 		return f, err
 	}
 	definition := f.Initializer.Definition
