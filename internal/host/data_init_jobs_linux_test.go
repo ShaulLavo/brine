@@ -73,7 +73,7 @@ func TestDataInitializationJobFinishesAfterSixteenSecondsAndRemainsObservable(t 
 		return json.Marshal(datainit.Operation{ID: strings.Repeat("5", 32), PlanID: op.SecretRef, Fence: data.FenceID(strings.Repeat("6", 32)), State: "succeeded"})
 	}}}
 	tasks := jobs.Service{Store: state, Requester: requester.String(), Launcher: initializationLauncher{launch: func(id systemd.OperationID) error {
-		go func() { finished <- runner.Run(context.Background(), string(id)) }()
+		go func() { finished <- runner.Run(context.Background(), id.String()) }()
 		return nil
 	}}}
 	backend := initializationOperations{engine: engine, tasks: tasks}

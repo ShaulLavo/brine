@@ -24,7 +24,7 @@ func migrateDataInitialization(ctx context.Context, tx *sql.Tx) error {
  CREATE TABLE data_init_events(operation_id TEXT NOT NULL REFERENCES data_init_operations(id),sequence INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('intent','quiesced','restore_point_intent','restore_point_verified','mutation_intent','mutation_completed','succeeded')),created_at TEXT NOT NULL,receipt BLOB CHECK(receipt IS NULL OR length(receipt)<=16384),PRIMARY KEY(operation_id,sequence));
  CREATE TRIGGER data_init_events_no_update BEFORE UPDATE ON data_init_events BEGIN SELECT RAISE(ABORT,'append-only initialization events'); END;
  CREATE TRIGGER data_init_events_no_delete BEFORE DELETE ON data_init_events BEGIN SELECT RAISE(ABORT,'append-only initialization events'); END;
- UPDATE schema_version SET version=7;
+ UPDATE schema_version SET version=8;
  `)
 	return err
 }
@@ -113,7 +113,8 @@ func untouchedInitialization(ctx context.Context, q dataQuerier, app string, id 
 		return ErrConflict
 	}
 	var count int
-	if err := q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM release_heads WHERE app=?)+(SELECT count(*) FROM data_writer_history h JOIN data_databases d ON d.id=h.database_id WHERE d.incarnation_id=? AND NOT EXISTS(SELECT 1 FROM data_init_operations i WHERE i.id=h.operation_id))+(SELECT count(*) FROM data_writer_starts WHERE incarnation_id=? AND cleared=0)+(SELECT count(*) FROM operations WHERE app=? AND state NOT IN ('succeeded','failed','rolled_back','recovery_required'))`, app, id, id, app).Scan(&count); err != nil {
+	// Initialization tasks are not app writers; their engine owns the host lock and durable data fence.
+	if err := q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM release_heads WHERE app=?)+(SELECT count(*) FROM data_writer_history h JOIN data_databases d ON d.id=h.database_id WHERE d.incarnation_id=? AND NOT EXISTS(SELECT 1 FROM data_init_operations i WHERE i.id=h.operation_id))+(SELECT count(*) FROM data_writer_starts WHERE incarnation_id=? AND cleared=0)+(SELECT count(*) FROM operations WHERE app=? AND kind!='data_init_apply' AND state NOT IN ('succeeded','failed','rolled_back','recovery_required'))`, app, id, id, app).Scan(&count); err != nil {
 		return err
 	}
 	if count != 0 {
