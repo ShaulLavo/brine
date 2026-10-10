@@ -49,8 +49,9 @@ duplicates() {
 deadcode() {
   local bin
   bin=$(pinned_tool deadcode v0.51.0 golang.org/x/tools/cmd/deadcode)
-  # Host operations exist only in the Linux executable. Mac client vet runs separately.
-  GOOS=linux GOARCH=amd64 "$bin" -json ./cmd/brine > "$BRINE_CHECK_OUTPUT/deadcode.json"
+  # Load every package so unimported packages are checked too. Only main packages
+  # supply reachability roots; tests never make unused production code appear live.
+  GOOS=linux GOARCH=amd64 "$bin" -json ./... > "$BRINE_CHECK_OUTPUT/deadcode.json"
   go run ./tools/checkgate deadcode --input "$BRINE_CHECK_OUTPUT/deadcode.json" \
     --allow tools/baselines/deadcode-allowlist.json --baseline tools/baselines/deadcode-linux.json
 }

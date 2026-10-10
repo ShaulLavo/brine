@@ -40,7 +40,7 @@ You can run one group:
 ./scripts/check.sh fast
 ```
 
-Full lint compares against the merge base with `origin/main`. Fetch that ref before checking a feature branch. Set `BRINE_BASE` to a specific commit to choose another comparison. CI compares pull requests with their base SHA and main pushes with the previous main SHA. Comparing a main push with its own HEAD would hide every new finding.
+Full lint compares against the merge base with `origin/main`. Fetch that ref before checking a feature branch. Set `BRINE_BASE` to a specific commit to choose another comparison. CI compares synthetic pull-request merge checkouts with their first parent, the main commit actually merged into that checkout. Main pushes compare with the previous main SHA. Comparing a main push with its own HEAD would hide every new finding.
 
 The final **Complete CI gate** requires tests, static checks, structure checks and the vulnerability scan to succeed. Select that check for branch protection. All workflow actions use commit SHA pins.
 
@@ -68,7 +68,7 @@ The linters add cancellation propagation, context-bearing network calls, nil-err
 Do not repair unrelated packages just to make lint output empty. Static checks accept only findings that predate the comparison commit. The other checks use reviewed JSON files in `tools/baselines`:
 
 - `rules.json` records existing authority findings by rule, file, function and syntax hash.
-- `deadcode-linux.json` records existing unreachable qualified symbols in the Linux executable. Analysis starts at `cmd/brine` without test roots, so tests cannot make unused production code appear live. Mac client compilation is checked by vet, not by interpreting Linux-only host operations as Mac dead code.
+- `deadcode-linux.json` records existing unreachable qualified symbols in the Linux call graph. Analysis loads `./...`, including packages not imported by the executable, without test roots. Only production main packages supply reachability roots, so tests cannot make unused production code appear live. Mac client compilation is checked by vet, not by interpreting Linux-only host operations as Mac dead code.
 - `deadcode-allowlist.json` gives a reason for each deliberately unreachable test adapter. It has no wildcard exemptions.
 - `duplicates.json` records directed clone fragments. Dupl checks production Go at 100 syntax nodes. The baseline keys include source tokens, the file and the counterpart file, not line numbers. Moving a clone does not fail; adding another copy or changing its tokens does.
 

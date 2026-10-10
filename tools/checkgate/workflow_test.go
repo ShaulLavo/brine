@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -17,9 +18,9 @@ func TestCIRequiresEveryJobAndPinnedActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	workflow := string(data)
-	comparison := "--new-from-merge-base= --new-from-rev=${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}"
-	if !strings.Contains(workflow, comparison) {
-		t.Fatal("lint must compare PRs with their base and main pushes with their previous commit")
+	comparison := "--new-from-merge-base= --new-from-rev=${{ steps.lint-base.outputs.sha }}"
+	if !strings.Contains(workflow, comparison) || !strings.Contains(workflow, `sha=$(./scripts/lint-base.sh "$EVENT_NAME" "$PUSH_BASE")`) {
+		t.Fatal("lint must select a base consistent with the checked-out synthetic merge")
 	}
 	parts := strings.SplitN(workflow, "\njobs:\n", 2)
 	if len(parts) != 2 {
@@ -114,5 +115,51 @@ func TestCIGateRejectsEveryUnsuccessfulResult(t *testing.T) {
 		for _, result := range []string{"failure", "cancelled", "skipped", ""} {
 			t.Run(job+"/"+result, func(t *testing.T) { run(t, job, result, false) })
 		}
+	}
+}
+
+func TestLintBaseUsesSyntheticMergeParent(t *testing.T) {
+	root := t.TempDir()
+	script, err := filepath.Abs("../../scripts/lint-base.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	run := func(name string, args ...string) string {
+		t.Helper()
+		cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- Fixed git and repository-script commands in an isolated test checkout.
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=test@example.invalid", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=test@example.invalid")
+		output, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("%s %v: %v: %s", name, args, err, output)
+		}
+		return strings.TrimSpace(string(output))
+	}
+	run("git", "init", "-b", "main")
+	run("git", "commit", "--allow-empty", "-m", "event base")
+	stale := run("git", "rev-parse", "HEAD")
+	run("git", "switch", "-c", "feature")
+	run("git", "commit", "--allow-empty", "-m", "feature change")
+	run("git", "switch", "main")
+	run("git", "commit", "--allow-empty", "-m", "main advanced")
+	main := run("git", "rev-parse", "HEAD")
+	run("git", "merge", "--no-ff", "feature", "-m", "synthetic merge")
+	if got := run("bash", script, "pull_request", stale); got != main {
+		t.Fatalf("merge checkout baseline = %s, want current main %s, not event base %s", got, main, stale)
+	}
+	if got := run("bash", script, "push", stale); got != stale {
+		t.Fatalf("main push must compare its previous SHA: %s", got)
+	}
+}
+
+func TestDeadcodeLoadsUnimportedPackages(t *testing.T) {
+	data, err := os.ReadFile("../../scripts/check.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"$bin" -json ./...`) {
+		t.Fatal("deadcode must load all packages, not only CLI imports")
 	}
 }

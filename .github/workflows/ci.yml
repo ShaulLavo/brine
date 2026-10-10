@@ -33,12 +33,19 @@ jobs:
         with:
           go-version: "1.27.2"
           cache: true
+      - name: Select the checked-out lint base
+        id: lint-base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          sha=$(./scripts/lint-base.sh "$EVENT_NAME" "$PUSH_BASE")
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.14.0
-          # origin/main already points at HEAD on a main push. Compare its previous
-          # commit instead, or that run would silently accept every new finding.
-          args: --new-from-merge-base= --new-from-rev=${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          # PR checkout is a synthetic merge; its first parent is the actual main baseline.
+          args: --new-from-merge-base= --new-from-rev=${{ steps.lint-base.outputs.sha }}
 
   structure:
     name: Authority, dead code and clones
