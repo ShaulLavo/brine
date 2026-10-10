@@ -268,3 +268,15 @@ func TestWriterUsesRegistryDefinitionsAndObservesSchemaAfresh(t *testing.T) {
 		t.Fatal("schema verdict cached across catalog change")
 	}
 }
+
+func TestWriterBridgeRejectsIncompleteOrExtraCompatibilitySets(t *testing.T) {
+	r, state, _, id := allocatedWriterFixture(t)
+	state.schema.Desired.SchemaCompatibility = append(state.schema.Desired.SchemaCompatibility, data.SchemaCompatibility{Database: "extra", Startup: "preserve", Accepts: []string{data.EmptyMarker}})
+	if replication.WriterPermit(context.Background(), r, id) == nil {
+		t.Fatal("extra compatibility declaration admitted")
+	}
+	state.schema.Desired.SchemaCompatibility = nil
+	if replication.WriterPermit(context.Background(), r, id) == nil {
+		t.Fatal("missing compatibility declaration admitted")
+	}
+}

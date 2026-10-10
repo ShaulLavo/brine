@@ -53,7 +53,7 @@ func (r StorePermits) ReadWriterPermits(ctx context.Context, incarnation string)
 		return nil, replication.ErrPermit
 	}
 	schema, err := r.writerSchema(ctx, id)
-	if err != nil || len(schema.Bindings) != len(permits) {
+	if err != nil || len(schema.Bindings) != len(permits) || !completeWriterDeclarations(schema) {
 		return nil, replication.ErrPermit
 	}
 	bindings := make(map[data.DatabaseID]data.DatabaseBinding, len(schema.Bindings))
@@ -152,4 +152,24 @@ func (r StorePermits) writerSchema(ctx context.Context, id data.AppIncarnationID
 	default:
 		return store.WriterSchema{}, replication.ErrPermit
 	}
+}
+
+func completeWriterDeclarations(schema store.WriterSchema) bool {
+	if len(schema.Bindings) == 0 || len(schema.Bindings) != len(schema.Desired.SchemaCompatibility) {
+		return false
+	}
+	names := make(map[data.DatabaseName]bool, len(schema.Bindings))
+	for _, binding := range schema.Bindings {
+		if names[binding.Name] {
+			return false
+		}
+		names[binding.Name] = true
+	}
+	for _, compatibility := range schema.Desired.SchemaCompatibility {
+		if !names[compatibility.Database] {
+			return false
+		}
+		delete(names, compatibility.Database)
+	}
+	return len(names) == 0
 }

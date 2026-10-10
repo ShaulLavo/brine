@@ -7,4 +7,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/replication"
 )
 
-func WriterAttempt(context.Context, string) error { return replication.ErrPermit }
+func OpenWriterAttempt(context.Context) (*WriterAttemptRuntime, error) {
+	return nil, replication.ErrPermit
+}

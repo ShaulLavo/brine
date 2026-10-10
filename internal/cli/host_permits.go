@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +30,7 @@ func newHostPermitCommands(deps Dependencies) []*cobra.Command {
 	attempt := &cobra.Command{Use: "writer-attempt INCARNATION", Hidden: true, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
 		defer cancel()
-		if deps.HostWriterAttempt == nil {
+		if !data.ValidID(args[0]) || deps.HostWriterAttempt == nil {
 			return replication.ErrPermit
 		}
 		return deps.HostWriterAttempt(ctx, args[0])
