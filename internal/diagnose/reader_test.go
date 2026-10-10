@@ -579,3 +579,27 @@ func TestUnitLogLimitsAreIndependentOfAppLogs(t *testing.T) {
 		t.Fatalf("report=%+v error=%v", report, err)
 	}
 }
+
+// Full inventory has its own larger budget; a log-tail probe must not collect
+// it again under the one-second per-probe deadline.
+type countedLogInventory struct{ calls int }
+
+func (i *countedLogInventory) Collect(context.Context) (target.Snapshot, error) {
+	i.calls++
+	if i.calls > 1 {
+		return target.Snapshot{}, context.DeadlineExceeded
+	}
+	return fixtureSnapshot(), nil
+}
+
+func TestInjectedLogReaderReusesReportInventory(t *testing.T) {
+	i := &countedLogInventory{}
+	r := fixtureReader()
+	r.Inventory = i
+	r.Logs = logs.Reader{Inventory: i, Executor: fakeLogExecutor{}}
+	r.UnitLogs = logs.JournalReader{Inventory: i, Executor: fakeLogExecutor{}}
+	report, err := r.Read(context.Background(), Request{App: "demo"})
+	if err != nil || i.calls != 1 || len(report.Apps) != 1 || report.Apps[0].Logs.Value == nil || len(*report.Apps[0].Logs.Value) != 1 || report.Apps[0].UnitLogs.Value == nil {
+		t.Fatalf("inventory calls=%d report=%+v err=%v", i.calls, report, err)
+	}
+}
