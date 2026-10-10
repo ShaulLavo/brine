@@ -18,7 +18,7 @@ type ReplicaExecRequest struct {
 type ReplaceProcess func(string, []string, []string) error
 
 func ReplicaExec(ctx context.Context, r LaunchReader, req ReplicaExecRequest, replace ReplaceProcess) error {
-	if r == nil || replace == nil || ctx.Err() != nil {
+	if r == nil || replace == nil || ctx.Err() != nil || !idPattern.MatchString(req.DatabaseID) || !idPattern.MatchString(req.BindingID) || !idPattern.MatchString(req.EpochID) || !hashPattern.MatchString(req.ConfigHash) || !safePath(req.ConfigPath) || !safePath(req.CredentialPath) {
 		return ErrPermit
 	}
 	initial, err := r.ReadReplicaPermit(ctx, req.BindingID)

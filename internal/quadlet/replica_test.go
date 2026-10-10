@@ -13,7 +13,7 @@ func replicaOptions(t *testing.T) ReplicaUnitOptions {
 	binding := strings.Repeat("2", 32)
 	epoch := strings.Repeat("3", 32)
 	incarnation := strings.Repeat("4", 32)
-	b := replication.Binding{DatabaseID: database, BindingID: binding, EpochID: epoch, IncarnationID: incarnation, DBPath: "/srv/data/apps/" + incarnation + "/databases/" + database + "/app.db", SocketPath: "/srv/state/replication/" + binding + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backup-bucket", Prefix: "base/apps/" + incarnation + "/databases/" + database + "/epochs/" + epoch + "/", Region: "auto", ForcePathStyle: true}
+	b := replication.Binding{Cadence: replication.DefaultCadence(), DatabaseID: database, BindingID: binding, EpochID: epoch, IncarnationID: incarnation, DBPath: "/srv/data/apps/" + incarnation + "/databases/" + database + "/app.db", SocketPath: "/srv/state/replication/" + binding + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backup-bucket", Prefix: "base/apps/" + incarnation + "/databases/" + database + "/epochs/" + epoch + "/", Region: "auto", ForcePathStyle: true}
 	raw, err := replication.RenderConfig(b)
 	if err != nil {
 		t.Fatal(err)

@@ -47,6 +47,7 @@ type Executor struct {
 	Routes        Routes
 	Health        Health
 	Compatibility Compatibility
+	WriterStarts  WriterStarts
 	// EffectTimeout bounds individual non-health steps. Zero uses one minute.
 	EffectTimeout time.Duration
 }
@@ -280,10 +281,7 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 			return e.Units.Install(ctx, x.unit, x.previousUnitHash())
 		}},
 		{"reload_units", Starting, "unit_failed", e.Systemd.DaemonReload},
-		{"start_unit", Starting, "start_failed", func(ctx context.Context) error {
-			x.started = true
-			return e.Systemd.Start(ctx, x.service)
-		}},
+		{"start_unit", Starting, "start_failed", x.startWriter},
 		{"check_direct", Checking, "health_failed", func(ctx context.Context) error { return x.check(ctx, d, p.HostPort, false) }},
 		{"publish_route", Checking, "route_invalid", func(ctx context.Context) error {
 			result, err := e.Routes.Publish(ctx, x.facts.Routing, p, d)
@@ -507,6 +505,12 @@ func (x *execution) event(ctx context.Context, step, outcome, code string) error
 func (x *execution) terminal(ctx context.Context, state State, cause error) error {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), journalTimeout)
 	defer cancel()
+	if state == Succeeded || state == Failed || state == RolledBack {
+		if err := x.clearWriterStart(ctx); err != nil {
+			cause = errors.Join(cause, err)
+			state = RecoveryRequired
+		}
+	}
 	if cause != nil {
 		code := "executor_failed"
 		if state == RecoveryRequired {
@@ -569,6 +573,9 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 	}
 	if x.installed {
 		if err := step("rollback_unit", "rollback_failed", func(ctx context.Context) error {
+			if err := x.clearWriterStart(ctx); err != nil {
+				return err
+			}
 			return x.executor.Units.Rollback(ctx, x.unit.Name(), x.unit.Hash(), x.previousUnitHash())
 		}); err != nil {
 			return x.terminal(ctx, RecoveryRequired, err)

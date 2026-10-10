@@ -53,8 +53,7 @@ func (r ReplicaOrchestrator) Quiesce(ctx context.Context, b ReplicaActivation) e
 	if r.Permits == nil || r.Services == nil || r.Locks == nil {
 		return &Error{Step: "stop_replica", Code: "replica_fence_required", State: RecoveryRequired}
 	}
-	state, err := r.Permits.ReadReplicaPermit(ctx, b.BindingID)
-	if err != nil || ctx.Err() != nil || state.Fence != replication.FenceHeld || state.Binding.BindingID != b.BindingID || state.LifetimeLock != b.LifetimeLock {
+	if err := replication.QuiescencePermit(ctx, r.Permits, b.ReplicaPermitRequest, b.LifetimeLock); err != nil {
 		return &Error{Step: "stop_replica", Code: "replica_fence_required", State: RecoveryRequired, Cause: err}
 	}
 	name, err := replication.ServiceName(b.BindingID)
