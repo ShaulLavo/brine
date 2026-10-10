@@ -25,7 +25,8 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 	if !ops.ValidIntent(intent) || len(requester) == 0 || len(requester) > 256 || len(idempotencyKey) == 0 || len(idempotencyKey) > 256 {
 		return Operation{}, false, ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return Operation{}, false, err
 	}
@@ -144,7 +145,8 @@ func (s *Store) TransitionOperation(ctx context.Context, id OpID, from, to ops.S
 }
 
 func (s *Store) transitionOperation(ctx context.Context, id OpID, expected *State, state State) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return err
 	}
@@ -204,7 +206,8 @@ func (s *Store) AppendEvent(ctx context.Context, id OpID, event Event) (uint64, 
 	if event.Kind == "state" {
 		return 0, ops.ErrInvalidEvent
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return 0, err
 	}
