@@ -218,8 +218,22 @@ func TestLTXExactPositionAndBarrier(t *testing.T) {
 func TestLTXRefusesWrongRecoveredPosition(t *testing.T) {
 	e, r, _ := setup(t, fixture(t, fixtureSQL))
 	e.CLI = &fakeCLI{t: t, data: fixture(t, fixtureSQL), txid: "0000000000000008"}
-	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7}}
+	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 7, ObservedAt: time.Now().Add(-time.Second), Succeeded: true}}}
 	if _, err := e.Test(context.Background(), r); err == nil {
 		t.Fatal("accepted wrong TXID")
+	}
+}
+
+func TestLTXRequiresCommittedBarrier(t *testing.T) {
+	e, r, _ := setup(t, fixture(t, fixtureSQL))
+	cli := &fakeCLI{t: t, data: fixture(t, fixtureSQL), txid: "0000000000000007"}
+	e.CLI = cli
+	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7}}
+	receipt, err := e.Test(context.Background(), r)
+	if err == nil {
+		t.Fatalf("missing committed barrier accepted: requested=%d recovered=%d", receipt.RequestedTXID, receipt.RecoveredTXID)
+	}
+	if err.Error() != "restore test: invalid_barrier" || len(cli.commands) != 0 {
+		t.Fatalf("barrier refusal must precede remote CLI work: err=%v commands=%d", err, len(cli.commands))
 	}
 }
