@@ -17,6 +17,7 @@
 - [x] **P00-05** Migrate Bubble Tea, Lip Gloss and Bubbles to their stable v2 releases (`charm.land/...`) in one **coordinated** change. Add a modest themed reusable UI shell and terminal-size handling; no dummy deploy success screens.
   - Evidence: Bubble Tea v2.0.10 and Lip Gloss v2.0.6 are pinned; neither v1 module remains. Bubbles is unused and is not added. `internal/ui` tests cover normal, narrow, tiny and invalid sizes, Unicode wrapping and `NO_COLOR`. Welcome-model tests cover resize messages and q/ctrl+c/esc. The existing redirected-stdin PTY test passes unchanged. `go test ./...`, `go vet ./...`, `go build ./cmd/brine`, `go test -race ./...`, gofmt and whitespace checks pass. The v2 dependencies require Go 1.26.0.
 - [x] **P00-06** CI: gofmt, tests, vet, build, race tests, module tidiness, whitespace checks, and machine-output snapshots are implemented. Avoid automatically updating all dependencies.
+  - Tooling extension: pinned static checks reject new findings, while reviewed authority, Linux deadcode and clone baselines preserve existing cleanup work. `tools/checkgate` tests cover new-finding rejection, exact counts, malformed reports, moved source lines and every unsuccessful CI job result. `scripts/check.sh` is the shared local/CI entry point. Lefthook staged formatting and changed-package checks took 2.48 seconds with warm caches. No deployment or restore evidence is claimed.
 
 ### Exit gate
 

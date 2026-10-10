@@ -1,0 +1,17 @@
+version: "2"
+run:
+  tests: false
+  timeout: 5m
+linters:
+  default: none
+  enable:
+    # 100 syntax nodes catches copied workflows without flagging short validators.
+    - dupl
+  settings:
+    dupl:
+      threshold: 100
+  exclusions:
+    paths: [tools/checkgate]
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
