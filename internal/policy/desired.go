@@ -29,6 +29,7 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
+	RestoreInvariants    []data.RestoreInvariant    `json:"restore_invariants,omitempty"`
 	BackupRetention      []data.RetentionEvidence   `json:"backup_retention,omitempty"`
 	PersistentRoots      []data.PersistentRoot      `json:"persistent_roots,omitempty"`
 	Backup               *data.BackupCadence        `json:"backup,omitempty"`
@@ -87,6 +88,7 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 		}
 		return strings.Compare(a.Marker, b.Marker)
 	})
+	d.RestoreInvariants = slices.Clone(d.RestoreInvariants)
 	return json.Marshal(d)
 }
 
@@ -144,6 +146,27 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		}
 		raw["schema_definitions"] = rows
 	}
+	if len(input.RestoreInvariants) > 0 {
+		rows := make([]map[string]any, 0, len(input.RestoreInvariants))
+		for _, i := range input.RestoreInvariants {
+			row := map[string]any{"database": string(i.Database), "kind": i.Kind, "table": i.Table}
+			switch i.Kind {
+			case "row_count":
+				row["count"] = i.Count
+			case "non_null":
+				row["column"] = i.Column
+			case "integer_range":
+				row["column"], row["minimum"], row["maximum"] = i.Column, i.Minimum, i.Maximum
+			default:
+				return Desired{}, refuse("policy.invalid_spec", "restore_invariants", "invalid typed restore check")
+			}
+			if i.Validate() != nil {
+				return Desired{}, refuse("policy.invalid_spec", "restore_invariants", "invalid typed restore check")
+			}
+			rows = append(rows, row)
+		}
+		raw["restore_invariants"] = rows
+	}
 	app, e := parseMap(raw)
 	if e != nil {
 		return Desired{}, refuse("policy.invalid_spec", "$", "app configuration failed the strict spec boundary")
@@ -198,6 +221,7 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 	d.Databases = app.Databases
 	d.SchemaCompatibility = app.SchemaCompatibility
 	d.SchemaDefinitions = app.SchemaDefinitions
+	d.RestoreInvariants = app.RestoreInvariants
 	if len(app.Databases) > 0 {
 		backup := p.Backup()
 		d.Backup = &backup
@@ -241,12 +265,12 @@ func (p Policy) CheckSecret(app spec.Name, ref spec.SecretReference) error {
 
 // Stateless is affirmative only when no persistence declaration is present.
 func (d Desired) Stateless() bool {
-	return len(d.BackupRetention) == 0 && len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
+	return len(d.RestoreInvariants) == 0 && len(d.BackupRetention) == 0 && len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
 }
 
 // App reconstructs a detached spec input. It grants no policy authorization.
 func (d Desired) App() spec.App {
-	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}, Databases: slices.Clone(d.Databases), SchemaCompatibility: slices.Clone(d.SchemaCompatibility), SchemaDefinitions: slices.Clone(d.SchemaDefinitions)}
+	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}, Databases: slices.Clone(d.Databases), SchemaCompatibility: slices.Clone(d.SchemaCompatibility), SchemaDefinitions: slices.Clone(d.SchemaDefinitions), RestoreInvariants: slices.Clone(d.RestoreInvariants)}
 	if d.Runtime != nil {
 		r := *d.Runtime
 		a.Runtime = &r

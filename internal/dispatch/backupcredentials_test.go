@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/result"
 	"strings"
 	"testing"
 )
@@ -12,7 +14,7 @@ import (
 func TestBackupCredentialPrivateRequest(t *testing.T) {
 	id := "sha256:" + strings.Repeat("a", 64)
 	packet := []byte(`{"access_key_id":"PLANTED_KEY","secret_access_key":"PLANTED_SECRET","session_token":"PLANTED_SESSION"}`)
-	args, err := EncodeBackupCredentialSet("hello", id, packet)
+	args, err := EncodeBackupCredentialSet("hello", "", id, packet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,5 +41,50 @@ func TestBackupCredentialPrivateRequest(t *testing.T) {
 		if _, err := decodeBackupCredentialSet([]byte(bad)); err == nil {
 			t.Fatal("accepted invalid delivery")
 		}
+	}
+}
+
+func TestBackupCredentialDatabaseStrictWire(t *testing.T) {
+	id := "sha256:" + strings.Repeat("a", 64)
+	packet := []byte(`{"access_key_id":"fixture-access","secret_access_key":"fixture-secret"}`)
+	raw, err := EncodeBackupCredentialSet("hello", "audit", id, packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeBackupCredentialSet(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := decoded.(BackupCredentialSetArgs)
+	defer args.Packet.Clear()
+	if args.Database != "audit" {
+		t.Fatal("database lost")
+	}
+	for _, invalid := range []string{
+		strings.Replace(string(raw), `"database":"audit",`, "", 1),
+		strings.Replace(string(raw), `"database":"audit"`, `"database":"audit","database":"main"`, 1),
+		strings.Replace(string(raw), `"database":"audit"`, `"database":"../audit"`, 1),
+		strings.Replace(string(raw), `"database":"audit"`, `"database":null`, 1),
+	} {
+		if _, err := decodeBackupCredentialSet([]byte(invalid)); err == nil {
+			t.Fatal("invalid selector accepted")
+		}
+	}
+	for _, database := range []string{"", "audit"} {
+		raw, err := json.Marshal(BackupCredentialPlanArgs{App: "hello", Database: database})
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := decodeBackupCredentialPlan(raw)
+		if err != nil || decoded.(BackupCredentialPlanArgs).Database != database {
+			t.Fatal("plan selector lost", err)
+		}
+	}
+}
+
+func TestBackupCredentialAdmissionRefreshHasExplicitGuidance(t *testing.T) {
+	err := result.Classify(credentialFailure(backupcredentials.ErrAdmissionRefresh))
+	if err.Code() != result.BackupAdmissionRefreshRequired || !strings.Contains(err.Error(), "explicit approved admission refresh") {
+		t.Fatal("admission refresh guidance lost", err)
 	}
 }

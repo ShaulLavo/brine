@@ -52,6 +52,7 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"restore_test":            {ReadOnly, decodeRestoreTest},
 	"backup_credentials_plan": {Mutating, decodeBackupCredentialPlan},
 	"backup_credentials_set":  {Mutating, decodeBackupCredentialSet},
 	"config_set":              {Mutating, decodeConfig},
@@ -144,6 +145,7 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
+	RestoreTests      RestoreTestOperations
 	BackupCredentials BackupCredentialOperations
 	Config            ConfigurationOperations
 	Secrets           SecretOperations
@@ -212,11 +214,20 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case RestoreTestArgs:
+		if s.RestoreTests == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		receipt, err := s.RestoreTests.Test(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = receipt
 	case BackupCredentialPlanArgs:
 		if s.BackupCredentials == nil {
 			return fail(result.New(result.DependencyMissing, nil))
 		}
-		p, err := s.BackupCredentials.Plan(ctx, args.App, args.ExpiresAt)
+		p, err := s.BackupCredentials.Plan(ctx, args.App, args.Database, args.ExpiresAt)
 		if err != nil {
 			return fail(credentialFailure(err))
 		}
@@ -226,7 +237,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		if s.BackupCredentials == nil {
 			return fail(result.New(result.DependencyMissing, nil))
 		}
-		receipt, err := s.BackupCredentials.Set(ctx, args.App, args.PlanID, args.Packet)
+		receipt, err := s.BackupCredentials.Set(ctx, args.App, args.Database, args.PlanID, args.Packet)
 		if err != nil {
 			return fail(credentialFailure(err))
 		}

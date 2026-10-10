@@ -12,6 +12,8 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/transport"
 )
@@ -28,20 +30,23 @@ func TestBackupCredentialsClientPrivateStdin(t *testing.T) {
 			calls := 0
 			deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, r dispatch.Request) (result.Envelope, error) {
 				calls++
+				if r.Op == "operation" {
+					return credentialClientResponse(r, receipt), nil
+				}
 				if r.Op != "backup_credentials_set" {
 					t.Fatal(r.Op)
 				}
 				var f map[string]json.RawMessage
-				if json.Unmarshal(r.Args, &f) != nil || string(f["app"]) != `"hello"` || !strings.Contains(string(f["packet"]), "PLANTED_TOKEN") {
+				if json.Unmarshal(r.Args, &f) != nil || string(f["app"]) != `"hello"` || string(f["database"]) != `"audit"` || !strings.Contains(string(f["packet"]), "PLANTED_TOKEN") {
 					t.Fatal("private stdin packet missing")
 				}
-				return result.Success("brine host "+r.Op, receipt), nil
+				return credentialClientResponse(r, receipt), nil
 			})
-			args := []string{"backup", "credentials", "set", "hello", "--plan-id", id, "--target", "fixture"}
+			args := []string{"backup", "credentials", "set", "hello", "--plan-id", id, "--target", "fixture", "--database", "audit"}
 			if mode != "" {
 				args = append(args, mode)
 			}
-			if err := Execute(deps, args); err != nil || calls != 1 {
+			if err := Execute(deps, args); err != nil || calls != 2 {
 				t.Fatal(err, calls)
 			}
 			if strings.Contains(out.String()+stderr.String(), "PLANTED") {
@@ -119,5 +124,137 @@ func TestBackupCredentialInputRefusals(t *testing.T) {
 		if strings.Contains(out.String()+stderr.String(), "PLANTED") {
 			t.Fatal("invalid packet leaked")
 		}
+	}
+}
+
+func TestBackupCredentialDatabasePlanWireAndHumanGuidance(t *testing.T) {
+	var out, stderr bytes.Buffer
+	deps := testDependencies(t, &out, &stderr)
+	r := backupCredentialReceipt(t)
+	p := backupcredentials.Plan{Requester: r.Requester, Kind: backupcredentials.Kind, ID: r.PlanID, Scope: r.Scope, Version: r.Version, ExpiresAt: r.ExpiresAt}
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, req dispatch.Request) (result.Envelope, error) {
+		var args dispatch.BackupCredentialPlanArgs
+		if req.Op != "backup_credentials_plan" || json.Unmarshal(req.Args, &args) != nil || args.App != "hello" || args.Database != "audit" {
+			t.Fatal("database selection lost")
+		}
+		return result.Success("brine host "+req.Op, p), nil
+	})
+	if err := Execute(deps, []string{"backup", "credentials", "plan", "hello", "--database", "audit", "--target", "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "--database audit") {
+		t.Fatal("delivery guidance lost database selection")
+	}
+}
+
+func TestBackupCredentialDatabaseNameRefusedBeforeIO(t *testing.T) {
+	for _, operation := range []string{"plan", "set"} {
+		var out, stderr bytes.Buffer
+		deps := testDependencies(t, &out, &stderr)
+		deps.LoadOperationTarget = func(string, string) (transport.Target, error) {
+			t.Fatal("invalid database reached target IO")
+			return transport.Target{}, nil
+		}
+		args := []string{"backup", "credentials", operation, "hello", "--database", "../audit", "--target", "fixture"}
+		if operation == "set" {
+			args = append(args, "--plan-id", "sha256:"+strings.Repeat("a", 64))
+		}
+		if err := Execute(deps, args); result.Classify(err).Code() != result.InvalidUsage {
+			t.Fatal("invalid database accepted", err)
+		}
+	}
+}
+
+func TestBackupCredentialsActivatedHealthIsPresented(t *testing.T) {
+	for _, mode := range []string{"", "--json", "--jsonl"} {
+		t.Run(mode, func(t *testing.T) {
+			var out, stderr bytes.Buffer
+			deps := testDependencies(t, &out, &stderr)
+			deps.Stdin = strings.NewReader(`{"access_key_id":"PLANTED_KEY","secret_access_key":"PLANTED_SECRET"}`)
+			receipt := backupCredentialReceipt(t)
+			receipt.Activated = true
+			receipt.ActivationStatus = "verified"
+			expiry := receipt.ReceivedAt.Add(24 * time.Hour)
+			receipt.ExpiresAt = &expiry
+			plan := backupcredentials.Plan{Requester: receipt.Requester, Kind: backupcredentials.Kind, Scope: receipt.Scope, Version: receipt.Version, ExpiresAt: receipt.ExpiresAt}
+			canonical, err := json.Marshal(plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(canonical)
+			receipt.PlanID = "sha256:" + hex.EncodeToString(sum[:])
+			health := receipt.Health(receipt.ReceivedAt.Add(37*time.Second), time.Minute)
+			receipt.CredentialHealth = &health
+			deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+			deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, r dispatch.Request) (result.Envelope, error) {
+				return credentialClientResponse(r, receipt), nil
+			})
+			args := []string{"backup", "credentials", "set", "hello", "--plan-id", receipt.PlanID, "--target", "fixture"}
+			if mode != "" {
+				args = append(args, mode)
+			}
+			if err := Execute(deps, args); err != nil {
+				t.Fatal(err)
+			}
+			text := out.String()
+			if strings.Contains(text+stderr.String(), "PLANTED") || !strings.Contains(text, "verified") || !strings.Contains(text, "37") {
+				t.Fatal("activation health missing or unsafe", text)
+			}
+			if mode == "" && (!strings.Contains(text, "not restarted") || !strings.Contains(text, expiry.Format(time.RFC3339))) {
+				t.Fatal("app lifecycle distinction missing")
+			}
+		})
+	}
+}
+
+func credentialClientResponse(request dispatch.Request, receipt backupcredentials.Receipt) result.Envelope {
+	if request.Op == "backup_credentials_set" {
+		return result.Success("brine host backup_credentials_set", jobs.Accepted{Status: "accepted", OperationID: "op1"})
+	}
+	raw, _ := json.Marshal(receipt)
+	return result.Success("brine host operation", jobs.Status{Operation: ops.Operation{ID: "op1", Kind: ops.CredentialActivation, Requester: receipt.Requester, App: receipt.Scope.App, SecretRef: receipt.PlanID, State: ops.Succeeded}, Events: []ops.Event{}, Outcome: &ops.TaskOutcome{Receipt: raw}})
+}
+
+func TestBackupCredentialNoWaitReturnsOperationIDWithoutPolling(t *testing.T) {
+	var out, stderr bytes.Buffer
+	deps := testDependencies(t, &out, &stderr)
+	deps.Stdin = strings.NewReader(`{"access_key_id":"PLANTED_KEY","secret_access_key":"PLANTED_SECRET"}`)
+	receipt := backupCredentialReceipt(t)
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+	calls := 0
+	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, request dispatch.Request) (result.Envelope, error) {
+		calls++
+		if request.Op != "backup_credentials_set" {
+			t.Fatal("no-wait polled")
+		}
+		return credentialClientResponse(request, receipt), nil
+	})
+	if err := Execute(deps, []string{"backup", "credentials", "set", "hello", "--plan-id", receipt.PlanID, "--target", "fixture", "--no-wait", "--json"}); err != nil || calls != 1 {
+		t.Fatal(err, calls)
+	}
+	if !strings.Contains(out.String(), `"operation_id":"op1"`) || strings.Contains(out.String()+stderr.String(), "PLANTED") {
+		t.Fatal("operation ID missing or packet leaked")
+	}
+}
+
+func TestCredentialTerminalReceiptSurvivesStrictStatusWire(t *testing.T) {
+	receipt := backupCredentialReceipt(t)
+	response := credentialClientResponse(dispatch.Request{Op: "operation"}, receipt)
+	raw, err := json.Marshal(response)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := dispatch.DecodeResponse(raw, "operation")
+	if err != nil {
+		t.Fatal("credential receipt lost at status transport boundary", err)
+	}
+	status, ok := decoded.Data.(jobs.Status)
+	if !ok || status.Outcome == nil {
+		t.Fatal("typed outcome missing")
+	}
+	got, err := ops.DecodeTaskReceipt(status.Operation, status.Outcome.Receipt)
+	if err != nil || got.(backupcredentials.Receipt).PlanID != receipt.PlanID {
+		t.Fatal("wrong credential receipt", err)
 	}
 }

@@ -14,12 +14,14 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
@@ -126,7 +128,9 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
 	appService := apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}, LoadPolicy: loader.Load}
 	secretService := secrets.Service{Store: state, Podman: podman.New(session), LoadPolicy: loader.Load, Requester: requester}
-	r := &Runtime{BackupCredentials: backupCredentialService(service, stateDir), Config: appService, Secrets: secretService, Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: appService, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
+	rotation := backupcredentials.Rotator{Journal: rotationJournal{state: state}, Host: replicaRotation{state: state, stateRoot: stateDir, home: identity.HomeDir, services: replication.NewServices(session), units: runtimeSystemd, permits: permits.Reader}}
+	taskJobs := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
+	r := &Runtime{BackupCredentials: credentialOperations{service: service, stateRoot: stateDir, jobs: taskJobs}, Config: appService, Secrets: secretService, Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}, TaskHandlers: map[ops.Kind]jobs.TaskHandler{ops.CredentialActivation: credentialTaskHandler(service, stateDir, rotation), ops.RestoreTest: restoreTaskHandler(state, stateDir)}}, Apps: appService, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
 		p, err := loader.Load(ctx)
 		if err != nil {
 			return 0, err

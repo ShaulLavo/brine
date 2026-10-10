@@ -49,7 +49,7 @@ Use `--json` for one response or `--jsonl` for supported event streams, with `--
 2. Save an idempotency key **before** calling `apply PLAN_ID --idempotency-key KEY`. If the response is lost, the saved key identifies the same operation. Do not invent a new key to retry an uncertain mutation.
 3. Acceptance is not completion. Save the returned operation ID and poll `status --operation OPERATION_ID`. Judge the recorded terminal outcome, not the acceptance response.
 4. After an uncertain outcome, use read-only `diagnose` and `reconcile --dry-run` to inspect it. Reconciliation and supported `resolve` operations are separate recovery actions; do not blindly repeat the original mutation.
-5. Treat app rollback and data recovery separately. App rollback never rewinds a database. Persistent data and R2 restore are not implemented yet.
+5. Treat app rollback and data recovery separately. App rollback never rewinds a database. Read-only restore tests verify remote backups in isolated directories; they never rewind a live database.
 
 Secret values enter through stdin, never command-line arguments. Secret ingestion is bounded and cancellable, including an unfinished pipe. Embedded CLI callers must lend stdin exclusively for the invocation. Files and in-memory readers are supported; other blocking readers must implement `ReadContext(context.Context, []byte) (int, error)`. Brine never closes a borrowed input stream.
 
@@ -74,6 +74,56 @@ migrate schemas, publish units, start writers or replication, or change routes.
 Inventory and planning only observe existing allocations; missing data is not
 proof of an empty database. An interrupted partial preparation is inspected,
 never blindly replayed. The physical Phase 04 acceptance gates remain open.
+
+## Backup credentials and restore checks
+
+For an app with multiple databases, keep the same explicit `--database` selector
+in credential planning, private delivery and restore tests:
+
+~~~sh
+brine backup credentials plan APP --database main --target NAME --json
+brine backup credentials set APP --database main --target NAME --plan-id PLAN_ID --json < PRIVATE_PACKET_FILE
+brine restore test APP --database main --target NAME --json
+brine restore test APP --database main --target NAME --txid HEX --json
+brine restore test APP --database main --target NAME --point POINT_ID --json
+~~~
+
+Private credential packets enter through stdin, never command-line arguments.
+Delivery installs an immutable version. For an already committed binding it stops
+only that database's replica, commits its new credential reference under the host
+and replica lifetime locks, and starts that replica with a fresh permit. It never
+restarts the application or creates another epoch. Held fences allow storage but
+refuse activation. After an uncertain reply, resubmit the same plan and identical
+packet to inspect and resume its recorded effect cursor, not blindly restart.
+Restore checks and replica credential activation run in detached, bounded jobs.
+The CLI waits by polling operation status, not by holding a long SSH request;
+individual dispatcher and transport requests retain their 15-second deadlines.
+Use `--no-wait` on either command to receive an accepted operation ID immediately,
+then retrieve its durable terminal receipt with
+`brine status --operation OPERATION_ID --target NAME --json`. Disconnecting an
+observer does not cancel the job. Credential packets are stored privately before
+launch; jobs and status contain only references and checked receipts, never keys.
+
+An expired interrupted rotation is inspected before any lifetime refusal. A
+fresh credential version atomically supersedes its pending cursor after actual
+replica and unit state is settled. Supersession is recorded; expired credentials
+are never restarted, including when expiry passes during an activation.
+
+Receipts report activation, credential age and any issuer-supplied expiry. An
+operator policy change requires an explicit approved admission refresh before
+another delivery; credential delivery never silently re-admits a database.
+
+A successful activation includes a bounded signed read-only listing of the exact
+epoch prefix. An empty listing proves access, **not** that a backup exists.
+`restore test` uses read-only authorization, committed schema declarations and
+optional typed `restore_invariants` (`row_count`, `non_null`, `integer_range`). It
+checks full SQLite integrity, foreign keys and the fixed schema marker/catalog
+inside an isolated read-only transaction. No live SQLite path, upload or sync
+barrier is used. Latest and explicit transaction checks are recoverability
+evidence, not prepared restore points. `--point` accepts only immutable exact
+point evidence with its recorded schema and snapshot hash/size or upload barrier.
+Possible loss is reported as unknown unless independent coverage proves a bound.
+No success here claims that a physical deployment or full R2 recovery drill ran.
 
 ## Next work
 

@@ -26,7 +26,10 @@ func Execute(deps Dependencies, args []string) error {
 func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifecycle) error {
 	runtime := invocationRuntime{lifecycle: lifecycle}
 	if lifecycle.Open != nil {
-		deps.HostOperationRunner = lazyOperationRunner{&runtime}
+		// A supplied worker owns its composition (including metadata-only restore).
+		if deps.HostOperationRunner == nil {
+			deps.HostOperationRunner = lazyOperationRunner{&runtime}
+		}
 		deps.HostReconciler = lazyReconciler{&runtime}
 	}
 	if lifecycle.OpenPermits != nil {

@@ -7,10 +7,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"path/filepath"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
@@ -64,7 +69,7 @@ func (j credentialJournal) RecordReceipt(ctx context.Context, r backupcredential
 	record.ReceivedAt = r.ReceivedAt
 	return j.save(ctx, record)
 }
-func backupCredentialService(service Service, stateRoot string) backupcredentials.Service {
+func backupCredentialService(service Service, stateRoot, database string) backupcredentials.Service {
 	return backupcredentials.Service{Requester: service.Requester, Files: backupcredentials.Files{Root: filepath.Join(stateRoot, "credentials")}, Journal: credentialJournal{state: service.Store, requester: service.Requester}, Lock: func(ctx context.Context) (func(), error) {
 		lock, err := service.Store.AcquireHostLock(ctx)
 		if err != nil {
@@ -81,12 +86,15 @@ func backupCredentialService(service Service, stateRoot string) backupcredential
 			return backupcredentials.Scope{}, err
 		}
 		scopes, err := service.Store.ReadCredentialScopes(ctx, app)
-		if err != nil || len(scopes) != 1 {
+		if err != nil {
 			return backupcredentials.Scope{}, backupcredentials.ErrInvalid
 		}
-		s := scopes[0]
-		if s.FenceHeld || s.PolicyHash != pol.Hash() {
-			return backupcredentials.Scope{}, backupcredentials.ErrStale
+		s, err := selectCredentialScope(scopes, database)
+		if err != nil {
+			return backupcredentials.Scope{}, err
+		}
+		if s.PolicyHash != pol.Hash() {
+			return backupcredentials.Scope{}, backupcredentials.ErrAdmissionRefresh
 		}
 		destination, ok := pol.BackupDestination(s.Replica.Destination.Reference)
 		if !ok || destination != s.Replica.Destination {
@@ -103,4 +111,85 @@ func backupCredentialService(service Service, stateRoot string) backupcredential
 		sum := sha256.Sum256(raw)
 		return backupcredentials.Scope{TargetHash: "sha256:" + hex.EncodeToString(sum[:]), App: app, CredentialRef: destination.CredentialRef, Destination: string(destination.Reference), Binding: string(s.Replica.BindingID), Epoch: string(s.Replica.EpochID), PolicyHash: pol.Hash()}, nil
 	}}
+}
+
+func selectCredentialScope(scopes []store.CredentialScope, database string) (store.CredentialScope, error) {
+	if database == "" {
+		if len(scopes) != 1 {
+			return store.CredentialScope{}, backupcredentials.ErrInvalid
+		}
+		return scopes[0], nil
+	}
+	var selected store.CredentialScope
+	found := false
+	for _, scope := range scopes {
+		if string(scope.Database.Name) == database {
+			if found {
+				return store.CredentialScope{}, backupcredentials.ErrInvalid
+			}
+			selected, found = scope, true
+		}
+	}
+	if !found {
+		return store.CredentialScope{}, backupcredentials.ErrInvalid
+	}
+	return selected, nil
+}
+
+type credentialOperations struct {
+	service   Service
+	stateRoot string
+	jobs      jobs.Service
+}
+
+func (o credentialOperations) Plan(ctx context.Context, app, database string, expiry *time.Time) (backupcredentials.Plan, error) {
+	return backupCredentialService(o.service, o.stateRoot, database).Plan(ctx, app, expiry)
+}
+func (o credentialOperations) Set(ctx context.Context, app, database, planID string, packet backupcredentials.Packet) (jobs.Accepted, error) {
+	service := backupCredentialService(o.service, o.stateRoot, database)
+	service.ResumeStored = true
+	receipt, err := service.Set(ctx, app, planID, packet)
+	if err != nil {
+		return jobs.Accepted{}, err
+	}
+	key, err := data.NewID()
+	if err != nil {
+		return jobs.Accepted{}, err
+	}
+	return o.jobs.Submit(ctx, ops.Intent{Kind: ops.CredentialActivation, App: receipt.Scope.App, SecretRef: receipt.PlanID}, key)
+}
+
+func credentialTaskHandler(service Service, dir string, rotator backupcredentials.Rotator) jobs.TaskHandler {
+	return func(ctx context.Context, op ops.Operation) (json.RawMessage, error) {
+		lock, err := service.Store.AcquireHostLock(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = lock.Release() }()
+		plan, err := (credentialJournal{state: service.Store, requester: op.Requester}).LoadPlan(ctx, op.SecretRef)
+		if err != nil || plan.Scope.App != op.App {
+			return nil, result.New(result.PolicyRefused, nil)
+		}
+		pol, err := service.Policy.Load(ctx)
+		if err != nil {
+			return nil, result.New(result.PolicyRefused, nil)
+		}
+		if pol.Hash() != plan.Scope.PolicyHash {
+			return nil, result.New(result.BackupAdmissionRefreshRequired, nil)
+		}
+		receipt, err := (backupcredentials.Files{Root: filepath.Join(dir, "credentials")}).Receipt(plan.Scope.CredentialRef, plan.Version)
+		if err != nil || receipt.PlanID != plan.ID || receipt.Requester != op.Requester {
+			return nil, result.New(result.PolicyRefused, nil)
+		}
+		activated, err := rotator.Activate(ctx, receipt)
+		if err != nil {
+			if errors.Is(err, backupcredentials.ErrExpired) || errors.Is(err, backupcredentials.ErrStale) || errors.Is(err, backupcredentials.ErrInvalid) {
+				return nil, result.New(result.PolicyRefused, nil)
+			}
+			return nil, result.New(result.RecoveryRequired, err)
+		}
+		health := activated.Health(time.Now().UTC(), time.Minute)
+		activated.CredentialHealth = &health
+		return json.Marshal(activated)
+	}
 }

@@ -67,6 +67,9 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 		deps.HostServerFactory = factory.Build
 		lifecycle.Close = factory.Close
 	} else {
+		if deps.HostOperationRunner == nil {
+			deps.HostOperationRunner = host.DetachedRunner{}
+		}
 		lifecycle.Open = func(ctx context.Context, preview bool) (cli.RuntimeServices, error) {
 			open := host.Open
 			if preview {

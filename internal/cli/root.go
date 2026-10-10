@@ -1,3 +1,4 @@
+// Package cli presents Brine operations through Cobra and structured responses.
 package cli
 
 import (
@@ -45,6 +46,7 @@ type Dependencies struct {
 	HostSecrets           dispatch.SecretOperations
 	HostWriterAttempt     func(context.Context, string) error
 	HostBackupCredentials dispatch.BackupCredentialOperations
+	HostRestoreTests      dispatch.RestoreTestOperations
 	HostPermits           replication.LaunchReader
 }
 
@@ -58,7 +60,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "brine",
 		Short:         "Agent-first self-hosted deployments",
-		Long:          "Deploy stateless apps to enrolled Linux servers through Podman, Quadlet/systemd and Caddy. Plan before apply and save the idempotency key. Acceptance is not completion; poll the operation ID. Diagnose and reconcile uncertain outcomes before retrying. Persistent app data and Litestream/R2 restores remain planned. The Charm TUI currently provides a welcome screen.",
+		Long:          "Deploy stateless apps to enrolled Linux servers through Podman, Quadlet/systemd and Caddy. Plan before apply and save the idempotency key. Acceptance is not completion; poll the operation ID. Diagnose and reconcile uncertain outcomes before retrying. Persistent apps use declared databases and immutable replica bindings. Restore tests verify remote recoverability without changing live data. The Charm TUI currently provides a welcome screen.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -77,7 +79,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.json, "json", false, "Machine-readable JSON output")
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
-	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes), newDataCmd(deps, &modes))
+	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes), newRestoreCmd(deps, &modes), newDataCmd(deps, &modes))
 	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp), newLifecycleCmd(deps, &modes, "remove", plan.RemoveApp))
 	root.AddCommand(newReconcileCmd(&jsonOutput, deps))
 	root.AddCommand(newResolveCmd(&jsonOutput, deps))

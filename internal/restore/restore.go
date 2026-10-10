@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -35,7 +36,7 @@ func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
 		}
 		r.Source.LTX = &copy
 	}
-	id, epoch, err := r.Source.reference()
+	id, epoch, err := requestReference(r)
 	if err != nil {
 		return Receipt{}, err
 	}
@@ -105,6 +106,9 @@ func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, err
 	}
+	if r.Latest {
+		r.Source.LTX.TXID = recovered
+	}
 	if err := validateOutput(output); err != nil {
 		return Receipt{}, err
 	}
@@ -125,6 +129,9 @@ func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
 	}
 	if s := r.Source.LTX; s != nil {
 		receipt.PositionEvidence = "pinned_cli_exact_plan_and_successful_restore"
+		if s.Recoverability {
+			receipt.PositionEvidence = "remote_dry_run_and_restore"
+		}
 		receipt.RequestedTXID = s.TXID
 		receipt.Barrier = s.Barrier
 	}
@@ -230,7 +237,11 @@ func (e *Engine) restoreLTX(ctx context.Context, b Binding, c Credentials, s LTX
 			recovered, resultErr = 0, refuse("restore_config_cleanup")
 		}
 	}()
-	base := []string{"restore", "-config", configPath, "-no-expand-env", "-o", output, "-txid", txidString(s.TXID), "-json", "-integrity-check", "full"}
+	base := []string{"restore", "-config", configPath, "-no-expand-env", "-o", output, "-json", "-integrity-check", "full"}
+	if s.TXID != 0 {
+		base = append(base, "-txid", txidString(s.TXID))
+	}
+
 	planResult, err := cli.Execute(ctx, Command{Args: append(append([]string(nil), base...), "-dry-run", selector), Credentials: c, Directory: directory})
 	if err != nil || planResult.Truncated {
 		return 0, refuse("ltx_plan_failed")
@@ -240,8 +251,16 @@ func (e *Engine) restoreLTX(ctx context.Context, b Binding, c Credentials, s LTX
 		Replica string `json:"replica"`
 		MaxTXID string `json:"max_txid"`
 	}
-	if err := json.Unmarshal(planResult.Stdout, &plan); err != nil || plan.Target != output || plan.Replica != "s3" || plan.MaxTXID != txidString(s.TXID) {
+	if err := json.Unmarshal(planResult.Stdout, &plan); err != nil || plan.Target != output || plan.Replica != "s3" {
 		return 0, refuse("ltx_point_not_exact")
+	}
+	selected, err := strconv.ParseUint(plan.MaxTXID, 16, 64)
+	if err != nil || selected == 0 || plan.MaxTXID != txidString(selected) || s.TXID != 0 && selected != s.TXID {
+		return 0, refuse("ltx_point_not_exact")
+	}
+	if s.TXID == 0 {
+		s.TXID = selected
+		base = append(base, "-txid", txidString(selected))
 	}
 	// v0.5.17's restore JSON echoes the requested TXID. The independently selected
 	// plan boundary must match first; an arbitrary mid-file TXID is not evidence.
@@ -269,4 +288,15 @@ func renderConfig(selector string, d Destination) []byte {
 		config += "false\n"
 	}
 	return []byte(config)
+}
+
+func requestReference(r Request) (string, string, error) {
+	if !r.Latest {
+		return r.Source.reference()
+	}
+	s := r.Source.LTX
+	if r.Source.Kind != LitestreamLTX || r.Source.Snapshot != nil || s == nil || s.TXID != 0 || !s.Recoverability || s.Barrier != nil || r.Coverage != nil {
+		return "", "", refuse("invalid_latest_source")
+	}
+	return s.BindingID, s.Epoch, nil
 }
