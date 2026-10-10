@@ -16,13 +16,13 @@
 | T10 | Two concurrent applies on same target | One wins lock; other cleanly refused | 03 |
 | T11 | Caddy reload failure or unexpected config drift | Prior Caddy config preserved; no unrelated site changed | 02/03 |
 | T12 | One web app owns a persistent SQLite file | App release replacement and reboot preserve data | 04 |
-| T13 | Live data replicated to R2 | Isolated restore integrity check + known write verified | 04 |
-| T14 | R2 outage, missing credentials, expired secret | Deployment/backup health says degraded; no misleading backup success | 04 |
+| T13 | Live data replicated to S3-compatible storage | Isolated restore integrity check + known write verified | 04 |
+| T14 | S3-compatible storage outage, missing credentials, expired secret | Deployment/backup health says degraded; no misleading backup success | 04 |
 | T15 | Prevent duplicate replicator on same destination | Second replicator refused before data corruption | 04 |
 | T16 | Persistent release admission and rollback after schema change | D12 declaration required at plan time; incompatible app rollback conflicts with no changes; automatic compensation refuses an incompatible old writer with recovery-required state; no database rewind | 03/04 |
 | T17 | Malicious app name, domain, environment or plan ID | No argv/shell injection, path escape or arbitrary admin command | 00-04 |
 | T18 | Agent key attempts an operation outside the allowlist (shell, raw Podman/Caddy, non-Brine software, purge or live restore when policy forbids), invokes the root helper directly, forges an operation record, or substitutes a path/symlink | Dispatcher and root helper each refuse independently of CLI flags and runner-writable state | 06 |
-| T19 | Operator performs real R2 restore drill to disposable destination | Restore procedure and resulting DB independently verified | 04/06 |
+| T19 | Operator performs real S3-compatible storage restore drill to disposable destination | Restore procedure and resulting DB independently verified | 04/06 |
 | T20 | Machine/human parity | Same operation ID and status across JSON CLI/TUI | 05 |
 | T21 | Limited disk space, killed process, partial write | Planning below the policy disk minimum or with unobserved disk conflicts with no changes; crossing the minimum changes the hash; safe recoverable state and no loss of previous release/config after runtime failures | 03/06 |
 | T22 | App removal, recreate, expiry and purge | P03-09 stateless removal withdraws only owned routes/units after writer fencing, retains release/secret history, releases its port, refuses persistent data, and reconciles each effect boundary. P04-08 removal archives under an immutable ID with a restorable backup set for 30 days; remove-recreate-expire never touches the new app; purge only when policy allows; interrupted archive/purge recovers | 03/04/06 |
@@ -48,11 +48,18 @@ D12 and the [Schema migrations contract](CONTRACTS.md#schema-migrations) define 
 - Known schema incompatibility conflicts with `schema_incompatible`. Unknown or contradictory current schema conflicts with `schema_state_unknown`. Declaration ordering preserves canonical hashes. Changed current schema invalidates a stored plan at apply before effects. Initial table creation uses the separate reviewed schema-change workflow.
 - Rollback planning checks the target release against current database markers, not historical release markers. Compatible rollback preserves fixture writes and schema. An incompatible target conflicts with `schema_rollback_incompatible` and has no effects. A failed candidate, reconcile and resolve cannot restart incompatible old code or reuse stale `compatibility_verified` proof. They record `recovery_required`, never a successful rollback or automatic database restore.
 - Later migration automation refuses missing review, denied policy and absent, expired, mismatched or unavailable verified restore points. Every affected database needs coverage of quiesced pre-migration data. Interrupt each schema-effect and journal boundary. Inspect partial or unknown outcomes without replaying SQL, a down script or live restore.
-- A separately authorized physical drill records an app fixture's schema and known writes, applies a reviewed schema change, and proves incompatible app rollback refuses without changing either. A real isolated R2 restore verifies the exact recorded point, integrity, invariants and schema. This lane runs no host drill and claims no working migration or R2 recovery.
+- A separately authorized physical drill records an app fixture's schema and known writes, applies a reviewed schema change, and proves incompatible app rollback refuses without changing either. A real isolated S3-compatible storage restore verifies the exact recorded point, integrity, invariants and schema. This lane runs no host drill and claims no working migration or S3-compatible storage recovery.
+
+## Phase 04 foundation review acceptance, implementation pending
+
+- T12/T15/T22 exercise fail-closed permits for both application and replica starts, including default-target boot, automatic restart and credential replacement. Reboot/interrupt after replica stop, archive rename, DB swap and new-epoch activation. A held fence or missing/unreadable/inconsistent permit state blocks both; reconciliation settles bundle/config/epoch before safe resume, and live restore never activates its old epoch. Host-local locks are not cross-host exclusion; foreign/ambiguous destination ownership refuses.
+- T13 verifies atomic create-only capability with competing conditional uploads; exactly one wins and its bytes remain unchanged. Unsupported capability refuses preparation, with no HEAD-then-PUT fallback. Exact LTX receipts bind a successful private `sync -wait` upload barrier and selected `-txid` to an isolated restore. Local `litestream status` and timestamps do not prove remote transaction recovery. Restore checks require integrity, zero foreign-key violations, schema and declared invariants.
+- T14/T16 require strict pinned-model config validation, including typo/duplicate/unknown keys and `l0-retention: 0`. Schema observation covers absent and nonwritable SHM plus concurrent WAL commits using logical read-only access, never `immutable=1`. Normative JSON catalog golden vectors in the persistence contract cover escaping, NULL, Unicode, ordering and the reserved empty marker.
+- The coordinator's Debian 13 arm64/Podman 5.4 shell probe establishes keep-id ownership and five-write local replication/restore only. It does not complete protected enrollment installation, generated-unit, reboot/interruption or real S3-compatible recovery gates.
 
 ## Required gate before real personal data
 
-Record **the exact host distribution, Podman/Caddy/systemd/Litestream versions**, release commit and image digest; verify T05-T16, T18-T19, and T21-T23 on an authorized test target. Run at least one power/reboot-style recovery exercise and one restore from actual R2; simulated success is insufficient.
+Record **the exact host distribution, Podman/Caddy/systemd/Litestream versions**, release commit and image digest; verify T05-T16, T18-T19, and T21-T23 on an authorized test target. Run at least one power/reboot-style recovery exercise and one restore from actual S3-compatible storage; simulated success is insufficient.
 
 Document remaining limits prominently: a single server is not high availability; accepted downtime is not zero downtime; Litestream is asynchronous, not a guarantee of no data loss; an agent with direct SSH/sudo/raw runtime privileges can bypass policy.
 
@@ -143,7 +150,7 @@ cyclic and overlong (more than 64 ancestors) chains refuse without host effects.
   unknown generation and disk/live disagreement never authorize an update.
   Complete disk-adapted/live JSON equality remains a prerequisite.
 - These are local collector/planner and real-adapter fixtures, not a successful
-  Pi update, rollback, removal, recovery or R2 restore. Physical reruns belong
+  Pi update, rollback, removal, recovery or S3-compatible storage restore. Physical reruns belong
   to the separately authorized host lane.
 
 - Review regression: real Caddy v2.6.2 adapts an unused snippet containing the
