@@ -71,8 +71,22 @@ func ObserveSchemaWithAllocation(ctx context.Context, b DatabaseBinding, definit
 }
 
 func WriterCompatibleWithAllocations(ctx context.Context, bindings []DatabaseBinding, compatibility []SchemaCompatibility, definitions []SchemaDefinition, allocations map[DatabaseID]AllocationReceipt) bool {
-	if len(bindings) == 0 {
+	if !validWriterDeclarations(bindings, compatibility) {
 		return false
+	}
+	for id, receipt := range allocations {
+		if !receipt.Valid() || receipt.DatabaseID != id {
+			return false
+		}
+		found := false
+		for _, binding := range bindings {
+			if binding.DatabaseID == id && binding.IncarnationID == receipt.IncarnationID {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
 	}
 	for _, b := range bindings {
 		var receipt *AllocationReceipt
