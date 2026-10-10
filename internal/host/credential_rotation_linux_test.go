@@ -151,14 +151,12 @@ func TestHostRotationReplacesOnlySelectedReplicaCredential(t *testing.T) {
 
 func shortReplicaStateRoot(t *testing.T) string {
 	t.Helper()
-	id, err := data.NewID()
+	// A fixed short base keeps unix socket paths under 108 bytes even when
+	// TMPDIR points into a deep worktree.
+	root, err := os.MkdirTemp("/var/tmp", "brine-")
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := filepath.Join(os.TempDir(), id[:6])
-	if err := os.Mkdir(root, 0700); err != nil { //nolint:gosec // Short private socket fixture requires directory traversal.
-		t.Fatal(err)
-	} //nolint:gosec // Short private socket fixture requires directory traversal.
 	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	return root
 }
