@@ -205,6 +205,7 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 
 		}
 	}
+
 	// Transitions are the current per-kind journal contract. Add new supported
 	// edges transactionally without changing durable operation identities.
 	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet, ops.Reconcile, ops.Resolve} {
