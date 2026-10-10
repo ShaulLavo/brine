@@ -9,13 +9,16 @@ import (
 // RevisionStored records a pending immutable config before any host effect.
 const RevisionStored RotationStage = "stored"
 
+const RevisionCancelled RotationStage = "cancelled"
+
 // ReplicaRevision journals only cadence/config activation, never writer admission.
 type ReplicaRevision struct {
-	ID     string         `json:"id"`
-	App    string         `json:"app"`
-	Before ReplicaBinding `json:"before"`
-	After  ReplicaBinding `json:"after"`
-	Stage  RotationStage  `json:"stage"`
+	ID                    string         `json:"id"`
+	App                   string         `json:"app"`
+	Before                ReplicaBinding `json:"before"`
+	After                 ReplicaBinding `json:"after"`
+	Stage                 RotationStage  `json:"stage"`
+	ReplacementCredential uint64         `json:"replacement_credential,omitempty"`
 }
 
 func (r ReplicaRevision) Validate() error {
@@ -34,6 +37,15 @@ func (r ReplicaRevision) Validate() error {
 	before.ConfigFile = r.After.ConfigFile
 	before.UnitSHA256 = r.After.UnitSHA256
 	if before != r.After {
+		return ErrInvalid
+	}
+	if r.Stage == RevisionCancelled {
+		if r.ReplacementCredential <= r.Before.CredentialVersion {
+			return ErrInvalid
+		}
+		return nil
+	}
+	if r.ReplacementCredential != 0 {
 		return ErrInvalid
 	}
 	switch r.Stage {

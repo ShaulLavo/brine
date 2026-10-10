@@ -24,6 +24,7 @@ import (
 )
 
 type DataPreparation struct {
+	Now             func() time.Time
 	Runner          localexec.Runner
 	ProbeRoot       func(context.Context, string) (data.RootEvidence, error)
 	ProbeMapping    func(context.Context, localexec.Runner, data.RootEvidence, data.RuntimeIdentity) (data.MappingEvidence, error)
@@ -139,7 +140,7 @@ func (p DataPreparation) expected(ctx context.Context, planned plan.Plan, desire
 	}
 	frozen := map[data.ReplicaBindingID]data.CredentialEvidence{}
 	for _, proof := range planned.DataCredentials {
-		if _, duplicate := frozen[proof.BindingID]; duplicate || !proof.Admits(proof.BindingID, desired.PolicyHash, time.Now().UTC(), time.Minute) {
+		if _, duplicate := frozen[proof.BindingID]; duplicate || !proof.Admits(proof.BindingID, desired.PolicyHash, p.now(), time.Minute) {
 			return nil, nil, replication.ErrPermit
 		}
 		frozen[proof.BindingID] = proof
@@ -168,7 +169,7 @@ func (p DataPreparation) expected(ctx context.Context, planned plan.Plan, desire
 		delete(frozen, binding.BindingID)
 		version := proof.Version
 		record, err := p.State.CredentialReceipt(ctx, binding.BindingID, version)
-		if err != nil || record.EpochID != binding.EpochID || record.Destination != binding.Destination.Reference || record.PolicyHash != desired.PolicyHash || (record.ExpiresAt != nil && !time.Now().UTC().Add(time.Minute).Before(*record.ExpiresAt)) {
+		if err != nil || record.EpochID != binding.EpochID || record.Destination != binding.Destination.Reference || record.PolicyHash != desired.PolicyHash || (record.ExpiresAt != nil && !p.now().Add(time.Minute).Before(*record.ExpiresAt)) {
 			return nil, nil, replication.ErrPermit
 		}
 		observedCredential := data.CredentialEvidence{BindingID: record.BindingID, EpochID: record.EpochID, Destination: record.Destination, Reference: record.CredentialRef, Version: record.Version, PolicyHash: record.PolicyHash, ReceivedAt: record.ReceivedAt, ExpiresAt: record.ExpiresAt}
@@ -272,4 +273,11 @@ func privateChildBase(home, relative string, info os.FileInfo, gid uint32) (stri
 		return "", "", data.ErrInvalid
 	}
 	return filepath.Join(home, parts[0]), parts[1], nil
+}
+
+func (p DataPreparation) now() time.Time {
+	if p.Now != nil {
+		return p.Now().UTC()
+	}
+	return time.Now().UTC()
 }

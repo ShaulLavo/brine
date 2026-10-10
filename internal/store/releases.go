@@ -205,7 +205,7 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 		if p.Target != identity {
 			return result, &IntegrityError{}
 		}
-		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile})
+		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration})
 	}
 	return result, tx.Commit()
 }

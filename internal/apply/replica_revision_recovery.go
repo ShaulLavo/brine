@@ -54,7 +54,7 @@ func (e *Executor) inspectReplicaRevisionRecovery(ctx context.Context, op Operat
 	if err != nil || !x.hasPrevious {
 		return r, err
 	}
-	if !committedArtifactsObserved(x.facts, x.previous, p.App) || x.previous.CaddyGeneration != x.facts.Routing.Generation || x.previous.CaddyFile.Hash != x.facts.Routing.Files[p.App+".caddy"] {
+	if !releaseArtifactsObserved(x.facts, x.previous, p.App) || p.ReplicaPrevious.RoutingGeneration != x.facts.Routing.Generation || x.previous.CaddyFile.Hash != x.facts.Routing.Files[p.App+".caddy"] {
 		return r, nil
 	}
 	owners := slices.Concat([]string{op.ID}, r.resolutionOwners)

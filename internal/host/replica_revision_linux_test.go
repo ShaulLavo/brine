@@ -153,10 +153,20 @@ func TestReplicaCadenceCycleReusesImmutableBytes(t *testing.T) {
 }
 
 func TestReplicaCadenceInterruptedBoundariesInspectBeforeResume(t *testing.T) {
+	testReplicaInterruptions(t, false)
+}
+func TestReplicaMixedDeploymentInterruptedBoundariesResumeOnlyCursor(t *testing.T) {
+	testReplicaInterruptions(t, true)
+}
+
+func testReplicaInterruptions(t *testing.T, mixed bool) {
 	for _, boundary := range []string{"publish", "lock", "service_before_commit", "commit_before_restart", "stop_unknown", "start_unknown"} {
 		t.Run(boundary, func(t *testing.T) {
 			ctx := context.Background()
 			f := activePreparationFixture(t)
+			if mixed {
+				f.planned.Lifecycle = ""
+			}
 			before, err := f.preparation.State.ReadReplicaPermit(ctx, f.fact.Database.DatabaseID)
 			if err != nil {
 				t.Fatal(err)
@@ -220,7 +230,12 @@ func TestReplicaCadenceInterruptedBoundariesInspectBeforeResume(t *testing.T) {
 			if ready, err := f.preparation.InspectReplicaRevision(ctx, "interrupted-cadence", f.planned, f.desired); err != nil || !ready {
 				t.Fatal("settled cursor not resumable", err)
 			}
-			if err = f.preparation.PreparePersistent(ctx, "interrupted-cadence", f.planned, f.desired); err != nil {
+			resume := f.preparation.PreparePersistent
+			if mixed {
+				f.preparation.Runner, f.preparation.ProbeRoot, f.preparation.ProbeMapping = nil, nil, nil
+				resume = f.preparation.ResumeReplicaRevision
+			}
+			if err = resume(ctx, "interrupted-cadence", f.planned, f.desired); err != nil {
 				t.Fatal(err)
 			}
 			after, err := f.preparation.State.ReadReplicaPermit(ctx, f.fact.Database.DatabaseID)

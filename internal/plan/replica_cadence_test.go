@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func cadencePlanFixture(t *testing.T) Input {
@@ -21,6 +22,7 @@ func cadencePlanFixture(t *testing.T) Input {
 	in.Snapshot.LiveCaddyFiles = existing.Snapshot.LiveCaddyFiles
 	release := existing.State.Releases[0]
 	release.Desired = in.Desired
+	release.CaddyGeneration = existing.Snapshot.CaddyConfig.Value.Generation
 	release.Image = in.Image
 	in.State.Releases = []CurrentRelease{release}
 	return in
@@ -78,5 +80,19 @@ func TestCadenceMixedWithAppChangeStillUsesDeployment(t *testing.T) {
 	(*in.Snapshot.PersistentData.Value)[0].Fenced = true
 	if p = build(t, in); p.Kind != Conflict {
 		t.Fatal("mixed app change bypassed held fence")
+	}
+}
+
+func TestCadenceWithNewSecretUsesOrdinaryDeployment(t *testing.T) {
+	in := cadencePlanFixture(t)
+	in.Desired.Databases = slices.Clone(in.Desired.Databases)
+	in.Desired.Databases[0].SyncInterval = 2 * time.Minute
+	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
+	in.State.Releases[0].Desired.Secrets = in.Desired.Secrets
+	in.State.Releases[0].Secrets = []SecretBinding{{Environment: "TOKEN", Reference: "token", VersionName: "brine.hello.token.v1", ID: "secret-one"}}
+	(*in.Snapshot.Apps.Value)[0].Secrets = target.Known([]target.Secret{{Name: "brine.hello.token.v1", ID: "secret-one"}, {Name: "brine.hello.token.v2", ID: "secret-two"}})
+	p := build(t, in)
+	if p.Lifecycle != "" || p.Kind != Update || p.Secrets[0].VersionName != "brine.hello.token.v2" {
+		t.Fatal("new resolved secret bypassed app deployment", p.Lifecycle, p.Kind, p.Conflicts)
 	}
 }

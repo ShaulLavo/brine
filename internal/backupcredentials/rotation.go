@@ -20,6 +20,7 @@ type RotationJournal interface {
 	SupersedeRotation(context.Context, data.CredentialRotation, data.CredentialRotation) error
 }
 type RotationHost interface {
+	ReconcileRevision(context.Context, Receipt) error
 	Inspect(context.Context, data.ReplicaBindingID) (data.ReplicaBinding, bool, error)
 	Prepare(context.Context, Receipt, data.ReplicaBinding) (data.ReplicaBinding, error)
 	Stop(context.Context, data.ReplicaBinding) error
@@ -104,6 +105,13 @@ func (r Rotator) Activate(ctx context.Context, receipt Receipt) (Receipt, error)
 		return Receipt{}, err
 	}
 	if errors.Is(journalErr, ErrRotationNotFound) {
+		if err := r.Host.ReconcileRevision(ctx, receipt); err != nil {
+			return Receipt{}, ErrActivationUnknown
+		}
+		current, fenced, err = r.Host.Inspect(ctx, data.ReplicaBindingID(receipt.Scope.Binding))
+		if err != nil || fenced {
+			return Receipt{}, ErrActivationUnknown
+		}
 		if current.CredentialVersion > receipt.Version {
 			return Receipt{}, ErrStale
 		}

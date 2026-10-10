@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 )
@@ -76,6 +77,59 @@ func (s *Store) WriteReplicaRevision(ctx context.Context, previous data.Rotation
 		return ErrConflict
 	}
 	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// PendingReplicaRevision is read-only; terminal revisions cannot block renewal.
+func (s *Store) PendingReplicaRevision(ctx context.Context, binding data.ReplicaBindingID) (data.ReplicaRevision, error) {
+	var id string
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM data_replica_revisions WHERE binding_id=? AND stage NOT IN ('active','cancelled')", binding).Scan(&id); errors.Is(err, sql.ErrNoRows) {
+		return data.ReplicaRevision{}, ErrNotFound
+	} else if err != nil {
+		return data.ReplicaRevision{}, err
+	}
+	return s.ReadReplicaRevision(ctx, id)
+}
+
+// CancelReplicaRevision records host-proven settlement under the mutation lock.
+// It grants no stop/start authority. The replacement receipt must already exist.
+func (s *Store) CancelReplicaRevision(ctx context.Context, record data.ReplicaRevision, version uint64) (resultErr error) {
+	if s.readOnly || record.Validate() != nil || record.Stage == data.RotationActive || record.Stage == data.RevisionCancelled || version <= record.Before.CredentialVersion {
+		return ErrInvalid
+	}
+	fresh, err := s.CredentialReceipt(ctx, record.Before.BindingID, version)
+	if err != nil || fresh.EpochID != record.Before.EpochID || fresh.Destination != record.Before.Destination.Reference || fresh.CredentialRef != record.Before.Destination.CredentialRef || fresh.ExpiresAt != nil && !time.Now().UTC().Add(time.Minute).Before(*fresh.ExpiresAt) {
+		return ErrConflict
+	}
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
+	if err != nil {
+		return err
+	}
+	defer rollbackOnExit(tx, &resultErr)
+	permit, err := readReplicaPermit(ctx, tx, record.Before.DatabaseID)
+	if err != nil || permit.FenceState == "held" || permit.Replica != record.Before && permit.Replica != record.After {
+		return ErrConflict
+	}
+	var prior []byte
+	if err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_replica_revisions WHERE id=?", record.ID).Scan(&prior); err != nil {
+		return err
+	}
+	expected, _ := json.Marshal(record)
+	if !bytes.Equal(prior, expected) {
+		return ErrConflict
+	}
+	record.Stage, record.ReplacementCredential = data.RevisionCancelled, version
+	if record.Validate() != nil {
+		return ErrInvalid
+	}
+	raw, err := json.Marshal(record)
+	if err != nil || len(raw) > 256<<10 {
+		return ErrInvalid
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE data_replica_revisions SET stage=?,canonical=? WHERE id=?", record.Stage, raw, record.ID); err != nil {
 		return err
 	}
 	return tx.Commit()

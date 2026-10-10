@@ -22,7 +22,7 @@ func revisionID(operation string, b data.ReplicaBinding) string {
 }
 
 func (p DataPreparation) prepareReplica(ctx context.Context, operation string, desired policy.Desired, artifact replication.Artifacts, after data.ReplicaBinding) error {
-	host := replicaRotation{state: p.State, stateRoot: p.StateRoot, home: p.Home, services: p.Services, units: p.Units, permits: p.Permits}
+	host := replicaRotation{now: p.Now, state: p.State, stateRoot: p.StateRoot, home: p.Home, services: p.Services, units: p.Units, permits: p.Permits}
 	current, fenced, err := host.Inspect(ctx, after.BindingID)
 	if err != nil {
 		return err
@@ -115,14 +115,15 @@ func verifyReplicaService(artifact replication.Artifacts) error {
 // InspectReplicaRevision checks a durable replica-only continuation. Unknown
 // stop/start attempts must settle independently before any successor proceeds.
 func (p DataPreparation) InspectReplicaRevision(ctx context.Context, operation string, planned plan.Plan, desired policy.Desired) (bool, error) {
-	if planned.Lifecycle != plan.ReviseReplica || p.State == nil || p.Services == nil || p.Units == nil || p.Permits == nil {
+	if (planned.Lifecycle != plan.ReviseReplica && planned.Lifecycle != "") || p.State == nil || p.Services == nil || p.Units == nil || p.Permits == nil {
 		return false, replication.ErrPermit
 	}
 	artifacts, bindings, err := p.expected(ctx, planned, desired)
 	if err != nil {
 		return false, err
 	}
-	host := replicaRotation{state: p.State, stateRoot: p.StateRoot, home: p.Home, services: p.Services, units: p.Units, permits: p.Permits}
+	host := replicaRotation{now: p.Now, state: p.State, stateRoot: p.StateRoot, home: p.Home, services: p.Services, units: p.Units, permits: p.Permits}
+	foundCursor := false
 	for i, after := range bindings {
 		current, fenced, err := host.Inspect(ctx, after.BindingID)
 		if err != nil || fenced {
@@ -130,6 +131,9 @@ func (p DataPreparation) InspectReplicaRevision(ctx context.Context, operation s
 		}
 		record, err := p.State.ReadReplicaRevision(ctx, revisionID(operation, after))
 		if errors.Is(err, store.ErrNotFound) {
+			if planned.Lifecycle != plan.ReviseReplica && (!current.Committed || current != after) {
+				return false, replication.ErrPermit
+			}
 			artifact, hash, err := host.artifact(ctx, current)
 			if err != nil || hash != current.UnitSHA256 {
 				return false, replication.ErrPermit
@@ -142,6 +146,7 @@ func (p DataPreparation) InspectReplicaRevision(ctx context.Context, operation s
 		if err != nil || record.Validate() != nil || record.After != after || current != record.Before && current != after {
 			return false, replication.ErrPermit
 		}
+		foundCursor = true
 		if record.Stage == data.RevisionStored {
 			before, hash, err := host.artifact(ctx, record.Before)
 			if err != nil || hash != record.Before.UnitSHA256 || current != record.Before {
@@ -187,5 +192,33 @@ func (p DataPreparation) InspectReplicaRevision(ctx context.Context, operation s
 			return false, replication.ErrPermit
 		}
 	}
-	return true, nil
+	return planned.Lifecycle == plan.ReviseReplica || foundCursor, nil
+}
+
+// ResumeReplicaRevision continues only existing committed replica cursors. It
+// never allocates data, pulls an image or repeats ordinary host preparation.
+func (p DataPreparation) ResumeReplicaRevision(ctx context.Context, operation string, planned plan.Plan, desired policy.Desired) error {
+	ready, err := p.InspectReplicaRevision(ctx, operation, planned, desired)
+	if err != nil || !ready {
+		return replication.ErrRestartUnknown
+	}
+	artifacts, bindings, err := p.expected(ctx, planned, desired)
+	if err != nil {
+		return err
+	}
+	for i, binding := range bindings {
+		if _, err := p.State.ReadReplicaRevision(ctx, revisionID(operation, binding)); errors.Is(err, store.ErrNotFound) {
+			continue
+		} else if err != nil {
+			return err
+		}
+		if err := p.prepareReplica(ctx, operation, desired, artifacts[i], binding); err != nil {
+			return err
+		}
+	}
+	complete, err := p.PersistentPrepared(ctx, operation, planned, desired)
+	if err != nil || !complete {
+		return replication.ErrRestartUnknown
+	}
+	return nil
 }

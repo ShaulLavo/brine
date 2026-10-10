@@ -13,17 +13,20 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
 type revisionPreparationFake struct {
 	preparationFake
-	resumable bool
-	operation string
+	resumable         bool
+	operation         string
+	prepares, resumes int
 }
 
 func (f *revisionPreparationFake) PreparePersistent(ctx context.Context, operation string, p plan.Plan, d policy.Desired) error {
 	f.operation = operation
+	f.prepares++
 	err := f.preparationFake.PreparePersistent(ctx, operation, p, d)
 	if err == nil {
 		f.prepared = true
@@ -34,7 +37,9 @@ func (f *revisionPreparationFake) InspectReplicaRevision(context.Context, string
 	return f.resumable, nil
 }
 
-func cadenceExecutionRig(t *testing.T) (*rig, *revisionPreparationFake) {
+func cadenceExecutionRig(t *testing.T) (*rig, *revisionPreparationFake) { return cadenceRig(t, false) }
+
+func cadenceRig(t *testing.T, keepEffects bool) (*rig, *revisionPreparationFake) {
 	t.Helper()
 	r := newRig(t, true)
 	persistent := persistentRecoveryRig(t)
@@ -56,6 +61,7 @@ func cadenceExecutionRig(t *testing.T) (*rig, *revisionPreparationFake) {
 	r.facts.Input.Desired = desired
 	r.facts.Input.Snapshot.PersistentData = &persistentFacts
 	r.facts.Input.State.Releases[0].Desired = desired
+	r.facts.Input.State.Releases[0].CaddyGeneration = r.release.CaddyGeneration
 	old, err := plan.Build(r.facts.Input)
 	if err != nil || old.Kind != plan.NoOp {
 		t.Fatal("old persistent app not verified", old.Conflicts, err)
@@ -87,12 +93,14 @@ func cadenceExecutionRig(t *testing.T) (*rig, *revisionPreparationFake) {
 	r.executor.PersistentData = f
 	// A cadence lifecycle has no need for any application effects, writer intent,
 	// health probe, routes or unit installation adapters.
-	r.executor.Podman = nil
-	r.executor.Systemd = nil
-	r.executor.Units = nil
-	r.executor.Routes = nil
-	r.executor.Health = nil
-	r.executor.WriterStarts = nil
+	if !keepEffects {
+		r.executor.Podman = nil
+		r.executor.Systemd = nil
+		r.executor.Units = nil
+		r.executor.Routes = nil
+		r.executor.Health = nil
+		r.executor.WriterStarts = nil
+	}
 	return r, f
 }
 
@@ -190,5 +198,110 @@ func TestCadenceResolutionInspectsCommittedMetadataWithoutRepeatingReplica(t *te
 	}
 	if f.calls != 1 || !reflect.DeepEqual(r.effects, []string{"commit"}) {
 		t.Fatal("settlement repeated replica or metadata effects")
+	}
+}
+
+func (f *revisionPreparationFake) ResumeReplicaRevision(ctx context.Context, operation string, p plan.Plan, d policy.Desired) error {
+	f.resumes++
+	f.operation = operation
+	if err := f.preparationFake.PreparePersistent(ctx, operation, p, d); err != nil {
+		return err
+	}
+	f.prepared = true
+	return nil
+}
+
+func TestCadenceAfterAnotherAppDeploymentPreservesHistoricalGeneration(t *testing.T) {
+	for _, lostOutcome := range []bool{false, true} {
+		t.Run(map[bool]string{false: "commit", true: "recover"}[lostOutcome], func(t *testing.T) {
+			r, _ := cadenceExecutionRig(t)
+			before := r.release
+			other := r.facts.Input.State.Releases[0]
+			other.App, other.ID, other.Desired.Name = "other", "other-release", "other"
+			other.Desired.Domains = []spec.Domain{"other.example.net"}
+			other.Desired.Secrets = []policy.Secret{}
+			other.Secrets = []plan.SecretBinding{}
+			other.Units = []target.Unit{{Name: "other.container", Hash: "sha256:" + strings.Repeat("e", 64)}}
+			other.CaddyFile = target.CaddyFile{Name: "other.caddy", Hash: "sha256:" + strings.Repeat("e", 64)}
+			other.CaddyGeneration = before.CaddyGeneration + 1
+			r.facts.Input.State.Releases = append(r.facts.Input.State.Releases, other)
+			r.facts.Input.Snapshot.CaddyConfig.Value.Generation = other.CaddyGeneration
+			r.facts.Input.Snapshot.CaddyConfig.Value.Files = append(r.facts.Input.Snapshot.CaddyConfig.Value.Files, other.CaddyFile)
+			*r.facts.Input.Snapshot.LiveCaddyFiles.Value = append(*r.facts.Input.Snapshot.LiveCaddyFiles.Value, target.LiveCaddyFile{Name: other.CaddyFile.Name, App: "other", Domains: target.Known([]string{"other.example.net"})})
+			r.facts.Routing.Generation = other.CaddyGeneration
+			r.facts.Routing.Files[other.CaddyFile.Name] = other.CaddyFile.Hash
+			var err error
+			r.plan, err = plan.Build(r.facts.Input)
+			if err != nil || r.plan.Lifecycle != plan.ReviseReplica {
+				t.Fatal("two-app cadence plan", err, r.plan.Conflicts)
+			}
+			if lostOutcome {
+				r.failOutcome = "commit"
+			}
+			err = r.executor.Run(context.Background(), "operation-1", r.plan, r.desired)
+			if !lostOutcome && err != nil {
+				t.Fatal(err)
+			}
+			if lostOutcome {
+				if err == nil || r.state != RecoveryRequired {
+					t.Fatal("lost outcome not retained", err)
+				}
+				r.failOutcome = ""
+				source := Operation{ID: "operation-1", Kind: ops.Deploy, App: r.plan.App, PlanID: r.plan.Hash, State: RecoveryRequired}
+				successor := Operation{ID: "resolution-1", Kind: ops.Resolve, App: r.plan.App, PlanID: r.plan.Hash, RecoveryOf: source.ID, State: Queued}
+				r.operationKind = ops.Resolve
+				recovery, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, r.events)
+				if err != nil || recovery.Action != FinishSucceeded {
+					t.Fatal("historical generation blocked recovery", recovery.Action, err)
+				}
+				r.state = Queued
+				if err = r.executor.Recover(context.Background(), recovery); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if r.release.CaddyGeneration != before.CaddyGeneration || !reflect.DeepEqual(r.release.Units, before.Units) || r.facts.Routing.Generation != other.CaddyGeneration || r.facts.Routing.Files[other.CaddyFile.Name] != other.CaddyFile.Hash {
+				t.Fatal("cadence rewrote routing history or other app")
+			}
+		})
+	}
+}
+
+func TestMixedCadenceRecoveryResumesOnlyReplicaCursor(t *testing.T) {
+	for _, boundary := range []string{"service_replacement", "binding_commit", "daemon_reload"} {
+		t.Run(boundary, func(t *testing.T) {
+			r, f := cadenceRig(t, true)
+			r.desired.Environment = []policy.Environment{{Name: "APP_ENV", Value: "updated"}}
+			r.facts.Input.Desired = r.desired
+			var err error
+			r.plan, err = plan.Build(r.facts.Input)
+			if err != nil || r.plan.Lifecycle != "" {
+				t.Fatal("not a mixed deploy", err)
+			}
+			r.executor.WriterStarts = &writerStartsFake{}
+			f.err = replicaUnknown()
+			if err = r.executor.Run(context.Background(), "operation-1", r.plan, r.desired); err == nil || r.state != RecoveryRequired {
+				t.Fatal("replica interruption lost", err)
+			}
+			source := Operation{ID: "operation-1", Kind: ops.Deploy, App: r.plan.App, PlanID: r.plan.Hash, State: RecoveryRequired}
+			successor := Operation{ID: "resolution-1", Kind: ops.Resolve, App: r.plan.App, PlanID: r.plan.Hash, RecoveryOf: source.ID, State: Queued}
+			r.operationKind = ops.Resolve
+			f.resumable = false
+			recovery, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, r.events)
+			if err != nil || recovery.Action != RequireRecovery {
+				t.Fatal("unsettled cursor resumed", recovery.Action, err)
+			}
+			f.resumable, f.err = true, nil
+			recovery, err = r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, r.events)
+			if err != nil || recovery.Action != ResumeForward {
+				t.Fatal("settled cursor not resumed", recovery.Action, err)
+			}
+			r.state = Queued
+			if err = r.executor.Recover(context.Background(), recovery); err != nil {
+				t.Fatal(err)
+			}
+			if f.prepares != 1 || f.resumes != 1 || f.operation != source.ID || r.state != Succeeded {
+				t.Fatal("unrelated preparation replayed or source cursor lost", f.prepares, f.resumes, f.operation, r.state)
+			}
+		})
 	}
 }

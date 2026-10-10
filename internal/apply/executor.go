@@ -72,6 +72,7 @@ type execution struct {
 	writerStartOwners                       []string
 	nextRelease                             *Release
 	replicaOperation                        string
+	resumeReplicaOnly                       bool
 }
 
 func desiredMatches(p plan.Plan, d policy.Desired) bool {
@@ -218,6 +219,8 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		x.quiesced, x.installed, x.started = recovery.execution.quiesced, recovery.execution.installed, recovery.execution.started
 		x.unit = recovery.execution.unit
 		x.writerStartOwners = recovery.execution.writerStartOwners
+		x.replicaOperation = recovery.execution.replicaOperation
+		x.resumeReplicaOnly = recovery.execution.resumeReplicaOnly
 	}
 	if err != nil {
 		if recovery != nil {

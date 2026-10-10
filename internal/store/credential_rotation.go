@@ -33,7 +33,7 @@ func (s *Store) WriteCredentialRotation(ctx context.Context, previous data.Rotat
 		return ErrConflict
 	}
 	var pendingRevision int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_replica_revisions WHERE binding_id=? AND stage!='active'", record.Before.BindingID).Scan(&pendingRevision); err != nil || pendingRevision != 0 {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_replica_revisions WHERE binding_id=? AND stage NOT IN ('active','cancelled')", record.Before.BindingID).Scan(&pendingRevision); err != nil || pendingRevision != 0 {
 		return ErrConflict
 	}
 	var app string
@@ -117,7 +117,7 @@ func (s *Store) SupersedeCredentialRotation(ctx context.Context, old, next data.
 		return ErrConflict
 	}
 	var pendingRevision int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_replica_revisions WHERE binding_id=? AND stage!='active'", next.Before.BindingID).Scan(&pendingRevision); err != nil || pendingRevision != 0 {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_replica_revisions WHERE binding_id=? AND stage NOT IN ('active','cancelled')", next.Before.BindingID).Scan(&pendingRevision); err != nil || pendingRevision != 0 {
 		return ErrConflict
 	}
 	var app string
