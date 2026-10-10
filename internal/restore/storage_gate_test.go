@@ -39,7 +39,11 @@ func TestRealStorageRestore(t *testing.T) {
 		SessionToken string    `json:"session_token"`
 		ExpiresAt    time.Time `json:"expires_at"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(os.Stdin, 32<<10))
+	inputBytes, err := io.ReadAll(io.LimitReader(os.Stdin, (32<<10)+1))
+	if err != nil || len(inputBytes) > 32<<10 {
+		t.Fatal("drill stdin bound exceeded")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(inputBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
 		t.Fatal("invalid bounded drill input")
