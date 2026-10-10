@@ -62,6 +62,9 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 | 07 | [Drops and previews](plans/07-drops-and-previews.md) | Temporary websites with short links, git branch/PR previews (D9) | One-command drop with pill controls; pull request gets a preview URL |
 | 08 | [WebTransport apps](plans/08-webtransport.md) | Policy-approved UDP publishing, app TLS delivery/ownership and HTTP-plus-UDP readiness (D10); optional protocol health | UDP mapping/reachability, certificate lifecycle and recovery on both architectures; shared UDP 443 and previews gated separately |
 | 09 | [Managed SpacetimeDB](plans/09-spacetimedb.md) | Shared engine boundary, standalone service, reviewed module publish and stopped-tree S3 backups (D13) | Published amd64/arm64 fixture, Pi/browser drill, verified remote restore and no SQLite regression |
+| 10 | [Easy app data](plans/10-easy-data.md) | `BRINE_DB_*` environment contract, schema files in the app repo, reviewed init without manual install, one-command first deploy | New app with a database deploys with one command; custom SQLite builds pass restore tests |
+
+Phase 10 makes data easy to use without an SDK: apps read `BRINE_DB_*` variables and keep schema files in their repo. P10-01 to P10-03 run before P09-04 so SpacetimeDB shares the same contract.
 
 Phase 09 begins with a behavior-preserving engine boundary after the merged Phase 04 foundations. Runtime probes and the multiarch fixture precede engine admission; exact remote restore precedes module publishing and live replacement. Production scope remains the owner's enrolled servers with externally supplied scoped S3 credentials. The pinned SpacetimeDB license limits an application/service to one production instance unless alternative rights are recorded.
 
