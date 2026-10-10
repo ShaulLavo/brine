@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/apps"
@@ -12,7 +11,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/secrets"
-	"github.com/ShaulLavo/brine/internal/transport"
 	"github.com/spf13/cobra"
 )
 
@@ -55,7 +53,7 @@ func newConfigCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return configOutput(cmd, response, *modes, flags.target)
+		return configOutput(cmd, response, *modes, flags)
 	}}
 	flags.register(cmd)
 	cmd.Flags().StringArrayVar(&unset, "unset", nil, "Remove an environment key (repeatable)")
@@ -72,12 +70,12 @@ func newLifecycleCmd(deps Dependencies, modes *machineModes, verb string, action
 		if err != nil {
 			return err
 		}
-		return configOutput(cmd, response, *modes, flags.target)
+		return configOutput(cmd, response, *modes, flags)
 	}}
 	flags.register(cmd)
 	return cmd
 }
-func configOutput(cmd *cobra.Command, response result.Envelope, modes machineModes, target string) error {
+func configOutput(cmd *cobra.Command, response result.Envelope, modes machineModes, flags operationFlags) error {
 	p, ok := response.Data.(apps.ConfigPlan)
 	if !response.OK || !ok {
 		return result.New(result.TransportInvalidResponse, nil)
@@ -103,22 +101,24 @@ func configOutput(cmd *cobra.Command, response result.Envelope, modes machineMod
 		}
 	}
 	if p.Kind == plan.Conflict {
-		_, err := fmt.Fprintln(cmd.OutOrStdout(), "Resolve the plan's conflicts and plan again before applying.")
-		return err
+		return printConflicts(cmd.OutOrStdout(), p.Conflicts)
 	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Apply with brine apply %s --target %s.\n", p.PlanID, target)
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Apply with %s.\n", flags.command("apply", p.PlanID))
 	return err
 }
 func newSecretCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	parent := &cobra.Command{Use: "secret", Short: "Store unbound app secret versions"}
 	var flags operationFlags
 	cmd := &cobra.Command{Use: "set APP NAME --target NAME", Short: "Read a secret value from stdin and store an immutable unbound version", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		if !ops.ValidIntent(ops.Intent{Kind: ops.SecretSet, App: args[0], SecretRef: args[1]}) || !transport.ValidTargetName(flags.target) || deps.Stdin == nil {
+		if !ops.ValidIntent(ops.Intent{Kind: ops.SecretSet, App: args[0], SecretRef: args[1]}) || !flags.validSelection() || deps.Stdin == nil {
 			return result.New(result.InvalidUsage, nil)
 		}
-		input, err := io.ReadAll(io.LimitReader(deps.Stdin, secrets.ValueLimit+1))
+		input, err := readSecretInput(cmd.Context(), deps.Stdin)
 		defer clear(input)
-		if err != nil || len(input) == 0 || len(input) > secrets.ValueLimit {
+		if err != nil {
+			return err
+		}
+		if len(input) == 0 || len(input) > secrets.ValueLimit {
 			return result.New(result.InvalidUsage, nil)
 		}
 		response, err := flags.call(cmd.Context(), deps, "secret_set", dispatch.SecretArgs{App: args[0], Reference: args[1], Value: input})

@@ -19,7 +19,7 @@ const Version = "0.1.1-dev"
 // Callers provide every field. Execute owns presentation; callers own exit status.
 type Dependencies struct {
 	Context               context.Context
-	Stdin                 io.Reader
+	Stdin                 io.Reader // Borrowed exclusively during secret reads; see readSecretInput.
 	Stdout                io.Writer
 	Stderr                io.Writer
 	Version               string
@@ -56,7 +56,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "brine",
 		Short:         "Agent-first self-hosted deployments",
-		Long:          "A small deployment control plane for humans and agents. Deployment operations are not implemented yet.",
+		Long:          "Deploy stateless apps to enrolled Linux servers through Podman, Quadlet/systemd and Caddy. Plan before apply and save the idempotency key. Acceptance is not completion; poll the operation ID. Diagnose and reconcile uncertain outcomes before retrying. Persistent app data and Litestream/R2 restores remain planned. The Charm TUI currently provides a welcome screen.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
