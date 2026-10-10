@@ -72,3 +72,15 @@ func verifyRootAncestors(root string) error {
 	}
 	return nil
 }
+
+func directoryIdentity(path string) (uint64, uint64, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.IsDir() || !owned(info) || info.Mode().Perm() != 0700 {
+		return 0, 0, ErrInvalid
+	}
+	return uint64(stat.Dev), uint64(stat.Ino), nil
+}
