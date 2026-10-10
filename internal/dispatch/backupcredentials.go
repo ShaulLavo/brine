@@ -101,9 +101,11 @@ func EncodeBackupCredentialSet(app, database, planID string, packet []byte) (jso
 
 func credentialFailure(err error) error {
 	switch {
+	case errors.Is(err, backupcredentials.ErrAdmissionRefresh):
+		return result.New(result.BackupAdmissionRefreshRequired, nil)
 	case errors.Is(err, backupcredentials.ErrStale):
 		return result.New(result.Conflict, nil)
-	case errors.Is(err, backupcredentials.ErrStorage):
+	case errors.Is(err, backupcredentials.ErrActivationUnknown), errors.Is(err, backupcredentials.ErrRemoteAccess), errors.Is(err, backupcredentials.ErrStorage):
 		return result.New(result.RecoveryRequired, nil)
 	case errors.Is(err, backupcredentials.ErrInvalid):
 		return result.New(result.InvalidUsage, nil)

@@ -109,7 +109,8 @@ func signGET(request *http.Request, region string, c Credentials, now time.Time)
 		canonicalHeaders += "x-amz-security-token:" + c.SessionToken + "\n"
 		signedHeaders += ";x-amz-security-token"
 	}
-	canonical := http.MethodGet + "\n" + request.URL.EscapedPath() + "\n\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash
+	canonicalQuery := strings.ReplaceAll(request.URL.Query().Encode(), "+", "%20")
+	canonical := http.MethodGet + "\n" + request.URL.EscapedPath() + "\n" + canonicalQuery + "\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash
 	scope := date + "/" + region + "/s3/aws4_request"
 	sum := sha256.Sum256([]byte(canonical))
 	toSign := "AWS4-HMAC-SHA256\n" + timestamp + "\n" + scope + "\n" + hex.EncodeToString(sum[:])

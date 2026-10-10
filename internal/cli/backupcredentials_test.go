@@ -160,3 +160,45 @@ func TestBackupCredentialDatabaseNameRefusedBeforeIO(t *testing.T) {
 		}
 	}
 }
+
+func TestBackupCredentialsActivatedHealthIsPresented(t *testing.T) {
+	for _, mode := range []string{"", "--json", "--jsonl"} {
+		t.Run(mode, func(t *testing.T) {
+			var out, stderr bytes.Buffer
+			deps := testDependencies(t, &out, &stderr)
+			deps.Stdin = strings.NewReader(`{"access_key_id":"PLANTED_KEY","secret_access_key":"PLANTED_SECRET"}`)
+			receipt := backupCredentialReceipt(t)
+			receipt.Activated = true
+			receipt.ActivationStatus = "verified"
+			expiry := receipt.ReceivedAt.Add(24 * time.Hour)
+			receipt.ExpiresAt = &expiry
+			plan := backupcredentials.Plan{Requester: receipt.Requester, Kind: backupcredentials.Kind, Scope: receipt.Scope, Version: receipt.Version, ExpiresAt: receipt.ExpiresAt}
+			canonical, err := json.Marshal(plan)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sum := sha256.Sum256(canonical)
+			receipt.PlanID = "sha256:" + hex.EncodeToString(sum[:])
+			health := receipt.Health(receipt.ReceivedAt.Add(37*time.Second), time.Minute)
+			receipt.CredentialHealth = &health
+			deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+			deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, r dispatch.Request) (result.Envelope, error) {
+				return result.Success("brine host "+r.Op, receipt), nil
+			})
+			args := []string{"backup", "credentials", "set", "hello", "--plan-id", receipt.PlanID, "--target", "fixture"}
+			if mode != "" {
+				args = append(args, mode)
+			}
+			if err := Execute(deps, args); err != nil {
+				t.Fatal(err)
+			}
+			text := out.String()
+			if strings.Contains(text+stderr.String(), "PLANTED") || !strings.Contains(text, "verified") || !strings.Contains(text, "37") {
+				t.Fatal("activation health missing or unsafe", text)
+			}
+			if mode == "" && (!strings.Contains(text, "not restarted") || !strings.Contains(text, expiry.Format(time.RFC3339))) {
+				t.Fatal("app lifecycle distinction missing")
+			}
+		})
+	}
+}

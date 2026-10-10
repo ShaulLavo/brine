@@ -1,7 +1,8 @@
-// Package backupcredentials delivers externally issued S3 credentials without activating replication.
+// Package backupcredentials stores externally issued S3 credentials and reconciles selected replica activation.
 package backupcredentials
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"io"
 	"math"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -21,13 +23,14 @@ const PacketLimit = 32 << 10
 const Kind = "backup_credentials_set"
 
 var (
-	ErrInvalid  = errors.New("invalid backup credential packet or scope")
-	ErrStale    = errors.New("backup credential plan is stale")
-	ErrExpired  = errors.New("backup credential lifetime is insufficient")
-	ErrStorage  = errors.New("backup credential storage requires reconciliation")
-	namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	idPattern   = regexp.MustCompile(`^[0-9a-f]{32}$`)
-	hashPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	ErrAdmissionRefresh = errors.New("backup credential delivery requires an explicit approved admission refresh after the operator policy changed")
+	ErrInvalid          = errors.New("invalid backup credential packet or scope")
+	ErrStale            = errors.New("backup credential plan is stale")
+	ErrExpired          = errors.New("backup credential lifetime is insufficient")
+	ErrStorage          = errors.New("backup credential storage requires reconciliation")
+	namePattern         = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	idPattern           = regexp.MustCompile(`^[0-9a-f]{32}$`)
+	hashPattern         = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
 // Secret values live only in closure captures, not reflection-walkable fields.
@@ -175,19 +178,27 @@ func (p Plan) Valid() bool {
 }
 
 type Receipt struct {
-	Requester  string     `json:"requester"`
-	PlanID     string     `json:"plan_id"`
-	Scope      Scope      `json:"scope"`
-	Version    uint64     `json:"version"`
-	File       string     `json:"file"`
-	ReceivedAt time.Time  `json:"received_at"`
-	ExpiresAt  *time.Time `json:"expires_at,omitempty"`
-	Activated  bool       `json:"activated"`
+	Requester        string     `json:"requester"`
+	PlanID           string     `json:"plan_id"`
+	Scope            Scope      `json:"scope"`
+	Version          uint64     `json:"version"`
+	File             string     `json:"file"`
+	ReceivedAt       time.Time  `json:"received_at"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	Activated        bool       `json:"activated"`
+	ActivationStatus string     `json:"activation_status,omitempty"`
+	CredentialHealth *Health    `json:"health,omitempty"`
 }
 
 func (r Receipt) Valid() bool {
 	p := Plan{Requester: r.Requester, Kind: Kind, ID: r.PlanID, Scope: r.Scope, Version: r.Version, ExpiresAt: r.ExpiresAt}
-	return p.Valid() && r.File == fileName(r.Scope.CredentialRef, r.Version, "env") && !r.Activated && !r.ReceivedAt.IsZero()
+	if r.Activated && r.ActivationStatus != "verified" || !r.Activated && r.ActivationStatus != "" && r.ActivationStatus != "stored" && r.ActivationStatus != "fenced" && r.ActivationStatus != "not_committed" {
+		return false
+	}
+	if r.CredentialHealth != nil && (r.CredentialHealth.AgeSeconds < 0 || (r.CredentialHealth.ExpiresAt == nil) != (r.ExpiresAt == nil) || r.ExpiresAt != nil && !r.CredentialHealth.ExpiresAt.Equal(*r.ExpiresAt)) {
+		return false
+	}
+	return p.Valid() && r.File == fileName(r.Scope.CredentialRef, r.Version, "env") && !r.ReceivedAt.IsZero()
 }
 
 type Health struct {
@@ -233,6 +244,7 @@ type Service struct {
 	Scope     func(context.Context, string) (Scope, error)
 	Lock      func(context.Context) (func(), error)
 	Now       func() time.Time
+	Activate  func(context.Context, Receipt) (Receipt, error)
 }
 
 func (s Service) now() time.Time {
@@ -266,7 +278,10 @@ func (s Service) Plan(ctx context.Context, app string, expiry *time.Time) (Plan,
 	var p Plan
 	err := s.locked(ctx, func() error {
 		scope, err := s.Scope(ctx, app)
-		if err != nil || !scope.valid() || scope.App != app {
+		if err != nil {
+			return err
+		}
+		if !scope.valid() || scope.App != app {
 			return ErrInvalid
 		}
 		n, err := s.Files.Next(scope.CredentialRef)
@@ -309,8 +324,32 @@ func (s Service) Deliver(ctx context.Context, p Plan, packet Packet) (Receipt, e
 	}
 	err := s.locked(ctx, func() error {
 		scope, err := s.Scope(ctx, p.Scope.App)
-		if err != nil || scope != p.Scope || !scope.valid() {
+		if err != nil {
+			return err
+		}
+		if scope != p.Scope || !scope.valid() {
 			return ErrStale
+		}
+		if s.Activate != nil {
+			if existing, err := s.Files.Receipt(scope.CredentialRef, p.Version); err == nil {
+				if existing.PlanID != p.ID || existing.Scope != p.Scope || existing.Requester != s.Requester {
+					return ErrStale
+				}
+				saved, err := s.Files.Read(scope.CredentialRef, p.Version)
+				if err != nil {
+					return ErrStorage
+				}
+				same := slices.Equal(saved.Environment(), packet.Environment())
+				saved.Clear()
+				if !same {
+					return ErrStale
+				}
+				if err := s.Journal.RecordReceipt(ctx, existing); err != nil {
+					return ErrStorage
+				}
+				r, err = s.Activate(ctx, existing)
+				return err
+			}
 		}
 		n, err := s.Files.Next(scope.CredentialRef)
 		if err != nil {
@@ -335,6 +374,11 @@ func (s Service) Deliver(ctx context.Context, p Plan, packet Packet) (Receipt, e
 		defer cancel()
 		if err := s.Journal.RecordReceipt(journalCtx, r); err != nil {
 			return ErrStorage
+		}
+		if s.Activate != nil {
+			var err error
+			r, err = s.Activate(ctx, r)
+			return err
 		}
 		return nil
 	})
@@ -361,6 +405,9 @@ func optionalObject(raw []byte, required []string, optional ...string) (map[stri
 	}
 	keys := make([]string, 0, len(values))
 	for key := range values {
+		if bytes.Equal(bytes.TrimSpace(values[key]), []byte("null")) {
+			return nil, ErrInvalid
+		}
 		if !allowed[key] {
 			return nil, ErrInvalid
 		}
@@ -438,12 +485,17 @@ func DecodePlan(raw []byte) (Plan, error) {
 	return p, nil
 }
 func DecodeReceipt(raw []byte) (Receipt, error) {
-	f, err := optionalObject(raw, []string{"plan_id", "scope", "version", "file", "received_at", "activated", "requester"}, "expires_at")
+	f, err := optionalObject(raw, []string{"plan_id", "scope", "version", "file", "received_at", "activated", "requester"}, "expires_at", "activation_status", "health")
 	if err != nil {
 		return Receipt{}, ErrInvalid
 	}
 	if _, err := strictjson.Object(f["scope"], "target_hash", "app", "credential_ref", "destination", "binding", "epoch", "policy_hash", "fenced"); err != nil {
 		return Receipt{}, ErrInvalid
+	}
+	if health, ok := f["health"]; ok {
+		if _, err := optionalObject(health, []string{"age_seconds", "expired", "renewal_needed"}, "expires_at"); err != nil {
+			return Receipt{}, ErrInvalid
+		}
 	}
 	var r Receipt
 	if json.Unmarshal(raw, &r) != nil {

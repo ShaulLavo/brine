@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/result"
 	"strings"
 	"testing"
 )
@@ -77,5 +79,12 @@ func TestBackupCredentialDatabaseStrictWire(t *testing.T) {
 		if err != nil || decoded.(BackupCredentialPlanArgs).Database != database {
 			t.Fatal("plan selector lost", err)
 		}
+	}
+}
+
+func TestBackupCredentialAdmissionRefreshHasExplicitGuidance(t *testing.T) {
+	err := result.Classify(credentialFailure(backupcredentials.ErrAdmissionRefresh))
+	if err.Code() != result.BackupAdmissionRefreshRequired || !strings.Contains(err.Error(), "explicit approved admission refresh") {
+		t.Fatal("admission refresh guidance lost", err)
 	}
 }

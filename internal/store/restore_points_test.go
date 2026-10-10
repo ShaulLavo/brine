@@ -17,24 +17,7 @@ import (
 
 func TestRestorePointDurabilityAndExactEvidence(t *testing.T) {
 	ctx := context.Background()
-	state := openTest(t)
-	reserved, err := state.ReserveDatabase(ctx, dataRequest())
-	if err != nil {
-		t.Fatal(err)
-	}
-	binding := reserved.Replica
-	binding.ConfigContent = "dbs: []\n"
-	sum := sha256.Sum256([]byte(binding.ConfigContent))
-	binding.ConfigSHA256 = hex.EncodeToString(sum[:])
-	binding.ConfigFile = filepath.Join(state.dir, "replication", string(binding.BindingID), "litestream.yml")
-	binding.SocketFile = filepath.Join(state.dir, "replication", string(binding.BindingID), "control.sock")
-	binding.LifetimeLockFile = filepath.Join(state.dir, "replica-locks", string(binding.BindingID)+".lock")
-	binding.UnitSHA256 = strings.Repeat("c", 64)
-	binding.CredentialVersion = 1
-	binding.CredentialFile = filepath.Join(state.dir, "credentials/s3/primary/v1.env")
-	if err := state.CommitReplicaBinding(ctx, binding); err != nil {
-		t.Fatal(err)
-	}
+	state, binding := committedDataFixture(t)
 	now := time.Now().UTC()
 	point := data.RestorePoint{ID: strings.Repeat("d", 32), BindingID: binding.BindingID, EpochID: binding.EpochID, Kind: data.RestorePointLTX, Schema: data.SchemaObservation{DatabaseID: binding.DatabaseID, State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}, RecordedAt: now, LTX: &data.RestoreLTXPoint{TXID: 7}}
 	if err := state.SaveRestorePoint(ctx, point); !errors.Is(err, ErrInvalid) {
@@ -100,4 +83,33 @@ func TestEmptyPointNeedsMatchingHeldInitializationFence(t *testing.T) {
 	if err := state.SaveEmptyRestorePoint(ctx, point, "init-operation", fence.ID); !errors.Is(err, ErrConflict) {
 		t.Fatal("released fence accepted", err)
 	}
+}
+
+func committedDataFixture(t *testing.T) (*Store, data.ReplicaBinding) {
+	t.Helper()
+	ctx := context.Background()
+	state := openTest(t)
+	reserved, err := state.ReserveDatabase(ctx, dataRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := reserved.Replica
+	binding.ConfigContent = "dbs: []\n"
+	sum := sha256.Sum256([]byte(binding.ConfigContent))
+	binding.ConfigSHA256 = hex.EncodeToString(sum[:])
+	binding.ConfigFile = filepath.Join(state.dir, "replication", string(binding.BindingID), "litestream.yml")
+	binding.SocketFile = filepath.Join(state.dir, "replication", string(binding.BindingID), "control.sock")
+	binding.LifetimeLockFile = filepath.Join(state.dir, "replica-locks", string(binding.BindingID)+".lock")
+	binding.UnitSHA256 = strings.Repeat("c", 64)
+	binding.CredentialVersion = 1
+	binding.CredentialFile = filepath.Join(state.dir, "credentials/s3/primary/v1.env")
+	if err := state.CommitReplicaBinding(ctx, binding); err != nil {
+		t.Fatal(err)
+	}
+
+	permit, err := state.ReadReplicaPermitByBinding(ctx, binding.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return state, permit.Replica
 }

@@ -219,7 +219,7 @@ func TestRootHelpDescribesShippedStatelessCapabilities(t *testing.T) {
 	if strings.Contains(help, "Deployment operations are not implemented yet") {
 		t.Fatal("help still denies shipped deployment operations")
 	}
-	for _, text := range []string{"stateless apps", "enrolled Linux servers", "Acceptance is not completion", "idempotency key", "Persistent app data", "planned"} {
+	for _, text := range []string{"stateless apps", "enrolled Linux servers", "Acceptance is not completion", "idempotency key", "Persistent apps", "Restore tests", "without changing live data"} {
 		if !strings.Contains(help, text) {
 			t.Fatalf("help missing %q", text)
 		}
