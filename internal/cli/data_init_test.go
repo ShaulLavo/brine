@@ -3,12 +3,15 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/transport"
 )
@@ -21,12 +24,23 @@ func TestDataInitializationClientCarriesOnlyPlanReferences(t *testing.T) {
 	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
 	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, r dispatch.Request) (result.Envelope, error) {
 		calls++
-		if r.Op != "data_init_apply" || string(r.Args) != `{"app":"hello","plan_id":"`+hash+`"}` {
-			t.Fatalf("unexpected request %s %s", r.Op, r.Args)
+		const operationID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+		if calls == 1 {
+			if r.Op != "data_init_apply" || string(r.Args) != `{"app":"hello","plan_id":"`+hash+`"}` {
+				t.Fatalf("unexpected request %s %s", r.Op, r.Args)
+			}
+			return result.Success("brine host data_init_apply", jobs.Accepted{Status: "accepted", OperationID: operationID}), nil
 		}
-		return result.Success("brine host "+r.Op, datainit.Operation{ID: strings.Repeat("1", 32), PlanID: hash, Fence: data.FenceID(strings.Repeat("2", 32)), State: "succeeded"}), nil
+		if r.Op != "operation" {
+			t.Fatal("initialization did not poll status")
+		}
+		receipt, err := json.Marshal(datainit.Operation{ID: strings.Repeat("1", 32), PlanID: hash, Fence: data.FenceID(strings.Repeat("2", 32)), State: "succeeded"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.Success("brine host operation", jobs.Status{Operation: ops.Operation{ID: operationID, Kind: ops.DataInitApply, App: "hello", SecretRef: hash, State: ops.Succeeded}, Outcome: &ops.TaskOutcome{Receipt: receipt}}), nil
 	})
-	if err := Execute(deps, []string{"data", "init", "hello", "--plan-id", hash, "--target", "fixture", "--json"}); err != nil || calls != 1 {
+	if err := Execute(deps, []string{"data", "init", "hello", "--plan-id", hash, "--target", "fixture", "--json"}); err != nil || calls != 2 {
 		t.Fatal(err, calls)
 	}
 	if !strings.Contains(out.String(), "succeeded") {
@@ -69,5 +83,23 @@ func TestDataInitializationOperatorCannotBeSelectedByRemoteRequest(t *testing.T)
 		if got := HostDataInitializationRequested(context.Background(), item.args); got != item.operator {
 			t.Fatalf("args=%v operator=%v", item.args, got)
 		}
+	}
+}
+
+func TestDataInitializationNoWaitReturnsAcceptedJobWithoutPolling(t *testing.T) {
+	var out, stderr bytes.Buffer
+	deps := testDependencies(t, &out, &stderr)
+	hash := "sha256:" + strings.Repeat("a", 64)
+	calls := 0
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, request dispatch.Request) (result.Envelope, error) {
+		calls++
+		if request.Op != "data_init_apply" {
+			t.Fatal("no-wait polled or changed the request")
+		}
+		return result.Success("brine host data_init_apply", jobs.Accepted{Status: "accepted", OperationID: "01ARZ3NDEKTSV4RRFFQ69G5FAV"}), nil
+	})
+	if err := Execute(deps, []string{"data", "init", "hello", "--plan-id", hash, "--target", "fixture", "--no-wait", "--json"}); err != nil || calls != 1 || !strings.Contains(out.String(), "accepted") {
+		t.Fatal("no-wait lost acceptance", err, calls, out.String())
 	}
 }

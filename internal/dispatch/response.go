@@ -3,7 +3,6 @@ package dispatch
 import (
 	"bytes"
 	"encoding/json"
-	persistent "github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
 
 	"github.com/ShaulLavo/brine/internal/apps"
@@ -61,13 +60,11 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 			}
 			value = p
 		case "data_init_apply":
-			var p datainit.Operation
-			decoder := json.NewDecoder(bytes.NewReader(fields["data"]))
-			decoder.DisallowUnknownFields()
-			if decoder.Decode(&p) != nil || !persistent.ValidID(p.ID) || !datainit.ValidID(p.PlanID) || !persistent.ValidID(string(p.Fence)) || p.State != "succeeded" {
+			accepted, err := decodeAccepted(fields["data"])
+			if err != nil {
 				return invalid()
 			}
-			value = p
+			value = accepted
 		case "restore_test":
 			r, err := restore.DecodeReceipt(fields["data"])
 			if err != nil {

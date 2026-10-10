@@ -30,7 +30,7 @@ func (r Requester) MarshalJSON() ([]byte, error) {
 	if !r.Valid() {
 		return nil, ErrRefused
 	}
-	return json.Marshal(r.identity)
+	return json.Marshal(r.String())
 }
 
 // UnmarshalJSON reconstructs identity from immutable plans or response evidence;

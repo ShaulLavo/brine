@@ -8,13 +8,15 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/spf13/cobra"
 )
 
 func newDataInitCmd(deps Dependencies, modes *machineModes, local bool) *cobra.Command {
 	var flags operationFlags
-	var planned bool
+	var planned, noWait bool
 	var id string
 	var r datainit.Request
 	use := "init APP"
@@ -23,7 +25,7 @@ func newDataInitCmd(deps Dependencies, modes *machineModes, local bool) *cobra.C
 	}
 	command := &cobra.Command{Use: use, Short: "Initialize never-started empty data with a reviewed schema and verified backup", Hidden: local, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		r.App = args[0]
-		if !dispatch.ValidApp(r.App) || planned && (id != "" || !datainit.ValidID(r.FirstReleasePlan) || !datainit.ValidID(r.Artifact)) || !planned && (!datainit.ValidID(id) || r.FirstReleasePlan != "" || r.Artifact != "") {
+		if !dispatch.ValidApp(r.App) || planned && noWait || planned && (id != "" || !datainit.ValidID(r.FirstReleasePlan) || !datainit.ValidID(r.Artifact)) || !planned && (!datainit.ValidID(id) || r.FirstReleasePlan != "" || r.Artifact != "") {
 			return result.New(result.InvalidUsage, nil)
 		}
 		var value any
@@ -52,11 +54,34 @@ func newDataInitCmd(deps Dependencies, modes *machineModes, local bool) *cobra.C
 		if err != nil {
 			return err
 		}
+		if !planned {
+			accepted, ok := value.(jobs.Accepted)
+			if !ok {
+				return result.New(result.TransportInvalidResponse, nil)
+			}
+			if local {
+				value, err = waitAcceptedTask(cmd.Context(), accepted, ops.DataInitApply, noWait, func(ctx context.Context, args dispatch.OperationArgs) (jobs.Status, error) {
+					return deps.HostDataInitialization.Operation(ctx, args.OperationID, args.AfterCursor)
+				})
+			} else {
+				value, err = flags.waitTask(cmd.Context(), deps, accepted, ops.DataInitApply, noWait)
+			}
+			if err != nil {
+				return err
+			}
+			if initialized, ok := value.(datainit.Operation); ok && initialized.PlanID != id {
+				return result.New(result.TransportInvalidResponse, nil)
+			}
+		}
 		if local || modes.enabled() {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), value))
 		}
 		if p, ok := value.(datainit.Plan); ok {
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Initialization plan %s. Apply with brine data init %s --plan-id %s --target %s. App code is not started.\n", p.ID, r.App, p.ID, flags.target)
+			return err
+		}
+		if accepted, ok := value.(jobs.Accepted); ok {
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Accepted initialization operation %s. Inspect with %s.\n", accepted.OperationID, flags.command("status", "--operation", accepted.OperationID))
 			return err
 		}
 		op, ok := value.(datainit.Operation)
@@ -66,6 +91,7 @@ func newDataInitCmd(deps Dependencies, modes *machineModes, local bool) *cobra.C
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Initialization %s: %s. Replan deployment before starting the first compatible release.\n", op.ID, op.State)
 		return err
 	}}
+	command.Flags().BoolVar(&noWait, "no-wait", false, "Return the accepted job ID without waiting; work continues independently")
 	command.Flags().BoolVar(&planned, "plan", false, "Record immutable initialization intent without changing schema")
 	command.Flags().StringVar(&id, "plan-id", "", "Apply or inspect this initialization plan; never replay an attempted mutation")
 	command.Flags().StringVar(&r.FirstReleasePlan, "first-release-plan", "", "Exact retained deployment plan for the intended first release")
@@ -94,12 +120,20 @@ func (r lazyDataInitialization) Plan(ctx context.Context, request datainit.Reque
 	}
 	return s.Plan(ctx, request)
 }
-func (r lazyDataInitialization) Apply(ctx context.Context, app, id string) (datainit.Operation, error) {
+func (r lazyDataInitialization) Apply(ctx context.Context, app, id string) (jobs.Accepted, error) {
 	s, err := r.service(ctx)
 	if err != nil {
-		return datainit.Operation{}, err
+		return jobs.Accepted{}, err
 	}
 	return s.Apply(ctx, app, id)
+}
+
+func (r lazyDataInitialization) Operation(ctx context.Context, id string, cursor uint64) (jobs.Status, error) {
+	s, err := r.service(ctx)
+	if err != nil {
+		return jobs.Status{}, err
+	}
+	return s.Operation(ctx, id, cursor)
 }
 
 func HostDataInitializationRequested(ctx context.Context, args []string) bool {

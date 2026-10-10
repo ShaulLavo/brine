@@ -6,13 +6,15 @@ import (
 	"errors"
 
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
 type DataInitializationOperations interface {
 	Plan(context.Context, datainit.Request) (datainit.Plan, error)
-	Apply(context.Context, string, string) (datainit.Operation, error)
+	Apply(context.Context, string, string) (jobs.Accepted, error)
+	Operation(context.Context, string, uint64) (jobs.Status, error)
 }
 type DataInitPlanArgs datainit.Request
 type DataInitApplyArgs struct {
