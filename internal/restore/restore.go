@@ -129,6 +129,9 @@ func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
 	}
 	if s := r.Source.LTX; s != nil {
 		receipt.PositionEvidence = "pinned_cli_exact_plan_and_successful_restore"
+		if s.Recoverability {
+			receipt.PositionEvidence = "remote_dry_run_and_restore"
+		}
 		receipt.RequestedTXID = s.TXID
 		receipt.Barrier = s.Barrier
 	}
@@ -292,7 +295,7 @@ func requestReference(r Request) (string, string, error) {
 		return r.Source.reference()
 	}
 	s := r.Source.LTX
-	if r.Source.Kind != LitestreamLTX || r.Source.Snapshot != nil || s == nil || s.TXID != 0 || s.Barrier != nil || r.Coverage != nil {
+	if r.Source.Kind != LitestreamLTX || r.Source.Snapshot != nil || s == nil || s.TXID != 0 || !s.Recoverability || s.Barrier != nil || r.Coverage != nil {
 		return "", "", refuse("invalid_latest_source")
 	}
 	return s.BindingID, s.Epoch, nil

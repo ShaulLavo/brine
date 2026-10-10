@@ -39,7 +39,7 @@ func TestLatestRestoreResolvesAnExactRemotePoint(t *testing.T) {
 	e, req, _ := setup(t, fixture(t, fixtureSQL))
 	cli := &latestCLI{t: t, data: fixture(t, fixtureSQL)}
 	e.CLI = cli
-	req.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1"}}
+	req.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{Recoverability: true, BindingID: "b1", Epoch: "e1"}}
 	req.Latest = true
 	receipt, err := e.Test(context.Background(), req)
 	if err != nil || receipt.RecoveredTXID != 7 || receipt.Source.LTX.TXID != 7 || cli.calls != 3 {

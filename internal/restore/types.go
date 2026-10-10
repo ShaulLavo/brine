@@ -32,10 +32,12 @@ type RestoreSource struct {
 	Snapshot *SnapshotSource `json:"sqlite_snapshot,omitempty"`
 }
 type LTXSource struct {
-	BindingID string          `json:"binding_id"`
-	Epoch     string          `json:"epoch"`
-	TXID      uint64          `json:"txid"`
-	Barrier   *BarrierReceipt `json:"barrier,omitempty"`
+	// Recoverability is a read-only remote check, never exact preparation evidence.
+	Recoverability bool            `json:"recoverability"`
+	BindingID      string          `json:"binding_id"`
+	Epoch          string          `json:"epoch"`
+	TXID           uint64          `json:"txid"`
+	Barrier        *BarrierReceipt `json:"barrier,omitempty"`
 }
 type SnapshotSource struct {
 	BindingID string `json:"binding_id"`
@@ -141,12 +143,13 @@ type Request struct {
 	OperationID string
 	Source      RestoreSource
 	// Latest resolves the remote plan boundary before making an exact LTX restore.
-	Latest         bool
-	Budget         time.Duration
-	ExpectedSchema SchemaObservation
-	Invariants     []Invariant
-	Sentinel       *Sentinel
-	Coverage       *CoverageEvidence
+	Latest          bool
+	Budget          time.Duration
+	ExpectedSchema  SchemaObservation
+	AcceptedSchemas []SchemaObservation
+	Invariants      []Invariant
+	Sentinel        *Sentinel
+	Coverage        *CoverageEvidence
 }
 
 // CoverageEvidence comes from independently recorded commit coverage, not an
@@ -204,7 +207,7 @@ func (s RestoreSource) reference() (string, string, error) {
 		if s.LTX == nil || s.Snapshot != nil || s.LTX.TXID == 0 {
 			return "", "", refuse("invalid_source")
 		}
-		if b := s.LTX.Barrier; b == nil || !b.Succeeded || b.BindingID != s.LTX.BindingID || b.Epoch != s.LTX.Epoch || b.TXID != s.LTX.TXID || b.ReplicaTXID < b.TXID || b.ObservedAt.IsZero() {
+		if b := s.LTX.Barrier; s.LTX.Recoverability && b != nil || !s.LTX.Recoverability && (b == nil || !b.Succeeded || b.BindingID != s.LTX.BindingID || b.Epoch != s.LTX.Epoch || b.TXID != s.LTX.TXID || b.ReplicaTXID < b.TXID || b.ObservedAt.IsZero()) {
 			return "", "", refuse("invalid_barrier")
 		}
 		return s.LTX.BindingID, s.LTX.Epoch, nil
@@ -243,8 +246,13 @@ func validSchema(s SchemaObservation) bool {
 	return s.State == VerifiedSchema && s.Marker != "brine-empty-v1" && schemaMarker.MatchString(s.Marker)
 }
 func validateChecks(r Request) error {
-	if len(r.Invariants) > 64 || !validSchema(r.ExpectedSchema) {
+	if len(r.Invariants) > 64 || len(r.AcceptedSchemas) > 128 || len(r.AcceptedSchemas) == 0 && !validSchema(r.ExpectedSchema) || len(r.AcceptedSchemas) > 0 && r.ExpectedSchema != (SchemaObservation{}) {
 		return refuse("invalid_verification")
+	}
+	for _, schema := range r.AcceptedSchemas {
+		if !validSchema(schema) {
+			return refuse("invalid_verification")
+		}
 	}
 	for _, check := range r.Invariants {
 		if !identifier.MatchString(check.Table) {

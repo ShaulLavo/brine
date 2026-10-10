@@ -39,6 +39,11 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	if f.authenticated != "deploy" {
 		return nil, result.New(result.DispatchOperationRefused, nil)
 	}
+	if op == "restore_test" {
+		server := dispatch.NewServer(f.version, nil)
+		server.RestoreTests = newRestoreTests(f.diagnosticStateDir)
+		return server, nil
+	}
 	if op == "inventory" || op == "diagnose" {
 		collector, err := f.inventory(ctx)
 		if err != nil {
