@@ -49,7 +49,13 @@ func run(deps cli.Dependencies, args []string) int {
 }
 
 func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) int {
-	lifecycle := cli.RuntimeLifecycle{OpenWriterAttempt: func(ctx context.Context) (cli.RuntimeServices, error) {
+	lifecycle := cli.RuntimeLifecycle{OpenPermits: func(ctx context.Context) (cli.RuntimeServices, error) {
+		runtime, err := host.OpenPermits(ctx)
+		if err != nil {
+			return cli.RuntimeServices{}, err
+		}
+		return cli.RuntimeServices{Permits: runtime.Reader, Close: runtime.Close}, nil
+	}, OpenWriterAttempt: func(ctx context.Context) (cli.RuntimeServices, error) {
 		runtime, err := host.OpenWriterAttempt(ctx)
 		if err != nil {
 			return cli.RuntimeServices{}, err

@@ -126,6 +126,7 @@ const (
 	StopApp       ChangeKind = "stop_app"
 	StartApp      ChangeKind = "start_app"
 	RemoveApp     ChangeKind = "remove_app"
+	PrepareData   ChangeKind = "prepare_data"
 	WithdrawRoute ChangeKind = "withdraw_route"
 	RemoveUnit    ChangeKind = "remove_unit"
 	RetireApp     ChangeKind = "retire_app"
@@ -169,8 +170,13 @@ type Restart struct {
 }
 
 type Plan struct {
+	DataAllocations    []data.AllocationProposal  `json:"data_allocations,omitempty"`
+	PreparationRoots   []data.RootEvidence        `json:"preparation_roots,omitempty"`
+	MappingImage       string                     `json:"mapping_image,omitempty"`
 	Backup             *data.BackupCadence        `json:"backup,omitempty"`
 	Runtime            *data.RuntimeIdentity      `json:"runtime,omitempty"`
+	DataCredentials    []data.CredentialEvidence  `json:"data_credentials,omitempty"`
+	DataSchemas        []data.SchemaObservation   `json:"data_schemas,omitempty"`
 	DataMounts         []data.Mount               `json:"data_mounts,omitempty"`
 	SchemaVersion      int                        `json:"schema_version"`
 	Kind               Kind                       `json:"kind"`
@@ -287,7 +293,7 @@ func Build(in Input) (Plan, error) {
 				add(SchemaCompatibilityRequired, field+".schema_compatibility")
 			}
 		}
-		add(UnknownFacts, "databases")
+		persistentEvidence(in, &p, add)
 	}
 	if err := in.Snapshot.Validate(); err != nil {
 		var unsupported *target.UnsupportedError
@@ -501,7 +507,7 @@ func Build(in Input) (Plan, error) {
 		for _, e := range in.Desired.Environment {
 			environmentKeys = append(environmentKeys, e.Name)
 		}
-		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{Desired: quadletDesired, EnvironmentKeys: environmentKeys, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
+		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{DataMounts: slices.Clone(p.DataMounts), Desired: quadletDesired, EnvironmentKeys: environmentKeys, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
 	}
 	return finish(p, desired, snapshot, state)
 }

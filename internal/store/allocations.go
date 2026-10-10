@@ -83,3 +83,44 @@ func (s *Store) RecordWriterAttempt(ctx context.Context, incarnation data.AppInc
 	_, err := s.db.ExecContext(ctx, "INSERT INTO data_writer_history SELECT id,? FROM data_databases WHERE incarnation_id=? ON CONFLICT(database_id,operation_id) DO NOTHING", operationID, incarnation)
 	return err
 }
+
+// AllocationHistory distinguishes a never-allocated reservation from retained
+// allocation/writer evidence. Callers must not recreate an old missing directory.
+func (s *Store) AllocationHistory(ctx context.Context, database data.DatabaseID) (bool, error) {
+	var exists int
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM data_allocations WHERE database_id=? UNION ALL SELECT 1 FROM data_writer_history WHERE database_id=?)", database, database).Scan(&exists)
+	return exists != 0, err
+}
+func (s *Store) ActiveDataIncarnation(ctx context.Context, app string) (data.AppIncarnationID, error) {
+	var id data.AppIncarnationID
+	err := s.db.QueryRowContext(ctx, "SELECT incarnation_id FROM data_active_incarnations WHERE app=?", app).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err == nil && !data.ValidID(string(id)) {
+		return "", &IntegrityError{}
+	}
+	return id, err
+}
+
+// ReadPreparationEvidence retains measured root/mapping evidence after the
+// untouched-empty receipt has been consumed. It grants no empty-schema proof.
+func (s *Store) ReadPreparationEvidence(ctx context.Context, database data.DatabaseID) (*data.AllocationReceipt, error) {
+	var raw []byte
+	err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_allocations WHERE database_id=?", database).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var receipt data.AllocationReceipt
+	if len(raw) > 4096 || json.Unmarshal(raw, &receipt) != nil || !receipt.Valid() || receipt.DatabaseID != database {
+		return nil, &IntegrityError{}
+	}
+	encoded, err := json.Marshal(receipt)
+	if err != nil || !bytes.Equal(encoded, raw) {
+		return nil, &IntegrityError{}
+	}
+	return &receipt, nil
+}

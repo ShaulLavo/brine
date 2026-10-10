@@ -8,7 +8,10 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
+
+	"github.com/ShaulLavo/brine/internal/data"
 )
 
 // Decode validates the wire schema without refusing unsupported host platforms.
@@ -48,6 +51,16 @@ func checkJSON(d *json.Decoder, t reflect.Type) error {
 	}
 	if token == nil {
 		return fmt.Errorf("snapshot JSON: null is not an observation")
+	}
+	if t == reflect.TypeFor[time.Time]() {
+		text, ok := token.(string)
+		if !ok {
+			return fmt.Errorf("snapshot JSON: expected timestamp")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, text); err != nil {
+			return fmt.Errorf("snapshot JSON: invalid timestamp")
+		}
+		return nil
 	}
 	switch t.Kind() {
 	case reflect.Struct:
@@ -147,6 +160,19 @@ func Encode(s Snapshot) ([]byte, error) {
 				slices.SortFunc(*app.Secrets.Value, func(a, b Secret) int { return strings.Compare(a.Name, b.Name) })
 			}
 		}
+	}
+	if canonical.PersistentData != nil && canonical.PersistentData.Value != nil {
+		for i := range *canonical.PersistentData.Value {
+			slices.SortFunc((*canonical.PersistentData.Value)[i].Definitions, func(a, b data.SchemaDefinition) int {
+				if order := strings.Compare(string(a.Database), string(b.Database)); order != 0 {
+					return order
+				}
+				return strings.Compare(a.Marker, b.Marker)
+			})
+		}
+		slices.SortFunc(*canonical.PersistentData.Value, func(a, b PersistentDatabase) int {
+			return strings.Compare(string(a.Database.Name), string(b.Database.Name))
+		})
 	}
 	canonicalizeOwnership(&canonical)
 	encoded, err := json.Marshal(canonical)

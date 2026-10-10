@@ -29,20 +29,21 @@ func Known[T any](value T) Observation[T] { return Observation[T]{Status: KnownS
 type Port uint32
 
 type Snapshot struct {
-	SchemaVersion  int                          `json:"schema_version"`
-	Identity       Identity                     `json:"identity"`
-	OS             OS                           `json:"os"`
-	Arch           string                       `json:"arch"`
-	Versions       Versions                     `json:"versions"`
-	CgroupV2       Observation[bool]            `json:"cgroup_v2"`
-	Runner         Runner                       `json:"runner"`
-	Generation     Observation[uint64]          `json:"generation"`
-	CaddyConfig    Observation[CaddyConfigSet]  `json:"caddy_config"`
-	Apps           Observation[[]App]           `json:"apps"`
-	UsedPorts      Observation[[]Port]          `json:"used_ports"`
-	LiveCaddyFiles Observation[[]LiveCaddyFile] `json:"live_caddy_files"`
-	PortOwners     Observation[[]PortOwner]     `json:"port_owners"`
-	FreeDiskBytes  Observation[uint64]          `json:"free_disk_bytes"`
+	PersistentData *Observation[[]PersistentDatabase] `json:"persistent_data,omitempty"`
+	SchemaVersion  int                                `json:"schema_version"`
+	Identity       Identity                           `json:"identity"`
+	OS             OS                                 `json:"os"`
+	Arch           string                             `json:"arch"`
+	Versions       Versions                           `json:"versions"`
+	CgroupV2       Observation[bool]                  `json:"cgroup_v2"`
+	Runner         Runner                             `json:"runner"`
+	Generation     Observation[uint64]                `json:"generation"`
+	CaddyConfig    Observation[CaddyConfigSet]        `json:"caddy_config"`
+	Apps           Observation[[]App]                 `json:"apps"`
+	UsedPorts      Observation[[]Port]                `json:"used_ports"`
+	LiveCaddyFiles Observation[[]LiveCaddyFile]       `json:"live_caddy_files"`
+	PortOwners     Observation[[]PortOwner]           `json:"port_owners"`
+	FreeDiskBytes  Observation[uint64]                `json:"free_disk_bytes"`
 }
 
 type Identity struct {
@@ -204,6 +205,11 @@ func validPort(value Port) error {
 }
 
 func (s Snapshot) validateShape() error {
+	if s.PersistentData != nil {
+		if err := observe("persistent_data", *s.PersistentData, false, validatePersistentData); err != nil {
+			return err
+		}
+	}
 	if s.SchemaVersion != SchemaVersion {
 		return fmt.Errorf("schema_version: expected %d", SchemaVersion)
 	}

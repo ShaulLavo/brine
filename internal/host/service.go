@@ -24,6 +24,7 @@ type ImageResolver interface {
 	Resolve(context.Context, spec.ImageReference, target.Platform) (plan.Image, error)
 }
 type Service struct {
+	Data      PersistentFacts
 	Store     *store.Store
 	Inventory dispatch.Inventory
 	Policy    PolicyLoader
@@ -101,6 +102,16 @@ func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
 	if err != nil {
 		return out, err
 	}
+	if len(d.Databases) > 0 {
+		observation := target.Observation[[]target.PersistentDatabase]{Status: target.Unknown}
+		if s.Data != nil {
+			observation, err = s.Data.Collect(ctx, d)
+			if err != nil {
+				return out, err
+			}
+		}
+		snap.PersistentData = &observation
+	}
 	out.Input = plan.Input{Desired: d, Snapshot: snap, State: state, Image: image}
 	out.Routing = caddy.State{Files: map[string]string{}, Sites: map[string]caddy.Site{}}
 	for _, release := range state.Releases {
@@ -125,6 +136,9 @@ type Executor struct {
 }
 
 func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
+	if p.Lifecycle == plan.PrepareData {
+		return e.runDataPreparation(ctx, id, p, d)
+	}
 	if p.Lifecycle == plan.RemoveApp {
 		engine := e.Engine
 		engine.Facts = operationFacts{service: e.Service, desired: d, removal: true}

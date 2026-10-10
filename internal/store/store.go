@@ -194,6 +194,17 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 			return err
 		}
 	}
+	// Transitions are the current per-kind journal contract. Add new supported
+	// edges transactionally without changing durable operation identities.
+	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet, ops.Reconcile, ops.Resolve} {
+		for from, tos := range ops.TransitionsFor(kind) {
+			for _, to := range tos {
+				if _, err = tx.ExecContext(ctx, "INSERT INTO transitions VALUES(?,?,?) ON CONFLICT DO NOTHING", kind, from, to); err != nil {
+					return err
+				}
+			}
+		}
+	}
 	rows, e := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
 	if e != nil {
 		return e

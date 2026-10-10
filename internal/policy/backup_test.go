@@ -19,16 +19,16 @@ func TestBackupCadenceDefaultsAndOverrides(t *testing.T) {
 	p, err = Parse(append(fixture(t), []byte(`
 [backup]
 min_sync_interval="20s"
-max_sync_interval="2h"
+max_sync_interval="30m"
 snapshot_interval="12h"
 min_snapshot_interval="2h"
-max_snapshot_interval="48h"
+max_snapshot_interval="18h"
 `)...))
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := p.Backup()
-	if got.MinSyncInterval != 20*time.Second || got.MaxSyncInterval != 2*time.Hour || got.SnapshotInterval != 12*time.Hour || got.MinSnapshotInterval != 2*time.Hour || got.MaxSnapshotInterval != 48*time.Hour {
+	if got.MinSyncInterval != 20*time.Second || got.MaxSyncInterval != 30*time.Minute || got.SnapshotInterval != 12*time.Hour || got.MinSnapshotInterval != 2*time.Hour || got.MaxSnapshotInterval != 18*time.Hour {
 		t.Fatalf("effective cadence: %+v", got)
 	}
 }
@@ -60,6 +60,16 @@ func TestExplicitEmptyBackupDurationsRefuse(t *testing.T) {
 		t.Run(field, func(t *testing.T) {
 			if _, err := Parse(append(fixture(t), []byte("\n[backup]\n"+field+"=\"\"\n")...)); err == nil {
 				t.Fatal("explicit empty duration became default")
+			}
+		})
+	}
+}
+
+func TestBackupBoundsOnlyNarrowAbsoluteLimits(t *testing.T) {
+	for _, text := range []string{`min_sync_interval="9s"`, `max_sync_interval="61m"`, `min_snapshot_interval="59m"`, `max_snapshot_interval="25h"`} {
+		t.Run(text, func(t *testing.T) {
+			if _, err := Parse(append(fixture(t), []byte("\n[backup]\n"+text+"\n")...)); err == nil {
+				t.Fatal("operator widened absolute cadence bounds")
 			}
 		})
 	}

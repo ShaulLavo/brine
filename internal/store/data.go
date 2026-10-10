@@ -17,6 +17,7 @@ import (
 )
 
 type DataReservation struct {
+	Proposed    *data.AllocationProposal
 	App         string
 	PolicyHash  string
 	Database    data.Database
@@ -60,6 +61,9 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 	if req.App == "" || len(req.App) > 63 || !digestPattern.MatchString(req.PolicyHash) || req.Database.Validate() != nil || req.Destination.Validate() != nil || req.Database.BackupDestination != req.Destination.Reference {
 		return ReservedDatabase{}, ErrInvalid
 	}
+	if req.Proposed != nil && !req.Proposed.Valid(req.Database, req.Destination) {
+		return ReservedDatabase{}, ErrInvalid
+	}
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
@@ -69,7 +73,12 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 	var incarnation string
 	err = tx.QueryRowContext(ctx, "SELECT incarnation_id FROM data_active_incarnations WHERE app=?", req.App).Scan(&incarnation)
 	if errors.Is(err, sql.ErrNoRows) {
-		incarnation, err = data.NewID()
+		if req.Proposed != nil {
+			incarnation = string(req.Proposed.Database.IncarnationID)
+			err = nil
+		} else {
+			incarnation, err = data.NewID()
+		}
 		if err == nil {
 			_, err = tx.ExecContext(ctx, "INSERT INTO data_incarnations VALUES(?,?)", incarnation, req.App)
 			if err == nil {
@@ -79,6 +88,9 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 	}
 	if err != nil {
 		return ReservedDatabase{}, err
+	}
+	if req.Proposed != nil && incarnation != string(req.Proposed.Database.IncarnationID) {
+		return ReservedDatabase{}, ErrConflict
 	}
 	var dbRaw, replicaRaw []byte
 	err = tx.QueryRowContext(ctx, "SELECT d.canonical,b.canonical FROM data_databases d JOIN data_replica_bindings b ON b.database_id=d.id WHERE d.incarnation_id=? AND d.name=?", incarnation, req.Database.Name).Scan(&dbRaw, &replicaRaw)
@@ -90,6 +102,9 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 		if existing.Database.Root != req.Database.PersistentRoot || existing.Database.MountPath != req.Database.MountPath || existing.Database.Filename != req.Database.Filename || existing.Replica.Destination != req.Destination {
 			return ReservedDatabase{}, ErrConflict
 		}
+		if req.Proposed != nil && (req.Proposed.Database != existing.Database || req.Proposed.Replica != existing.Replica) {
+			return ReservedDatabase{}, ErrConflict
+		}
 		if err = recordDataAdmission(ctx, tx, existing.Database.DatabaseID, req.PolicyHash); err != nil {
 			return ReservedDatabase{}, err
 		}
@@ -98,30 +113,21 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 	if !errors.Is(err, sql.ErrNoRows) {
 		return ReservedDatabase{}, err
 	}
-	database, err := data.NewID()
-	if err != nil {
+	var proposal data.AllocationProposal
+	if req.Proposed != nil {
+		proposal = *req.Proposed
+	} else {
+		proposal, err = data.NewAllocationProposal(req.Database, req.Destination, data.AppIncarnationID(incarnation))
+		if err != nil {
+			return ReservedDatabase{}, err
+		}
+	}
+	reserved := ReservedDatabase{Database: proposal.Database, Replica: proposal.Replica}
+	database, binding, epoch := string(reserved.Database.DatabaseID), string(reserved.Replica.BindingID), string(reserved.Replica.EpochID)
+	relative, prefix := reserved.Database.RelativeDirectory, reserved.Replica.RemotePrefix
+	if err = checkDestinationOwner(ctx, tx, req.Destination.Endpoint, req.Destination.Bucket, prefix, reserved.Replica.BindingID); err != nil {
 		return ReservedDatabase{}, err
 	}
-	binding, err := data.NewID()
-	if err != nil {
-		return ReservedDatabase{}, err
-	}
-	epoch, err := data.NewID()
-	if err != nil {
-		return ReservedDatabase{}, err
-	}
-	relative, err := data.RelativeDirectory(data.AppIncarnationID(incarnation), data.DatabaseID(database))
-	if err != nil {
-		return ReservedDatabase{}, err
-	}
-	prefix, err := data.RemotePrefix(req.Destination.BasePrefix, data.AppIncarnationID(incarnation), data.DatabaseID(database), data.ReplicaEpochID(epoch))
-	if err != nil {
-		return ReservedDatabase{}, err
-	}
-	if err = checkDestinationOwner(ctx, tx, req.Destination.Endpoint, req.Destination.Bucket, prefix, data.ReplicaBindingID(binding)); err != nil {
-		return ReservedDatabase{}, err
-	}
-	reserved := ReservedDatabase{Database: data.DatabaseBinding{DatabaseID: data.DatabaseID(database), Name: req.Database.Name, IncarnationID: data.AppIncarnationID(incarnation), Root: req.Database.PersistentRoot, RelativeDirectory: relative, MountPath: req.Database.MountPath, Filename: req.Database.Filename, ReplicaBindingID: data.ReplicaBindingID(binding)}, Replica: data.ReplicaBinding{BindingID: data.ReplicaBindingID(binding), DatabaseID: data.DatabaseID(database), Destination: req.Destination, EpochID: data.ReplicaEpochID(epoch), RemotePrefix: prefix}}
 	dbRaw, err = json.Marshal(reserved.Database)
 	if err != nil {
 		return ReservedDatabase{}, err
@@ -585,4 +591,29 @@ func recordDataAdmission(ctx context.Context, tx *sql.Tx, id data.DatabaseID, po
 	}
 	_, err = tx.ExecContext(ctx, "INSERT INTO data_admissions SELECT ?,COALESCE(MAX(version),0)+1,? FROM data_admissions WHERE database_id=?", id, policyHash, id)
 	return err
+}
+
+// ExistingDatabase reads an approved reservation without allocating identities,
+// recording admission, or changing the active incarnation.
+func (s *Store) ExistingDatabase(ctx context.Context, req DataReservation) (ReservedDatabase, error) {
+	if req.App == "" || req.Database.Validate() != nil || req.Destination.Validate() != nil {
+		return ReservedDatabase{}, ErrInvalid
+	}
+	var id data.DatabaseID
+	err := s.db.QueryRowContext(ctx, "SELECT d.id FROM data_databases d JOIN data_active_incarnations a ON a.incarnation_id=d.incarnation_id WHERE a.app=? AND d.name=?", req.App, req.Database.Name).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ReservedDatabase{}, ErrNotFound
+	}
+	if err != nil {
+		return ReservedDatabase{}, err
+	}
+	permit, err := s.ReadReplicaPermit(ctx, id)
+	if err != nil {
+		return ReservedDatabase{}, err
+	}
+	b := permit.Database
+	if b.Root != req.Database.PersistentRoot || b.MountPath != req.Database.MountPath || b.Filename != req.Database.Filename || permit.Replica.Destination != req.Destination {
+		return ReservedDatabase{}, ErrConflict
+	}
+	return ReservedDatabase{Database: b, Replica: permit.Replica}, nil
 }

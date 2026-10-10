@@ -46,18 +46,19 @@ type Registry struct {
 	RepositoryPrefixes []string `toml:"repository_prefixes" json:"repository_prefixes"`
 }
 type document struct {
-	Backup               *backupDocument          `toml:"backup" json:"backup,omitempty"`
-	BackupDestinations   []persistent.Destination `toml:"backup_destinations" json:"backup_destinations,omitempty"`
-	CaddyPort            uint16                   `toml:"caddy_port" json:"caddy_port,omitempty"`
-	SchemaVersion        int                      `toml:"schema_version" json:"schema_version"`
-	Version              string                   `toml:"version" json:"version"`
-	AllowedRegistries    []Registry               `toml:"allowed_registries" json:"allowed_registries"`
-	AllowedDomains       []string                 `toml:"allowed_domains" json:"allowed_domains"`
-	AppPorts             *PortRange               `toml:"app_ports" json:"app_ports"`
-	AllowedSecrets       map[string][]string      `toml:"allowed_secrets" json:"allowed_secrets"`
-	Resources            Resources                `toml:"resources" json:"resources"`
-	PersistentRoots      []string                 `toml:"persistent_roots" json:"persistent_roots"`
-	MinimumFreeDiskBytes *uint64                  `toml:"minimum_free_disk_bytes" json:"minimum_free_disk_bytes"`
+	BackupRetention      []persistent.RetentionEvidence `toml:"backup_retention" json:"backup_retention,omitempty"`
+	Backup               *backupDocument                `toml:"backup" json:"backup,omitempty"`
+	BackupDestinations   []persistent.Destination       `toml:"backup_destinations" json:"backup_destinations,omitempty"`
+	CaddyPort            uint16                         `toml:"caddy_port" json:"caddy_port,omitempty"`
+	SchemaVersion        int                            `toml:"schema_version" json:"schema_version"`
+	Version              string                         `toml:"version" json:"version"`
+	AllowedRegistries    []Registry                     `toml:"allowed_registries" json:"allowed_registries"`
+	AllowedDomains       []string                       `toml:"allowed_domains" json:"allowed_domains"`
+	AppPorts             *PortRange                     `toml:"app_ports" json:"app_ports"`
+	AllowedSecrets       map[string][]string            `toml:"allowed_secrets" json:"allowed_secrets"`
+	Resources            Resources                      `toml:"resources" json:"resources"`
+	PersistentRoots      []string                       `toml:"persistent_roots" json:"persistent_roots"`
+	MinimumFreeDiskBytes *uint64                        `toml:"minimum_free_disk_bytes" json:"minimum_free_disk_bytes"`
 }
 
 // Policy has no public constructor or writable fields. Its zero value refuses
@@ -133,6 +134,25 @@ func Parse(data []byte) (Policy, error) {
 	}
 	slices.SortFunc(raw.BackupDestinations, func(a, b persistent.Destination) int {
 		return strings.Compare(string(a.Reference), string(b.Reference))
+	})
+	seenRetention := map[persistent.BackupDestinationRef]bool{}
+	for _, e := range raw.BackupRetention {
+		if !e.Valid() || seenRetention[e.Destination] || !seenDestinations[e.Destination] {
+			return bad("policy.invalid_backup_retention", "backup_retention", "retention evidence must bind an authorized destination and bounded freshness")
+		}
+		seenRetention[e.Destination] = true
+		matched := false
+		for _, d := range raw.BackupDestinations {
+			if d.Reference == e.Destination && d.Endpoint == e.Endpoint && d.Bucket == e.Bucket && d.BasePrefix == e.BasePrefix {
+				matched = true
+			}
+		}
+		if !matched {
+			return bad("policy.invalid_backup_retention", "backup_retention", "retention evidence does not match destination")
+		}
+	}
+	slices.SortFunc(raw.BackupRetention, func(a, b persistent.RetentionEvidence) int {
+		return strings.Compare(string(a.Destination), string(b.Destination))
 	})
 	if raw.SchemaVersion != SchemaVersion {
 		return bad("policy.schema_version", "schema_version", "only schema version 1 is supported")
@@ -231,13 +251,25 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention") {
 		return false
 	}
 	for key, allowed := range map[string][]string{"backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
 		if v, ok := keys[key]; ok {
 			m, ok := v.(map[string]any)
 			if !ok || !onlyKeys(m, allowed...) {
+				return false
+			}
+		}
+	}
+	if v, ok := keys["backup_retention"]; ok {
+		rows, ok := v.([]any)
+		if !ok {
+			return false
+		}
+		for _, row := range rows {
+			m, ok := row.(map[string]any)
+			if !ok || !onlyKeys(m, "destination", "endpoint", "bucket", "base_prefix", "verification_id", "verified_at", "freshness_seconds", "no_object_expiration") {
 				return false
 			}
 		}
@@ -321,4 +353,15 @@ func (p Policy) BackupDestination(ref persistent.BackupDestinationRef) (persiste
 		}
 	}
 	return persistent.Destination{}, false
+}
+
+func (p Policy) BackupRetention(ref persistent.BackupDestinationRef) (persistent.RetentionEvidence, bool) {
+	if p.config != nil {
+		for _, e := range p.config.BackupRetention {
+			if e.Destination == ref {
+				return e, true
+			}
+		}
+	}
+	return persistent.RetentionEvidence{}, false
 }

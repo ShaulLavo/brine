@@ -11,6 +11,8 @@ import (
 // Store history determines whether it remains untouched; missing data alone is
 // never sufficient evidence. Device/inode identity is rechecked on every use.
 type AllocationReceipt struct {
+	RootProof       *RootEvidence    `json:"root_proof,omitempty"`
+	MappingProof    *MappingEvidence `json:"mapping_proof,omitempty"`
 	DatabaseID      DatabaseID       `json:"database_id"`
 	IncarnationID   AppIncarnationID `json:"incarnation_id"`
 	RootDevice      uint64           `json:"root_device"`
@@ -21,6 +23,12 @@ type AllocationReceipt struct {
 }
 
 func (r AllocationReceipt) Valid() bool {
+	if (r.RootProof == nil) != (r.MappingProof == nil) {
+		return false
+	}
+	if r.RootProof != nil && (r.RootProof.Device != r.RootDevice || r.RootProof.Inode != r.RootInode || !r.RootProof.Admits(r.RootProof.Root, 0) || r.MappingProof.Image != MappingProbeImage || !r.MappingProof.Admits(r.MappingProof.Runtime, *r.RootProof)) {
+		return false
+	}
 	return ValidID(string(r.DatabaseID)) && ValidID(string(r.IncarnationID)) && r.RootDevice != 0 && r.RootInode != 0 && r.DirectoryDevice == r.RootDevice && r.DirectoryInode != 0 && !r.AllocatedAt.IsZero()
 }
 func CaptureAllocation(b DatabaseBinding) (AllocationReceipt, error) {
@@ -71,8 +79,22 @@ func ObserveSchemaWithAllocation(ctx context.Context, b DatabaseBinding, definit
 }
 
 func WriterCompatibleWithAllocations(ctx context.Context, bindings []DatabaseBinding, compatibility []SchemaCompatibility, definitions []SchemaDefinition, allocations map[DatabaseID]AllocationReceipt) bool {
-	if len(bindings) == 0 {
+	if !validWriterDeclarations(bindings, compatibility) {
 		return false
+	}
+	for id, receipt := range allocations {
+		if !receipt.Valid() || receipt.DatabaseID != id {
+			return false
+		}
+		found := false
+		for _, binding := range bindings {
+			if binding.DatabaseID == id && binding.IncarnationID == receipt.IncarnationID {
+				found = true
+			}
+		}
+		if !found {
+			return false
+		}
 	}
 	for _, b := range bindings {
 		var receipt *AllocationReceipt

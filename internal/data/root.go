@@ -73,3 +73,7 @@ func PrepareDirectory(b DatabaseBinding) (RootEvidence, error) {
 	}
 	return InspectRoot(string(b.Root))
 }
+
+// VerifyRunnerFile refuses foreign ownership, symlinks and modes other than
+// 0600. It never repairs the observed artifact.
+func VerifyRunnerFile(path string) error { _, err := verifyPrivateFile(path); return err }
