@@ -84,3 +84,50 @@ func TestSchemaFileExplicitCompatibilityPreserved(t *testing.T) {
 		t.Fatalf("overrode explicit compatibility: %v", err)
 	}
 }
+
+func TestSchemaFileRejectsSymlinks(t *testing.T) {
+	for _, kind := range []string{"file", "directory", "loop", "internal-file", "internal-directory"} {
+		t.Run(kind, func(t *testing.T) {
+			root, outside := t.TempDir(), t.TempDir()
+			if err := os.WriteFile(filepath.Join(outside, "main.sql"), []byte("CREATE TABLE t(x TEXT);"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			db := filepath.Join(root, "db")
+			if kind == "directory" {
+				if err := os.Symlink(outside, db); err != nil {
+					t.Fatal(err)
+				}
+			} else if kind == "internal-directory" {
+				if err := os.Mkdir(filepath.Join(root, "real"), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(root, "real/main.sql"), []byte("CREATE TABLE t(x TEXT);"), 0600); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink("real", db); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if err := os.Mkdir(db, 0700); err != nil {
+					t.Fatal(err)
+				}
+				target := filepath.Join(outside, "main.sql")
+				if kind == "loop" {
+					target = "main.sql"
+				}
+				if kind == "internal-file" {
+					target = "real.sql"
+					if err := os.WriteFile(filepath.Join(db, target), []byte("CREATE TABLE t(x TEXT);"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				}
+				if err := os.Symlink(target, filepath.Join(db, "main.sql")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := ParseFile(t.Context(), filepath.Join(root, "brine.toml"), schemaSpec(t)); err == nil {
+				t.Fatal("accepted schema symlink")
+			}
+		})
+	}
+}

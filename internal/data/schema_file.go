@@ -31,11 +31,13 @@ func (a SchemaInitializer) Artifact() (SchemaArtifact, []byte, error) {
 var schemaNumber = regexp.MustCompile(`^(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|(?:[0-9](?:_?[0-9])*(?:\.[0-9]*(?:_?[0-9])*)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?)`)
 
 type schemaToken struct {
-	text string
-	line int
+	text  string
+	line  int
+	start int
 }
 type schemaEntry struct {
 	statement string
+	original  string
 	line      int
 }
 
@@ -47,13 +49,13 @@ func CompileSchemaFile(ctx context.Context, database DatabaseName, marker string
 	if err != nil {
 		return SchemaInitializer{}, err
 	}
-	statements := make([]string, len(entries))
-	for i, entry := range entries {
-		statements[i] = entry.statement
-	}
 	hash, err := compileInitializer(ctx, entries)
 	if err != nil {
 		return SchemaInitializer{}, err
+	}
+	statements := make([]string, len(entries))
+	for i, entry := range entries {
+		statements[i] = entry.statement
 	}
 	if marker == "" {
 		marker = "sha256:" + hash[:12]
@@ -82,6 +84,11 @@ func compileInitializer(ctx context.Context, entries []schemaEntry) (string, err
 			return "", schemaLineError(entry.line)
 		}
 	}
+	if hash, preserved, err := preserveViewColumns(ctx, tx, entries); err != nil {
+		return "", schemaLineError(entries[len(entries)-1].line)
+	} else if preserved {
+		return hash, nil
+	}
 	hash, err := initializerCatalog(ctx, tx)
 	if err != nil || hash == EmptyCatalogSHA256 || finishInitializer(ctx, tx, "compiler", hash) != nil {
 		return "", schemaLineError(entries[len(entries)-1].line)
@@ -104,6 +111,7 @@ func schemaEntries(raw string, terminated bool) ([]schemaEntry, error) {
 	entries := []schemaEntry{}
 	tokens := []schemaToken{}
 	line := 1
+	i := 0
 	finish := func() error {
 		if len(tokens) == 0 {
 			return schemaLineError(line)
@@ -125,19 +133,19 @@ func schemaEntries(raw string, terminated bool) ([]schemaEntry, error) {
 		}
 		var b strings.Builder
 		for i, t := range tokens {
-			if i > 0 && t.text != ")" && t.text != "," && t.text != "." && t.text != "(" && tokens[i-1].text != "(" && tokens[i-1].text != "." && !(strings.EqualFold(tokens[i-1].text, "X") && strings.HasPrefix(t.text, "'")) {
+			if i > 0 && t.text != ")" && t.text != "," && t.text != "." && t.text != "(" && tokens[i-1].text != "(" && tokens[i-1].text != "." {
 				b.WriteByte(' ')
 			}
 			b.WriteString(t.text)
 		}
-		entries = append(entries, schemaEntry{b.String(), tokens[0].line})
+		entries = append(entries, schemaEntry{statement: b.String(), original: raw[tokens[0].start:i], line: tokens[0].line})
 		tokens = nil
 		if len(entries) > 128 {
 			return schemaLineError(line)
 		}
 		return nil
 	}
-	for i := 0; i < len(raw); {
+	for i < len(raw) {
 		c := raw[i]
 		if strings.ContainsRune(" \t\r\n\f\v", rune(c)) {
 			if c == '\n' {
@@ -178,6 +186,12 @@ func schemaEntries(raw string, terminated bool) ([]schemaEntry, error) {
 			continue
 		}
 		start, startLine := i, line
+		// A blob prefix belongs to the literal only when physically adjacent.
+		// Separated X 'AB' is an identifier and an alias, not a blob.
+		if (c == 'x' || c == 'X') && i+1 < len(raw) && raw[i+1] == '\'' {
+			i++
+			c = raw[i]
+		}
 		if c == '\'' || c == '"' || c == '`' || c == '[' {
 			end := c
 			if c == '[' {
@@ -218,7 +232,7 @@ func schemaEntries(raw string, terminated bool) ([]schemaEntry, error) {
 				i++
 			}
 		}
-		tokens = append(tokens, schemaToken{raw[start:i], startLine})
+		tokens = append(tokens, schemaToken{text: raw[start:i], line: startLine, start: start})
 	}
 	if len(tokens) > 0 {
 		if terminated {

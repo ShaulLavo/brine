@@ -603,10 +603,15 @@ Golden tests also cover SQL NULL, Unicode, U+2028/U+2029, HTML escaping, row ord
 
 A SQLite database may declare `schema = "db/main.sql"` and an optional `marker`
 under `[[databases]]`. The clean relative path is resolved against `brine.toml`
-on the client only. The file contains at most 128 semicolon-terminated bounded
-DDL entries and at most 1 MiB. The client and host share one in-memory compiler
-and catalog observer. Comments and inter-token whitespace are canonicalized;
-quoted values remain significant. Refusals identify the source line.
+on the client only, using a directory-confined open that refuses symlink files
+and directory components. The file contains at most 128 semicolon-terminated
+bounded DDL entries and at most 1 MiB. The client and host share one in-memory
+compiler and catalog observer. Comments and inter-token whitespace are
+canonicalized; quoted values remain significant. Blob prefixes must be adjacent
+to their literal. If normalization changes SQLite's inferred view column names,
+the original view statement is retained. Explicit view column names or `AS`
+aliases avoid formatting-dependent inferred names. Refusals identify the source
+line.
 
 The client derives the catalog SHA-256, initializer bytes and exact artifact
 SHA-256. The default marker is `sha256:<first 12 lowercase catalog hex digits>`.

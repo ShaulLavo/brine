@@ -28,14 +28,20 @@ schema = "db/main.sql"
 marker = "v1"
 ```
 
-The path is clean and relative to `brine.toml`. Only the client reads it. The
-file is bounded to 1 MiB and 128 `;`-terminated entries. Each entry is one
+The path is clean and relative to `brine.toml`. Only the client reads it, using
+a directory-confined open; symlink files and directory components are refused.
+The file is bounded to 1 MiB and 128 `;`-terminated entries. Each entry is one
 `CREATE TABLE`, `CREATE INDEX`, `CREATE UNIQUE INDEX` or `CREATE VIEW` statement.
 Triggers, table creation from query results and migration/data statements are
 refused with their source line. Brine removes SQL comments and normalizes
 inter-token whitespace before compiling in an in-memory SQLite database.
-Whitespace/comment-only edits do not change the catalog marker; literal and
-identifier contents remain significant. An empty file is refused.
+Whitespace/comment-only edits normally do not change the catalog marker;
+literal and identifier contents remain significant. SQLite uses expression
+source text to name unaliased view columns. If normalization changes those
+names, Brine retains the original view statement rather than changing its
+schema. Give view expressions explicit `AS` aliases (or a view column list) to
+keep formatting edits independent of their column names and marker. An empty
+file is refused.
 
 The client uses the host's compiler and catalog observer to derive the catalog
 SHA-256, marker and initializer bytes. Handwritten `[[schema_definitions]]` and

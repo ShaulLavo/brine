@@ -31,7 +31,7 @@ func ParseFile(ctx context.Context, filename string, raw []byte) (App, error) {
 	}
 	artifacts := make([]data.SchemaArtifact, 0, len(app.SchemaFiles))
 	for _, file := range app.SchemaFiles {
-		raw, err := readSchemaFile(filepath.Join(filepath.Dir(filename), filepath.FromSlash(file.Path)))
+		raw, err := readSchemaFile(filepath.Dir(filename), filepath.FromSlash(file.Path))
 		if err != nil {
 			return App{}, refusal("spec.schema_file", "databases.schema", "cannot read a bounded regular schema file")
 		}
@@ -52,20 +52,34 @@ func ParseFile(ctx context.Context, filename string, raw []byte) (App, error) {
 	return app, nil
 }
 
-func readSchemaFile(filename string) ([]byte, error) {
-	info, err := os.Stat(filename)
+func readSchemaFile(directory, filename string) ([]byte, error) {
+	root, err := os.OpenRoot(directory)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
-		return nil, data.ErrInvalid
+	defer func() { _ = root.Close() }()
+	// Refuse symlinks in every component, including links within the root.
+	// Root.Open additionally enforces confinement during the open itself,
+	// even if a component changes after these checks.
+	components := strings.Split(filepath.ToSlash(filename), "/")
+	for i := range components {
+		info, err := root.Lstat(filepath.FromSlash(strings.Join(components[:i+1], "/")))
+		if err != nil {
+			return nil, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || (i < len(components)-1 && !info.IsDir()) {
+			return nil, data.ErrInvalid
+		}
+		if i == len(components)-1 && (!info.Mode().IsRegular() || info.Size() > 1<<20) {
+			return nil, data.ErrInvalid
+		}
 	}
-	f, err := os.Open(filename) // #nosec G304 -- Client-selected repository schema path, never a host dispatch path.
+	f, err := root.Open(filename)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	info, err = f.Stat()
+	info, err := f.Stat()
 	if err != nil {
 		return nil, err
 	}

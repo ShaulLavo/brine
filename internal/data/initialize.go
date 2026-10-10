@@ -123,6 +123,9 @@ func applyInitializer(ctx context.Context, tx *sql.Tx, a SchemaInitializer) erro
 	if err != nil {
 		return err
 	}
+	if _, err := compileInitializer(ctx, entries); err != nil {
+		return err
+	}
 	for _, entry := range entries {
 		if _, err := tx.ExecContext(ctx, entry.statement); err != nil {
 			return err
