@@ -96,9 +96,9 @@ func TestDispatcherReconcilesCrashedRunOp(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer read.Close()
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			child := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRunOpCrashChild$")
+			childCtx, childCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer childCancel()
+			child := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestRunOpCrashChild$")
 			child.Env = append(os.Environ(), "BRINE_CRASH_CHILD=1", "BRINE_CRASH_STATE="+dir, "BRINE_CRASH_OP="+accepted.OperationID, "BRINE_CRASH_STEP="+step)
 			child.ExtraFiles = []*os.File{write}
 			if err := child.Start(); err != nil {
@@ -126,10 +126,10 @@ func TestDispatcherReconcilesCrashedRunOp(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-			case <-ctx.Done():
-				t.Fatal(ctx.Err())
+			case <-childCtx.Done():
+				t.Fatal(childCtx.Err())
 			}
-			wait, stop := context.WithTimeout(ctx, 20*time.Millisecond)
+			wait, stop := context.WithTimeout(childCtx, 20*time.Millisecond)
 			lock, lockErr := r.store.AcquireHostLock(wait)
 			stop()
 			if lockErr == nil {
@@ -146,6 +146,9 @@ func TestDispatcherReconcilesCrashedRunOp(t *testing.T) {
 			if !ok || !killed.Signaled() || killed.Signal() != syscall.SIGKILL {
 				t.Fatalf("child exited without SIGKILL: %v", child.ProcessState)
 			}
+			childCancel()
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
 			before, err := r.store.GetOperation(ctx, accepted.OperationID)
 			if err != nil || before.State != ops.Preparing {
 				t.Fatalf("interrupted operation %+v error %v", before, err)
@@ -193,7 +196,11 @@ func TestDispatcherReconcilesCrashedRunOp(t *testing.T) {
 			if step == "pull_image" {
 				want = ops.Succeeded
 			}
-			recovered, err := r.store.GetOperation(ctx, accepted.OperationID)
+			cancel()
+			cancelWorker()
+			observer, cancelObserver := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelObserver()
+			recovered, err := r.store.GetOperation(observer, accepted.OperationID)
 			if err != nil || recovered.State != want {
 				t.Fatalf("state %+v want %s error %v", recovered, want, err)
 			}
@@ -224,7 +231,7 @@ func TestDispatcherReconcilesCrashedRunOp(t *testing.T) {
 			if pullIntents != 1 {
 				t.Fatalf("pull intent count %d", pullIntents)
 			}
-			again, err := r.server.Reconciler.Reconcile(ctx)
+			again, err := r.server.Reconciler.Reconcile(observer)
 			if err != nil {
 				t.Fatal(err)
 			}

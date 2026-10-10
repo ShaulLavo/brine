@@ -199,5 +199,8 @@ Resolution review regressions (local, physical rerun still pending):
 - Refusal projection tests reject absent/mismatched intents and invalid proof
   outcomes/steps, preserve original payloads and never infer no-effect proof
   from generic rollback failures.
-- Resolution SIGKILL tests keep child/barrier startup bounded separately from
-  the parent recovery/assertion deadline. Production timeouts are unchanged.
+- Deploy, removal and resolution SIGKILL tests keep child/barrier startup
+  bounded separately from parent recovery and assertions. Deploy recovery uses
+  a fresh bounded observer after its detached worker finishes. Earlier contexts
+  are canceled before observation, so accidental reuse fails without sleeps.
+  Production timeouts and the resumed-health deadline assertion are unchanged.
