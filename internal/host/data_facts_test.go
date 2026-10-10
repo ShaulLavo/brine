@@ -192,3 +192,24 @@ func TestDataWriterStartsBindsFreshCandidateThenRefusesDrift(t *testing.T) {
 		t.Fatal("zero-byte DB allowed startup")
 	}
 }
+
+func TestDataFactsRetainSchemaRegistryAfterCandidateRemap(t *testing.T) {
+	_, desired, facts := persistentHostFixture(t)
+	original := data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("c", 64)}
+	desired.SchemaDefinitions = []data.SchemaDefinition{original}
+	collectPersistent(t, facts, desired)
+	desired.SchemaDefinitions[0].CatalogSHA256 = strings.Repeat("d", 64)
+	changed := collectPersistent(t, facts, desired)
+	found := false
+	for _, definition := range changed.Definitions {
+		if definition.Marker == original.Marker {
+			found = true
+			if definition != original {
+				t.Fatal("candidate remapped immutable schema")
+			}
+		}
+	}
+	if !found || changed.Schema.State != data.AllocatedEmpty {
+		t.Fatal("retained evidence lost after rejected remap")
+	}
+}

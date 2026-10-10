@@ -117,6 +117,9 @@ func TestPersistentPlanRejectsIncompleteCompatibility(t *testing.T) {
 		name   string
 		change func(*Input)
 	}{
+		{"schema registry remap", func(in *Input) {
+			in.Desired.SchemaDefinitions = []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+		}},
 		{"unregistered marker", func(in *Input) {
 			in.Desired.SchemaCompatibility[0].Accepts = append(in.Desired.SchemaCompatibility[0].Accepts, "v2")
 		}},
