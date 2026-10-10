@@ -174,3 +174,26 @@ func TestUnrelatedPolicyChangePreservesDataIdentities(t *testing.T) {
 		t.Fatalf("scope did not bind current admission policy: %v", err)
 	}
 }
+
+func TestOneActiveIncarnationPerApp(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	reserved, err := s.ReserveDatabase(ctx, dataRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := data.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.ExecContext(ctx, "INSERT INTO data_incarnations VALUES(?,?)", second, "example"); err != nil {
+		t.Fatalf("schema cannot retain independent incarnations: %v", err)
+	}
+	if _, err = s.db.ExecContext(ctx, "INSERT INTO data_active_incarnations VALUES(?,?)", "example", second); err == nil {
+		t.Fatal("two active incarnations accepted")
+	}
+	var active string
+	if err = s.db.QueryRowContext(ctx, "SELECT incarnation_id FROM data_active_incarnations WHERE app=?", "example").Scan(&active); err != nil || active != string(reserved.Database.IncarnationID) {
+		t.Fatalf("active identity changed: %v", err)
+	}
+}

@@ -66,11 +66,14 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 	}
 	defer tx.Rollback()
 	var incarnation string
-	err = tx.QueryRowContext(ctx, "SELECT id FROM data_incarnations WHERE app=?", req.App).Scan(&incarnation)
+	err = tx.QueryRowContext(ctx, "SELECT incarnation_id FROM data_active_incarnations WHERE app=?", req.App).Scan(&incarnation)
 	if errors.Is(err, sql.ErrNoRows) {
 		incarnation, err = data.NewID()
 		if err == nil {
 			_, err = tx.ExecContext(ctx, "INSERT INTO data_incarnations VALUES(?,?)", incarnation, req.App)
+			if err == nil {
+				_, err = tx.ExecContext(ctx, "INSERT INTO data_active_incarnations VALUES(?,?)", req.App, incarnation)
+			}
 		}
 	}
 	if err != nil {
@@ -347,7 +350,7 @@ func (s *Store) ReadCredentialScopes(ctx context.Context, app string) ([]Credent
 		return nil, err
 	}
 	defer tx.Rollback()
-	rows, err := tx.QueryContext(ctx, "SELECT d.id,(SELECT a.policy_hash FROM data_admissions a WHERE a.database_id=d.id ORDER BY a.version DESC LIMIT 1) FROM data_databases d JOIN data_incarnations i ON i.id=d.incarnation_id WHERE i.app=? ORDER BY d.name", app)
+	rows, err := tx.QueryContext(ctx, "SELECT d.id,(SELECT a.policy_hash FROM data_admissions a WHERE a.database_id=d.id ORDER BY a.version DESC LIMIT 1) FROM data_databases d JOIN data_incarnations i ON i.id=d.incarnation_id JOIN data_active_incarnations active ON active.incarnation_id=i.id WHERE active.app=? ORDER BY d.name", app)
 	if err != nil {
 		return nil, err
 	}
