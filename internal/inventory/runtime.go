@@ -34,7 +34,7 @@ func (c Collector) livePublication(ctx context.Context, units []target.Unit) tar
 	if container == "" {
 		return unknownPort
 	}
-	out, err := c.probe(ctx, "podman", "--remote=false", "inspect", "--type", "container", "--format", runtimePortFormat, "systemd-"+container)
+	out, err := c.probe(ctx, runtimeOutputLimit, "podman", "--remote=false", "inspect", "--type", "container", "--format", runtimePortFormat, "systemd-"+container)
 	if err != nil {
 		return unknownPort
 	}

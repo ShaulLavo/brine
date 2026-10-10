@@ -22,7 +22,16 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-const fileLimit = 1 << 20
+const (
+	fileLimit            = 1 << 20
+	versionOutputLimit   = 4 << 10
+	scalarOutputLimit    = 4 << 10
+	secretOutputLimit    = 256 << 10
+	listenerOutputLimit  = 256 << 10
+	containerOutputLimit = 256 << 10
+	caddyOutputLimit     = 256 << 10
+	runtimeOutputLimit   = 16 << 10
+)
 
 // FileSystem implementations must honor the collection context. HostFS also
 // limits each operation to three seconds and caps outstanding kernel calls.
@@ -40,7 +49,7 @@ type HostFS struct{}
 // A present state directory without a state reader produces unknown, not zero.
 type Collector struct {
 	FS              FileSystem
-	Runner          localexec.StdoutRunner
+	Runner          localexec.CaptureRunner
 	IdentityKey     []byte
 	RunnerUser      string
 	StateGeneration func(context.Context) (uint64, error)
@@ -51,14 +60,14 @@ func unknown[T any]() target.Observation[T] { return target.Observation[T]{Statu
 func absent[T any]() target.Observation[T]  { return target.Observation[T]{Status: target.Absent} }
 func digest(b []byte) string                { h := sha256.Sum256(b); return "sha256:" + hex.EncodeToString(h[:]) }
 
-func (c Collector) probe(ctx context.Context, p string, args ...string) (string, error) {
+func (c Collector) probe(ctx context.Context, limit int, p string, args ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	s, e := c.Runner.RunStdout(ctx, p, args...)
-	if len(s) >= localexec.OutputLimit {
-		return "", fmt.Errorf("probe output limit reached")
+	out, e := c.Runner.CaptureStdout(ctx, limit, p, args...)
+	if out.Overflow {
+		return "", localexec.ErrOutputLimit
 	}
-	return strings.TrimSpace(s), e
+	return strings.TrimSpace(out.Stdout), e
 }
 
 func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
@@ -83,7 +92,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 		return s, e
 	}
 	s.OS = target.OS{ID: values["ID"], Version: values["VERSION_ID"]}
-	arch, e := c.probe(ctx, "uname", "-m")
+	arch, e := c.probe(ctx, scalarOutputLimit, "uname", "-m")
 	if e != nil {
 		return s, fmt.Errorf("cannot read target architecture")
 	}
@@ -121,7 +130,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	s.Identity.HostKeyFingerprint = "SHA256:" + base64.RawStdEncoding.EncodeToString(hash[:])
 	s.Versions = target.Versions{Systemd: c.version(ctx, "systemctl", []string{"--version"}), Podman: c.version(ctx, "podman", []string{"version", "--format", "json"}), Passt: c.version(ctx, "passt", []string{"--version"}), Caddy: c.version(ctx, "caddy", []string{"version"}), Litestream: c.version(ctx, "litestream", []string{"version"})}
 	if s.Versions.Passt.Status == target.Unknown {
-		if out, err := c.probe(ctx, "dpkg-query", "-W", "-f=${Version}", "passt"); err == nil && versionToken.MatchString(out) && regexp.MustCompile(`^[0-9]`).MatchString(out) {
+		if out, err := c.probe(ctx, versionOutputLimit, "dpkg-query", "-W", "-f=${Version}", "passt"); err == nil && versionToken.MatchString(out) && regexp.MustCompile(`^[0-9]`).MatchString(out) {
 			s.Versions.Passt = target.Known(out)
 		}
 	}
@@ -188,7 +197,7 @@ func osRelease(data string) (map[string]string, error) {
 var versionToken = regexp.MustCompile(`^[!-~]{1,128}$`)
 
 func (c Collector) version(ctx context.Context, p string, args []string) target.Observation[string] {
-	s, e := c.probe(ctx, p, args...)
+	s, e := c.probe(ctx, versionOutputLimit, p, args...)
 	if e != nil {
 		if errors.Is(e, fs.ErrNotExist) || errors.Is(e, exec.ErrNotFound) {
 			return absent[string]()
@@ -286,7 +295,7 @@ func (c Collector) disk(ctx context.Context, s *target.Snapshot, home string) {
 		}
 		p = filepath.Dir(p)
 	}
-	out, e := c.probe(ctx, "df", "-B1", "--output=avail", p)
+	out, e := c.probe(ctx, scalarOutputLimit, "df", "-B1", "--output=avail", p)
 	if e != nil {
 		return
 	}
