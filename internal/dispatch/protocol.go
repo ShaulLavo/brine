@@ -52,20 +52,22 @@ type operation struct {
 }
 
 var operations = map[string]operation{
-	"config_set": {Mutating, decodeConfig},
-	"lifecycle":  {Mutating, decodeLifecycle},
-	"secret_set": {Mutating, decodeSecret},
-	"reconcile":  {Mutating, decodeReconcile},
-	"resolve":    {Mutating, decodeResolve},
-	"diagnose":   {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
-	"status":     {ReadOnly, decodeAppStatus},
-	"rollback":   {Mutating, decodeRollback},
-	"logs":       {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
-	"ping":       {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
-	"inventory":  {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
-	"apply":      {Mutating, decodeApply},
-	"plan":       {Mutating, decodePlan},
-	"operation":  {ReadOnly, decodeOperation},
+	"backup_credentials_plan": {Mutating, decodeBackupCredentialPlan},
+	"backup_credentials_set":  {Mutating, decodeBackupCredentialSet},
+	"config_set":              {Mutating, decodeConfig},
+	"lifecycle":               {Mutating, decodeLifecycle},
+	"secret_set":              {Mutating, decodeSecret},
+	"reconcile":               {Mutating, decodeReconcile},
+	"resolve":                 {Mutating, decodeResolve},
+	"diagnose":                {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
+	"status":                  {ReadOnly, decodeAppStatus},
+	"rollback":                {Mutating, decodeRollback},
+	"logs":                    {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
+	"ping":                    {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
+	"inventory":               {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
+	"apply":                   {Mutating, decodeApply},
+	"plan":                    {Mutating, decodePlan},
+	"operation":               {ReadOnly, decodeOperation},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
@@ -141,18 +143,19 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
-	Config     ConfigurationOperations
-	Secrets    SecretOperations
-	Reconciler ReconcileOperations
-	Factory    Factory
-	Planner    Planner
-	Diagnose   DiagnosticReader
-	Apps       AppOperations
-	Logs       LogReader
-	version    string
-	inventory  Inventory
-	jobs       JobOperations
-	authorize  Authorization
+	BackupCredentials BackupCredentialOperations
+	Config            ConfigurationOperations
+	Secrets           SecretOperations
+	Reconciler        ReconcileOperations
+	Factory           Factory
+	Planner           Planner
+	Diagnose          DiagnosticReader
+	Apps              AppOperations
+	Logs              LogReader
+	version           string
+	inventory         Inventory
+	jobs              JobOperations
+	authorize         Authorization
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -166,6 +169,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		return fail(err)
 	}
 	data, err := io.ReadAll(io.LimitReader(stdin, RequestLimit+1))
+	defer clear(data)
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
@@ -176,6 +180,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	if err != nil {
 		return fail(err)
 	}
+	defer clear(request.Args)
 	command = "brine host " + request.Op
 	if err := ctx.Err(); err != nil {
 		return fail(err)
@@ -206,6 +211,25 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case BackupCredentialPlanArgs:
+		if s.BackupCredentials == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.BackupCredentials.Plan(ctx, args.App, args.ExpiresAt)
+		if err != nil {
+			return fail(credentialFailure(err))
+		}
+		value = p
+	case BackupCredentialSetArgs:
+		defer args.Packet.Clear()
+		if s.BackupCredentials == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		receipt, err := s.BackupCredentials.Set(ctx, args.App, args.PlanID, args.Packet)
+		if err != nil {
+			return fail(credentialFailure(err))
+		}
+		value = receipt
 	case ConfigArgs:
 		if s.Config == nil {
 			return fail(result.New(result.DependencyMissing, nil))

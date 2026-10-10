@@ -37,7 +37,7 @@ func TestTrustedMarkerGateForEveryOperation(t *testing.T) {
 				if allowed && err != nil || !allowed && (err == nil || result.Classify(err).Code() != result.DispatchOperationRefused) {
 					t.Fatalf("allowed=%v error=%v", allowed, err)
 				}
-				if !allowed || op == "ping" || op == "inventory" {
+				if !allowed || op == "ping" || op == "inventory" || op == "diagnose" {
 					if opens != 0 {
 						t.Fatal("opened store for refused or no-store operation")
 					}
@@ -47,7 +47,7 @@ func TestTrustedMarkerGateForEveryOperation(t *testing.T) {
 				} else if opens != 1 {
 					t.Fatal("did not configure runtime")
 				}
-				if inventories != 0 && (op != "inventory" || marker != "deploy") {
+				if inventories != 0 && ((op != "inventory" && op != "diagnose") || marker != "deploy") {
 					t.Fatal("untrusted inventory initialization")
 				}
 				if err := f.Close(); err != nil {
