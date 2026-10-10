@@ -51,7 +51,7 @@ func TestReplicaQuiescenceRequiresStopAndIndependentLifetimeLock(t *testing.T) {
 	s := &replicaServices{}
 	locks := &replicaLocks{}
 	r := ReplicaOrchestrator{Services: s, Locks: locks, Permits: fencedReplicaReader{}}
-	b := ReplicaActivation{ReplicaPermitRequest: replication.ReplicaPermitRequest{BindingID: strings.Repeat("2", 32)}, LifetimeLock: "/state/replica-locks/" + strings.Repeat("2", 32) + ".lock"}
+	b := fencedActivation(t)
 	if r.Quiesce(context.Background(), b) != nil {
 		t.Fatal("quiescence failed")
 	}
@@ -67,7 +67,7 @@ func TestReplicaUnknownStopNeverRetriesOrReleasesFence(t *testing.T) {
 	s := &replicaServices{stopErr: errors.New("unknown stop")}
 	locks := &replicaLocks{}
 	r := ReplicaOrchestrator{Services: s, Locks: locks, Permits: fencedReplicaReader{}}
-	b := ReplicaActivation{ReplicaPermitRequest: replication.ReplicaPermitRequest{BindingID: strings.Repeat("2", 32)}, LifetimeLock: "/state/replica-locks/" + strings.Repeat("2", 32) + ".lock"}
+	b := fencedActivation(t)
 	if r.Quiesce(context.Background(), b) == nil {
 		t.Fatal("unknown stop accepted")
 	}
@@ -103,8 +103,40 @@ func TestReplicaActivationCannotBypassFence(t *testing.T) {
 type fencedReplicaReader struct{}
 
 func (fencedReplicaReader) ReadReplicaPermit(_ context.Context, id string) (replication.PermitState, error) {
-	return replication.PermitState{Binding: replication.Binding{BindingID: id}, Fence: replication.FenceHeld, LifetimeLock: "/state/replica-locks/" + id + ".lock"}, nil
+	b := replication.Binding{DatabaseID: strings.Repeat("1", 32), BindingID: id, EpochID: strings.Repeat("3", 32), IncarnationID: strings.Repeat("4", 32), DBPath: "/srv/data/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/app.db", SocketPath: "/state/replication/" + id + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backups", Prefix: "base/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/epochs/" + strings.Repeat("3", 32) + "/", Region: "auto", Cadence: replication.DefaultCadence()}
+	raw, err := replication.RenderConfig(b)
+	if err != nil {
+		return replication.PermitState{}, err
+	}
+	return replication.PermitState{Binding: b, Config: raw, ConfigHash: replication.ConfigHash(raw), Fence: replication.FenceHeld, Ownership: replication.LocalOwner, SourceSettled: true, LifetimeLock: "/state/replica-locks/" + id + ".lock"}, nil
 }
 func (fencedReplicaReader) ReadWriterPermits(context.Context, string) ([]replication.PermitState, error) {
 	return nil, replication.ErrPermit
+}
+
+func fencedActivation(t testing.TB) ReplicaActivation {
+	t.Helper()
+	s, err := (fencedReplicaReader{}).ReadReplicaPermit(context.Background(), strings.Repeat("2", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ReplicaActivation{ReplicaPermitRequest: replication.ReplicaPermitRequest{DatabaseID: s.Binding.DatabaseID, BindingID: s.Binding.BindingID, EpochID: s.Binding.EpochID, ConfigHash: s.ConfigHash}, LifetimeLock: s.LifetimeLock}
+}
+func TestReplicaQuiescenceRefusesChangedCommittedIdentity(t *testing.T) {
+	for _, mutate := range []func(*ReplicaActivation){
+		func(b *ReplicaActivation) { b.DatabaseID = strings.Repeat("f", 32) },
+		func(b *ReplicaActivation) { b.EpochID = strings.Repeat("f", 32) },
+		func(b *ReplicaActivation) { b.ConfigHash = "sha256:" + strings.Repeat("f", 64) },
+	} {
+		b := fencedActivation(t)
+		mutate(&b)
+		s := &replicaServices{}
+		r := ReplicaOrchestrator{Services: s, Locks: &replicaLocks{}, Permits: fencedReplicaReader{}}
+		if err := r.Quiesce(context.Background(), b); err == nil {
+			t.Fatal("changed identity quiesced")
+		}
+		if len(s.calls) != 0 {
+			t.Fatal("changed identity reached stop")
+		}
+	}
 }

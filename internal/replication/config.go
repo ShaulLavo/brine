@@ -149,7 +149,14 @@ func RenderConfig(b Binding) ([]byte, error) {
 	return raw, nil
 }
 func ParseConfig(raw []byte, b Binding) (Config, error) {
-	if len(raw) == 0 || len(raw) > MaxConfigBytes || b.Validate() != nil || bytes.ContainsAny(raw, "$\x00") {
+	c, err := decodeConfig(raw)
+	if err != nil || b.Validate() != nil || c.validate(b) != nil {
+		return Config{}, ErrInvalid
+	}
+	return c, nil
+}
+func decodeConfig(raw []byte) (Config, error) {
+	if len(raw) == 0 || len(raw) > MaxConfigBytes || bytes.ContainsAny(raw, "$\x00") {
 		return Config{}, ErrInvalid
 	}
 	var node yaml.Node
@@ -164,7 +171,7 @@ func ParseConfig(raw []byte, b Binding) (Config, error) {
 	var c Config
 	typed := yaml.NewDecoder(bytes.NewReader(raw))
 	typed.KnownFields(true)
-	if typed.Decode(&c) != nil || c.validate(b) != nil {
+	if typed.Decode(&c) != nil {
 		return Config{}, ErrInvalid
 	}
 	return c, nil
