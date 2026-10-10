@@ -99,6 +99,19 @@ func TestSnapshotIsolatedVerifiedReceipt(t *testing.T) {
 	}
 }
 
+func TestCredentialsMayBeIssuedDuringRead(t *testing.T) {
+	e, req, calls := setup(t, fixture(t, fixtureSQL))
+	e.Credentials = CredentialReaderFunc(func(context.Context, string) (Credentials, error) {
+		return Credentials{AccessKey: "test-key", SecretKey: "test-secret", SessionToken: "test-session", ReceivedAt: time.Now().UTC(), ExpiresAt: time.Now().Add(2 * req.Budget)}, nil
+	})
+	if _, err := e.Test(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	if *calls != 1 {
+		t.Fatal("freshly issued credentials did not reach snapshot download")
+	}
+}
+
 func TestSnapshotRefusals(t *testing.T) {
 	cases := []struct {
 		name   string

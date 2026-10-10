@@ -78,7 +78,9 @@ func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
 	if err != nil {
 		return Receipt{}, refuse("credentials_unavailable")
 	}
-	if err := validateCredentials(credentials, now, r.Budget); err != nil {
+	// Readers may issue fresh scoped credentials while this call is running.
+	// Compare their timestamps at the credential boundary, not before the read.
+	if err := validateCredentials(credentials, time.Now().UTC(), r.Budget); err != nil {
 		return Receipt{}, err
 	}
 	directory, err := newDirectory(e.Root, r.OperationID)
