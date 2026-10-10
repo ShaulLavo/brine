@@ -22,7 +22,7 @@ func TestClientAndHostSchemaGoldens(t *testing.T) {
 	}
 	for _, v := range vectors {
 		t.Run(v.Name, func(t *testing.T) {
-			a, err := CompileSchemaFile(t.Context(), "main", "golden-v1", []byte(v.SQL))
+			a, err := CompileSchemaFile(t.Context(), "main", "", []byte(v.SQL))
 			if err != nil || a.Definition.CatalogSHA256 != v.CatalogSHA256 {
 				t.Fatalf("client golden: %+v %v", a, err)
 			}

@@ -10,7 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
-	"unicode"
+	"unicode/utf8"
 )
 
 // SchemaArtifact is the non-executable evidence sent with a release declaration.
@@ -28,7 +28,7 @@ func (a SchemaInitializer) Artifact() (SchemaArtifact, []byte, error) {
 	return SchemaArtifact{Definition: a.Definition, Digest: "sha256:" + hex.EncodeToString(sum[:])}, raw, nil
 }
 
-var schemaNumber = regexp.MustCompile(`^(?:0[xX][0-9a-fA-F]+|(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?)`)
+var schemaNumber = regexp.MustCompile(`^(?:0[xX][0-9a-fA-F](?:_?[0-9a-fA-F])*|(?:[0-9](?:_?[0-9])*(?:\.[0-9]*(?:_?[0-9])*)?|\.[0-9](?:_?[0-9])*)(?:[eE][+-]?[0-9](?:_?[0-9])*)?)`)
 
 type schemaToken struct {
 	text string
@@ -83,18 +83,22 @@ func compileInitializer(ctx context.Context, entries []schemaEntry) (string, err
 		}
 	}
 	hash, err := initializerCatalog(ctx, tx)
-	if err != nil {
+	if err != nil || hash == EmptyCatalogSHA256 || finishInitializer(ctx, tx, "compiler", hash) != nil {
 		return "", schemaLineError(entries[len(entries)-1].line)
 	}
 	return hash, nil
 }
 
-func schemaLineError(line int) error {
-	return fmt.Errorf("schema line %d: unsupported or invalid DDL", line)
+type SchemaError struct{ Line int }
+
+func (e *SchemaError) Error() string {
+	return fmt.Sprintf("schema line %d: unsupported or invalid DDL", e.Line)
 }
 
+func schemaLineError(line int) error { return &SchemaError{Line: line} }
+
 func schemaEntries(raw string, terminated bool) ([]schemaEntry, error) {
-	if len(raw) > maxCatalogBytes || strings.ContainsRune(raw, 0) {
+	if len(raw) > maxCatalogBytes || strings.ContainsRune(raw, 0) || !utf8.ValidString(raw) {
 		return nil, schemaLineError(1)
 	}
 	entries := []schemaEntry{}
@@ -135,7 +139,7 @@ func schemaEntries(raw string, terminated bool) ([]schemaEntry, error) {
 	}
 	for i := 0; i < len(raw); {
 		c := raw[i]
-		if unicode.IsSpace(rune(c)) {
+		if strings.ContainsRune(" \t\r\n\f\v", rune(c)) {
 			if c == '\n' {
 				line++
 			}
@@ -210,7 +214,7 @@ func schemaEntries(raw string, terminated bool) ([]schemaEntry, error) {
 				i++
 			}
 		} else {
-			for i < len(raw) && !unicode.IsSpace(rune(raw[i])) && !strings.ContainsRune(";(),.+-*/%=<>!|&~'\"`[", rune(raw[i])) {
+			for i < len(raw) && !strings.ContainsRune(" \t\r\n\f\v", rune(raw[i])) && !strings.ContainsRune(";(),.+-*/%=<>!|&~'\"`[", rune(raw[i])) {
 				i++
 			}
 		}

@@ -597,7 +597,7 @@ Golden tests also cover SQL NULL, Unicode, U+2028/U+2029, HTML escaping, row ord
 
 ## Schema migrations
 
-**Approved design target under D12, not an implemented spec extension or operation.** P04-01 supplies persistent database identities and observations. This section specifies schema policy without changing D11's data layout, mount lifecycle or replication contract. It applies to app databases, not `internal/store` control-database upgrades.
+**Approved under D12.** Release compatibility checks and reviewed empty-data initialization are implemented. General schema migration execution remains a design target. This contract preserves D11's data layout, mount lifecycle and replication guarantees. It applies to app databases, not control-database upgrades.
 
 ### Client schema files
 
@@ -627,7 +627,7 @@ P10-03 owns delivery without manual installation.
 
 ### Release compatibility declaration
 
-The future app spec adds a `schema_compatibility` array with one entry per declared persistent database. The entry has exactly these fields:
+The app spec accepts a `schema_compatibility` array with one entry per declared persistent database. The entry has exactly these fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |

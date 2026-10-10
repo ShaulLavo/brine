@@ -53,12 +53,19 @@ func ParseFile(ctx context.Context, filename string, raw []byte) (App, error) {
 }
 
 func readSchemaFile(filename string) ([]byte, error) {
+	info, err := os.Stat(filename)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+		return nil, data.ErrInvalid
+	}
 	f, err := os.Open(filename) // #nosec G304 -- Client-selected repository schema path, never a host dispatch path.
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
+	info, err = f.Stat()
 	if err != nil {
 		return nil, err
 	}

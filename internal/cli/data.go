@@ -8,7 +8,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/result"
-	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/spf13/cobra"
 )
 
@@ -20,7 +19,7 @@ func newDataCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		app, err := spec.ParseFile(cmd.Context(), args[0], raw)
+		app, err := parseClientSpec(cmd.Context(), args[0], raw, cmd.ErrOrStderr())
 		if err != nil {
 			return result.New(result.InvalidUsage, err)
 		}

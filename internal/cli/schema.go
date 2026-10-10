@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -18,7 +20,7 @@ func newSchemaCmd() *cobra.Command {
 		if err != nil {
 			return err
 		}
-		app, err := spec.ParseFile(cmd.Context(), args[0], raw)
+		app, err := parseClientSpec(cmd.Context(), args[0], raw, cmd.ErrOrStderr())
 		if err != nil {
 			return result.New(result.InvalidUsage, err)
 		}
@@ -46,4 +48,15 @@ func printSchemaArtifacts(w io.Writer, artifacts []data.SchemaArtifact) error {
 		}
 	}
 	return nil
+}
+
+func parseClientSpec(ctx context.Context, filename string, raw []byte, diagnostics io.Writer) (spec.App, error) {
+	app, err := spec.ParseFile(ctx, filename, raw)
+	var schemaError *data.SchemaError
+	if errors.As(err, &schemaError) {
+		if _, writeErr := fmt.Fprintln(diagnostics, schemaError); writeErr != nil {
+			return spec.App{}, writeErr
+		}
+	}
+	return app, err
 }

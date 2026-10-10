@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,15 +22,12 @@ func fixtureDatabase(t *testing.T, initialize bool) string {
 	}
 	defer func(db *sql.DB) { _ = db.Close() }(db)
 	if initialize {
-		raw, err := os.ReadFile("schema.json")
+		raw, err := os.ReadFile("schema.sql")
 		if err != nil {
 			t.Fatal(err)
 		}
-		var artifact struct {
-			Definition data.SchemaDefinition `json:"definition"`
-			Statements []string              `json:"statements"`
-		}
-		if err := json.Unmarshal(raw, &artifact); err != nil {
+		artifact, err := data.CompileSchemaFile(t.Context(), "main", "fixture-v1", raw)
+		if err != nil {
 			t.Fatal(err)
 		}
 		for _, statement := range artifact.Statements {
@@ -96,19 +92,14 @@ func TestReviewedSQLMatchesInitializer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifactRaw, err := os.ReadFile("schema.json")
+	artifact, err := data.CompileSchemaFile(t.Context(), "main", "fixture-v1", raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var artifact struct {
-		Statements []string `json:"statements"`
+	if artifact.Definition.CatalogSHA256 != catalogHash || len(artifact.Statements) != 1 {
+		t.Fatal("derived schema and fixture observer diverged")
 	}
-	if err = json.Unmarshal(artifactRaw, &artifact); err != nil {
-		t.Fatal(err)
-	}
-	if len(artifact.Statements) != 1 || string(raw) != artifact.Statements[0]+";\n" {
-		t.Fatal("reviewed SQL and initializer diverged")
-	}
+
 }
 
 func TestWriteCountLatestAndPreserve(t *testing.T) {

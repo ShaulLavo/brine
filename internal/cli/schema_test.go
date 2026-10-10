@@ -26,7 +26,7 @@ func TestSchemaExportAndConnectedPlanDigest(t *testing.T) {
 	raw = append(raw, []byte("\n[runtime]\nuid=10001\ngid=10001\n[[databases]]\nname=\"main\"\npersistent_root=\"/srv/brine-data\"\nmount_path=\"/data\"\nfilename=\"app.db\"\nbackup_destination=\"primary\"\nschema=\"schema.sql\"\n")...)
 	dir := t.TempDir()
 	path := filepath.Join(dir, "brine.toml")
-	if err := os.WriteFile(path, raw, 0600); err != nil {
+	if err := os.WriteFile(path, raw, 0600); err != nil { // #nosec G703 -- Fixed fixture filename within the test-owned temporary directory.
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "schema.sql"), []byte("CREATE TABLE t(x TEXT);"), 0600); err != nil {
@@ -74,6 +74,32 @@ func TestSchemaExportAndConnectedPlanDigest(t *testing.T) {
 			if !strings.Contains(out.String(), digest) {
 				t.Fatalf("derived digest missing from plan: %s", out.String())
 			}
+		}
+	}
+}
+
+func TestClientSchemaRefusalShowsLineWithoutSQL(t *testing.T) {
+	raw, err := os.ReadFile("../spec/testdata/valid-minimal.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, []byte("\n[runtime]\nuid=10001\ngid=10001\n[[databases]]\nname=\"main\"\npersistent_root=\"/srv/brine-data\"\nmount_path=\"/data\"\nfilename=\"app.db\"\nbackup_destination=\"primary\"\nschema=\"schema.sql\"\n")...)
+	dir := t.TempDir()
+	filename := filepath.Join(dir, "brine.toml")
+	if err := os.WriteFile(filename, raw, 0600); err != nil {
+		t.Fatal(err)
+	} // #nosec G703 -- Fixed fixture filename in a test-owned directory.
+	if err := os.WriteFile(filepath.Join(dir, "schema.sql"), []byte("-- header\n\nINSERT INTO planted_private_sql VALUES(1);"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"data", "schema", filename, "--database", "main"}, {"plan", filename, "--target", "fixture", "--json"}, {"data", "prepare", filename, "--target", "fixture"}} {
+		var out, diagnostics bytes.Buffer
+		deps := testDependencies(t, &out, &diagnostics)
+		if err := Execute(deps, args); result.ExitCode(err) != 2 {
+			t.Fatalf("not refused: %v", err)
+		}
+		if !strings.Contains(diagnostics.String(), "schema line 3:") || strings.Contains(out.String()+diagnostics.String(), "planted_private_sql") {
+			t.Fatalf("unsafe or missing diagnostic: %s %s", out.String(), diagnostics.String())
 		}
 	}
 }

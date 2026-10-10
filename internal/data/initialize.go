@@ -132,14 +132,18 @@ func applyInitializer(ctx context.Context, tx *sql.Tx, a SchemaInitializer) erro
 	if err != nil || hash != a.Definition.CatalogSHA256 {
 		return ErrInvalid
 	}
-	if _, err = tx.ExecContext(ctx, MarkerTableSQL); err != nil {
+	return finishInitializer(ctx, tx, a.Definition.Marker, hash)
+}
+
+func finishInitializer(ctx context.Context, tx *sql.Tx, marker, hash string) error {
+	if _, err := tx.ExecContext(ctx, MarkerTableSQL); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO brine_schema_marker VALUES(1,?,?)", a.Definition.Marker, hash); err != nil {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO brine_schema_marker VALUES(1,?,?)", marker, hash); err != nil {
 		return err
 	}
 	var integrity string
-	if err = tx.QueryRowContext(ctx, "PRAGMA integrity_check(1)").Scan(&integrity); err != nil || integrity != "ok" {
+	if err := tx.QueryRowContext(ctx, "PRAGMA integrity_check(1)").Scan(&integrity); err != nil || integrity != "ok" {
 		return ErrInvalid
 	}
 	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")

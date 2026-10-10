@@ -11,7 +11,7 @@ import (
 func schemaSpec(t *testing.T) []byte {
 	t.Helper()
 	raw := persistentSpec(t)
-	raw = raw[:strings.Index(raw, "[[schema_compatibility]]")]
+	raw, _, _ = strings.Cut(raw, "[[schema_compatibility]]")
 	return []byte(raw + "schema=\"db/main.sql\"\n")
 }
 

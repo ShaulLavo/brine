@@ -17,7 +17,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/planview"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
-	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 	"github.com/spf13/cobra"
 )
@@ -29,7 +28,7 @@ func newValidateCmd(machine *bool) *cobra.Command {
 		Short: "Validate an app against an explicit policy without contacting a host",
 		Args:  offlineSpecArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			desired, err := readDesired(cmd.Context(), args[0], policyPath)
+			desired, err := readDesired(cmd.Context(), args[0], policyPath, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -73,7 +72,7 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 				if err != nil {
 					return err
 				}
-				app, err := spec.ParseFile(cmd.Context(), args[0], raw)
+				app, err := parseClientSpec(cmd.Context(), args[0], raw, cmd.ErrOrStderr())
 				if err != nil {
 					return result.New(result.InvalidUsage, err)
 				}
@@ -106,7 +105,7 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 			if snapshotPath == "" || (cmd.Flags().Changed("state") && statePath == "") || (cmd.Flags().Changed("out") && outDir == "") {
 				return result.New(result.InvalidUsage, nil)
 			}
-			desired, err := readDesired(cmd.Context(), args[0], policyPath)
+			desired, err := readDesired(cmd.Context(), args[0], policyPath, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}
@@ -199,7 +198,7 @@ func offlineSpecArg(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-func readDesired(ctx context.Context, specPath, policyPath string) (policy.Desired, error) {
+func readDesired(ctx context.Context, specPath, policyPath string, diagnostics io.Writer) (policy.Desired, error) {
 	if policyPath == "" {
 		return policy.Desired{}, result.New(result.InvalidUsage, nil)
 	}
@@ -207,7 +206,7 @@ func readDesired(ctx context.Context, specPath, policyPath string) (policy.Desir
 	if err != nil {
 		return policy.Desired{}, err
 	}
-	app, err := spec.ParseFile(ctx, specPath, raw)
+	app, err := parseClientSpec(ctx, specPath, raw, diagnostics)
 	if err != nil {
 		return policy.Desired{}, result.New(result.InvalidUsage, err)
 	}
