@@ -346,12 +346,11 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		if _, err = rand.Read(id); err != nil {
 			return nil, err
 		}
-		active, _ := h.run(ctx, false, "systemctl", "is-active", "caddy.service")
-		enabled, _ := h.run(ctx, false, "systemctl", "is-enabled", "caddy.service")
-		if strings.TrimSpace(enabled.Stdout) == "masked" {
-			return nil, errors.New("preexisting Caddy mask refused")
+		service, err := h.originalCaddyState(ctx)
+		if err != nil {
+			return nil, err
 		}
-		h.r = hostRecord{ID: hex.EncodeToString(id), Key: key, BinaryHash: hash(h.source), UID: -1, Files: map[string]ownedFile{}, Dirs: map[string]ownedDir{}, CaddyActive: strings.TrimSpace(active.Stdout) == "active", CaddyEnabled: strings.TrimSpace(enabled.Stdout) == "enabled"}
+		h.r = hostRecord{ID: hex.EncodeToString(id), Key: key, BinaryHash: hash(h.source), UID: -1, Files: map[string]ownedFile{}, Dirs: map[string]ownedDir{}, CaddyActive: service.active == serviceActive, CaddyEnabled: service.enabled == serviceEnabled}
 		h.r.Packages = f.PackageInstall
 		if err = h.Save(h.r.Journal); err != nil {
 			return nil, err
@@ -521,10 +520,10 @@ func (h *host) steps() []Step {
 	command := func(path string, args ...string) func(context.Context) error {
 		return func(ctx context.Context) error { _, err := h.run(ctx, true, path, args...); return err }
 	}
-	checkUnit := func(verb, want string) func(context.Context) (bool, error) {
+	checkUnit := func(verb string, want serviceState) func(context.Context) (bool, error) {
 		return func(ctx context.Context) (bool, error) {
-			r, _ := h.run(ctx, false, "systemctl", verb, "caddy.service")
-			return strings.TrimSpace(r.Stdout) == want, nil
+			state, err := h.observeService(ctx, verb)
+			return err == nil && state == want, err
 		}
 	}
 	noop := func(context.Context) error { return nil }
@@ -568,16 +567,16 @@ func (h *host) steps() []Step {
 			return true, nil
 		}, Apply: noop, Undo: noop},
 		{Name: "unmask", Check: func(ctx context.Context) (bool, error) {
-			r, _ := h.run(ctx, false, "systemctl", "is-enabled", "caddy.service")
-			return strings.TrimSpace(r.Stdout) != "masked", nil
+			state, err := h.observeService(ctx, "is-enabled")
+			return err == nil && !state.masked(), err
 		}, Apply: h.unmask, Undo: noop},
-		{Name: "caddy-enable", Check: checkUnit("is-enabled", "enabled"), Apply: command("systemctl", "enable", "caddy.service"), Undo: func(ctx context.Context) error {
+		{Name: "caddy-enable", Check: checkUnit("is-enabled", serviceEnabled), Apply: command("systemctl", "enable", "caddy.service"), Undo: func(ctx context.Context) error {
 			if h.r.CaddyEnabled {
 				return nil
 			}
 			return command("systemctl", "disable", "caddy.service")(ctx)
 		}},
-		{Name: "caddy-start", Check: checkUnit("is-active", "active"), Apply: command("systemctl", "start", "caddy.service"), Undo: func(ctx context.Context) error {
+		{Name: "caddy-start", Check: checkUnit("is-active", serviceActive), Apply: command("systemctl", "start", "caddy.service"), Undo: func(ctx context.Context) error {
 			if h.r.CaddyActive {
 				return nil
 			}

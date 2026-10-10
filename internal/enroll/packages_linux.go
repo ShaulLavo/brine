@@ -14,8 +14,8 @@ func (h *host) masked(ctx context.Context) (bool, error) {
 	if len(h.r.Packages) == 0 || h.r.Journal.Intents["unmask"] {
 		return true, nil
 	}
-	r, _ := h.run(ctx, false, "systemctl", "is-enabled", "caddy.service")
-	return strings.TrimSpace(r.Stdout) == "masked", nil
+	state, err := h.observeService(ctx, "is-enabled")
+	return err == nil && state.masked(), err
 }
 func (h *host) mask(ctx context.Context) error {
 	if len(h.r.Packages) == 0 {
