@@ -25,7 +25,7 @@ type appArtifacts struct {
 	inactive     map[string]bool
 }
 
-func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool) appArtifacts {
+func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, exists bool, control *target.ControlInventory) appArtifacts {
 	if s.Runner.User.Status == target.Unknown {
 		return appArtifacts{}
 	}
@@ -101,18 +101,19 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	} else if len(byApp) == 0 {
 		return appArtifacts{}
 	}
+	if control != nil {
+		for _, app := range control.Apps {
+			if _, ok := byApp[app.Name]; !ok {
+				byApp[app.Name] = []target.Unit{}
+			}
+		}
+	}
 	publications := map[string]publication{}
 	inactive := map[string]bool{}
 	apps := make([]target.App, 0, len(byApp))
 	for app, units := range byApp {
 		sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
 		a := target.App{Name: app, Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known(units), Secrets: unknown[[]target.Secret]()}
-		// Empty artifacts on a measured fresh control state have no Brine allocation
-		// or deployed image. Existing/unknown state never receives invented absence.
-		if len(units) == 0 && s.Generation.Value != nil && *s.Generation.Value == 0 {
-			a.Image = absent[target.Image]()
-			a.AllocatedHostPort = absent[target.Port]()
-		}
 		if runnerIdentity {
 			if len(units) > 0 {
 				active := unknown[bool]()

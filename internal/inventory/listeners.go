@@ -15,15 +15,16 @@ import (
 var processPattern = regexp.MustCompile(`\("([^"\n]+)",pid=([0-9]+),fd=([0-9]+)\)`)
 var safeToken = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
-func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home string, publications map[string]publication) {
+func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home string, publications map[string]publication) target.Observation[[]target.Port] {
 	bindings := c.listenerBindings(ctx, s, home, publications)
 	ports := map[target.Port]bool{}
+	udpPorts := []target.Port{}
 	owners := map[target.PortOwner]bool{}
 	// The snapshot reserves UDP as well as TCP, even though owners cover TCP only.
 	for _, protocol := range []string{"-ltnpe", "-lunp"} {
 		out, e := c.probe(ctx, "ss", "-H", protocol)
 		if e != nil {
-			return
+			return unknown[[]target.Port]()
 		}
 		for _, line := range strings.Split(out, "\n") {
 			if strings.TrimSpace(line) == "" {
@@ -31,27 +32,28 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home strin
 			}
 			f := strings.Fields(line)
 			if len(f) < 5 {
-				return
+				return unknown[[]target.Port]()
 			}
 			index := 3 // ss normally includes LISTEN/UNCONN state.
 			if f[0] != "LISTEN" && f[0] != "UNCONN" {
 				index = 2
 			}
 			if len(f) <= index {
-				return
+				return unknown[[]target.Port]()
 			}
 			address := f[index]
 			i := strings.LastIndexByte(address, ':')
 			if i < 0 {
-				return
+				return unknown[[]target.Port]()
 			}
 			n, e := strconv.ParseUint(address[i+1:], 10, 16)
 			if e != nil || n == 0 {
-				return
+				return unknown[[]target.Port]()
 			}
 			port := target.Port(n)
 			ports[port] = true
 			if protocol == "-lunp" {
+				udpPorts = append(udpPorts, port)
 				continue
 			}
 			matches := processPattern.FindAllStringSubmatch(line, -1)
@@ -101,6 +103,9 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home strin
 	})
 	s.UsedPorts = target.Known(ps)
 	s.PortOwners = target.Known(os)
+	// Keep UDP evidence separate: TCP ownership cannot account for a UDP socket
+	// on the same port. No UDP ownership proof is currently collected.
+	return target.Known(udpPorts)
 }
 
 func unitFromCgroup(data string) string {

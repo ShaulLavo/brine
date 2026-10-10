@@ -112,7 +112,7 @@ func (warningRunner) RunStdout(ctx context.Context, p string, args ...string) (s
 
 func TestReviewFirstDeploymentBindsPreexistingSecret(t *testing.T) {
 	f := secretOnlyFixture()
-	r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine.api-main.db-token.v1"}
+	r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine.api-main.db-token.v1", "ss -H -ltnpe": "", "ss -H -lunp": "", "podman --remote=false ps --all --format " + containerInventoryFormat: ""}
 	collected, e := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 	if e != nil {
 		t.Fatal(e)
