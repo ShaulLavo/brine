@@ -4,9 +4,15 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/result"
 )
 
@@ -70,5 +76,65 @@ func TestTaskCompletionAtomicAndBounded(t *testing.T) {
 	}
 	if _, err := state.db.ExecContext(ctx, "UPDATE operation_outcomes SET canonical='{}' WHERE operation_id=?", operation.ID); err == nil {
 		t.Fatal("outcome mutable")
+	}
+}
+
+func TestTaskOutcomeConcurrentCompletionSnapshot(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	writer := openTest(t)
+	reader, err := OpenReadOnly(ctx, writer.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	// Bounded completion-boundary reproduction, not a timing or stress benchmark.
+	for iteration := 0; iteration < 64; iteration++ {
+		op, _, err := writer.CreateOperation(ctx, ops.Intent{Kind: ops.RestoreTest, App: "example", SecretRef: "input1"}, "operator", fmt.Sprintf("snapshot%d", iteration))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := writer.TransitionOperation(ctx, op.ID, ops.Queued, ops.Preflight); err != nil {
+			t.Fatal(err)
+		}
+		receipt := restore.Receipt{OperationID: op.ID, Source: restore.RestoreSource{Kind: restore.LitestreamLTX, LTX: &restore.LTXSource{Recoverability: true, BindingID: "b1", Epoch: "e1", TXID: 7}}, ToolVersion: restore.LitestreamVersion, RequestedTXID: 7, RecoveredTXID: 7, ObservedAt: time.Now().UTC(), Schema: restore.SchemaObservation{State: restore.VerifiedSchema, Marker: "v1", CatalogSHA256: strings.Repeat("a", 64)}, LossWindow: restore.LossWindow{State: restore.LossUnknown, Reason: "No independent last-commit coverage proof; asynchronous replication may lose recent writes."}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed", PositionEvidence: "remote_dry_run_and_restore"}
+		raw, err := json.Marshal(receipt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		start := make(chan struct{})
+		errors := make(chan error, 8)
+		var workers sync.WaitGroup
+		for worker := 0; worker < 8; worker++ {
+			workers.Add(1)
+			go func() {
+				defer workers.Done()
+				<-start
+				for read := 0; read < 8; read++ {
+					outcome, err := reader.ReadTaskOutcome(ctx, op.ID)
+					if err != nil {
+						errors <- err
+						return
+					}
+					if outcome != nil && string(outcome.Receipt) != string(raw) {
+						errors <- fmt.Errorf("wrong terminal receipt")
+						return
+					}
+				}
+			}()
+		}
+		close(start)
+		if err := writer.CompleteTask(ctx, op.ID, ops.Succeeded, ops.TaskOutcome{Receipt: raw}); err != nil {
+			t.Fatal(err)
+		}
+		workers.Wait()
+		close(errors)
+		for err := range errors {
+			t.Fatalf("iteration %d: successful completion invalidated snapshot: %v", iteration, err)
+		}
+		outcome, err := reader.ReadTaskOutcome(ctx, op.ID)
+		if err != nil || outcome == nil || string(outcome.Receipt) != string(raw) {
+			t.Fatalf("terminal outcome missing: %+v %v", outcome, err)
+		}
 	}
 }

@@ -150,3 +150,27 @@ func TestRuntimeRootAndCancellationRefuseBeforeInitialization(t *testing.T) {
 		}
 	}
 }
+
+func TestExplicitDetachedRunnerWinsOverMutationRuntime(t *testing.T) {
+	for _, code := range []result.Code{result.DependencyMissing, result.PolicyRefused} {
+		t.Run(string(code), func(t *testing.T) {
+			var output bytes.Buffer
+			calls, opens := 0, 0
+			id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+			deps := Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &output, Stderr: io.Discard, HostUID: func() int { return 1000 }, HostOperationRunner: opRunFunc(func(_ context.Context, got string) error {
+				calls++
+				if got != id {
+					t.Fatal("wrong detached operation")
+				}
+				return nil
+			})}
+			err := ExecuteWithRuntime(deps, []string{"host", "run-op", id, "--json"}, RuntimeLifecycle{Open: func(context.Context, bool) (RuntimeServices, error) {
+				opens++
+				return RuntimeServices{}, result.New(code, nil)
+			}})
+			if err != nil || calls != 1 || opens != 0 {
+				t.Fatalf("detached runner replaced: calls=%d mutation opens=%d error=%v", calls, opens, err)
+			}
+		})
+	}
+}
