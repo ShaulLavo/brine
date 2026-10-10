@@ -71,10 +71,10 @@ func backupCredentialService(service Service, stateRoot string) backupcredential
 			return nil, err
 		}
 		if err = ensurePrivateChild(stateRoot, "credentials"); err != nil {
-			lock.Release()
+			_ = lock.Release()
 			return nil, err
 		}
-		return func() { lock.Release() }, nil
+		return func() { _ = lock.Release() }, nil
 	}, Scope: func(ctx context.Context, app string) (backupcredentials.Scope, error) {
 		pol, err := service.Policy.Load(ctx)
 		if err != nil {

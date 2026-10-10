@@ -24,7 +24,7 @@ func (s *Store) RecordAllocation(ctx context.Context, receipt data.AllocationRec
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var incarnation string
 	if err = tx.QueryRowContext(ctx, "SELECT incarnation_id FROM data_databases WHERE id=?", receipt.DatabaseID).Scan(&incarnation); err != nil {
 		return err

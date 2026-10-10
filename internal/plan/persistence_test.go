@@ -102,6 +102,7 @@ func TestPersistentDecisionIgnoresHealthyClockAndCapacityMovement(t *testing.T) 
 	fact.Schema.ObservedAt = fact.Schema.ObservedAt.Add(time.Minute)
 	fact.Root.ObservedAt = fact.Root.ObservedAt.Add(time.Minute)
 	fact.Mapping.Value.ObservedAt = fact.Mapping.Value.ObservedAt.Add(time.Minute)
+	fact.Usage = target.Known(data.StorageUsage{Bytes: 1024, Files: 2})
 	fact.Root.FreeBytes++
 	fact.Root.FreeInodes++
 	fresh := build(t, in)
@@ -149,5 +150,17 @@ func TestPersistentCredentialVersionChangesApproval(t *testing.T) {
 	changed := build(t, in)
 	if changed.Kind != Create || changed.Hash == original.Hash {
 		t.Fatal("changed credential version retained approval")
+	}
+}
+
+func TestPersistentRetainedDefinitionsHaveCanonicalOrdering(t *testing.T) {
+	in := persistentReady(t)
+	fact := &(*in.Snapshot.PersistentData.Value)[0]
+	fact.Definitions = append(fact.Definitions, data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+	original := build(t, in)
+	fact.Definitions[0], fact.Definitions[1] = fact.Definitions[1], fact.Definitions[0]
+	reordered := build(t, in)
+	if reordered.Hash != original.Hash {
+		t.Fatal("registry ordering invalidated approval")
 	}
 }

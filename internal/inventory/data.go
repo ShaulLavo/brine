@@ -19,7 +19,7 @@ const MappingProbeImage = "docker.io/library/python@sha256:2d9aefe2fef018a7eb2c1
 // probe image. It never mounts app data, credentials or state; refusal never
 // repairs modes or changes ownership. The caller holds the host mutation lock.
 func ProbeDataMapping(ctx context.Context, runner localexec.Runner, root data.RootEvidence, runtime data.RuntimeIdentity) (data.MappingEvidence, error) {
-	evidence := data.MappingEvidence{Runtime: runtime, RunnerUID: uint32(os.Geteuid()), RunnerGID: uint32(os.Getegid()), Root: root.Root, Device: root.Device, Image: MappingProbeImage, ObservedAt: time.Now().UTC()}
+	evidence := data.MappingEvidence{Runtime: runtime, RunnerUID: uint32(os.Geteuid()), RunnerGID: uint32(os.Getegid()), Root: root.Root, Device: root.Device, Image: MappingProbeImage, ObservedAt: time.Now().UTC()} //nolint:gosec // Linux UID/GID originate as unsigned 32-bit syscall identities.
 	if runner == nil || runtime.Validate() != nil || !root.Admits(root.Root, 1) || strings.ContainsAny(string(root.Root), ":\x00\r\n") {
 		return evidence, data.ErrInvalid
 	}
@@ -29,8 +29,8 @@ func ProbeDataMapping(ctx context.Context, runner localexec.Runner, root data.Ro
 	if err != nil {
 		return evidence, err
 	}
-	defer func() { os.Remove(filepath.Join(directory, "probe")); os.Remove(directory) }()
-	if err = os.Chmod(directory, 0700); err != nil {
+	defer func() { _ = os.Remove(filepath.Join(directory, "probe")); _ = os.Remove(directory) }()
+	if err = os.Chmod(directory, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
 		return evidence, err
 	}
 	hostFile := filepath.Join(directory, "probe")
@@ -48,7 +48,7 @@ func ProbeDataMapping(ctx context.Context, runner localexec.Runner, root data.Ro
 	if err = data.VerifyRunnerFile(hostFile); err != nil {
 		return evidence, err
 	}
-	content, err := os.ReadFile(hostFile)
+	content, err := os.ReadFile(hostFile) //nolint:gosec // Path is a private test fixture or verified private probe file.
 	if err != nil || string(content) != "container" {
 		return evidence, data.ErrInvalid
 	}

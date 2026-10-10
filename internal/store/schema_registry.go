@@ -18,7 +18,7 @@ func (s *Store) RegisterSchemaDefinitions(ctx context.Context, incarnation data.
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	seen := map[[2]string]bool{}
 	for _, definition := range definitions {
 		key := [2]string{string(definition.Database), definition.Marker}
@@ -58,7 +58,7 @@ func readSchemaDefinitions(ctx context.Context, q dataQuerier, incarnation data.
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	definitions := []data.SchemaDefinition{}
 	for rows.Next() {
 		var d data.SchemaDefinition

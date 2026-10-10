@@ -15,7 +15,7 @@ const (
 	SchemaRollbackIncompatible ConflictCode = "schema_rollback_incompatible"
 	DataFenced                 ConflictCode = "data_fenced"
 	DataMappingUnknown         ConflictCode = "data_mapping_unknown"
-	BackupCredentialUnknown    ConflictCode = "backup_credential_unknown"
+	BackupCredentialUnknown    ConflictCode = "backup_credential_unknown" //nolint:gosec // Public conflict code, not a credential value.
 	BackupRetentionUnknown     ConflictCode = "backup_retention_unknown"
 )
 

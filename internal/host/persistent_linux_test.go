@@ -40,16 +40,16 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(stateRoot) })
+	t.Cleanup(func() { _ = os.RemoveAll(stateRoot) })
 	state, err := store.Open(stateRoot)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { state.Close() })
+	t.Cleanup(func() { _ = state.Close() })
 	facts.Store = state
 	fact := collectPersistent(t, facts, desired)
 	home := t.TempDir()
-	if err = os.Chmod(home, 0700); err != nil {
+	if err = os.Chmod(home, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
 		t.Fatal(err)
 	}
 	if err = ensurePrivateChild(stateRoot, "credentials/s3/primary"); err != nil {
@@ -152,7 +152,7 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 
 func TestPrivateChildRefusesSymlinkAndNeverRepairsModes(t *testing.T) {
 	home := t.TempDir()
-	if err := os.Chmod(home, 0700); err != nil {
+	if err := os.Chmod(home, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
 		t.Fatal(err)
 	}
 	foreign := t.TempDir()
@@ -168,7 +168,7 @@ func TestPrivateChildRefusesSymlinkAndNeverRepairsModes(t *testing.T) {
 	if err := os.Remove(filepath.Join(home, ".config")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(filepath.Join(home, ".config"), 0755); err != nil {
+	if err := os.Mkdir(filepath.Join(home, ".config"), 0755); err != nil { //nolint:gosec // Intentional unsafe-permission fixture proves fail-closed refusal.
 		t.Fatal(err)
 	}
 	if err := ensurePrivateChild(home, ".config/systemd/user"); err == nil {

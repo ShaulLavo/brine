@@ -19,7 +19,7 @@ func (s *Store) CandidateWriterSchema(ctx context.Context, id data.AppIncarnatio
 	if err != nil {
 		return WriterSchema{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	out, err := candidateWriterSchema(ctx, tx, s, id, desired)
 	if err != nil {
 		return WriterSchema{}, err

@@ -40,7 +40,7 @@ func OpenPermits(ctx context.Context) (*PermitRuntime, error) {
 	if err != nil {
 		return nil, replication.ErrPermit
 	}
-	evidence := writerEvidence{Operations: attemptOperation{uid: uint32(os.Geteuid()), home: identity.HomeDir}, Home: identity.HomeDir}
+	evidence := writerEvidence{Operations: attemptOperation{uid: uint32(os.Geteuid()), home: identity.HomeDir}, Home: identity.HomeDir} //nolint:gosec // Linux UID/GID originate as unsigned 32-bit syscall identities.
 	reader := launchPermits{StorePermits: replicapermits.StorePermits{State: state, Configs: replication.DiskConfigs{}, Writers: evidence}, State: state, Files: backupcredentials.Files{Root: filepath.Join(identity.HomeDir, ".local/state/brine/credentials")}}
 	return &PermitRuntime{Reader: reader, state: state}, nil
 }

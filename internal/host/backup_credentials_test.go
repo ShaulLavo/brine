@@ -18,7 +18,7 @@ import (
 func TestBackupCredentialsJournalAndSecureStartupReader(t *testing.T) {
 	ctx := context.Background()
 	state, d, f := persistentHostFixture(t)
-	raw, err := os.ReadFile("../policy/testdata/operator.toml")
+	raw, err := os.ReadFile("../policy/testdata/operator.toml") //nolint:gosec // Path is a private test fixture or verified private probe file.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -37,7 +37,7 @@ credential_ref="primary"
 	}
 	d.PolicyHash = pol.Hash()
 	fact := collectPersistent(t, f, d)
-	snapshotRaw, err := os.ReadFile("../target/testdata/ready-arm64.json")
+	snapshotRaw, err := os.ReadFile("../target/testdata/ready-arm64.json") //nolint:gosec // Path is a private test fixture or verified private probe file.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ credential_ref="primary"
 	}
 	requester := "deploy:" + strings.Repeat("c", 64)
 	root := t.TempDir()
-	if err = os.Chmod(root, 0700); err != nil {
+	if err = os.Chmod(root, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
 		t.Fatal(err)
 	}
 	if err = os.Mkdir(filepath.Join(root, "credentials"), 0700); err != nil {
@@ -84,14 +84,14 @@ credential_ref="primary"
 	if err != nil || len(env) != 2 {
 		t.Fatal("secure read", err)
 	}
-	if err = os.Chmod(file, 0644); err != nil {
+	if err = os.Chmod(file, 0644); err != nil { //nolint:gosec // Intentional unsafe-permission fixture proves fail-closed refusal.
 		t.Fatal(err)
 	}
 	if _, err = reader.ReadCredentialEnvironment(ctx, file); err == nil {
 		t.Fatal("foreign credential mode admitted")
 	}
 
-	if err = os.Chmod(file, 0600); err != nil {
+	if err = os.Chmod(file, 0600); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
 		t.Fatal(err)
 	}
 	past := time.Now().UTC().Add(-time.Hour)

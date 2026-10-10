@@ -27,7 +27,7 @@ type WriterStartIntent struct {
 	Desired       policy.Desired
 }
 
-// Pending is NOT permission. The read-only host adapter must also verify the
+// WriterStartResolution describes persisted intent. Pending is NOT permission. The read-only host adapter must also verify the
 // operation's transient unit is active and freshly check the candidate schema.
 // Invalid never permits fallback to a committed release.
 type WriterStartResolution struct {
@@ -43,7 +43,7 @@ func (s *Store) BindWriterStart(ctx context.Context, operationID string, planID 
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	p, d, err := loadPlan(ctx, tx, planID)
 	if err != nil {
 		return err
@@ -119,7 +119,7 @@ func (s *Store) ReadWriterStart(ctx context.Context, incarnation data.AppIncarna
 	if err != nil {
 		return WriterStartResolution{State: WriterStartInvalid}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	intent := WriterStartIntent{IncarnationID: incarnation}
 	var state, operationPlan string
 	err = tx.QueryRowContext(ctx, "SELECT w.operation_id,w.plan_id,w.desired_hash,o.state,o.plan_id FROM data_writer_starts w JOIN operations o ON o.id=w.operation_id WHERE w.incarnation_id=? AND w.cleared=0", incarnation).Scan(&intent.OperationID, &intent.PlanID, &intent.DesiredHash, &state, &operationPlan)

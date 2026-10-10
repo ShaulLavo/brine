@@ -61,11 +61,11 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 		}
 		root, err := probeRoot(ctx, string(declaration.PersistentRoot))
 		if err != nil || !root.Admits(declaration.PersistentRoot, desired.MinimumFreeDiskBytes) {
-			return unknown, nil
+			return unknown, nil //nolint:nilerr // Probe failure is unknown decision evidence, never admission.
 		}
 		mapping, err := probeMapping(ctx, f.Runner, root, *desired.Runtime)
 		if err != nil || !mapping.Admits(*desired.Runtime, root) {
-			return unknown, nil
+			return unknown, nil //nolint:nilerr // Probe failure is unknown decision evidence, never admission.
 		}
 		roots[declaration.PersistentRoot] = root
 		mappings[declaration.PersistentRoot] = mapping

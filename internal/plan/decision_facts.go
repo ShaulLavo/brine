@@ -73,7 +73,7 @@ func canonicalDecisionFacts(s target.Snapshot, minimum uint64) ([]byte, error) {
 			if f.Retention.Value != nil {
 				e := f.Retention.Value
 				at, _ := time.Parse(time.RFC3339Nano, e.VerifiedAt)
-				if f.Schema.ObservedAt.Before(at) || f.Schema.ObservedAt.Sub(at) > time.Duration(e.FreshnessSeconds)*time.Second {
+				if !e.Valid() || f.Schema.ObservedAt.Before(at) || f.Schema.ObservedAt.Sub(at) > time.Duration(e.FreshnessSeconds)*time.Second { //nolint:gosec // Valid bounds freshness to at most 30 days.
 					copy.Status = target.Unknown
 					copy.Value = nil
 					break

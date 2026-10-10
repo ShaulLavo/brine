@@ -30,7 +30,7 @@ func TestImmutableSchemaRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer ro.Close()
+	defer func() { _ = ro.Close() }()
 	got, err := ro.ReadSchemaDefinitions(ctx, reserved.Database.IncarnationID)
 	if err != nil {
 		t.Fatal(err)

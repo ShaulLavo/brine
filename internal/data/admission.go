@@ -25,7 +25,7 @@ func (e RetentionEvidence) Admits(destination Destination, now time.Time) bool {
 		return false
 	}
 	at, _ := time.Parse(time.RFC3339Nano, e.VerifiedAt)
-	return !now.Before(at) && now.Sub(at) <= time.Duration(e.FreshnessSeconds)*time.Second
+	return !now.Before(at) && now.Sub(at) <= time.Duration(e.FreshnessSeconds)*time.Second //nolint:gosec // Valid bounds freshness to at most 30 days.
 }
 
 // MappingEvidence is a measured Podman keep-id bind-mount probe. Merely having

@@ -30,7 +30,7 @@ func ObserveUsage(ctx context.Context, b DatabaseBinding) (StorageUsage, error) 
 	if err != nil {
 		return usage, err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	visited := 0
 	var walk func(string, int) error
 	walk = func(path string, depth int) error {
@@ -48,7 +48,10 @@ func ObserveUsage(ctx context.Context, b DatabaseBinding) (StorageUsage, error) 
 			return err
 		}
 		entries, readErr := directory.ReadDir(4097 - visited)
-		directory.Close()
+		closeErr := directory.Close()
+		if closeErr != nil {
+			return closeErr
+		}
 		if readErr != nil && !errors.Is(readErr, io.EOF) {
 			return readErr
 		}
@@ -75,7 +78,7 @@ func ObserveUsage(ctx context.Context, b DatabaseBinding) (StorageUsage, error) 
 			if err != nil || !os.SameFile(info, verified) || verified.Size() < 0 {
 				return ErrInvalid
 			}
-			size := uint64(verified.Size())
+			size := uint64(verified.Size()) //nolint:gosec // Nonnegative size checked immediately above.
 			if size > math.MaxUint64-usage.Bytes {
 				return ErrInvalid
 			}

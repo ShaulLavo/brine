@@ -27,9 +27,9 @@ func persistentHostFixture(t *testing.T) (*store.Store, policy.Desired, DataFact
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.Close() })
+	t.Cleanup(func() { _ = s.Close() })
 	root := t.TempDir()
-	if err = os.Chmod(root, 0700); err != nil {
+	if err = os.Chmod(root, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
 		t.Fatal(err)
 	}
 	if _, err = data.InspectRoot(root); err != nil {
@@ -93,7 +93,7 @@ func TestDataFactsNeverRepairsExistingDataAndReportsFences(t *testing.T) {
 	if fact.Schema.State != data.Unknown || !fact.Fenced {
 		t.Fatalf("unsafe observed facts %+v", fact)
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // Path is a private test fixture or verified private probe file.
 	if err != nil || string(raw) != "not-sqlite" {
 		t.Fatal("data repaired", err)
 	}
@@ -150,7 +150,7 @@ func TestDataWriterStartsBindsFreshCandidateThenRefusesDrift(t *testing.T) {
 	s, d, f := persistentHostFixture(t)
 	ctx := context.Background()
 	fact := collectPersistent(t, f, d)
-	raw, err := os.ReadFile("../target/testdata/ready-arm64.json")
+	raw, err := os.ReadFile("../target/testdata/ready-arm64.json") //nolint:gosec // Path is a private test fixture or verified private probe file.
 	if err != nil {
 		t.Fatal(err)
 	}

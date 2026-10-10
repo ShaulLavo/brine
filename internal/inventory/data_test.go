@@ -22,7 +22,7 @@ func (f mappingRunner) Run(ctx context.Context, path string, args ...string) (st
 }
 func TestMappingProbeUsesOnlyPrivateDisposableData(t *testing.T) {
 	root := t.TempDir()
-	if err := os.Chmod(root, 0700); err != nil {
+	if err := os.Chmod(root, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
 		t.Fatal(err)
 	}
 	evidence, err := data.ProbeRoot(context.Background(), root)
@@ -53,7 +53,7 @@ func TestMappingProbeUsesOnlyPrivateDisposableData(t *testing.T) {
 			t.Fatal("live mount used", directory)
 		}
 		p := filepath.Join(directory, "probe")
-		raw, err := os.ReadFile(p)
+		raw, err := os.ReadFile(p) //nolint:gosec // Path is a private test fixture or verified private probe file.
 		if err != nil || string(raw) != "host" {
 			t.Fatal("missing host write", err)
 		}
@@ -75,7 +75,7 @@ func TestMappingProbeRefusesFailureAndForeignModes(t *testing.T) {
 	for _, mode := range []string{"command fails", "wrong output", "foreign modes"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
-			if err := os.Chmod(root, 0700); err != nil {
+			if err := os.Chmod(root, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
 				t.Fatal(err)
 			}
 			evidence, err := data.ProbeRoot(context.Background(), root)
@@ -96,7 +96,7 @@ func TestMappingProbeRefusesFailureAndForeignModes(t *testing.T) {
 						if err := os.WriteFile(p, []byte("container"), 0600); err != nil {
 							t.Fatal(err)
 						}
-						if err := os.Chmod(p, 0644); err != nil {
+						if err := os.Chmod(p, 0644); err != nil { //nolint:gosec // Intentional unsafe-permission fixture proves fail-closed refusal.
 							t.Fatal(err)
 						}
 					}

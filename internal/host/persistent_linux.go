@@ -32,7 +32,7 @@ type DataPreparation struct {
 	Units    systemd.Adapter
 }
 
-// Preparation is journaled under the operation's host lock. It never stops an
+// PreparePersistent is journaled under the operation's host lock. It never stops an
 // existing replicator, initializes SQLite, or deletes data during compensation.
 func (p DataPreparation) PreparePersistent(ctx context.Context, operation string, planned plan.Plan, desired policy.Desired) error {
 	if desired.Stateless() {
@@ -208,7 +208,7 @@ func ensurePrivateChild(home, relative string) error {
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	current := ""
 	for _, part := range strings.Split(relative, "/") {
 		current = filepath.Join(current, part)
@@ -226,8 +226,7 @@ func ensurePrivateChild(home, relative string) error {
 		if err != nil {
 			return err
 		}
-		err = directory.Sync()
-		directory.Close()
+		err = errors.Join(directory.Sync(), directory.Close())
 		if err != nil {
 			return err
 		}
