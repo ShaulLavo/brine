@@ -269,9 +269,8 @@ func (c *Client) readLocalImage(ctx context.Context, image Image) (localImage, e
 }
 
 // InspectStored verifies both pins against the same local stored image without
-// requiring a running container. Repository-qualified associated aliases prove
-// local pins without a registry read. If the index association was not retained,
-// the shared manifest resolver must bind that exact index to the local image.
+// requiring a running container or contacting the registry. Repository-qualified
+// associations must prove both pins locally; missing index proof is refused.
 func (c *Client) InspectStored(ctx context.Context, index, manifest Image) (ImageInfo, error) {
 	if index.value == "" || manifest.value == "" || index.repository() != manifest.repository() {
 		return ImageInfo{}, invalid()
@@ -288,14 +287,7 @@ func (c *Client) InspectStored(ctx context.Context, index, manifest Image) (Imag
 		return ImageInfo{}, malformed()
 	}
 	if !indexed.associates(index) && !selected.associates(index) {
-		resolved, err := c.inspectManifest(ctx, index, indexed)
-		if err != nil {
-			return ImageInfo{}, err
-		}
-		if resolved.ImageID != selected.ID || resolved.ManifestDigest != manifest.digest() || resolved.Platform.OS != selected.Os || resolved.Platform.Architecture != selected.Architecture {
-			return ImageInfo{}, malformed()
-		}
-		return resolved, nil
+		return ImageInfo{}, malformed()
 	}
 	return ImageInfo{ImageID: selected.ID, IndexDigest: index.digest(), ManifestDigest: manifest.digest(), Platform: Platform{OS: selected.Os, Architecture: selected.Architecture}}, nil
 }

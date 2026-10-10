@@ -2,6 +2,7 @@ package podman
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -70,5 +71,33 @@ func TestRunningContainerImageLocalPinShapes(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRunningContainerImageMissingIndexAssociationStaysLocal(t *testing.T) {
+	manifest, _ := ParseImage("registry.example/app@sha256:" + strings.Repeat("b", 64))
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(fixture(t, "platform-image-inspect.json")), &rows); err != nil {
+		t.Fatal(err)
+	}
+	rows[0]["RepoDigests"] = []string{manifest.String()}
+	local, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	container := `[{"Name":"systemd-api","Image":"748902c9f9368aa7437b05e353c23968266b0bc882ac1d74067fc1768a102ba6","Config":{"Labels":{"PODMAN_SYSTEMD_UNIT":"api.service"}},"State":{"Status":"running","Running":true}}]`
+	r := &recorder{results: []localexec.Result{{}, {Stdout: container}, {Stdout: string(local)}, {Stdout: string(local)}, {Stdout: fixture(t, "manifest-inspect.json")}, {Stdout: string(local)}}}
+	name, _ := ParseName("systemd-api")
+	got, err := client(t, r).RunningContainerImage(context.Background(), name, "api.service", image(t), manifest)
+	if err == nil {
+		t.Fatal("missing local index proof accepted", got)
+	}
+	for _, cmd := range r.commands {
+		if cmd.Mutation || cmd.Args[0] == "manifest" {
+			t.Fatal("inventory requested registry or mutation", cmd.Args)
+		}
+	}
+	if len(r.commands) != 4 {
+		t.Fatal("unexpected probe count", len(r.commands))
 	}
 }

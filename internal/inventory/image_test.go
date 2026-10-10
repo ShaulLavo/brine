@@ -111,7 +111,7 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 			delete(m, "manifest inspect "+repository+index)
 		}, true, nil, "inactive"},
 
-		{"inactive multi-platform index resolved by manifest list", func(m map[string]string) {
+		{"inactive missing index association stays unknown", func(m map[string]string) {
 			m["container inspect systemd-hello"] = strings.ReplaceAll(strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`), `"Status":"running"`, `"Status":"exited"`)
 			var rows []map[string]any
 			if err := json.Unmarshal([]byte(m["image inspect "+repository+manifest]), &rows); err != nil {
@@ -124,7 +124,7 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 			}
 			m["image inspect "+repository+index] = string(raw)
 			m["image inspect "+repository+manifest] = string(raw)
-		}, true, nil, "inactive"},
+		}, false, nil, "inactive"},
 
 		{"inactive but running container", nil, false, nil, "inactive"},
 		{"inactive missing container", func(m map[string]string) {
@@ -346,6 +346,7 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 type stalledImagesRunner struct {
 	imageRunner
 	manifestCalls int
+	localCalls    int
 }
 
 func (r *stalledImagesRunner) CaptureStdout(ctx context.Context, limit int, p string, args ...string) (localexec.Capture, error) {
@@ -357,6 +358,10 @@ func (r *stalledImagesRunner) CaptureStdout(ctx context.Context, limit int, p st
 func (r *stalledImagesRunner) Execute(ctx context.Context, cmd localexec.Command) (localexec.Result, error) {
 	if len(cmd.Args) > 0 && cmd.Args[0] == "manifest" {
 		r.manifestCalls++
+		return localexec.Result{}, fmt.Errorf("inventory registry request refused")
+	}
+	if len(cmd.Args) > 1 && cmd.Args[0] == "image" && cmd.Args[1] == "inspect" {
+		r.localCalls++
 		<-ctx.Done()
 		return localexec.Result{}, &localexec.Error{Kind: localexec.Timeout}
 	}
@@ -406,8 +411,8 @@ func TestUnavailableImagesDoNotExhaustCollection(t *testing.T) {
 	if ctx.Err() != nil {
 		t.Fatal("caller deadline consumed")
 	}
-	if r.manifestCalls != 3 {
-		t.Fatalf("fair image slices attempted %d apps, want 3", r.manifestCalls)
+	if r.localCalls != 3 || r.manifestCalls != 0 {
+		t.Fatalf("local attempts=%d, want 3; registry attempts=%d, want 0", r.localCalls, r.manifestCalls)
 	}
 	if s.Apps.Value == nil || len(*s.Apps.Value) != 3 || s.PortOwners.Status != target.KnownStatus || s.UsedPorts.Status != target.KnownStatus {
 		t.Fatalf("required facts lost: %+v", s)
