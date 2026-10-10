@@ -90,7 +90,8 @@ func TestDiagnoseCommandEndToEndGoldens(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			var out, errout bytes.Buffer
 			client := &diagnoseTransport{server: diagnosticServer()}
-			args := []string{"diagnose", "demo", "--target", "fixture", "--config-dir", targetConfig(t)}
+			configDir := targetConfig(t)
+			args := []string{"diagnose", "demo", "--target", "fixture", "--config-dir", configDir}
 			if mode != "human" {
 				args = append(args, "--"+mode)
 			}
@@ -104,9 +105,13 @@ func TestDiagnoseCommandEndToEndGoldens(t *testing.T) {
 			if strings.Contains(out.String(), "planted-diagnosis-secret") || strings.Contains(errout.String(), "planted-diagnosis-secret") {
 				t.Fatal("secret reached client")
 			}
+			actual := out.Bytes()
+			if mode == "human" {
+				actual = []byte(strings.ReplaceAll(out.String(), shellWord(configDir), "CONFIG_DIR"))
+			}
 			path := filepath.Join("testdata", "diagnose."+mode)
 			if os.Getenv("UPDATE_GOLDEN") == "1" {
-				if e := os.WriteFile(path, out.Bytes(), 0600); e != nil {
+				if e := os.WriteFile(path, actual, 0600); e != nil {
 					t.Fatal(e)
 				}
 			}
@@ -114,7 +119,7 @@ func TestDiagnoseCommandEndToEndGoldens(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			if !bytes.Equal(want, out.Bytes()) {
+			if !bytes.Equal(want, actual) {
 				t.Fatalf("golden mismatch %s\n%s", path, out.String())
 			}
 			if mode != "human" {

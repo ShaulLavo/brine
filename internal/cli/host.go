@@ -27,6 +27,10 @@ func newHostCmd(deps Dependencies) *cobra.Command {
 }
 
 func executeHostServe(deps Dependencies) error {
+	return executeHostServeFinalized(deps, nil)
+}
+
+func executeHostServeFinalized(deps Dependencies, finalize func(error) error) error {
 	fmt.Fprintf(deps.Stderr, "ssh_original_command_length=%d\n", deps.OriginalCommandLength)
 	uid := deps.HostUID
 	if uid == nil {
@@ -74,6 +78,12 @@ func executeHostServe(deps Dependencies) error {
 			server.Diagnose = reader
 		}
 		envelope, err = server.Handle(ctx, deps.Stdin)
+	}
+	if finalize != nil {
+		err = finalize(err)
+		if err != nil {
+			envelope = result.Failure(envelope.Command, err)
+		}
 	}
 	if writeErr := json.NewEncoder(deps.Stdout).Encode(envelope); writeErr != nil {
 		return result.New(result.InternalError, writeErr)

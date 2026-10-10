@@ -73,7 +73,7 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 					return err
 				}
 				if _, err = spec.Parse(raw); err != nil {
-					return err
+					return result.New(result.InvalidUsage, err)
 				}
 				response, err := connected.call(cmd.Context(), deps, "plan", dispatch.PlanArgs{Spec: string(raw)})
 				if err != nil {
@@ -89,6 +89,9 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Plan %s: %s\n", p.PlanID, p.Kind)
 				if err == nil && p.Diff != nil {
 					err = json.NewEncoder(cmd.OutOrStdout()).Encode(p.Diff)
+				}
+				if err == nil && p.Kind == plan.Conflict {
+					return printConflicts(cmd.OutOrStdout(), p.Conflicts)
 				}
 				return err
 			}

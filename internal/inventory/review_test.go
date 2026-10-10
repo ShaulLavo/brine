@@ -202,3 +202,8 @@ func TestReviewFileTypeAndLimit(t *testing.T) {
 		t.Fatal("oversized file accepted")
 	}
 }
+
+func (r warningRunner) CaptureStdout(ctx context.Context, limit int, p string, args ...string) (localexec.Capture, error) {
+	out, err := r.RunStdout(ctx, p, args...)
+	return fixtureCapture(out, limit), err
+}

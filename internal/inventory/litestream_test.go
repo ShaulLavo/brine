@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -16,12 +17,12 @@ type toolRunner struct {
 	err   error
 }
 
-func (r toolRunner) RunStdout(_ context.Context, path string, args ...string) (string, error) {
+func (r toolRunner) CaptureStdout(_ context.Context, limit int, path string, args ...string) (localexec.Capture, error) {
 	r.t.Helper()
-	if path != LitestreamPath || len(args) != 1 || args[0] != "version" {
+	if limit != 128 || path != LitestreamPath || len(args) != 1 || args[0] != "version" {
 		r.t.Fatal("PATH or invalid tool lookup")
 	}
-	return r.value, r.err
+	return localexec.Capture{Stdout: r.value}, r.err
 }
 func TestLitestreamObservation(t *testing.T) {
 	checksum := "sha256:" + strings.Repeat("a", 64)
@@ -53,5 +54,23 @@ func TestLitestreamHashDrift(t *testing.T) {
 	c := LitestreamCollector{Runner: toolRunner{t, "0.5.17", nil}, HashExecutable: func(context.Context, string) (string, error) { n++; return strings.Repeat("a", n), nil }}
 	if got := c.Collect(context.Background()); got.Status != target.Unknown {
 		t.Fatal(got)
+	}
+}
+
+type overflowingToolRunner struct{ toolRunner }
+
+func (r overflowingToolRunner) CaptureStdout(ctx context.Context, limit int, path string, args ...string) (localexec.Capture, error) {
+	output, err := r.toolRunner.CaptureStdout(ctx, limit, path, args...)
+	output.Overflow = true
+	return output, err
+}
+
+func TestLitestreamCaptureOverflowRefused(t *testing.T) {
+	c := LitestreamCollector{
+		Runner:         overflowingToolRunner{toolRunner{t, "0.5.17", nil}},
+		HashExecutable: func(context.Context, string) (string, error) { return "sha256:" + strings.Repeat("a", 64), nil },
+	}
+	if got := c.Collect(context.Background()); got.Status != target.Unknown {
+		t.Fatal("accepted overflowed version capture", got)
 	}
 }

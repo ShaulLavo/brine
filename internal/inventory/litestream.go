@@ -25,7 +25,7 @@ type Litestream struct {
 
 // The injected reader must verify protected parents, file ownership, mode and type.
 type LitestreamCollector struct {
-	Runner         localexec.StdoutRunner
+	Runner         localexec.CaptureRunner
 	HashExecutable func(context.Context, string) (string, error)
 }
 
@@ -46,8 +46,9 @@ func (c LitestreamCollector) Collect(ctx context.Context) target.Observation[Lit
 	if err != nil {
 		return unknown[Litestream]()
 	}
-	version, err := c.Runner.RunStdout(ctx, LitestreamPath, "version")
-	if err != nil || len(version) > 128 || strings.TrimSpace(version) != "0.5.17" {
+	output, err := c.Runner.CaptureStdout(ctx, 128, LitestreamPath, "version")
+	version := output.Stdout
+	if err != nil || output.Overflow || len(version) > 128 || strings.TrimSpace(version) != "0.5.17" {
 		return unknown[Litestream]()
 	}
 	after, err := hash(ctx, LitestreamPath)

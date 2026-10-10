@@ -20,24 +20,43 @@ type StdoutRunner interface {
 	RunStdout(context.Context, string, ...string) (string, error)
 }
 
+// Capture retains stdout and reports overflow independently of its retained length.
+type Capture struct {
+	Stdout   string
+	Overflow bool
+}
+
+type CaptureRunner interface {
+	CaptureStdout(context.Context, int, string, ...string) (Capture, error)
+}
+
 type ExecRunner struct{}
 
 func (ExecRunner) Run(ctx context.Context, path string, args ...string) (string, error) {
-	return run(ctx, false, path, args...)
+	out, err := run(ctx, false, OutputLimit, path, args...)
+	return out.Stdout, err
 }
 func (ExecRunner) RunStdout(ctx context.Context, path string, args ...string) (string, error) {
-	return run(ctx, true, path, args...)
+	out, err := run(ctx, true, OutputLimit, path, args...)
+	return out.Stdout, err
 }
-func run(ctx context.Context, stdoutOnly bool, path string, args ...string) (string, error) {
+func (ExecRunner) CaptureStdout(ctx context.Context, limit int, path string, args ...string) (Capture, error) {
+	if limit <= 0 {
+		return Capture{}, ErrOutputLimit
+	}
+	return run(ctx, true, limit, path, args...)
+}
+
+func run(ctx context.Context, stdoutOnly bool, limit int, path string, args ...string) (Capture, error) {
 	path, err := LookPath(path)
 	if err != nil {
-		return "", err
+		return Capture{}, err
 	}
 	env, home, err := commandEnvironment(nil, false)
 	if err != nil {
-		return "", err
+		return Capture{}, err
 	}
-	output := &boundedOutput{}
+	output := &boundedOutput{limit: limit}
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Env = env
 	cmd.Dir = home
@@ -45,7 +64,7 @@ func run(ctx context.Context, stdoutOnly bool, path string, args ...string) (str
 	cmd.Stdout = output
 	cmd.Stderr = output
 	if stdoutOnly {
-		cmd.Stderr = &boundedOutput{}
+		cmd.Stderr = &boundedOutput{limit: OutputLimit}
 	}
 	// Bound pipe draining if a descendant keeps the output descriptors open.
 	cmd.WaitDelay = 100 * time.Millisecond
@@ -53,29 +72,31 @@ func run(ctx context.Context, stdoutOnly bool, path string, args ...string) (str
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
-	return output.String(), err
+	return output.snapshot(), err
 }
 
 type boundedOutput struct {
-	mu   sync.Mutex
-	data []byte
+	mu       sync.Mutex
+	data     []byte
+	limit    int
+	overflow bool
 }
 
 func (b *boundedOutput) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	n := len(p)
-	if remaining := OutputLimit - len(b.data); remaining > 0 {
-		if len(p) > remaining {
-			p = p[:remaining]
-		}
-		b.data = append(b.data, p...)
+	remaining := b.limit - len(b.data)
+	if len(p) > remaining {
+		p = p[:remaining]
+		b.overflow = true
 	}
+	b.data = append(b.data, p...)
 	return n, nil
 }
 
-func (b *boundedOutput) String() string {
+func (b *boundedOutput) snapshot() Capture {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return string(b.data)
+	return Capture{Stdout: string(b.data), Overflow: b.overflow}
 }

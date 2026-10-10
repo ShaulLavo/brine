@@ -39,7 +39,7 @@ Plan is read-only with respect to runtime/proxy/data; it stores the plan in the 
 
 `validate` human output summarizes the normalized name, digest-pinned image, domains, container port, policy version and environment/secret counts. Its machine `data` is the normalized desired configuration, with `environment` replaced by a sorted array of names, never literal values. Health/resource defaults, policy hash/version, app port range and secret references remain visible.
 
-`plan` without enabled `--offline` refuses with `offline_required` and exit 2 before reading files. A supplied snapshot is never treated as a connected host. The image digest comes from the validated app; an installed app's matching digest retains its observed platform. Otherwise Linux and the snapshot architecture are explicit offline assumptions, not verified registry metadata. No manifest is fetched. The selected platform manifest observation is always `unknown`, even when an installed app supplies the platform.
+`plan` without `--target` or enabled `--offline` refuses with `offline_required` and exit 2 before reading files. `plan --target NAME` uses connected planning on an enrolled host; the remaining details in this section describe offline previews. A supplied snapshot is never treated as a connected host. The image digest comes from the validated app; an installed app's matching digest retains its observed platform. Otherwise Linux and the snapshot architecture are explicit offline assumptions, not verified registry metadata. No manifest is fetched. The selected platform manifest observation is always `unknown`, even when an installed app supplies the platform.
 
 `--state` reads the separate `plan.BrineState` JSON schema, including every normalized previous release input. Its decoder rejects unknown, missing, duplicate, case-aliased and null fields, as well as trailing JSON. Without `--state`, an affirmatively empty, generation-zero snapshot permits an empty bound state for a fresh-host preview. Other snapshots receive unbound empty state and produce a conflict; the CLI never invents installed release history from the new desired app. Use the example committed-state file for the installed-app no-op case.
 
@@ -147,7 +147,7 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `interrupted` | 130 | false | The client was interrupted. |
 | `tui_interactive` | 2 | false | tui is interactive; remove --json, --jsonl and --no-input |
 | `tui_terminal_required` | 2 | false | tui requires terminal input and output. |
-| `offline_required` | 2 | false | Connected planning is not available; use --offline with --snapshot and --policy. |
+| `offline_required` | 2 | false | Choose --target NAME for connected planning, or use --offline with --snapshot and --policy. |
 | `input_required` | 2 | false | Interactive input is required; supply explicit arguments or use an interactive terminal. |
 | `dispatch_invalid_request` | 2 | false | The dispatcher request is invalid. |
 | `dispatch_unsupported_schema` | 3 | false | The dispatcher protocol version is incompatible. |
@@ -468,7 +468,10 @@ persistent_root = "/srv/brine-data"
 mount_path = "/data"
 filename = "app.db"
 backup_destination = "primary"
+sync_interval = "1m"
 ~~~
+
+Per-database `sync_interval` is a positive Go duration string, default `1m`. Operator `[backup]` sets `min_sync_interval` (default `10s`) and `max_sync_interval` (default `1h`). A spec interval outside these inclusive bounds produces a clear `backup_cadence_denied` plan conflict, not a parse or policy rejection. The operator separately sets `snapshot_interval` (default `6h`), bounded by `min_snapshot_interval` (default `1h`) and `max_snapshot_interval` (default `24h`). Invalid or unordered operator bounds refuse policy parsing. Canonical desired state and plans carry the effective durations for the replica renderer. Litestream `monitor-interval: 1s` and `checkpoint-interval: 1m` remain fixed, not configurable. The approximate loss window is `sync_interval` plus upload time, not a durability promise; during upload failure the recovery-point bound is unknown.
 
 `spec.App` gains `Runtime *RuntimeIdentity` and `Databases []Database`; `RuntimeIdentity` holds `UID uint32` and `GID uint32`. `Database` holds typed `DatabaseName`, `PersistentRoot`, `ContainerMountPath`, `DatabaseFilename` and `BackupDestinationRef`. Runtime is required for databases, UID/GID are 1..65535, and every database writer uses those identities. Database names/destination references are 1..63 lowercase ASCII letters/digits/hyphens, starting with a letter. Filenames are one 1..128-byte ASCII basename, start with a letter/digit, and allow letters/digits/dot/underscore/hyphen, except `.` / `..` and names ending in `-wal`, `-shm`, `-journal` or `-litestream`. No slashes, interpolation, control characters or symlinks. At most 16 databases; names are unique. Mount paths are clean absolute POSIX directories; refuse root, overlapping mounts and system/secret/runtime paths (`/proc`, `/sys`, `/dev`, `/run`, `/etc` and their descendants). `persistent_root` exactly matches an authorized policy entry, not an arbitrary descendant. Database filename/mount identity changes on an existing database refuse pending an explicit data move design. Migrations are separate P04-07 plans, never deploy side effects.
 

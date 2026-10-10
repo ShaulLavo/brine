@@ -1077,6 +1077,18 @@ func (h *host) absence(ctx context.Context) error {
 
 type probeRunner struct{ executor localexec.Executor }
 
+func (p probeRunner) CaptureStdout(ctx context.Context, limit int, path string, args ...string) (localexec.Capture, error) {
+	if limit <= 0 {
+		return localexec.Capture{}, localexec.ErrOutputLimit
+	}
+	r, err := p.executor.Execute(ctx, localexec.Command{Path: path, Args: args, Timeout: 30 * time.Second, Dir: "/tmp"})
+	out := localexec.Capture{Stdout: r.Stdout, Overflow: r.Truncated || len(r.Stdout) > limit}
+	if len(out.Stdout) > limit {
+		out.Stdout = out.Stdout[:limit]
+	}
+	return out, err
+}
+
 func (p probeRunner) RunStdout(ctx context.Context, path string, args ...string) (string, error) {
 	r, err := p.executor.Execute(ctx, localexec.Command{Path: path, Args: args, Timeout: 30 * time.Second, Dir: "/tmp"})
 	if r.Truncated {
