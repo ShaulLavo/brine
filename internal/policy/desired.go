@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
 
@@ -28,19 +29,23 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
-	SchemaVersion        int                 `json:"schema_version"`
-	Name                 spec.Name           `json:"name"`
-	Image                spec.ImageReference `json:"image"`
-	ContainerPort        spec.Port           `json:"container_port"`
-	Domains              []spec.Domain       `json:"domains"`
-	Health               Health              `json:"health"`
-	Resources            Resources           `json:"resources"`
-	Environment          []Environment       `json:"environment"`
-	Secrets              []Secret            `json:"secrets"`
-	PolicyVersion        string              `json:"policy_version"`
-	PolicyHash           string              `json:"policy_hash"`
-	AppPorts             PortRange           `json:"app_ports"`
-	MinimumFreeDiskBytes uint64              `json:"minimum_free_disk_bytes"`
+	Runtime              *data.RuntimeIdentity      `json:"runtime,omitempty"`
+	Databases            []data.Database            `json:"databases,omitempty"`
+	SchemaCompatibility  []data.SchemaCompatibility `json:"schema_compatibility,omitempty"`
+	SchemaDefinitions    []data.SchemaDefinition    `json:"schema_definitions,omitempty"`
+	SchemaVersion        int                        `json:"schema_version"`
+	Name                 spec.Name                  `json:"name"`
+	Image                spec.ImageReference        `json:"image"`
+	ContainerPort        spec.Port                  `json:"container_port"`
+	Domains              []spec.Domain              `json:"domains"`
+	Health               Health                     `json:"health"`
+	Resources            Resources                  `json:"resources"`
+	Environment          []Environment              `json:"environment"`
+	Secrets              []Secret                   `json:"secrets"`
+	PolicyVersion        string                     `json:"policy_version"`
+	PolicyHash           string                     `json:"policy_hash"`
+	AppPorts             PortRange                  `json:"app_ports"`
+	MinimumFreeDiskBytes uint64                     `json:"minimum_free_disk_bytes"`
 }
 
 func (d Desired) CanonicalBytes() ([]byte, error) {
@@ -53,12 +58,32 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 	slices.SortFunc(d.Environment, func(a, b Environment) int { return strings.Compare(a.Name, b.Name) })
 	d.Secrets = slices.Clone(d.Secrets)
 	slices.SortFunc(d.Secrets, func(a, b Secret) int { return strings.Compare(a.Name, b.Name) })
+	d.Databases = slices.Clone(d.Databases)
+	slices.SortFunc(d.Databases, func(a, b data.Database) int { return strings.Compare(string(a.Name), string(b.Name)) })
+	d.SchemaCompatibility = slices.Clone(d.SchemaCompatibility)
+	for i := range d.SchemaCompatibility {
+		d.SchemaCompatibility[i].Accepts = slices.Clone(d.SchemaCompatibility[i].Accepts)
+		slices.Sort(d.SchemaCompatibility[i].Accepts)
+	}
+	slices.SortFunc(d.SchemaCompatibility, func(a, b data.SchemaCompatibility) int {
+		return strings.Compare(string(a.Database), string(b.Database))
+	})
+	d.SchemaDefinitions = slices.Clone(d.SchemaDefinitions)
+	slices.SortFunc(d.SchemaDefinitions, func(a, b data.SchemaDefinition) int {
+		if c := strings.Compare(string(a.Database), string(b.Database)); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Marker, b.Marker)
+	})
 	return json.Marshal(d)
 }
 
 // Normalize requires a policy produced by Parse. No snapshot is needed here;
 // observed ports, target identity and secret versions belong to the planner.
 func Normalize(input spec.App, p Policy) (Desired, error) {
+	if input.Runtime != nil || len(input.Databases) != 0 || len(input.SchemaCompatibility) != 0 || len(input.SchemaDefinitions) != 0 {
+		return Desired{}, refuse("policy.persistence_unavailable", "databases", "persistent admission requires verified data facts")
+	}
 	if p.config == nil {
 		return Desired{}, refuse("policy.required", "$", "explicit operator policy is required")
 	}
@@ -154,4 +179,28 @@ func (p Policy) CheckSecret(app spec.Name, ref spec.SecretReference) error {
 		return refuse("policy.secret_denied", "secrets", "secret reference is not allowed for this app")
 	}
 	return nil
+}
+
+// Stateless is affirmative only when no persistence declaration is present.
+func (d Desired) Stateless() bool {
+	return d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
+}
+
+// App reconstructs a detached spec input. It grants no policy authorization.
+func (d Desired) App() spec.App {
+	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}, Databases: slices.Clone(d.Databases), SchemaCompatibility: slices.Clone(d.SchemaCompatibility), SchemaDefinitions: slices.Clone(d.SchemaDefinitions)}
+	if d.Runtime != nil {
+		r := *d.Runtime
+		a.Runtime = &r
+	}
+	for i := range a.SchemaCompatibility {
+		a.SchemaCompatibility[i].Accepts = slices.Clone(a.SchemaCompatibility[i].Accepts)
+	}
+	for _, v := range d.Environment {
+		a.Environment[v.Name] = v.Value
+	}
+	for _, v := range d.Secrets {
+		a.Secrets[v.Name] = v.Reference
+	}
+	return a
 }

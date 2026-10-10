@@ -28,6 +28,14 @@ type Removal struct {
 }
 
 func BuildRemove(in Input) (Plan, error) {
+	if !in.Desired.Stateless() {
+		return Plan{}, ErrPersistentData
+	}
+	for _, r := range in.State.Releases {
+		if r.App == string(in.Desired.Name) && !r.Desired.Stateless() {
+			return Plan{}, ErrPersistentData
+		}
+	}
 	desired, err := in.Desired.CanonicalBytes()
 	if err != nil {
 		return Plan{}, err
