@@ -40,3 +40,26 @@ func (x *execution) clearWriterStart(ctx context.Context) error {
 	}
 	return nil
 }
+
+// PersistentData performs journaled preparation and independently inspects its
+// complete artifact/binding/activation outcome. A running process is neither a
+// complete preparation proof nor evidence of remote durability.
+type PersistentData interface {
+	PreparePersistent(context.Context, string, plan.Plan, policy.Desired) error
+	PersistentPrepared(context.Context, string, plan.Plan, policy.Desired) (bool, error)
+}
+
+func (x *execution) preparePersistent(ctx context.Context) error {
+	if x.desired.Stateless() {
+		return nil
+	}
+	if x.executor.PersistentData == nil {
+		return &Error{Step: "prepare_data", Code: "writer_permit_refused"}
+	}
+	if err := x.executor.PersistentData.PreparePersistent(ctx, x.id, x.plan, x.desired); err != nil {
+		// Publication, binding commit and activation are separate effects. Any
+		// adapter error can leave a prefix applied; inspect it instead of replaying.
+		return &Error{Step: "prepare_data", Code: "interrupted", Cause: err}
+	}
+	return nil
+}
