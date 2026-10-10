@@ -74,6 +74,11 @@ fast() {
   rules
   duplicates
   while IFS= read -r dir; do
+    if [[ $dir == tools/webtransport-experiment ]]; then
+      local config="$PWD/.golangci.yml"
+      (cd "$dir" && golangci run --config "$config" --new-from-merge-base= --new-from-rev= ./...)
+      continue
+    fi
     if [[ -d $dir ]] && compgen -G "$dir/*.go" > /dev/null; then
       packages+=("./$dir")
     fi

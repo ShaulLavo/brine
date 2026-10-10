@@ -46,6 +46,9 @@ jobs:
           version: v2.14.0
           # PR checkout is a synthetic merge; its first parent is the actual main baseline.
           args: --new-from-merge-base= --new-from-rev=${{ steps.lint-base.outputs.sha }}
+      - name: Lint isolated protocol experiment
+        working-directory: tools/webtransport-experiment
+        run: golangci-lint run --config ../../.golangci.yml --new-from-merge-base= --new-from-rev= ./...
 
   structure:
     name: Authority, dead code and clones

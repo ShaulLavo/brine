@@ -41,6 +41,11 @@ func TestDirectEcho(t *testing.T) {
 			http.NotFound(w, r)
 			return
 		}
+		if r.Method != http.MethodConnect || r.Proto != "webtransport-h3" {
+			http.Error(w, "unexpected CONNECT protocol", http.StatusBadRequest)
+			result <- errors.New("client did not send current WebTransport extended CONNECT")
+			return
+		}
 		session, err := server.Upgrade(w, r)
 		if err != nil {
 			http.Error(w, "admission refused", http.StatusForbidden)
@@ -62,6 +67,9 @@ func TestDirectEcho(t *testing.T) {
 	client := &webtransport.Transport{TLSClientConfig: clientTLS, Config: flowLimits()}
 	response, session, err := client.Dial(ctx, "https://"+packet.LocalAddr().String()+"/wt", http.Header{"Origin": {origin}})
 	defer func() { _ = client.Close() }()
+	if response != nil && response.Body != nil {
+		defer func() { _ = response.Body.Close() }()
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,7 +137,7 @@ func echo(ctx context.Context, session *webtransport.Session) error {
 	message := make([]byte, nonceSize+1)
 	n, err := io.ReadFull(stream, message)
 	if n != nonceSize || !errors.Is(err, io.ErrUnexpectedEOF) {
-		return fmt.Errorf("bidi request must contain exactly %d bytes and FIN: read %d, error %v", nonceSize, n, err)
+		return errors.Join(fmt.Errorf("bidi request must contain exactly %d bytes and FIN: read %d", nonceSize, n), err)
 	}
 	nonce := message[:n]
 	if _, err := stream.Write(nonce); err != nil {
@@ -189,8 +197,11 @@ func TestHTTP3OnlyRefusesWebTransport(t *testing.T) {
 		t.Fatal("negative control is not a working HTTP/3 endpoint")
 	}
 	client := &webtransport.Transport{TLSClientConfig: clientTLS}
-	_, session, err := client.Dial(ctx, url, http.Header{"Origin": {origin}})
+	admission, session, err := client.Dial(ctx, url, http.Header{"Origin": {origin}})
 	defer func() { _ = client.Close() }()
+	if admission != nil && admission.Body != nil {
+		defer func() { _ = admission.Body.Close() }()
+	}
 	if session != nil {
 		_ = session.CloseWithError(0, "unexpected admission")
 		t.Fatal("HTTP/3-only endpoint admitted WebTransport")
