@@ -110,7 +110,7 @@ func TestSampledSnapshotDecisionFacts(t *testing.T) {
 	}
 	original := installed(t)
 	baseline := build(t, original)
-	originalFacts, err := canonicalDecisionFacts(original.Snapshot, original.Desired.MinimumFreeDiskBytes)
+	originalFacts, err := canonicalDecisionFacts(original)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestSampledSnapshotDecisionFacts(t *testing.T) {
 				if err := json.Unmarshal(changedWire, &in.Snapshot); err != nil {
 					t.Fatal(err)
 				}
-				facts, err := canonicalDecisionFacts(in.Snapshot, in.Desired.MinimumFreeDiskBytes)
+				facts, err := canonicalDecisionFacts(in)
 				if err != nil || hash(facts) == hash(originalFacts) {
 					t.Fatalf("sample %d lost %s from hash material: %v", sample, path, err)
 				}

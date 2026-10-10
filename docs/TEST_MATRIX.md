@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | T01 | Human and JSON version/doctor output | Valid schema, no ANSI or prompts in machine output | 00 |
 | T02 | Invalid config, unknown field, unsafe path/domain/image | Validation refusal; no host or control-plane effects | 01 |
-| T03 | Repeated same plan decision facts, including different disk-byte measurements within the same sufficient/insufficient class | Same canonical hash and ordered changes; sampled perturbations of every snapshot decision field change hash material | 01 |
+| T03 | Repeated same plan decision facts, including disk movements within one admission class and unrelated app image/health changes | Same canonical hash and ordered changes; sampled perturbations of every included snapshot decision field change hash material | 01 |
 | T04 | Changed observed state or policy before apply | Stale plan refused; no mutation | 01/03 |
 | T05 | Unknown/unowned service, port or Caddy route | Conflict reported; no overwrite/uninstall | 02 |
 | T06 | Rootless fixture restart and full VPS reboot | App resumes with expected status; no Brine process required | 02 |
@@ -251,3 +251,9 @@ Resolution review regressions (local, physical rerun still pending):
 - T12/T15: stop the independent pinned Litestream replica and check inactive/dead and exit zero. Shutdown errors remain failed. Starting or restarting it under a held fence must fail replica-permit, and pending jobs must settle before quiescence is accepted.
 
 Rendering and pure planner tests cover the policy and reservations locally. The physical systemd/Podman stop, crash and fence drill remains required.
+
+### Image inventory and plan freshness regression
+
+- T03/T04/T05/T22: running image inventory proves both single-manifest pins and locally retained index/selected-manifest aliases without a registry read. A short planning budget and a longer detached-worker budget produce the same deploy, stop and remove hashes immediately after deployment. Missing index association remains unknown without any registry request, even when an exact manifest list is available. Running-container and stored-image alias-layout regressions assert no manifest command runs. Stalled local probes still receive fair bounded slices across apps.
+- T03/T04: unrelated apps' known, unknown, absent or unsupported image observations and failed unit activity do not change another app's plan hash. The planned app's image status/digest and owned unit changes still change its hash. Removal still refuses owned unit drift. Executor tests also require a target image digest/status change to emit plan drift before any removal effects.
+- These are fake collector and pure-planner checks. Physical acceptance requires fresh connected plans and one-shot apply on an authorized disposable fixture; no physical check is claimed here.

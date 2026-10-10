@@ -492,7 +492,7 @@ func TestInspectStoredAliasLayoutsAndRefusals(t *testing.T) {
 		name, indexed, selected, list string
 		known                         bool
 	}{
-		{"only selected manifest association with index list", onlyManifest, onlyManifest, fixture(t, "manifest-inspect.json"), true},
+		{"only selected manifest association with index list", onlyManifest, onlyManifest, fixture(t, "manifest-inspect.json"), false},
 		{"only index association with primary platform digest", onlyIndex, onlyIndex, "", true},
 		{"primary index on platform alias", primaryIndex, primaryIndex, "", true},
 		{"unrelated repository", foreign, foreign, "", false},
@@ -504,6 +504,11 @@ func TestInspectStoredAliasLayoutsAndRefusals(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			r := &recorder{results: []localexec.Result{{Stdout: tc.indexed}, {Stdout: tc.selected}, {Stdout: tc.list}, {Stdout: tc.selected}}}
 			got, err := client(t, r).InspectStored(context.Background(), index, platform)
+			for _, cmd := range r.commands {
+				if cmd.Mutation || cmd.Args[0] == "manifest" {
+					t.Fatal("stored inventory requested registry or mutation", cmd.Args)
+				}
+			}
 			if (err == nil) != tc.known {
 				t.Fatal(got, err)
 			}

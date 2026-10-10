@@ -111,7 +111,8 @@ func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	facts, err := canonicalDecisionFacts(original, in.Desired.MinimumFreeDiskBytes)
+	in.Snapshot = original
+	facts, err := canonicalDecisionFacts(in)
 	if err != nil {
 		return Plan{}, err
 	}

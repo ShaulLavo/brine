@@ -54,7 +54,7 @@ func BuildRemove(in Input) (Plan, error) {
 	if err = json.Unmarshal(state, &in.State); err != nil {
 		return Plan{}, err
 	}
-	facts, err := canonicalDecisionFacts(in.Snapshot, in.Desired.MinimumFreeDiskBytes)
+	facts, err := canonicalDecisionFacts(in)
 	if err != nil {
 		return Plan{}, err
 	}

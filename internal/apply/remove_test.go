@@ -7,6 +7,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"maps"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
@@ -118,6 +119,30 @@ func TestRemoveFreshnessAndPersistentRefusalBeforeEffects(t *testing.T) {
 		t.Fatal(err, r.effects, r.state)
 	}
 }
+func TestRemoveTargetImageDriftRefusesBeforeEffects(t *testing.T) {
+	for _, unknown := range []bool{false, true} {
+		name := "digest"
+		if unknown {
+			name = "status"
+		}
+		t.Run(name, func(t *testing.T) {
+			r := newRemoveRig(t)
+			app := &(*r.facts.Input.Snapshot.Apps.Value)[0]
+			if unknown {
+				app.Image = target.Observation[target.Image]{Status: target.Unknown}
+			} else {
+				changed := *app.Image.Value
+				changed.Digest = "sha256:" + strings.Repeat("f", 64)
+				app.Image = target.Known(changed)
+			}
+			err := r.executor.Run(context.Background(), "operation", r.plan, r.desired)
+			if result.Classify(err).Code() != result.Conflict || len(r.events) != 1 || r.events[0].Kind != "plan_drift" || len(r.effects) != 0 {
+				t.Fatal(err, r.events, r.effects)
+			}
+		})
+	}
+}
+
 func TestRemoveNoOpNeedsNoEffectAdapters(t *testing.T) {
 	r := newRig(t, false)
 	var err error

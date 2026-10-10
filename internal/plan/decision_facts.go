@@ -21,7 +21,7 @@ type decisionFacts struct {
 	Runner         target.Runner                                    `json:"runner"`
 	Generation     target.Observation[uint64]                       `json:"generation"`
 	CaddyConfig    target.Observation[target.CaddyConfigSet]        `json:"caddy_config"`
-	Apps           target.Observation[[]target.App]                 `json:"apps"`
+	Apps           target.Observation[[]decisionApp]                `json:"apps"`
 	UsedPorts      target.Observation[[]target.Port]                `json:"used_ports"`
 	LiveCaddyFiles target.Observation[[]target.LiveCaddyFile]       `json:"live_caddy_files"`
 	PortOwners     target.Observation[[]target.PortOwner]           `json:"port_owners"`
@@ -35,14 +35,33 @@ func sufficientDisk(s target.Snapshot, minimum uint64) target.Observation[bool] 
 	return target.Observation[bool]{Status: s.FreeDiskBytes.Status}
 }
 
+// Other apps only contribute their observed port to admission. The planned app
+// retains all ownership observations, including unknown image evidence.
+type decisionApp struct {
+	Name              string                               `json:"name"`
+	Image             *target.Observation[target.Image]    `json:"image,omitempty"`
+	AllocatedHostPort target.Observation[target.Port]      `json:"allocated_host_port"`
+	QuadletUnits      *target.Observation[[]target.Unit]   `json:"quadlet_units,omitempty"`
+	Secrets           *target.Observation[[]target.Secret] `json:"secrets,omitempty"`
+}
+
 // The snapshot has already passed target.Encode's validation and sorting.
-func canonicalDecisionFacts(s target.Snapshot, minimum uint64) ([]byte, error) {
+func canonicalDecisionFacts(in Input) ([]byte, error) {
+	s := in.Snapshot
+	minimum := in.Desired.MinimumFreeDiskBytes
+	apps := target.Observation[[]decisionApp]{Status: s.Apps.Status}
 	if s.Apps.Value != nil {
-		apps := append([]target.App{}, (*s.Apps.Value)...)
-		for i := range apps {
-			apps[i].UnitActive = nil
+		projected := make([]decisionApp, 0, len(*s.Apps.Value))
+		for _, app := range *s.Apps.Value {
+			a := decisionApp{Name: app.Name, AllocatedHostPort: app.AllocatedHostPort}
+			if app.Name == string(in.Desired.Name) {
+				a.Image = &app.Image
+				a.QuadletUnits = &app.QuadletUnits
+				a.Secrets = &app.Secrets
+			}
+			projected = append(projected, a)
 		}
-		s.Apps = target.Known(apps)
+		apps.Value = &projected
 	}
 	if s.PersistentData != nil && s.PersistentData.Value != nil {
 		raw, err := json.Marshal(s.PersistentData)
@@ -95,7 +114,7 @@ func canonicalDecisionFacts(s target.Snapshot, minimum uint64) ([]byte, error) {
 		Runner:         s.Runner,
 		Generation:     s.Generation,
 		CaddyConfig:    s.CaddyConfig,
-		Apps:           s.Apps,
+		Apps:           apps,
 		UsedPorts:      s.UsedPorts,
 		LiveCaddyFiles: s.LiveCaddyFiles,
 		PortOwners:     s.PortOwners,
