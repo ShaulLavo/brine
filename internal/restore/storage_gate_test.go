@@ -74,6 +74,7 @@ func TestRealStorageRestore(t *testing.T) {
 		t.Fatal("checksum-verified scratch Litestream binary path required")
 	}
 	scratch := t.TempDir()
+	// #nosec G302 -- Private scratch directory needs owner traversal permission.
 	if err := os.Chmod(scratch, 0700); err != nil {
 		t.Fatal("private drill workspace unavailable")
 	}
@@ -125,7 +126,7 @@ func TestRealStorageRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal("fixture open failed")
 	}
-	defer db.Close()
+	defer func() { mustRestoreTest(t, db.Close()) }()
 	ddl, err := os.ReadFile("testdata/fixture.sql")
 	if err != nil {
 		t.Fatal("fixture schema unavailable")
@@ -137,7 +138,6 @@ func TestRealStorageRestore(t *testing.T) {
 	encoded, _ := json.Marshal(catalog)
 	digest := sha256.Sum256(encoded)
 	schema := SchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: hex.EncodeToString(digest[:])}
-	committed := time.Now().UTC().Truncate(time.Second)
 	if _, err := db.ExecContext(ctx, `INSERT INTO brine_schema_marker VALUES(1,?,?);`, schema.Marker, schema.CatalogSHA256); err != nil {
 		t.Fatal("fixture commit failed")
 	}
@@ -155,6 +155,7 @@ func TestRealStorageRestore(t *testing.T) {
 	if err := os.WriteFile(configPath, config, 0600); err != nil {
 		t.Fatal("replica config unavailable")
 	}
+	// #nosec G204 G702 -- Operator-supplied absolute checksum-verified scratch binary; fixed separate replication argv, no shell.
 	command := exec.CommandContext(ctx, binary, "replicate", "-config", configPath, "-no-expand-env")
 	command.Dir = scratch
 	command.Env = gateEnvironment(credentials, scratch)
@@ -177,7 +178,7 @@ func TestRealStorageRestore(t *testing.T) {
 		case <-ready.C:
 		}
 	}
-	committed = time.Now().UTC().Truncate(time.Second)
+	committed := time.Now().UTC().Truncate(time.Second)
 	insert, err := db.ExecContext(ctx, `INSERT INTO fixture_commits VALUES(7,'marker-7',?);`, committed.Format(time.RFC3339))
 	if err != nil {
 		t.Fatal("sentinel commit failed")
@@ -225,6 +226,7 @@ func TestRealStorageRestore(t *testing.T) {
 	if _, err := db.ExecContext(ctx, `VACUUM INTO ?`, snapshotPath); err != nil {
 		t.Fatal("fixture snapshot failed")
 	}
+	// #nosec G304 -- Snapshot path belongs to this drill's private scratch directory.
 	snapshot, err := os.ReadFile(snapshotPath)
 	if err != nil || len(snapshot) > 16<<20 {
 		t.Fatal("fixture snapshot unavailable or oversized")
@@ -253,6 +255,7 @@ func TestRealStorageRestore(t *testing.T) {
 	if err != nil {
 		t.Fatal("empty fixture failed")
 	}
+	// #nosec G304 -- Empty fixture path belongs to this drill's private scratch directory.
 	emptyBytes, err := os.ReadFile(emptyPath)
 	if err != nil {
 		t.Fatal("empty fixture failed")
@@ -286,6 +289,7 @@ func printGateReceipt(t *testing.T, r Receipt) {
 type gateCLI struct{ binary string }
 
 func (g gateCLI) Execute(ctx context.Context, c Command) (CommandResult, error) {
+	// #nosec G204 G702 -- Test-only operator-verified scratch binary and typed restore argv, never a shell.
 	command := exec.CommandContext(ctx, g.binary, c.Args...)
 	command.Dir = c.Directory
 	command.Env = gateEnvironment(c.Credentials, c.Directory)
@@ -361,24 +365,24 @@ func (gateSchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (SchemaObserv
 		var kind, name, table string
 		var ddl sql.NullString
 		if err := rows.Scan(&kind, &name, &table, &ddl); err != nil {
-			rows.Close()
+			_ = rows.Close() // Preserve the catalog verification failure.
 			return SchemaObservation{}, refuse("gate_catalog")
 		}
 		switch name {
 		case "brine_schema_marker":
 			if kind != "table" || table != name || ddl.String != "CREATE TABLE brine_schema_marker(id INTEGER PRIMARY KEY CHECK(id=1), marker TEXT NOT NULL, catalog_sha256 TEXT NOT NULL)" {
-				rows.Close()
+				_ = rows.Close() // Preserve the schema verification failure.
 				return SchemaObservation{}, refuse("gate_marker_structure")
 			}
 			markerPresent = true
 		case "_litestream_seq":
 			if kind != "table" || table != name || ddl.String != "CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER)" {
-				rows.Close()
+				_ = rows.Close() // Preserve the schema verification failure.
 				return SchemaObservation{}, refuse("gate_internal_structure")
 			}
 		case "_litestream_lock":
 			if kind != "table" || table != name || ddl.String != "CREATE TABLE _litestream_lock (id INTEGER)" {
-				rows.Close()
+				_ = rows.Close() // Preserve the schema verification failure.
 				return SchemaObservation{}, refuse("gate_internal_structure")
 			}
 		default:
@@ -390,8 +394,8 @@ func (gateSchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (SchemaObserv
 		}
 	}
 	err = rows.Err()
-	rows.Close()
-	if err != nil {
+	closeErr := rows.Close()
+	if err != nil || closeErr != nil {
 		return SchemaObservation{}, refuse("gate_catalog")
 	}
 	data, _ := json.Marshal(catalog)
@@ -441,7 +445,7 @@ func (g gateS3) request(ctx context.Context, method, key string, body []byte, he
 	if err != nil {
 		return nil, refuse("gate_http")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }() // HTTP read errors and bounds are checked below.
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return nil, refuse("gate_http_status")
 	}
@@ -520,7 +524,7 @@ func gateRestoredCount(path string) {
 		fmt.Println("restored_sentinel_rows=unknown")
 		return
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }() // Diagnostic-only read; no receipt or success decision depends on it.
 	var count int64
 	if err := db.QueryRow(`SELECT count(*) FROM fixture_commits`).Scan(&count); err != nil {
 		fmt.Println("restored_sentinel_rows=unknown")

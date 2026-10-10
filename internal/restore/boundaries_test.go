@@ -83,6 +83,7 @@ func TestPrivateWorkspaceAndOutput(t *testing.T) {
 	if _, err := newDirectory(root, "op"); err == nil {
 		t.Fatal("public root accepted")
 	}
+	// #nosec G302 -- This is a private directory; owner execute permission is required to traverse it.
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -98,14 +99,14 @@ func TestPrivateWorkspaceAndOutput(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(private, "database.sqlite")
-	os.WriteFile(path, []byte("data"), 0600)
-	os.WriteFile(path+"-wal", []byte("wal"), 0600)
+	mustRestoreTest(t, os.WriteFile(path, []byte("data"), 0600))
+	mustRestoreTest(t, os.WriteFile(path+"-wal", []byte("wal"), 0600))
 	if err := validateOutput(path); err == nil {
 		t.Fatal("WAL output sibling accepted")
 	}
-	os.Remove(path + "-wal")
-	os.Remove(path)
-	os.Symlink(filepath.Join(t.TempDir(), "foreign"), path)
+	mustRestoreTest(t, os.Remove(path+"-wal"))
+	mustRestoreTest(t, os.Remove(path))
+	mustRestoreTest(t, os.Symlink(filepath.Join(t.TempDir(), "foreign"), path))
 	if err := validateOutput(path); err == nil {
 		t.Fatal("symlink output accepted")
 	}
@@ -190,10 +191,10 @@ func TestSnapshotHTTPBoundaries(t *testing.T) {
 					http.Redirect(w, r, foreign.URL, http.StatusTemporaryRedirect)
 				case "denied":
 					w.WriteHeader(http.StatusForbidden)
-					fmt.Fprint(w, "private-value")
+					_, _ = fmt.Fprint(w, "private-value") // Client may close a deliberately rejected response.
 				case "oversize":
 					w.(http.Flusher).Flush()
-					fmt.Fprint(w, "oversized-body")
+					_, _ = fmt.Fprint(w, "oversized-body") // Client may close after reaching the byte bound.
 				case "timeout":
 					<-r.Context().Done()
 				}
@@ -265,7 +266,7 @@ func TestGateFixtureSchemaObserver(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func() { mustRestoreTest(t, db.Close()) }()
 	ddl, err := os.ReadFile("testdata/fixture.sql")
 	if err != nil {
 		t.Fatal(err)
@@ -325,6 +326,7 @@ func TestOperatorDrillRejectsInputBeyondByteBound(t *testing.T) {
 	input := `{"endpoint":"https://storage.example","region":"auto","bucket":"brine-test","prefix":"p04-05-gate/test-run/","access_key":"test-key","secret_key":"test-secret"}` + strings.Repeat(" ", 64<<10)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	// #nosec G204 G702 -- Executes this running test binary with fixed test selection; no user-supplied executable or shell.
 	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRealStorageRestore$", "-test.v")
 	command.Env = append(os.Environ(), "BRINE_RESTORE_GATE=1", "BRINE_LITESTREAM_GATE_BINARY=")
 	command.Stdin = strings.NewReader(input)

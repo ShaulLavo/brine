@@ -60,18 +60,19 @@ func downloadSnapshot(ctx context.Context, d Destination, c Credentials, s Snaps
 	if err != nil {
 		return refuse("snapshot_download_failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }() // Bounded read errors are handled below; closing HTTP input cannot alter recovered bytes.
 	if response.StatusCode != http.StatusOK {
 		return refuse("snapshot_http_status")
 	}
 	if response.ContentLength >= 0 && response.ContentLength != s.Size {
 		return refuse("snapshot_size_mismatch")
 	}
+	// #nosec G304 -- Engine constructs output inside the exclusively created private operation directory; O_EXCL refuses replacement.
 	file, err := os.OpenFile(output, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
 		return refuse("snapshot_output")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }() // Failure-path cleanup only; the successful path checks Close below.
 	digest := sha256.New()
 	size, err := io.Copy(io.MultiWriter(file, digest), io.LimitReader(response.Body, s.Size+1))
 	if err != nil {
