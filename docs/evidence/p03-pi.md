@@ -307,3 +307,7 @@ Recreation plan became `create` and operation `01a1236cd3356ea0b3b2c71ff7b8cfb80
 ### Environment and image update
 
 Operation `01a1236d9d259f648697d9740960c4ceab49cf3cd42a` succeeded with `RELEASE=two` and the new pinned index `sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8`. Runtime inspection confirms the environment change and routed HTTPS returns 200. The journal orders completed `quiesce_old` before `install_unit`, `reload_units` and `start_unit`; deployment is stop-before-start, not zero downtime. Both direct/routed checks and commit completed.
+
+### Physical rollback
+
+The first rollback operation `01a1236f4e35118f6721b8497c95415092f6e96f73c9` failed `stale_plan` before any effect (launch plus failure/terminal events only). After inspecting that no-effect terminal receipt, a fresh rollback plan matched the equivalent original desired specification. Operation `01a123706a2ad1fcc644fac2d543f6a1711cc68438f2` succeeded through that supported plan/apply path. Runtime environment returned to `RELEASE=one`; normally verified routed HTTPS returned 200. This is stateless app rollback, not database rollback. The initial plan discrepancy is being inspected, not silently retried as an unknown operation.
