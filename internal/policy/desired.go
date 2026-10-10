@@ -5,6 +5,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
 
@@ -28,19 +29,26 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
-	SchemaVersion        int                 `json:"schema_version"`
-	Name                 spec.Name           `json:"name"`
-	Image                spec.ImageReference `json:"image"`
-	ContainerPort        spec.Port           `json:"container_port"`
-	Domains              []spec.Domain       `json:"domains"`
-	Health               Health              `json:"health"`
-	Resources            Resources           `json:"resources"`
-	Environment          []Environment       `json:"environment"`
-	Secrets              []Secret            `json:"secrets"`
-	PolicyVersion        string              `json:"policy_version"`
-	PolicyHash           string              `json:"policy_hash"`
-	AppPorts             PortRange           `json:"app_ports"`
-	MinimumFreeDiskBytes uint64              `json:"minimum_free_disk_bytes"`
+	PersistentRoots      []data.PersistentRoot      `json:"persistent_roots,omitempty"`
+	Backup               *data.BackupCadence        `json:"backup,omitempty"`
+	BackupDestinations   []data.Destination         `json:"backup_destinations,omitempty"`
+	Runtime              *data.RuntimeIdentity      `json:"runtime,omitempty"`
+	Databases            []data.Database            `json:"databases,omitempty"`
+	SchemaCompatibility  []data.SchemaCompatibility `json:"schema_compatibility,omitempty"`
+	SchemaDefinitions    []data.SchemaDefinition    `json:"schema_definitions,omitempty"`
+	SchemaVersion        int                        `json:"schema_version"`
+	Name                 spec.Name                  `json:"name"`
+	Image                spec.ImageReference        `json:"image"`
+	ContainerPort        spec.Port                  `json:"container_port"`
+	Domains              []spec.Domain              `json:"domains"`
+	Health               Health                     `json:"health"`
+	Resources            Resources                  `json:"resources"`
+	Environment          []Environment              `json:"environment"`
+	Secrets              []Secret                   `json:"secrets"`
+	PolicyVersion        string                     `json:"policy_version"`
+	PolicyHash           string                     `json:"policy_hash"`
+	AppPorts             PortRange                  `json:"app_ports"`
+	MinimumFreeDiskBytes uint64                     `json:"minimum_free_disk_bytes"`
 }
 
 func (d Desired) CanonicalBytes() ([]byte, error) {
@@ -53,6 +61,27 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 	slices.SortFunc(d.Environment, func(a, b Environment) int { return strings.Compare(a.Name, b.Name) })
 	d.Secrets = slices.Clone(d.Secrets)
 	slices.SortFunc(d.Secrets, func(a, b Secret) int { return strings.Compare(a.Name, b.Name) })
+	d.PersistentRoots = slices.Clone(d.PersistentRoots)
+	slices.Sort(d.PersistentRoots)
+	d.BackupDestinations = slices.Clone(d.BackupDestinations)
+	slices.SortFunc(d.BackupDestinations, func(a, b data.Destination) int { return strings.Compare(string(a.Reference), string(b.Reference)) })
+	d.Databases = slices.Clone(d.Databases)
+	slices.SortFunc(d.Databases, func(a, b data.Database) int { return strings.Compare(string(a.Name), string(b.Name)) })
+	d.SchemaCompatibility = slices.Clone(d.SchemaCompatibility)
+	for i := range d.SchemaCompatibility {
+		d.SchemaCompatibility[i].Accepts = slices.Clone(d.SchemaCompatibility[i].Accepts)
+		slices.Sort(d.SchemaCompatibility[i].Accepts)
+	}
+	slices.SortFunc(d.SchemaCompatibility, func(a, b data.SchemaCompatibility) int {
+		return strings.Compare(string(a.Database), string(b.Database))
+	})
+	d.SchemaDefinitions = slices.Clone(d.SchemaDefinitions)
+	slices.SortFunc(d.SchemaDefinitions, func(a, b data.SchemaDefinition) int {
+		if c := strings.Compare(string(a.Database), string(b.Database)); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Marker, b.Marker)
+	})
 	return json.Marshal(d)
 }
 
@@ -81,6 +110,34 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 	}
 	if input.Resources != nil {
 		raw["resources"] = map[string]int{"memory_mb": input.Resources.MemoryMB, "pids_limit": input.Resources.PIDsLimit}
+	}
+	if input.Runtime != nil {
+		raw["runtime"] = map[string]any{"uid": input.Runtime.UID, "gid": input.Runtime.GID}
+	}
+	if len(input.Databases) > 0 {
+		rows := make([]map[string]any, 0, len(input.Databases))
+		for _, d := range input.Databases {
+			r := map[string]any{"name": string(d.Name), "persistent_root": string(d.PersistentRoot), "mount_path": string(d.MountPath), "filename": string(d.Filename), "backup_destination": string(d.BackupDestination)}
+			if d.SyncInterval != 0 {
+				r["sync_interval"] = d.SyncInterval.String()
+			}
+			rows = append(rows, r)
+		}
+		raw["databases"] = rows
+	}
+	if len(input.SchemaCompatibility) > 0 {
+		rows := make([]map[string]any, 0, len(input.SchemaCompatibility))
+		for _, c := range input.SchemaCompatibility {
+			rows = append(rows, map[string]any{"database": string(c.Database), "accepts": c.Accepts, "startup": c.Startup})
+		}
+		raw["schema_compatibility"] = rows
+	}
+	if len(input.SchemaDefinitions) > 0 {
+		rows := make([]map[string]any, 0, len(input.SchemaDefinitions))
+		for _, d := range input.SchemaDefinitions {
+			rows = append(rows, map[string]any{"database": string(d.Database), "marker": d.Marker, "catalog_sha256": d.CatalogSHA256})
+		}
+		raw["schema_definitions"] = rows
 	}
 	app, e := parseMap(raw)
 	if e != nil {
@@ -132,6 +189,24 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		}
 	}
 	d := Desired{SchemaVersion: SchemaVersion, Name: app.Name, Image: app.Image, ContainerPort: app.ContainerPort, Domains: app.Domains, Health: Health{Path: app.Health.Path, ExpectedStatus: app.Health.ExpectedStatus, StartupDeadlineSeconds: app.Health.StartupDeadlineSeconds, TimeoutSeconds: app.Health.TimeoutSeconds}, Resources: resources, Environment: []Environment{}, Secrets: []Secret{}, PolicyVersion: c.Version, PolicyHash: p.hash, AppPorts: *c.AppPorts, MinimumFreeDiskBytes: *c.MinimumFreeDiskBytes}
+	d.Runtime = app.Runtime
+	d.Databases = app.Databases
+	d.SchemaCompatibility = app.SchemaCompatibility
+	d.SchemaDefinitions = app.SchemaDefinitions
+	if len(app.Databases) > 0 {
+		backup := p.Backup()
+		d.Backup = &backup
+		for _, root := range c.PersistentRoots {
+			d.PersistentRoots = append(d.PersistentRoots, data.PersistentRoot(root))
+		}
+		seen := map[data.BackupDestinationRef]bool{}
+		for _, database := range app.Databases {
+			if destination, ok := p.BackupDestination(database.BackupDestination); ok && !seen[destination.Reference] {
+				d.BackupDestinations = append(d.BackupDestinations, destination)
+				seen[destination.Reference] = true
+			}
+		}
+	}
 	slices.Sort(d.Domains)
 	for name, value := range app.Environment {
 		d.Environment = append(d.Environment, Environment{Name: name, Value: value})
@@ -154,4 +229,28 @@ func (p Policy) CheckSecret(app spec.Name, ref spec.SecretReference) error {
 		return refuse("policy.secret_denied", "secrets", "secret reference is not allowed for this app")
 	}
 	return nil
+}
+
+// Stateless is affirmative only when no persistence declaration is present.
+func (d Desired) Stateless() bool {
+	return len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
+}
+
+// App reconstructs a detached spec input. It grants no policy authorization.
+func (d Desired) App() spec.App {
+	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}, Databases: slices.Clone(d.Databases), SchemaCompatibility: slices.Clone(d.SchemaCompatibility), SchemaDefinitions: slices.Clone(d.SchemaDefinitions)}
+	if d.Runtime != nil {
+		r := *d.Runtime
+		a.Runtime = &r
+	}
+	for i := range a.SchemaCompatibility {
+		a.SchemaCompatibility[i].Accepts = slices.Clone(a.SchemaCompatibility[i].Accepts)
+	}
+	for _, v := range d.Environment {
+		a.Environment[v.Name] = v.Value
+	}
+	for _, v := range d.Secrets {
+		a.Secrets[v.Name] = v.Reference
+	}
+	return a
 }

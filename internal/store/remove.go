@@ -11,7 +11,8 @@ import (
 // RetireApp atomically releases the live head (and its port reservation) and
 // records immutable removal evidence. Retained releases and D5 secrets survive.
 func (s *Store) RetireApp(ctx context.Context, operationID, app, releaseID string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return err
 	}

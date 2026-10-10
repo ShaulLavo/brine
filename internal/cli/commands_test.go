@@ -208,3 +208,20 @@ func TestRunTUIWithInjectedInput(t *testing.T) {
 		t.Fatalf("TUI did not use injected output: %q", stdout.String())
 	}
 }
+
+func TestRootHelpDescribesShippedStatelessCapabilities(t *testing.T) {
+	var out, stderr bytes.Buffer
+	deps := testDependencies(t, &out, &stderr)
+	if err := Execute(deps, []string{"--help"}); err != nil {
+		t.Fatal(err)
+	}
+	help := out.String()
+	if strings.Contains(help, "Deployment operations are not implemented yet") {
+		t.Fatal("help still denies shipped deployment operations")
+	}
+	for _, text := range []string{"stateless apps", "enrolled Linux servers", "Acceptance is not completion", "idempotency key", "Persistent app data", "planned"} {
+		if !strings.Contains(help, text) {
+			t.Fatalf("help missing %q", text)
+		}
+	}
+}

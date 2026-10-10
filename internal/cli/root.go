@@ -7,6 +7,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/transport"
 	"github.com/spf13/cobra"
@@ -18,7 +19,7 @@ const Version = "0.1.1-dev"
 // Callers provide every field. Execute owns presentation; callers own exit status.
 type Dependencies struct {
 	Context               context.Context
-	Stdin                 io.Reader
+	Stdin                 io.Reader // Borrowed exclusively during secret reads; see readSecretInput.
 	Stdout                io.Writer
 	Stderr                io.Writer
 	Version               string
@@ -42,6 +43,8 @@ type Dependencies struct {
 	HostDiagnose          dispatch.DiagnosticReader
 	HostConfig            dispatch.ConfigurationOperations
 	HostSecrets           dispatch.SecretOperations
+	HostBackupCredentials dispatch.BackupCredentialOperations
+	HostPermits           replication.LaunchReader // Read-only composition only; nil refuses startup.
 }
 
 // NewRootCommand builds an independent command tree without executing it.
@@ -54,7 +57,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "brine",
 		Short:         "Agent-first self-hosted deployments",
-		Long:          "A small deployment control plane for humans and agents. Deployment operations are not implemented yet.",
+		Long:          "Deploy stateless apps to enrolled Linux servers through Podman, Quadlet/systemd and Caddy. Plan before apply and save the idempotency key. Acceptance is not completion; poll the operation ID. Diagnose and reconcile uncertain outcomes before retrying. Persistent app data and Litestream/R2 restores remain planned. The Charm TUI currently provides a welcome screen.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
@@ -73,7 +76,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.json, "json", false, "Machine-readable JSON output")
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
-	root.AddCommand(newHostCmd(deps))
+	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes))
 	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp), newLifecycleCmd(deps, &modes, "remove", plan.RemoveApp))
 	root.AddCommand(newReconcileCmd(&jsonOutput, deps))
 	root.AddCommand(newResolveCmd(&jsonOutput, deps))

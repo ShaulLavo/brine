@@ -425,6 +425,17 @@ func (h *host) restoreFile(path string) error {
 	if !ok {
 		return nil
 	}
+	// A journal-owned created file may already have been removed, together
+	// with its created parent, before the step's undo checkpoint was saved.
+	// Do not apply this shortcut to originals or any surviving resource.
+	if !old.Existed {
+		if _, err := os.Lstat(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+	}
 	if err := protectedParents(path); err != nil {
 		return err
 	}
@@ -531,6 +542,7 @@ func (h *host) steps() []Step {
 		{Name: "ssh-layout", Check: h.checkSSHLayout, Apply: h.sshLayout, Undo: h.removeSSHLayout},
 		{Name: "mask", Check: h.masked, Apply: h.mask, Undo: h.unmask},
 		{Name: "packages", Check: h.packagesInstalled, Apply: h.installPackages, Undo: h.removePackages},
+		{Name: "litestream", Check: h.checkLitestream, Apply: h.installLitestream, Undo: h.undoLitestream},
 		{Name: "user", Check: h.checkUser, Apply: h.createUser, Undo: h.removeUser},
 		{Name: "layout", Check: h.checkLayout, Apply: h.layout, Undo: noop},
 		{Name: "linger", Check: func(context.Context) (bool, error) {
@@ -1064,6 +1076,18 @@ func (h *host) absence(ctx context.Context) error {
 
 type probeRunner struct{ executor localexec.Executor }
 
+func (p probeRunner) CaptureStdout(ctx context.Context, limit int, path string, args ...string) (localexec.Capture, error) {
+	if limit <= 0 {
+		return localexec.Capture{}, localexec.ErrOutputLimit
+	}
+	r, err := p.executor.Execute(ctx, localexec.Command{Path: path, Args: args, Timeout: 30 * time.Second, Dir: "/tmp"})
+	out := localexec.Capture{Stdout: r.Stdout, Overflow: r.Truncated || len(r.Stdout) > limit}
+	if len(out.Stdout) > limit {
+		out.Stdout = out.Stdout[:limit]
+	}
+	return out, err
+}
+
 func (p probeRunner) RunStdout(ctx context.Context, path string, args ...string) (string, error) {
 	r, err := p.executor.Execute(ctx, localexec.Command{Path: path, Args: args, Timeout: 30 * time.Second, Dir: "/tmp"})
 	if r.Truncated {
@@ -1073,7 +1097,7 @@ func (p probeRunner) RunStdout(ctx context.Context, path string, args ...string)
 }
 
 func (h *host) preflight(ctx context.Context) error {
-	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath, reconcileUnitPath, reconcileGeneratorPath} {
+	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath, reconcileUnitPath, reconcileGeneratorPath, LitestreamPath} {
 		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("preexisting enrollment resource refused")
 		}

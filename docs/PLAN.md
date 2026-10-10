@@ -4,11 +4,11 @@
 
 **Product goal:** Vercel-fast deploys on your own server (D9): a small, fast, trustworthy self-hosted deployment tool on a single Linux VPS that an AI agent can run end to end (deploy, change, troubleshoot, remove and maintain, per D8) using stable JSON, with a person able to do the same through Charm.
 
-**Scope: your own Linux servers only** (owner, 2026-10-10). Brine deploys to hosts it enrolls: rootless Podman through Quadlet and systemd, Caddy in front, SQLite with Litestream. Managed platforms such as Cloudflare Workers, Pages, D1, R2 buckets, KV or Durable Objects are not Brine targets. They use their own declarative tooling (for Cloudflare, Wrangler and `wrangler.toml`). A future layer above Brine and Wrangler may present both; it is a separate project. Using R2 as Litestream's backup destination is in scope. Phase 07 should reconsider hosting static drops on Cloudflare instead of the VPS.
+**Scope: your own Linux servers only** (owner, 2026-10-10). Brine deploys to hosts it enrolls: rootless Podman through Quadlet and systemd, Caddy in front, SQLite with Litestream. Managed platforms such as Cloudflare Workers, Pages, D1, managed object-storage buckets, KV or Durable Objects are not Brine targets. They use their own declarative tooling (for Cloudflare, Wrangler and `wrangler.toml`). A future layer above Brine and Wrangler may present both; it is a separate project. Using S3-compatible object storage as Litestream's backup destination is in scope, for example Cloudflare R2. Brine accepts externally supplied scoped credentials; provider-specific credential minting and APIs are outside Brine. Phase 07 should reconsider hosting static drops on Cloudflare instead of the VPS. The main day-to-day workflow will be generic production plus per-PR preview deployments for any repository, public or tailnet-only per site (see Phase 07).
 
 ## Current baseline
 
-The existing repo is a Go/Cobra starter with Bubble Tea/Lip Gloss welcome UI, JSON version output, PATH-only doctor and basic CI. It cannot yet deploy, discover remote servers, plan changes, persist operations, configure Caddy, restore SQLite or manage containers. Charm dependencies are currently Bubble Tea **v1**; v2 is stable and P00-05 migrates to it.
+The Go/Cobra CLI implements validation, offline and connected planning, enrollment, detached stateless deployment through Podman/Quadlet/systemd and Caddy, a SQLite control store with durable operation records, app and operation status, logs, diagnosis, reconciliation, supported terminal recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical exit gate](evidence/p03-pi.md) passed. The welcome TUI uses Bubble Tea **v2** and Lip Gloss **v2**; the full operation UI remains later work. Persistent app data, Litestream backup/restore and schema-change operations are not shipped. No production-readiness, zero-downtime or verified R2-restore claim is made.
 
 ## Default architecture
 
@@ -27,7 +27,7 @@ The existing repo is a Go/Cobra starter with Bubble Tea/Lip Gloss welcome UI, JS
        |                   |                 |
  Podman + Quadlet    Caddy (host)     Litestream (systemd)
        |                   |                 |
-   OCI app release   HTTPS / routing     SQLite --> R2
+   OCI app release   HTTPS / routing     SQLite --> S3-compatible storage
        |
   persistent SQLite volumes
 ~~~
@@ -54,7 +54,7 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 | 01 | [App spec and planner](plans/01-spec-and-planner.md) | Strict `brine.toml`, deterministic dry-run plans | No host changes from validate/plan; unsafe values rejected |
 | 02 | [Host and runtime](plans/02-host-and-runtime.md) | Target enrollment, Podman/Quadlet and Caddy adapters | A disposable fixture starts, routes and survives reboot |
 | 03 | [Deploy/recover](plans/03-deploy-and-recovery.md) | Persistent jobs, health checks, rollback and reconcile | Failed deployment or dead SSH session is recoverable |
-| 04 | [SQLite/R2](plans/04-sqlite-and-backups.md) | Persistent data and testable backup/restore workflows | Restore isolated R2 copy with SQLite integrity checks |
+| 04 | [SQLite/S3](plans/04-sqlite-and-backups.md) | Persistent data and testable backup/restore workflows | Restore isolated S3-compatible storage copy with SQLite integrity checks |
 | 05 | [Charm and agents](plans/05-charm-and-agents.md) | Usable TUI and stable machine workflows calling same API | Equivalent operations and outcomes across both UIs |
 | 06 | [Release hardening](plans/06-release-and-ops.md) | Policy gates, disaster drills, binaries and runbooks | End-to-end checklist passes on reference host |
 | 07 | [Drops and previews](plans/07-drops-and-previews.md) | Temporary websites with short links, git branch/PR previews (D9) | One-command drop with pill controls; pull request gets a preview URL |
