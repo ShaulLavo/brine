@@ -1,5 +1,7 @@
 {
+  "github.com/ShaulLavo/brine/cmd/brine.run": "Injected CLI entry point used by process-free command tests. Production uses runWithRuntime.",
   "github.com/ShaulLavo/brine/internal/apply.FactsFunc.Read": "Function adapter for injected facts readers used by tests.",
+  "github.com/ShaulLavo/brine/internal/cli.Execute": "Injected CLI entry point used by command tests without host services. Production uses ExecuteWithRuntime.",
   "github.com/ShaulLavo/brine/internal/podman.Fake.ContainerState": "Injected test adapter. Not linked into the production CLI call graph.",
   "github.com/ShaulLavo/brine/internal/podman.Fake.CreateSecret": "Injected test adapter. Not linked into the production CLI call graph.",
   "github.com/ShaulLavo/brine/internal/podman.Fake.ImageExists": "Injected test adapter. Not linked into the production CLI call graph.",
