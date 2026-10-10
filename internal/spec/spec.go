@@ -342,6 +342,9 @@ func validate(raw rawApp) (App, error) {
 	app.Environment = map[string]string{}
 	app.Secrets = map[string]SecretReference{}
 	for _, key := range sortedKeys(raw.Environment) {
+		if strings.HasPrefix(key, "BRINE_") {
+			return app, refusal("spec.reserved_environment_key", "environment", "BRINE_ environment names are managed by Brine")
+		}
 		if !envName.MatchString(key) {
 			return app, refusal("spec.invalid_environment_key", "environment", "expected a valid environment variable name")
 		}
@@ -369,6 +372,9 @@ func validate(raw rawApp) (App, error) {
 		app.Environment[key] = value
 	}
 	for _, key := range sortedKeys(raw.Secrets) {
+		if strings.HasPrefix(key, "BRINE_") {
+			return app, refusal("spec.reserved_environment_key", "secrets", "BRINE_ environment names are managed by Brine")
+		}
 		if !envName.MatchString(key) {
 			return app, refusal("spec.invalid_environment_key", "secrets", "expected a valid environment variable name")
 		}

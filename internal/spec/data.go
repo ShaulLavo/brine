@@ -53,6 +53,7 @@ func validatePersistence(raw rawApp, app *App) error {
 		return bad("databases")
 	}
 	names := map[DatabaseName]bool{}
+	environmentNames := map[string]bool{}
 	for _, r := range raw.Databases {
 		if r == nil {
 			return bad("databases")
@@ -87,7 +88,7 @@ func validatePersistence(raw rawApp, app *App) error {
 			}
 			d.SyncInterval = duration
 		}
-		if d.Validate() != nil || names[d.Name] {
+		if d.Validate() != nil || names[d.Name] || environmentNames[data.DatabaseEnvironmentName(d.Name)] {
 			return bad("databases")
 		}
 		for _, existing := range app.Databases {
@@ -97,6 +98,7 @@ func validatePersistence(raw rawApp, app *App) error {
 			}
 		}
 		names[d.Name] = true
+		environmentNames[data.DatabaseEnvironmentName(d.Name)] = true
 		app.Databases = append(app.Databases, d)
 	}
 	slices.SortFunc(app.Databases, func(a, b Database) int { return strings.Compare(string(a.Name), string(b.Name)) })

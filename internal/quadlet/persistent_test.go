@@ -74,6 +74,10 @@ func TestPersistentVolumePreservesLiteralPathsAndEscapesExpansions(t *testing.T)
 			if err != nil {
 				t.Fatal(err)
 			}
+			env, err := parseEnvironment(u.Bytes())
+			if err != nil || env["BRINE_DB_MAIN_PATH"] != path.Join(destination, "app.db") {
+				t.Fatalf("database path was not preserved: %+v, %v", env, err)
+			}
 			var volume string
 			for _, line := range strings.Split(string(u.Bytes()), "\n") {
 				if strings.HasPrefix(line, "Volume=") {

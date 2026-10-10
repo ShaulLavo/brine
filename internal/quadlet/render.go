@@ -86,7 +86,7 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 			return Unit{}, fmt.Errorf("quadlet: invalid immutable secret binding")
 		}
 	}
-	env := slices.Clone(d.Environment)
+	env := append(slices.Clone(d.Environment), d.DatabaseEnvironmentValues()...)
 	slices.SortFunc(env, func(a, b policy.Environment) int { return strings.Compare(a.Name, b.Name) })
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s%s\n# IndexDigest=%s\n# PlatformManifestDigest=%s\n# Platform=linux/%s\n\n[Unit]\nDescription=Brine app %s\n", marker, p.Hash, p.Image.Digest, platformManifestDigest, p.Image.Platform.Arch, d.Name)

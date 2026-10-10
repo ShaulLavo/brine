@@ -157,9 +157,9 @@ func respond(w http.ResponseWriter, status int, value any) {
 }
 
 func run() error {
-	path := os.Getenv("SQLITE_PATH")
+	path := os.Getenv("BRINE_DB_MAIN_PATH")
 	if path == "" {
-		path = "/data/app.db"
+		return fmt.Errorf("BRINE_DB_MAIN_PATH is required")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
