@@ -171,6 +171,7 @@ type Restart struct {
 type Plan struct {
 	Backup             *data.BackupCadence        `json:"backup,omitempty"`
 	Runtime            *data.RuntimeIdentity      `json:"runtime,omitempty"`
+	DataSchemas        []data.SchemaObservation   `json:"data_schemas,omitempty"`
 	DataMounts         []data.Mount               `json:"data_mounts,omitempty"`
 	SchemaVersion      int                        `json:"schema_version"`
 	Kind               Kind                       `json:"kind"`

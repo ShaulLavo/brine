@@ -9,6 +9,7 @@ import (
 // PersistentDatabase is host-collected decision evidence. No client-supplied
 // declaration, inode existence or active service substitutes for these facts.
 type PersistentDatabase struct {
+	Usage       Observation[data.StorageUsage]      `json:"usage"`
 	Definitions []data.SchemaDefinition             `json:"definitions"`
 	Database    data.DatabaseBinding                `json:"database"`
 	Root        data.RootEvidence                   `json:"root"`
@@ -34,6 +35,9 @@ func validatePersistentData(value []PersistentDatabase) error {
 		relative, err := data.RelativeDirectory(b.IncarnationID, b.DatabaseID)
 		if err != nil || relative != b.RelativeDirectory {
 			return fmt.Errorf("invalid persistent database path")
+		}
+		if err = observe("usage", fact.Usage, false, nil); err != nil {
+			return err
 		}
 		if err = observe("mapping", fact.Mapping, false, nil); err != nil {
 			return err

@@ -23,6 +23,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
+	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/secrets"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -104,7 +105,13 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		}
 	}
 	service := Service{Data: DataFacts{Store: state, Runner: localexec.ExecRunner{}, ExcludedRoots: PersistentExcludedRoots(identity.HomeDir, stateDir)}, Store: state, Inventory: collector, Policy: loader, Images: Registry{}, Requester: requester}
-	engine := apply.Executor{WriterStarts: DataWriterStarts{Store: state}, Compatibility: DataCompatibility{Store: state}, Journal: state, Releases: releases{state}, Plans: state, Podman: podman.New(session), Systemd: runtimeSystemd, Units: units, Health: policyHealth{loader}, Routes: apply.GenerationRoutes{
+	permits, err := OpenPermits(ctx)
+	if err != nil {
+		return nil, err
+	}
+	closers = append(closers, permits.Close)
+	preparation := DataPreparation{State: state, StateRoot: stateDir, Home: identity.HomeDir, Permits: permits.Reader, Publisher: replication.ArtifactPublisher{StateRoot: stateDir, UnitRoot: filepath.Join(identity.HomeDir, ".config/systemd/user")}, Services: replication.NewServices(session), Units: runtimeSystemd}
+	engine := apply.Executor{PersistentData: preparation, WriterStarts: DataWriterStarts{Store: state}, Compatibility: DataCompatibility{Store: state}, Journal: state, Releases: releases{state}, Plans: state, Podman: podman.New(session), Systemd: runtimeSystemd, Units: units, Health: policyHealth{loader}, Routes: apply.GenerationRoutes{
 		Manager: manager,
 		Main:    func(ctx context.Context) ([]byte, error) { return trustedRead(ctx, "/etc/caddy/Caddyfile", 1<<20) },
 		Site: func(d policy.Desired, port target.Port) (caddy.Site, error) {

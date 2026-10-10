@@ -30,7 +30,7 @@ func persistentReady(t *testing.T) Input {
 	retention := data.RetentionEvidence{Destination: "primary", Endpoint: destination.Endpoint, Bucket: destination.Bucket, BasePrefix: destination.BasePrefix, VerificationID: "44444444444444444444444444444444", VerifiedAt: now.Add(-time.Hour).Format(time.RFC3339), FreshnessSeconds: 24 * 60 * 60, NoObjectExpiration: true}
 	in.Desired.BackupRetention = []data.RetentionEvidence{retention}
 	mapping := data.MappingEvidence{Runtime: runtime, RunnerUID: 1000, RunnerGID: 1000, Root: root.Root, Device: root.Device, Image: string(in.Desired.Image), KeepID: true, PrivateModes: true, HostReadWrite: true, ContainerReadWrite: true, ObservedAt: now}
-	facts := target.Known([]target.PersistentDatabase{{Definitions: []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}}, Database: binding, Root: root, Mapping: target.Known(mapping), Retention: target.Known(retention), Schema: data.SchemaObservation{DatabaseID: database, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}})
+	facts := target.Known([]target.PersistentDatabase{{Usage: target.Known(data.StorageUsage{}), Definitions: []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}}, Database: binding, Root: root, Mapping: target.Known(mapping), Retention: target.Known(retention), Schema: data.SchemaObservation{DatabaseID: database, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}})
 	in.Snapshot.PersistentData = &facts
 	return in
 }

@@ -20,7 +20,7 @@ const MappingProbeImage = "docker.io/library/python@sha256:2d9aefe2fef018a7eb2c1
 // repairs modes or changes ownership. The caller holds the host mutation lock.
 func ProbeDataMapping(ctx context.Context, runner localexec.Runner, root data.RootEvidence, runtime data.RuntimeIdentity) (data.MappingEvidence, error) {
 	evidence := data.MappingEvidence{Runtime: runtime, RunnerUID: uint32(os.Geteuid()), RunnerGID: uint32(os.Getegid()), Root: root.Root, Device: root.Device, Image: MappingProbeImage, ObservedAt: time.Now().UTC()}
-	if runner == nil || runtime.Validate() != nil || !root.Admits(root.Root, 1) {
+	if runner == nil || runtime.Validate() != nil || !root.Admits(root.Root, 1) || strings.ContainsAny(string(root.Root), ":\x00\r\n") {
 		return evidence, data.ErrInvalid
 	}
 	timeout, cancel := context.WithTimeout(ctx, 30*time.Second)

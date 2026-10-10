@@ -47,6 +47,9 @@ credential_ref="primary"
 	}
 	requester := "deploy:" + strings.Repeat("c", 64)
 	root := t.TempDir()
+	if err = os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err = os.Mkdir(filepath.Join(root, "credentials"), 0700); err != nil {
 		t.Fatal(err)
 	}

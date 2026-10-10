@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -54,6 +55,7 @@ func canonicalDecisionFacts(s target.Snapshot, minimum uint64) ([]byte, error) {
 		}
 		for i := range *copy.Value {
 			f := &(*copy.Value)[i]
+			f.Usage = target.Observation[data.StorageUsage]{Status: target.Unknown} // Reporting-only; never a quota admission verdict.
 			if f.Root.FreeBytes >= minimum {
 				f.Root.FreeBytes = minimum
 			}

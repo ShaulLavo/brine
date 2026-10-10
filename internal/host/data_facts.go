@@ -110,7 +110,7 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 		reservations = append(reservations, reserved)
 	}
 	incarnation := reservations[0].Database.IncarnationID
-	if err := f.Store.RegisterSchemaDefinitions(ctx, incarnation, desired.SchemaDefinitions); err != nil {
+	if err := f.Store.RegisterSchemaDefinitions(ctx, incarnation, desired.SchemaDefinitions); err != nil && !errors.Is(err, store.ErrConflict) {
 		return unknown, err
 	}
 	definitions, err := f.Store.ReadSchemaDefinitions(ctx, incarnation)
@@ -141,7 +141,11 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 				retained = append(retained, definition)
 			}
 		}
-		facts = append(facts, target.PersistentDatabase{Definitions: retained, Database: b, Root: roots[b.Root], Mapping: target.Known(mappings[b.Root]), Retention: retention, Schema: schema, Fenced: permit.FenceState == "held"})
+		usage := target.Observation[data.StorageUsage]{Status: target.Unknown}
+		if measured, err := data.ObserveUsage(ctx, b); err == nil {
+			usage = target.Known(measured)
+		}
+		facts = append(facts, target.PersistentDatabase{Usage: usage, Definitions: retained, Database: b, Root: roots[b.Root], Mapping: target.Known(mappings[b.Root]), Retention: retention, Schema: schema, Fenced: permit.FenceState == "held"})
 	}
 	return target.Known(facts), nil
 }

@@ -1,3 +1,5 @@
+//go:build linux
+
 package host
 
 import (
@@ -66,6 +68,10 @@ func backupCredentialService(service Service, stateRoot string) backupcredential
 	return backupcredentials.Service{Requester: service.Requester, Files: backupcredentials.Files{Root: filepath.Join(stateRoot, "credentials")}, Journal: credentialJournal{state: service.Store, requester: service.Requester}, Lock: func(ctx context.Context) (func(), error) {
 		lock, err := service.Store.AcquireHostLock(ctx)
 		if err != nil {
+			return nil, err
+		}
+		if err = ensurePrivateChild(stateRoot, "credentials"); err != nil {
+			lock.Release()
 			return nil, err
 		}
 		return func() { lock.Release() }, nil

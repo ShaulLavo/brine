@@ -3,6 +3,7 @@ package plan
 import (
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -46,6 +47,19 @@ func persistentEvidence(in Input, p *Plan, add func(ConflictCode, string)) {
 			continue
 		}
 		b := fact.Database
+		for _, definition := range in.Desired.SchemaDefinitions {
+			if definition.Database == b.Name {
+				matched := false
+				for _, retained := range fact.Definitions {
+					if retained == definition {
+						matched = true
+					}
+				}
+				if !matched {
+					add(SchemaIncompatible, field+".definitions")
+				}
+			}
+		}
 		if b.Root != declaration.PersistentRoot || b.MountPath != declaration.MountPath || b.Filename != declaration.Filename || !slices.Contains(in.Desired.PersistentRoots, b.Root) {
 			add(PersistentRootDenied, field)
 			continue
@@ -104,6 +118,9 @@ func persistentEvidence(in Input, p *Plan, add func(ConflictCode, string)) {
 				}
 			}
 		}
+		observed := fact.Schema
+		observed.ObservedAt = time.Time{} // Clock is retained in frozen inputs, not decision hash material.
+		p.DataSchemas = append(p.DataSchemas, observed)
 		p.DataMounts = append(p.DataMounts, data.Mount{Database: b, HostPath: filepath.Join(string(b.Root), b.RelativeDirectory), ContainerPath: b.MountPath, BindingID: b.ReplicaBindingID})
 	}
 }
