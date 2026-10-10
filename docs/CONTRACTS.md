@@ -451,6 +451,65 @@ SQLite data, WAL and related files live in durable per-app directories independe
 
 `restore test` writes into a new isolated directory or disposable fixture, checks `PRAGMA integrity_check`, verifies expected application invariants and reports recovery-point information if available. It **never overwrites the production DB**. Until P04-09 ships, live restore stays an explicitly approved operator runbook; after that it is the policy-gated `restore live` plan (D8). Database storage or backup deletion is never part of image cleanup.
 
+## Persistent data and replication
+
+**Approved foundation (D11), not implemented.** These names are the shared Phase 04 contract. Existing schema-1 stateless apps remain valid; new persistence fields are strict and unsupported until their implementation lands. No compatibility branch is needed.
+
+### Definition and typed identities
+
+~~~toml
+[runtime]
+uid = 10001
+gid = 10001
+
+[[databases]]
+name = "main"
+persistent_root = "/srv/brine-data"
+mount_path = "/data"
+filename = "app.db"
+backup_destination = "primary"
+~~~
+
+`spec.App` gains `Runtime *RuntimeIdentity` and `Databases []Database`; `RuntimeIdentity` holds `UID uint32` and `GID uint32`. `Database` holds typed `DatabaseName`, `PersistentRoot`, `ContainerMountPath`, `DatabaseFilename` and `BackupDestinationRef`. Runtime is required for databases, UID/GID are 1..65535, and every database writer uses those identities. Database names/destination references are 1..63 lowercase ASCII letters/digits/hyphens, starting with a letter. Filenames are one 1..128-byte ASCII basename, start with a letter/digit, and allow letters/digits/dot/underscore/hyphen, except `.` / `..` and names ending in `-wal`, `-shm`, `-journal` or `-litestream`. No slashes, interpolation, control characters or symlinks. At most 16 databases; names are unique. Mount paths are clean absolute POSIX directories; refuse root, overlapping mounts and system/secret/runtime paths (`/proc`, `/sys`, `/dev`, `/run`, `/etc` and their descendants). `persistent_root` exactly matches an authorized policy entry, not an arbitrary descendant. Database filename/mount identity changes on an existing database refuse pending an explicit data move design. Migrations are separate P04-07 plans, never deploy side effects.
+
+`policy.Desired` carries the normalized runtime and databases in canonical bytes and `DesiredHash`. Add `backup_destinations` to root-owned policy as typed records containing `reference`, HTTPS `endpoint`, `bucket`, `base_prefix`, `credential_ref`, and protected lifecycle-verification identity/freshness. No credential value or parent API token is policy/state. Plans bind the destination record/hash, selected root and quota observation. Refuse unknown destinations and unverified filesystem/mapping/retention facts.
+
+`internal/data` owns validated identities/layout and containment. `AppIncarnationID`, `DatabaseID`, `ReplicaBindingID`, `ReplicaEpochID` and `ArchiveID` are independent immutable random 128-bit IDs encoded as 32 lowercase hex characters, allocated once in the store under the host mutation lock and reused during reconciliation. They are not app names or release IDs. `DatabaseBinding` records database ID/name, incarnation, root, relative directory, mount path, filename and replica binding. `ReplicaBinding` records binding/database/destination IDs, epoch, exact remote prefix, credential version and unit/config hashes. `ArchiveRecord` records archive/incarnation IDs, original and archived relative paths, all replica epochs, removal operation, commit timestamp and retention deadline. Store uniqueness prevents live sharing of paths/destinations; archive references survive removal. Secret receipts contain references/versions/expiry only.
+
+### Paths and units
+
+Let `P` be the verified policy root and `S` the existing runner Brine state directory. No user request supplies the derived suffixes.
+
+| Artifact | Fixed derived path/name |
+| --- | --- |
+| Live app tree | `P/apps/<incarnation-id>/` |
+| Database mount source | `P/apps/<incarnation-id>/databases/<database-id>/` |
+| DB and SQLite siblings | `<source>/<filename>`, `<filename>-wal`, `<filename>-shm` |
+| Litestream metadata | `<source>/.<filename>-litestream/` |
+| Archive tree | `P/archives/<archive-id>/` (whole former app tree) |
+| Isolated restore | `P/restore-tests/<operation-id>/<database-id>/<filename>` |
+| Remote prefix | `<base-prefix>/apps/<incarnation-id>/databases/<database-id>/epochs/<epoch-id>/` |
+| Replica config | `S/replication/<binding-id>/litestream.yml` |
+| Credential file | `S/credentials/r2/<credential-ref>/v<version>.env` |
+| Lifetime lock | `S/replica-locks/<binding-id>.lock` (never unlinked) |
+| App Quadlet / service / container | Existing `<app>.container` / `<app>.service` / `systemd-<app>` |
+| Replica unit | `~/.config/systemd/user/brine-litestream-<binding-id>.service` |
+| Executable | `/opt/brine/litestream/0.5.17/litestream` |
+
+Directories are runner-owned 0700, files 0600, with non-symlink ownership-checked ancestors. Root selection verifies that live/archive/restore trees are on the same local filesystem; archives use journaled rename plus parent fsync, not copy-and-delete. Record/verify device and inode identities at effect boundaries. Reject state/release/credential roots and roots overlapping another policy root. Mount only `<source>:<mount_path>:rw`; never `:U`. Render explicit keep-id/User/Group and `--umask=0077`. SELinux requires approved shared `:z` labeling and verified host access; otherwise refuse. No rootless hard disk quota is promised. Report bytes/inodes, any observed operator-enforced quota, and minimum-free-space admission.
+
+The replica unit uses `EnvironmentFile=<credential-file>`, `UMask=0077`, and typed execution equivalent to `/usr/bin/flock --exclusive --nonblock <lifetime-lock> /opt/brine/litestream/0.5.17/litestream replicate -config <config>`. It installs as an ordinary user service with `WantedBy=default.target`, has no credential/debug values in unit text, and has no app-coupled `PartOf`/`BindsTo`. App `Wants`/`After` reference the replica **service** name. The config has exactly one `dbs` entry and singular structured `replica` with `type: s3`, bucket/path/HTTPS endpoint, `region: auto`, `force-path-style: true`; omit credential fields and URL shorthand so temporary session tokens use the SDK provider. Set `retention.enabled: false`; destination lifecycle evidence must exclude object expiration. Unit active is not remote durability evidence. Replica environment starts from a controlled allowlist with EC2 metadata disabled, no inherited AWS profiles/providers, and no SDK debug logging. Missing credentials refuse rather than search other stores.
+
+Credentials accept key pairs or triples with `AWS_SESSION_TOKEN`, plus an out-of-band version/optional UTC expiry receipt. Rotation installs a new immutable 0600 file and changes/restarts only the replica unit. Keep the same database, binding and epoch, serialize against its lifetime lock, verify remote access, and reconcile unknown restart outcomes. Neither app restart nor parent-token storage is permitted. Backup/restore admission checks remaining credential lifetime; status reports expiry/renewal-needed/degraded. Archive restoration may require operator-issued fresh credentials for the same authorized destination.
+
+### State transitions and restore evidence
+
+Deploy/update/rollback preserve incarnation/data/binding and may leave replication running. Removal/live restore require independent app-writer and replica-process/lock quiescence, not `systemctl stop` exit alone. Before freeze, verify a fresh remote restore point covering the recorded marker/TXID. Unknown upload/stop/swap outcomes enter reconciliation. No retry starts a competing writer. Archive retention begins at committed removal, lasts 30 days and is keyed only by archive ID. Recreation never reuses its incarnation or replica prefix. Purge/expiry recheck all live references immediately before deleting any recorded path or prefix. Local metadata and all recorded remote epochs stay bound to that archive.
+
+`restore test` resolves a stored remote binding/epoch and renders a private structured config. Invoke typed `litestream restore -config <restore-config> -o <fresh-output> <config-db-path>`; the final DB path is a config selector, not a read of live DB bytes. Never omit `-o`, use `-force`, mount live data in the fixture, or substitute local metadata. Require new output and no WAL/SHM/journal siblings. Run `PRAGMA integrity_check` plus fixture marker/invariants through a read-only checker; no application-supplied SQL. `RestoreTestResult` holds operation/database/binding/epoch IDs, source identity, tool version, requested restore point, recovered TXID/marker/commit time when known, observed time, integrity/invariant outcomes and an explicit known/unknown recovery-point bound. Generic production databases without a supported invariant return that check as unknown, not passed. No public listener is created.
+
+Live restore separately journals its safety restore point, quiescence, verified isolated copy, original bundle preservation and swap. It creates a new epoch with empty local metadata before replication resumes; the pre-restore epoch remains recorded for recovery. Application rollback never rewinds data.
+
 ## Source references
 
 The upstream manuals for [Quadlet](https://docs.podman.io/en/stable/markdown/podman-systemd.unit.5.html), [Caddy admin API](https://caddyserver.com/docs/api), [Litestream R2](https://litestream.io/guides/s3-compatible/) and [Litestream caveats](https://litestream.io/tips/) are useful starting points; implementation must pin and test actual installed versions.

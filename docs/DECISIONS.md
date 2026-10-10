@@ -170,3 +170,101 @@ Readiness separates local UDP ownership/session health from reachability observe
 Shared UDP 443 is P08-09, not enabled by this amendment. Prefer a released and proven session-aware Caddy proxy when one becomes available. A pinned experimental build or caddy-l4 passthrough needs a new numbered D2/D4 amendment after the local multiplexing, migration, certificate, listener-conflict and whole-generation tests select a path. It must name protected global settings, exact builds/modules, upgrade/rollback and enrollment effects. The runner stays reload-only with typed configuration; no generic systemd or Caddy authority follows from WebTransport.
 
 WebTransport drops/previews remain refused until P08-10 proves handshake view authorization, immutable-incarnation binding, revocation/drain, nonrenewing TTL, egress isolation and P07 public-safety gates. Raw SNI routing bypasses the viewing gateway and is not an authorization solution. Phase 08 runs on the test Pi are covered by D3's standing approval; any other host needs explicit owner authorization naming the target and actions.
+
+## D11. Persistent SQLite uses a mapped app user and a host Litestream unit
+
+**Status: Approved design, implementation pending**, 2026-10-10. This is the Phase 04 foundation. It extends D1/D2 enrollment with an explicitly displayed, checksum-pinned Litestream install. D5's runner-owned credential files and D8's archive identities remain in force. It does not authorize changes on a production host.
+
+### Choice and evidence
+
+Run Litestream on the host as the runner, in one ordinary systemd user service per database. Persistent apps explicitly declare their numeric container UID/GID. Render both `UserNS=keep-id:uid=<uid>,gid=<gid>` and `User=<uid>` / `Group=<gid>` plus `PodmanArgs=--umask=0077` in their Quadlet. The host replica service also sets `UMask=0077`. The runner maps to that app user; files created by it are runner-owned on the host. Stateless apps retain their existing image-user behavior. Persistent apps must use a compatible image that runs all database writers as the declared user, without dropping to another UID. There is no automatic ownership repair or fallback.
+
+This gives SQLite and Litestream access to the same local filesystem inodes, including writable DB, WAL and SHM files. A read-only replica mount is wrong. Litestream v0.5.17 `DB.init` opens a read-write SQLite connection, enables WAL, writes `_litestream_seq` / `_litestream_lock`, and takes read and checkpoint/write locks. Its raw read-only file descriptor is not its only access. Require local filesystems with working POSIX locks and durable rename/fsync; refuse NFS, CIFS and unknown semantics. Application connections use a bounded busy timeout (fixture uses 5000 ms); applications must tolerate Litestream's short write locks. Never set SQLite `immutable=1` for a live database.
+
+Alternatives considered:
+
+| Topology | Ownership and locking | Decision |
+| --- | --- | --- |
+| Host unit plus explicit keep-id | Runner owns DB/WAL; host and container share real bind-mounted inodes. Podman 5.4 Quadlet supports `UserNS`, `User`, `Group`. | Selected. Least extra runtime state; preserves D5 and independent replication during app replacement. |
+| Host unit plus idmapped mount | Podman 5.4 documents `idmap` mounts as rootful-only. | Not a rootless solution on the reference target. |
+| Host unit plus `podman unshare chown` / `:U` | Makes files belong to subordinate host IDs for a non-root image user; the ordinary runner then cannot open mode-0600 DB/WAL. `:U` recursively changes host ownership. | Rejected. No recursive chown, broad modes, shared ACL workaround or host replication inside `podman unshare`. |
+| Host unit plus container root | Default rootless container root maps to runner and can work. | Not the default. Keep non-root image contracts explicit instead of requiring every app to run as container root. |
+| Sidecar with shared pod/user namespace | Can work with identical mapped users and writable mounts. Same pod alone does not prove matching ownership. Adds a pinned multiarch image, shared labels, a second container identity and lifecycle coupling. | Rejected for Phase 04. Does not remove SQLite's write/locking requirements and offers no required benefit over a mapped app plus host unit. |
+
+Local evidence on 2026-10-10: this Arch workstation has no `podman` executable, so no rootless/container experiment was possible. The checksum-verified Linux amd64 Litestream 0.5.17 binary was run against a local SQLite WAL database while a second Python connection committed five marker rows. A file-replica restore into a new directory returned exit 0, `PRAGMA integrity_check = ok`, and all five rows while the writer connection and replicator remained alive. This proves the pinned binary's local locking/config/restore path, not Debian arm64 mapping, systemd ordering or R2 recovery. P04-01/P04-02 must pass the Pi probe below before persistent deployment ships. The phase exit gate still requires a real isolated R2 restore.
+
+### Data, credentials and installation
+
+The concrete shapes and paths are in [Persistent data and replication](CONTRACTS.md#persistent-data-and-replication). An app incarnation owns directories under one exact operator-policy `persistent_roots` entry, outside releases. Each database has its own writable directory. Mount only that directory, never the root, sibling databases, archive tree, control store or credential files. Host directories are runner-owned 0700; DB/WAL/SHM and replication metadata files are runner-owned 0600. Validate ownership, no symlinks, regular file types and ancestor containment before effects. A writer that changes ownership or modes produces a refusal/degraded fact, never a recursive repair.
+
+Debian's normal AppArmor/seccomp confinement stays enabled. On SELinux-enforcing hosts, a bind needs an operator-approved shared `container_file_t` label (`:z`, not per-container `:Z`) and a policy that also permits the host runner's SQLite access. Do not disable labels. Debian 13 is the supported gate; an unverified label configuration refuses. Never relabel the entire persistent root. Admission verifies filesystem/device and available bytes/inodes. Storage use is **reported, not a hard per-app quota** in Phase 04: rootless bind mounts and cgroup limits cannot enforce disk byte quotas. No `storage_quota` spec field is accepted. An operator provisioned filesystem/project quota may be reported as enforced only after its mechanism and limit are observed; Brine does not gain root or silently claim enforcement. Preserve the existing policy minimum-free-space floor.
+
+A database chooses one operator-authorized R2 destination reference. Root-owned policy binds that reference to endpoint, bucket, base prefix and a credential-file reference, never credential values. R2 credentials are bucket-scoped (R2 tokens need not enforce a prefix); use separate buckets/tokens when independent destination authority matters. Same-bucket prefixes isolate identities, not credentials. The runner-owned 0600 environment file is loaded only by the corresponding Litestream unit. D5 needs no topology amendment. Use `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and optional `AWS_SESSION_TOKEN`; leave key fields out of generated YAML. Always generate structured `type: s3`, `bucket`, `path`, `endpoint`, `region: auto`, `force-path-style: true` configuration. Do not use the replica-URL constructor, which in v0.5.17 copies environment keys into a static provider with an empty session token. The structured configuration uses the AWS SDK environment provider and preserves the token. Clear inherited credential/profile/web-identity/container-provider and debug settings, disable EC2 metadata, and require the designated file rather than falling through to unrelated credentials. Config, service and credential parent directories are private. Values never enter app secrets, argv, plans, event payloads, inventories or logs. Brine controls the endpoint and disables neither HTTPS verification nor certificate checking.
+
+Accept both long-lived key pairs and short-lived key/key-secret/session-token triples. Credential receipts record version and optional UTC expiry, never values. The operator mints bucket-scoped temporary credentials (currently at most seven days) outside Brine; the parent R2 management token never reaches the runner. Rotation atomically installs a new immutable credential file, journals the binding version, restarts only that replica service under its lifetime lock and verifies remote access. No app restart, database swap or new replica epoch occurs. The SDK environment provider does not refresh a running process after its environment file changes. Report expiry/renewal-needed before expiration and refuse work whose backup/restore budget exceeds the remaining lifetime; an expired token is degraded, not an app outage. Archived backup records keep the destination authorization and credential reference so an operator can supply fresh scoped credentials for a later restore; a seven-day credential cannot itself guarantee thirty days of access. Test both token expiry and replacement. A local fake S3 endpoint observed the session-token signing header on all 31 listing requests made by the checksum-verified binary with structured config; the intentionally empty replica then correctly refused restore. This is provider-wiring evidence, not R2 authentication evidence.
+
+Pin **Litestream v0.5.17**, not an apt package, `latest`, or the VFS extension. Upstream release tarballs are at `https://github.com/benbjohnson/litestream/releases/download/v0.5.17/`:
+
+| Target | Asset | SHA-256 |
+| --- | --- | --- |
+| linux/amd64 | `litestream-0.5.17-linux-x86_64.tar.gz` | `cfb371176d164437ae869f8351cfde49bd1804ae71c61923f75c9cba9c9c006d` |
+| linux/arm64 | `litestream-0.5.17-linux-arm64.tar.gz` | `f8ca4a050095c1efbda2c4365172e61bf9d955ea0d9ac42f448b52e51819baa5` |
+
+Enrollment P04-03 installs the verified executable as root-owned 0755 `/opt/brine/litestream/0.5.17/litestream`, with root-owned non-writable parents, no PATH lookup or mutable symlink. It reports architecture, URL, hash and disk changes before confirmation, stages safely, verifies `version`, and never replaces an unrelated install. Inventory records version and executable hash. D2's Debian Podman/passt/Caddy packages are unchanged; Litestream is not supplied by the Debian 13 package set. Later upgrades remain planned D8 helper operations. Source compatibility must be tested against this exact release; v0.5 uses singular `replica` and LTX, not v0.3 `replicas`/generation assumptions.
+
+### Lifetime, retention and restore
+
+One database has one replica binding, one unit and one destination prefix. A non-unlinked per-binding kernel flock is held for the entire replicator lifetime, independently of the short-lived host mutation lock. All Brine replication entry points use it; a second holder refuses. The store uniquely reserves `(endpoint, bucket, prefix)` and database identity. Trusted operator processes outside Brine are not isolated by this lock; inventory must refuse a known competitor or unknown ownership.
+
+Ordinary boot orders the replica service before the app service with `Wants=` and `After=` on the app. There is no `PartOf=` or `BindsTo=` from replication to the app; app stop/update/restart leaves replication running. Litestream can wait for the app to initialize a missing DB; running/active is not a backup readiness signal. Missing credentials block a new persistent deployment; a later R2 outage degrades backup health without stopping the app. Redeploy and application rollback reuse the data binding and never restore data.
+
+Removal and live restore explicitly stop all app writers, verify Podman quiescence, obtain a fresh durable restore point with a proven watermark, stop the replicator, and independently verify the service/process is gone and its lifetime lock is obtainable. Timeouts or uncertain outcomes require reconciliation, not a second writer. Do not rely on systemd dependency ordering alone. Live restore verifies an isolated restored copy first, journals the swap and preserves the original DB/WAL/SHM/metadata bundle for recovery. It starts a **new replica epoch/prefix and fresh local metadata**, retaining the pre-restore destination as a recovery point. Never append restored older data into the old LTX chain.
+
+To make D8's 30-day archive guarantee concrete, Phase 04 sets `retention.enabled: false` in Litestream and admits only destination prefixes with no object-expiry lifecycle rule. This intentionally grows remote storage until explicit archive purge; lifecycle/retention automation is deferred. Admission/removal require a protected operator verification record for the exact bucket/prefix and lifecycle configuration, with policy-bound freshness. Unknown or expired evidence refuses; S3 data credentials are not assumed to inspect R2 management configuration. The operator performs that control-plane check; agents receive no R2 administrative token. An operator changing lifecycle rules outside Brine breaks the guarantee and must be reported as drift/unknown, not success.
+
+Under the mutation lock, removal journals the original incarnation, destination bindings and an immutable archive ID, freezes replication, renames the whole app data tree into `archives/<archive-id>` on the same filesystem and fsyncs both parents. Commit records the 30-day deadline; reconciliation determines which side of the recorded rename exists. Retain destination authorization and a renewable credential reference sufficient to restore archived replicas until purge; credentials may need operator renewal. Recreation gets a new incarnation and prefixes. Purge/expiry resolve only archived recorded paths and prefixes, reject any live reference, and delete all recorded epochs only under D8's policy. Image cleanup never traverses these trees.
+
+`restore test` reads a recorded remote R2 binding/epoch, not a live mount, local metadata or a file-replica substitute. It writes a new operation-scoped private directory without network publication or live mount access. Require integrity check plus known application invariants; the gate fixture has a committed `(sequence, marker, committed_at)` row whose expected marker was recorded before the restore. Report exact source, tool version, recovered marker/watermark, observation time and bounded/unknown loss window. An LTX/object timestamp alone is not the application's last commit timestamp. Production invariants use declared, read-only typed checks; no supplied SQL or host shell. Do not claim zero loss.
+
+### Exact remaining Pi probe
+
+The coordinator runs this as the `brine` runner after explicitly installing the pinned arm64 binary above. It uses only a disposable directory under an approved persistent root, not live app paths. Set `PROBE_ROOT` to that existing runner-owned root. The public multiarch Python fixture index below was resolved on 2026-10-10; arm64 manifest is `sha256:e041b488453556787172f43845c9e0e90b9fb4a91452498420fb2011b23241b6`.
+
+~~~sh
+# Run in the runner's user session. PROBE_ROOT is supplied by the coordinator.
+set -eu
+: "${PROBE_ROOT:?approved disposable root required}"
+umask 077
+probe=$(mktemp -d "$PROBE_ROOT/p04-mapping-XXXXXX")
+mkdir "$probe/data" "$probe/replica" "$probe/restore"
+image=docker.io/library/python@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a
+podman run --rm --network=none --userns=keep-id:uid=10001,gid=10001 \
+  --user=10001:10001 --umask=0077 -v "$probe/data:/data:rw" "$image" python -c \
+  'import sqlite3; c=sqlite3.connect("/data/app.db"); c.execute("pragma journal_mode=wal"); c.execute("create table evidence(sequence integer primary key, marker text)"); c.commit()'
+test "$(stat -c %u "$probe/data/app.db")" = "$(id -u)"
+cat > "$probe/litestream.yml" <<CONFIG
+dbs:
+  - path: $probe/data/app.db
+    replica:
+      type: file
+      path: $probe/replica
+CONFIG
+/opt/brine/litestream/0.5.17/litestream replicate -config "$probe/litestream.yml" > "$probe/replicate.log" 2>&1 &
+replicator=$!
+trap 'kill "$replicator" 2>/dev/null || true; wait "$replicator" 2>/dev/null || true' EXIT
+podman run --rm --network=none --userns=keep-id:uid=10001,gid=10001 \
+  --user=10001:10001 --umask=0077 -v "$probe/data:/data:rw" "$image" python -c \
+  'import sqlite3,time; c=sqlite3.connect("/data/app.db"); c.execute("pragma busy_timeout=5000"); [(c.execute("insert into evidence values (?,?)",(i,"marker-"+str(i))),c.commit(),time.sleep(1)) for i in range(1,6)]; time.sleep(10)'
+/opt/brine/litestream/0.5.17/litestream restore -config "$probe/litestream.yml" \
+  -o "$probe/restore/app.db" "$probe/data/app.db"
+podman run --rm --network=none --userns=keep-id:uid=10001,gid=10001 \
+  --user=10001:10001 --umask=0077 -v "$probe/restore:/data:rw" "$image" python -c \
+  'import sqlite3; c=sqlite3.connect("/data/app.db"); assert c.execute("pragma integrity_check").fetchone()==("ok",); assert c.execute("select marker from evidence where sequence=5").fetchone()==("marker-5",)'
+kill -0 "$replicator"
+stat -c '%a %u %g %n' "$probe/data/"* "$probe/data/".*-litestream
+printf 'Evidence retained in %s\n' "$probe"
+~~~
+
+Expected result: runner ownership of DB/WAL/SHM/metadata, writable 0600 files, no permission/locking errors, all five markers restored. Repeat with generated Quadlets/user services, app replacement, a held replica lock and restart/reboot before marking P04-01/P04-02 complete. The shell probe's file destination is only an ownership/locking test. P04-05/P04-06 must separately use real R2 and test outages, retention and interrupted quiescence.
+
+References checked: [Podman 5.4 run](https://docs.podman.io/en/v5.4.0/markdown/podman-run.1.html), [Quadlet 5.4](https://docs.podman.io/en/v5.4.0/markdown/podman-systemd.unit.5.html), [Litestream pinned DB implementation](https://github.com/benbjohnson/litestream/blob/v0.5.17/db.go), [v0.5.17 release](https://github.com/benbjohnson/litestream/releases/tag/v0.5.17), [config](https://litestream.io/reference/config/), [restore](https://litestream.io/reference/restore/), [SQLite locking tips](https://litestream.io/tips/). Web documentation can move; acceptance probes use the pinned release.
