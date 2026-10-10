@@ -30,9 +30,15 @@ func retainedFixture(t *testing.T) (Collector, fakeRunner, plan.Input) {
 	ready.Generation = target.Known(uint64(2))
 	image := plan.Image{ManifestDigest: target.Known("sha256:" + strings.Repeat("c", 64)), Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}}
 	d := policy.Desired{SchemaVersion: 1, Name: "fixture", Image: spec.ImageReference("registry.example.test/api@" + image.Digest), ContainerPort: 8080, Domains: []spec.Domain{"fixture.example.test"}, Environment: []policy.Environment{}, Secrets: []policy.Secret{{Name: "TOKEN", Reference: "fixture-token"}}, PolicyVersion: "fixture", PolicyHash: "sha256:" + strings.Repeat("b", 64), AppPorts: policy.PortRange{Min: 20000, Max: 20010}}
-	c := Collector{FS: f, Runner: r, IdentityKey: []byte("fixture"), StateInventory: func(context.Context) (target.ControlInventory, error) {
-		return target.ControlInventory{Generation: 2, Apps: []target.ControlApp{{Name: "fixture", Status: target.Absent, RetiredPorts: []target.Port{20000}}}}, nil
-	}}
+	c := Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}
+	fresh, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	ready.Identity = fresh.Identity
+	c.StateInventory = func(context.Context) (target.ControlInventory, error) {
+		return target.ControlInventory{Generation: 2, Target: &fresh.Identity, Apps: []target.ControlApp{{Name: "fixture", Status: target.Absent, RetiredPorts: []target.Port{20000}}}}, nil
+	}
 	return c, r, plan.Input{Desired: d, Snapshot: ready, Image: image, State: plan.BrineState{Target: ready.Identity, Generation: 2, Releases: []plan.CurrentRelease{}}}
 }
 
@@ -104,6 +110,22 @@ func TestRetainedAbsenceRequiresAffirmativeEvidence(t *testing.T) {
 				return target.ControlInventory{}, os.ErrPermission
 			}
 		}},
+		{"retirement belongs to another target", func(c *Collector, _ fakeRunner) {
+			read := c.StateInventory
+			c.StateInventory = func(ctx context.Context) (target.ControlInventory, error) {
+				state, err := read(ctx)
+				state.Target = &target.Identity{ID: "different-target", HostKeyFingerprint: "SHA256:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}
+				return state, err
+			}
+		}},
+		{"unbound retirement receipt", func(c *Collector, _ fakeRunner) {
+			read := c.StateInventory
+			c.StateInventory = func(ctx context.Context) (target.ControlInventory, error) {
+				state, err := read(ctx)
+				state.Target = nil
+				return state, err
+			}
+		}},
 		{"generation alone", func(c *Collector, _ fakeRunner) {
 			c.StateInventory = nil
 			c.StateGeneration = func(context.Context) (uint64, error) { return 2, nil }
@@ -162,6 +184,7 @@ func TestRetiredAllocationCanBeOwnedByAnotherApp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	s.Identity = *state.Target
 	c.absence(context.Background(), &s, appArtifacts{runner: true}, &state)
 	if (*s.Apps.Value)[0].AllocatedHostPort.Status != target.Absent {
 		t.Fatal("retired allocation treated as a live reservation")

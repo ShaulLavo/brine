@@ -136,7 +136,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	var control *target.ControlInventory
 	if c.StateInventory != nil {
 		state, err := c.StateInventory(ctx)
-		if err == nil {
+		if err == nil && (state.Target == nil || *state.Target == s.Identity) {
 			control = &state
 			s.Generation = target.Known(state.Generation)
 		}

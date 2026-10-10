@@ -78,6 +78,10 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 		if p.App != receipt.app || p.Lifecycle != plan.RemoveApp || p.Removal == nil || p.Removal.ReleaseID != r.ID {
 			return result, &IntegrityError{}
 		}
+		if result.Target != nil && *result.Target != p.Target {
+			return result, &IntegrityError{}
+		}
+		result.Target = &p.Target
 		app := apps[receipt.app]
 		if app.Status != target.KnownStatus {
 			settled, err := removalSettled(ctx, tx, receipt.operation, receipt.app, receipt.plan)
@@ -146,7 +150,10 @@ func removalSettled(ctx context.Context, tx *sql.Tx, id, app, planID string) (bo
 
 func ReadInventoryState(ctx context.Context, stateDir string) (target.ControlInventory, error) {
 	if _, err := os.Lstat(filepath.Join(stateDir, "control.db")); os.IsNotExist(err) {
-		_, err = ReadGeneration(ctx, stateDir)
+		generation, err := ReadGeneration(ctx, stateDir)
+		if err == nil && generation != 0 {
+			return target.ControlInventory{}, ErrInvalid
+		}
 		return target.ControlInventory{Apps: []target.ControlApp{}}, err
 	} else if err != nil {
 		return target.ControlInventory{}, err

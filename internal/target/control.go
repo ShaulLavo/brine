@@ -4,6 +4,7 @@ package target
 // snapshot. An omitted app has no release history or unfinished removal.
 type ControlInventory struct {
 	Generation uint64
+	Target     *Identity
 	Apps       []ControlApp
 }
 
