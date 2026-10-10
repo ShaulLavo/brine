@@ -32,7 +32,7 @@ func DefaultCadence() Cadence {
 }
 
 func (c Cadence) Validate() error {
-	if c.SyncInterval < 10*time.Second || c.SyncInterval > time.Hour || c.SnapshotInterval <= 0 {
+	if c.SyncInterval < 10*time.Second || c.SyncInterval > time.Hour || c.SnapshotInterval < time.Hour || c.SnapshotInterval > 24*time.Hour {
 		return ErrInvalid
 	}
 	return nil

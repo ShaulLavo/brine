@@ -133,3 +133,20 @@ func TestConfigUsesTypedCadence(t *testing.T) {
 		t.Fatal("accepted missing snapshot cadence")
 	}
 }
+
+func TestCadenceAbsoluteSnapshotBounds(t *testing.T) {
+	for _, interval := range []time.Duration{time.Hour - time.Nanosecond, 24*time.Hour + time.Nanosecond} {
+		c := DefaultCadence()
+		c.SnapshotInterval = interval
+		if c.Validate() == nil {
+			t.Fatal("outside absolute snapshot bound", interval)
+		}
+	}
+	for _, interval := range []time.Duration{time.Hour, 24 * time.Hour} {
+		c := DefaultCadence()
+		c.SnapshotInterval = interval
+		if c.Validate() != nil {
+			t.Fatal("absolute snapshot boundary refused", interval)
+		}
+	}
+}
