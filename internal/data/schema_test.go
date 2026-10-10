@@ -213,3 +213,27 @@ func TestFreshWriterCompatibilityRefusesChangedSchema(t *testing.T) {
 		t.Fatal("missing compatibility accepted")
 	}
 }
+
+func TestWriterCompatibilityRequiresExactOneToOneSet(t *testing.T) {
+	b, p := schemaFixture(t)
+	createSchema(t, p, "PRAGMA user_version=0")
+	c := SchemaCompatibility{Database: "main", Startup: "preserve", Accepts: []string{EmptyMarker}}
+	other := c
+	other.Database = "other"
+	for _, tc := range []struct {
+		name          string
+		bindings      []DatabaseBinding
+		compatibility []SchemaCompatibility
+	}{
+		{"unmatched compatibility", []DatabaseBinding{b}, []SchemaCompatibility{c, other}},
+		{"duplicate binding", []DatabaseBinding{b, b}, []SchemaCompatibility{c}},
+		{"duplicate and unmatched", []DatabaseBinding{b, b}, []SchemaCompatibility{c, other}},
+		{"duplicate compatibility", []DatabaseBinding{b}, []SchemaCompatibility{c, c}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if WriterCompatible(context.Background(), tc.bindings, tc.compatibility, nil) {
+				t.Fatal("non-bijective writer declarations accepted")
+			}
+		})
+	}
+}

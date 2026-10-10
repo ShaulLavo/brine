@@ -271,7 +271,7 @@ func CompatibleObservation(database DatabaseName, o SchemaObservation, c SchemaC
 // WriterCompatible observes each database afresh. The caller resolves bindings
 // and declarations from the currently committed release, not a client assertion.
 func WriterCompatible(ctx context.Context, bindings []DatabaseBinding, compatibility []SchemaCompatibility, definitions []SchemaDefinition) bool {
-	if len(bindings) == 0 {
+	if !validWriterDeclarations(bindings, compatibility) {
 		return false
 	}
 	for _, b := range bindings {
@@ -287,6 +287,29 @@ func WriterCompatible(ctx context.Context, bindings []DatabaseBinding, compatibi
 		if !found {
 			return false
 		}
+	}
+	return true
+}
+
+func validWriterDeclarations(bindings []DatabaseBinding, compatibility []SchemaCompatibility) bool {
+	if len(bindings) == 0 || len(bindings) != len(compatibility) {
+		return false
+	}
+	ids := map[DatabaseID]bool{}
+	names := map[DatabaseName]bool{}
+	for _, binding := range bindings {
+		if !ValidID(string(binding.DatabaseID)) || ids[binding.DatabaseID] || names[binding.Name] {
+			return false
+		}
+		ids[binding.DatabaseID] = true
+		names[binding.Name] = true
+	}
+	seen := map[DatabaseName]bool{}
+	for _, c := range compatibility {
+		if !names[c.Database] || seen[c.Database] {
+			return false
+		}
+		seen[c.Database] = true
 	}
 	return true
 }
