@@ -132,7 +132,8 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	appService := apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}, LoadPolicy: loader.Load}
 	secretService := secrets.Service{Store: state, Podman: podman.New(session), LoadPolicy: loader.Load, Requester: requester}
 	rotation := backupcredentials.Rotator{Journal: rotationJournal{state: state}, Host: replicaRotation{state: state, stateRoot: stateDir, home: identity.HomeDir, services: replication.NewServices(session), units: runtimeSystemd, permits: permits.Reader}}
-	r := &Runtime{BackupCredentials: credentialOperations{service: service, stateRoot: stateDir, activate: rotation.Activate}, Config: appService, Secrets: secretService, Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: appService, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
+	taskJobs := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
+	r := &Runtime{BackupCredentials: credentialOperations{service: service, stateRoot: stateDir, jobs: taskJobs}, Config: appService, Secrets: secretService, Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}, TaskHandlers: map[ops.Kind]jobs.TaskHandler{ops.CredentialActivation: credentialTaskHandler(service, stateDir, rotation), ops.RestoreTest: restoreTaskHandler(state, stateDir)}}, Apps: appService, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
 		p, err := loader.Load(ctx)
 		if err != nil {
 			return 0, err
@@ -143,7 +144,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	initTasks := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
 	initTasks.Requester = initEngine.Requester.String()
 	r.DataInitialization = initializationOperations{engine: initEngine, tasks: initTasks}
-	r.Runner.TaskHandlers = map[ops.Kind]jobs.TaskHandler{ops.DataInitApply: initializationTask(service, stateDir)}
+	r.Runner.TaskHandlers[ops.DataInitApply] = initializationTask(service, stateDir)
 	r.Reconciler = initializationReconciler{Reconciler: reconciler, service: service, stateRoot: stateDir}
 
 	if preview {

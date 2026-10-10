@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 type rotationFake struct {
 	record                                                data.CredentialRotation
+	archived                                              map[string]data.CredentialRotation
 	binding                                               data.ReplicaBinding
 	fenced, stopped, running, locked                      bool
 	stops, starts, commits, verifies                      int
@@ -21,8 +23,8 @@ type rotationFake struct {
 	failReload, uncertainStart, uncertainStop, failRemote bool
 }
 
-func (f *rotationFake) ReadRotation(context.Context, string) (data.CredentialRotation, error) {
-	if f.record.Stage == "" {
+func (f *rotationFake) ReadRotation(_ context.Context, id string) (data.CredentialRotation, error) {
+	if f.record.Stage == "" || f.record.PlanID != id {
 		return data.CredentialRotation{}, ErrRotationNotFound
 	}
 	return f.record, nil
@@ -31,6 +33,13 @@ func (f *rotationFake) WriteRotation(_ context.Context, previous data.RotationSt
 	if r.Stage == f.failStage {
 		f.failStage = ""
 		return errors.New("interruption")
+	}
+	if previous == "" && (f.record.Stage == data.RotationActive || f.record.Stage == data.RotationVerified) {
+		if f.archived == nil {
+			f.archived = make(map[string]data.CredentialRotation)
+		}
+		f.archived[f.record.PlanID] = f.record
+		f.record = data.CredentialRotation{}
 	}
 	if f.record.Stage != previous || !r.Follows(previous) {
 		return ErrInvalid
@@ -43,7 +52,7 @@ func (f *rotationFake) Inspect(context.Context, data.ReplicaBindingID) (data.Rep
 }
 func (f *rotationFake) Prepare(_ context.Context, r Receipt, current data.ReplicaBinding) (data.ReplicaBinding, error) {
 	current.CredentialVersion = r.Version
-	current.CredentialFile = "/fixture/v2.env"
+	current.CredentialFile = "/fixture/v" + strconv.FormatUint(r.Version, 10) + ".env"
 	current.UnitSHA256 = strings.Repeat("d", 64)
 	return current, nil
 }
@@ -96,6 +105,7 @@ func (f *rotationFake) Start(context.Context, data.ReplicaBinding) error {
 		return ErrActivationUnknown
 	}
 	f.running = true
+	f.stopped = false
 	return nil
 }
 func (f *rotationFake) Running(context.Context, data.ReplicaBinding) (bool, error) {
@@ -287,5 +297,155 @@ func TestActivatedReceiptStrictHealthAndStatus(t *testing.T) {
 		if _, err := DecodeReceipt([]byte(bad)); err == nil {
 			t.Fatal("invalid activated receipt accepted")
 		}
+	}
+}
+
+func TestExpiredInterruptedRotationAllowsFreshDelivery(t *testing.T) {
+	for _, stage := range []data.RotationStage{data.RotationPrepared, data.RotationStopIssued, data.RotationStopped, data.RotationCommitted, data.RotationStartIssued, data.RotationActive, data.RotationVerified} {
+		t.Run(string(stage), func(t *testing.T) {
+			rotator, f, receipt := rotationFixture()
+			now := time.Now().UTC()
+			expiry := now.Add(2 * time.Minute)
+			plan := Plan{Requester: receipt.Requester, Kind: Kind, Scope: receipt.Scope, Version: 2, ExpiresAt: &expiry}
+			plan.ID = plan.identity()
+			receipt.PlanID, receipt.ExpiresAt = plan.ID, &expiry
+			rotator.Now = func() time.Time { return now }
+			switch stage {
+			case data.RotationPrepared:
+				f.failStage = data.RotationStopIssued
+			case data.RotationStopIssued:
+				f.uncertainStop = true
+			case data.RotationStopped:
+				f.failStage = data.RotationCommitted
+			case data.RotationCommitted:
+				f.failReload = true
+			case data.RotationStartIssued:
+				f.uncertainStart = true
+			case data.RotationActive:
+				f.failRemote = true
+			}
+			_, _ = rotator.Activate(context.Background(), receipt)
+			if f.record.Stage != stage {
+				t.Fatalf("fixture cursor %s, want %s", f.record.Stage, stage)
+			}
+			oldStarts := f.starts
+			now = now.Add(3 * time.Minute)
+			if _, err := rotator.Activate(context.Background(), receipt); !errors.Is(err, ErrExpired) {
+				t.Fatal("expired resume not refused", err)
+			}
+			if f.starts != oldStarts {
+				t.Fatal("expired credentials were restarted")
+			}
+			f.uncertainStart, f.uncertainStop, f.failRemote = false, false, false
+			f.failStage = ""
+			fresh := plan
+			fresh.Version = 3
+			freshExpiry := now.Add(time.Hour)
+			fresh.ExpiresAt = &freshExpiry
+			fresh.ID = fresh.identity()
+			next := Receipt{Requester: fresh.Requester, PlanID: fresh.ID, Scope: fresh.Scope, Version: fresh.Version, File: fileName(fresh.Scope.CredentialRef, fresh.Version, "env"), ReceivedAt: now, ExpiresAt: fresh.ExpiresAt}
+			got, err := rotator.Activate(context.Background(), next)
+			if err != nil || !got.Activated || f.binding.CredentialVersion != 3 || f.starts != oldStarts+1 {
+				t.Fatalf("fresh delivery wedged after %s: %v", stage, err)
+			}
+			if stage != data.RotationActive && stage != data.RotationVerified {
+				closed := f.archived[receipt.PlanID]
+				if closed.Stage != data.RotationSuperseded || closed.SupersededBy != next.PlanID {
+					t.Fatal("old cursor was not explicitly superseded")
+				}
+			}
+		})
+	}
+}
+
+func (f *rotationFake) PendingRotation(_ context.Context, id data.ReplicaBindingID) (data.CredentialRotation, error) {
+	if f.record.Before.BindingID != id || f.record.Stage == "" || f.record.Stage == data.RotationActive || f.record.Stage == data.RotationVerified || f.record.Stage == data.RotationSuperseded {
+		return data.CredentialRotation{}, ErrRotationNotFound
+	}
+	return f.record, nil
+}
+func (f *rotationFake) SupersedeRotation(_ context.Context, old, next data.CredentialRotation) error {
+	if old != f.record || next.Before != f.binding || next.After.CredentialVersion <= old.After.CredentialVersion {
+		return ErrInvalid
+	}
+	if f.archived == nil {
+		f.archived = make(map[string]data.CredentialRotation)
+	}
+	old.Stage, old.SupersededBy = data.RotationSuperseded, next.PlanID
+	f.archived[old.PlanID] = old
+	f.record = next
+	return nil
+}
+
+func TestExpiredRotationWithoutInterruptionRefuses(t *testing.T) {
+	rotator, f, receipt := rotationFixture()
+	expiry := time.Now().UTC().Add(-time.Second)
+	plan := Plan{Requester: receipt.Requester, Kind: Kind, Scope: receipt.Scope, Version: receipt.Version, ExpiresAt: &expiry}
+	plan.ID = plan.identity()
+	receipt.PlanID, receipt.ExpiresAt = plan.ID, &expiry
+	if _, err := rotator.Activate(context.Background(), receipt); !errors.Is(err, ErrExpired) {
+		t.Fatal("expired credentials admitted", err)
+	}
+	if f.stops != 0 || f.starts != 0 || f.record.Stage != "" {
+		t.Fatal("expired admission mutated replica or journal")
+	}
+}
+func TestRotationExpiryBeforeStartNeverStarts(t *testing.T) {
+	rotator, f, receipt := rotationFixture()
+	now := time.Now().UTC()
+	expiry := now.Add(2 * time.Minute)
+	plan := Plan{Requester: receipt.Requester, Kind: Kind, Scope: receipt.Scope, Version: receipt.Version, ExpiresAt: &expiry}
+	plan.ID = plan.identity()
+	receipt.PlanID, receipt.ExpiresAt = plan.ID, &expiry
+	calls := 0
+	rotator.Now = func() time.Time {
+		calls++
+		if calls > 1 {
+			return expiry.Add(time.Second)
+		}
+		return now
+	}
+	if _, err := rotator.Activate(context.Background(), receipt); !errors.Is(err, ErrExpired) {
+		t.Fatal("expiry before start ignored", err)
+	}
+	if f.starts != 0 || f.record.Stage != data.RotationCommitted {
+		t.Fatal("expired version was started")
+	}
+}
+
+func TestExpiredStartIssuedAlreadyRunningIsExplicitlySuperseded(t *testing.T) {
+	rotator, f, receipt := rotationFixture()
+	now := time.Now().UTC()
+	expiry := now.Add(2 * time.Minute)
+	plan := Plan{Requester: receipt.Requester, Kind: Kind, Scope: receipt.Scope, Version: 2, ExpiresAt: &expiry}
+	plan.ID = plan.identity()
+	receipt.PlanID, receipt.ExpiresAt = plan.ID, &expiry
+	rotator.Now = func() time.Time { return now }
+	f.failStage = data.RotationActive
+	if _, err := rotator.Activate(context.Background(), receipt); !errors.Is(err, ErrActivationUnknown) {
+		t.Fatal(err)
+	}
+	if !f.running || f.record.Stage != data.RotationStartIssued {
+		t.Fatal("running start-intent fixture wrong")
+	}
+	now = now.Add(3 * time.Minute)
+	if _, err := rotator.Activate(context.Background(), receipt); !errors.Is(err, ErrExpired) {
+		t.Fatal(err)
+	}
+	if f.record.Stage != data.RotationStartIssued || f.starts != 1 {
+		t.Fatal("expired start intent lost or restarted")
+	}
+	fresh := plan
+	fresh.Version = 3
+	freshExpiry := now.Add(time.Hour)
+	fresh.ExpiresAt = &freshExpiry
+	fresh.ID = fresh.identity()
+	next := Receipt{Requester: fresh.Requester, PlanID: fresh.ID, Scope: fresh.Scope, Version: 3, File: fileName(fresh.Scope.CredentialRef, 3, "env"), ReceivedAt: now, ExpiresAt: &freshExpiry}
+	if _, err := rotator.Activate(context.Background(), next); err != nil {
+		t.Fatal(err)
+	}
+	closed := f.archived[receipt.PlanID]
+	if closed.Stage != data.RotationSuperseded || closed.SupersededBy != next.PlanID || f.starts != 2 {
+		t.Fatal("expired running cursor not explicitly superseded")
 	}
 }

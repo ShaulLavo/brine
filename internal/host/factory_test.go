@@ -18,7 +18,7 @@ import (
 
 func TestTrustedMarkerGateForEveryOperation(t *testing.T) {
 	for _, marker := range []string{"", "wrong", "deploy"} {
-		for _, op := range []string{"ping", "inventory", "plan", "apply", "operation", "status", "rollback", "logs", "diagnose", "reconcile", "config_set", "lifecycle", "secret_set"} {
+		for _, op := range []string{"ping", "inventory", "plan", "apply", "operation", "restore_test", "status", "rollback", "logs", "diagnose", "reconcile", "config_set", "lifecycle", "secret_set"} {
 			t.Run(marker+"/"+op, func(t *testing.T) {
 				state := filepath.Join(t.TempDir(), "state")
 				opens, inventories := 0, 0
@@ -37,7 +37,7 @@ func TestTrustedMarkerGateForEveryOperation(t *testing.T) {
 				if allowed && err != nil || !allowed && (err == nil || result.Classify(err).Code() != result.DispatchOperationRefused) {
 					t.Fatalf("allowed=%v error=%v", allowed, err)
 				}
-				if !allowed || op == "ping" || op == "inventory" || op == "diagnose" {
+				if !allowed || op == "ping" || op == "inventory" || op == "diagnose" || op == "operation" || op == "restore_test" {
 					if opens != 0 {
 						t.Fatal("opened store for refused or no-store operation")
 					}

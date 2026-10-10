@@ -20,11 +20,13 @@ import (
 
 type restoreTests struct{ stateDir string }
 
-func newRestoreTests(dir string) dispatch.RestoreTestOperations { return restoreTests{stateDir: dir} }
+func newRestoreTests(dir string) dispatch.RestoreTestOperations {
+	return restoreAdmission{stateDir: dir}
+}
 
 // Restore tests open only the control store read-only. No live source path is
 // passed to the engine or the fixed transaction observer.
-func (o restoreTests) Test(ctx context.Context, a dispatch.RestoreTestArgs) (restore.Receipt, error) {
+func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, operationID string) (restore.Receipt, error) {
 	if !a.Valid() {
 		return restore.Receipt{}, result.New(result.InvalidUsage, nil)
 	}
@@ -58,11 +60,7 @@ func (o restoreTests) Test(ctx context.Context, a dispatch.RestoreTestArgs) (res
 		}
 		request = requestAtPoint(request, point)
 	}
-	id, err := data.NewID()
-	if err != nil {
-		return restore.Receipt{}, result.New(result.DependencyMissing, nil)
-	}
-	request.OperationID = id
+	request.OperationID = operationID
 	request.Budget = 9 * time.Minute
 	files := backupcredentials.Files{Root: filepath.Join(o.stateDir, "credentials")}
 	engine := restore.Engine{Root: filepath.Join(o.stateDir, "restores"), Observer: restoreSchemaObserver{database: scope.Database.Name, definitions: declarations.Definitions}, Bindings: restore.BindingReaderFunc(func(ctx context.Context, id, epoch string) (restore.Binding, error) {

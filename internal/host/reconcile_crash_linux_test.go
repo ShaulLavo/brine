@@ -69,6 +69,7 @@ func TestDispatcherReconcilesCrashedRunOp(t *testing.T) {
 			factory := newServerFactory("fixture", "deploy", func(context.Context, string) (*Runtime, error) {
 				return &Runtime{Inventory: r.inventory, Planner: r.service, Jobs: jobs.Service{Store: r.store, Launcher: r.launcher, Requester: r.service.Requester}, Reconciler: r.server.Reconciler, Authorize: r.service.Authorize, close: func() error { return nil }}, nil
 			}, nil)
+			factory.diagnosticStateDir = dir
 			factory.previewOpen = func(ctx context.Context, _ string) (*Runtime, error) {
 				preview, err := openPreviewState(ctx, dir)
 				if err != nil || preview.previewStore == nil {

@@ -10,7 +10,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/reconcile"
-	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -59,30 +58,18 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "data_init_apply":
+		case "data_init_apply", "restore_test", "backup_credentials_set":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()
 			}
 			value = accepted
-		case "restore_test":
-			r, err := restore.DecodeReceipt(fields["data"])
-			if err != nil {
-				return invalid()
-			}
-			value = r
 		case "backup_credentials_plan":
 			p, err := backupcredentials.DecodePlan(fields["data"])
 			if err != nil {
 				return invalid()
 			}
 			value = p
-		case "backup_credentials_set":
-			r, err := backupcredentials.DecodeReceipt(fields["data"])
-			if err != nil {
-				return invalid()
-			}
-			value = r
 		case "config_set", "lifecycle":
 			p, err := apps.DecodeConfigPlan(fields["data"])
 			if err != nil {

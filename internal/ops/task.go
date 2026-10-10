@@ -42,7 +42,7 @@ func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 		return receipt, nil
 	case CredentialActivation:
 		receipt, err := backupcredentials.DecodeReceipt(raw)
-		if err != nil || receipt.Scope.App != op.App || receipt.PlanID != op.SecretRef || receipt.Requester != op.Requester {
+		if err != nil || receipt.Scope.App != op.App || receipt.PlanID != op.SecretRef {
 			return nil, strictjson.ErrObject
 		}
 		return receipt, nil
