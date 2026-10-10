@@ -1,0 +1,11 @@
+{
+  "exec-import|cmd/brine/main.go|import|2f12c649f2da573bc74f9e4dbef85e4abfbc223103596f35c3ff3e659cc46841": 1,
+  "exec-import|internal/inventory/collector.go|import|2f12c649f2da573bc74f9e4dbef85e4abfbc223103596f35c3ff3e659cc46841": 1,
+  "exec-import|internal/transport/client.go|import|2f12c649f2da573bc74f9e4dbef85e4abfbc223103596f35c3ff3e659cc46841": 1,
+  "exec-use|cmd/brine/main.go|main|0a458e142d64e0e9796cd4ec3afe3712a9c8dc2f04d809b87b90ece536943ebe": 1,
+  "exec-use|internal/inventory/collector.go|Collector.version|d6bfb4a97baa26cddb67abf2d212d91ec69b0ac56f24e42f5423c62ab452e9a8": 1,
+  "exec-use|internal/transport/client.go|Client.call|997507ee32d59a465cc799cfbdd00126eac1c8467c8908d9b4c79f5e51f617f4": 2,
+  "insecure-tls|integration/fixture_test.go|fixture.health|be100f290374a62b827668e35ac5ba9ced27dfe9ccc5a56156b4be8f369170e4": 1,
+  "presentation-import|internal/planview/view.go|import|44dd7dfe58324d79653c33b62a75b52a1597d4aa8b038e3ab9de6b050d970484": 1,
+  "presentation-import|internal/planview/view_test.go|import|44dd7dfe58324d79653c33b62a75b52a1597d4aa8b038e3ab9de6b050d970484": 1
+}
