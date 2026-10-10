@@ -37,17 +37,18 @@ import (
 )
 
 type Executor struct {
-	Journal       Journal
-	Releases      ReleaseStore
-	Plans         PlanLoader
-	Facts         FactsReader
-	Podman        podman.Adapter
-	Systemd       systemd.Adapter
-	Units         Units
-	Routes        Routes
-	Health        Health
-	Compatibility Compatibility
-	WriterStarts  WriterStarts
+	Journal        Journal
+	Releases       ReleaseStore
+	Plans          PlanLoader
+	Facts          FactsReader
+	Podman         podman.Adapter
+	Systemd        systemd.Adapter
+	Units          Units
+	Routes         Routes
+	Health         Health
+	Compatibility  Compatibility
+	WriterStarts   WriterStarts
+	PersistentData PersistentData
 	// EffectTimeout bounds individual non-health steps. Zero uses one minute.
 	EffectTimeout time.Duration
 }
@@ -261,6 +262,7 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 			}
 			return nil
 		}},
+		{"prepare_data", Preparing, "writer_permit_refused", x.preparePersistent},
 		{"stage_unit", Preparing, "unit_invalid", func(ctx context.Context) error {
 			var err error
 			x.unit, err = quadlet.Render(d, p, *p.Image.ManifestDigest.Value)
@@ -335,6 +337,9 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		}},
 	}
 	for _, s := range steps {
+		if s.name == "prepare_data" && d.Stateless() {
+			continue
+		}
 		if recovery != nil && recovery.completed[s.name] {
 			continue
 		}
