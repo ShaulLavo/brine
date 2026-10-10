@@ -273,11 +273,11 @@ type stalledImagesRunner struct {
 	manifestCalls int
 }
 
-func (r *stalledImagesRunner) RunStdout(ctx context.Context, p string, args ...string) (string, error) {
+func (r *stalledImagesRunner) CaptureStdout(ctx context.Context, limit int, p string, args ...string) (localexec.Capture, error) {
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return localexec.Capture{}, err
 	}
-	return r.fakeRunner.RunStdout(ctx, p, args...)
+	return r.fakeRunner.CaptureStdout(ctx, limit, p, args...)
 }
 func (r *stalledImagesRunner) Execute(ctx context.Context, cmd localexec.Command) (localexec.Result, error) {
 	if len(cmd.Args) > 0 && cmd.Args[0] == "manifest" {

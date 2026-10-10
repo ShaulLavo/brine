@@ -125,10 +125,9 @@ func newRollbackCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 				}
 			}
 			if p.Kind == "conflict" {
-				_, err := fmt.Fprintln(cmd.OutOrStdout(), "The plan has conflicts. Resolve them and plan again before applying.")
-				return err
+				return printConflicts(cmd.OutOrStdout(), p.Conflicts)
 			}
-			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Apply with brine apply %s --target %s. App rollback never rewinds data.\n", p.PlanID, flags.target); err != nil {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Apply with %s. App rollback never rewinds data.\n", flags.command("apply", p.PlanID)); err != nil {
 				return err
 			}
 		}

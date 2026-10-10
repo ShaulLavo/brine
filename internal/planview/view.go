@@ -171,7 +171,7 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 		}
 	}
 	for _, c := range v.Conflicts {
-		add("! " + reason(c.Code) + " [" + c.Field + "]")
+		add(ConflictText(c))
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -226,6 +226,11 @@ func safe(text string) string {
 	}, text)
 }
 
+// ConflictText renders a diagnostic with a fixed reason and no terminal controls.
+func ConflictText(d plan.Diagnostic) string {
+	return safe("! " + string(d.Code) + " [" + d.Field + "]: " + reason(d.Code))
+}
+
 func reason(code plan.ConflictCode) string {
 	switch code {
 	case plan.UnsupportedTarget:
@@ -246,6 +251,8 @@ func reason(code plan.ConflictCode) string {
 		return "Live app files differ from the committed release."
 	case plan.RuntimeUnavailable:
 		return "A required runtime or runner is not ready."
+	case plan.InsufficientDisk:
+		return "Free disk is below the required minimum."
 	case plan.StaleState:
 		return "Committed state no longer matches the observed target."
 	default:

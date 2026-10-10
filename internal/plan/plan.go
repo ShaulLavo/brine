@@ -34,17 +34,21 @@ const (
 type ConflictCode string
 
 const (
-	UnsupportedTarget  ConflictCode = "unsupported_target"
-	UnknownFacts       ConflictCode = "unknown_facts"
-	DomainOwned        ConflictCode = "domain_owned"
-	PortOwned          ConflictCode = "port_owned"
-	PortsExhausted     ConflictCode = "ports_exhausted"
-	ImagePlatform      ConflictCode = "image_platform"
-	SecretMissing      ConflictCode = "secret_missing"
-	ArtifactDrift      ConflictCode = "artifact_drift"
-	RuntimeUnavailable ConflictCode = "runtime_unavailable"
-	StaleState         ConflictCode = "stale_brine_state"
-	InsufficientDisk   ConflictCode = "insufficient_disk"
+	SchemaCompatibilityRequired ConflictCode = "schema_compatibility_required"
+	BackupCadenceDenied         ConflictCode = "backup_cadence_denied"
+	PersistentRootDenied        ConflictCode = "persistent_root_denied"
+	BackupDestinationUnknown    ConflictCode = "backup_destination_unknown"
+	UnsupportedTarget           ConflictCode = "unsupported_target"
+	UnknownFacts                ConflictCode = "unknown_facts"
+	DomainOwned                 ConflictCode = "domain_owned"
+	PortOwned                   ConflictCode = "port_owned"
+	PortsExhausted              ConflictCode = "ports_exhausted"
+	ImagePlatform               ConflictCode = "image_platform"
+	SecretMissing               ConflictCode = "secret_missing"
+	ArtifactDrift               ConflictCode = "artifact_drift"
+	RuntimeUnavailable          ConflictCode = "runtime_unavailable"
+	StaleState                  ConflictCode = "stale_brine_state"
+	InsufficientDisk            ConflictCode = "insufficient_disk"
 )
 
 type Diagnostic struct {
@@ -165,6 +169,7 @@ type Restart struct {
 }
 
 type Plan struct {
+	Backup             *data.BackupCadence        `json:"backup,omitempty"`
 	Runtime            *data.RuntimeIdentity      `json:"runtime,omitempty"`
 	DataMounts         []data.Mount               `json:"data_mounts,omitempty"`
 	SchemaVersion      int                        `json:"schema_version"`
@@ -253,6 +258,35 @@ func Build(in Input) (Plan, error) {
 		}
 	}
 	if persistent {
+		p.Runtime = in.Desired.Runtime
+		p.Backup = in.Desired.Backup
+		for _, database := range in.Desired.Databases {
+			field := "databases." + string(database.Name)
+			if !slices.Contains(in.Desired.PersistentRoots, database.PersistentRoot) {
+				add(PersistentRootDenied, field+".persistent_root")
+			}
+			found := false
+			for _, destination := range in.Desired.BackupDestinations {
+				if destination.Reference == database.BackupDestination {
+					found = true
+				}
+			}
+			if !found {
+				add(BackupDestinationUnknown, field+".backup_destination")
+			}
+			if in.Desired.Backup == nil || database.SyncInterval < in.Desired.Backup.MinSyncInterval || database.SyncInterval > in.Desired.Backup.MaxSyncInterval {
+				add(BackupCadenceDenied, field+".sync_interval")
+			}
+			complete := false
+			for _, c := range in.Desired.SchemaCompatibility {
+				if c.Database == database.Name && c.Startup == "preserve" && len(c.Accepts) > 0 {
+					complete = true
+				}
+			}
+			if !complete {
+				add(SchemaCompatibilityRequired, field+".schema_compatibility")
+			}
+		}
 		add(UnknownFacts, "databases")
 	}
 	if err := in.Snapshot.Validate(); err != nil {

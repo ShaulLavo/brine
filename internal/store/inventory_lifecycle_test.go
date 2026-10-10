@@ -234,3 +234,12 @@ func TestCreateRemoveRecreateThroughProductionCollector(t *testing.T) {
 		t.Fatal("retained history or secret changed", err)
 	}
 }
+
+func (r inventoryFixtureRunner) CaptureStdout(ctx context.Context, limit int, path string, args ...string) (localexec.Capture, error) {
+	out, err := r.RunStdout(ctx, path, args...)
+	capture := localexec.Capture{Stdout: out, Overflow: len(out) > limit}
+	if capture.Overflow {
+		capture.Stdout = out[:limit]
+	}
+	return capture, err
+}

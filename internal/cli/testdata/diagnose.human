@@ -26,19 +26,19 @@ App demo
 
 Findings
 [error] disk_below_minimum (host): Free disk is below the operator policy minimum. Free space before deploying.
-  Next: brine diagnose --target fixture
+  Next: brine diagnose --target fixture --config-dir CONFIG_DIR
 [error] unit_failed (demo): The app unit has failed. Read its logs before choosing an application rollback; rollback does not rewind data.
-  Next: brine logs demo --target fixture
-  Next: brine rollback demo --target fixture
+  Next: brine logs demo --target fixture --config-dir CONFIG_DIR
+  Next: brine rollback demo --target fixture --config-dir CONFIG_DIR
 [warning] unit_restarting (demo): The unit reports at least three automatic restarts. This counter is not a count since the last deploy.
-  Next: brine logs demo --target fixture
-  Next: brine rollback demo --target fixture
+  Next: brine logs demo --target fixture --config-dir CONFIG_DIR
+  Next: brine rollback demo --target fixture --config-dir CONFIG_DIR
 [error] container_stopped (demo): The app container is not running. Inspect logs before changing it.
-  Next: brine logs demo --target fixture
+  Next: brine logs demo --target fixture --config-dir CONFIG_DIR
 [error] route_missing (demo): No live Caddy route was observed for this app.
   Next: brine plan --help
 [warning] operation_failed (demo): The most recent app operation failed. Inspect its status and logs before retrying.
-  Next: brine status --operation op-fixture --target fixture
-  Next: brine logs demo --target fixture
+  Next: brine status --operation op-fixture --target fixture --config-dir CONFIG_DIR
+  Next: brine logs demo --target fixture --config-dir CONFIG_DIR
 [warning] plan_stale (demo): The most recent operation refused a stale plan. Make a fresh plan before applying.
   Next: brine plan --help

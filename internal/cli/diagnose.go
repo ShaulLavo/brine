@@ -53,12 +53,12 @@ func newDiagnoseCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 				Report diagnose.Report `json:"report"`
 			}{"complete", report}))
 		}
-		return printDiagnosis(cmd.OutOrStdout(), report, flags.target)
+		return printDiagnosis(cmd.OutOrStdout(), report, flags)
 	}}
 	flags.register(cmd)
 	return cmd
 }
-func printDiagnosis(out io.Writer, report diagnose.Report, target string) error {
+func printDiagnosis(out io.Writer, report diagnose.Report, flags operationFlags) error {
 	// Render every fact, including unknown reasons, rather than presenting missing data as healthy.
 	raw, err := json.Marshal(report)
 	if err != nil {
@@ -69,7 +69,7 @@ func printDiagnosis(out io.Writer, report diagnose.Report, target string) error 
 		return err
 	}
 	var text strings.Builder
-	fmt.Fprintf(&text, "Diagnosis for target %s\n", target)
+	fmt.Fprintf(&text, "Diagnosis for target %s\n", flags.target)
 	printFacts(&text, "host", tree["host"])
 	printFacts(&text, "app_names", tree["app_names"])
 	for i, app := range report.Apps {
@@ -90,7 +90,14 @@ func printDiagnosis(out io.Writer, report diagnose.Report, target string) error 
 		}
 		fmt.Fprintf(&text, "[%s] %s (%s): %s\n", finding.Severity, finding.Code, scope, finding.Message)
 		for _, next := range finding.NextOperations {
-			next = strings.ReplaceAll(next, "NAME", target)
+			args := strings.Fields(next)
+			for i, arg := range args {
+				if arg == "--target" && i+1 < len(args) && args[i+1] == "NAME" {
+					args = append(args[:i], args[i+2:]...)
+					next = flags.command(args[1:]...)
+					break
+				}
+			}
 			fmt.Fprintf(&text, "  Next: %s\n", next)
 		}
 	}
