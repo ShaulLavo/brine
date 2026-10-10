@@ -164,6 +164,10 @@ func (r Reader) Read(parent context.Context, request Request) (Report, error) {
 	}
 	h.LiveGeneration = liveGeneration(snapshot)
 	report.Host = h
+	// Concrete log readers share this report's measured ownership snapshot.
+	// Recollecting inventory inside a one-second log probe exhausts its budget.
+	r.Logs = reportLogReader(r.Logs, snapshot)
+	r.UnitLogs = reportLogReader(r.UnitLogs, snapshot)
 	if executor, ok := r.Runner.(localexec.Executor); ok {
 		if r.Logs == nil {
 			r.Logs = logs.Reader{Inventory: snapshotInventory{snapshot}, Executor: executor}
@@ -510,4 +514,25 @@ func liveGeneration(s target.Snapshot) Fact[uint64] {
 		}
 	}
 	return Known(s.CaddyConfig.Value.Generation)
+}
+
+func reportLogReader(reader LogReader, snapshot target.Snapshot) LogReader {
+	switch reader := reader.(type) {
+	case logs.Reader:
+		reader.Inventory = snapshotInventory{snapshot}
+		return reader
+	case *logs.Reader:
+		copy := *reader
+		copy.Inventory = snapshotInventory{snapshot}
+		return copy
+	case logs.JournalReader:
+		reader.Inventory = snapshotInventory{snapshot}
+		return reader
+	case *logs.JournalReader:
+		copy := *reader
+		copy.Inventory = snapshotInventory{snapshot}
+		return copy
+	default:
+		return reader
+	}
 }

@@ -2,9 +2,21 @@
 
 Recorded 2026-10-09. The first attempt used `9670c1a`. The resumed attempt merged `c4caf3d`, including stateless removal, and tested the Docker Hub fix in `9e862a1` on the physical target.
 
-## Result
+## Latest result, 2026-10-10
 
-**First stateless deployment verified; blocked on route provenance before updating it. The Phase 03 exit gate has not passed.**
+**The stateless Phase 03 physical exit gate passed. Final restricted removal left zero committed apps and no fixture writer, selected route or listener.**
+
+After merging `1d44dc8` (#52), the real restricted client recreated the fixture with retained secret v1, updated environment and pinned image digest, rolled back, restored the previous writer after an invalid release, serialized competing applies, survived a killed client/SSH process group, and reconciled a run-op SIGKILL after a byte-preserving dry-run. Config set, immutable secret v2 and stop/start/restart passed. A small diagnose-tail defect was reproduced failing-first and fixed here; both standalone logs and diagnose returned nonempty owned app tails. One reboot returned direct and normally verified routed health in 51.039 seconds, and the boot reconciliation unit completed successfully. Final `remove` succeeded. Detailed receipts and scope limits follow below; earlier blocked results are historical, not the final state. Existing-data mounts and data rollback remain Phase 04. No zero-downtime or R2-restore claim is made.
+
+## Intermediate result before #52, 2026-10-10
+
+**Real v2-to-v3 migration and terminal-removal resolution passed. Clean-fixture recreation is blocked by retained-secret inventory after a nonzero control generation. The Phase 03 exit gate remains open.**
+
+The current run on `52977d3` preserved the existing receipt and all 13 event rows through migration, then completed its removal through `brine resolve` without operator app mutations. There are zero committed apps and no fixture unit/container/selected route/listener. D5-retained secret v1 and history remain. Planning the recreated fixture now refuses `unknown_facts` for `app.image`, `app.port`, and `apps.port`; even a different app with no secret references refuses `apps.port`. The lane reproduced the same condition locally and stopped rather than delete retained secrets, reset control generation, or invent runtime absence. Details follow at the end of this file. No new deploy was accepted, reboot issued, or acceptance checkbox changed.
+
+## Earlier result, 2026-10-09
+
+**First stateless deployment verified; blocked on route provenance before updating it. The Phase 03 exit gate had not passed.**
 
 After a separate operator session prepared enrollment and routing/TLS prerequisites, the real restricted client deployed a digest-pinned fixture with an immutable Podman secret. Direct HTTP and normally verified routed HTTPS both returned 200. Two small production defects were reproduced with failing-first tests and fixed: Docker Hub resolution and Caddy route permissions under the private job umask.
 
@@ -229,3 +241,113 @@ T07 first stateless release is physically verified. The routed-health failure de
 Docker-specific and restrictive-umask regressions failed before their fixes and passed afterward. The original and resumed code gates passed all 30 Go packages, vet, client build, Linux arm64 cross-build, empty formatting, diff check, and Darwin arm64 vet. The systemd regression likewise failed first. Final verification passed `go test ./...` (30 packages), `go test -race ./...` (30 packages), `go vet ./...`, `go build ./cmd/brine`, the Linux arm64 cross-build, empty `gofmt -l ./cmd ./internal`, `git diff --check`, and `GOOS=darwin GOARCH=arm64 go vet ./...`. The targeted actual-systemd serialization regressions also passed with `-count=1`. Checks used `GOTMPDIR` under the private task scratch and `GOCACHE=/work/cache/go-build`. An initial local rerun hit the host's `/tmp` disk quota; subsequent build scratch was redirected to `/work`, without deleting other sessions' files.
 
 The exit gate remains open in [Phase 03](../plans/03-deploy-and-recovery.md). Operator installation, readiness, and reported undo follow-ups remain in [Phase 06](../plans/06-release-and-ops.md).
+
+## Resumed physical run, 2026-10-10: real v2-to-v3 migration
+
+This run starts from `52977d3`, including imported-route provenance, owned container logs, preflight deadline reporting, and explicit terminal resolution. A new worktree was created from main after preserving the pushed earlier work. The current D3 standing test-host authorization was read from the repository. Application operations continue exclusively through the restricted client; operator access is used only for installation, read-only observation, backups and authorized fault injection. No tailnet, firewall or operator SSH configuration changed.
+
+The current client and Linux arm64 executable were built from that commit. The previous host binary and a consistent read-only-source SQLite backup were preserved in a root-private drill backup directory. Installation used the same authorized binary-only replacement described earlier, not a supported upgrade command. The protected enrollment record was not rewritten and still has the stale enrolled binary hash; supported journal-aware updates remain P06-03 work.
+
+Before replacement, read-only SQL observation of the actual control database reported schema 2. After installing the new executable, restricted operation status opened it and performed the production migration to schema 3. This was existing host history, not a synthesized migration fixture. The stuck removal receipt survived unchanged:
+
+```text
+operation 01a121b1e29e45390eb6945d6b142cabb2c2d61c6584
+kind deploy; app fixture; state recovery_required
+created 2026-10-09T17:24:28.446946677Z
+updated 2026-10-09T17:24:33.295523865Z
+events 13
+before/after event-row SHA256 10a4342d6d17d74e4ac936dd81d93b5119e5e16238b205a24c53496aa9e66335
+```
+
+The event fingerprint hashes the ordered exact `seq`, `kind`, `state`, hex-encoded stored payload bytes and `created_at` rows. Original operation identity, plan association, state and timestamps matched before/after. `PRAGMA integrity_check` returned `ok` and `PRAGMA foreign_key_check` returned zero rows on both versions. No source events, runtime artifacts or release heads were manually edited. This proves real v2-to-v3 preservation; it does not retroactively claim physical v1-to-v2 evidence.
+
+Local baseline gates passed all 30 Go packages, vet, client and Linux arm64 builds, empty formatting, diff check, and Darwin arm64 vet. No concurrency code changed in this resumed run. A local Quadlet test package took 329 seconds but completed successfully; no local gate failed or was bypassed.
+
+### Supported resolution completes the original removal
+
+```sh
+"$SCRATCH/brine" resolve 01a121b1e29e45390eb6945d6b142cabb2c2d61c6584 \
+  --target "$TARGET" --config-dir "$CLIENT_DIR" \
+  --idempotency-key p03-original-removal-resolution --json
+```
+
+The restricted client accepted successor `01a122ef7112ec7a2a1182bfb1b08320f0dcfa4a87fc`, kind `resolve`, with `recovery_of` pointing at the original removal. It succeeded at `2026-10-09T23:11:22.834506305Z` (the local test session date is 2026-10-10). The original receipt remains terminal recovery-required, as designed; it was not reopened.
+
+The successor's first `resolution` event links the source, followed by the adopted step payloads. Adoption stamps those copied events with successor-acceptance times; they do not retain the source timestamps. There is only one adopted withdrawal intent/completion pair and one adopted stop intent, with no additional withdrawal/stop intent during execution. The selected Caddy generation remains `gen-3`. Fresh stopped-writer inspection completed the previously unknown stop, then new `remove_unit`, `reload_units`, and `retire_app` intent/completion pairs finished under the successor. The actual `fixture.container` and selected route are absent, the user unit reports `LoadState=not-found`, and no Podman container or TCP listener remains on port 20000. Read-only SQL reports zero live release heads and one immutable removal receipt. Restricted `status` returns `apps:[]`.
+
+History, the image, historical generation-2 route, and immutable secret v1 remain under D5; successful stateless removal is not a purge. No direct operator app mutation or DB editing was used to complete it. The secret's presence alone must not be mistaken for a committed app or a live port allocation. This resolves the earlier terminal-removal follow-up for that actual receipt; remove/recreate and the remaining clean-fixture drills are separate evidence.
+
+### New blocker: retained-secret inventory prevents recreation
+
+The resolved host has known control generation 2, zero release heads, no fixture Quadlet/container/listener, and one retained immutable secret. A plan using the original pinned image, route and secret reference was saved, but refused before apply:
+
+```sh
+"$SCRATCH/brine" plan "$SCRATCH/v1.toml" \
+  --target "$TARGET" --config-dir "$CLIENT_DIR" --json
+```
+
+```json
+{"schema_version":1,"command":"brine plan","ok":true,"data":{"plan_id":"sha256:b6c692e503484f9a702de2efa55939536ed01ce6744fc2e0b9c8417a64eaf62d","kind":"conflict","diff":null,"conflicts":[{"code":"unknown_facts","field":"app.image"},{"code":"unknown_facts","field":"app.port"},{"code":"unknown_facts","field":"apps.port"}]},"error":null}
+```
+
+No apply was accepted for this plan. This is not route provenance, missing registry metadata, an occupied port, an incomplete resolution, or failure to migrate. The completed removal has its durable retirement receipt; restricted status has no committed apps. Current Caddy generation 3 has no fixture route. The image still resolves successfully in connected planning.
+
+A second read-only plan changed the desired name/domain to `fixture-two`/`fixture-two.brine.test` and removed all secret references. It returned plan `sha256:1e10c66a295c2d559ac75d4175a03753873f297ae7336bc7397304232fdc376d`, `kind:conflict`, with just `unknown_facts:apps.port`. No second app was deployed. Thus the existing secret-only inventory record can block port allocation even for another app; this is not a missing requested secret.
+
+`internal/inventory/artifacts.go:109-115` initializes secret-only app image/port observations as unknown and only emits absence when global control generation is zero. After the successful removal, generation remains nonzero by design. `internal/plan/plan.go:312-324` refuses those facts for the requested app, and `:340-355` refuses an unknown port from any inventory app while allocating a new port. D5 intentionally keeps secrets/history after removal; deleting them or resetting generation is not the solution.
+
+A temporary local regression adapted `TestReviewFirstDeploymentBindsPreexistingSecret` to a known generation 2, an empty Quadlet directory, matching generation-2 BrineState with no release heads, and the retained secret fixture. `go test ./internal/inventory -run '^TestRecreationRetainedSecretNonzeroGeneration$' -count=1` failed with exactly the three physical `unknown_facts` diagnostics above. The reproduction source/log remain in private task scratch; the failing test was not left in the committed tree. Production code was not loosened to manufacture absence. A safe solution needs affirmative per-app runtime/committed-state absence, retaining strict handling of missing artifacts, unowned containers/listeners, incomplete removal and unreadable state.
+
+The lane stopped at that larger ownership/absence boundary as instructed. A new digest was resolved for the planned second release (`sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8`, arm64 manifest `sha256:e00b7e2763a0dfec9ec6d99253612510c253df47d7218cdd35c4e465b4e9ad1f`), but it was never applied. Update, stop-before-start, rollback, invalid release, parallel applies, client/SSH disconnect, run-op SIGKILL/dry-run preservation/reconciliation, new config/secret/lifecycle operations, nonempty app log tail, reboot and final clean-fixture removal remain owed. Both permitted reboots remain unused. Existing-data mounts, schema-breaking data rollback and R2 restore remain Phase 04; no zero-downtime claim is made.
+
+Final state: no committed fixture app, unit, container, selected route or live port. Secret v1, image, historical route generations, original/recovery receipts and the root-private pre-upgrade binary/DB backup remain intentionally retained. Original terminal receipt/event hash still match the pre-migration observations after successor completion. No operator configuration, credentials, firewall, tailnet, policy, trust store or account was changed in this run.
+
+Final local checks passed: `go test ./...` (all 30 packages), `go vet ./...`, `go build ./cmd/brine`, `gofmt -l ./cmd ./internal` (empty), `GOOS=darwin GOARCH=arm64 go vet ./...`, and `git diff --check`. This resumed PR changes evidence/planning only, not runtime or concurrency code. These local checks do not complete the remaining physical acceptance drills.
+
+## Recreation resumed after #52, 2026-10-10
+
+Merged `origin/main` (`1d44dc8`) into this lane without rebasing. Built client/Linux arm64 binaries and installed the host executable through the previously authorized binary-only replacement, preserving the prior executable privately. Protected enrollment provenance remains unchanged. The retained-secret blocker above is historical and is fixed by #52.
+
+Recreation plan became `create` and operation `01a1236cd3356ea0b3b2c71ff7b8cfb80d47822b7b30` succeeded, binding retained secret v1. Direct HTTP and normally verified routed HTTPS both returned 200. Runtime/history were not purged. Default-deadline local tests timed out cumulatively in the progressing filesystem-effect suite (first at `remove/error/18-removed`, then at parent-sync checks; stacks showed `File.Sync`). A bounded 30-minute full-suite run with test fixtures on the data SSD is running; this is not evidence of a failed app operation.
+
+### Environment and image update
+
+Operation `01a1236d9d259f648697d9740960c4ceab49cf3cd42a` succeeded with `RELEASE=two` and the new pinned index `sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8`. Runtime inspection confirms the environment change and routed HTTPS returns 200. The journal orders completed `quiesce_old` before `install_unit`, `reload_units` and `start_unit`; deployment is stop-before-start, not zero downtime. Both direct/routed checks and commit completed.
+
+### Physical rollback
+
+The first rollback operation `01a1236f4e35118f6721b8497c95415092f6e96f73c9` failed `stale_plan` before any effect (launch plus failure/terminal events only). After inspecting that no-effect terminal receipt, a fresh rollback plan matched the equivalent original desired specification. Operation `01a123706a2ad1fcc644fac2d543f6a1711cc68438f2` succeeded through that supported plan/apply path. Runtime environment returned to `RELEASE=one`; normally verified routed HTTPS returned 200. This is stateless app rollback, not database rollback. The initial plan discrepancy is being inspected, not silently retried as an unknown operation.
+
+### Invalid release and restricted log tail
+
+Operation `01a1237124fb21710cca0733fe6fd9e6a06730d2cc40` attempted the new digest/environment with a deliberately nonexistent health path and settled `rolled_back`. The previous writer regained `RELEASE=one` and routed HTTPS 200. Restricted `logs fixture --tail 40` returned 22 nonempty entries after real HTTP requests; restricted `diagnose fixture` succeeded with the app report. No host journal privilege was granted.
+
+### Config, immutable secret and lifecycle
+
+Config set completed, then immutable secret operation `01a1237390c9f0e66c1c72616d98199d5817433b0ba1` stored v2 via stdin only. A later config plan bound v2 without overwriting v1; secret values are omitted from evidence. `stop`, `start` and `restart` all succeeded through restricted plan/apply (operations `01a1237457994ac67bb75ca67829656edcae3649457a`, `01a12374819623e0a9c4c771aafa02bbd09c247978c2`, `01a12374a9824e30a20d538ee03d7d16f3ac6c9e45d6`). Standalone app logs are nonempty, but diagnose app logs remain `unknown:probe_timeout`; unit logs remain `unknown:logs_journal_unavailable`. Diagnose tail acceptance is not claimed.
+
+The full local suite passed all 30 packages with `GOFLAGS=-timeout=30m`, `TMPDIR`/`GOTMPDIR` on the data SSD. Default ten-minute suite runs had timed out in different progressing filesystem-effect subtests; the longer run completed rather than suppressing a test. Vet, Linux/client builds, Darwin arm64 vet, formatting and diff checks also passed.
+
+### Diagnose tail defect fixed failing-first
+
+On the healthy physical fixture, `logs` succeeded but `diagnose` consistently returned `unknown:probe_timeout` for the app tail. Diagnose injected a production log reader that recollected the full inventory inside a one-second tail probe, despite already having the report ownership snapshot under a larger budget. A regression observed three inventory collections and missing tails before the fix. Concrete injected app/unit log readers now use a copied reader bound to the already-measured report snapshot; custom reader adapters remain unchanged, and container/log-driver checks and redaction still run. No timeout or ownership rule was loosened. Full local checks passed. After binary-only installation, restricted `diagnose fixture` returned a known, nonempty 20-entry app tail. Unit journal unavailability remains an honestly reported separate fact, not a requirement for app logs.
+
+### Parallel apply
+
+The first pair of concurrently accepted applies both failed `stale_plan` before effects. Two subsequent plans were identical; applying that freshly measured plan concurrently produced exactly one successful mutation and one stale/no-effect refusal. No two writers ran. The earlier rollback and first parallel pair show transient plan-hash drift even though stored plan actions match; the original observed inputs are not persisted, so the exact changing fact cannot yet be attributed. No unconditional mutation retry was used: each failed receipt was inspected before explicitly replanning.
+
+### Restricted SSH/client disconnect
+
+An initial attempt completed its acknowledgement too quickly to kill the client and is not counted as disconnect evidence. A fresh operation then lost its restricted client/SSH process group to SIGKILL before receipt consumption (client exit -9). Read-only inspection found durable queued receipt `01a1237bc827be28c39874af6fa7e41e022f471c4ee7`; polling that receipt, without replaying apply, observed `succeeded`. Detached execution survived the lost response.
+
+### run-op SIGKILL and reconciliation
+
+Operator fault injection killed only the owned run-op MainPID for operation `01a1237cf6438a8b5cc63f580a17e821ab18b5b208e6`, after journaled `check_direct:intent` and before its completion. The candidate deliberately used an invalid health path. Restricted `reconcile --dry-run` predicted rollback from checking at that boundary; exact main SQLite DB and WAL SHA-256 bytes were unchanged before/after the preview. Restricted mutating reconciliation settled `rolled_back`, restoring the previous writer and routed HTTPS 200. No journal edits, blind replay or operator app mutation were used.
+
+### One reboot and final removal
+
+Before reboot, no updater process, active apt service or nonterminal operation was present. Four interactive sessions were recorded privately; no session was terminated or access setting changed. One authorized reboot was issued, and boot identity changed. From issuing reboot to successful direct HTTP and normally verified routed HTTPS, elapsed time was 51.039 seconds. The enabled boot `brine-reconcile.service` was loaded, completed after boot with `Result=success`/`ExecMainStatus=0`, and became inactive/dead as a oneshot. Restricted status/diagnose remained readable, and the diagnose app tail stayed known/nonempty (20 entries). One reboot remains unused.
+
+Final restricted `remove` operation `01a1237fad09601a42e9ceaca55d1b2ad46765e526b2` succeeded. Restricted status reports `apps:[]`. Read-only verification finds zero release heads, absent fixture Quadlet and selected route, no fixture container and no TCP/UDP listener on its port. SQLite integrity is `ok` with zero foreign-key errors. Secret v1/v2, image cache, release/operation history, historical routing generations and private binary/database backups remain intentionally retained, not purged. No live fixture resource remains.
+
+The stateless physical exit gate and the stateless portion of P03-04 now have acceptance evidence. Automated fault/injection tests supply complementary T11/T16/T17/disk-limit coverage; no additional physical Caddy outage, disk exhaustion or data-migration experiment is claimed. Physical log file-size turnover remains unverified. Persistent data, archival/purge, schema-breaking data rollback and R2 restore stay in their later phases. Supported binary upgrades remain the documented P06 gap; enrollment provenance was not rewritten.
