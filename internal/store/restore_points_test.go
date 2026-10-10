@@ -68,3 +68,36 @@ func TestRestorePointDurabilityAndExactEvidence(t *testing.T) {
 		t.Fatal("read-only store wrote point", err)
 	}
 }
+
+func TestEmptyPointNeedsMatchingHeldInitializationFence(t *testing.T) {
+	ctx := context.Background()
+	state := openTest(t)
+	reserved, err := state.ReserveDatabase(ctx, dataRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fence, err := state.HoldDataFence(ctx, reserved.Database.DatabaseID, "init-operation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	point := data.RestorePoint{ID: strings.Repeat("a", 32), BindingID: reserved.Replica.BindingID, EpochID: reserved.Replica.EpochID, Kind: data.RestorePointSnapshot, Schema: data.SchemaObservation{DatabaseID: reserved.Database.DatabaseID, State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}, RecordedAt: now, Snapshot: &data.RestoreSnapshotPoint{ObjectKey: reserved.Replica.RemotePrefix + "restore-points/" + strings.Repeat("a", 32) + "/snapshot.sqlite", SHA256: strings.Repeat("b", 64), Size: 8192}}
+	if err := state.SaveRestorePoint(ctx, point); !errors.Is(err, ErrConflict) {
+		t.Fatal("ordinary save admitted uncommitted binding", err)
+	}
+	if err := state.SaveEmptyRestorePoint(ctx, point, "other-operation", fence.ID); !errors.Is(err, ErrConflict) {
+		t.Fatal("foreign operation fence accepted", err)
+	}
+	if err := state.SaveEmptyRestorePoint(ctx, point, "init-operation", fence.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SaveEmptyRestorePoint(ctx, point, "init-operation", fence.ID); err != nil {
+		t.Fatal("same empty point retry failed", err)
+	}
+	if err := state.ReleaseDataFence(ctx, fence.ID, "init-operation"); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SaveEmptyRestorePoint(ctx, point, "init-operation", fence.ID); !errors.Is(err, ErrConflict) {
+		t.Fatal("released fence accepted", err)
+	}
+}

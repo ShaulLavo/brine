@@ -6,12 +6,28 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
-	"strings"
 )
 
 func (s *Store) SaveRestorePoint(ctx context.Context, p data.RestorePoint) error {
+	return s.saveRestorePoint(ctx, p, nil)
+}
+
+type emptyPointAdmission struct {
+	operation string
+	fence     data.FenceID
+}
+
+// SaveEmptyRestorePoint admits only a fenced, active, never-started empty snapshot.
+func (s *Store) SaveEmptyRestorePoint(ctx context.Context, p data.RestorePoint, operationID string, fenceID data.FenceID) error {
+	if operationID == "" || len(operationID) > 128 || !data.ValidID(string(fenceID)) || p.Kind != data.RestorePointSnapshot || p.Schema.State != data.VerifiedEmpty {
+		return ErrInvalid
+	}
+	return s.saveRestorePoint(ctx, p, &emptyPointAdmission{operation: operationID, fence: fenceID})
+}
+func (s *Store) saveRestorePoint(ctx context.Context, p data.RestorePoint, empty *emptyPointAdmission) error {
 	if s.readOnly || p.Validate() != nil {
 		return ErrInvalid
 	}
@@ -33,8 +49,32 @@ func (s *Store) SaveRestorePoint(ctx context.Context, p data.RestorePoint) error
 		return err
 	}
 	permit, err := readReplicaPermit(ctx, tx, database)
-	if err != nil || !permit.Replica.Committed || permit.Replica.EpochID != epoch || p.Schema.DatabaseID != permit.Database.DatabaseID {
+	if err != nil || empty == nil && !permit.Replica.Committed || permit.Replica.EpochID != epoch || p.Schema.DatabaseID != permit.Database.DatabaseID {
 		return ErrConflict
+	}
+	if empty != nil {
+		if permit.Replica.Committed {
+			return ErrConflict
+		}
+		var active, started int
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_active_incarnations WHERE incarnation_id=?", permit.Database.IncarnationID).Scan(&active); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_writer_history WHERE database_id=?", database).Scan(&started); err != nil {
+			return err
+		}
+		if active != 1 || started != 0 {
+			return ErrConflict
+		}
+		held := false
+		for _, f := range permit.Fences {
+			if f.ID == empty.fence && f.OperationID == empty.operation && f.DatabaseID == database && f.IncarnationID == permit.Database.IncarnationID && f.State == data.FenceHeld {
+				held = true
+			}
+		}
+		if !held {
+			return ErrConflict
+		}
 	}
 	if source := p.Snapshot; source != nil && source.ObjectKey != strings.TrimSuffix(permit.Replica.RemotePrefix, "/")+"/restore-points/"+p.ID+"/snapshot.sqlite" {
 		return ErrInvalid
