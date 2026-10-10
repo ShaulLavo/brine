@@ -34,7 +34,7 @@ func TestReplicaUnitStartsThroughPermitAndLifetimeLock(t *testing.T) {
 			t.Fatalf("missing %s\n%s", want, text)
 		}
 	}
-	for _, bad := range []string{"PartOf=", "BindsTo=", "AWS_ACCESS_KEY_ID=", "AWS_SECRET_ACCESS_KEY=", "status"} {
+	for _, bad := range []string{"PartOf=", "BindsTo=", "AWS_ACCESS_KEY_ID=", "AWS_SECRET_ACCESS_KEY=", "status", "SuccessExitStatus=", "RestartPreventExitStatus="} {
 		if strings.Contains(text, bad) {
 			t.Fatalf("unsafe unit %s", bad)
 		}

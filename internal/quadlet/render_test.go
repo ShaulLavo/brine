@@ -317,3 +317,34 @@ func TestRenderOwnsBoundedAppLogs(t *testing.T) {
 		t.Fatal("app logs must use the rootless container's private default storage")
 	}
 }
+
+func TestStopExitStatusDoesNotDisableCrashRestarts(t *testing.T) {
+	for _, persistent := range []bool{false, true} {
+		d, p := fixture(t)
+		if persistent {
+			d, p = persistentFixture(t)
+		}
+		u, err := Render(d, p, manifest())
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(u.Bytes())
+		for _, directive := range []string{"Restart=on-failure\n", "SuccessExitStatus=143\n", "RestartForceExitStatus=143\n"} {
+			if !strings.Contains(text, directive) {
+				t.Fatalf("missing stop/crash policy %q in %s", directive, text)
+			}
+		}
+		if persistent {
+			incarnation := string(p.DataMounts[0].Database.IncarnationID)
+			gates := "ExecStartPre=/usr/local/bin/brine host writer-permit " + incarnation + "\nExecStartPre=/usr/local/bin/brine host writer-attempt " + incarnation + "\n"
+			if !strings.Contains(text, gates) {
+				t.Fatal("automatic restart bypasses writer gates", text)
+			}
+		}
+		for _, unsafe := range []string{"SuccessExitStatus=1\n", "SuccessExitStatus=137\n", "RestartPreventExitStatus=143", "reset-failed"} {
+			if strings.Contains(text, unsafe) {
+				t.Fatal("real crash hidden", unsafe)
+			}
+		}
+	}
+}
