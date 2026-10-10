@@ -16,7 +16,7 @@ func BuildDataPreparation(in Input, proposals []data.AllocationProposal, roots [
 	if err != nil {
 		return Plan{}, err
 	}
-	facts, err := canonicalDecisionFacts(in.Snapshot, in.Desired.MinimumFreeDiskBytes)
+	facts, err := canonicalDecisionFacts(in)
 	if err != nil {
 		return Plan{}, err
 	}

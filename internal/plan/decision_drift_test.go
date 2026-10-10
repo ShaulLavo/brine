@@ -100,7 +100,7 @@ func TestDecisionDriftObservedArrayPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	before.Snapshot.UsedPorts = target.Known([]target.Port{10000})
-	before.Snapshot.Apps = target.Known([]target.App{{Name: "before"}})
+	before.Snapshot.Apps = target.Known([]decisionApp{{Name: "before"}})
 	before.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 10000, Process: "before"}})
 	raw, err := json.Marshal(before)
 	if err != nil {

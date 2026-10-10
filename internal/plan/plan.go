@@ -242,7 +242,7 @@ func Build(in Input) (Plan, error) {
 	if e = json.Unmarshal(snapshot, &in.Snapshot); e != nil {
 		return Plan{}, e
 	}
-	snapshot, e = canonicalDecisionFacts(in.Snapshot, in.Desired.MinimumFreeDiskBytes)
+	snapshot, e = canonicalDecisionFacts(in)
 	if e != nil {
 		return Plan{}, e
 	}

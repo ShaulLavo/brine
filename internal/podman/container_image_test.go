@@ -24,9 +24,10 @@ func TestRunningContainerImage(t *testing.T) {
 				running = "true"
 			}
 			container := `[{"Name":"systemd-api","Image":"` + tc.image + `","Config":{"Labels":{"PODMAN_SYSTEMD_UNIT":"` + tc.unit + `"}},"State":{"Status":"running","Running":` + running + `}}]`
-			r := &recorder{results: []localexec.Result{{}, {Stdout: container}, {}, {Stdout: fixture(t, "image-inspect.json")}, {Stdout: fixture(t, "manifest-inspect.json")}, {Stdout: fixture(t, "platform-image-inspect.json")}}}
+			r := &recorder{results: []localexec.Result{{}, {Stdout: container}, {Stdout: fixture(t, "image-inspect.json")}, {Stdout: fixture(t, "platform-image-inspect.json")}}}
 			n, _ := ParseName("systemd-api")
-			got, err := client(t, r).RunningContainerImage(context.Background(), n, "api.service", image(t))
+			manifest, _ := ParseImage("registry.example/app@sha256:" + strings.Repeat("b", 64))
+			got, err := client(t, r).RunningContainerImage(context.Background(), n, "api.service", image(t), manifest)
 			if (err == nil) != tc.known {
 				t.Fatalf("info=%+v error=%v", got, err)
 			}
@@ -34,8 +35,38 @@ func TestRunningContainerImage(t *testing.T) {
 				t.Fatalf("info=%+v", got)
 			}
 			for _, cmd := range r.commands {
-				if cmd.Mutation {
-					t.Fatal("inventory mutated runtime")
+				if cmd.Mutation || cmd.Args[0] == "manifest" {
+					t.Fatal("inventory mutated runtime or requested a registry manifest")
+				}
+			}
+		})
+	}
+}
+
+func TestRunningContainerImageLocalPinShapes(t *testing.T) {
+	manifest, _ := ParseImage("registry.example/app@sha256:" + strings.Repeat("b", 64))
+	for _, tc := range []struct {
+		name  string
+		index Image
+	}{
+		{"single manifest", manifest},
+		{"index and selected manifest", image(t)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			local := fixture(t, "platform-image-inspect.json")
+			container := `[{"Name":"systemd-api","Image":"748902c9f9368aa7437b05e353c23968266b0bc882ac1d74067fc1768a102ba6","Config":{"Labels":{"PODMAN_SYSTEMD_UNIT":"api.service"}},"State":{"Status":"running","Running":true}}]`
+			r := &recorder{results: []localexec.Result{{}, {Stdout: container}, {Stdout: local}, {Stdout: local}}}
+			name, _ := ParseName("systemd-api")
+			got, err := client(t, r).RunningContainerImage(context.Background(), name, "api.service", tc.index, manifest)
+			if err != nil || got.IndexDigest != tc.index.digest() || got.ManifestDigest != manifest.digest() || got.Platform.Architecture != "arm64" {
+				t.Fatal(got, err)
+			}
+			if len(r.commands) != 4 {
+				t.Fatal("unexpected probe count", len(r.commands))
+			}
+			for _, cmd := range r.commands {
+				if cmd.Mutation || cmd.Args[0] == "manifest" {
+					t.Fatal("local pins required a registry request or mutation", cmd.Args)
 				}
 			}
 		})

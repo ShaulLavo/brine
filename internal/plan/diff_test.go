@@ -84,7 +84,7 @@ func TestDiffIsHashMaterial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := canonicalDecisionFacts(in.Snapshot, in.Desired.MinimumFreeDiskBytes)
+	snapshot, err := canonicalDecisionFacts(in)
 	if err != nil {
 		t.Fatal(err)
 	}

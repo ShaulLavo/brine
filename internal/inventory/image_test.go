@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -40,6 +42,9 @@ func (r imageRunner) Execute(ctx context.Context, cmd localexec.Command) (locale
 	out, ok := r.results[strings.Join(cmd.Args, " ")]
 	if !ok {
 		return localexec.Result{}, &localexec.Error{Kind: localexec.Failed, ExitCode: 1}
+	}
+	if strings.HasPrefix(out, "Error: parsing manifest blob ") {
+		return localexec.Result{Stderr: out, ExitCode: 125}, &localexec.Error{Kind: localexec.Failed, ExitCode: 125}
 	}
 	return localexec.Result{Stdout: out}, nil
 }
@@ -67,12 +72,20 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 		{"matching", nil, true, nil, ""},
 		{"running local pins without registry", func(m map[string]string) { delete(m, "manifest inspect "+repository+index) }, true, nil, ""},
 		{"running after deploy within request budget", nil, true, nil, ""},
+		{"running single manifest without registry", func(m map[string]string) {
+			delete(m, "manifest inspect "+repository+index)
+			delete(m, "manifest inspect "+repository+manifest)
+		}, true, func(s string) string { return strings.ReplaceAll(s, "# IndexDigest="+index, "# IndexDigest="+manifest) }, ""},
+		{"running missing selected manifest", func(m map[string]string) { delete(m, "image inspect "+repository+manifest) }, false, nil, ""},
+		{"running mismatched selected image", func(m map[string]string) {
+			m["image inspect "+repository+manifest] = strings.ReplaceAll(m["image inspect "+repository+manifest], imageID, strings.Repeat("f", 64))
+		}, false, nil, ""},
 		{"different container image", func(m map[string]string) {
 			m["container inspect systemd-hello"] = strings.ReplaceAll(m["container inspect systemd-hello"], imageID, strings.Repeat("f", 64))
 		}, false, nil, ""},
 		{"missing container", func(m map[string]string) { delete(m, "container exists systemd-hello") }, false, nil, ""},
 		{"unreadable image", func(m map[string]string) { delete(m, "image inspect "+repository+index) }, false, nil, ""},
-		{"unreadable manifest", func(m map[string]string) { delete(m, "manifest inspect "+repository+index) }, false, nil, ""},
+		{"unreadable manifest with verified local pins", func(m map[string]string) { delete(m, "manifest inspect "+repository+index) }, true, nil, ""},
 		{"stopped", func(m map[string]string) {
 			m["container inspect systemd-hello"] = strings.ReplaceAll(m["container inspect systemd-hello"], `"Running":true`, `"Running":false`)
 		}, false, nil, ""},
@@ -141,12 +154,14 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 				f.files[dir+"/hello.container"] = tc.unitChange(f.files[dir+"/hello.container"])
 			}
 			results := map[string]string{
-				"container exists systemd-hello":         "",
-				"container inspect systemd-hello":        `[{"Name":"systemd-hello","Image":"` + imageID + `","Config":{"Labels":{"PODMAN_SYSTEMD_UNIT":"hello.service"}},"State":{"Status":"running","Running":true}}]`,
-				"image exists " + repository + index:     "",
-				"image inspect " + repository + index:    string(read("../podman/testdata/image-inspect.json")),
-				"manifest inspect " + repository + index: string(read("../podman/testdata/manifest-inspect.json")),
-				"image inspect " + repository + manifest: string(read("../podman/testdata/platform-image-inspect.json")),
+				"container exists systemd-hello":            "",
+				"container inspect systemd-hello":           `[{"Name":"systemd-hello","Image":"` + imageID + `","Config":{"Labels":{"PODMAN_SYSTEMD_UNIT":"hello.service"}},"State":{"Status":"running","Running":true}}]`,
+				"image exists " + repository + index:        "",
+				"image exists " + repository + manifest:     "",
+				"image inspect " + repository + index:       string(read("../podman/testdata/image-inspect.json")),
+				"manifest inspect " + repository + index:    string(read("../podman/testdata/manifest-inspect.json")),
+				"manifest inspect " + repository + manifest: string(read("../podman/testdata/platform-manifest.stderr")),
+				"image inspect " + repository + manifest:    string(read("../podman/testdata/platform-image-inspect.json")),
 			}
 			if tc.change != nil {
 				tc.change(results)
@@ -174,13 +189,35 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 				var cancel context.CancelFunc
 				imageContext, cancel = context.WithTimeout(imageContext, 3*time.Second)
 				defer cancel()
+				session, err := localexec.NewSession(r, 1001, "/home/brine", 30*time.Second)
+				if err != nil {
+					t.Fatal(err)
+				}
+				pin, err := podman.ParseImage(repository + manifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				legacy := podman.New(session)
+				_, err = legacy.Inspect(imageContext, pin)
+				var failure *localexec.Error
+				if !errors.As(err, &failure) || failure.Kind != localexec.Timeout {
+					t.Fatal("registry inspection did not exhaust request slice", err)
+				}
+				info, err := legacy.Inspect(context.Background(), pin)
+				if err != nil || info.ManifestDigest != manifest {
+					t.Fatal("long-budget inspection did not recognize OCI capability refusal", info, err)
+				}
 			}
 			collector.images(imageContext, &snapshot, "/home/brine", artifacts)
 			app := (*snapshot.Apps.Value)[0]
 			if (app.Image.Status == target.KnownStatus) != tc.known {
 				t.Fatalf("image=%+v", app.Image)
 			}
-			if tc.known && (app.Image.Value.Digest != index || app.Image.Value.Platform.Arch != "arm64") {
+			expectedIndex := index
+			if tc.name == "running single manifest without registry" {
+				expectedIndex = manifest
+			}
+			if tc.known && (app.Image.Value.Digest != expectedIndex || app.Image.Value.Platform.Arch != "arm64") {
 				t.Fatalf("image=%+v", app.Image)
 			}
 			operator, e := policy.Parse(bytes.ReplaceAll(read("../policy/testdata/operator.toml"), []byte("Registry.Example.com:5000"), []byte("ghcr.io")))
@@ -195,7 +232,8 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 			if e != nil {
 				t.Fatal(e)
 			}
-			plannedImage := plan.Image{Digest: index, Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known(manifest)}
+			desired.Image = spec.ImageReference(strings.ReplaceAll(string(desired.Image), index, expectedIndex))
+			plannedImage := plan.Image{Digest: expectedIndex, Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known(manifest)}
 			state := plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{{App: "hello", ID: "release-0001", Desired: desired, Image: plannedImage, HostPort: 20000, Secrets: []plan.SecretBinding{}, Units: *app.QuadletUnits.Value, CaddyFile: snapshot.CaddyConfig.Value.Files[0]}}}
 			in := plan.Input{Desired: desired, Snapshot: snapshot, Image: plannedImage, State: state}
 			p, e := plan.Build(in)
@@ -226,6 +264,7 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 				if err != nil || firstStop.Kind != plan.Update {
 					t.Fatal(firstStop, err)
 				}
+				artifacts = collector.apps(context.Background(), &snapshot, "/home/brine", true, nil)
 				collector.images(context.Background(), &snapshot, "/home/brine", artifacts)
 				in.Snapshot = snapshot
 				next, err := plan.Build(in)
@@ -293,7 +332,7 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 				t.Fatalf("update=%+v error=%v", p, e)
 			}
 			in.Desired.Environment = desired.Environment
-			in.Desired.Image = spec.ImageReference(strings.ReplaceAll(string(desired.Image), index, "sha256:"+strings.Repeat("e", 64)))
+			in.Desired.Image = spec.ImageReference(strings.ReplaceAll(string(desired.Image), expectedIndex, "sha256:"+strings.Repeat("e", 64)))
 			in.Image.Digest = "sha256:" + strings.Repeat("e", 64)
 			in.Image.ManifestDigest = target.Known("sha256:" + strings.Repeat("f", 64))
 			p, e = plan.Build(in)
@@ -341,7 +380,16 @@ func TestUnavailableImagesDoNotExhaustCollection(t *testing.T) {
 	f.dirs[dir] = []fs.DirEntry{}
 	index := "sha256:" + strings.Repeat("a", 64)
 	manifest := "sha256:" + strings.Repeat("b", 64)
-	r := &stalledImagesRunner{imageRunner: imageRunner{fakeRunner: fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": "", "ss -H -lunp": "", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": ""}, results: map[string]string{"image exists registry.example/app@" + index: "", "image inspect registry.example/app@" + index: read("image-inspect.json")}}}
+	var rows []map[string]any
+	if err := json.Unmarshal([]byte(read("platform-image-inspect.json")), &rows); err != nil {
+		t.Fatal(err)
+	}
+	rows[0]["RepoDigests"] = []string{"registry.example/app@" + manifest}
+	local, err := json.Marshal(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &stalledImagesRunner{imageRunner: imageRunner{fakeRunner: fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": "", "ss -H -lunp": "", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": ""}, results: map[string]string{"image exists registry.example/app@" + index: "", "image inspect registry.example/app@" + index: string(local), "image inspect registry.example/app@" + manifest: string(local)}}}
 	for i, name := range []string{"api", "worker", "web"} {
 		f.dirs[dir] = append(f.dirs[dir], fixtureEntry(name+".container"))
 		f.files[dir+"/"+name+".container"] = "# Brine-owned plan=" + index + "\n# IndexDigest=" + index + "\n# PlatformManifestDigest=" + manifest + "\n# Platform=linux/arm64\n[Container]\nImage=registry.example/app@" + manifest + "\n"

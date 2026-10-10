@@ -12,6 +12,8 @@ func TestUnrelatedAppImageDoesNotChangePlan(t *testing.T) {
 		for _, status := range []target.Status{target.KnownStatus, target.Unknown, target.Absent, target.Unsupported} {
 			t.Run(name+"/"+string(status), func(t *testing.T) {
 				in := installed(t)
+				in.State.Releases[0].Units = in.State.Releases[0].Units[:1]
+				(*in.Snapshot.Apps.Value)[0].QuadletUnits = target.Known(in.State.Releases[0].Units)
 				other := (*in.Snapshot.Apps.Value)[0]
 				other.Name = name
 				other.AllocatedHostPort = target.Known(target.Port(20001))
@@ -19,6 +21,10 @@ func TestUnrelatedAppImageDoesNotChangePlan(t *testing.T) {
 				other.Secrets = target.Known([]target.Secret{})
 				in.Snapshot.Apps = target.Known(append(*in.Snapshot.Apps.Value, other))
 				before := build(t, in)
+				beforeRemove, err := BuildRemove(in)
+				if err != nil || beforeRemove.Kind != Update {
+					t.Fatal(beforeRemove, err)
+				}
 				for i := range *in.Snapshot.Apps.Value {
 					a := &(*in.Snapshot.Apps.Value)[i]
 					if a.Name != name {
@@ -32,6 +38,10 @@ func TestUnrelatedAppImageDoesNotChangePlan(t *testing.T) {
 					a.UnitActive = &inactive
 				}
 				after := build(t, in)
+				afterRemove, err := BuildRemove(in)
+				if err != nil || beforeRemove.Hash != afterRemove.Hash {
+					t.Fatal("unrelated image changed removal hash", err)
+				}
 				if before.Hash != after.Hash {
 					t.Fatalf("unrelated image changed hash: %s -> %s", before.Hash, after.Hash)
 				}
@@ -48,7 +58,6 @@ func TestRemoveBindsTargetImageAndOwnedUnit(t *testing.T) {
 	if err != nil || before.Kind != Update {
 		t.Fatal(before, err)
 	}
-	// Target observation changes remain freshness preconditions.
 	(*in.Snapshot.Apps.Value)[0].Image = target.Observation[target.Image]{Status: target.Unknown}
 	after, err := BuildRemove(in)
 	if err != nil || before.Hash == after.Hash {

@@ -87,7 +87,7 @@ func (c Collector) liveImage(ctx context.Context, home string, units []target.Un
 	if inactive {
 		info, err = client.StoppedContainerImage(ctx, name, stem+".service", indexPin, pin)
 	} else {
-		info, err = client.RunningContainerImage(ctx, name, stem+".service", indexPin)
+		info, err = client.RunningContainerImage(ctx, name, stem+".service", indexPin, pin)
 	}
 	if err != nil || info.ManifestDigest != manifest || info.Platform.OS+"/"+info.Platform.Architecture != platform {
 		return unknownImage

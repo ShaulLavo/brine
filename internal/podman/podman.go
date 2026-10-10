@@ -426,9 +426,9 @@ func (c *Client) inspectManifest(ctx context.Context, image Image, row localImag
 
 var _ Adapter = (*Client)(nil)
 
-// RunningContainerImage binds a running systemd container to a verified image pin.
-func (c *Client) RunningContainerImage(ctx context.Context, name Name, unit string, image Image) (ImageInfo, error) {
-	if name.value == "" || unit == "" || image.value == "" {
+// RunningContainerImage binds a running systemd container to verified local image pins.
+func (c *Client) RunningContainerImage(ctx context.Context, name Name, unit string, index, manifest Image) (ImageInfo, error) {
+	if name.value == "" || unit == "" {
 		return ImageInfo{}, invalid()
 	}
 	found, err := c.exists(ctx, []string{"container", "exists", name.value})
@@ -455,7 +455,7 @@ func (c *Client) RunningContainerImage(ctx context.Context, name Name, unit stri
 	if row.Name != name.value || row.State == nil || !row.State.Running || row.State.Status != "running" || row.Config.Labels["PODMAN_SYSTEMD_UNIT"] != unit || !digestPattern.MatchString("sha256:"+row.Image) {
 		return ImageInfo{}, malformed()
 	}
-	info, err := c.Inspect(ctx, image)
+	info, err := c.InspectStored(ctx, index, manifest)
 	if err != nil {
 		return ImageInfo{}, err
 	}

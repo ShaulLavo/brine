@@ -17,3 +17,5 @@
 Same configuration + target snapshot + policy produces the same plan hash and change ordering. An invalid or hostile spec never produces an applyable plan. `validate` and offline `plan` do not contact, alter or provision infrastructure.
 
 **Evidence:** T02, T03, T17, T23; fixture snapshot cases for no-op/create/update/conflict; tests prove no adapters capable of mutation are called.
+
+**P01-03 freshness correction, 2026-10-10.** App decision facts retain all image, port, unit and secret observations for the planned app, but only names and port observations for other apps. Committed reservations and routing facts remain bound. Running inventory uses the same local index/manifest verification as stopped inventory, covering single manifests and index/platform aliases without unnecessary registry reads under the shorter planning deadline. Failing-first collector and planner tests cover request/worker hash equality for deploy, stop and remove, unrelated failed-app image changes, and target image/unit drift. Physical acceptance remains with the authorized-host drill; no checklist status changes.
