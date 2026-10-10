@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	persistent "github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -45,16 +46,18 @@ type Registry struct {
 	RepositoryPrefixes []string `toml:"repository_prefixes" json:"repository_prefixes"`
 }
 type document struct {
-	CaddyPort            uint16              `toml:"caddy_port" json:"caddy_port,omitempty"`
-	SchemaVersion        int                 `toml:"schema_version" json:"schema_version"`
-	Version              string              `toml:"version" json:"version"`
-	AllowedRegistries    []Registry          `toml:"allowed_registries" json:"allowed_registries"`
-	AllowedDomains       []string            `toml:"allowed_domains" json:"allowed_domains"`
-	AppPorts             *PortRange          `toml:"app_ports" json:"app_ports"`
-	AllowedSecrets       map[string][]string `toml:"allowed_secrets" json:"allowed_secrets"`
-	Resources            Resources           `toml:"resources" json:"resources"`
-	PersistentRoots      []string            `toml:"persistent_roots" json:"persistent_roots"`
-	MinimumFreeDiskBytes *uint64             `toml:"minimum_free_disk_bytes" json:"minimum_free_disk_bytes"`
+	Backup               *backupDocument          `toml:"backup" json:"backup,omitempty"`
+	BackupDestinations   []persistent.Destination `toml:"backup_destinations" json:"backup_destinations,omitempty"`
+	CaddyPort            uint16                   `toml:"caddy_port" json:"caddy_port,omitempty"`
+	SchemaVersion        int                      `toml:"schema_version" json:"schema_version"`
+	Version              string                   `toml:"version" json:"version"`
+	AllowedRegistries    []Registry               `toml:"allowed_registries" json:"allowed_registries"`
+	AllowedDomains       []string                 `toml:"allowed_domains" json:"allowed_domains"`
+	AppPorts             *PortRange               `toml:"app_ports" json:"app_ports"`
+	AllowedSecrets       map[string][]string      `toml:"allowed_secrets" json:"allowed_secrets"`
+	Resources            Resources                `toml:"resources" json:"resources"`
+	PersistentRoots      []string                 `toml:"persistent_roots" json:"persistent_roots"`
+	MinimumFreeDiskBytes *uint64                  `toml:"minimum_free_disk_bytes" json:"minimum_free_disk_bytes"`
 }
 
 // Policy has no public constructor or writable fields. Its zero value refuses
@@ -118,6 +121,19 @@ func Parse(data []byte) (Policy, error) {
 	if err := toml.Unmarshal(data, &keys); err != nil || !exactKeys(keys) {
 		return bad("policy.invalid_document", "$", "invalid policy field or table shape")
 	}
+	if _, err := normalizeBackup(raw.Backup); err != nil {
+		return Policy{}, err
+	}
+	seenDestinations := map[persistent.BackupDestinationRef]bool{}
+	for _, d := range raw.BackupDestinations {
+		if d.Validate() != nil || seenDestinations[d.Reference] {
+			return bad("policy.invalid_backup_destination", "backup_destinations", "invalid or duplicate backup destination")
+		}
+		seenDestinations[d.Reference] = true
+	}
+	slices.SortFunc(raw.BackupDestinations, func(a, b persistent.Destination) int {
+		return strings.Compare(string(a.Reference), string(b.Reference))
+	})
 	if raw.SchemaVersion != SchemaVersion {
 		return bad("policy.schema_version", "schema_version", "only schema version 1 is supported")
 	}
@@ -199,6 +215,13 @@ func Parse(data []byte) (Policy, error) {
 		}
 	}
 	raw.PersistentRoots = sortedUnique(raw.PersistentRoots)
+	for i, root := range raw.PersistentRoots {
+		for _, other := range raw.PersistentRoots[:i] {
+			if persistent.OverlappingPaths(root, other) {
+				return bad("policy.invalid_roots", "persistent_roots", "persistent roots must not overlap")
+			}
+		}
+	}
 	canonical, e := json.Marshal(raw)
 	if e != nil {
 		return bad("policy.invalid_document", "$", "policy could not be canonicalized")
@@ -208,13 +231,25 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations") {
 		return false
 	}
-	for key, allowed := range map[string][]string{"app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
+	for key, allowed := range map[string][]string{"backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
 		if v, ok := keys[key]; ok {
 			m, ok := v.(map[string]any)
 			if !ok || !onlyKeys(m, allowed...) {
+				return false
+			}
+		}
+	}
+	if v, ok := keys["backup_destinations"]; ok {
+		rows, ok := v.([]any)
+		if !ok {
+			return false
+		}
+		for _, row := range rows {
+			m, ok := row.(map[string]any)
+			if !ok || !onlyKeys(m, "reference", "endpoint", "region", "bucket", "base_prefix", "path_style", "credential_ref") {
 				return false
 			}
 		}
@@ -275,4 +310,15 @@ func validDomain(d string) bool {
 	m["domains"] = []string{d}
 	_, e := parseMap(m)
 	return e == nil
+}
+
+func (p Policy) BackupDestination(ref persistent.BackupDestinationRef) (persistent.Destination, bool) {
+	if p.config != nil {
+		for _, d := range p.config.BackupDestinations {
+			if d.Reference == ref {
+				return d, true
+			}
+		}
+	}
+	return persistent.Destination{}, false
 }
