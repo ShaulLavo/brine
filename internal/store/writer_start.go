@@ -27,7 +27,8 @@ type WriterStartIntent struct {
 	Desired       policy.Desired
 }
 
-// WriterStartResolution describes persisted intent. Pending is NOT permission. The read-only host adapter must also verify the
+// WriterStartResolution distinguishes absent, pending and invalid intents.
+// Pending is NOT permission. The read-only host adapter must also verify the
 // operation's transient unit is active and freshly check the candidate schema.
 // Invalid never permits fallback to a committed release.
 type WriterStartResolution struct {
@@ -35,7 +36,7 @@ type WriterStartResolution struct {
 	Intent *WriterStartIntent
 }
 
-func (s *Store) BindWriterStart(ctx context.Context, operationID string, planID PlanID, incarnation data.AppIncarnationID, desiredHash string) error {
+func (s *Store) BindWriterStart(ctx context.Context, operationID string, planID PlanID, incarnation data.AppIncarnationID, desiredHash string) (resultErr error) {
 	if operationID == "" || len(operationID) > 256 || !data.ValidID(string(incarnation)) || !digestPattern.MatchString(desiredHash) {
 		return ErrInvalid
 	}
@@ -43,7 +44,7 @@ func (s *Store) BindWriterStart(ctx context.Context, operationID string, planID 
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer rollbackOnExit(tx, &resultErr)
 	p, d, err := loadPlan(ctx, tx, planID)
 	if err != nil {
 		return err
@@ -111,7 +112,7 @@ func (s *Store) ClearWriterStart(ctx context.Context, operationID string) error 
 	_, err := s.db.ExecContext(ctx, "UPDATE data_writer_starts SET cleared=1 WHERE operation_id=? AND cleared=0", operationID)
 	return err
 }
-func (s *Store) ReadWriterStart(ctx context.Context, incarnation data.AppIncarnationID) (WriterStartResolution, error) {
+func (s *Store) ReadWriterStart(ctx context.Context, incarnation data.AppIncarnationID) (_ WriterStartResolution, resultErr error) {
 	if !data.ValidID(string(incarnation)) {
 		return WriterStartResolution{State: WriterStartInvalid}, ErrInvalid
 	}
@@ -119,7 +120,7 @@ func (s *Store) ReadWriterStart(ctx context.Context, incarnation data.AppIncarna
 	if err != nil {
 		return WriterStartResolution{State: WriterStartInvalid}, err
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer rollbackOnExit(tx, &resultErr)
 	intent := WriterStartIntent{IncarnationID: incarnation}
 	var state, operationPlan string
 	err = tx.QueryRowContext(ctx, "SELECT w.operation_id,w.plan_id,w.desired_hash,o.state,o.plan_id FROM data_writer_starts w JOIN operations o ON o.id=w.operation_id WHERE w.incarnation_id=? AND w.cleared=0", incarnation).Scan(&intent.OperationID, &intent.PlanID, &intent.DesiredHash, &state, &operationPlan)

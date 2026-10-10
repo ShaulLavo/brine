@@ -7,11 +7,43 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/ops"
+	"golang.org/x/sys/unix"
 )
+
+func TestHostAndLaunchLocksCloseOnExec(t *testing.T) {
+	s := openTest(t)
+	for _, readOnly := range []bool{false, true} {
+		for _, name := range []string{"host", "launch"} {
+			t.Run(name+"/readOnly="+strconv.FormatBool(readOnly), func(t *testing.T) {
+				view := &Store{dir: s.dir, readOnly: readOnly}
+				acquire := view.AcquireHostLock
+				if name == "launch" {
+					acquire = view.AcquireLaunchLock
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				lock, err := acquire(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer func() {
+					if err := lock.Release(); err != nil {
+						t.Error(err)
+					}
+				}()
+				flags, err := unix.FcntlInt(lock.(*hostLock).file.Fd(), unix.F_GETFD, 0)
+				if err != nil || flags&unix.FD_CLOEXEC == 0 {
+					t.Fatalf("lock can survive exec: flags=%#x error=%v", flags, err)
+				}
+			})
+		}
+	}
+}
 
 func TestLaunchLockSecurityExclusionAndIndependence(t *testing.T) {
 	s := openTest(t)

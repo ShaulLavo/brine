@@ -75,7 +75,16 @@ Each integration scenario must have a fixture, setup, expected behavior, teardow
 - Unknown-stop tests still require a durable unknown outcome, successful settlement
   or recovery-required for a pending job. Short pending-job budgets begin only
   after the uncertain action, not during unrelated preflight reads.
-- These are local fake-adapter tests, not physical-host lifecycle evidence.
+- T08/T09/T21: direct typed unknown install and restore outcomes use the default
+  facts reader after the durable unknown event, with a fresh bounded context and
+  exactly one mutation call. A real-directory install failure before predecessor
+  retention proves unchanged unit bytes and both previous-release health checks.
+  The rig rejects missing, mismatched or completed inspection outcomes and
+  unbounded reads, and still rejects mutations without their matching intent.
+  Filesystem regression tests use the production effect budget; injected unknown
+  outcomes exercise inspection without waiting for a deadline.
+- These are local fake-adapter and temporary-directory tests, not physical-host
+  lifecycle evidence.
 
 ## P03-09 local evidence (physical host pending)
 

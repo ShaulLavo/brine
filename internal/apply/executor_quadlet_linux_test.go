@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 )
@@ -18,8 +19,9 @@ type unitValidatorFunc func(context.Context, quadlet.Candidate) error
 func (f unitValidatorFunc) Validate(ctx context.Context, c quadlet.Candidate) error { return f(ctx, c) }
 
 type diskUnits struct {
-	r       *rig
-	manager *quadlet.Manager
+	r              *rig
+	manager        *quadlet.Manager
+	installOutcome error
 }
 
 func (u diskUnits) VerifyCurrent(ctx context.Context, name string, hashes ...string) error {
@@ -38,7 +40,11 @@ func (u diskUnits) Install(ctx context.Context, unit quadlet.Unit, old string) e
 	if err := u.r.hit("install_unit"); err != nil {
 		return err
 	}
-	return u.manager.Install(ctx, unit, old)
+	err := u.manager.Install(ctx, unit, old)
+	if err != nil && u.installOutcome != nil {
+		return errors.Join(err, u.installOutcome)
+	}
+	return err
 }
 func (u diskUnits) Rollback(ctx context.Context, name, installed, previous string) error {
 	if u.r.active {
@@ -51,8 +57,17 @@ func (u diskUnits) Rollback(ctx context.Context, name, installed, previous strin
 }
 
 func TestInstallFailureBeforeRetentionRestartsAndProvesPreviousRelease(t *testing.T) {
+	testInstallFailureBeforeRetention(t, nil)
+}
+
+func TestUnknownInstallBeforeRetentionRestartsAndProvesPreviousRelease(t *testing.T) {
+	testInstallFailureBeforeRetention(t, &localexec.Error{Kind: localexec.UnknownOutcome, ExitCode: -1})
+}
+
+func testInstallFailureBeforeRetention(t *testing.T, installOutcome error) {
+	t.Helper()
 	r := newRig(t, true)
-	// Real fsync needs the production budget, not the fake rig's one-second deadline.
+	// Real fsync work uses the production budget; unknown outcomes are injected.
 	r.executor.EffectTimeout = 0
 	old, err := quadlet.Render(r.oldDesired, r.oldPlan, *r.oldPlan.Image.ManifestDigest.Value)
 	if err != nil {
@@ -86,8 +101,20 @@ func TestInstallFailureBeforeRetentionRestartsAndProvesPreviousRelease(t *testin
 	if err := manager.Install(context.Background(), old, ""); err != nil {
 		t.Fatal(err)
 	}
-	r.executor.Units = diskUnits{r, manager}
+	r.executor.Units = diskUnits{r: r, manager: manager, installOutcome: installOutcome}
 	failure(t, r.executor.Run(context.Background(), "operation-1", r.plan, r.desired), RolledBack, "install_unit")
+	if isUnknown(installOutcome) && !hasUnknownEvent(r, "install_unit") {
+		t.Fatal("unknown install outcome was not journaled")
+	}
+	installs := 0
+	for _, effect := range r.effects {
+		if effect == "install_unit" {
+			installs++
+		}
+	}
+	if installs != 1 {
+		t.Fatalf("install calls = %d, want no replay", installs)
+	}
 	if !r.active || r.committed {
 		t.Fatalf("previous active=%v, candidate committed=%v", r.active, r.committed)
 	}
