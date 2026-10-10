@@ -30,16 +30,19 @@ var (
 	hashPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
 
-type packetValues struct {
-	accessKey    string
-	secretKey    string
-	sessionToken string
+// Secret values live only in closure captures, not reflection-walkable fields.
+// Environment is the sole exported secret accessor.
+type Packet struct {
+	get       func() (string, string, string)
+	erase     func()
+	expiresAt *time.Time
 }
 
-// Keep the private payload opaque to reflection-based generic encoders.
-type Packet struct {
-	values    *packetValues
-	expiresAt *time.Time
+func privatePacket(accessKey, secretKey, sessionToken string) Packet {
+	return Packet{
+		get:   func() (string, string, string) { return accessKey, secretKey, sessionToken },
+		erase: func() { accessKey, secretKey, sessionToken = "", "", "" },
+	}
 }
 
 func (Packet) String() string               { return "[private backup credential packet]" }
@@ -50,8 +53,8 @@ func (Packet) Format(state fmt.State, _ rune) {
 }
 func (p *Packet) Clear() {
 	if p != nil {
-		if p.values != nil {
-			*p.values = packetValues{}
+		if p.erase != nil {
+			p.erase()
 		}
 		*p = Packet{}
 	}
@@ -83,18 +86,19 @@ func DecodePacket(raw []byte) (Packet, error) {
 	if err != nil {
 		return Packet{}, ErrInvalid
 	}
-	p := Packet{values: &packetValues{}}
-	p.values.accessKey, err = strictjson.Value[string](fields["access_key_id"])
+	p := Packet{}
+	var accessKey, secretKey, sessionToken string
+	accessKey, err = strictjson.Value[string](fields["access_key_id"])
 	if err != nil {
 		return Packet{}, ErrInvalid
 	}
-	p.values.secretKey, err = strictjson.Value[string](fields["secret_access_key"])
+	secretKey, err = strictjson.Value[string](fields["secret_access_key"])
 	if err != nil {
 		return Packet{}, ErrInvalid
 	}
 	if b, ok := fields["session_token"]; ok {
-		p.values.sessionToken, err = strictjson.Value[string](b)
-		if err != nil || p.values.sessionToken == "" {
+		sessionToken, err = strictjson.Value[string](b)
+		if err != nil || sessionToken == "" {
 			return Packet{}, ErrInvalid
 		}
 	}
@@ -110,10 +114,12 @@ func DecodePacket(raw []byte) (Packet, error) {
 		}
 		p.expiresAt = &t
 	}
-	if !validValue(p.values.accessKey) || !validValue(p.values.secretKey) || p.values.sessionToken != "" && !validValue(p.values.sessionToken) {
+	if !validValue(accessKey) || !validValue(secretKey) || sessionToken != "" && !validValue(sessionToken) {
 		return Packet{}, ErrInvalid
 	}
-	return p, nil
+	private := privatePacket(accessKey, secretKey, sessionToken)
+	private.expiresAt = p.expiresAt
+	return private, nil
 }
 func validValue(v string) bool {
 	if len(v) == 0 || len(v) > 16<<10 {
@@ -127,11 +133,11 @@ func validValue(v string) bool {
 	return true
 }
 func (p Packet) environment() []byte {
-	b := []byte("AWS_ACCESS_KEY_ID=" + p.values.accessKey + "\nAWS_SECRET_ACCESS_KEY=" + p.values.secretKey + "\n")
-	if p.values.sessionToken != "" {
-		b = append(b, []byte("AWS_SESSION_TOKEN="+p.values.sessionToken+"\n")...)
+	env := p.Environment()
+	if len(env) == 0 {
+		return nil
 	}
-	return b
+	return []byte(strings.Join(env, "\n") + "\n")
 }
 
 type Scope struct {
@@ -291,7 +297,11 @@ func (s Service) Plan(ctx context.Context, app string, expiry *time.Time) (Plan,
 }
 func (s Service) Deliver(ctx context.Context, p Plan, packet Packet) (Receipt, error) {
 	var r Receipt
-	if !p.Valid() || p.Requester != s.Requester || packet.values == nil || !validValue(packet.values.accessKey) || !validValue(packet.values.secretKey) || packet.values.sessionToken != "" && !validValue(packet.values.sessionToken) {
+	if packet.get == nil {
+		return r, ErrInvalid
+	}
+	accessKey, secretKey, sessionToken := packet.get()
+	if !p.Valid() || p.Requester != s.Requester || !validValue(accessKey) || !validValue(secretKey) || sessionToken != "" && !validValue(sessionToken) {
 		return r, ErrInvalid
 	}
 	if (p.ExpiresAt == nil) != (packet.expiresAt == nil) || p.ExpiresAt != nil && !p.ExpiresAt.Equal(*packet.expiresAt) {
@@ -364,12 +374,16 @@ type Credentials = Packet
 
 // Environment returns a fresh secret-bearing allowlisted environment for exec only.
 func (p Packet) Environment() []string {
-	if p.values == nil {
+	if p.get == nil {
 		return nil
 	}
-	env := []string{"AWS_ACCESS_KEY_ID=" + p.values.accessKey, "AWS_SECRET_ACCESS_KEY=" + p.values.secretKey}
-	if p.values.sessionToken != "" {
-		env = append(env, "AWS_SESSION_TOKEN="+p.values.sessionToken)
+	accessKey, secretKey, sessionToken := p.get()
+	if accessKey == "" || secretKey == "" {
+		return nil
+	}
+	env := []string{"AWS_ACCESS_KEY_ID=" + accessKey, "AWS_SECRET_ACCESS_KEY=" + secretKey}
+	if sessionToken != "" {
+		env = append(env, "AWS_SESSION_TOKEN="+sessionToken)
 	}
 	return env
 }
@@ -392,7 +406,7 @@ func parseEnvironment(raw []byte) (Credentials, error) {
 	if values["AWS_ACCESS_KEY_ID"] == "" || values["AWS_SECRET_ACCESS_KEY"] == "" {
 		return Credentials{}, ErrInvalid
 	}
-	return Credentials{values: &packetValues{accessKey: values["AWS_ACCESS_KEY_ID"], secretKey: values["AWS_SECRET_ACCESS_KEY"], sessionToken: values["AWS_SESSION_TOKEN"]}}, nil
+	return privatePacket(values["AWS_ACCESS_KEY_ID"], values["AWS_SECRET_ACCESS_KEY"], values["AWS_SESSION_TOKEN"]), nil
 }
 
 func (s Service) Set(ctx context.Context, app, planID string, p Packet) (Receipt, error) {
