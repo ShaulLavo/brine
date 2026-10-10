@@ -25,12 +25,16 @@ type imageRunner struct {
 	results map[string]string
 }
 
-func (r imageRunner) Execute(_ context.Context, cmd localexec.Command) (localexec.Result, error) {
+func (r imageRunner) Execute(ctx context.Context, cmd localexec.Command) (localexec.Result, error) {
 	if cmd.Mutation || len(cmd.Stdin) > 0 {
 		return localexec.Result{}, fmt.Errorf("mutation refused")
 	}
 	// Model a registry read longer than the three-second local-probe budget.
-	if len(cmd.Args) > 0 && cmd.Args[0] == "manifest" && cmd.Timeout < 4*time.Second {
+	timeout := cmd.Timeout
+	if deadline, ok := ctx.Deadline(); ok && time.Until(deadline) < timeout {
+		timeout = time.Until(deadline)
+	}
+	if len(cmd.Args) > 0 && cmd.Args[0] == "manifest" && timeout < 4*time.Second {
 		return localexec.Result{}, &localexec.Error{Kind: localexec.Timeout}
 	}
 	out, ok := r.results[strings.Join(cmd.Args, " ")]
@@ -61,6 +65,8 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 		inactive   string
 	}{
 		{"matching", nil, true, nil, ""},
+		{"running local pins without registry", func(m map[string]string) { delete(m, "manifest inspect "+repository+index) }, true, nil, ""},
+		{"running after deploy within request budget", nil, true, nil, ""},
 		{"different container image", func(m map[string]string) {
 			m["container inspect systemd-hello"] = strings.ReplaceAll(m["container inspect systemd-hello"], imageID, strings.Repeat("f", 64))
 		}, false, nil, ""},
@@ -163,7 +169,13 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 			}
 			collector := Collector{FS: f, Runner: r, RunnerUser: "brine"}
 			artifacts := collector.apps(context.Background(), &snapshot, "/home/brine", true, nil)
-			collector.images(context.Background(), &snapshot, "/home/brine", artifacts)
+			imageContext := context.Background()
+			if tc.name == "running after deploy within request budget" {
+				var cancel context.CancelFunc
+				imageContext, cancel = context.WithTimeout(imageContext, 3*time.Second)
+				defer cancel()
+			}
+			collector.images(imageContext, &snapshot, "/home/brine", artifacts)
 			app := (*snapshot.Apps.Value)[0]
 			if (app.Image.Status == target.KnownStatus) != tc.known {
 				t.Fatalf("image=%+v", app.Image)
@@ -204,6 +216,30 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 					t.Fatalf("missing image conflict=%+v", p.Conflicts)
 				}
 				return
+			}
+			if tc.name == "running after deploy within request budget" {
+				firstRemove, err := plan.BuildRemove(in)
+				if err != nil || firstRemove.Kind != plan.Update {
+					t.Fatal(firstRemove, err)
+				}
+				firstStop, err := plan.BuildLifecycle(in, plan.StopApp)
+				if err != nil || firstStop.Kind != plan.Update {
+					t.Fatal(firstStop, err)
+				}
+				collector.images(context.Background(), &snapshot, "/home/brine", artifacts)
+				in.Snapshot = snapshot
+				next, err := plan.Build(in)
+				if err != nil || next.Hash != p.Hash {
+					t.Fatal("after-deploy image facts differ between request and worker", err)
+				}
+				nextRemove, err := plan.BuildRemove(in)
+				if err != nil || nextRemove.Hash != firstRemove.Hash {
+					t.Fatal("remove image facts differ between request and worker", err)
+				}
+				nextStop, err := plan.BuildLifecycle(in, plan.StopApp)
+				if err != nil || nextStop.Hash != firstStop.Hash {
+					t.Fatal("stop image facts differ between request and worker", err)
+				}
 			}
 			if tc.inactive != "" {
 				running := in
