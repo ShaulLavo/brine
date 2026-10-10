@@ -27,7 +27,7 @@ func TestProductionRuntimeInitializationErrorReachesResponse(t *testing.T) {
 	}
 	var out bytes.Buffer
 	deps := cli.Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: io.Discard, HostUID: func() int { return 1000 }}
-	code := runWithRuntime(deps, []string{"host", "run-op", "fixture", "--json"}, "")
+	code := runWithRuntime(deps, []string{"host", "reconcile", "--json"}, "")
 	var response result.Envelope
 	if err := json.Unmarshal(out.Bytes(), &response); err != nil {
 		t.Fatal(err)
@@ -65,5 +65,26 @@ func TestProductionRuntimeHelpAndInvalidInput(t *testing.T) {
 				t.Fatal("exit and response disagree")
 			}
 		})
+	}
+}
+
+type suppliedDetachedRunner func(context.Context, string) error
+
+func (f suppliedDetachedRunner) Run(ctx context.Context, id string) error { return f(ctx, id) }
+
+func TestProductionWiringPreservesExplicitDetachedRunner(t *testing.T) {
+	var out bytes.Buffer
+	calls := 0
+	id := "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+	deps := cli.Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: io.Discard, HostUID: func() int { return 1000 }, HostOperationRunner: suppliedDetachedRunner(func(_ context.Context, got string) error {
+		calls++
+		if got != id {
+			t.Fatal("wrong detached operation")
+		}
+		return nil
+	})}
+	code := runWithRuntime(deps, []string{"host", "run-op", id, "--json"}, "")
+	if code != 0 || calls != 1 {
+		t.Fatalf("production replaced supplied worker: exit=%d calls=%d response=%s", code, calls, out.String())
 	}
 }

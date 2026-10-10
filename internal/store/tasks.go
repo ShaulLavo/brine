@@ -43,12 +43,19 @@ func (s *Store) CompleteTask(ctx context.Context, id string, state ops.State, ou
 }
 
 func (s *Store) ReadTaskOutcome(ctx context.Context, id string) (*ops.TaskOutcome, error) {
-	op, err := s.GetOperation(ctx, id)
+	// State and outcome belong to the same completion boundary. A read
+	// transaction prevents a committed receipt being checked against stale state.
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 	if err != nil {
 		return nil, err
 	}
 	var canonical []byte
-	err = s.db.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", id).Scan(&canonical)
+	err = tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", id).Scan(&canonical)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
