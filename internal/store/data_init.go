@@ -11,6 +11,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/ops"
 )
 
 func migrateDataInitialization(ctx context.Context, tx *sql.Tx) error {
@@ -21,7 +22,7 @@ func migrateDataInitialization(ctx context.Context, tx *sql.Tx) error {
  CREATE TABLE data_init_operations(plan_id TEXT PRIMARY KEY REFERENCES data_init_plans(id),id TEXT NOT NULL UNIQUE,fence_id TEXT NOT NULL REFERENCES data_fences(id));
  CREATE TRIGGER data_init_operations_no_update BEFORE UPDATE ON data_init_operations BEGIN SELECT RAISE(ABORT,'one initialization attempt'); END;
  CREATE TRIGGER data_init_operations_no_delete BEFORE DELETE ON data_init_operations BEGIN SELECT RAISE(ABORT,'durable initialization attempt'); END;
- CREATE TABLE data_init_events(operation_id TEXT NOT NULL REFERENCES data_init_operations(id),sequence INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('intent','quiesced','restore_point_intent','restore_point_verified','mutation_intent','mutation_completed','succeeded')),created_at TEXT NOT NULL,receipt BLOB CHECK(receipt IS NULL OR length(receipt)<=16384),PRIMARY KEY(operation_id,sequence));
+ CREATE TABLE data_init_events(operation_id TEXT NOT NULL REFERENCES data_init_operations(id),sequence INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('intent','quiesced','restore_point_intent','restore_point_verified','mutation_intent','mutation_completed','succeeded','not_initialized')),created_at TEXT NOT NULL,receipt BLOB CHECK(receipt IS NULL OR length(receipt)<=16384),PRIMARY KEY(operation_id,sequence));
  CREATE TRIGGER data_init_events_no_update BEFORE UPDATE ON data_init_events BEGIN SELECT RAISE(ABORT,'append-only initialization events'); END;
  CREATE TRIGGER data_init_events_no_delete BEFORE DELETE ON data_init_events BEGIN SELECT RAISE(ABORT,'append-only initialization events'); END;
  UPDATE schema_version SET version=8;
@@ -113,8 +114,8 @@ func untouchedInitialization(ctx context.Context, q dataQuerier, app string, id 
 		return ErrConflict
 	}
 	var count int
-	// Initialization tasks are not app writers; their engine owns the host lock and durable data fence.
-	if err := q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM release_heads WHERE app=?)+(SELECT count(*) FROM data_writer_history h JOIN data_databases d ON d.id=h.database_id WHERE d.incarnation_id=? AND NOT EXISTS(SELECT 1 FROM data_init_operations i WHERE i.id=h.operation_id))+(SELECT count(*) FROM data_writer_starts WHERE incarnation_id=? AND cleared=0)+(SELECT count(*) FROM operations WHERE app=? AND kind!='data_init_apply' AND state NOT IN ('succeeded','failed','rolled_back','recovery_required'))`, app, id, id, app).Scan(&count); err != nil {
+	// Initialization, restore tests and credential tasks are not app writers; their engine owns the host lock and durable data fence.
+	if err := q.QueryRowContext(ctx, `SELECT (SELECT count(*) FROM release_heads WHERE app=?)+(SELECT count(*) FROM data_writer_history h JOIN data_databases d ON d.id=h.database_id WHERE d.incarnation_id=? AND NOT EXISTS(SELECT 1 FROM data_init_operations i WHERE i.id=h.operation_id))+(SELECT count(*) FROM data_writer_starts WHERE incarnation_id=? AND cleared=0)+(SELECT count(*) FROM operations WHERE app=? AND kind NOT IN ('data_init_apply','restore_test','credential_activation') AND state NOT IN ('succeeded','failed','rolled_back','recovery_required'))`, app, id, id, app).Scan(&count); err != nil {
 		return err
 	}
 	if count != 0 {
@@ -199,7 +200,8 @@ func (s *Store) SetInitState(ctx context.Context, o datainit.Operation, state st
 		o.State = state
 		return o, tx.Commit()
 	}
-	allowed := state == "succeeded" && current != "succeeded" || current == "intent" && state == "quiesced" || current == "quiesced" && state == "restore_point_intent" || current == "restore_point_intent" && state == "restore_point_verified" || current == "restore_point_verified" && state == "mutation_intent" || current == "mutation_intent" && state == "mutation_completed"
+	terminal := current == "succeeded" || current == "not_initialized"
+	allowed := (state == "succeeded" || state == "not_initialized") && !terminal || current == "intent" && state == "quiesced" || current == "quiesced" && state == "restore_point_intent" || current == "restore_point_intent" && state == "restore_point_verified" || current == "restore_point_verified" && state == "mutation_intent" || current == "mutation_intent" && state == "mutation_completed"
 	if state == "restore_point_verified" {
 		return o, ErrConflict
 	}
@@ -219,6 +221,8 @@ func (s *Store) SetInitState(ctx context.Context, o datainit.Operation, state st
 		if _, err = tx.ExecContext(ctx, "INSERT INTO data_writer_history SELECT database_id,? FROM data_fences WHERE id=? ON CONFLICT(database_id,operation_id) DO NOTHING", o.ID, o.Fence); err != nil {
 			return o, err
 		}
+	}
+	if state == "succeeded" || state == "not_initialized" {
 		result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND operation_id=? AND state='held'", o.Fence, o.ID)
 		if err != nil {
 			return o, err
@@ -286,4 +290,35 @@ func (s *Store) LoadInitRestorePoint(ctx context.Context, o datainit.Operation) 
 		return point, &IntegrityError{}
 	}
 	return point, nil
+}
+
+// InitializationRecoveryJobs only returns settled, abandoned tasks whose inner
+// initialization fence is still held. It never enumerates active task runners.
+func (s *Store) InitializationRecoveryJobs(ctx context.Context) ([]ops.Operation, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT o.id FROM operations o JOIN data_init_operations i ON i.plan_id=o.secret_ref JOIN data_fences f ON f.id=i.fence_id WHERE o.kind='data_init_apply' AND o.state IN ('recovery_required','failed') AND f.state='held' ORDER BY o.id`)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err = rows.Scan(&id); err != nil {
+			return nil, errors.Join(err, rows.Close())
+		}
+		ids = append(ids, id)
+	}
+	err = rows.Err()
+	closeErr := rows.Close()
+	if err != nil || closeErr != nil {
+		return nil, errors.Join(err, closeErr)
+	}
+	out := make([]ops.Operation, 0, len(ids))
+	for _, id := range ids {
+		op, err := s.GetOperation(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, op)
+	}
+	return out, nil
 }

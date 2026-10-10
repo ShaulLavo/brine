@@ -11,6 +11,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/restore"
 )
 
@@ -39,6 +40,13 @@ func TestDataInitializationJournalAndFenceAreAtomic(t *testing.T) {
 	s := openTest(t)
 	p, reserved := storeInitPlan(t, s)
 	ctx := context.Background()
+	job, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.DataInitApply, App: p.Request.App, SecretRef: p.ID}, p.Requester.String(), "accepted-init")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.TransitionOperation(ctx, job.ID, ops.Queued, ops.Preflight); err != nil {
+		t.Fatal(err)
+	}
 	operation, err := s.ClaimInitialization(ctx, p)
 	if err != nil {
 		t.Fatal(err)
@@ -160,4 +168,44 @@ func TestDataInitializationReceiptRemainsImmutableAndReopens(t *testing.T) {
 	if err != nil || got.Receipt.OperationID != point.Receipt.OperationID || got.RetainUntil != point.RetainUntil {
 		t.Fatalf("receipt reopen %+v %v", got, err)
 	}
+}
+
+func TestDataInitializationMigrationFromTaskSchemaSevenPreservesJobs(t *testing.T) {
+	dir := stateDir(t)
+	state, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	job, _, err := state.CreateOperation(ctx, ops.Intent{Kind: ops.DataInitApply, App: "example", SecretRef: "sha256:" + strings.Repeat("a", 64)}, "local-operator", "migration-fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Construct the released task-only v7 shape; initialization is the v8 addition.
+	for _, statement := range []string{"DROP TABLE data_init_events", "DROP TABLE data_init_operations", "DROP TABLE data_init_plans", "UPDATE schema_version SET version=7"} {
+		if _, err = state.db.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err = state.Close(); err != nil {
+		t.Fatal(err)
+	}
+	migrated, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := migrated.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	var version int
+	if err = migrated.db.QueryRowContext(ctx, "SELECT version FROM schema_version").Scan(&version); err != nil || version != 8 {
+		t.Fatal("missing init migration", version, err)
+	}
+	retained, err := migrated.GetOperation(ctx, job.ID)
+	if err != nil || retained.Requester != job.Requester || retained.SecretRef != job.SecretRef || retained.State != ops.Queued {
+		t.Fatal("v7 task changed during migration", err)
+	}
+	storeInitPlan(t, migrated)
 }

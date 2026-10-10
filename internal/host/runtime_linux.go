@@ -144,6 +144,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	initTasks.Requester = initEngine.Requester.String()
 	r.DataInitialization = initializationOperations{engine: initEngine, tasks: initTasks}
 	r.Runner.TaskHandlers = map[ops.Kind]jobs.TaskHandler{ops.DataInitApply: initializationTask(service, stateDir)}
+	r.Reconciler = initializationReconciler{Reconciler: reconciler, service: service, stateRoot: stateDir}
 
 	if preview {
 		r.Reconciler = readOnlyReconciler{reconciler}

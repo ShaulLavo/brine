@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -32,11 +33,26 @@ func initializationJobFixture(t *testing.T, requester datainit.Requester) (*stor
 		}
 	})
 	hash := "sha256:" + strings.Repeat("a", 64)
+	root := t.TempDir()
+	if err = os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	} // #nosec G302 -- Private fixture root requires owner traversal.
+	reserved, err := state.ReserveDatabase(context.Background(), store.DataReservation{App: "example", PolicyHash: hash, Database: data.Database{Name: "main", PersistentRoot: data.PersistentRoot(root), MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}, Destination: data.Destination{Reference: "primary", Endpoint: "https://storage.example", Region: "region-1", Bucket: "backups", BasePrefix: "brine", CredentialRef: "primary"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Join(root, reserved.Database.RelativeDirectory), 0700); err != nil {
+		t.Fatal(err)
+	}
+	allocation, err := data.CaptureAllocation(reserved.Database)
+	if err != nil {
+		t.Fatal("capture allocation", err)
+	}
 	definition := data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
 	engine := datainit.Service{Journal: state, Requester: requester, Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, datainit.Plan) (func(), error) { return func() {}, nil }, PrepareRestorePoint: func(context.Context, datainit.Plan, datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 		return datainit.VerifiedRestorePoint{}, nil
-	}, Facts: func(context.Context, datainit.Request) (datainit.Facts, error) {
-		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: data.ReplicaEpochID(strings.Repeat("4", 32)), RemotePrefix: "epochs/fixture", Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: data.DatabaseBinding{DatabaseID: data.DatabaseID(strings.Repeat("1", 32)), IncarnationID: data.AppIncarnationID(strings.Repeat("2", 32)), Name: "main", Root: "/unused", RelativeDirectory: "fixture", MountPath: "/data", Filename: "app.db", ReplicaBindingID: data.ReplicaBindingID(strings.Repeat("3", 32))}, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Observation: data.SchemaObservation{State: data.AllocatedEmpty}}, nil
+	}, Facts: func(ctx context.Context, _ datainit.Request) (datainit.Facts, error) {
+		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: reserved.Replica.EpochID, RemotePrefix: strings.TrimSuffix(reserved.Replica.RemotePrefix, "/"), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: reserved.Database, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Allocation: &allocation, Observation: data.ObserveSchemaWithAllocation(ctx, reserved.Database, []data.SchemaDefinition{definition}, &allocation)}, nil
 	}}
 	p, err := engine.Plan(context.Background(), datainit.Request{App: "example", FirstReleasePlan: hash, Artifact: hash})
 	if err != nil {
@@ -126,7 +142,14 @@ func TestInitializationJobReconstructsOnlyMatchingServerAuthority(t *testing.T) 
 		state, _, p := initializationJobFixture(t, requester)
 		// run-op's ambient requester is deliberately unrelated to the accepted job.
 		base := Service{Store: state, Requester: "local-operator", Policy: &fakePolicy{p: pol}}
-		job := ops.Operation{Kind: ops.DataInitApply, App: p.Request.App, SecretRef: p.ID, Requester: requester.String()}
+		accepted, _, err := state.CreateOperation(context.Background(), ops.Intent{Kind: ops.DataInitApply, App: p.Request.App, SecretRef: p.ID}, requester.String(), "authority-retained")
+		if err != nil {
+			t.Fatal(err)
+		}
+		job, err := state.GetOperation(context.Background(), accepted.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
 		reconstructed, err := initializationTaskEngine(context.Background(), base, "/unused", job)
 		if err != nil || reconstructed.Requester != requester {
 			t.Fatal("immutable authority lost", err)
@@ -147,5 +170,26 @@ func TestInitializationJobReconstructsOnlyMatchingServerAuthority(t *testing.T) 
 		if _, err = initializationTaskEngine(context.Background(), base, "/unused", foreign); err == nil {
 			t.Fatal("foreign job reused a requester identity")
 		}
+	}
+}
+
+func TestInitializationRemoteJobCannotAcceptOrReuseLocalAuthority(t *testing.T) {
+	state, engine, p := initializationJobFixture(t, datainit.LocalOperatorRequester())
+	agent, err := datainit.AgentRequester("deploy:" + strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine.Requester = agent
+	tasks := jobs.Service{Store: state, Requester: agent.String(), Launcher: initializationLauncher{launch: func(systemd.OperationID) error { t.Fatal("remote launched a local operator plan"); return nil }}}
+	if _, err = (initializationOperations{engine: engine, tasks: tasks}).Apply(context.Background(), p.Request.App, p.ID); err == nil {
+		t.Fatal("remote reused a local operator plan")
+	}
+	engine.Requester = datainit.LocalOperatorRequester()
+	if _, err = (initializationOperations{engine: engine, tasks: tasks}).Apply(context.Background(), p.Request.App, p.ID); err == nil {
+		t.Fatal("remote job acquired operator authority from ambient composition")
+	}
+	pending, err := state.ListUnfinished(context.Background())
+	if err != nil || len(pending) != 0 {
+		t.Fatal("refused remote authority wrote a job", err)
 	}
 }

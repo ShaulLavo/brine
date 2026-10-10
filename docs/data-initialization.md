@@ -66,6 +66,8 @@ brine data init APP --target NAME --plan \
 brine data init APP --target NAME --plan-id sha256:INITIALIZATION_PLAN_DIGEST
 ```
 
+Apply records and launches a detached host job, returning an accepted operation ID promptly. The CLI polls status to a terminal result by default; `--no-wait` returns that ID without polling. Each transport call keeps its short request deadline; losing the observer never cancels accepted host work. Inspect it with `brine status --operation OPERATION_ID --target NAME`. Reapplying the same plan recovers the same accepted job and never launches another initialization.
+
 Local operator execution uses the same flags with `brine host data-init APP`, without `--target`. Apply does not accept planning-only inputs. Initialization plans bind the requester, policy, target identity/generation, desired declaration, exact database binding, replica epoch/prefix, source state, destination definition and generated restore-point ID.
 
 ## Empty restore point and durable boundaries
@@ -88,7 +90,11 @@ The journal boundaries are intent, quiesced, restore-point intent, verified rest
 
 ## Unknown outcomes
 
-Apply of an already-attempted plan only inspects. It never uploads, invokes the initializer, or creates another attempt. A freshly verified matching destination plus the durable independently verified empty point can be adopted as success. A still-empty, zero-byte, missing, changed or unknown destination requires operator recovery and keeps its fence. Timeouts are not permission to retry irreversible work.
+The initialization engine’s recovery path only inspects an already-attempted plan. Repeated CLI apply returns the same immutable detached job outcome; it does not rerun or automatically reconcile that job. It never uploads, invokes the initializer, or creates another attempt. A freshly verified matching destination plus the durable independently verified empty point can be adopted as success. A still-empty, zero-byte, missing, changed or unknown destination requires operator recovery and keeps its fence. Timeouts are not permission to retry irreversible work.
+
+For an interrupted job, the supported local recovery command is `brine host reconcile`, run as the enrolled Brine account. Boot reconciliation uses that same path. It first settles abandoned runners, then acquires the host mutation lock and independently proves the initialization runner is dead and has no pending systemd job. Unknown/running manager observations keep the fence held. Reconciliation retains the recorded typed requester; remote work never gains local operator authority.
+
+Inspect-only recovery adopts a freshly verified destination only when its exact marker/catalog and durable independently verified empty restore point match. If an allocation receipt proves the file was never created, or fresh catalog inspection proves it is still empty, recovery records terminal `not_initialized` and atomically releases the fence without consuming allocation absence evidence. No upload, schema statement, file deletion or live repair is replayed. A zero-byte, changed, nonempty or unknown file keeps the fence held. The original detached outcome remains immutable; the reconciliation report and initialization journal record the settlement. To initialize after `not_initialized`, review and create a new initialization plan; the old attempt cannot be reused.
 
 Inspection after success is not a migration and does not start code. A new deployment plan is needed because initialization changes schema facts. Database rollback remains distinct from application rollback.
 

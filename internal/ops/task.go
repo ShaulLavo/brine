@@ -2,10 +2,10 @@ package ops
 
 import (
 	"encoding/json"
-	"github.com/ShaulLavo/brine/internal/datainit"
 	"regexp"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
