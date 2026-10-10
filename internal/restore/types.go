@@ -136,8 +136,10 @@ type Sentinel struct {
 	CommittedAt time.Time `json:"committed_at"`
 }
 type Request struct {
-	OperationID    string
-	Source         RestoreSource
+	OperationID string
+	Source      RestoreSource
+	// Latest resolves the remote plan boundary before making an exact LTX restore.
+	Latest         bool
 	Budget         time.Duration
 	ExpectedSchema SchemaObservation
 	Invariants     []Invariant
