@@ -4,14 +4,19 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/ShaulLavo/brine/internal/data"
 )
 
+// maxSchemaDefinitions bounds the complete incarnation registry, including the
+// empty marker reserved for each database. Writers and readers share the cap.
+const maxSchemaDefinitions = 16 * 128
+
 // RegisterSchemaDefinitions is append-only within an incarnation. The caller
 // holds the mutation lock; new releases cannot redefine an existing marker.
 func (s *Store) RegisterSchemaDefinitions(ctx context.Context, incarnation data.AppIncarnationID, definitions []data.SchemaDefinition) error {
-	if !data.ValidID(string(incarnation)) || len(definitions) > 16*128 {
+	if !data.ValidID(string(incarnation)) || len(definitions) > maxSchemaDefinitions {
 		return ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -37,6 +42,15 @@ func (s *Store) RegisterSchemaDefinitions(ctx context.Context, incarnation data.
 		if err = registerSchema(ctx, tx, database, definition.Marker, definition.CatalogSHA256); err != nil {
 			return err
 		}
+	}
+	// Count the resulting registry inside the write transaction. Exact retries
+	// insert nothing; a batch that adds too many markers rolls back in full.
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM data_schema_definitions s JOIN data_databases d ON d.id=s.database_id WHERE d.incarnation_id=?", incarnation).Scan(&count); err != nil {
+		return err
+	}
+	if count > maxSchemaDefinitions {
+		return fmt.Errorf("%w: schema registry cannot exceed %d definitions", ErrInvalid, maxSchemaDefinitions)
 	}
 	return tx.Commit()
 }
@@ -69,7 +83,7 @@ func readSchemaDefinitions(ctx context.Context, q dataQuerier, incarnation data.
 			return nil, &IntegrityError{}
 		}
 		definitions = append(definitions, d)
-		if len(definitions) > 16*128 {
+		if len(definitions) > maxSchemaDefinitions {
 			return nil, &IntegrityError{}
 		}
 	}
