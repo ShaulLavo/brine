@@ -103,8 +103,8 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 			return nil, errors.New("host: invalid requester identity")
 		}
 	}
-	service := Service{Store: state, Inventory: collector, Policy: loader, Images: Registry{}, Requester: requester}
-	engine := apply.Executor{Journal: state, Releases: releases{state}, Plans: state, Podman: podman.New(session), Systemd: runtimeSystemd, Units: units, Health: policyHealth{loader}, Routes: apply.GenerationRoutes{
+	service := Service{Data: DataFacts{Store: state, Runner: localexec.ExecRunner{}, ExcludedRoots: PersistentExcludedRoots(identity.HomeDir, stateDir)}, Store: state, Inventory: collector, Policy: loader, Images: Registry{}, Requester: requester}
+	engine := apply.Executor{WriterStarts: DataWriterStarts{Store: state}, Compatibility: DataCompatibility{Store: state}, Journal: state, Releases: releases{state}, Plans: state, Podman: podman.New(session), Systemd: runtimeSystemd, Units: units, Health: policyHealth{loader}, Routes: apply.GenerationRoutes{
 		Manager: manager,
 		Main:    func(ctx context.Context) ([]byte, error) { return trustedRead(ctx, "/etc/caddy/Caddyfile", 1<<20) },
 		Site: func(d policy.Desired, port target.Port) (caddy.Site, error) {
@@ -119,7 +119,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
 	appService := apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}, LoadPolicy: loader.Load}
 	secretService := secrets.Service{Store: state, Podman: podman.New(session), LoadPolicy: loader.Load, Requester: requester}
-	r := &Runtime{Config: appService, Secrets: secretService, Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: appService, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
+	r := &Runtime{BackupCredentials: backupCredentialService(service, stateDir), Config: appService, Secrets: secretService, Reconciler: reconciler, Inventory: collector, Planner: service, Jobs: jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, Runner: jobs.Runner{Recovery: recoveryJob(reconciler), Reconciler: runnerReconciler{reconciler}, Store: state, Executor: Executor{Service: service, Engine: engine}}, Apps: appService, Logs: logReader, Diagnose: diagnose.Reader{Inventory: collector, Store: state, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: func(ctx context.Context) (uint64, error) {
 		p, err := loader.Load(ctx)
 		if err != nil {
 			return 0, err
