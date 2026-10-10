@@ -35,8 +35,14 @@ func (x *execution) clearWriterStart(ctx context.Context) error {
 	if x.executor.WriterStarts == nil {
 		return &Error{Step: "clear_writer_start", Code: "interrupted", State: RecoveryRequired}
 	}
-	if err := x.executor.WriterStarts.ClearWriterStart(ctx, x.id); err != nil {
-		return &Error{Step: "clear_writer_start", Code: "interrupted", State: RecoveryRequired, Cause: err}
+	// Resolution owns new effects, but an uncleared intent can belong to any
+	// source in its verified receipt chain. Clear those owners too, both before
+	// unit compensation and at settled terminals. Unknown outcomes retain the
+	// remaining evidence and cannot authorize a restored writer or success.
+	for _, owner := range append([]string{x.id}, x.writerStartOwners...) {
+		if err := x.executor.WriterStarts.ClearWriterStart(ctx, owner); err != nil {
+			return &Error{Step: "clear_writer_start", Code: "interrupted", State: RecoveryRequired, Cause: err}
+		}
 	}
 	return nil
 }

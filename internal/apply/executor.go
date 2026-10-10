@@ -69,6 +69,7 @@ type execution struct {
 	state                                   State
 	compatibilityBasis                      string
 	recoveryRollback                        map[string]bool
+	writerStartOwners                       []string
 	nextRelease                             *Release
 }
 
@@ -209,6 +210,7 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		}
 		x.quiesced, x.installed, x.started = recovery.execution.quiesced, recovery.execution.installed, recovery.execution.started
 		x.unit = recovery.execution.unit
+		x.writerStartOwners = recovery.execution.writerStartOwners
 	}
 	if err != nil {
 		if recovery != nil {
@@ -579,7 +581,9 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 	if x.installed {
 		if err := step("rollback_unit", "rollback_failed", func(ctx context.Context) error {
 			if err := x.clearWriterStart(ctx); err != nil {
-				return err
+				// Unit read-back cannot prove that writer intent cleanup settled.
+				// The rollback effect has not run, so do not reconcile this refusal.
+				return &boundaryRefusal{cause: err}
 			}
 			return x.executor.Units.Rollback(ctx, x.unit.Name(), x.unit.Hash(), x.previousUnitHash())
 		}); err != nil {

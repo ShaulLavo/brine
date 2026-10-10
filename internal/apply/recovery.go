@@ -154,7 +154,7 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if !validPrefix && op.State != RollingBack {
 		return r, nil
 	}
-	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, recoveryRollback: rollbackCompleted}
+	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, recoveryRollback: rollbackCompleted, writerStartOwners: owners}
 	r.execution = x
 	var err error
 	evidence, cancel := context.WithTimeout(ctx, e.effectTimeout())
