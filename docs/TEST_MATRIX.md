@@ -37,8 +37,19 @@
 | T31 | Optional multi-architecture protocol-health echo image | Published index/platform digests and provenance; real amd64/arm64 runtime evidence when qualifying the opt-in probe, not a default UDP deployment prerequisite | 08 |
 | T32 | Shared UDP 443 and ingress authority | Two apps, same-socket multiplexing, migration, idle expiry, SNI/ECH handling; pinned build and whole-config/live proof | 08 |
 | T33 | Private WebTransport preview authorization and expiry | Real browser grant/replay/Origin/revocation/incarnation/TTL/isolation cases; public safety gates | 07/08 |
+| T34 | Typed data-engine boundary | Existing SQLite plans/receipts/permits stay correct; unknown engines and cross-engine evidence refuse before effects | 09 |
+| T35 | Standalone storage, shutdown and observer | Pinned full-tree private replay, marker/schema proof, SIGINT forwarding, scheduled reducers and fail-closed uncertain stop | 09 |
+| T36 | Multiarch SpacetimeDB fixture | Published amd64/arm64 app index and platform digests, pinned Wasm artifact, read-only marker checks and browser subscriptions | 09 |
+| T37 | Managed service, ingress and identity | App/server permits, rootless resources, public management denial, owner auth, private secret delivery and license-use admission | 09 |
+| T38 | Stopped-tree remote backup and restore test | Real create-only S3 capture, complete manifest/hash checks, isolated replay, protected key recovery, outages/expiry and bounded or unknown loss | 09 |
+| T39 | Reviewed module create/update | Exact quiesced restore coverage, immutable review/artifact/source binding, staged publish, destructive refusal and schema-aware code rollback | 09 |
+| T40 | Engine restore/archive/reconcile | New restore epoch, 30-day retention, remove/recreate/purge safety, interrupted swaps and reboot fences | 09 |
+| T41 | Physical SpacetimeDB gate | Actual arm64 Pi Quadlet/Caddy/browser/S3 drill plus amd64 runtime; markers survive replacement/reboot and privately restore | 09 |
+| T42 | Engine operation contracts and runbooks | JSON/CLI goldens, authority refusals, downtime/loss/license limits, recovery procedure and SQLite regression evidence | 09 |
 
 Detailed setup, task dependencies and acceptance requirements for T25-T33 live in the [Phase 08 plan](plans/08-webtransport.md). Initial direct-UDP full-app support and shared-port/preview support have separate exit gates.
+
+Phase 09 cases T34-T42 are **required acceptance, not shipped evidence**. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, clean-stop durability limits, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
 
 ## T16 schema policy acceptance, implementation pending
 
@@ -232,3 +243,11 @@ Resolution review regressions (local, physical rerun still pending):
   a fresh bounded observer after its detached worker finishes. Earlier contexts
   are canceled before observation, so accidental reuse fails without sleeps.
   Production timeouts and the resumed-health deadline assertion are unchanged.
+
+### Stop status and host-port isolation
+
+- T09/T12: rendered stateless and persistent Quadlets accept numeric SIGTERM exit 143 only with a forced restart for spontaneous 143. Explicit stop must leave inactive/dead with no pending manager job or container; exit 1 or 137 remains a failure and repeated spontaneous 143 reaches the start limit. Persistent restarts repeat writer-permit and writer-attempt; held fences block them.
+- T05/T09: another committed app with failed or unknown runtime state retains its stable port without making new-app admission unknown. Reserve both committed and differing observed ports, including missing runtime app records. Unknown ports without a committed app record still refuse. The failed app's own plan stays conservative.
+- T12/T15: stop the independent pinned Litestream replica and check inactive/dead and exit zero. Shutdown errors remain failed. Starting or restarting it under a held fence must fail replica-permit, and pending jobs must settle before quiescence is accepted.
+
+Rendering and pure planner tests cover the policy and reservations locally. The physical systemd/Podman stop, crash and fence drill remains required.

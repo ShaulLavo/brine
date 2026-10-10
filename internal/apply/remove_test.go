@@ -109,7 +109,7 @@ func TestRemoveFreshnessAndPersistentRefusalBeforeEffects(t *testing.T) {
 	r := newRemoveRig(t)
 	r.facts.Input.State.Generation++
 	r.facts.Input.Snapshot.Generation = target.Known(r.facts.Input.State.Generation)
-	if err := r.executor.Run(context.Background(), "operation", r.plan, r.desired); result.Classify(err).Code() != result.Conflict || len(r.events) != 0 || len(r.effects) != 0 {
+	if err := r.executor.Run(context.Background(), "operation", r.plan, r.desired); result.Classify(err).Code() != result.Conflict || len(r.events) != 1 || r.events[0].Kind != "plan_drift" || len(r.effects) != 0 {
 		t.Fatal(err, r.events, r.effects)
 	}
 	r = newRemoveRig(t)

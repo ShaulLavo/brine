@@ -114,7 +114,7 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	for _, e := range env {
 		fmt.Fprintf(&b, "Environment=%s\n", quoteAssignment(e.Name+"="+e.Value))
 	}
-	b.WriteString("\n[Service]\nRestart=on-failure\n")
+	b.WriteString("\n[Service]\nRestart=on-failure\nSuccessExitStatus=143\nRestartForceExitStatus=143\n")
 	if persistent.runtime != nil {
 		fmt.Fprintf(&b, "UMask=0077\nExecStartPre=/usr/local/bin/brine host writer-permit %s\nExecStartPre=/usr/local/bin/brine host writer-attempt %s\n", persistent.incarnation, persistent.incarnation)
 	}

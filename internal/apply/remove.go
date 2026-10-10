@@ -8,6 +8,7 @@ import (
 	"reflect"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -46,7 +47,7 @@ func (e *Executor) runRemove(ctx context.Context, id string, p plan.Plan, d poli
 	}
 	rebuilt, err := fresh.CanonicalBytes()
 	if err != nil || !bytes.Equal(original, rebuilt) {
-		return result.New(result.Conflict, err)
+		return result.New(result.Conflict, errors.Join(err, ops.RecordPlanDrift(ctx, e.Journal, id, p, fresh)))
 	}
 	x := &execution{executor: e, id: id, plan: p, desired: d, facts: facts}
 	if err = x.step(ctx, "preflight", Preflight, "drift", func(ctx context.Context) error {

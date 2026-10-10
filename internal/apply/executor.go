@@ -126,7 +126,7 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		}
 		rebuilt, err := fresh.CanonicalBytes()
 		if err != nil || !bytes.Equal(original, rebuilt) {
-			return errors.New("plan drift")
+			return errors.Join(errors.New("plan drift"), err, ops.RecordPlanDrift(ctx, e.Journal, opID, p, fresh))
 		}
 		x.previous, x.hasPrevious, err = e.Releases.CurrentRelease(ctx, p.App)
 		if err != nil {

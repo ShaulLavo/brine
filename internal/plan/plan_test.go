@@ -543,3 +543,64 @@ func TestGenerationPreservesMatchingCommittedAndUnmanagedFiles(t *testing.T) {
 	}
 	t.Fatal("missing Caddy generation staging change")
 }
+
+func TestOtherAppCommittedPortRemainsReservedWithoutRuntimeEvidence(t *testing.T) {
+	for _, status := range []target.Status{target.Unknown, target.Unsupported} {
+		t.Run(string(status), func(t *testing.T) {
+			in := fixture(t, "ready-arm64")
+			existing := installed(t).State.Releases[0]
+			existing.App = "other"
+			existing.Desired.Name = "other"
+			existing.Desired.Domains = []spec.Domain{"other.example.org"}
+			existing.CaddyFile.Name = "other.caddy"
+			existing.HostPort = target.Port(in.Desired.AppPorts.Min)
+			in.State.Releases = []CurrentRelease{existing}
+			in.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: existing.CaddyGeneration, Files: []target.CaddyFile{existing.CaddyFile}})
+			in.Snapshot.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{Name: existing.CaddyFile.Name, App: existing.App, Domains: target.Known([]string{"other.example.org"})}})
+			active := target.Observation[bool]{Status: target.Unknown}
+			if status == target.Unknown {
+				active = target.Known(false)
+			}
+			in.Snapshot.Apps = target.Known([]target.App{{Name: "other", UnitActive: &active, AllocatedHostPort: target.Observation[target.Port]{Status: status}, Image: target.Observation[target.Image]{Status: target.Unknown}, QuadletUnits: target.Known(existing.Units), Secrets: target.Known([]target.Secret{})}})
+			p := build(t, in)
+			if p.Kind != Create || p.HostPort != existing.HostPort+1 {
+				t.Fatalf("other app blocks admission or loses reservation: %+v", p)
+			}
+			observed := *in.Snapshot.Apps.Value
+			in.Snapshot.Apps = target.Known([]target.App{})
+			p = build(t, in)
+			if p.Kind != Create || p.HostPort != existing.HostPort+1 {
+				t.Fatalf("missing runtime record loses reservation: %+v", p)
+			}
+			in.Snapshot.Apps = target.Known(observed)
+			(*in.Snapshot.Apps.Value)[0].AllocatedHostPort = target.Known(existing.HostPort + 1)
+			p = build(t, in)
+			if p.Kind != Create || p.HostPort != existing.HostPort+2 {
+				t.Fatalf("committed or drifted observed port reused: %+v", p)
+			}
+			(*in.Snapshot.Apps.Value)[0].AllocatedHostPort = target.Observation[target.Port]{Status: status}
+			in.Desired.AppPorts.Max = in.Desired.AppPorts.Min
+			p = build(t, in)
+			if p.Kind != Conflict || !slices.ContainsFunc(p.Conflicts, func(c Diagnostic) bool { return c.Code == PortsExhausted }) {
+				t.Fatalf("reserved port reused: %+v", p)
+			}
+			in.State.Releases = []CurrentRelease{}
+			p = build(t, in)
+			if p.Kind != Conflict {
+				t.Fatalf("unrecorded unknown app admitted: %+v", p)
+			}
+		})
+	}
+}
+
+func TestOwnFailedAppRemainsConservative(t *testing.T) {
+	in := installed(t)
+	app := &(*in.Snapshot.Apps.Value)[0]
+	app.UnitActive = new(target.Known(false))
+	app.AllocatedHostPort = target.Observation[target.Port]{Status: target.Unknown}
+	app.Image = target.Observation[target.Image]{Status: target.Unknown}
+	p := build(t, in)
+	if p.Kind != Conflict || !slices.ContainsFunc(p.Conflicts, func(c Diagnostic) bool { return c.Code == UnknownFacts }) {
+		t.Fatalf("failed app accepted: %+v", p)
+	}
+}

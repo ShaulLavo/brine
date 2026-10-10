@@ -133,7 +133,7 @@ func (e Executor) runDataPreparation(ctx context.Context, id string, p plan.Plan
 	}
 	rebuilt, err := fresh.CanonicalBytes()
 	if err != nil || !bytes.Equal(approved, rebuilt) {
-		return fail(result.New(result.Conflict, err))
+		return fail(result.New(result.Conflict, errors.Join(err, ops.RecordPlanDrift(ctx, state, id, p, fresh))))
 	}
 	if e.Engine.PersistentData == nil {
 		return fail(result.New(result.DependencyMissing, nil))

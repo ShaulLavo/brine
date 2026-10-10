@@ -181,6 +181,7 @@ type ReplicaPrevious struct {
 }
 
 type Plan struct {
+	decisionInput      []byte
 	ReplicaPrevious    *ReplicaPrevious           `json:"replica_previous,omitempty"`
 	DataAllocations    []data.AllocationProposal  `json:"data_allocations,omitempty"`
 	PreparationRoots   []data.RootEvidence        `json:"preparation_roots,omitempty"`
@@ -414,12 +415,18 @@ func Build(in Input) (Plan, error) {
 		for _, owner := range *in.Snapshot.PortOwners.Value {
 			busy[owner.Port] = true
 		}
+		reserved := make(map[string]target.Port, len(in.State.Releases))
+		for _, committed := range in.State.Releases {
+			reserved[committed.App] = committed.HostPort
+			busy[committed.HostPort] = true
+		}
 		for _, a := range *in.Snapshot.Apps.Value {
+			_, committed := reserved[a.Name]
 			if a.AllocatedHostPort.Status == target.KnownStatus {
 				busy[*a.AllocatedHostPort.Value] = true
-			} else if a.AllocatedHostPort.Status == target.Unknown {
+			} else if a.AllocatedHostPort.Status == target.Unknown && !committed {
 				add(UnknownFacts, "apps.port")
-			} else if a.AllocatedHostPort.Status == target.Unsupported {
+			} else if a.AllocatedHostPort.Status == target.Unsupported && !committed {
 				add(UnsupportedTarget, "apps.port")
 			}
 		}
@@ -668,12 +675,17 @@ func finish(p Plan, desired, snapshot, state []byte) (Plan, error) {
 		return strings.Compare(a.Field, b.Field)
 	})
 	p.Conflicts = slices.Compact(p.Conflicts)
-	p.Hash = hashJSON(struct {
+	input, err := json.Marshal(struct {
 		Desired  json.RawMessage `json:"desired"`
 		Snapshot json.RawMessage `json:"snapshot"`
 		State    json.RawMessage `json:"brine_state"`
 		Plan     Plan            `json:"plan"`
 	}{desired, snapshot, state, p})
+	if err != nil {
+		return Plan{}, err
+	}
+	p.decisionInput = input
+	p.Hash = hash(input)
 	return p, nil
 }
 func canonicalState(state BrineState) ([]byte, error) {

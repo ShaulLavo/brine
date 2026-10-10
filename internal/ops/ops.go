@@ -137,6 +137,18 @@ func ValidateEvent(e Event) error {
 	}
 	outcome := func(s string) bool { return slices.Contains([]string{"intent", "completed", "unknown"}, s) }
 	switch e.Kind {
+	case "plan_drift":
+		fields, err := strictjson.Object(e.Payload, "paths", "changed", "truncated")
+		if err != nil {
+			return ErrInvalidEvent
+		}
+		paths, pathErr := strictjson.Value[[]string](fields["paths"])
+		changed, countErr := strictjson.Value[int](fields["changed"])
+		truncated, truncatedErr := strictjson.Value[bool](fields["truncated"])
+		p := plan.DecisionDrift{Paths: paths, Changed: changed, Truncated: truncated}
+		if pathErr != nil || countErr != nil || truncatedErr != nil || !p.Valid() || p.Changed == 0 {
+			return ErrInvalidEvent
+		}
 	case "resolution":
 		var p ResolutionPayload
 		if decode(&p, "operation_id") != nil || !operationID.MatchString(p.OperationID) {
