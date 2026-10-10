@@ -1,3 +1,5 @@
+// Package replicapermits projects fresh control-store and host evidence into
+// replica and application startup permits.
 package replicapermits
 
 import (

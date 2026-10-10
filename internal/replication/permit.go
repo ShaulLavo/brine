@@ -73,16 +73,6 @@ func WriterPermit(ctx context.Context, r PermitReader, incarnationID string) err
 	}
 	return nil
 }
-func QuiescencePermit(ctx context.Context, r PermitReader, req ReplicaPermitRequest, lifetimeLock string) error {
-	if r == nil || ctx.Err() != nil || !safePath(lifetimeLock) {
-		return ErrPermit
-	}
-	s, err := r.ReadReplicaPermit(ctx, req.BindingID)
-	if err != nil || ctx.Err() != nil || s.Fence != FenceHeld || s.LifetimeLock != lifetimeLock || !validBinding(s) || !matchesIdentity(s, req) {
-		return ErrPermit
-	}
-	return nil
-}
 func validPermit(s PermitState) bool {
 	return (s.Fence == Unfenced || s.Fence == FenceReleased) && validBinding(s)
 }

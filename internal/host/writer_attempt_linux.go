@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"math"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -20,10 +21,11 @@ import (
 // OpenWriterAttempt opens only the control store and a lazy read-only observer.
 // The CLI validates the incarnation before opening this narrowly writable bundle.
 func OpenWriterAttempt(ctx context.Context) (*WriterAttemptRuntime, error) {
-	if ctx.Err() != nil || os.Geteuid() == 0 {
+	uid := os.Geteuid()
+	if ctx.Err() != nil || uid <= 0 || int64(uid) > math.MaxUint32 {
 		return nil, replication.ErrPermit
 	}
-	identity, err := user.LookupId(strconv.Itoa(os.Geteuid()))
+	identity, err := user.LookupId(strconv.Itoa(uid))
 	if err != nil || identity.Username != "brine" || identity.HomeDir != "/home/brine" {
 		return nil, replication.ErrPermit
 	}
@@ -31,7 +33,7 @@ func OpenWriterAttempt(ctx context.Context) (*WriterAttemptRuntime, error) {
 	if err != nil {
 		return nil, replication.ErrPermit
 	}
-	return &WriterAttemptRuntime{state: state, attempt: replicapermits.WriterAttempts{State: state, Operations: attemptOperation{uid: uint32(os.Geteuid()), home: identity.HomeDir}}}, nil
+	return &WriterAttemptRuntime{state: state, attempt: replicapermits.WriterAttempts{State: state, Operations: attemptOperation{uid: uint32(uid), home: identity.HomeDir}}}, nil
 }
 
 // A committed restart never needs a subprocess or consumes allocation evidence.

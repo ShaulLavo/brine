@@ -27,10 +27,6 @@ type Cadence struct {
 	SnapshotInterval time.Duration
 }
 
-func DefaultCadence() Cadence {
-	return Cadence{SyncInterval: time.Minute, SnapshotInterval: 6 * time.Hour}
-}
-
 func (c Cadence) Validate() error {
 	if c.SyncInterval < 10*time.Second || c.SyncInterval > time.Hour || c.SnapshotInterval < time.Hour || c.SnapshotInterval > 24*time.Hour {
 		return ErrInvalid

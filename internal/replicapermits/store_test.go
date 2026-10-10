@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/replication"
@@ -50,11 +51,12 @@ func (f configFilesFake) ReadConfig(context.Context, string) ([]byte, error) { r
 
 func storePermitFixture(t testing.TB) (store.ReplicaPermit, replication.Binding, []byte) {
 	t.Helper()
-	b := replication.Binding{DatabaseID: strings.Repeat("1", 32), BindingID: strings.Repeat("2", 32), EpochID: strings.Repeat("3", 32), IncarnationID: strings.Repeat("4", 32), DBPath: "/srv/data/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/app.db", SocketPath: "/srv/state/replication/" + strings.Repeat("2", 32) + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backup-bucket", Prefix: "base/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/epochs/" + strings.Repeat("3", 32) + "/", Region: "auto", ForcePathStyle: true, Cadence: replication.DefaultCadence()}
+	b := replication.Binding{DatabaseID: strings.Repeat("1", 32), BindingID: strings.Repeat("2", 32), EpochID: strings.Repeat("3", 32), IncarnationID: strings.Repeat("4", 32), DBPath: "/srv/data/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/app.db", SocketPath: "/srv/state/replication/" + strings.Repeat("2", 32) + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backup-bucket", Prefix: "base/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/epochs/" + strings.Repeat("3", 32) + "/", Region: "auto", ForcePathStyle: true, Cadence: replication.Cadence{SyncInterval: time.Minute, SnapshotInterval: 6 * time.Hour}}
 	raw, err := replication.RenderConfig(b)
 	if err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G101 -- CredentialPath is a synthetic fixture path, not a credential.
 	p := store.ReplicaPermit{DBPath: b.DBPath, SocketPath: b.SocketPath, ConfigPath: path.Join(path.Dir(b.SocketPath), "litestream.yml"), CredentialPath: "/srv/state/credentials/s3/primary/v1.env", LifetimeLockPath: "/srv/state/replica-locks/" + b.BindingID + ".lock", FenceState: "unfenced", DestinationOwnership: "local", SourceSettled: true, Fences: []data.QuiescenceFence{}}
 	p.Database = data.DatabaseBinding{DatabaseID: data.DatabaseID(b.DatabaseID), IncarnationID: data.AppIncarnationID(b.IncarnationID), ReplicaBindingID: data.ReplicaBindingID(b.BindingID)}
 	p.Replica = data.ReplicaBinding{BindingID: data.ReplicaBindingID(b.BindingID), DatabaseID: data.DatabaseID(b.DatabaseID), EpochID: data.ReplicaEpochID(b.EpochID), Destination: data.Destination{Endpoint: b.Endpoint, Region: b.Region, Bucket: b.Bucket, PathStyle: b.ForcePathStyle}, RemotePrefix: b.Prefix, ConfigContent: string(raw), ConfigSHA256: strings.TrimPrefix(replication.ConfigHash(raw), "sha256:"), ConfigFile: p.ConfigPath, SocketFile: p.SocketPath, CredentialFile: p.CredentialPath, LifetimeLockFile: p.LifetimeLockPath, Committed: true}
@@ -164,6 +166,7 @@ func allocatedWriterFixture(t *testing.T) (StorePermits, *permitStoreFake, *writ
 	if err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G302 -- Owner-only traversal is required for the private fixture directory.
 	if err = os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -238,7 +241,11 @@ func TestWriterUsesRegistryDefinitionsAndObservesSchemaAfresh(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	if _, err = db.Exec("CREATE TABLE t(x TEXT);" + data.MarkerTableSQL); err != nil {
 		t.Fatal(err)
 	}

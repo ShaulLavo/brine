@@ -12,6 +12,7 @@ import (
 
 func TestDiskConfigFilesRequirePrivatePinnedRegularFile(t *testing.T) {
 	root := t.TempDir()
+	// #nosec G302 -- Owner-only traversal is required for the private fixture directory.
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -25,6 +26,7 @@ func TestDiskConfigFilesRequirePrivatePinnedRegularFile(t *testing.T) {
 	if err != nil || string(raw) != "private config" {
 		t.Fatal("safe read failed", err)
 	}
+	// #nosec G302 -- Intentionally unsafe fixture file; the reader must refuse it without repair.
 	if err := os.Chmod(file, 0644); err != nil {
 		t.Fatal(err)
 	}
@@ -67,6 +69,7 @@ func TestDiskConfigFilesRequirePrivatePinnedRegularFile(t *testing.T) {
 	if _, err := r.ReadConfig(ctx, file); err == nil {
 		t.Fatal("unbounded config admitted")
 	}
+	// #nosec G302 -- Intentionally unsafe fixture directory; the reader must refuse it.
 	if err := os.Chmod(root, 0755); err != nil {
 		t.Fatal(err)
 	}
