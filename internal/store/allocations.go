@@ -12,7 +12,7 @@ import (
 
 // RecordAllocation persists affirmative host evidence before any writer starts.
 // The store does not inspect/create files. Callers hold the host mutation lock.
-func (s *Store) RecordAllocation(ctx context.Context, receipt data.AllocationReceipt) error {
+func (s *Store) RecordAllocation(ctx context.Context, receipt data.AllocationReceipt) (resultErr error) {
 	if !receipt.Valid() {
 		return ErrInvalid
 	}
@@ -24,7 +24,7 @@ func (s *Store) RecordAllocation(ctx context.Context, receipt data.AllocationRec
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer rollbackOnExit(tx, &resultErr)
 	var incarnation string
 	if err = tx.QueryRowContext(ctx, "SELECT incarnation_id FROM data_databases WHERE id=?", receipt.DatabaseID).Scan(&incarnation); err != nil {
 		return err
@@ -101,4 +101,26 @@ func (s *Store) ActiveDataIncarnation(ctx context.Context, app string) (data.App
 		return "", &IntegrityError{}
 	}
 	return id, err
+}
+
+// ReadPreparationEvidence retains measured root/mapping evidence after the
+// untouched-empty receipt has been consumed. It grants no empty-schema proof.
+func (s *Store) ReadPreparationEvidence(ctx context.Context, database data.DatabaseID) (*data.AllocationReceipt, error) {
+	var raw []byte
+	err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_allocations WHERE database_id=?", database).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var receipt data.AllocationReceipt
+	if len(raw) > 4096 || json.Unmarshal(raw, &receipt) != nil || !receipt.Valid() || receipt.DatabaseID != database {
+		return nil, &IntegrityError{}
+	}
+	encoded, err := json.Marshal(receipt)
+	if err != nil || !bytes.Equal(encoded, raw) {
+		return nil, &IntegrityError{}
+	}
+	return &receipt, nil
 }

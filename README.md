@@ -55,6 +55,26 @@ Secret values enter through stdin, never command-line arguments. Secret ingestio
 
 The machine response contract is versioned and tested, but is not yet a stable public API. See [command contracts](docs/CONTRACTS.md) for response and exit semantics.
 
+## Persistent preparation (Phase 04)
+
+A new persistent app needs a separate approved allocation before credential
+delivery, reviewed schema initialization and deployment:
+
+~~~sh
+brine data prepare brine.toml --target NAME --json
+brine apply PREPARATION_PLAN_ID --target NAME --idempotency-key SAVED_KEY --json
+~~~
+
+The first command only saves a plan. It freezes the incarnation, database,
+replica binding and epoch identities, private paths and backup credential scope.
+Applying that plan provisions the pinned mapping-probe image, measures the
+policy-authorized filesystem and UID/GID mapping, and records untouched private
+allocations. It does not create SQLite files, deliver credentials, initialize or
+migrate schemas, publish units, start writers or replication, or change routes.
+Inventory and planning only observe existing allocations; missing data is not
+proof of an empty database. An interrupted partial preparation is inspected,
+never blindly replayed. The physical Phase 04 acceptance gates remain open.
+
 ## Next work
 
 - Persistent SQLite app data, independently managed Litestream replication to operator-supplied S3-compatible storage and isolated restore drills.

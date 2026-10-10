@@ -136,6 +136,9 @@ type Executor struct {
 }
 
 func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
+	if p.Lifecycle == plan.PrepareData {
+		return e.runDataPreparation(ctx, id, p, d)
+	}
 	if p.Lifecycle == plan.RemoveApp {
 		engine := e.Engine
 		engine.Facts = operationFacts{service: e.Service, desired: d, removal: true}

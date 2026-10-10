@@ -8,11 +8,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
@@ -22,6 +24,9 @@ import (
 )
 
 type DataPreparation struct {
+	Runner          localexec.Runner
+	ProbeRoot       func(context.Context, string) (data.RootEvidence, error)
+	ProbeMapping    func(context.Context, localexec.Runner, data.RootEvidence, data.RuntimeIdentity) (data.MappingEvidence, error)
 	State           *store.Store
 	StateRoot, Home string
 	Permits         replication.PermitReader
@@ -35,11 +40,17 @@ type DataPreparation struct {
 // PreparePersistent is journaled under the operation's host lock. It never stops an
 // existing replicator, initializes SQLite, or deletes data during compensation.
 func (p DataPreparation) PreparePersistent(ctx context.Context, operation string, planned plan.Plan, desired policy.Desired) error {
+	if planned.Lifecycle == plan.PrepareData {
+		return p.prepareAllocation(ctx, planned, desired)
+	}
 	if desired.Stateless() {
 		return nil
 	}
 	if p.State == nil || p.Publisher == nil || p.Units == nil || p.Services == nil || p.Permits == nil {
 		return replication.ErrPermit
+	}
+	if err := p.verifyApprovedMapping(ctx, planned, desired); err != nil {
+		return err
 	}
 	if err := ensurePrivateChild(p.Home, ".config/systemd/user"); err != nil {
 		return err
@@ -70,6 +81,9 @@ func (p DataPreparation) PreparePersistent(ctx context.Context, operation string
 	return nil
 }
 func (p DataPreparation) PersistentPrepared(ctx context.Context, operation string, planned plan.Plan, desired policy.Desired) (bool, error) {
+	if planned.Lifecycle == plan.PrepareData {
+		return p.allocationPrepared(ctx, planned, desired)
+	}
 	if desired.Stateless() {
 		return true, nil
 	}
@@ -201,6 +215,14 @@ func ensurePrivateChild(home, relative string) error {
 	if filepath.IsAbs(relative) || filepath.Clean(relative) != relative || strings.HasPrefix(relative, "..") {
 		return data.ErrInvalid
 	}
+	info, err := os.Lstat(home)
+	if err != nil {
+		return err
+	}
+	home, relative, err = privateChildBase(home, relative, info, uint32(os.Getegid())) //nolint:gosec // Linux GID is a uint32 syscall identity.
+	if err != nil {
+		return err
+	}
 	if _, err := data.InspectRoot(home); err != nil {
 		return err
 	}
@@ -232,4 +254,21 @@ func ensurePrivateChild(home, relative string) error {
 		}
 	}
 	return nil
+}
+
+// privateChildBase recognizes only D7's exact protected home. Its existing
+// runner-owned private child is the anchor; the root-owned home is never changed.
+func privateChildBase(home, relative string, info os.FileInfo, gid uint32) (string, string, error) {
+	if home != "/home/brine" {
+		return home, relative, nil
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.IsDir() || info.Mode() != os.ModeDir|0755 || stat.Uid != 0 || stat.Gid != gid {
+		return "", "", data.ErrInvalid
+	}
+	parts := strings.SplitN(relative, "/", 2)
+	if len(parts) != 2 || (parts[0] != ".config" && parts[0] != ".local" && parts[0] != ".cache") {
+		return "", "", data.ErrInvalid
+	}
+	return filepath.Join(home, parts[0]), parts[1], nil
 }

@@ -64,6 +64,9 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if !prefixOK {
 		return r, nil
 	}
+	if p.Lifecycle == plan.PrepareData {
+		return e.inspectDataPreparationRecovery(ctx, op, p, d, events, r)
+	}
 	if p.Lifecycle == plan.RemoveApp {
 		return e.inspectRemoveRecovery(ctx, op, p, d, events, r)
 	}

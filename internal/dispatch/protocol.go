@@ -68,6 +68,7 @@ var operations = map[string]operation{
 	"inventory":               {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
 	"apply":                   {Mutating, decodeApply},
 	"plan":                    {Mutating, decodePlan},
+	"data_prepare_plan":       {Mutating, decodePreparation},
 	"operation":               {ReadOnly, decodeOperation},
 }
 
@@ -301,6 +302,16 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			}
 			value = accepted
 		}
+	case preparationArgs:
+		planner, ok := s.Planner.(PreparationPlanner)
+		if !ok {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		prepared, err := planner.PlanDataPreparation(ctx, args.App)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = prepared
 	case spec.App:
 		if s.Planner == nil {
 			return fail(result.New(result.DependencyMissing, nil))

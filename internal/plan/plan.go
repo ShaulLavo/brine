@@ -126,6 +126,7 @@ const (
 	StopApp       ChangeKind = "stop_app"
 	StartApp      ChangeKind = "start_app"
 	RemoveApp     ChangeKind = "remove_app"
+	PrepareData   ChangeKind = "prepare_data"
 	WithdrawRoute ChangeKind = "withdraw_route"
 	RemoveUnit    ChangeKind = "remove_unit"
 	RetireApp     ChangeKind = "retire_app"
@@ -169,6 +170,9 @@ type Restart struct {
 }
 
 type Plan struct {
+	DataAllocations    []data.AllocationProposal  `json:"data_allocations,omitempty"`
+	PreparationRoots   []data.RootEvidence        `json:"preparation_roots,omitempty"`
+	MappingImage       string                     `json:"mapping_image,omitempty"`
 	Backup             *data.BackupCadence        `json:"backup,omitempty"`
 	Runtime            *data.RuntimeIdentity      `json:"runtime,omitempty"`
 	DataCredentials    []data.CredentialEvidence  `json:"data_credentials,omitempty"`
