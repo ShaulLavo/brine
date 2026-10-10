@@ -26,7 +26,7 @@ type QuotaObservation struct {
 }
 
 func (e RootEvidence) Admits(root PersistentRoot, minimum uint64) bool {
-	return e.Root == root && e.Device != 0 && e.Inode != 0 && e.POSIXLocks && e.DurableRename && (e.Filesystem == "ext4" || e.Filesystem == "xfs" || e.Filesystem == "btrfs") && !e.ObservedAt.IsZero() && e.FreeBytes >= minimum && e.FreeInodes > 0
+	return e.Root == root && e.Device != 0 && e.Inode != 0 && e.POSIXLocks && e.DurableRename && (e.Filesystem == "ext4" || e.Filesystem == "xfs" || e.Filesystem == "btrfs") && !e.ObservedAt.IsZero() && e.FreeBytes >= minimum && (e.Filesystem == "btrfs" || e.FreeInodes > 0)
 }
 func OverlappingPaths(a, b string) bool {
 	return a == b || strings.HasPrefix(a, strings.TrimSuffix(b, "/")+"/") || strings.HasPrefix(b, strings.TrimSuffix(a, "/")+"/")

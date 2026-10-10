@@ -5,6 +5,7 @@ package data
 import (
 	"context"
 	"errors"
+	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,15 @@ func privateRoot(t *testing.T) string {
 }
 func TestRootProbeAndPrivateAllocation(t *testing.T) {
 	root := privateRoot(t)
+	var fs unix.Statfs_t
+	if err := unix.Statfs(root, &fs); err != nil {
+		t.Fatal(err)
+	}
+	switch fs.Type {
+	case unix.EXT4_SUPER_MAGIC, unix.XFS_SUPER_MAGIC, unix.BTRFS_SUPER_MAGIC:
+	default:
+		t.Skipf("root probe requires ext4/xfs/btrfs; temporary filesystem type %#x is unsupported", fs.Type)
+	}
 	initial, err := InspectRoot(root)
 	if err != nil {
 		t.Fatal(err)
