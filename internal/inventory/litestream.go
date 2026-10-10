@@ -56,6 +56,17 @@ func (c LitestreamCollector) Collect(ctx context.Context) target.Observation[Lit
 	}
 	return target.Known(Litestream{Path: LitestreamPath, Version: "0.5.17", ExecutableHash: before})
 }
+
+// The version-only snapshot projects from the same protected version/hash fact
+// used by enrollment, never from a PATH lookup or an unchecked executable.
+func (c Collector) litestreamVersion(ctx context.Context) target.Observation[string] {
+	observation := (LitestreamCollector{Runner: c.Runner, HashExecutable: c.LitestreamHashExecutable}).Collect(ctx)
+	if observation.Status == target.KnownStatus && observation.Value != nil {
+		return target.Known(observation.Value.Version)
+	}
+	return target.Observation[string]{Status: observation.Status}
+}
+
 func protectedExecutableHash(ctx context.Context, path string) (string, error) {
 	return filesystemCall(ctx, func(ctx context.Context) (string, error) {
 		for p := filepath.Dir(path); ; p = filepath.Dir(p) {

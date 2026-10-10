@@ -4,6 +4,12 @@ Status: Approved for the disposable D3 host only.
 
 Enrollment installs Litestream for new hosts. Upgrading an already enrolled host is a Phase 06 operation and is not implemented. Do not replay enrollment or alter its journal to add the tool. This drill is an operator installation, not proof of enrollment or enrollment undo. It changes no app, database, credential, service, SSH setting or firewall. Leave the executable installed for later Phase 04 drills.
 
+## Credential packet format
+
+`brine backup credentials set APP --plan-id ID --target NAME` reads a **JSON object on private stdin**, not an environment file. Terminal input is refused. The object requires string fields `access_key_id` and `secret_access_key`; optional fields are `session_token` and `expires_at` (the issuer-supplied RFC3339 UTC time ending in `Z`). Unknown and duplicate fields are refused, and the entire packet is limited to 32 KiB. Do not place values in command arguments, shell history, logs or a plan.
+
+The runner converts accepted values to a different storage format: newline-terminated `KEY=VALUE` lines containing exactly `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and, when supplied, `AWS_SESSION_TOKEN`. Expiry remains metadata, not an environment variable. These runner-owned immutable 0600 files are read only through the protected credential boundary; they are not valid CLI stdin packets.
+
 ## Before installation
 
 Use the authorized operator connection. Keep host identifiers and client configuration out of public evidence. Check whether the exact protected executable already exists. If it does, record its hash, version, owner, mode and link count. Reuse a matching installation. Stop on a symlink, unprotected parent or an unrelated install; do not replace it.

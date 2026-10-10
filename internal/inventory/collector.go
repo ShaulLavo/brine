@@ -39,12 +39,13 @@ type HostFS struct{}
 // StateGeneration connects the future control database without assuming its schema.
 // A present state directory without a state reader produces unknown, not zero.
 type Collector struct {
-	FS              FileSystem
-	Runner          localexec.StdoutRunner
-	IdentityKey     []byte
-	RunnerUser      string
-	StateGeneration func(context.Context) (uint64, error)
-	StateInventory  func(context.Context) (target.ControlInventory, error)
+	FS                       FileSystem
+	Runner                   localexec.StdoutRunner
+	IdentityKey              []byte
+	RunnerUser               string
+	StateGeneration          func(context.Context) (uint64, error)
+	StateInventory           func(context.Context) (target.ControlInventory, error)
+	LitestreamHashExecutable func(context.Context, string) (string, error) // nil uses the protected host reader.
 }
 
 func unknown[T any]() target.Observation[T] { return target.Observation[T]{Status: target.Unknown} }
@@ -119,7 +120,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	}
 	hash := sha256.Sum256(blob)
 	s.Identity.HostKeyFingerprint = "SHA256:" + base64.RawStdEncoding.EncodeToString(hash[:])
-	s.Versions = target.Versions{Systemd: c.version(ctx, "systemctl", []string{"--version"}), Podman: c.version(ctx, "podman", []string{"version", "--format", "json"}), Passt: c.version(ctx, "passt", []string{"--version"}), Caddy: c.version(ctx, "caddy", []string{"version"}), Litestream: c.version(ctx, "litestream", []string{"version"})}
+	s.Versions = target.Versions{Systemd: c.version(ctx, "systemctl", []string{"--version"}), Podman: c.version(ctx, "podman", []string{"version", "--format", "json"}), Passt: c.version(ctx, "passt", []string{"--version"}), Caddy: c.version(ctx, "caddy", []string{"version"}), Litestream: c.litestreamVersion(ctx)}
 	if s.Versions.Passt.Status == target.Unknown {
 		if out, err := c.probe(ctx, "dpkg-query", "-W", "-f=${Version}", "passt"); err == nil && versionToken.MatchString(out) && regexp.MustCompile(`^[0-9]`).MatchString(out) {
 			s.Versions.Passt = target.Known(out)

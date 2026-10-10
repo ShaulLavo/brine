@@ -426,6 +426,17 @@ func (h *host) restoreFile(path string) error {
 	if !ok {
 		return nil
 	}
+	// A journal-owned created file may already have been removed, together
+	// with its created parent, before the step's undo checkpoint was saved.
+	// Do not apply this shortcut to originals or any surviving resource.
+	if !old.Existed {
+		if _, err := os.Lstat(path); err != nil {
+			if errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+	}
 	if err := protectedParents(path); err != nil {
 		return err
 	}
