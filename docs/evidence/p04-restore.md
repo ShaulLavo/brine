@@ -12,7 +12,7 @@ All three restores passed integrity, foreign-key and declared invariant checks. 
 
 The test created one random child prefix under the operator-authorized run prefix. Cleanup listed and deleted only its five objects, then proved that child prefix empty. No live mount, production database, local replica substitute or public listener was used.
 
-P04-05 stays unchecked. Connected command/dispatcher wiring remains serialized after P04-01 through P04-03; the shared fixed schema observer still needs its adapter. This gate used a test-only observer that verifies the fixture's exact marker DDL, pinned Litestream table definitions and normative catalog fingerprint. P04-04's durable remote evidence and connected lifecycle operations are not proved here. Generated systemd units and Debian arm64/Pi replacement/reboot drills remain separate gates.
+This earlier gate alone did not complete P04-05. Connected command/dispatcher wiring and the fixed schema observer subsequently shipped, and the real arm64 Pi restore passed after #85. The [2026-10-11 acceptance audit](p04-pi.md) now checks P04-05 using both this gate and the connected physical evidence. It leaves P04-04 and the other incomplete physical/lifecycle tasks open. The test-only observer used here verifies the fixture's exact marker DDL, pinned Litestream table definitions and normative catalog fingerprint; do not confuse it with the later production-observer evidence.
 
 ## Invocation shape
 
