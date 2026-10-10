@@ -29,7 +29,12 @@ type Store interface {
 type Inventory interface {
 	Collect(context.Context) (target.Snapshot, error)
 }
+type PersistentFacts interface {
+	Collect(context.Context, policy.Desired) (target.Observation[[]target.PersistentDatabase], error)
+}
+
 type Service struct {
+	Data       PersistentFacts
 	Store      Store
 	Inventory  Inventory
 	Probe      HealthProbe

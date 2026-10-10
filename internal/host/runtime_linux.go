@@ -129,7 +129,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	}}
 	reconciler := newReconciler(service, engine, runtimeSystemd)
 	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
-	appService := apps.Service{Store: state, Inventory: collector, Probe: apps.HTTPProbe{}, LoadPolicy: loader.Load}
+	appService := apps.Service{Data: service.Data, Store: state, Inventory: collector, Probe: apps.HTTPProbe{}, LoadPolicy: loader.Load}
 	secretService := secrets.Service{Store: state, Podman: podman.New(session), LoadPolicy: loader.Load, Requester: requester}
 	rotation := backupcredentials.Rotator{Journal: rotationJournal{state: state}, Host: replicaRotation{state: state, stateRoot: stateDir, home: identity.HomeDir, services: replication.NewServices(session), units: runtimeSystemd, permits: permits.Reader}}
 	taskJobs := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
