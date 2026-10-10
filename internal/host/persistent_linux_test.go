@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -177,5 +178,40 @@ func TestPrivateChildRefusesSymlinkAndNeverRepairsModes(t *testing.T) {
 	info, err := os.Stat(filepath.Join(home, ".config"))
 	if err != nil || info.Mode().Perm() != 0755 {
 		t.Fatal("mode changed", err)
+	}
+}
+
+type enrolledHomeInfo struct {
+	os.FileInfo
+	stat syscall.Stat_t
+}
+
+func (i enrolledHomeInfo) Sys() any { return &i.stat }
+
+func TestPrivateChildrenAnchorBelowEnrolledHome(t *testing.T) {
+	directory := t.TempDir()
+	if err := os.Chmod(directory, 0755); err != nil { //nolint:gosec // Enrollment-defined ancestor fixture.
+		t.Fatal(err)
+	} //nolint:gosec // Enrollment-defined ancestor fixture.
+	info, err := os.Lstat(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enrolled := enrolledHomeInfo{FileInfo: info, stat: syscall.Stat_t{Uid: 0, Gid: 1234}}
+	base, relative, err := privateChildBase("/home/brine", ".config/systemd/user", enrolled, 1234)
+	if err != nil || base != "/home/brine/.config" || relative != "systemd/user" {
+		t.Fatal("enrolled home refused", base, relative, err)
+	}
+	for _, tc := range []struct {
+		relative string
+		gid      uint32
+		uid      uint32
+	}{
+		{".config/systemd/user", 9999, 0}, {".config/systemd/user", 1234, 1234}, {"new-private-child", 1234, 0}, {".ssh/child", 1234, 0},
+	} {
+		enrolled.stat.Uid = tc.uid
+		if _, _, err := privateChildBase("/home/brine", tc.relative, enrolled, tc.gid); err == nil {
+			t.Fatal("foreign or non-enrolled ancestry accepted", tc)
+		}
 	}
 }
