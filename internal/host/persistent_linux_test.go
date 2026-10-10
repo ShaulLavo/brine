@@ -37,12 +37,10 @@ func (s *preparedServices) ReplicaStopped(context.Context, string) (bool, error)
 func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *testing.T) {
 	ctx := context.Background()
 	_, desired, facts := persistentHostFixture(t)
-	id, err := data.NewID()
-	if err != nil {
-		t.Fatal(err)
-	}
-	stateRoot := filepath.Join(os.TempDir(), "b-"+id[:6])
-	err = os.Mkdir(stateRoot, 0700) //nolint:gosec // Private short socket fixture requires directory traversal.
+	// Socket paths include immutable binding IDs. Keep this small state fixture
+	// independent of TMPDIR so long worktree paths cannot cross the Unix limit.
+	// Use /var/tmp because /tmp may be tmpfs, which private data roots reject.
+	stateRoot, err := os.MkdirTemp("/var/tmp", "brine-")
 	if err != nil {
 		t.Fatal(err)
 	}
