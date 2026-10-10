@@ -56,6 +56,8 @@ func TestPersistentDeclarationRefusals(t *testing.T) {
 		{"accepts=[\"orders-v2\",\"orders-v1\"]", "accepts=[]"}, {"accepts=[\"orders-v2\",\"orders-v1\"]", "accepts=[\"orders-v1\",\"orders-v1\"]"},
 		{"startup=\"preserve\"", "startup=\"migrate\""}, {"database=\"main\"", "database=\"other\""},
 		{"filename=\"app.db\"", "filename=\"app.db\"\nsync_interval=\"0s\""},
+		{"persistent_root=\"/srv/brine-data\"", "persistent_root=\"/srv/brine-data-$tenant\""},
+		{"persistent_root=\"/srv/brine-data\"", "persistent_root=\"/srv/brine-data-$$tenant\""},
 	} {
 		if _, err := Parse([]byte(strings.Replace(raw, tc.old, tc.new, 1))); err == nil {
 			t.Fatalf("accepted invalid field replacement %s", tc.old)

@@ -60,13 +60,16 @@ func TestPersistentRenderIdentityMountAndIndependentReplicaOrdering(t *testing.T
 }
 
 func TestPersistentVolumePreservesLiteralPathsAndEscapesExpansions(t *testing.T) {
-	for _, root := range []string{"/srv/data with spaces", `/srv/data"quotes'\\backslash`, "/srv/data-%n-$HOME"} {
-		t.Run(root, func(t *testing.T) {
+	for _, destination := range []string{"/data with spaces", `/data"quotes'\\backslash`, "/data-%n-$HOME"} {
+		t.Run(destination, func(t *testing.T) {
 			d, p := persistentFixture(t)
-			d.Databases[0].PersistentRoot = data.PersistentRoot(root)
+			d.Databases[0].PersistentRoot = "/srv/data-%n"
+			d.Databases[0].MountPath = data.ContainerMountPath(destination)
 			p.DesiredHash = bind(t, d).DesiredHash
-			p.DataMounts[0].Database.Root = data.PersistentRoot(root)
-			p.DataMounts[0].HostPath = path.Join(root, p.DataMounts[0].Database.RelativeDirectory)
+			p.DataMounts[0].Database.Root = d.Databases[0].PersistentRoot
+			p.DataMounts[0].Database.MountPath = d.Databases[0].MountPath
+			p.DataMounts[0].ContainerPath = d.Databases[0].MountPath
+			p.DataMounts[0].HostPath = path.Join(string(d.Databases[0].PersistentRoot), p.DataMounts[0].Database.RelativeDirectory)
 			u, err := Render(d, p, manifest())
 			if err != nil {
 				t.Fatal(err)
@@ -79,7 +82,7 @@ func TestPersistentVolumePreservesLiteralPathsAndEscapesExpansions(t *testing.T)
 			}
 			// LookupAll keeps quotes and backslashes; generated ExecStart expands %% and $$ once.
 			volume = strings.ReplaceAll(strings.ReplaceAll(volume, "%%", "%"), "$$", "$")
-			want := p.DataMounts[0].HostPath + ":/data:rw"
+			want := p.DataMounts[0].HostPath + ":" + destination + ":rw"
 			if volume != want {
 				t.Fatalf("literal volume = %q, want %q", volume, want)
 			}
@@ -90,7 +93,9 @@ func TestPersistentVolumePreservesLiteralPathsAndEscapesExpansions(t *testing.T)
 func TestPersistentVolumeRefusesColonDelimitedPaths(t *testing.T) {
 	d, p := persistentFixture(t)
 	d.Databases[0].PersistentRoot = "/srv/data:other"
-	p.DesiredHash = bind(t, d).DesiredHash
+	if d.Databases[0].Validate() == nil {
+		t.Fatal("ambiguous host path accepted before rendering")
+	}
 	p.DataMounts[0].Database.Root = d.Databases[0].PersistentRoot
 	p.DataMounts[0].HostPath = path.Join(string(d.Databases[0].PersistentRoot), p.DataMounts[0].Database.RelativeDirectory)
 	if _, err := Render(d, p, manifest()); err == nil {

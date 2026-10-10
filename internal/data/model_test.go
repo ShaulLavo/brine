@@ -64,6 +64,13 @@ func TestDatabaseDeclarationBoundary(t *testing.T) {
 			t.Fatalf("bad mount %q", mount)
 		}
 	}
+	for _, root := range []string{"/srv/data-$tenant", "/srv/data-$$tenant", "/srv/data with spaces", "/srv/data\ttab", "/srv/data space", `/srv/data"quote`, "/srv/data'quote", `/srv/data\backslash`, "/srv/data:other"} {
+		d := valid
+		d.PersistentRoot = PersistentRoot(root)
+		if d.Validate() == nil {
+			t.Fatalf("host root with divergent mount dependency accepted: %q", root)
+		}
+	}
 	for _, r := range []RuntimeIdentity{{}, {UID: 1}, {GID: 1}, {UID: 65536, GID: 1}, {UID: 1, GID: 65536}} {
 		if r.Validate() == nil {
 			t.Fatal("unsafe runtime accepted")

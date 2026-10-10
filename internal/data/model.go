@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 type AppIncarnationID string
@@ -153,6 +154,11 @@ func (r RuntimeIdentity) Validate() error {
 }
 func (d Database) Validate() error {
 	if !namePattern.MatchString(string(d.Name)) || !namePattern.MatchString(string(d.BackupDestination)) || !ValidRoot(string(d.PersistentRoot)) || !ValidRoot(string(d.MountPath)) || !filenamePattern.MatchString(string(d.Filename)) {
+		return ErrInvalid
+	}
+	// Quadlet copies the source into RequiresMountsFor without word quoting.
+	// ExecStart escaping cannot also preserve these source characters there.
+	if strings.ContainsAny(string(d.PersistentRoot), "$\"'\\:") || strings.IndexFunc(string(d.PersistentRoot), unicode.IsSpace) >= 0 {
 		return ErrInvalid
 	}
 	for _, suffix := range []string{"-wal", "-shm", "-journal", "-litestream"} {
