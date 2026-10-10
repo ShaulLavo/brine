@@ -130,7 +130,7 @@ func newAcceptanceCmd(machine *bool, deps Dependencies, verb string) *cobra.Comm
 		if *machine {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), accepted))
 		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Accepted operation %s. Check with brine status --operation %s --target %s.\n", accepted.OperationID, accepted.OperationID, flags.target)
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Accepted operation %s. Check with %s.\n", accepted.OperationID, flags.command("status", "--operation", accepted.OperationID))
 		return err
 	}}
 	flags.register(cmd)
@@ -178,9 +178,9 @@ func newOperationStatusCmd(machine *bool, modes *machineModes, deps Dependencies
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Operation %s: %s\nEvents: %d; next cursor: %d\n", id, status.Operation.State, len(status.Events), status.NextCursor)
 		if err == nil && status.Operation.State == ops.RecoveryRequired {
 			if status.Operation.Kind == ops.Reconcile {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect affected app operation status; preview remaining recovery with: brine reconcile --dry-run --target %s\n", flags.target)
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect affected app operation status; preview remaining recovery with: %s\n", flags.command("reconcile", "--dry-run"))
 			} else if cursor == 0 && len(status.Events) < jobs.EventPageLimit && resolutionPrefixSupported(status.Operation, status.Events) {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect supported recovery with: brine resolve %s --target %s\n", id, flags.target)
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect supported recovery with: %s\n", flags.command("resolve", id))
 			} else {
 				_, err = fmt.Fprintln(cmd.OutOrStdout(), "Inspect the full recorded history and live app state; supported automatic resolution is not established for this receipt.")
 			}
