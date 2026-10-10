@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/reconcile"
@@ -47,6 +48,18 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "backup_credentials_plan":
+			p, err := backupcredentials.DecodePlan(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "backup_credentials_set":
+			r, err := backupcredentials.DecodeReceipt(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = r
 		case "config_set", "lifecycle":
 			p, err := apps.DecodeConfigPlan(fields["data"])
 			if err != nil {

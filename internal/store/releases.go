@@ -132,7 +132,8 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return err
 	}

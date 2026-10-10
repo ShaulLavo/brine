@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -337,14 +338,16 @@ func TestConcurrentStoresShareIdempotencyAndEventSequence(t *testing.T) {
 			if i%2 != 0 {
 				s = b
 			}
+			started := time.Now()
 			op, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "retry")
 			if e != nil {
-				t.Error(e)
+				t.Errorf("create request %d after %s: %v", i, time.Since(started), e)
 				return
 			}
 			ids <- op.ID
+			started = time.Now()
 			if _, e = s.AppendEvent(ctx, op.ID, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)}); e != nil {
-				t.Error(e)
+				t.Errorf("append request %d after %s: %v", i, time.Since(started), e)
 			}
 		}(i)
 	}
