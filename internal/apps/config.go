@@ -165,6 +165,9 @@ func (s Service) ConfigSet(ctx context.Context, app string, edits []Edit) (Confi
 	if err != nil {
 		return ConfigPlan{}, err
 	}
+	if err := s.collectPersistent(ctx, &in); err != nil {
+		return ConfigPlan{}, err
+	}
 	p, err := plan.Build(in)
 	if err != nil {
 		return ConfigPlan{}, err
@@ -183,9 +186,30 @@ func (s Service) Lifecycle(ctx context.Context, app string, action plan.ChangeKi
 	if err != nil {
 		return ConfigPlan{}, err
 	}
+	if err := s.collectPersistent(ctx, &in); err != nil {
+		return ConfigPlan{}, err
+	}
 	p, err := plan.BuildLifecycle(in, action)
 	if err != nil {
 		return ConfigPlan{}, err
 	}
 	return s.saveConfig(ctx, p, in.Desired)
+}
+
+// Observe against the edited, current-policy scope, not the retained release's
+// old policy or a general inventory snapshot without database evidence.
+func (s Service) collectPersistent(ctx context.Context, in *plan.Input) error {
+	if len(in.Desired.Databases) == 0 {
+		return nil
+	}
+	observation := target.Observation[[]target.PersistentDatabase]{Status: target.Unknown}
+	if s.Data != nil {
+		var err error
+		observation, err = s.Data.Collect(ctx, in.Desired)
+		if err != nil {
+			return err
+		}
+	}
+	in.Snapshot.PersistentData = &observation
+	return nil
 }
