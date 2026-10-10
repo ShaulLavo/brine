@@ -212,7 +212,7 @@ App `--json` emits one report envelope. App `--jsonl` emits one `data: {"event":
 
 The service loads the selected release's exact desired input through `LoadPlan(release.PlanID)`, collects live inventory and current `BrineState`, runs the normal planner with the selected release's image metadata, and saves the resulting plan through `SavePlan`. Ownership, drift, port and secret-version selection remain the normal planner's rules. Applying still requires `brine apply PLAN_ID`, including freshness and current operator-policy checks under the host lock. The response has `plan_id`, `release_id`, `compatibility`, `kind`, the usual old-to-new `diff`, and `conflicts`. Both JSON and JSONL emit one envelope. A conflict is a completed planning result with no executable changes, not permission to apply.
 
-Compatibility is `stateless_compatible` only when both exact desired inputs have the frozen v1 stateless shape and schema version 1, matching the executor's rule. The Go conversion deliberately stops compiling if `policy.Desired` gains fields. Any unknown or schema-boundary compatibility returns `recovery_required` before saving. Persistent-data compatibility needs an explicit future design. App rollback never rewinds SQLite data, restores a database, rotates release heads or launches an operation while planning.
+Compatibility is `stateless_compatible` only when both exact desired inputs have the frozen v1 stateless shape and schema version 1, matching the executor's rule. The Go conversion deliberately stops compiling if `policy.Desired` gains fields. Any unknown or schema-boundary compatibility returns `recovery_required` before saving. Persistent-data compatibility follows the approved D12 [Schema migrations contract](#schema-migrations), with its implementation gated on P04-01. App rollback never rewinds SQLite data, restores a database, rotates release heads or launches an operation while planning.
 
 ### Config, secret and lifecycle operations (P03-08)
 
@@ -450,6 +450,83 @@ Rootless does **not** mean safe for an untrusted agent. A deployment identity th
 SQLite data, WAL and related files live in durable per-app directories independent of release images. Run **one independent Litestream replicator per database/destination** (matching a tested Litestream release), with separately scoped R2 credentials and destination paths. Replication is asynchronous and may lose recent writes when the VPS dies. Do not start competing replicas writing the same destination.
 
 `restore test` writes into a new isolated directory or disposable fixture, checks `PRAGMA integrity_check`, verifies expected application invariants and reports recovery-point information if available. It **never overwrites the production DB**. Until P04-09 ships, live restore stays an explicitly approved operator runbook; after that it is the policy-gated `restore live` plan (D8). Database storage or backup deletion is never part of image cleanup.
+
+## Schema migrations
+
+**Approved design target under D12, not an implemented spec extension or operation.** P04-01 supplies persistent database identities and observations. This section specifies schema policy without changing D11's data layout, mount lifecycle or replication contract. It applies to app databases, not `internal/store` control-database upgrades.
+
+### Release compatibility declaration
+
+The future app spec adds a `schema_compatibility` array with one entry per declared persistent database. The entry has exactly these fields:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `database` | validated database reference | Refers to the app's P04-01 database declaration, never a host path or backup destination. |
+| `accepts` | nonempty set of bounded schema markers | Exact schemas this release can read and write without a schema change. No wildcards, ranges or inferred ordering. |
+| `startup` | enum with only `preserve` | Startup, restart, normal writes and health checks do not change schema. |
+
+Markers are app-defined ASCII tokens matching `[A-Za-z0-9][A-Za-z0-9_.-]{0,127}`. They identify schema structure and application invariants, not release order. The same marker cannot be reused for a different meaning within an app incarnation. Each `accepts` set has at most 128 unique markers and sorts lexically in canonical input. Entries sort by database reference. Duplicate database entries, unknown references, invalid markers, extra fields and unsupported startup modes fail strict validation. Missing entries remain a planning conflict, so the planner can explain the required declaration.
+
+For example, a release that can use either schema `orders-v1` or `orders-v2` declares both in `accepts`. A release that can use only `orders-v2` cannot deploy against `orders-v1`, and an `orders-v1`-only release cannot roll back against `orders-v2`. Brine does not infer that adding a column is safe or that a higher version contains a lower one.
+
+The desired input retains the declaration alongside the pinned index and platform manifest digests. Release history retains that exact input. Planning binds each database reference to its immutable data identity and measured current schema marker, separately from the current app release. A migration or live restore can change the current schema without changing the app release. A previous release's marker, a backup's marker or a client assertion cannot substitute for current schema evidence. Unknown or contradictory observations stay unknown.
+
+A persistent deploy, including creation and config updates that can restart a writer, must preserve every current schema marker and show that the candidate accepts it. Start and restart check the committed release's declaration against current schema before starting a writer. Stop remains available without a compatibility declaration. Removing a declaration or data reference cannot reclassify existing persistent state as stateless. Newly allocated empty data needs a recorded empty-schema marker. Creating app tables is also a schema change and requires the separate reviewed workflow, not an exception for first deployment.
+
+Deployment plans contain no schema-change payload, migration hook, SQL text or arbitrary shell command. Images must have implicit startup migrations disabled before the release declares `preserve`. Brine enforces declared intent and recorded schema checks, not a sandbox against trusted application code that can already write its own database. A false declaration cannot make a hidden migration safe.
+
+### Refusals and next steps
+
+These codes are future plan conflict diagnostics, not additions to today's top-level error envelope. A completed planning analysis returns `ok: true`, exit 0, `kind: conflict` and no changes, matching the existing planner contract. Callers inspect `kind`. Attempting to apply a conflict or a plan with changed schema evidence refuses before effects in exit category 5.
+
+| Conflict code | Field | Fixed explanation and next step |
+| --- | --- | --- |
+| `schema_compatibility_required` | `schema_compatibility` | Persistent releases must declare every database's accepted schemas and schema-preserving startup. Review the pinned image and add the declaration before replanning. |
+| `schema_state_unknown` | `schema_state` | Current database schema is unverified. Establish authoritative schema evidence before replanning. Do not guess from release history. |
+| `schema_incompatible` | `schema_compatibility` | This release cannot use the current database schema without changing it. Select a compatible release or prepare a separate reviewed migration. |
+| `schema_rollback_incompatible` | `schema_compatibility` | The rollback release cannot use the current database schema. App rollback cannot restore data. Select compatible code or use the separately authorized live restore procedure. |
+| `migration_plan_required` | `migration` | Deployment cannot request a schema change. Prepare a separate migration plan with reviewed artifacts, restore evidence and rollback semantics. |
+| `migration_restore_point_required` | `restore_point` | Every affected database needs a fresh verified recoverable point. Refresh backup status and complete an isolated restore test before making a new migration plan. |
+| `migration_rollback_incompatible` | `rollback_policy` | The resulting schema cannot support the recorded current and rollback releases. Routine migration automation refuses. Use a reviewed operator procedure with compatible forward recovery code. |
+
+Malformed migration fields remain validation errors. A well-formed schema-change request in a future deploy input produces `migration_plan_required`, never executable changes. Current schema, database identity, compatibility sets and migration receipts enter canonical decision facts. Changes require a new immutable plan. Clock-based backup age checks happen in the connected service and apply gate, not inside the pure planner.
+
+### Explicit migration plan and operation
+
+This typed design is reserved for later automation. It introduces neither a working CLI verb nor dispatcher authorization today. A `MigrationPlan` is separate from `plan.Plan`'s deploy changes. Its immutable fields include:
+
+- The target identity, policy version and hash, observed control generation and app incarnation. The current-release binding is tagged `committed` with the exact release ID, or `absent` only for reviewed initialization of affirmatively empty data. Initialization also binds the intended first release's exact desired input and image digests. Absence is evidence, never a default.
+- A database-reference-sorted array of transitions. Each binds the immutable database identity, observed source schema marker and destination marker.
+- A reviewed, digest-pinned migration image with its selected platform manifest, a bounded container-local executable and separate typed arguments. No host shell, user-supplied host executable, raw runtime flags, arbitrary mounts or SQL in deploy input.
+- A content-addressed review receipt bound to the exact transitions, image, invocation and checks. Approval comes from the operator-authorized review workflow, not a request's `approved` boolean or the agent's `--yes`.
+- A restore-point record per database with the immutable backup ID, backup destination identity, source schema marker, recovered checkpoint, snapshot time, verification time and successful P04-05 restore-test receipt ID. Credentials, literal data and local restore paths are absent from public presentations and events.
+- A typed validation set with SQLite integrity checks, expected destination marker and reviewed app invariant-check artifact references. Checks run through bounded adapters, not free-form host hooks.
+- A tagged rollback policy. Initial automation accepts only `app_compatible`, listing the current release when present and the designated retained rollback release IDs with their verified declarations. For empty-data initialization, the intended first release must accept the destination schema. There is no old writer to restore, and failed or partial initialization requires recovery rather than data deletion. An operator-only breaking-change procedure uses `recovery_only` and records compatible forward recovery code and the live restore runbook. It is not routine automation authority.
+- Operator bounds `max_backup_age_seconds`, `max_restore_test_age_seconds` and `recovery_window_seconds`, all explicit positive values. No unbounded or guessed freshness default. The restore points remain retained through the operation and at least the recovery window after completion. Absolute expiry belongs outside the canonical fingerprint, while the selected evidence and bounds remain hashed.
+
+P04-04 must prove the chosen backup is available and covers its recorded recovery point. P04-05 must restore that exact point into an isolated nonpublic path, pass `PRAGMA integrity_check` and the declared app invariants, and verify its schema marker. The point must remain retained throughout the migration and its recorded recovery window. Merely running Litestream, reporting low lag or reusing an unrelated successful drill is insufficient.
+
+Planning reads those receipts and records immutable intent. It does not stop an app, make a backup, mutate schema or perform a live restore. Before schema mutation, apply acquires the host lock, revalidates ownership and policy, quiesces all app writers and the affected replicators, and establishes that each verified point covers the exact pre-migration data. If unbacked writes followed the snapshot, coverage is unknown, receipts expired or a backup disappeared, apply refuses before mutation. Preparation must produce fresh verified points and a new plan. Apply cannot silently replace the bound restore point. The backup preparation workflow must support a verified point while writers remain quiesced.
+
+An allowed `migrate_schema` operation records its plan, authenticated requester, review receipt and restore points durably before any schema change. Its journal records bounded intent, observed outcome, validation and source/destination schema evidence. It uses the host mutation lock and the existing interruption discipline. Completion records current schema independently of release heads and invalidates queued plans against the previous schema. It neither installs an app release nor rotates release heads. Writer and replicator resumption follows the recorded safe ordering and requires that the installed release accepts the resulting schema.
+
+An uncertain invocation does not rerun a migration or its down script. Reconciliation inspects actual schema and migration receipts. Unknown, partial or failed invariant evidence keeps writers quiesced and records `recovery_required`. A backup permits a separate restore decision. It does not make non-idempotent SQL retryable or authorize an automatic database rewind.
+
+### App rollback after a schema change
+
+Rollback planning compares the selected immutable release's declaration with each database's current measured schema, not the schema at that release's original deployment. Compatible rollback preserves data and schema. Incompatible rollback conflicts with `schema_rollback_incompatible`. Unknown evidence conflicts with `schema_state_unknown`. Neither starts an operation or rewrites a database.
+
+Apply revalidates that comparison under the host lock before effects. Automatic deployment compensation, reconcile and resolve also need fresh schema proof before restoring an old unit or starting its writer, even if the candidate never reached healthy or schema mutation occurred outside deployment. The proof must cover the destination writer and every database it uses. `stateless_compatible` applies only to affirmatively stateless desired and observed data state. `compatibility_verified` requires current schema evidence and the destination release's declaration. It is not a reusable approval for any later schema. Unproven compensation becomes `recovery_required` rather than `rolled_back`.
+
+A down migration is itself a new reviewed migration. Live restore is a different planned operation under D8's `allow_agent_live_restore`, default false, and P04-09. Until that operation ships, P04-06's separately approved operator runbook governs live restore. The recovery decision records possible lost writes and establishes the restored schema before any app start. Neither an app rollback request nor `allow_agent_migrations` authorizes data restoration.
+
+### Delivery and acceptance gates
+
+No code changes implement this contract in P04-07. Today `spec.App`, `policy.Desired`, inventory and committed release state do not identify an app's persistent databases or current schema. The existing `persistent_roots` policy field is only an allowed-root list. It cannot distinguish a persistent app from a stateless app. Strict v1 specs reject undeclared data and migration fields. The executor and app rollback planner deliberately freeze the supported stateless desired shape, so adding persistent fields requires an explicit classification change rather than inheriting `stateless_compatible`.
+
+P04-01 must carry the release declaration through strict parsing, normalization, canonical hashes, retained desired inputs, inventory, planning, presentations and apply revalidation when it adds persistent support. It must implement the missing-declaration refusal in the same change. Persistent support cannot ship first with this gate postponed. P04-07 remains unchecked until that behavior and the relevant T16 evidence exist. Migration execution additionally waits for P04-04 and P04-05, operator authorization and interruption tests.
+
+Required tests include missing and incomplete declarations with no changes, incompatible candidate and rollback targets, unknown current schema, first-deploy initialization, config/start paths, removal of a data reference, unchanged stateless behavior, canonical declaration ordering and stale schema at apply. T16 also needs ordinary compensation, reconcile and resolve tests after an observed breaking schema change. Later migration tests cover missing, stale, mismatched or unavailable restore points, denied agent policy, partial schema changes, interrupted journal boundaries and no blind replay or database restore. Mock coverage is not a verified R2 point. A separately authorized physical drill must migrate a fixture, refuse incompatible app rollback without changing data, and verify an isolated restore of the recorded point from actual R2.
 
 ## Source references
 
