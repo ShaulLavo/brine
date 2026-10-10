@@ -2,9 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"errors"
-	"math/rand/v2"
 	"time"
 
 	"modernc.org/sqlite"
@@ -43,7 +43,7 @@ func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, context.CancelFunc, er
 			cancel()
 			return nil, func() {}, err
 		}
-		timer := time.NewTimer(time.Duration(10+rand.IntN(41)) * time.Millisecond)
+		timer := time.NewTimer(admissionJitter())
 		select {
 		case <-admission.Done():
 			timer.Stop()
@@ -52,4 +52,12 @@ func (s *Store) beginWrite(ctx context.Context) (*sql.Tx, context.CancelFunc, er
 		case <-timer.C:
 		}
 	}
+}
+
+// admissionJitter spaces retried BEGINs 10-50ms apart. The repository's authority
+// gate allows only crypto/rand in production code, and one byte is plenty here.
+func admissionJitter() time.Duration {
+	var b [1]byte
+	_, _ = rand.Read(b[:])
+	return time.Duration(10+int(b[0])%41) * time.Millisecond
 }
