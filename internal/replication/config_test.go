@@ -7,7 +7,7 @@ import (
 )
 
 func testBinding() Binding {
-	return Binding{Cadence: DefaultCadence(), DatabaseID: strings.Repeat("1", 32), BindingID: strings.Repeat("2", 32), EpochID: strings.Repeat("3", 32), IncarnationID: strings.Repeat("4", 32), DBPath: "/srv/data/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/app.db", SocketPath: "/srv/state/replication/" + strings.Repeat("2", 32) + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backup-bucket", Prefix: "base/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/epochs/" + strings.Repeat("3", 32) + "/", Region: "auto", ForcePathStyle: true}
+	return Binding{Cadence: testDefaultCadence(), DatabaseID: strings.Repeat("1", 32), BindingID: strings.Repeat("2", 32), EpochID: strings.Repeat("3", 32), IncarnationID: strings.Repeat("4", 32), DBPath: "/srv/data/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/app.db", SocketPath: "/srv/state/replication/" + strings.Repeat("2", 32) + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backup-bucket", Prefix: "base/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/epochs/" + strings.Repeat("3", 32) + "/", Region: "auto", ForcePathStyle: true}
 }
 
 func TestConfigRoundTrip(t *testing.T) {
@@ -95,7 +95,7 @@ func TestConfigRequiresStderrLogging(t *testing.T) {
 
 func TestConfigUsesTypedCadence(t *testing.T) {
 	b := testBinding()
-	b.Cadence = DefaultCadence()
+	b.Cadence = testDefaultCadence()
 	raw, err := RenderConfig(b)
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestConfigUsesTypedCadence(t *testing.T) {
 			t.Fatal("accepted out-of-range sync interval", sync)
 		}
 	}
-	b.Cadence = DefaultCadence()
+	b.Cadence = testDefaultCadence()
 	b.Cadence.SnapshotInterval = 0
 	if _, err := RenderConfig(b); err == nil {
 		t.Fatal("accepted missing snapshot cadence")
@@ -136,17 +136,21 @@ func TestConfigUsesTypedCadence(t *testing.T) {
 
 func TestCadenceAbsoluteSnapshotBounds(t *testing.T) {
 	for _, interval := range []time.Duration{time.Hour - time.Nanosecond, 24*time.Hour + time.Nanosecond} {
-		c := DefaultCadence()
+		c := testDefaultCadence()
 		c.SnapshotInterval = interval
 		if c.Validate() == nil {
 			t.Fatal("outside absolute snapshot bound", interval)
 		}
 	}
 	for _, interval := range []time.Duration{time.Hour, 24 * time.Hour} {
-		c := DefaultCadence()
+		c := testDefaultCadence()
 		c.SnapshotInterval = interval
 		if c.Validate() != nil {
 			t.Fatal("absolute snapshot boundary refused", interval)
 		}
 	}
+}
+
+func testDefaultCadence() Cadence {
+	return Cadence{SyncInterval: time.Minute, SnapshotInterval: 6 * time.Hour}
 }

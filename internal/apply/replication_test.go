@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/replication"
 )
@@ -103,7 +104,7 @@ func TestReplicaActivationCannotBypassFence(t *testing.T) {
 type fencedReplicaReader struct{}
 
 func (fencedReplicaReader) ReadReplicaPermit(_ context.Context, id string) (replication.PermitState, error) {
-	b := replication.Binding{DatabaseID: strings.Repeat("1", 32), BindingID: id, EpochID: strings.Repeat("3", 32), IncarnationID: strings.Repeat("4", 32), DBPath: "/srv/data/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/app.db", SocketPath: "/state/replication/" + id + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backups", Prefix: "base/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/epochs/" + strings.Repeat("3", 32) + "/", Region: "auto", Cadence: replication.DefaultCadence()}
+	b := replication.Binding{DatabaseID: strings.Repeat("1", 32), BindingID: id, EpochID: strings.Repeat("3", 32), IncarnationID: strings.Repeat("4", 32), DBPath: "/srv/data/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/app.db", SocketPath: "/state/replication/" + id + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backups", Prefix: "base/apps/" + strings.Repeat("4", 32) + "/databases/" + strings.Repeat("1", 32) + "/epochs/" + strings.Repeat("3", 32) + "/", Region: "auto", Cadence: replication.Cadence{SyncInterval: time.Minute, SnapshotInterval: 6 * time.Hour}}
 	raw, err := replication.RenderConfig(b)
 	if err != nil {
 		return replication.PermitState{}, err

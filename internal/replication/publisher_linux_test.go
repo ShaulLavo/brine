@@ -20,7 +20,11 @@ func publisherFixture(t *testing.T) (ArtifactPublisher, Artifacts) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(root) })
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Error(err)
+		}
+	})
 	state := filepath.Join(root, "state")
 	units := filepath.Join(root, "units")
 	for _, p := range []string{state, units} {
@@ -62,6 +66,7 @@ func TestPublisherExactIdempotencePrivateModesAndDriftRefusal(t *testing.T) {
 		t.Fatal("lock inode replaced", err)
 	}
 	for path, want := range map[string][]byte{a.ConfigPath: a.Config, a.ServicePath: a.Service, a.LifetimeLock: {}} {
+		// #nosec G304 -- Read only the publisher-generated paths in this test's private fixture.
 		got, err := os.ReadFile(path)
 		info, statErr := os.Stat(path)
 		if err != nil || statErr != nil || string(got) != string(want) || info.Mode().Perm() != 0600 {
@@ -113,6 +118,7 @@ func TestPublisherRejectsSymlinksHardlinksModesAndForeignPaths(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "mode":
+				// #nosec G302 -- Intentionally unsafe fixture file; publication must refuse drift.
 				if err := os.Chmod(a.ConfigPath, 0644); err != nil {
 					t.Fatal(err)
 				}

@@ -25,7 +25,7 @@ type ArtifactPublisher struct {
 	sync                func(int) error
 }
 
-func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) error {
+func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) (resultErr error) {
 	name, err := ServiceName(a.Binding.BindingID)
 	if err != nil || ctx.Err() != nil || !safePath(p.StateRoot) || !safePath(p.UnitRoot) || a.ConfigPath != filepath.Join(p.StateRoot, "replication", a.Binding.BindingID, "litestream.yml") || a.Binding.SocketPath != filepath.Join(p.StateRoot, "replication", a.Binding.BindingID, "control.sock") || a.LifetimeLock != filepath.Join(p.StateRoot, "replica-locks", a.Binding.BindingID+".lock") || a.ServicePath != filepath.Join(p.UnitRoot, name) || len(a.Service) == 0 || len(a.Service) > MaxConfigBytes {
 		return ErrPublish
@@ -37,12 +37,20 @@ func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) error {
 	if err != nil {
 		return ErrPublish
 	}
-	defer unix.Close(state)
+	defer func() {
+		if unix.Close(state) != nil {
+			resultErr = ErrPublish
+		}
+	}()
 	units, err := openDirectory(p.UnitRoot)
 	if err != nil {
 		return ErrPublish
 	}
-	defer unix.Close(units)
+	defer func() {
+		if unix.Close(units) != nil {
+			resultErr = ErrPublish
+		}
+	}()
 	if !privateDirectory(state) || !privateDirectory(units) {
 		return ErrPublish
 	}
@@ -50,12 +58,20 @@ func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) error {
 	if err != nil {
 		return ErrPublish
 	}
-	defer unix.Close(config)
+	defer func() {
+		if unix.Close(config) != nil {
+			resultErr = ErrPublish
+		}
+	}()
 	locks, err := p.directory(ctx, state, "replica-locks")
 	if err != nil {
 		return ErrPublish
 	}
-	defer unix.Close(locks)
+	defer func() {
+		if unix.Close(locks) != nil {
+			resultErr = ErrPublish
+		}
+	}()
 	for _, file := range []struct {
 		dir  int
 		name string
@@ -69,7 +85,7 @@ func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) error {
 }
 func privateDirectory(fd int) bool {
 	var s unix.Stat_t
-	return unix.Fstat(fd, &s) == nil && s.Mode&unix.S_IFMT == unix.S_IFDIR && s.Uid == uint32(os.Geteuid()) && s.Mode&07777 == 0700
+	return unix.Fstat(fd, &s) == nil && s.Mode&unix.S_IFMT == unix.S_IFDIR && int64(s.Uid) == int64(os.Geteuid()) && s.Mode&07777 == 0700
 }
 func (p ArtifactPublisher) fsync(ctx context.Context, fd int) error {
 	if err := ctx.Err(); err != nil {
@@ -92,38 +108,38 @@ func (p ArtifactPublisher) directory(ctx context.Context, root int, parts ...str
 	unix.CloseOnExec(current)
 	for _, part := range parts {
 		if err = ctx.Err(); err != nil {
-			unix.Close(current)
+			_ = unix.Close(current) // Already refusing publication; release the descriptor.
 			return -1, err
 		}
 		if err = unix.Mkdirat(current, part, 0700); err != nil && !errors.Is(err, unix.EEXIST) {
-			unix.Close(current)
+			_ = unix.Close(current) // Already refusing publication; release the descriptor.
 			return -1, err
 		}
 		next, e := unix.Openat(current, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 		if e != nil || !privateDirectory(next) {
 			if e == nil {
-				unix.Close(next)
+				_ = unix.Close(next) // Already refusing publication; release the descriptor.
 			}
-			unix.Close(current)
+			_ = unix.Close(current) // Already refusing publication; release the descriptor.
 			return -1, ErrPublish
 		}
 		// Repeat parent/child fsync on exact retries: a prior mkdir may have succeeded
 		// before its durability became unknown.
 		e = p.fsync(ctx, current)
-		unix.Close(current)
-		if e != nil {
-			unix.Close(next)
-			return -1, e
+		closeErr := unix.Close(current)
+		if e != nil || closeErr != nil {
+			_ = unix.Close(next) // Already refusing publication; release the descriptor.
+			return -1, errors.Join(e, closeErr)
 		}
 		current = next
 	}
 	if err = p.fsync(ctx, current); err != nil {
-		unix.Close(current)
+		_ = unix.Close(current) // Already refusing publication; release the descriptor.
 		return -1, err
 	}
 	return current, nil
 }
-func (p ArtifactPublisher) checkFile(ctx context.Context, dir int, name string, raw []byte) (bool, error) {
+func (p ArtifactPublisher) checkFile(ctx context.Context, dir int, name string, raw []byte) (exists bool, resultErr error) {
 	fd, err := unix.Openat(dir, name, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW|unix.O_NONBLOCK, 0)
 	if errors.Is(err, unix.ENOENT) {
 		return false, nil
@@ -132,9 +148,13 @@ func (p ArtifactPublisher) checkFile(ctx context.Context, dir int, name string, 
 		return false, err
 	}
 	f := os.NewFile(uintptr(fd), name)
-	defer f.Close()
+	defer func() {
+		if f.Close() != nil {
+			exists, resultErr = false, ErrPublish
+		}
+	}()
 	var s unix.Stat_t
-	if unix.Fstat(fd, &s) != nil || s.Mode&unix.S_IFMT != unix.S_IFREG || s.Mode&07777 != 0600 || s.Uid != uint32(os.Geteuid()) || s.Nlink != 1 || s.Size != int64(len(raw)) {
+	if unix.Fstat(fd, &s) != nil || s.Mode&unix.S_IFMT != unix.S_IFREG || s.Mode&07777 != 0600 || int64(s.Uid) != int64(os.Geteuid()) || s.Nlink != 1 || s.Size != int64(len(raw)) {
 		return false, ErrPublish
 	}
 	actual, err := io.ReadAll(io.LimitReader(f, int64(len(raw))+1))
@@ -146,7 +166,7 @@ func (p ArtifactPublisher) checkFile(ctx context.Context, dir int, name string, 
 	}
 	return true, nil
 }
-func (p ArtifactPublisher) publishFile(ctx context.Context, dir int, name string, raw []byte) error {
+func (p ArtifactPublisher) publishFile(ctx context.Context, dir int, name string, raw []byte) (resultErr error) {
 	exists, err := p.checkFile(ctx, dir, name, raw)
 	if err != nil {
 		return err
@@ -159,7 +179,11 @@ func (p ArtifactPublisher) publishFile(ctx context.Context, dir int, name string
 	if err != nil {
 		return err
 	}
-	defer unix.Unlinkat(dir, tmp, 0)
+	defer func() {
+		if err := unix.Unlinkat(dir, tmp, 0); err != nil && !errors.Is(err, unix.ENOENT) {
+			resultErr = ErrPublish
+		}
+	}()
 	f := os.NewFile(uintptr(fd), tmp)
 	if _, err = f.Write(raw); err == nil {
 		err = p.fsync(ctx, fd)
