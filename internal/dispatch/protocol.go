@@ -7,6 +7,7 @@ import (
 	"io"
 	"regexp"
 
+	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
@@ -52,6 +53,8 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"data_init_plan":          {Mutating, decodeDataInitPlan},
+	"data_init_apply":         {Mutating, decodeDataInitApply},
 	"restore_test":            {ReadOnly, decodeRestoreTest},
 	"backup_credentials_plan": {Mutating, decodeBackupCredentialPlan},
 	"backup_credentials_set":  {Mutating, decodeBackupCredentialSet},
@@ -145,20 +148,21 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
-	RestoreTests      RestoreTestOperations
-	BackupCredentials BackupCredentialOperations
-	Config            ConfigurationOperations
-	Secrets           SecretOperations
-	Reconciler        ReconcileOperations
-	Factory           Factory
-	Planner           Planner
-	Diagnose          DiagnosticReader
-	Apps              AppOperations
-	Logs              LogReader
-	version           string
-	inventory         Inventory
-	jobs              JobOperations
-	authorize         Authorization
+	DataInitialization DataInitializationOperations
+	BackupCredentials  BackupCredentialOperations
+	Config             ConfigurationOperations
+	Secrets            SecretOperations
+	Reconciler         ReconcileOperations
+	Factory            Factory
+	Planner            Planner
+	Diagnose           DiagnosticReader
+	Apps               AppOperations
+	Logs               LogReader
+	version            string
+	inventory          Inventory
+	jobs               JobOperations
+	authorize          Authorization
+	RestoreTests       RestoreTestOperations
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -214,6 +218,24 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case DataInitPlanArgs:
+		if s.DataInitialization == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.DataInitialization.Plan(ctx, datainit.Request(args))
+		if err != nil {
+			return fail(DataInitializationFailure(err))
+		}
+		value = p
+	case DataInitApplyArgs:
+		if s.DataInitialization == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		p, err := s.DataInitialization.Apply(ctx, args.App, args.PlanID)
+		if err != nil {
+			return fail(DataInitializationFailure(err))
+		}
+		value = p
 	case RestoreTestArgs:
 		if s.RestoreTests == nil {
 			return fail(result.New(result.DependencyMissing, nil))

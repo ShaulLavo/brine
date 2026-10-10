@@ -11,8 +11,11 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -139,7 +142,7 @@ credential_ref="primary"
 	if _, err = service.Plan(ctx, "hello", nil); err == nil {
 		t.Fatal("multi-database app accepted missing selector")
 	}
-	operations := credentialOperations{service: Service{Store: state, Requester: requester, Policy: &fakePolicy{p: pol}, Inventory: &fakeInventory{snapshot: snapshot, store: state}}, stateRoot: root}
+	operations := credentialOperations{service: Service{Store: state, Requester: requester, Policy: &fakePolicy{p: pol}, Inventory: &fakeInventory{snapshot: snapshot, store: state}}, stateRoot: root, jobs: jobs.Service{Store: state, Requester: requester, Launcher: credentialTestLauncher{}}}
 	auditPlan, err := operations.Plan(ctx, "hello", "audit", nil)
 	if err != nil || auditPlan.Scope.Binding != string(audit.Replica.BindingID) {
 		t.Fatal("wrong database planned", err)
@@ -151,13 +154,49 @@ credential_ref="primary"
 		t.Fatal("multi-database delivery omitted selector")
 	}
 	auditReceipt, err := operations.Set(ctx, "hello", "audit", auditPlan.ID, packet)
-	if err != nil || auditReceipt.Scope.Binding != string(audit.Replica.BindingID) {
+	if err != nil || auditReceipt.Status != "accepted" {
 		t.Fatal("selected database delivery failed", err)
 	}
+	selectedReceipt, err := (backupcredentials.Files{Root: filepath.Join(root, "credentials")}).Receipt(auditPlan.Scope.CredentialRef, auditPlan.Version)
+	if err != nil || selectedReceipt.Scope.Binding != string(audit.Replica.BindingID) {
+		t.Fatal("selected binding lost in stored delivery", err)
+	}
+	retry, err := operations.Set(ctx, "hello", "audit", auditPlan.ID, packet)
+	if err != nil || retry.Status != "accepted" {
+		t.Fatal("same-plan detached resume refused", err)
+	}
+	nextVersion, err := (backupcredentials.Files{Root: filepath.Join(root, "credentials")}).Next(auditPlan.Scope.CredentialRef)
+	if err != nil || nextVersion != auditPlan.Version+1 {
+		t.Fatal("same-plan resume installed another version", err)
+	}
+
 	// The journal refuses a client-chosen requester even when its plan hash is valid.
 	forged := p
 	forged.Requester = "deploy:" + strings.Repeat("d", 64)
 	if err = service.Journal.RecordPlan(ctx, forged); err == nil {
 		t.Fatal("client requester journaled")
+	}
+}
+
+type credentialTestLauncher struct{}
+
+func (credentialTestLauncher) Launch(context.Context, systemd.OperationID) error { return nil }
+
+func TestCredentialTaskAdmissionNeverActivatesSynchronously(t *testing.T) {
+	ctx := context.Background()
+	state, _, _ := persistentHostFixture(t)
+	launcher := credentialTestLauncher{}
+	service := jobs.Service{Store: state, Requester: "fixture", Launcher: launcher}
+	accepted, err := service.Submit(ctx, ops.Intent{Kind: ops.CredentialActivation, App: "hello", SecretRef: "sha256:" + strings.Repeat("e", 64)}, "activation1")
+	if err != nil || accepted.Status != "accepted" {
+		t.Fatal(err)
+	}
+	operation, err := state.GetOperation(ctx, accepted.OperationID)
+	if err != nil || operation.State != ops.Queued || operation.SecretRef != "sha256:"+strings.Repeat("e", 64) {
+		t.Fatal("activation ran inside admission or reference lost", err)
+	}
+	outcome, err := state.ReadTaskOutcome(ctx, accepted.OperationID)
+	if err != nil || outcome != nil {
+		t.Fatal("admission manufactured a terminal receipt", err)
 	}
 }

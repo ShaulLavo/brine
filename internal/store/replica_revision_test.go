@@ -139,3 +139,29 @@ func TestReplicaRevisionRefusesIdentityPathsAndSkippedStages(t *testing.T) {
 		})
 	}
 }
+
+func TestReplicaRevisionMigrationFromInitializationSchemaEight(t *testing.T) {
+	ctx := context.Background()
+	state, revision := pendingRevisionFixture(t)
+	for _, statement := range []string{"DROP TABLE data_replica_revisions", "UPDATE schema_version SET version=8"} {
+		if _, err := state.db.ExecContext(ctx, statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := state.migrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+	var version int
+	if err := state.db.QueryRowContext(ctx, "SELECT version FROM schema_version").Scan(&version); err != nil || version != 9 {
+		t.Fatal("replica revision migration missing", version, err)
+	}
+	if err := state.WriteReplicaRevision(ctx, "", revision); err != nil {
+		t.Fatal("v8 binding not preserved", err)
+	}
+	for _, table := range []string{"operation_outcomes", "data_init_plans"} {
+		var count int
+		if err := state.db.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?", table).Scan(&count); err != nil || count != 1 {
+			t.Fatal("earlier migration table lost", table, err)
+		}
+	}
+}

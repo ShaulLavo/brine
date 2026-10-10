@@ -96,21 +96,32 @@ func downloadSnapshot(ctx context.Context, d Destination, c Credentials, s Snaps
 // The download boundary supports one typed GET, with no credential-chain fallback,
 // redirects, retry, upload or provider-specific API.
 func signGET(request *http.Request, region string, c Credentials, now time.Time) {
+	signS3(request, region, c, now, nil)
+}
+
+func signS3(request *http.Request, region string, c Credentials, now time.Time, body []byte) {
 	timestamp := now.Format("20060102T150405Z")
 	date := now.Format("20060102")
-	payload := sha256.Sum256(nil)
+	payload := sha256.Sum256(body)
 	payloadHash := hex.EncodeToString(payload[:])
 	request.Header.Set("X-Amz-Date", timestamp)
 	request.Header.Set("X-Amz-Content-Sha256", payloadHash)
-	canonicalHeaders := "host:" + request.URL.Host + "\nx-amz-content-sha256:" + payloadHash + "\nx-amz-date:" + timestamp + "\n"
-	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	canonicalHeaders := "host:" + request.URL.Host + "\n"
+	signedHeaders := "host"
+	if value := request.Header.Get("If-None-Match"); value != "" {
+		canonicalHeaders += "if-none-match:" + value + "\n"
+		signedHeaders += ";if-none-match"
+	}
+	canonicalHeaders += "x-amz-content-sha256:" + payloadHash + "\nx-amz-date:" + timestamp + "\n"
+	signedHeaders += ";x-amz-content-sha256;x-amz-date"
 	if c.SessionToken != "" {
 		request.Header.Set("X-Amz-Security-Token", c.SessionToken)
 		canonicalHeaders += "x-amz-security-token:" + c.SessionToken + "\n"
 		signedHeaders += ";x-amz-security-token"
 	}
 	canonicalQuery := strings.ReplaceAll(request.URL.Query().Encode(), "+", "%20")
-	canonical := http.MethodGet + "\n" + request.URL.EscapedPath() + "\n" + canonicalQuery + "\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash
+	canonical := request.Method + "\n" + request.URL.EscapedPath() + "\n" + canonicalQuery + "\n" + canonicalHeaders + "\n" + signedHeaders + "\n" + payloadHash
+
 	scope := date + "/" + region + "/s3/aws4_request"
 	sum := sha256.Sum256([]byte(canonical))
 	toSign := "AWS4-HMAC-SHA256\n" + timestamp + "\n" + scope + "\n" + hex.EncodeToString(sum[:])

@@ -7,13 +7,14 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
 type BackupCredentialOperations interface {
 	Plan(context.Context, string, string, *time.Time) (backupcredentials.Plan, error)
-	Set(context.Context, string, string, string, backupcredentials.Packet) (backupcredentials.Receipt, error)
+	Set(context.Context, string, string, string, backupcredentials.Packet) (jobs.Accepted, error)
 }
 type BackupCredentialPlanArgs struct {
 	App       string     `json:"app"`

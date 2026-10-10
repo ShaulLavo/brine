@@ -95,7 +95,7 @@ func (p DataPreparation) prepareReplica(ctx context.Context, operation string, d
 			return replication.ErrRestartUnknown
 		}
 	}
-	if err = replication.Restart(ctx, host, record.Before, record.After, record.Stage, advance); err != nil {
+	if err = replication.Restart(ctx, host, record.Before, record.After, record.Stage, advance, nil); err != nil {
 		return replication.ErrRestartUnknown
 	}
 	return verifyReplicaService(artifact)

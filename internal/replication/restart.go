@@ -25,7 +25,7 @@ type RestartHost interface {
 // Restart resumes a durable replica-only cursor. A stop/start intent is committed
 // before its effect; unknown attempts are independently inspected, never repeated.
 // The stable lifetime lock protects service replacement and binding commitment.
-func Restart(ctx context.Context, host RestartHost, before, after data.ReplicaBinding, stage data.RotationStage, advance func(data.RotationStage) error) error {
+func Restart(ctx context.Context, host RestartHost, before, after data.ReplicaBinding, stage data.RotationStage, advance func(data.RotationStage) error, admitStart func() error) error {
 	if host == nil || advance == nil {
 		return ErrRestartUnknown
 	}
@@ -80,10 +80,20 @@ func Restart(ctx context.Context, host RestartHost, before, after data.ReplicaBi
 		if host.Reload(ctx) != nil || host.Permit(ctx, after) != nil {
 			return ErrRestartUnknown
 		}
+		if admitStart != nil {
+			if err := admitStart(); err != nil {
+				return err
+			}
+		}
 		if err := move(data.RotationStartIssued); err != nil {
 			return err
 		}
 		// Do not compensate or repeat an uncertain start. Running is independent.
+		if admitStart != nil {
+			if err := admitStart(); err != nil {
+				return err
+			}
+		}
 		_ = host.Start(ctx, after)
 	}
 	if stage != data.RotationStartIssued && stage != data.RotationActive && stage != data.RotationVerified {

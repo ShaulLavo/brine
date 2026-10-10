@@ -238,13 +238,14 @@ type Journal interface {
 	RecordReceipt(context.Context, Receipt) error
 }
 type Service struct {
-	Requester string
-	Journal   Journal
-	Files     Files
-	Scope     func(context.Context, string) (Scope, error)
-	Lock      func(context.Context) (func(), error)
-	Now       func() time.Time
-	Activate  func(context.Context, Receipt) (Receipt, error)
+	Requester    string
+	Journal      Journal
+	Files        Files
+	Scope        func(context.Context, string) (Scope, error)
+	Lock         func(context.Context) (func(), error)
+	Now          func() time.Time
+	Activate     func(context.Context, Receipt) (Receipt, error)
+	ResumeStored bool // Resume immutable storage when detached activation owns the long work.
 }
 
 func (s Service) now() time.Time {
@@ -330,7 +331,7 @@ func (s Service) Deliver(ctx context.Context, p Plan, packet Packet) (Receipt, e
 		if scope != p.Scope || !scope.valid() {
 			return ErrStale
 		}
-		if s.Activate != nil {
+		if s.Activate != nil || s.ResumeStored {
 			if existing, err := s.Files.Receipt(scope.CredentialRef, p.Version); err == nil {
 				if existing.PlanID != p.ID || existing.Scope != p.Scope || existing.Requester != s.Requester {
 					return ErrStale
@@ -347,7 +348,10 @@ func (s Service) Deliver(ctx context.Context, p Plan, packet Packet) (Receipt, e
 				if err := s.Journal.RecordReceipt(ctx, existing); err != nil {
 					return ErrStorage
 				}
-				r, err = s.Activate(ctx, existing)
+				r = existing
+				if s.Activate != nil {
+					r, err = s.Activate(ctx, existing)
+				}
 				return err
 			}
 		}

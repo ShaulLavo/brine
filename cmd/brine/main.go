@@ -67,16 +67,23 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 		deps.HostServerFactory = factory.Build
 		lifecycle.Close = factory.Close
 	} else {
+		if deps.HostOperationRunner == nil {
+			deps.HostOperationRunner = host.DetachedRunner{}
+		}
 		lifecycle.Open = func(ctx context.Context, preview bool) (cli.RuntimeServices, error) {
 			open := host.Open
 			if preview {
 				open = host.OpenPreview
 			}
-			runtime, err := open(ctx, authenticated)
+			role := authenticated
+			if cli.HostDataInitializationRequested(ctx, args) {
+				role = "operator"
+			}
+			runtime, err := open(ctx, role)
 			if err != nil {
 				return cli.RuntimeServices{}, err
 			}
-			return cli.RuntimeServices{Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
+			return cli.RuntimeServices{DataInitialization: runtime.DataInitialization, Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
 		}
 	}
 	return result.ExitCode(cli.ExecuteWithRuntime(deps, args, lifecycle))

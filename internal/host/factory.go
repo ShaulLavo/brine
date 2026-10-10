@@ -39,6 +39,9 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	if f.authenticated != "deploy" {
 		return nil, result.New(result.DispatchOperationRefused, nil)
 	}
+	if op == "operation" {
+		return dispatch.NewServer(f.version, nil).WithJobs(metadataStatus{dir: f.diagnosticStateDir}, nil), nil
+	}
 	if op == "restore_test" {
 		server := dispatch.NewServer(f.version, nil)
 		server.RestoreTests = newRestoreTests(f.diagnosticStateDir)
@@ -71,6 +74,7 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	server.Config = runtime.Config
 	server.Secrets = runtime.Secrets
 	server.BackupCredentials = runtime.BackupCredentials
+	server.DataInitialization = runtime.DataInitialization
 	server.Logs = runtime.Logs
 	server.Diagnose = runtime.Diagnose
 	return server, nil

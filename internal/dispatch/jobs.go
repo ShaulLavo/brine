@@ -78,7 +78,15 @@ func decodeAccepted(raw json.RawMessage) (jobs.Accepted, error) {
 }
 func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 	bad := func() (jobs.Status, error) { return jobs.Status{}, strictjson.ErrObject }
-	f, err := strictjson.Object(raw, "operation", "events", "next_cursor")
+	var outer map[string]json.RawMessage
+	if json.Unmarshal(raw, &outer) != nil {
+		return bad()
+	}
+	fields := []string{"operation", "events", "next_cursor"}
+	if _, ok := outer["outcome"]; ok {
+		fields = append(fields, "outcome")
+	}
+	f, err := strictjson.Object(raw, fields...)
 	if err != nil {
 		return bad()
 	}
@@ -150,5 +158,16 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 	if err != nil || (len(events) > 0 && cursor != sequence) {
 		return bad()
 	}
-	return jobs.Status{Operation: op, Events: events, NextCursor: cursor}, nil
+	var outcome *ops.TaskOutcome
+	if value, ok := f["outcome"]; ok {
+		parsed, err := ops.DecodeTaskOutcome(op, value)
+		if err != nil {
+			return bad()
+		}
+		outcome = &parsed
+	}
+	if op.Kind.IsTask() && op.State == ops.Succeeded && outcome == nil {
+		return bad()
+	}
+	return jobs.Status{Operation: op, Events: events, NextCursor: cursor, Outcome: outcome}, nil
 }

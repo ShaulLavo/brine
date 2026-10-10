@@ -49,9 +49,10 @@ type Accepted struct {
 	OperationID string `json:"operation_id"`
 }
 type Status struct {
-	Operation  ops.Operation `json:"operation"`
-	Events     []ops.Event   `json:"events"`
-	NextCursor uint64        `json:"next_cursor"`
+	Operation  ops.Operation    `json:"operation"`
+	Events     []ops.Event      `json:"events"`
+	NextCursor uint64           `json:"next_cursor"`
+	Outcome    *ops.TaskOutcome `json:"outcome,omitempty"`
 }
 type Service struct {
 	Store     Store
@@ -155,7 +156,29 @@ func (s Service) Operation(ctx context.Context, id string, cursor uint64) (Statu
 	for _, event := range events {
 		next = event.Sequence
 	}
-	return Status{Operation: op, Events: events, NextCursor: next}, nil
+	var outcome *ops.TaskOutcome
+	if op.Kind.IsTask() {
+		reader, ok := s.Store.(interface {
+			ReadTaskOutcome(context.Context, string) (*ops.TaskOutcome, error)
+		})
+		if !ok {
+			return Status{}, result.New(result.DependencyMissing, nil)
+		}
+		outcome, err = reader.ReadTaskOutcome(ctx, id)
+		if err != nil {
+			return Status{}, err
+		}
+		if outcome != nil {
+			op, err = s.Store.GetOperation(ctx, id)
+			if err != nil || !outcome.Valid(op) {
+				return Status{}, result.New(result.InternalError, nil)
+			}
+		}
+		if op.State == ops.Succeeded && outcome == nil {
+			return Status{}, result.New(result.InternalError, nil)
+		}
+	}
+	return Status{Operation: op, Events: events, NextCursor: next, Outcome: outcome}, nil
 }
 
 var planIDPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
@@ -182,6 +205,7 @@ type Runner struct {
 	Store           RunnerStore
 	Executor        Executor
 	LockWaitTimeout time.Duration // Zero uses HostLockWaitTimeout; not request-controlled.
+	TaskHandlers    map[ops.Kind]TaskHandler
 }
 
 func (r Runner) Run(ctx context.Context, id string) (err error) {
@@ -197,6 +221,9 @@ func (r Runner) Run(ctx context.Context, id string) (err error) {
 	}
 	if op.Kind == ops.Reconcile {
 		return r.runReconcile(ctx, op)
+	}
+	if op.Kind.IsTask() {
+		return r.runTask(ctx, op)
 	}
 	if op.Kind != ops.Deploy && op.Kind != ops.Resolve {
 		return result.New(result.Conflict, nil)

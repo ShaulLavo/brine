@@ -51,7 +51,7 @@ func (s *Store) WriteReplicaRevision(ctx context.Context, previous data.Rotation
 		return ErrConflict
 	}
 	var pending int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_credential_rotations WHERE binding_id=? AND stage NOT IN ('active','verified')", record.Before.BindingID).Scan(&pending); err != nil || pending != 0 {
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_credential_rotations WHERE binding_id=? AND stage NOT IN ('active','verified','superseded')", record.Before.BindingID).Scan(&pending); err != nil || pending != 0 {
 		return ErrConflict
 	}
 	var prior []byte
