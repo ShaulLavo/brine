@@ -53,7 +53,11 @@ func TestCandidateSchemaBeforeFirstCommittedRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = ro.Close() }()
+	t.Cleanup(func() {
+		if err := ro.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	schema, err := ro.CandidateWriterSchema(ctx, reserved.Database.IncarnationID, desired)
 	if err != nil {
 		t.Fatal(err)
@@ -90,7 +94,11 @@ func TestWriterStartResolutionThreeStates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = ro.Close() }()
+	t.Cleanup(func() {
+		if err := ro.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	resolution, err := ro.ReadWriterStart(ctx, incarnation)
 	if err != nil || resolution.State != WriterStartNone {
 		t.Fatalf("no intent: %+v %v", resolution, err)

@@ -122,3 +122,18 @@ func HostStartupRequested(args []string) bool {
 		return false
 	}
 }
+
+// HostStartupRequested selects only the startup service bundle, never deployment managers.
+func HostStartupRequested(args []string) bool {
+	root := NewRootCommand(Dependencies{Context: context.Background()})
+	command, _, err := root.Find(args)
+	if err != nil || command == nil {
+		return false
+	}
+	switch command.CommandPath() {
+	case "brine host writer-permit", "brine host writer-attempt", "brine host replica-permit", "brine host replica-exec":
+		return true
+	default:
+		return false
+	}
+}
