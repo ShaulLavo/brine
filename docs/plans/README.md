@@ -13,6 +13,7 @@ Start with [the roadmap](../PLAN.md) and [decisions](../DECISIONS.md), then read
 | 06 | [Release and operations](06-release-and-ops.md) | Permission boundaries, drills, distribution |
 | 07 | [Drops and previews](07-drops-and-previews.md) | Temporary sites, short links, git previews |
 | 08 | [WebTransport apps](08-webtransport.md) | App-terminated QUIC/UDP first; shared-port ingress and authorized previews gated separately |
+| 09 | [Managed SpacetimeDB](09-spacetimedb.md) | SQLite-preserving engine boundary, standalone service, fenced backups, reviewed publish and Pi drill |
 
 ## Prompt for an implementation agent
 
