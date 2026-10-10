@@ -8,7 +8,7 @@
 
 ## Current baseline
 
-The existing repo is a Go/Cobra starter with Bubble Tea/Lip Gloss welcome UI, JSON version output, PATH-only doctor and basic CI. It cannot yet deploy, discover remote servers, plan changes, persist operations, configure Caddy, restore SQLite or manage containers. Charm dependencies are currently Bubble Tea **v1**; v2 is stable and P00-05 migrates to it.
+The Go/Cobra CLI implements validation, offline and connected planning, enrollment, detached stateless deployment through Podman/Quadlet/systemd and Caddy, a SQLite control store with durable operation records, app and operation status, logs, diagnosis, reconciliation, supported terminal recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical exit gate](evidence/p03-pi.md) passed. The welcome TUI uses Bubble Tea **v2** and Lip Gloss **v2**; the full operation UI remains later work. Persistent app data, Litestream backup/restore and schema-change operations are not shipped. No production-readiness, zero-downtime or verified R2-restore claim is made.
 
 ## Default architecture
 
