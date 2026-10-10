@@ -44,11 +44,18 @@ func decodeDataInitApply(raw json.RawMessage) (any, error) {
 	return r, nil
 }
 func DataInitializationFailure(err error) error {
+	if err == nil {
+		return nil
+	}
+	var typed *result.Error
+	if errors.As(err, &typed) {
+		return result.Classify(err)
+	}
 	if errors.Is(err, datainit.ErrRecovery) {
 		return result.New(result.RecoveryRequired, nil)
 	}
-	if err != nil {
-		return result.New(result.PolicyRefused, nil)
+	if errors.Is(err, datainit.ErrRefused) {
+		return result.New(result.PolicyRefused, err)
 	}
-	return nil
+	return result.Classify(err)
 }
