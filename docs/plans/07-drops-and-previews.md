@@ -53,6 +53,17 @@
 - [ ] **P07-12** Gate public hosting on abuse and safety controls. Depends on P07-02, P07-03, P07-04, P07-05, and P07-08. This task must pass **before any public drop or public preview**, not after launch. Add aggregate capacity admission, per-host public caps, inbound request/stream limits, outbound spam/scanning limits, and tested security headers. Provide emergency suspend for an existing resource and a disable-new-public switch. Suspension revokes serving/access and stops writers without waiting for normal TTL. Journal requester, reason, incarnation, and outcome for suspension and takedown. Document phishing/abuse response and operator responsibility.
   - Record the accepted shared-domain cookie risk and the reputation risk to `shaulavo.dev`, including phishing, spam, browser blocklists, and certificate/domain limits. Protect the apex and reserved services. Production apps holding sessions should not use `shaulavo.dev` subdomains while drops share it. If third-party code is ever hosted, first move drops to a dedicated domain registered on the Public Suffix List and re-review the threat model. Test emergency controls, quota denial, outbound abuse limits, and all applicable negative browser/runtime tests above. Private drops remain subject to resource and isolation limits too.
 
+## Future consumer: Fregat previews
+
+**Status: Approved, scheduled after this phase's core (owner, 2026-10-10).** Fregat, the owner's main monorepo, may later use Brine as its Vercel-like preview backend. Nothing here is built yet. These requirements shape the Phase 07 design now so they don't need a rewrite later:
+
+- **Private, tailnet-only previews.** Fregat is not meant to be public. A preview must be reachable only from the owner's tailnet, with no public DNS name or public listener. Fregat already authenticates its own users and checks tailnet membership. Brine needs a preview exposure mode where the network boundary (tailnet-only) is the access control and the app does its own sign-in, without Brine's public viewer gateway in front. That mode must still refuse to publish the preview on a public address.
+- **Locked-down network is acceptable.** Server previews keep P07-08a's no-network or tightly restricted egress. Fregat previews run its mock model provider instead of real Claude or Codex, so no preview needs credentials or open internet. Do not relax egress for Fregat.
+- **Larger uploads.** The P07-03 64 MiB total-output default may be too small for Fregat's web build, whose size isn't measured or gated yet. Measure the real build first. Then let operator policy raise the upload and decompressed-size limits per target or preview class within an absolute ceiling, instead of only configuring them downward. Every bound stays explicit and decompression-bomb checks remain.
+- **More than static.** Fregat needs server previews, not just static drops, so the server-drop isolation work (P07-08, P07-08a) is on Fregat's path.
+
+Before building this, write a short Fregat-specific task list against the finished Phase 07 tasks. Fregat's own repo (`/work/projects/platform`) documents what its previews need.
+
 ## Exit gate
 
 No task is checked until its implementation and acceptance evidence exist. P07-11 is deferred and does not block this gate.
