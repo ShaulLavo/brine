@@ -37,6 +37,9 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 	if err = tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
+	if _, err = db.Exec("CREATE TABLE plan_inputs(id TEXT PRIMARY KEY,canonical BLOB NOT NULL)"); err != nil {
+		t.Fatal(err)
+	}
 	legacy := &Store{db: db, dir: dir}
 	r := release(t, legacy, "initial-release")
 	r.Units = r.Units[:1]
@@ -76,6 +79,9 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 		if _, err = db.Exec("INSERT INTO events VALUES(?,?,?,?,?,?)", id, i+1, "step", "", raw, stamp); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err = db.Exec("DROP TABLE plan_inputs"); err != nil {
+		t.Fatal(err)
 	}
 	if err = db.Close(); err != nil {
 		t.Fatal(err)

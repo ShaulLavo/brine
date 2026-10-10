@@ -9,6 +9,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -174,7 +175,7 @@ func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desi
 	}
 	rebuilt, err := fresh.CanonicalBytes()
 	if err != nil || !bytes.Equal(original, rebuilt) {
-		return result.New(result.Conflict, nil)
+		return result.New(result.Conflict, errors.Join(err, ops.RecordPlanDrift(ctx, e.Service.Store, id, p, fresh)))
 	}
 	engine := e.Engine
 	engine.Facts = fixedFacts{facts}
