@@ -303,3 +303,7 @@ Final local checks passed: `go test ./...` (all 30 packages), `go vet ./...`, `g
 Merged `origin/main` (`1d44dc8`) into this lane without rebasing. Built client/Linux arm64 binaries and installed the host executable through the previously authorized binary-only replacement, preserving the prior executable privately. Protected enrollment provenance remains unchanged. The retained-secret blocker above is historical and is fixed by #52.
 
 Recreation plan became `create` and operation `01a1236cd3356ea0b3b2c71ff7b8cfb80d47822b7b30` succeeded, binding retained secret v1. Direct HTTP and normally verified routed HTTPS both returned 200. Runtime/history were not purged. Default-deadline local tests timed out cumulatively in the progressing filesystem-effect suite (first at `remove/error/18-removed`, then at parent-sync checks; stacks showed `File.Sync`). A bounded 30-minute full-suite run with test fixtures on the data SSD is running; this is not evidence of a failed app operation.
+
+### Environment and image update
+
+Operation `01a1236d9d259f648697d9740960c4ceab49cf3cd42a` succeeded with `RELEASE=two` and the new pinned index `sha256:7377697a821c131a924a7105fafbe7414db4e9fcc77a6f08f776f33f141ec3f8`. Runtime inspection confirms the environment change and routed HTTPS returns 200. The journal orders completed `quiesce_old` before `install_unit`, `reload_units` and `start_unit`; deployment is stop-before-start, not zero downtime. Both direct/routed checks and commit completed.
