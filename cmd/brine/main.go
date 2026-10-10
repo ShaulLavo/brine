@@ -34,6 +34,7 @@ func main() {
 		Stdout:                os.Stdout,
 		Stderr:                os.Stderr,
 		Version:               cli.Version,
+		HostWriterAttempt:     host.WriterAttempt,
 		LookPath:              exec.LookPath,
 		RunTUI: func(ctx context.Context, _ io.Reader, stdout io.Writer) error {
 			return cli.RunTUI(ctx, nil, stdout)

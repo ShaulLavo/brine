@@ -2,8 +2,13 @@ package replicapermits
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/target"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -13,10 +18,13 @@ import (
 )
 
 type permitStoreFake struct {
-	permit store.ReplicaPermit
-	schema store.WriterSchema
-	err    error
-	reads  int
+	permit         store.ReplicaPermit
+	schema         store.WriterSchema
+	err            error
+	reads          int
+	start          store.WriterStartResolution
+	candidateReads int
+	committedReads int
 }
 
 func (f *permitStoreFake) ReadReplicaPermitByBinding(context.Context, data.ReplicaBindingID) (store.ReplicaPermit, error) {
@@ -29,6 +37,7 @@ func (f *permitStoreFake) ReadWriterPermits(context.Context, data.AppIncarnation
 }
 func (f *permitStoreFake) ReadWriterSchema(context.Context, data.AppIncarnationID) (store.WriterSchema, error) {
 	f.reads++
+	f.committedReads++
 	return f.schema, f.err
 }
 
@@ -108,7 +117,7 @@ func TestStorePermitsRefuseUnsettledOrInconsistentProjection(t *testing.T) {
 func TestStoreWriterPermitsNeverCacheSchemaCompatibility(t *testing.T) {
 	p, b, raw := storePermitFixture(t)
 	state := &permitStoreFake{permit: p}
-	r := StorePermits{State: state, Configs: configFilesFake{raw: raw}}
+	r := StorePermits{State: state, Configs: configFilesFake{raw: raw}, Writers: &writerEvidenceFake{match: true}}
 	if err := replication.WriterPermit(context.Background(), r, b.IncarnationID); !errors.Is(err, replication.ErrPermit) {
 		t.Fatal("missing current schema allowed", err)
 	}
@@ -116,7 +125,146 @@ func TestStoreWriterPermitsNeverCacheSchemaCompatibility(t *testing.T) {
 	if err := replication.WriterPermit(context.Background(), r, b.IncarnationID); !errors.Is(err, replication.ErrPermit) {
 		t.Fatal("missing fresh on-disk schema allowed", err)
 	}
-	if state.reads != 4 {
+	if state.reads != 6 {
 		t.Fatal("schema or permits cached", state.reads)
+	}
+}
+
+func (f *permitStoreFake) ReadWriterStart(context.Context, data.AppIncarnationID) (store.WriterStartResolution, error) {
+	f.reads++
+	if f.start.State == "" {
+		return store.WriterStartResolution{State: store.WriterStartNone}, f.err
+	}
+	return f.start, f.err
+}
+func (f *permitStoreFake) CandidateWriterSchema(context.Context, data.AppIncarnationID, policy.Desired) (store.WriterSchema, error) {
+	f.candidateReads++
+	return f.schema, f.err
+}
+
+type writerEvidenceFake struct {
+	active, match          bool
+	err                    error
+	activeReads, unitReads int
+}
+
+func (f *writerEvidenceFake) OperationActive(context.Context, string) (bool, error) {
+	f.activeReads++
+	return f.active, f.err
+}
+func (f *writerEvidenceFake) CommittedUnitsMatch(context.Context, []target.Unit) (bool, error) {
+	f.unitReads++
+	return f.match, f.err
+}
+func allocatedWriterFixture(t *testing.T) (StorePermits, *permitStoreFake, *writerEvidenceFake, string) {
+	t.Helper()
+	p, b, _ := storePermitFixture(t)
+	root := t.TempDir()
+	relative, err := data.RelativeDirectory(p.Database.IncarnationID, p.Database.DatabaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.MkdirAll(filepath.Join(root, relative), 0700); err != nil {
+		t.Fatal(err)
+	}
+	p.Database.Name = "main"
+	p.Database.Root = data.PersistentRoot(root)
+	p.Database.RelativeDirectory = relative
+	p.Database.Filename = "app.db"
+	p.Database.MountPath = "/data"
+	p.DBPath = filepath.Join(root, relative, "app.db")
+	b.DBPath = p.DBPath
+	raw, err := replication.RenderConfig(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Replica.ConfigContent = string(raw)
+	p.Replica.ConfigSHA256 = strings.TrimPrefix(replication.ConfigHash(raw), "sha256:")
+	receipt, err := data.CaptureAllocation(p.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := &permitStoreFake{permit: p, schema: store.WriterSchema{ReleaseID: "release", Bindings: []data.DatabaseBinding{p.Database}, Desired: policy.Desired{SchemaCompatibility: []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}}, Allocations: map[data.DatabaseID]data.AllocationReceipt{p.Database.DatabaseID: receipt}, Units: []target.Unit{{Name: "app.container", Hash: "sha256:" + strings.Repeat("a", 64)}}}}
+	evidence := &writerEvidenceFake{active: true, match: true}
+	return StorePermits{State: state, Configs: configFilesFake{raw: raw}, Writers: evidence}, state, evidence, b.IncarnationID
+}
+func TestPendingWriterRequiresLiveOperationAndNeverFallsBack(t *testing.T) {
+	r, state, evidence, id := allocatedWriterFixture(t)
+	state.start = store.WriterStartResolution{State: store.WriterStartPending, Intent: &store.WriterStartIntent{OperationID: "operation", IncarnationID: data.AppIncarnationID(id), Desired: state.schema.Desired}}
+	if err := replication.WriterPermit(context.Background(), r, id); err != nil {
+		t.Fatal(err)
+	}
+	if state.candidateReads != 1 || state.committedReads != 0 {
+		t.Fatal("wrong schema authority")
+	}
+	evidence.active = false
+	if replication.WriterPermit(context.Background(), r, id) == nil {
+		t.Fatal("reboot intent admitted")
+	}
+	state.start.State = store.WriterStartInvalid
+	if replication.WriterPermit(context.Background(), r, id) == nil {
+		t.Fatal("invalid intent fell back")
+	}
+	if state.committedReads != 0 {
+		t.Fatal("candidate fell back to old release")
+	}
+}
+func TestCommittedWriterRequiresOwnedUnitsAndFreshAllocation(t *testing.T) {
+	r, state, evidence, id := allocatedWriterFixture(t)
+	if err := replication.WriterPermit(context.Background(), r, id); err != nil {
+		t.Fatal(err)
+	}
+	evidence.match = false
+	if replication.WriterPermit(context.Background(), r, id) == nil {
+		t.Fatal("foreign installed unit admitted")
+	}
+	evidence.match = true
+	state.schema.Allocations = nil
+	if replication.WriterPermit(context.Background(), r, id) == nil {
+		t.Fatal("missing receipt inferred untouched after crash")
+	}
+	evidence.err = errors.New("unknown")
+	if replication.WriterPermit(context.Background(), r, id) == nil {
+		t.Fatal("unknown unit admitted")
+	}
+}
+
+func TestWriterUsesRegistryDefinitionsAndObservesSchemaAfresh(t *testing.T) {
+	r, state, _, id := allocatedWriterFixture(t)
+	db, err := sql.Open("sqlite", state.permit.DBPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err = db.Exec("CREATE TABLE t(x TEXT);" + data.MarkerTableSQL); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Chmod(state.permit.DBPath, 0600); err != nil {
+		t.Fatal(err)
+	}
+	statement := "CREATE TABLE t(x TEXT)"
+	_, hash, err := data.CatalogFingerprint([]data.CatalogRow{{Type: "table", Name: "t", TableName: "t", SQL: &statement}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("INSERT INTO brine_schema_marker VALUES(1,?,?)", "v1", hash); err != nil {
+		t.Fatal(err)
+	}
+	state.schema.Allocations = nil
+	state.schema.Desired.SchemaCompatibility[0].Accepts = []string{"v1"}
+	state.schema.Definitions = []data.SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: hash}}
+	// Candidate declarations are not the authoritative registry definition.
+	state.schema.Desired.SchemaDefinitions = []data.SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("f", 64)}}
+	if err := replication.WriterPermit(context.Background(), r, id); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("CREATE TABLE changed(x TEXT)"); err != nil {
+		t.Fatal(err)
+	}
+	if replication.WriterPermit(context.Background(), r, id) == nil {
+		t.Fatal("schema verdict cached across catalog change")
 	}
 }

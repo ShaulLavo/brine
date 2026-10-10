@@ -112,7 +112,7 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	}
 	b.WriteString("\n[Service]\nRestart=on-failure\n")
 	if persistent.runtime != nil {
-		fmt.Fprintf(&b, "UMask=0077\nExecStartPre=/usr/local/bin/brine host writer-permit %s\n", persistent.incarnation)
+		fmt.Fprintf(&b, "UMask=0077\nExecStartPre=/usr/local/bin/brine host writer-permit %s\nExecStartPre=/usr/local/bin/brine host writer-attempt %s\n", persistent.incarnation, persistent.incarnation)
 	}
 	b.WriteString("\n[Install]\nWantedBy=default.target\n")
 	return Unit{name: string(d.Name) + ".container", content: b.String()}, nil

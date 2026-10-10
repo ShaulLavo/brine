@@ -5,8 +5,10 @@ import (
 	"context"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 // PermitStore is read-only. Production composition must use store.OpenReadOnly.
@@ -14,9 +16,18 @@ type PermitStore interface {
 	ReadReplicaPermitByBinding(context.Context, data.ReplicaBindingID) (store.ReplicaPermit, error)
 	ReadWriterPermits(context.Context, data.AppIncarnationID) ([]store.ReplicaPermit, error)
 	ReadWriterSchema(context.Context, data.AppIncarnationID) (store.WriterSchema, error)
+	ReadWriterStart(context.Context, data.AppIncarnationID) (store.WriterStartResolution, error)
+	CandidateWriterSchema(context.Context, data.AppIncarnationID, policy.Desired) (store.WriterSchema, error)
+}
+
+// WriterEvidence observes the running operation and installed committed units afresh.
+type WriterEvidence interface {
+	OperationActive(context.Context, string) (bool, error)
+	CommittedUnitsMatch(context.Context, []target.Unit) (bool, error)
 }
 
 type StorePermits struct {
+	Writers WriterEvidence
 	State   PermitStore
 	Configs replication.ConfigFiles
 }
@@ -41,8 +52,8 @@ func (r StorePermits) ReadWriterPermits(ctx context.Context, incarnation string)
 	if err != nil || len(permits) == 0 {
 		return nil, replication.ErrPermit
 	}
-	schema, err := r.State.ReadWriterSchema(ctx, id)
-	if err != nil || schema.ReleaseID == "" || len(schema.Bindings) != len(permits) {
+	schema, err := r.writerSchema(ctx, id)
+	if err != nil || len(schema.Bindings) != len(permits) {
 		return nil, replication.ErrPermit
 	}
 	bindings := make(map[data.DatabaseID]data.DatabaseBinding, len(schema.Bindings))
@@ -68,7 +79,7 @@ func (r StorePermits) ReadWriterPermits(ctx context.Context, incarnation string)
 		}
 		states = append(states, state)
 	}
-	if !data.WriterCompatible(ctx, schema.Bindings, schema.Desired.SchemaCompatibility, schema.Desired.SchemaDefinitions) || ctx.Err() != nil {
+	if !data.WriterCompatibleWithAllocations(ctx, schema.Bindings, schema.Desired.SchemaCompatibility, schema.Definitions, schema.Allocations) || ctx.Err() != nil {
 		return nil, replication.ErrPermit
 	}
 	for i := range states {
@@ -105,4 +116,40 @@ func (r StorePermits) project(ctx context.Context, p store.ReplicaPermit) (repli
 		return replication.PermitState{}, replication.ErrPermit
 	}
 	return replication.PermitState{Binding: binding, Config: disk, ConfigHash: hash, ConfigPath: p.ConfigPath, CredentialPath: p.CredentialPath, LifetimeLock: p.LifetimeLockPath, Fence: replication.FenceState(p.FenceState), Ownership: replication.DestinationOwnership(p.DestinationOwnership), SourceSettled: p.SourceSettled}, nil
+}
+
+func (r StorePermits) writerSchema(ctx context.Context, id data.AppIncarnationID) (store.WriterSchema, error) {
+	if r.Writers == nil {
+		return store.WriterSchema{}, replication.ErrPermit
+	}
+	start, err := r.State.ReadWriterStart(ctx, id)
+	if err != nil || ctx.Err() != nil {
+		return store.WriterSchema{}, replication.ErrPermit
+	}
+	switch start.State {
+	case store.WriterStartPending:
+		if start.Intent == nil || start.Intent.IncarnationID != id || start.Intent.OperationID == "" {
+			return store.WriterSchema{}, replication.ErrPermit
+		}
+		active, err := r.Writers.OperationActive(ctx, start.Intent.OperationID)
+		if err != nil || !active || ctx.Err() != nil {
+			return store.WriterSchema{}, replication.ErrPermit
+		}
+		return r.State.CandidateWriterSchema(ctx, id, start.Intent.Desired)
+	case store.WriterStartNone:
+		if start.Intent != nil {
+			return store.WriterSchema{}, replication.ErrPermit
+		}
+		schema, err := r.State.ReadWriterSchema(ctx, id)
+		if err != nil || schema.ReleaseID == "" || len(schema.Units) == 0 {
+			return store.WriterSchema{}, replication.ErrPermit
+		}
+		matches, err := r.Writers.CommittedUnitsMatch(ctx, schema.Units)
+		if err != nil || !matches || ctx.Err() != nil {
+			return store.WriterSchema{}, replication.ErrPermit
+		}
+		return schema, nil
+	default:
+		return store.WriterSchema{}, replication.ErrPermit
+	}
 }

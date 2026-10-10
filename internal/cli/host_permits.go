@@ -8,7 +8,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// These checks must never use the mutating host runtime or its store migrations.
+// Permits are read-only. The separate attempt command uses only its narrow
+// composition, never the full mutating host runtime.
 func newHostPermitCommands(deps Dependencies) []*cobra.Command {
 	writer := &cobra.Command{Use: "writer-permit INCARNATION", Hidden: true, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
@@ -25,7 +26,15 @@ func newHostPermitCommands(deps Dependencies) []*cobra.Command {
 		defer cancel()
 		return replication.ReplicaExec(ctx, deps.HostPermits, replication.ReplicaExecRequest{ReplicaPermitRequest: permitRequest(args), ConfigPath: args[4], CredentialPath: args[5]}, replaceReplicaProcess)
 	}}
-	return []*cobra.Command{writer, replica, execute}
+	attempt := &cobra.Command{Use: "writer-attempt INCARNATION", Hidden: true, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
+		defer cancel()
+		if deps.HostWriterAttempt == nil {
+			return replication.ErrPermit
+		}
+		return deps.HostWriterAttempt(ctx, args[0])
+	}}
+	return []*cobra.Command{writer, attempt, replica, execute}
 }
 func permitRequest(args []string) replication.ReplicaPermitRequest {
 	return replication.ReplicaPermitRequest{DatabaseID: args[0], BindingID: args[1], EpochID: args[2], ConfigHash: args[3]}

@@ -47,6 +47,11 @@ func TestPersistentRenderIdentityMountAndIndependentReplicaOrdering(t *testing.T
 			t.Fatalf("missing %q in %s", want, text)
 		}
 	}
+	permit := "ExecStartPre=/usr/local/bin/brine host writer-permit " + string(p.DataMounts[0].Database.IncarnationID) + "\n"
+	attempt := "ExecStartPre=/usr/local/bin/brine host writer-attempt " + string(p.DataMounts[0].Database.IncarnationID) + "\n"
+	if !strings.Contains(text, permit+attempt) {
+		t.Fatal("absence evidence not consumed after read-only permit", text)
+	}
 	for _, forbidden := range []string{"PartOf=", "BindsTo=", ":ro", "EnvironmentFile="} {
 		if strings.Contains(text, forbidden) {
 			t.Fatal("coupled replica or leaked credentials", forbidden)
