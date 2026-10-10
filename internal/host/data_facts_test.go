@@ -40,12 +40,50 @@ func persistentHostFixture(t *testing.T) (*store.Store, policy.Desired, DataFact
 	destination := data.Destination{Reference: "primary", Endpoint: "https://storage.example", Region: "region-1", Bucket: "backups", BasePrefix: "brine", CredentialRef: "primary"}
 	d := policy.Desired{SchemaVersion: 1, AppPorts: policy.PortRange{Min: 20000, Max: 20100}, PolicyVersion: "fixture", Image: spec.ImageReference("ghcr.io/team/hello@sha256:" + strings.Repeat("a", 64)), Name: "hello", PolicyHash: "sha256:" + strings.Repeat("a", 64), Runtime: &data.RuntimeIdentity{UID: 10001, GID: 10001}, Backup: &cadence, Databases: []data.Database{{Name: "main", PersistentRoot: data.PersistentRoot(root), MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}, PersistentRoots: []data.PersistentRoot{data.PersistentRoot(root)}, BackupDestinations: []data.Destination{destination}, SchemaCompatibility: []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}, BackupRetention: []data.RetentionEvidence{{Destination: "primary", Endpoint: destination.Endpoint, Bucket: destination.Bucket, BasePrefix: destination.BasePrefix, VerificationID: strings.Repeat("b", 32), VerifiedAt: now.Add(-time.Minute).Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}}}
 	f := DataFacts{Store: s, ProbeRoot: func(ctx context.Context, path string) (data.RootEvidence, error) { return data.ProbeRoot(ctx, path) }, ProbeMapping: func(_ context.Context, _ localexec.Runner, r data.RootEvidence, identity data.RuntimeIdentity) (data.MappingEvidence, error) {
-		return data.MappingEvidence{Runtime: identity, Root: r.Root, Device: r.Device, RunnerUID: 1000, RunnerGID: 1000, Image: "probe", KeepID: true, PrivateModes: true, HostReadWrite: true, ContainerReadWrite: true, ObservedAt: now}, nil
+		return data.MappingEvidence{Runtime: identity, Root: r.Root, Device: r.Device, RunnerUID: 1000, RunnerGID: 1000, Image: data.MappingProbeImage, KeepID: true, PrivateModes: true, HostReadWrite: true, ContainerReadWrite: true, ObservedAt: now}, nil
 	}}
 	return s, d, f
 }
 func collectPersistent(t *testing.T, f DataFacts, d policy.Desired) target.PersistentDatabase {
 	t.Helper()
+	// Tests explicitly provision approved data before asking the read-only observer.
+	if _, err := f.Store.ActiveDataIncarnation(context.Background(), string(d.Name)); errors.Is(err, store.ErrNotFound) {
+		for _, declaration := range d.Databases {
+			var destination data.Destination
+			for _, candidate := range d.BackupDestinations {
+				if candidate.Reference == declaration.BackupDestination {
+					destination = candidate
+				}
+			}
+			reserved, err := f.Store.ReserveDatabase(context.Background(), store.DataReservation{App: string(d.Name), PolicyHash: d.PolicyHash, Database: declaration, Destination: destination})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err = data.PrepareDirectory(reserved.Database); err != nil {
+				t.Fatal(err)
+			}
+			receipt, err := data.CaptureAllocation(reserved.Database)
+			if err != nil {
+				t.Fatal(err)
+			}
+			rootProof, proofErr := f.ProbeRoot(context.Background(), string(reserved.Database.Root))
+			if proofErr != nil {
+				t.Fatal(proofErr)
+			}
+			mappingProof, proofErr := f.ProbeMapping(context.Background(), f.Runner, rootProof, *d.Runtime)
+			if proofErr != nil {
+				t.Fatal(proofErr)
+			}
+			receipt.RootProof = &rootProof
+			receipt.MappingProof = &mappingProof
+			if err = f.Store.RecordAllocation(context.Background(), receipt); err != nil {
+				t.Fatal(err)
+			}
+			if err = f.Store.RegisterSchemaDefinitions(context.Background(), reserved.Database.IncarnationID, d.SchemaDefinitions); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	facts, err := f.Collect(context.Background(), d)
 	if err != nil || facts.Status != target.KnownStatus || facts.Value == nil || len(*facts.Value) != 1 {
 		t.Fatalf("facts: %+v %v", facts, err)
@@ -211,5 +249,34 @@ func TestDataFactsRetainSchemaRegistryAfterCandidateRemap(t *testing.T) {
 	}
 	if !found || changed.Schema.State != data.AllocatedEmpty {
 		t.Fatal("retained evidence lost after rejected remap")
+	}
+}
+
+func TestDataFactsUnapprovedRenameCannotPoisonIncarnation(t *testing.T) {
+	state, desired, facts := persistentHostFixture(t)
+	original := collectPersistent(t, facts, desired)
+	changed := desired
+	changed.Databases = append([]data.Database(nil), desired.Databases...)
+	changed.SchemaCompatibility = append([]data.SchemaCompatibility(nil), desired.SchemaCompatibility...)
+	changed.Databases[0].Name = "renamed"
+	changed.SchemaCompatibility[0].Database = "renamed"
+	_, _ = facts.Collect(context.Background(), changed)
+	if _, err := state.CandidateWriterSchema(context.Background(), original.Database.IncarnationID, desired); err != nil {
+		t.Fatal("unapproved rename poisoned original writer", err)
+	}
+}
+
+func TestDataFactsFreshCollectionCreatesNoReservationOrData(t *testing.T) {
+	state, desired, facts := persistentHostFixture(t)
+	observation, err := facts.Collect(context.Background(), desired)
+	if err != nil || observation.Status != target.Unknown {
+		t.Fatal("unallocated data claimed known", observation, err)
+	}
+	if _, err = state.ActiveDataIncarnation(context.Background(), string(desired.Name)); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("inventory allocated identity", err)
+	}
+	entries, err := os.ReadDir(string(desired.Databases[0].PersistentRoot))
+	if err != nil || len(entries) != 0 {
+		t.Fatal("inventory created data", entries, err)
 	}
 }

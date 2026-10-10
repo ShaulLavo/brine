@@ -37,7 +37,12 @@ func (s *preparedServices) ReplicaStopped(context.Context, string) (bool, error)
 func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *testing.T) {
 	ctx := context.Background()
 	_, desired, facts := persistentHostFixture(t)
-	stateRoot, err := os.MkdirTemp(os.TempDir(), "")
+	id, err := data.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot := filepath.Join(os.TempDir(), "b-"+id[:6])
+	err = os.Mkdir(stateRoot, 0700) //nolint:gosec // Private short socket fixture requires directory traversal.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +80,7 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 		}
 		return systemd.Properties{ActiveState: "inactive", SubState: "dead"}, nil
 	}}
-	preparation := DataPreparation{State: state, StateRoot: stateRoot, Home: home, Permits: replicapermits.StorePermits{State: state, Configs: replication.DiskConfigs{}}, Publisher: replication.ArtifactPublisher{StateRoot: stateRoot, UnitRoot: filepath.Join(home, ".config/systemd/user")}, Services: services, Units: manager}
+	preparation := DataPreparation{Runner: &preparationPullRunner{}, ProbeRoot: facts.ProbeRoot, ProbeMapping: facts.ProbeMapping, State: state, StateRoot: stateRoot, Home: home, Permits: replicapermits.StorePermits{State: state, Configs: replication.DiskConfigs{}}, Publisher: replication.ArtifactPublisher{StateRoot: stateRoot, UnitRoot: filepath.Join(home, ".config/systemd/user")}, Services: services, Units: manager}
 	planned := plan.Plan{DataCredentials: []data.CredentialEvidence{{BindingID: record.BindingID, EpochID: record.EpochID, Destination: record.Destination, Reference: record.CredentialRef, Version: record.Version, PolicyHash: record.PolicyHash, ReceivedAt: record.ReceivedAt}}, DataMounts: []data.Mount{{Database: fact.Database, HostPath: filepath.Join(string(fact.Database.Root), fact.Database.RelativeDirectory), ContainerPath: fact.Database.MountPath, BindingID: fact.Database.ReplicaBindingID}}}
 	if ready, _ := preparation.PersistentPrepared(ctx, "fixture", planned, desired); ready {
 		t.Fatal("unpublished artifacts claimed prepared")

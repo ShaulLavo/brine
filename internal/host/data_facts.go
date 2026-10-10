@@ -9,7 +9,6 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
-	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/store"
@@ -20,9 +19,8 @@ type PersistentFacts interface {
 	Collect(context.Context, policy.Desired) (target.Observation[[]target.PersistentDatabase], error)
 }
 
-// DataFacts is invoked under the host mutation lock. Root/mapping admission
-// precedes reservations and private directory allocation; host effects never
-// happen in store. Planning can allocate identity, never initialize SQLite.
+// DataFacts observes existing approved reservations. It never allocates identities,
+// data directories, receipts or schema definitions while inventory/planning runs.
 type DataFacts struct {
 	StateRoot     string
 	Store         *store.Store
@@ -37,39 +35,11 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 	if f.Store == nil || desired.Runtime == nil || len(desired.Databases) == 0 {
 		return unknown, nil
 	}
-	probeRoot := f.ProbeRoot
-	if probeRoot == nil {
-		probeRoot = data.ProbeRoot
-	}
-	probeMapping := f.ProbeMapping
-	if probeMapping == nil {
-		probeMapping = inventory.ProbeDataMapping
+	if _, err := f.InspectPreparationRoots(ctx, desired); err != nil {
+		return unknown, nil //nolint:nilerr // Unsafe policy-root inspection remains unknown evidence.
 	}
 	roots := map[data.PersistentRoot]data.RootEvidence{}
 	mappings := map[data.PersistentRoot]data.MappingEvidence{}
-	for _, declaration := range desired.Databases {
-		if !slices.Contains(desired.PersistentRoots, declaration.PersistentRoot) {
-			return unknown, nil
-		}
-		for _, excluded := range f.ExcludedRoots {
-			if data.OverlappingPaths(string(declaration.PersistentRoot), excluded) {
-				return unknown, nil
-			}
-		}
-		if _, ok := roots[declaration.PersistentRoot]; ok {
-			continue
-		}
-		root, err := probeRoot(ctx, string(declaration.PersistentRoot))
-		if err != nil || !root.Admits(declaration.PersistentRoot, desired.MinimumFreeDiskBytes) {
-			return unknown, nil //nolint:nilerr // Probe failure is unknown decision evidence, never admission.
-		}
-		mapping, err := probeMapping(ctx, f.Runner, root, *desired.Runtime)
-		if err != nil || !mapping.Admits(*desired.Runtime, root) {
-			return unknown, nil //nolint:nilerr // Probe failure is unknown decision evidence, never admission.
-		}
-		roots[declaration.PersistentRoot] = root
-		mappings[declaration.PersistentRoot] = mapping
-	}
 	reservations := make([]store.ReservedDatabase, 0, len(desired.Databases))
 	for _, declaration := range desired.Databases {
 		var destination data.Destination
@@ -83,38 +53,16 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 		if !found {
 			return unknown, nil
 		}
-		reserved, err := f.Store.ReserveDatabase(ctx, store.DataReservation{App: string(desired.Name), PolicyHash: desired.PolicyHash, Database: declaration, Destination: destination})
+		reserved, err := f.Store.ExistingDatabase(ctx, store.DataReservation{App: string(desired.Name), PolicyHash: desired.PolicyHash, Database: declaration, Destination: destination})
+		if errors.Is(err, store.ErrNotFound) || errors.Is(err, store.ErrConflict) {
+			return unknown, nil
+		}
 		if err != nil {
 			return unknown, err
-		}
-		history, err := f.Store.AllocationHistory(ctx, reserved.Database.DatabaseID)
-		if err != nil {
-			return unknown, err
-		}
-		if !history {
-			if _, err = data.PrepareDirectory(reserved.Database); err != nil {
-				return unknown, err
-			}
-		}
-		receipt, err := f.Store.ReadAllocation(ctx, reserved.Database.DatabaseID)
-		if err != nil {
-			return unknown, err
-		}
-		if receipt == nil {
-			if fresh, err := data.CaptureAllocation(reserved.Database); err == nil {
-				// Existing history refuses replacing an absence proof. Continue with unknown
-				// schema rather than repairing it or treating a missing old DB as empty.
-				if err = f.Store.RecordAllocation(ctx, fresh); err != nil && !errors.Is(err, store.ErrConflict) {
-					return unknown, err
-				}
-			}
 		}
 		reservations = append(reservations, reserved)
 	}
 	incarnation := reservations[0].Database.IncarnationID
-	if err := f.Store.RegisterSchemaDefinitions(ctx, incarnation, desired.SchemaDefinitions); err != nil && !errors.Is(err, store.ErrConflict) {
-		return unknown, err
-	}
 	definitions, err := f.Store.ReadSchemaDefinitions(ctx, incarnation)
 	if err != nil {
 		return unknown, err
@@ -126,6 +74,25 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 		if err != nil {
 			return unknown, err
 		}
+		proofReceipt, proofErr := f.Store.ReadPreparationEvidence(ctx, b.DatabaseID)
+		if proofErr != nil {
+			return unknown, proofErr
+		}
+		if proofReceipt == nil || proofReceipt.RootProof == nil || proofReceipt.MappingProof == nil {
+			return unknown, nil
+		}
+		root, err := data.InspectRoot(string(b.Root))
+		proof := proofReceipt.RootProof
+		if err != nil || root.Root != proof.Root || root.Device != proof.Device || root.Inode != proof.Inode || root.Filesystem != proof.Filesystem {
+			return unknown, nil //nolint:nilerr // Root identity inspection failure cannot become admission.
+		}
+		root.POSIXLocks = proof.POSIXLocks
+		root.DurableRename = proof.DurableRename
+		if !root.Admits(b.Root, desired.MinimumFreeDiskBytes) || !proofReceipt.MappingProof.Admits(*desired.Runtime, root) {
+			return unknown, nil
+		}
+		roots[b.Root] = root
+		mappings[b.Root] = *proofReceipt.MappingProof
 		schema := data.ObserveSchemaWithAllocation(ctx, b, definitions, receipt)
 		permit, err := f.Store.ReadReplicaPermit(ctx, b.DatabaseID)
 		if err != nil {
@@ -169,4 +136,34 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 
 func PersistentExcludedRoots(home, stateDir string) []string {
 	return []string{stateDir, filepath.Join(home, ".config/containers"), filepath.Join(home, ".config/systemd"), filepath.Join(home, ".local/share/containers")}
+}
+
+// InspectPreparationRoots reads policy-authorized ancestry and capacity without
+// running filesystem probes, pulling images, or claiming mapping safety.
+func (f DataFacts) InspectPreparationRoots(ctx context.Context, desired policy.Desired) ([]data.RootEvidence, error) {
+	roots := []data.RootEvidence{}
+	seen := map[data.PersistentRoot]bool{}
+	for _, declaration := range desired.Databases {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		if !slices.Contains(desired.PersistentRoots, declaration.PersistentRoot) {
+			return nil, data.ErrInvalid
+		}
+		for _, excluded := range f.ExcludedRoots {
+			if data.OverlappingPaths(string(declaration.PersistentRoot), excluded) {
+				return nil, data.ErrInvalid
+			}
+		}
+		if seen[declaration.PersistentRoot] {
+			continue
+		}
+		seen[declaration.PersistentRoot] = true
+		root, err := data.InspectRoot(string(declaration.PersistentRoot))
+		if err != nil {
+			return nil, err
+		}
+		roots = append(roots, root)
+	}
+	return roots, nil
 }

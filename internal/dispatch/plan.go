@@ -53,3 +53,16 @@ func decodePlanned(raw json.RawMessage) (Planned, error) {
 	}
 	return p, nil
 }
+
+type PreparationPlanner interface {
+	PlanDataPreparation(context.Context, spec.App) (Planned, error)
+}
+type preparationArgs struct{ App spec.App }
+
+func decodePreparation(raw json.RawMessage) (any, error) {
+	value, err := decodePlan(raw)
+	if err != nil {
+		return nil, err
+	}
+	return preparationArgs{App: value.(spec.App)}, nil
+}
