@@ -59,7 +59,8 @@ func TestManifestObservationEncoding(t *testing.T) {
 			if err := json.Unmarshal(encoded, &decoded); err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(p, decoded) {
+			reencoded, err := decoded.CanonicalBytes()
+			if err != nil || string(encoded) != string(reencoded) {
 				t.Fatal("canonical round trip changed plan")
 			}
 		})

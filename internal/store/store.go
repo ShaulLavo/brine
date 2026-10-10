@@ -34,7 +34,7 @@ type Release = ops.Release
 
 const MaxEventBytes = ops.MaxEventBytes
 const MaxPlanBytes = 16 << 20
-const SchemaVersion = 9
+const SchemaVersion = 10
 
 var ErrNotFound = errors.New("control record not found")
 var ErrConflict = errors.New("conflicting control record")
@@ -214,6 +214,11 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 			return err
 		}
 	}
+	if version < 10 {
+		if err = migratePlanInputs(ctx, tx); err != nil {
+			return err
+		}
+	}
 	// Transitions are the current per-kind journal contract. Add new supported
 	// edges transactionally without changing durable operation identities.
 	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet, ops.Reconcile, ops.Resolve, ops.RestoreTest, ops.CredentialActivation, ops.DataInitApply} {
@@ -298,6 +303,22 @@ func (s *Store) SavePlan(ctx context.Context, p plan.Plan, d policy.Desired) (Pl
 	if !bytes.Equal(b, oldB) || !bytes.Equal(desired, oldD) || oldHash != digest(b) || oldDH != p.DesiredHash {
 		return "", ErrConflict
 	}
+	input := p.DecisionInput()
+	if len(input) > 0 {
+		if len(input) > plan.MaxDecisionInputBytes || digest(input) != p.Hash {
+			return "", &IntegrityError{}
+		}
+		if _, err = tx.ExecContext(ctx, "INSERT INTO plan_inputs VALUES(?,?) ON CONFLICT(id) DO NOTHING", p.Hash, input); err != nil {
+			return "", err
+		}
+		var stored []byte
+		if err = tx.QueryRowContext(ctx, "SELECT canonical FROM plan_inputs WHERE id=?", p.Hash).Scan(&stored); err != nil {
+			return "", err
+		}
+		if !bytes.Equal(stored, input) {
+			return "", ErrConflict
+		}
+	}
 	return p.Hash, tx.Commit()
 }
 func loadPlan(ctx context.Context, q interface {
@@ -305,9 +326,9 @@ func loadPlan(ctx context.Context, q interface {
 }, id PlanID) (plan.Plan, policy.Desired, error) {
 	var p plan.Plan
 	var d policy.Desired
-	var b, raw []byte
+	var b, raw, input []byte
 	var checksum, dh string
-	err := q.QueryRowContext(ctx, "SELECT canonical,content_hash,desired,desired_hash FROM plans WHERE id=?", id).Scan(&b, &checksum, &raw, &dh)
+	err := q.QueryRowContext(ctx, "SELECT p.canonical,p.content_hash,p.desired,p.desired_hash,i.canonical FROM plans p LEFT JOIN plan_inputs i ON i.id=p.id WHERE p.id=?", id).Scan(&b, &checksum, &raw, &dh, &input)
 	if errors.Is(err, sql.ErrNoRows) {
 		return p, d, ErrNotFound
 	}
@@ -321,6 +342,12 @@ func loadPlan(ctx context.Context, q interface {
 	normalized, _ := d.CanonicalBytes()
 	if !bytes.Equal(b, canonical) || !bytes.Equal(raw, normalized) || p.Hash != id || p.DesiredHash != dh || p.SchemaVersion != plan.SchemaVersion || p.App != string(d.Name) || p.PolicyHash != d.PolicyHash || p.PolicyVersion != d.PolicyVersion {
 		return plan.Plan{}, policy.Desired{}, &IntegrityError{}
+	}
+	if len(input) > 0 {
+		p, err = p.WithDecisionInput(input)
+		if err != nil {
+			return plan.Plan{}, policy.Desired{}, &IntegrityError{}
+		}
 	}
 	return p, d, nil
 }
