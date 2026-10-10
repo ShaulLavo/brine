@@ -17,7 +17,7 @@ An experiment for running personal applications on enrolled Linux servers. Routi
 | Service lifecycle | Quadlet + systemd | Owned app units, detached jobs and boot reconciliation |
 | Control state | SQLite | Durable plans, releases and operation records |
 | Persistent app databases | SQLite | Planned in Phase 04 |
-| App backups | Litestream to Cloudflare R2 | Planned in Phase 04; no verified restore yet |
+| App backups | Litestream to S3-compatible storage, including R2 | Planned in Phase 04; no verified restore yet |
 | Private administration | Tailscale | Operator-managed access, not a deployment prerequisite |
 | Reference cloud host | Hetzner | Deployment is limited to enrolled Linux servers, not one provider |
 | Human UI | Charm | Welcome screen now; full operation UI planned |
@@ -57,7 +57,7 @@ The machine response contract is versioned and tested, but is not yet a stable p
 
 ## Next work
 
-- Persistent SQLite app data, independently managed Litestream replication and isolated restore drills.
+- Persistent SQLite app data, independently managed Litestream replication to operator-supplied S3-compatible storage and isolated restore drills.
 - Separate, policy-gated application schema changes.
 - A full Charm TUI sharing the command API's operation engine.
 - Later drops, git previews and approved WebTransport support.

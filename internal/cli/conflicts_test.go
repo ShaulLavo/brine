@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -76,7 +77,7 @@ func TestHumanConflictDiagnosticsMatchMachinePlans(t *testing.T) {
 							Conflicts []plan.Diagnostic `json:"conflicts"`
 						} `json:"data"`
 					}
-					if json.Unmarshal(out.Bytes(), &envelope) != nil || !envelope.OK || len(envelope.Data.Conflicts) != len(conflicts) || strings.Count(out.String(), "\n") != 1 {
+					if json.Unmarshal(out.Bytes(), &envelope) != nil || !envelope.OK || !reflect.DeepEqual(envelope.Data.Conflicts, conflicts) || strings.Count(out.String(), "\n") != 1 {
 						t.Fatal("conflict must remain a successful plan", out.String())
 					}
 				}

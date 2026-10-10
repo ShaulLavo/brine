@@ -29,7 +29,7 @@ The CLI implements stateless planning and deployment, release and operation stat
 
 ## Planned layers
 
-Phase 04 adds persistent app SQLite data and independent Litestream replication to R2, with isolated restore and archival paths. The SQLite **control store** already exists; persistent **app data** support does not. No successful R2 restore is claimed. Application schema changes are separate from deployment ([D12](DECISIONS.md#d12-app-schema-changes-are-separate-from-deployment)). The full Charm operation UI is later presentation work; today's TUI is a welcome screen.
+Phase 04 adds persistent app SQLite data and independent Litestream replication to operator-supplied S3-compatible storage such as R2, with isolated restore and archival paths. The SQLite **control store** already exists; persistent **app data** support does not. No successful R2 restore is claimed. Application schema changes are separate from deployment ([D12](DECISIONS.md#d12-app-schema-changes-are-separate-from-deployment)). The full Charm operation UI is later presentation work; today's TUI is a welcome screen.
 
 ## Guardrails
 
