@@ -95,19 +95,23 @@ func recoveryJob(reconciler reconcile.Reconciler) func(context.Context, string) 
 		copy.ExcludeID = id
 		// Detached jobs may wait for an ongoing deploy, unlike synchronous previews.
 		copy.LockTimeout = jobs.HostLockWaitTimeout
-		report, err := copy.Reconcile(ctx)
-		if err != nil {
-			return err
-		}
-		for _, out := range report.Outcomes {
-			if out.After == ops.RecoveryRequired {
-				return result.New(result.RecoveryRequired, nil)
-			}
-		}
-		return nil
+		return recoveryResult(copy.Reconcile(ctx))
 	}
+
 }
 
 func (r runnerReconciler) RunResolution(ctx context.Context, lock ops.Lock, id string) error {
 	return r.reconciler.RunResolution(ctx, lock, id)
+}
+
+func recoveryResult(report reconcile.Report, err error) error {
+	if err != nil {
+		return err
+	}
+	for _, out := range report.Outcomes {
+		if out.After == ops.RecoveryRequired {
+			return result.New(result.RecoveryRequired, nil)
+		}
+	}
+	return nil
 }

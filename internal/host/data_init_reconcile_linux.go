@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/reconcile"
@@ -96,4 +97,12 @@ func (r initializationReconciler) settleInitialization(ctx context.Context) (out
 		out = append(out, outcome)
 	}
 	return out, nil
+}
+
+func (r initializationReconciler) recoveryJob() func(context.Context, string) error {
+	return func(ctx context.Context, id string) error {
+		r.Reconciler.ExcludeID = id
+		r.Reconciler.LockTimeout = jobs.HostLockWaitTimeout
+		return recoveryResult(r.Reconciler.Reconcile(ctx))
+	}
 }
