@@ -68,7 +68,12 @@ func TestSIGKILLReleasesHostLockAndReconcileConverges(t *testing.T) {
 	defer write.Close()
 	childCtx, cancelChild := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelChild()
-	child := exec.CommandContext(childCtx, os.Args[0], "-test.run=^TestKilledRunnerChild$")
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// #nosec G204 -- The helper is this test binary, resolved by os.Executable.
+	child := exec.CommandContext(childCtx, binary, "-test.run=^TestKilledRunnerChild$")
 	child.Env = append(os.Environ(), "BRINE_RECONCILE_TEST_STATE="+dir, "BRINE_RECONCILE_TEST_OP="+op.ID)
 	child.ExtraFiles = []*os.File{write}
 	if err := child.Start(); err != nil {
@@ -76,8 +81,8 @@ func TestSIGKILLReleasesHostLockAndReconcileConverges(t *testing.T) {
 	}
 	t.Cleanup(func() {
 		if child.ProcessState == nil {
-			child.Process.Kill()
-			child.Wait()
+			_ = child.Process.Kill()
+			_ = child.Wait()
 		}
 	})
 	write.Close()
@@ -93,7 +98,7 @@ func TestSIGKILLReleasesHostLockAndReconcileConverges(t *testing.T) {
 	defer cancelLive()
 	if lock, err := s.TryAcquireHostLock(liveCtx); !errors.Is(err, ops.ErrLockUnavailable) {
 		if lock != nil {
-			lock.Release()
+			_ = lock.Release()
 		}
 		t.Fatalf("live runner did not hold host lock: %v", err)
 	}

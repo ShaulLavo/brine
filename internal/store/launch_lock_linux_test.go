@@ -31,7 +31,11 @@ func TestHostAndLaunchLocksCloseOnExec(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer lock.Release()
+				defer func() {
+					if err := lock.Release(); err != nil {
+						t.Error(err)
+					}
+				}()
 				flags, err := unix.FcntlInt(lock.(*hostLock).file.Fd(), unix.F_GETFD, 0)
 				if err != nil || flags&unix.FD_CLOEXEC == 0 {
 					t.Fatalf("lock can survive exec: flags=%#x error=%v", flags, err)
