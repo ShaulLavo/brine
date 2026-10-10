@@ -4,10 +4,12 @@ package enroll
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
 	"regexp"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -17,19 +19,21 @@ type Package struct {
 }
 
 type Facts struct {
-	SSHAuthorizationChecked bool              `json:"ssh_authorization_checked"`
-	PackageInstall          []Package         `json:"package_install"`
-	Snapshot                target.Snapshot   `json:"snapshot"`
-	HostKey                 string            `json:"host_key"`
-	Packages                map[string]string `json:"packages"`
-	PermitUserEnvironment   string            `json:"permit_user_environment"`
-	PAMChecked              bool              `json:"pam_checked"`
-	PAMUserEnvironment      bool              `json:"pam_user_environment"`
-	OwnedRunner             bool              `json:"owned_runner"`
+	Litestream              target.Observation[inventory.Litestream] `json:"litestream"`
+	SSHAuthorizationChecked bool                                     `json:"ssh_authorization_checked"`
+	PackageInstall          []Package                                `json:"package_install"`
+	Snapshot                target.Snapshot                          `json:"snapshot"`
+	HostKey                 string                                   `json:"host_key"`
+	Packages                map[string]string                        `json:"packages"`
+	PermitUserEnvironment   string                                   `json:"permit_user_environment"`
+	PAMChecked              bool                                     `json:"pam_checked"`
+	PAMUserEnvironment      bool                                     `json:"pam_user_environment"`
+	OwnedRunner             bool                                     `json:"owned_runner"`
 }
 type Plan struct {
-	Changes         []string `json:"changes"`
-	MissingPackages []string `json:"missing_packages"`
+	Litestream      ToolAsset `json:"litestream"`
+	Changes         []string  `json:"changes"`
+	MissingPackages []string  `json:"missing_packages"`
 }
 
 func MakePlan(f Facts) (Plan, error) {
@@ -90,7 +94,11 @@ func MakePlan(f Facts) (Plan, error) {
 			return fail()
 		}
 	}
-	p := Plan{Changes: []string{
+	asset, err := LitestreamAsset(s.Arch)
+	if err != nil {
+		return fail()
+	}
+	p := Plan{Litestream: asset, Changes: []string{
 		"Install missing Debian podman, passt and caddy packages and their declared dependencies; never upgrade or remove existing packages during enrollment.",
 		"Before any package installation, mask Caddy so its package default site cannot start; its post-install normally enables and starts caddy.service.",
 		"Podman's netavark dependency can enable netavark-dhcp-proxy.service, netavark-dhcp-proxy.socket and netavark-firewalld-reload.service, and activate the DHCP proxy socket on installation. These package post-install effects are part of the transaction.",
@@ -110,6 +118,7 @@ func MakePlan(f Facts) (Plan, error) {
 		"Write a private client target config with the authenticated SSH host key; verify the real restricted deploy key through ping and rerun read-only inventory.",
 		"Make no firewall, DNS, Tailscale, other-user, app-data or root-helper changes; unwired lifecycle capabilities remain refused.",
 	}}
+	p.Changes = append(p.Changes, fmt.Sprintf("Install root-owned 0755 Litestream %s for linux/%s from %s (SHA-256 %s) at %s. Create protected /opt/brine/litestream version directories, stage and verify version before installation; journal file/directory ownership for undo. No app or replica restart.", asset.Version, asset.Architecture, asset.URL, asset.SHA256, asset.Path))
 	for _, name := range []string{"podman", "passt", "caddy"} {
 		if f.Packages[name] == "" {
 			p.MissingPackages = append(p.MissingPackages, name)
