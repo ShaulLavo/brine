@@ -55,6 +55,7 @@ func canonicalDecisionFacts(s target.Snapshot, minimum uint64) ([]byte, error) {
 		}
 		for i := range *copy.Value {
 			f := &(*copy.Value)[i]
+			f.Root.OperatorQuota = nil                                              // Reporting only; no quota verdict is inferred.
 			f.Usage = target.Observation[data.StorageUsage]{Status: target.Unknown} // Reporting-only; never a quota admission verdict.
 			if f.Root.FreeBytes >= minimum {
 				f.Root.FreeBytes = minimum

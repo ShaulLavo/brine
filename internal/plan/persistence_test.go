@@ -102,6 +102,7 @@ func TestPersistentDecisionIgnoresHealthyClockAndCapacityMovement(t *testing.T) 
 	fact.Schema.ObservedAt = fact.Schema.ObservedAt.Add(time.Minute)
 	fact.Root.ObservedAt = fact.Root.ObservedAt.Add(time.Minute)
 	fact.Mapping.Value.ObservedAt = fact.Mapping.Value.ObservedAt.Add(time.Minute)
+	fact.Root.OperatorQuota = &data.QuotaObservation{LimitBytes: 4096, UsedBytes: 1024, EnforcedBy: "operator"}
 	fact.Usage = target.Known(data.StorageUsage{Bytes: 1024, Files: 2})
 	fact.Root.FreeBytes++
 	fact.Root.FreeInodes++

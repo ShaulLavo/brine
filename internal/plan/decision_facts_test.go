@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -278,6 +279,18 @@ func TestSampledDiskMeasurementsPreserveEveryPlanKind(t *testing.T) {
 
 func TestSnapshotFieldsHaveExplicitClassification(t *testing.T) {
 	classified := map[reflect.Type][]string{
+		reflect.TypeFor[target.PersistentDatabase](): {"credentials", "usage", "definitions", "database", "root", "mapping", "retention", "schema", "fenced"},
+		reflect.TypeFor[data.CredentialEvidence]():   {"binding_id", "epoch_id", "destination", "reference", "version", "policy_hash", "received_at", "expires_at"},
+		reflect.TypeFor[data.StorageUsage]():         {"bytes", "files"},
+		reflect.TypeFor[data.SchemaDefinition]():     {"database", "marker", "catalog_sha256"},
+		reflect.TypeFor[data.DatabaseBinding]():      {"database_id", "name", "incarnation_id", "root", "relative_directory", "mount_path", "filename", "replica_binding_id"},
+		reflect.TypeFor[data.RootEvidence]():         {"root", "device", "inode", "filesystem", "posix_locks", "durable_rename", "free_bytes", "free_inodes", "observed_at", "operator_quota"},
+		reflect.TypeFor[data.QuotaObservation]():     {"limit_bytes", "used_bytes", "enforced_by"},
+		reflect.TypeFor[data.MappingEvidence]():      {"runtime", "runner_uid", "runner_gid", "image", "root", "device", "keep_id", "private_modes", "host_read_write", "container_read_write", "observed_at"},
+		reflect.TypeFor[data.RuntimeIdentity]():      {"uid", "gid"},
+		reflect.TypeFor[data.RetentionEvidence]():    {"destination", "endpoint", "bucket", "base_prefix", "verification_id", "verified_at", "freshness_seconds", "no_object_expiration"},
+		reflect.TypeFor[data.SchemaObservation]():    {"state", "database_id", "observed_at", "marker", "catalog_sha256", "unknown_reason"},
+
 		reflect.TypeFor[target.Snapshot]():          {"persistent_data", "schema_version", "identity", "os", "arch", "versions", "cgroup_v2", "runner", "generation", "caddy_config", "apps", "used_ports", "live_caddy_files", "port_owners", "free_disk_bytes"},
 		reflect.TypeFor[target.Identity]():          {"id", "host_key_fingerprint"},
 		reflect.TypeFor[target.OS]():                {"id", "version"},
