@@ -231,3 +231,11 @@ func (u lazyUnits) VerifyRemove(ctx context.Context, name, hash string) error {
 func (u lazyUnits) Remove(ctx context.Context, name, hash string) error {
 	return u.withManager(func(m *quadlet.Manager) error { return m.Remove(ctx, name, hash) })
 }
+
+func diagnosticMinimumFreeDiskBytes(ctx context.Context) (uint64, error) {
+	p, err := (DiskPolicy{}).Load(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return p.MinimumFreeDiskBytes(), nil
+}

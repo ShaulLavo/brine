@@ -22,7 +22,7 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home strin
 	owners := map[target.PortOwner]bool{}
 	// The snapshot reserves UDP as well as TCP, even though owners cover TCP only.
 	for _, protocol := range []string{"-ltnpe", "-lunp"} {
-		out, e := c.probe(ctx, "ss", "-H", protocol)
+		out, e := c.probe(ctx, listenerOutputLimit, "ss", "-H", protocol)
 		if e != nil {
 			return unknown[[]target.Port]()
 		}

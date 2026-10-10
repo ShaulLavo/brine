@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/inventory"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -122,4 +123,13 @@ func TestLiveGenerationRequiresEveryCollectedSource(t *testing.T) {
 			}
 		})
 	}
+}
+
+func (r routeFixtureRunner) CaptureStdout(ctx context.Context, limit int, path string, args ...string) (localexec.Capture, error) {
+	out, err := r.RunStdout(ctx, path, args...)
+	capture := localexec.Capture{Stdout: out, Overflow: len(out) > limit}
+	if capture.Overflow {
+		capture.Stdout = out[:limit]
+	}
+	return capture, err
 }

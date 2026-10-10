@@ -37,7 +37,7 @@ func (c Collector) caddyProvenance(ctx context.Context, s *target.Snapshot, whol
 			continue
 		}
 		file := target.LiveCaddyFile{Name: "file-" + strings.TrimPrefix(digest([]byte(path)), "sha256:"), Domains: unknown[[]string]()}
-		adapted, err := c.probe(ctx, "caddy", "adapt", "--config", path, "--adapter", "caddyfile")
+		adapted, err := c.probe(ctx, caddyOutputLimit, "caddy", "adapt", "--config", path, "--adapter", "caddyfile")
 		if err != nil {
 			return
 		}
