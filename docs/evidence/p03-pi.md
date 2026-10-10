@@ -333,3 +333,7 @@ The first pair of concurrently accepted applies both failed `stale_plan` before 
 ### Restricted SSH/client disconnect
 
 An initial attempt completed its acknowledgement too quickly to kill the client and is not counted as disconnect evidence. A fresh operation then lost its restricted client/SSH process group to SIGKILL before receipt consumption (client exit -9). Read-only inspection found durable queued receipt `01a1237bc827be28c39874af6fa7e41e022f471c4ee7`; polling that receipt, without replaying apply, observed `succeeded`. Detached execution survived the lost response.
+
+### run-op SIGKILL and reconciliation
+
+Operator fault injection killed only the owned run-op MainPID for operation `01a1237cf6438a8b5cc63f580a17e821ab18b5b208e6`, after journaled `check_direct:intent` and before its completion. The candidate deliberately used an invalid health path. Restricted `reconcile --dry-run` predicted rollback from checking at that boundary; exact main SQLite DB and WAL SHA-256 bytes were unchanged before/after the preview. Restricted mutating reconciliation settled `rolled_back`, restoring the previous writer and routed HTTPS 200. No journal edits, blind replay or operator app mutation were used.
