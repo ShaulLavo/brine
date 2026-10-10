@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	persistent "github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -29,6 +30,15 @@ type Refusal struct {
 
 func (r *Refusal) Error() string { return r.Code + " at " + r.Field + ": " + r.Message }
 func (r *Refusal) Category() int { return 4 }
+
+// Unwrap preserves the machine policy category without exposing diagnostic fields
+// or caller-supplied values through the fixed-message response contract.
+func (r *Refusal) Unwrap() error {
+	if r.Code == "policy.registry_denied" {
+		return result.New(result.PolicyRegistryDenied, nil)
+	}
+	return result.New(result.PolicyRefused, nil)
+}
 func refuse(code, field, message string) error {
 	return &Refusal{Code: code, Field: field, Message: message}
 }
