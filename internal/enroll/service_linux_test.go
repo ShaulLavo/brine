@@ -3,6 +3,7 @@ package enroll
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -60,7 +61,7 @@ func TestServiceObservationKnownStates(t *testing.T) {
 	}{
 		{"is-active", []string{"active", "reloading", "refreshing"}, 0},
 		{"is-active", []string{"inactive", "failed", "activating", "deactivating", "maintenance"}, 3},
-		{"is-enabled", []string{"enabled", "enabled-runtime", "alias", "static", "indirect", "generated", "transient"}, 0},
+		{"is-enabled", []string{"enabled", "enabled-runtime", "alias", "static", "indirect", "generated"}, 0},
 		{"is-enabled", []string{"disabled", "linked", "linked-runtime", "masked", "masked-runtime"}, 1},
 		{"is-enabled", []string{"disabled", "linked", "linked-runtime", "masked", "masked-runtime"}, 3},
 		{"is-enabled", []string{"not-found"}, 4},
@@ -159,5 +160,108 @@ func TestServiceObservationCanceled(t *testing.T) {
 	got, err := (&host{exec: f}).observeService(ctx, "is-active")
 	if got != "" || !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation lost: %q %v", got, err)
+	}
+}
+
+func TestOriginalCaddyStateConfirmedAbsent(t *testing.T) {
+	f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) {
+		switch c.Args[0] {
+		case "is-active":
+			return localexec.Result{Stdout: "inactive\n", ExitCode: 4}, &localexec.Error{Kind: localexec.Failed, ExitCode: 4}
+		case "show":
+			return localexec.Result{Stdout: "not-found\n"}, nil
+		case "is-enabled":
+			return localexec.Result{Stdout: "not-found\n", ExitCode: 4}, &localexec.Error{Kind: localexec.Failed, ExitCode: 4}
+		}
+		t.Fatalf("unexpected command %+v", c)
+		return localexec.Result{}, nil
+	}}
+	got, err := (&host{exec: f}).originalCaddyState(context.Background())
+	if err != nil || got.active != "not-found" || got.enabled != "not-found" {
+		t.Fatalf("absent unit refused: %+v %v", got, err)
+	}
+	if len(f.commands) != 3 || strings.Join(f.commands[1].Args, " ") != "show -p LoadState --value caddy.service" {
+		t.Fatalf("absence not independently confirmed: %+v", f.commands)
+	}
+	for _, c := range f.commands {
+		if c.Mutation {
+			t.Fatal("absence probe mutated")
+		}
+	}
+}
+
+func TestServiceTransientNonzero(t *testing.T) {
+	f := &fakeAdmin{handle: func(localexec.Command) (localexec.Result, error) {
+		return localexec.Result{Stdout: "transient\n", ExitCode: 1}, &localexec.Error{Kind: localexec.Failed, ExitCode: 1}
+	}}
+	got, err := (&host{exec: f}).observeService(context.Background(), "is-enabled")
+	if err != nil || got != "transient" {
+		t.Fatalf("transient state refused: %q %v", got, err)
+	}
+}
+
+func TestAbsentServiceRequiresKnownLoadState(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		result localexec.Result
+		err    error
+	}{
+		{"loaded", localexec.Result{Stdout: "loaded\n"}, nil},
+		{"empty", localexec.Result{}, nil},
+		{"malformed", localexec.Result{Stdout: "not-found\nloaded\n"}, nil},
+		{"truncated", localexec.Result{Stdout: "not-found\n", Truncated: true}, nil},
+		{"failed", localexec.Result{Stdout: "not-found\n", ExitCode: 4}, &localexec.Error{Kind: localexec.Failed, ExitCode: 4}},
+		{"missing executable", localexec.Result{}, &localexec.Error{Kind: localexec.NotFound}},
+		{"timeout", localexec.Result{Stdout: "not-found\n"}, &localexec.Error{Kind: localexec.Timeout}},
+		{"unreported failure", localexec.Result{Stdout: "not-found\n", ExitCode: 1}, nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) {
+				if c.Args[0] == "is-active" {
+					return localexec.Result{Stdout: "inactive\n", ExitCode: 4}, &localexec.Error{Kind: localexec.Failed, ExitCode: 4}
+				}
+				if c.Args[0] == "show" {
+					return tt.result, tt.err
+				}
+				t.Fatalf("continued after unknown absence: %+v", c)
+				return localexec.Result{}, nil
+			}}
+			got, err := (&host{exec: f}).originalCaddyState(context.Background())
+			if err == nil || got != (caddyServiceState{}) {
+				t.Fatalf("unknown absence accepted: %+v %v", got, err)
+			}
+			if len(f.commands) != 2 {
+				t.Fatalf("commands %+v", f.commands)
+			}
+			for _, c := range f.commands {
+				if c.Mutation {
+					t.Fatal("mutation after unknown absence")
+				}
+			}
+		})
+	}
+}
+
+func TestAbsentServiceConfirmationCanceled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) {
+		if c.Args[0] == "is-active" {
+			return localexec.Result{Stdout: "inactive\n", ExitCode: 4}, &localexec.Error{Kind: localexec.Failed, ExitCode: 4}
+		}
+		cancel()
+		return localexec.Result{Stdout: "not-found\n"}, nil
+	}}
+	got, err := (&host{exec: f}).originalCaddyState(ctx)
+	if got != (caddyServiceState{}) || !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled absence accepted: %+v %v", got, err)
+	}
+}
+
+func TestServiceTransientRejectsZeroExit(t *testing.T) {
+	f := &fakeAdmin{handle: func(localexec.Command) (localexec.Result, error) { return localexec.Result{Stdout: "transient\n"}, nil }}
+	got, err := (&host{exec: f}).observeService(context.Background(), "is-enabled")
+	if err == nil || got != "" {
+		t.Fatalf("inconsistent transient status accepted: %q %v", got, err)
 	}
 }

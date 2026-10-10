@@ -60,17 +60,29 @@ func (h *host) observeService(ctx context.Context, verb string) (serviceState, e
 		switch state {
 		case "active", "reloading", "refreshing":
 			known = r.ExitCode == 0
-		case "inactive", "failed", "activating", "deactivating", "maintenance":
+		case "inactive":
+			if r.ExitCode == 4 {
+				load, loadErr := h.run(ctx, false, "systemctl", "show", "-p", "LoadState", "--value", "caddy.service")
+				if loadErr != nil || ctx.Err() != nil || load.Truncated || load.ExitCode != 0 || strings.TrimSpace(load.Stdout) != "not-found" {
+					err = errors.Join(err, loadErr)
+					return unknown()
+				}
+				return "not-found", nil
+			}
+			known = r.ExitCode == 3
+		case "failed", "activating", "deactivating", "maintenance":
 			known = r.ExitCode == 3
 		}
 	case "is-enabled":
 		// systemctl documents positive status exits for these unit-file states,
 		// rather than a particular code. Only a completed status probe qualifies.
 		switch state {
-		case "enabled", "enabled-runtime", "alias", "static", "indirect", "generated", "transient":
+		case "enabled", "enabled-runtime", "alias", "static", "indirect", "generated":
 			known = r.ExitCode == 0
 		case "disabled", "linked", "linked-runtime", "masked", "masked-runtime":
 			known = r.ExitCode > 0
+		case "transient":
+			known = r.ExitCode == 1
 		case "not-found":
 			known = r.ExitCode == 4
 		}
