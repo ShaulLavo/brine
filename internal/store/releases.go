@@ -201,17 +201,14 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 	for rows.Next() {
 		var incarnation plan.DataIncarnation
 		if err = rows.Scan(&incarnation.App, &incarnation.ID); err != nil {
-			rows.Close()
-			return result, err
+			return result, errors.Join(err, rows.Close())
 		}
 		if incarnation.App == "" || !data.ValidID(incarnation.ID) {
-			rows.Close()
-			return result, &IntegrityError{}
+			return result, errors.Join(&IntegrityError{}, rows.Close())
 		}
 		result.DataIncarnations = append(result.DataIncarnations, incarnation)
 	}
-	err = rows.Err()
-	rows.Close()
+	err = errors.Join(rows.Err(), rows.Close())
 	if err != nil {
 		return result, err
 	}

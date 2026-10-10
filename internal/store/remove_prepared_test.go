@@ -37,7 +37,11 @@ func TestRemovalReadsPreparedIncarnationWithoutRelease(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer read.Close()
+	t.Cleanup(func() {
+		if err := read.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	loaded, err := read.LoadBrineState(ctx, in.Snapshot.Identity, 0)
 	if err != nil || !reflect.DeepEqual(loaded, in.State) {
 		t.Fatalf("read-only ownership lost: %+v %v", loaded, err)
