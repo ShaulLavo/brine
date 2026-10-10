@@ -134,7 +134,7 @@ func RenderConfig(b Binding) ([]byte, error) {
 	disabled := false
 	style := b.ForcePathStyle
 	stderr := true
-	c := Config{Snapshot: SnapshotConfig{Interval: b.Cadence.SnapshotInterval.String()}, Logging: LoggingConfig{Stderr: &stderr}, Socket: SocketConfig{Enabled: true, Path: b.SocketPath, Permissions: 0600}, L0Retention: "24h", Retention: RetentionConfig{Enabled: &disabled}, DBs: []DatabaseConfig{{Path: b.DBPath, MonitorInterval: "1s", CheckpointInterval: "1m", BusyTimeout: "5s", Replica: ReplicaConfig{Type: "s3", Bucket: b.Bucket, Path: b.Prefix, Endpoint: b.Endpoint, Region: b.Region, ForcePathStyle: &style, SyncInterval: b.Cadence.SyncInterval.String()}}}}
+	c := Config{Snapshot: SnapshotConfig{Interval: b.Cadence.SnapshotInterval.String()}, Logging: LoggingConfig{Stderr: &stderr}, Socket: SocketConfig{Enabled: true, Path: b.SocketPath, Permissions: 0600}, L0Retention: "24h", Retention: RetentionConfig{Enabled: &disabled}, DBs: []DatabaseConfig{{Path: b.DBPath, MonitorInterval: "1s", CheckpointInterval: "1m", BusyTimeout: "5s", Replica: ReplicaConfig{Type: "s3", Bucket: b.Bucket, Path: strings.TrimSuffix(b.Prefix, "/"), Endpoint: b.Endpoint, Region: b.Region, ForcePathStyle: &style, SyncInterval: b.Cadence.SyncInterval.String()}}}}
 	raw, err := yaml.Marshal(c)
 	if err != nil {
 		return nil, ErrInvalid
@@ -204,7 +204,7 @@ func (c Config) validate(b Binding) error {
 	if syncErr != nil || snapshotErr != nil || syncInterval != b.Cadence.SyncInterval || snapshotInterval != b.Cadence.SnapshotInterval {
 		return ErrInvalid
 	}
-	if d.Path != b.DBPath || r.Type != "s3" || r.Bucket != b.Bucket || r.Path != b.Prefix || r.Endpoint != b.Endpoint || r.Region != b.Region || r.ForcePathStyle == nil || *r.ForcePathStyle != b.ForcePathStyle {
+	if d.Path != b.DBPath || r.Type != "s3" || r.Bucket != b.Bucket || r.Path != strings.TrimSuffix(b.Prefix, "/") || r.Endpoint != b.Endpoint || r.Region != b.Region || r.ForcePathStyle == nil || *r.ForcePathStyle != b.ForcePathStyle {
 		return ErrInvalid
 	}
 	for _, value := range []string{c.L0Retention, d.MonitorInterval, d.CheckpointInterval, d.BusyTimeout, r.SyncInterval} {
