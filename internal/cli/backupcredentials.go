@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
@@ -50,8 +49,11 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if !dispatch.ValidApp(args[0]) || !backupcredentials.ValidPlanID(planID) || !transport.ValidTargetName(setFlags.target) || deps.Stdin == nil || isTerminal(deps.Stdin) {
 			return result.New(result.InvalidUsage, nil)
 		}
-		raw, err := io.ReadAll(io.LimitReader(deps.Stdin, backupcredentials.PacketLimit+1))
+		raw, err := readSecretInput(cmd.Context(), deps.Stdin)
 		defer clear(raw)
+		if canceled := cmd.Context().Err(); canceled != nil {
+			return canceled
+		}
 		if err != nil || len(raw) > backupcredentials.PacketLimit {
 			return result.New(result.InvalidUsage, nil)
 		}
