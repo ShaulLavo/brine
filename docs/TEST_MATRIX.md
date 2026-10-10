@@ -28,13 +28,13 @@
 | T22 | App removal, recreate, expiry and purge | P03-09 stateless removal withdraws only owned routes/units after writer fencing, retains release/secret history, releases its port, refuses persistent data, and reconciles each effect boundary. P04-08 removal archives under an immutable ID with a restorable backup set for 30 days; remove-recreate-expire never touches the new app; purge only when policy allows; interrupted archive/purge recovers | 03/04/06 |
 | T23 | Secrets in logs, plans, TUI or JSON errors | Redaction tests and audit of subprocess output paths | 00-06 |
 | T24 | Release binary from fresh environment | Go tests, vet, build and version metadata pass | 06 |
-| T25 | WebTransport session, bidi/uni streams and datagrams | Real Go/browser echo; HTTP/3-only endpoint cannot pass transport health | 08 |
+| T25 | Optional WebTransport protocol health, bidi/uni streams and datagrams | P08-01 real local Go echo and HTTP/3-only refusal; named browser evidence for optional-probe/application qualification, not default admission | 08 |
 | T26 | WebTransport spec/policy admission and stale plans | Denied by default; no-effects refusals; hashes bind protocol/bind/domain/cert/ingress | 08 |
 | T27 | UDP publish and scoped app TLS secrets | Actual rootless mapping/mounts match; no added privilege or cross-app/Caddy credential access | 08 |
 | T28 | UDP ownership, collisions and drift | TCP/UDP distinction, dual-stack/wildcard overlap and race tests; unknown owners refuse | 08 |
-| T29 | Local readiness versus external QUIC reachability | Blocked UDP, TLS/Origin/settings failures and explicit vantage/unknown facts; no network mutation | 08 |
+| T29 | Default readiness versus protocol/remote reachability | HTTP health plus exact UDP ownership can be locally ready; protocol/remote facts stay unverified unless probed; opt-in TLS/Origin/settings/blocked-UDP negatives; no network mutation | 08 |
 | T30 | Interrupted transport deployment, rollback and removal | Every new effect boundary, SIGKILL, unknown outcome and read-back; no port leak or data rewind | 08 |
-| T31 | Multi-architecture WebTransport echo image | Published index/platform digests and provenance; real amd64/arm64 runtime evidence | 08 |
+| T31 | Optional multi-architecture protocol-health echo image | Published index/platform digests and provenance; real amd64/arm64 runtime evidence when qualifying the opt-in probe, not a default UDP deployment prerequisite | 08 |
 | T32 | Shared UDP 443 and ingress authority | Two apps, same-socket multiplexing, migration, idle expiry, SNI/ECH handling; pinned build and whole-config/live proof | 08 |
 | T33 | Private WebTransport preview authorization and expiry | Real browser grant/replay/Origin/revocation/incarnation/TTL/isolation cases; public safety gates | 07/08 |
 | T34 | Typed data-engine boundary | Existing SQLite plans/receipts/permits stay correct; unknown engines and cross-engine evidence refuse before effects | 09 |

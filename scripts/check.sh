@@ -62,6 +62,8 @@ lint() {
     base=$(git merge-base HEAD origin/main) || return
   fi
   golangci run --new-from-merge-base= --new-from-rev="$base" ./...
+  local config="$PWD/.golangci.yml"
+  (cd tools/webtransport-experiment && golangci run --config "$config" --new-from-merge-base= --new-from-rev= ./...)
 }
 
 fast() {
@@ -72,6 +74,11 @@ fast() {
   rules
   duplicates
   while IFS= read -r dir; do
+    if [[ $dir == tools/webtransport-experiment ]]; then
+      local config="$PWD/.golangci.yml"
+      (cd "$dir" && golangci run --config "$config" --new-from-merge-base= --new-from-rev= ./...)
+      continue
+    fi
     if [[ -d $dir ]] && compgen -G "$dir/*.go" > /dev/null; then
       packages+=("./$dir")
     fi
@@ -106,12 +113,22 @@ tests() {
   go test -p 1 -timeout 30m ./...
   go test -race -p 1 -timeout 30m ./...
   go build ./cmd/brine
+  (
+    cd tools/webtransport-experiment
+    go mod tidy
+    git diff --exit-code -- go.mod go.sum
+    go vet ./...
+    GOOS=darwin GOARCH=arm64 go vet ./...
+    go test -v -count=1 -timeout 1m ./...
+    go test -race -count=1 -timeout 1m ./...
+  )
 }
 
 vulnerability() {
   local bin
   bin=$(pinned_tool govulncheck v1.7.0 golang.org/x/vuln/cmd/govulncheck)
   "$bin" ./...
+  (cd tools/webtransport-experiment && "$bin" -test ./...)
 }
 
 case "${1:-all}" in
