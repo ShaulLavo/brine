@@ -53,6 +53,10 @@
 - [ ] **P07-12** Gate public hosting on abuse and safety controls. Depends on P07-02, P07-03, P07-04, P07-05, and P07-08. This task must pass **before any public drop or public preview**, not after launch. Add aggregate capacity admission, per-host public caps, inbound request/stream limits, outbound spam/scanning limits, and tested security headers. Provide emergency suspend for an existing resource and a disable-new-public switch. Suspension revokes serving/access and stops writers without waiting for normal TTL. Journal requester, reason, incarnation, and outcome for suspension and takedown. Document phishing/abuse response and operator responsibility.
   - Record the accepted shared-domain cookie risk and the reputation risk to `shaulavo.dev`, including phishing, spam, browser blocklists, and certificate/domain limits. Protect the apex and reserved services. Production apps holding sessions should not use `shaulavo.dev` subdomains while drops share it. If third-party code is ever hosted, first move drops to a dedicated domain registered on the Public Suffix List and re-review the threat model. Test emergency controls, quota denial, outbound abuse limits, and all applicable negative browser/runtime tests above. Private drops remain subject to resource and isolation limits too.
 
+## Trust model note
+
+Brine is a personal deployment service (see docs/PLAN.md, "Trust model"). Drops and previews are uploaded by the owner or the owner's agents, never by strangers. Before implementing P07-08/P07-08a, re-scope the untrusted-code egress and isolation work to that threat model: compromised dependencies and agent mistakes, not hostile uploaders. Keep app-to-app secret and data separation and the control-plane/host protections.
+
 ## Production and preview deployments for any site
 
 **Status: Approved, scheduled after this phase's core (owner, 2026-10-10).** The main way the owner will use Brine for most sites: a Vercel-like workflow for **any** repository. Nothing in Brine names or special-cases a particular app; Fregat is just the first consumer. Nothing here is built yet. These requirements shape Phase 07 now:
