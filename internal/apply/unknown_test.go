@@ -46,6 +46,55 @@ func TestTypedUnknownOutcomesAtEveryMutationBoundary(t *testing.T) {
 	}
 }
 
+func TestUnknownArtifactDefaultFactsReader(t *testing.T) {
+	for _, step := range []string{"install_unit", "rollback_unit"} {
+		t.Run(step, func(t *testing.T) {
+			r := newRig(t, true)
+			r.unknownStep = step
+			if step == "rollback_unit" {
+				r.failStep = "check_direct"
+			}
+			reads := 0
+			base := r.executor.Facts
+			r.executor.Facts = FactsFunc(func(ctx context.Context) (Facts, error) {
+				if r.intent != "preflight" {
+					if !hasUnknownEvent(r, step) {
+						t.Fatal("artifact inspection before durable unknown outcome")
+					}
+					if _, bounded := ctx.Deadline(); !bounded || ctx.Err() != nil {
+						t.Fatal("artifact inspection needs a fresh bounded context")
+					}
+					reads++
+				}
+				return base.Read(ctx)
+			})
+			err := r.run()
+			if step == "install_unit" {
+				if err != nil || !r.committed {
+					t.Fatalf("proven candidate did not commit: %v", err)
+				}
+			} else {
+				failure(t, err, RolledBack, "check_direct")
+				if !r.active || r.committed {
+					t.Fatal("proven predecessor did not restart without commit")
+				}
+			}
+			if reads != 1 {
+				t.Fatalf("inspection reads = %d, want 1", reads)
+			}
+			calls := 0
+			for _, effect := range r.effects {
+				if effect == step {
+					calls++
+				}
+			}
+			if calls != 1 {
+				t.Fatalf("unknown mutation calls = %d, want no replay", calls)
+			}
+		})
+	}
+}
+
 func TestTypedAdapterUnknownClassification(t *testing.T) {
 	for _, err := range []error{&localexec.Error{Kind: localexec.UnknownOutcome}, &localexec.Error{Kind: localexec.Timeout}, &caddy.UnknownOutcomeError{Stage: "reload"}, quadlet.ErrPublicationUnknown} {
 		if !isUnknown(fmt.Errorf("wrapped: %w", err)) {
