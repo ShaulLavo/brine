@@ -44,6 +44,10 @@ func (s Service) Authorize(ctx context.Context, class dispatch.Class) error {
 			return result.New(result.DependencyMissing, nil)
 		}
 		if _, err := s.Policy.Load(ctx); err != nil {
+			var refused *policy.Refusal
+			if errors.As(err, &refused) {
+				return err
+			}
 			return result.New(result.DependencyMissing, err)
 		}
 	}
