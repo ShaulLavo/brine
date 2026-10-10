@@ -91,9 +91,17 @@ type Input struct {
 // binds committed releases to the snapshot identity and control generation.
 // Releases must be non-nil; [] affirmatively records no committed releases.
 type BrineState struct {
-	Target     target.Identity  `json:"target"`
-	Generation uint64           `json:"generation"`
-	Releases   []CurrentRelease `json:"releases"`
+	Target           target.Identity   `json:"target"`
+	Generation       uint64            `json:"generation"`
+	Releases         []CurrentRelease  `json:"releases"`
+	DataIncarnations []DataIncarnation `json:"data_incarnations,omitempty"`
+}
+
+// DataIncarnation records live persistent ownership independently of releases.
+// Preparation reserves it before any application release exists.
+type DataIncarnation struct {
+	App string `json:"app"`
+	ID  string `json:"id"`
 }
 
 type CurrentRelease struct {
@@ -701,6 +709,14 @@ func canonicalState(state BrineState) ([]byte, error) {
 	state = BrineState{}
 	if e = json.Unmarshal(raw, &state); e != nil {
 		return nil, e
+	}
+	slices.SortFunc(state.DataIncarnations, func(a, b DataIncarnation) int { return strings.Compare(a.App, b.App) })
+	incarnations := make(map[string]bool, len(state.DataIncarnations))
+	for i, incarnation := range state.DataIncarnations {
+		if incarnation.App == "" || !data.ValidID(incarnation.ID) || incarnations[incarnation.ID] || i > 0 && state.DataIncarnations[i-1].App == incarnation.App {
+			return nil, fmt.Errorf("invalid active data incarnation state")
+		}
+		incarnations[incarnation.ID] = true
 	}
 	slices.SortFunc(state.Releases, func(a, b CurrentRelease) int { return strings.Compare(a.App, b.App) })
 	for i, r := range state.Releases {

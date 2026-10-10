@@ -54,6 +54,11 @@ func BuildRemove(in Input) (Plan, error) {
 	if err = json.Unmarshal(state, &in.State); err != nil {
 		return Plan{}, err
 	}
+	for _, incarnation := range in.State.DataIncarnations {
+		if incarnation.App == string(in.Desired.Name) {
+			return Plan{}, ErrPersistentData
+		}
+	}
 	facts, err := canonicalDecisionFacts(in)
 	if err != nil {
 		return Plan{}, err

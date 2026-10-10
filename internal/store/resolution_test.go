@@ -52,10 +52,7 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	in.Snapshot.Generation = target.Known(uint64(1))
-	in.State, err = legacy.LoadBrineState(ctx, in.Snapshot.Identity, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
+	in.State = plan.BrineState{Target: in.Snapshot.Identity, Generation: 1, Releases: []plan.CurrentRelease{{App: "hello", ID: r.ID, Desired: in.Desired, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration}}}
 	in.Snapshot.Apps = target.Known([]target.App{{Name: "hello", Image: target.Known(target.Image{Digest: r.Image.Digest, Platform: r.Image.Platform}), AllocatedHostPort: target.Known(r.HostPort), QuadletUnits: target.Known(r.Units), Secrets: target.Known([]target.Secret{})}})
 	in.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: r.CaddyGeneration, Files: []target.CaddyFile{r.CaddyFile}})
 	p, err := plan.BuildRemove(in)
