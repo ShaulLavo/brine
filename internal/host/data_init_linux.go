@@ -175,7 +175,7 @@ func prepareEmptyRestorePoint(ctx context.Context, s Service, stateRoot string, 
 		return point, datainit.ErrRefused
 	}
 	receipt, err := s.Store.CredentialReceipt(ctx, permit.Replica.BindingID, 0)
-	if err != nil || receipt.Destination != destination.Reference || receipt.EpochID != permit.Replica.EpochID || receipt.CredentialRef != destination.CredentialRef {
+	if err != nil || receipt.Destination != destination.Reference || receipt.EpochID != permit.Replica.EpochID || receipt.CredentialRef != destination.CredentialRef || receipt.PolicyHash != p.PolicyHash {
 		return point, datainit.ErrRefused
 	}
 	packet, err := (backupcredentials.Files{Root: filepath.Join(stateRoot, "credentials")}).Read(destination.CredentialRef, receipt.Version)

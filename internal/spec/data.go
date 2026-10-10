@@ -175,5 +175,5 @@ func validatePersistence(raw rawApp, app *App) error {
 		}
 		return strings.Compare(a.Marker, b.Marker)
 	})
-	return nil
+	return validateRestoreInvariants(raw, app)
 }

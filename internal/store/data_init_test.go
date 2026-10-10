@@ -7,9 +7,11 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/restore"
 )
 
 func storeInitPlan(t *testing.T, s *Store) (datainit.Plan, ReservedDatabase) {
@@ -49,6 +51,21 @@ func TestDataInitializationJournalAndFenceAreAtomic(t *testing.T) {
 		t.Fatal("second attempt permitted")
 	}
 	for _, state := range []string{"quiesced", "restore_point_intent", "restore_point_verified", "mutation_intent", "mutation_completed", "succeeded"} {
+		if state == "restore_point_verified" {
+			if _, err = s.SetInitState(ctx, operation, "succeeded"); !errors.Is(err, ErrConflict) {
+				t.Fatal("missing verification released fence", err)
+			}
+			point := storeInitPoint(p, operation)
+			if err = s.SaveInitRestorePoint(ctx, operation, point); err != nil {
+				t.Fatal(err)
+			}
+			if _, err = s.LoadInitRestorePoint(ctx, operation); err != nil {
+				t.Fatal("verification receipt lost", err)
+			}
+			if _, err = s.ReadRestorePoint(ctx, p.RestorePointID, p.Database.ReplicaBindingID, p.ReplicaEpoch); err != nil {
+				t.Fatal("shared restore point missing", err)
+			}
+		}
 		operation, err = s.SetInitState(ctx, operation, state)
 		if err != nil {
 			t.Fatal(err)
@@ -69,7 +86,7 @@ func TestDataInitializationJournalAndFenceAreAtomic(t *testing.T) {
 	if _, err = s.SetInitState(ctx, operation, "mutation_intent"); !errors.Is(err, ErrConflict) {
 		t.Fatalf("terminal replay allowed: %v", err)
 	}
-	for _, statement := range []string{"UPDATE data_init_plans SET canonical='{}'", "DELETE FROM data_init_plans", "DELETE FROM data_init_operations", "DELETE FROM data_init_events"} {
+	for _, statement := range []string{"UPDATE data_init_plans SET canonical='{}'", "DELETE FROM data_init_plans", "DELETE FROM data_init_operations", "DELETE FROM data_init_events", "UPDATE data_restore_points SET canonical='{}'", "DELETE FROM data_restore_points"} {
 		if _, err = s.db.Exec(statement); err == nil {
 			t.Fatal("immutable journal changed")
 		}
@@ -97,5 +114,50 @@ func TestDataInitializationRefusesWriterHistoryAndForeignFence(t *testing.T) {
 				t.Fatal("failed claim recorded an attempt")
 			}
 		})
+	}
+}
+
+func storeInitPoint(p datainit.Plan, o datainit.Operation) datainit.VerifiedRestorePoint {
+	now := time.Now().UTC()
+	snapshot := restore.SnapshotSource{BindingID: string(p.Database.ReplicaBindingID), Epoch: string(p.ReplicaEpoch), PointID: p.RestorePointID, ObjectKey: p.RemotePrefix + "/restore-points/" + p.RestorePointID + "/snapshot.sqlite", SHA256: strings.Repeat("a", 64), Size: 4096}
+	return datainit.VerifiedRestorePoint{PointID: p.RestorePointID, DatabaseID: p.Database.DatabaseID, UploadedAt: now, RetainUntil: now.Add(2 * time.Hour), Receipt: restore.Receipt{OperationID: o.ID + "-empty-verify", Source: restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &snapshot}, ObservedAt: now, Schema: restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed"}}
+}
+func TestDataInitializationReceiptRemainsImmutableAndReopens(t *testing.T) {
+	s := openTest(t)
+	p, _ := storeInitPlan(t, s)
+	ctx := context.Background()
+	o, err := s.ClaimInitialization(ctx, p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []string{"quiesced", "restore_point_intent"} {
+		o, err = s.SetInitState(ctx, o, state)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	point := storeInitPoint(p, o)
+	changed := point
+	changed.Receipt.OperationID = "foreign-proof"
+	if err = s.SaveInitRestorePoint(ctx, o, changed); err == nil {
+		t.Fatal("foreign proof accepted")
+	}
+	if err = s.SaveInitRestorePoint(ctx, o, point); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.SaveInitRestorePoint(ctx, o, point); err == nil {
+		t.Fatal("verification journal replayed")
+	}
+	if _, err = s.db.ExecContext(ctx, "UPDATE data_init_events SET receipt='{}' WHERE receipt IS NOT NULL"); err == nil {
+		t.Fatal("verification replaced")
+	}
+	read, err := OpenReadOnly(ctx, s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = read.Close() }()
+	got, err := read.LoadInitRestorePoint(ctx, o)
+	if err != nil || got.Receipt.OperationID != point.Receipt.OperationID || got.RetainUntil != point.RetainUntil {
+		t.Fatalf("receipt reopen %+v %v", got, err)
 	}
 }

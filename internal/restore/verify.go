@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"net/url"
+	"slices"
 	"strconv"
 	"time"
 
@@ -63,7 +64,7 @@ func verify(ctx context.Context, path string, observer SchemaObserver, r Request
 		return SchemaObservation{}, nil, refuse("foreign_key_check")
 	}
 	schema, err := observer.Observe(ctx, tx)
-	if err != nil || !validSchema(schema) || schema != r.ExpectedSchema {
+	if err != nil || !validSchema(schema) || !(schema == r.ExpectedSchema || slices.Contains(r.AcceptedSchemas, schema)) {
 		return SchemaObservation{}, nil, refuse("schema_state_unknown_or_mismatch")
 	}
 	for _, check := range r.Invariants {

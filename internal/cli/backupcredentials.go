@@ -16,9 +16,9 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	backup := &cobra.Command{Use: "backup", Short: "Manage backup credential delivery"}
 	credentials := &cobra.Command{Use: "credentials", Short: "Plan and deliver externally issued S3 credentials"}
 	var planFlags, setFlags operationFlags
-	var expiryText, planID string
+	var expiryText, planID, planDatabase, setDatabase string
 	planned := &cobra.Command{Use: "plan APP --target NAME", Short: "Plan a private credential version without reading credential values", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if !dispatch.ValidApp(args[0]) || !transport.ValidTargetName(planFlags.target) {
+		if !dispatch.ValidApp(args[0]) || planDatabase != "" && !dispatch.ValidApp(planDatabase) || !transport.ValidTargetName(planFlags.target) {
 			return result.New(result.InvalidUsage, nil)
 		}
 		var expiry *time.Time
@@ -29,7 +29,7 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 			}
 			expiry = &t
 		}
-		response, err := planFlags.call(cmd.Context(), deps, "backup_credentials_plan", dispatch.BackupCredentialPlanArgs{App: args[0], ExpiresAt: expiry})
+		response, err := planFlags.call(cmd.Context(), deps, "backup_credentials_plan", dispatch.BackupCredentialPlanArgs{App: args[0], Database: planDatabase, ExpiresAt: expiry})
 		if err != nil {
 			return err
 		}
@@ -40,13 +40,18 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if modes.enabled() {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), p))
 		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Credential plan %s, version %d. Deliver with brine backup credentials set %s --plan-id %s --target %s. Replication activation is not implemented yet.\n", p.ID, p.Version, args[0], p.ID, planFlags.target)
+		databaseFlag := ""
+		if planDatabase != "" {
+			databaseFlag = " --database " + planDatabase
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Credential plan %s, version %d. Deliver with brine backup credentials set %s --plan-id %s --target %s%s. Replication activation is not implemented yet.\n", p.ID, p.Version, args[0], p.ID, planFlags.target, databaseFlag)
 		return err
 	}}
+	planned.Flags().StringVar(&planDatabase, "database", "", "Database name (required for apps with multiple databases)")
 	planned.Flags().StringVar(&expiryText, "expires-at", "", "Optional issuer-supplied UTC expiry (RFC3339 with Z)")
 	planFlags.register(planned)
 	set := &cobra.Command{Use: "set APP --plan-id ID --target NAME", Short: "Deliver a bounded private JSON credential packet on stdin", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if !dispatch.ValidApp(args[0]) || !backupcredentials.ValidPlanID(planID) || !transport.ValidTargetName(setFlags.target) || deps.Stdin == nil || isTerminal(deps.Stdin) {
+		if !dispatch.ValidApp(args[0]) || setDatabase != "" && !dispatch.ValidApp(setDatabase) || !backupcredentials.ValidPlanID(planID) || !transport.ValidTargetName(setFlags.target) || deps.Stdin == nil || isTerminal(deps.Stdin) {
 			return result.New(result.InvalidUsage, nil)
 		}
 		raw, err := readSecretInput(cmd.Context(), deps.Stdin)
@@ -62,7 +67,7 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 			return result.New(result.InvalidUsage, nil)
 		}
 		defer packet.Clear()
-		wire, err := dispatch.EncodeBackupCredentialSet(args[0], planID, raw)
+		wire, err := dispatch.EncodeBackupCredentialSet(args[0], setDatabase, planID, raw)
 		if err != nil {
 			return result.New(result.InvalidUsage, nil)
 		}
@@ -81,6 +86,7 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Stored private backup credential version %d, received %s. Replication was not restarted or activated.\n", r.Version, r.ReceivedAt.Format(time.RFC3339))
 		return err
 	}}
+	set.Flags().StringVar(&setDatabase, "database", "", "Database name (required for apps with multiple databases)")
 	set.Flags().StringVar(&planID, "plan-id", "", "Confirmed credential plan identity")
 	setFlags.register(set)
 	credentials.AddCommand(planned, set)

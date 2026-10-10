@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -20,13 +21,10 @@ func migrateDataInitialization(ctx context.Context, tx *sql.Tx) error {
  CREATE TABLE data_init_operations(plan_id TEXT PRIMARY KEY REFERENCES data_init_plans(id),id TEXT NOT NULL UNIQUE,fence_id TEXT NOT NULL REFERENCES data_fences(id));
  CREATE TRIGGER data_init_operations_no_update BEFORE UPDATE ON data_init_operations BEGIN SELECT RAISE(ABORT,'one initialization attempt'); END;
  CREATE TRIGGER data_init_operations_no_delete BEFORE DELETE ON data_init_operations BEGIN SELECT RAISE(ABORT,'durable initialization attempt'); END;
- CREATE TABLE data_init_events(operation_id TEXT NOT NULL REFERENCES data_init_operations(id),sequence INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('intent','quiesced','restore_point_intent','restore_point_verified','mutation_intent','mutation_completed','succeeded')),created_at TEXT NOT NULL,PRIMARY KEY(operation_id,sequence));
+ CREATE TABLE data_init_events(operation_id TEXT NOT NULL REFERENCES data_init_operations(id),sequence INTEGER NOT NULL,state TEXT NOT NULL CHECK(state IN ('intent','quiesced','restore_point_intent','restore_point_verified','mutation_intent','mutation_completed','succeeded')),created_at TEXT NOT NULL,receipt BLOB CHECK(receipt IS NULL OR length(receipt)<=16384),PRIMARY KEY(operation_id,sequence));
  CREATE TRIGGER data_init_events_no_update BEFORE UPDATE ON data_init_events BEGIN SELECT RAISE(ABORT,'append-only initialization events'); END;
  CREATE TRIGGER data_init_events_no_delete BEFORE DELETE ON data_init_events BEGIN SELECT RAISE(ABORT,'append-only initialization events'); END;
- CREATE TABLE data_init_restore_points(operation_id TEXT PRIMARY KEY REFERENCES data_init_operations(id),canonical BLOB NOT NULL CHECK(length(canonical)<=16384));
- CREATE TRIGGER data_init_restore_points_no_update BEFORE UPDATE ON data_init_restore_points BEGIN SELECT RAISE(ABORT,'immutable restore point'); END;
- CREATE TRIGGER data_init_restore_points_no_delete BEFORE DELETE ON data_init_restore_points BEGIN SELECT RAISE(ABORT,'immutable restore point'); END;
- UPDATE schema_version SET version=6;
+ UPDATE schema_version SET version=7;
  `)
 	return err
 }
@@ -158,7 +156,7 @@ func (s *Store) ClaimInitialization(ctx context.Context, p datainit.Plan) (datai
 		return datainit.Operation{}, ErrConflict
 	}
 	permit, err := readReplicaPermit(ctx, tx, p.Database.DatabaseID)
-	if err != nil || permit.Database != p.Database || permit.FenceState == "held" {
+	if err != nil || permit.Database != p.Database || permit.Replica.EpochID != p.ReplicaEpoch || strings.TrimSuffix(permit.Replica.RemotePrefix, "/") != p.RemotePrefix || permit.FenceState == "held" {
 		return datainit.Operation{}, ErrConflict
 	}
 	id, err := data.NewID()
@@ -176,7 +174,7 @@ func (s *Store) ClaimInitialization(ctx context.Context, p datainit.Plan) (datai
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_init_operations VALUES(?,?,?)", p.ID, id, fence); err != nil {
 		return o, err
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO data_init_events VALUES(?,1,'intent',?)", id, timestamp()); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO data_init_events VALUES(?,1,'intent',?,NULL)", id, timestamp()); err != nil {
 		return o, err
 	}
 	return o, tx.Commit()
@@ -201,10 +199,19 @@ func (s *Store) SetInitState(ctx context.Context, o datainit.Operation, state st
 		return o, tx.Commit()
 	}
 	allowed := state == "succeeded" && current != "succeeded" || current == "intent" && state == "quiesced" || current == "quiesced" && state == "restore_point_intent" || current == "restore_point_intent" && state == "restore_point_verified" || current == "restore_point_verified" && state == "mutation_intent" || current == "mutation_intent" && state == "mutation_completed"
+	if state == "restore_point_verified" {
+		return o, ErrConflict
+	}
+	if state == "succeeded" {
+		var verified int
+		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_init_events WHERE operation_id=? AND state='restore_point_verified' AND receipt IS NOT NULL", o.ID).Scan(&verified); err != nil || verified != 1 {
+			return o, ErrConflict
+		}
+	}
 	if !allowed {
 		return o, ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO data_init_events VALUES(?,?,?,?)", o.ID, seq+1, state, timestamp()); err != nil {
+	if _, err = tx.ExecContext(ctx, "INSERT INTO data_init_events VALUES(?,?,?,?,NULL)", o.ID, seq+1, state, timestamp()); err != nil {
 		return o, err
 	}
 	if state == "succeeded" {
@@ -224,29 +231,41 @@ func (s *Store) SetInitState(ctx context.Context, o datainit.Operation, state st
 	return o, tx.Commit()
 }
 
+// SaveInitRestorePoint writes the point through the shared registry. Only its
+// independent verification receipt belongs to the initialization event journal.
 func (s *Store) SaveInitRestorePoint(ctx context.Context, o datainit.Operation, point datainit.VerifiedRestorePoint) error {
 	p, err := s.LoadInitPlan(ctx, o.PlanID)
 	if err != nil || !point.Admits(p, time.Now().UTC()) || point.Receipt.OperationID != o.ID+"-empty-verify" {
 		return ErrInvalid
 	}
+	source := point.Receipt.Source.Snapshot
+	recorded := data.RestorePoint{ID: point.PointID, BindingID: p.Database.ReplicaBindingID, EpochID: p.ReplicaEpoch, Kind: data.RestorePointSnapshot, Schema: data.SchemaObservation{State: data.VerifiedEmpty, DatabaseID: p.Database.DatabaseID, ObservedAt: point.Receipt.ObservedAt, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, Snapshot: &data.RestoreSnapshotPoint{ObjectKey: source.ObjectKey, SHA256: source.SHA256, Size: source.Size}, RecordedAt: point.Receipt.ObservedAt}
+	if err = s.SaveEmptyRestorePoint(ctx, recorded, o.ID, o.Fence); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(point)
 	if err != nil || len(raw) > 16384 {
 		return ErrInvalid
 	}
-	result, err := s.db.ExecContext(ctx, "INSERT INTO data_init_restore_points SELECT id,? FROM data_init_operations WHERE id=? AND plan_id=? AND fence_id=?", raw, o.ID, o.PlanID, o.Fence)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return err
 	}
-	count, err := result.RowsAffected()
-	if err != nil || count != 1 {
-		return ErrConflict
+	defer func() { _ = tx.Rollback() }()
+	var seq int
+	if err = tx.QueryRowContext(ctx, "SELECT e.sequence FROM data_init_operations o JOIN data_init_events e ON e.operation_id=o.id WHERE o.id=? AND o.plan_id=? AND o.fence_id=? AND e.sequence=(SELECT max(sequence) FROM data_init_events WHERE operation_id=o.id) AND e.state='restore_point_intent'", o.ID, o.PlanID, o.Fence).Scan(&seq); err != nil {
+		return err
 	}
-	return nil
+	if _, err = tx.ExecContext(ctx, "INSERT INTO data_init_events VALUES(?,?,'restore_point_verified',?,?)", o.ID, seq+1, timestamp(), raw); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 func (s *Store) LoadInitRestorePoint(ctx context.Context, o datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 	var point datainit.VerifiedRestorePoint
 	var raw []byte
-	if err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_init_restore_points WHERE operation_id=?", o.ID).Scan(&raw); err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT receipt FROM data_init_events WHERE operation_id=? AND state='restore_point_verified' AND receipt IS NOT NULL", o.ID).Scan(&raw); err != nil {
 		return point, err
 	}
 	if len(raw) > 16384 || json.Unmarshal(raw, &point) != nil {
@@ -254,6 +273,15 @@ func (s *Store) LoadInitRestorePoint(ctx context.Context, o datainit.Operation) 
 	}
 	canonical, err := json.Marshal(point)
 	if err != nil || !bytes.Equal(canonical, raw) {
+		return point, &IntegrityError{}
+	}
+	p, err := s.LoadInitPlan(ctx, o.PlanID)
+	if err != nil || point.Receipt.OperationID != o.ID+"-empty-verify" || !point.Admits(p, point.Receipt.ObservedAt) {
+		return point, &IntegrityError{}
+	}
+	registered, err := s.ReadRestorePoint(ctx, point.PointID, p.Database.ReplicaBindingID, p.ReplicaEpoch)
+	snapshot := point.Receipt.Source.Snapshot
+	if err != nil || registered.Kind != data.RestorePointSnapshot || registered.Snapshot == nil || registered.Schema.State != data.VerifiedEmpty || registered.Schema.DatabaseID != point.DatabaseID || registered.Snapshot.ObjectKey != snapshot.ObjectKey || registered.Snapshot.SHA256 != snapshot.SHA256 || registered.Snapshot.Size != snapshot.Size {
 		return point, &IntegrityError{}
 	}
 	return point, nil

@@ -12,26 +12,32 @@ import (
 )
 
 type BackupCredentialOperations interface {
-	Plan(context.Context, string, *time.Time) (backupcredentials.Plan, error)
-	Set(context.Context, string, string, backupcredentials.Packet) (backupcredentials.Receipt, error)
+	Plan(context.Context, string, string, *time.Time) (backupcredentials.Plan, error)
+	Set(context.Context, string, string, string, backupcredentials.Packet) (backupcredentials.Receipt, error)
 }
 type BackupCredentialPlanArgs struct {
 	App       string     `json:"app"`
+	Database  string     `json:"database"`
 	ExpiresAt *time.Time `json:"expires_at"`
 }
 type BackupCredentialSetArgs struct {
-	App    string
-	PlanID string
-	Packet backupcredentials.Packet
+	App      string
+	Database string
+	PlanID   string
+	Packet   backupcredentials.Packet
 }
 
 func decodeBackupCredentialPlan(raw json.RawMessage) (any, error) {
-	f, err := strictjson.Object(raw, "app", "expires_at")
+	f, err := strictjson.Object(raw, "app", "database", "expires_at")
 	if err != nil {
 		return nil, strictjson.ErrObject
 	}
 	app, err := strictjson.Value[string](f["app"])
 	if err != nil || !ValidApp(app) {
+		return nil, strictjson.ErrObject
+	}
+	database, err := strictjson.Value[string](f["database"])
+	if err != nil || database != "" && !ValidApp(database) {
 		return nil, strictjson.ErrObject
 	}
 	var expiry *time.Time
@@ -46,15 +52,19 @@ func decodeBackupCredentialPlan(raw json.RawMessage) (any, error) {
 		}
 		expiry = &t
 	}
-	return BackupCredentialPlanArgs{App: app, ExpiresAt: expiry}, nil
+	return BackupCredentialPlanArgs{App: app, Database: database, ExpiresAt: expiry}, nil
 }
 func decodeBackupCredentialSet(raw json.RawMessage) (any, error) {
-	f, err := strictjson.Object(raw, "app", "plan_id", "packet")
+	f, err := strictjson.Object(raw, "app", "database", "plan_id", "packet")
 	if err != nil {
 		return nil, strictjson.ErrObject
 	}
 	app, err := strictjson.Value[string](f["app"])
 	if err != nil || !ValidApp(app) {
+		return nil, strictjson.ErrObject
+	}
+	database, err := strictjson.Value[string](f["database"])
+	if err != nil || database != "" && !ValidApp(database) {
 		return nil, strictjson.ErrObject
 	}
 	planID, err := strictjson.Value[string](f["plan_id"])
@@ -65,23 +75,27 @@ func decodeBackupCredentialSet(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, strictjson.ErrObject
 	}
-	return BackupCredentialSetArgs{App: app, PlanID: planID, Packet: packet}, nil
+	return BackupCredentialSetArgs{App: app, Database: database, PlanID: planID, Packet: packet}, nil
 }
 
 // EncodeBackupCredentialSet is the private stdin wire boundary, not a log record.
-func EncodeBackupCredentialSet(app, planID string, packet []byte) (json.RawMessage, error) {
+func EncodeBackupCredentialSet(app, database, planID string, packet []byte) (json.RawMessage, error) {
 	raw, err := json.Marshal(struct {
-		App    string          `json:"app"`
-		PlanID string          `json:"plan_id"`
-		Packet json.RawMessage `json:"packet"`
-	}{app, planID, packet})
+		App      string          `json:"app"`
+		Database string          `json:"database"`
+		PlanID   string          `json:"plan_id"`
+		Packet   json.RawMessage `json:"packet"`
+	}{app, database, planID, packet})
 	if err != nil {
 		return nil, strictjson.ErrObject
 	}
-	if _, err := decodeBackupCredentialSet(raw); err != nil {
+	decoded, err := decodeBackupCredentialSet(raw)
+	if err != nil {
 		clear(raw)
 		return nil, strictjson.ErrObject
 	}
+	validated := decoded.(BackupCredentialSetArgs)
+	validated.Packet.Clear()
 	return raw, nil
 }
 
