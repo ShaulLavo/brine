@@ -42,6 +42,7 @@ type SchemaCompatibility = data.SchemaCompatibility
 type SchemaDefinition = data.SchemaDefinition
 
 type App struct {
+	RestoreInvariants   []data.RestoreInvariant
 	Runtime             *RuntimeIdentity
 	Databases           []Database
 	SchemaCompatibility []SchemaCompatibility
@@ -82,19 +83,20 @@ func refusal(code, field, message string) error {
 }
 
 type rawApp struct {
-	Runtime             *rawRuntime         `toml:"runtime"`
-	Databases           []*rawDatabase      `toml:"databases"`
-	SchemaCompatibility []*rawCompatibility `toml:"schema_compatibility"`
-	SchemaDefinitions   []*rawDefinition    `toml:"schema_definitions"`
-	SchemaVersion       any                 `toml:"schema_version"`
-	Name                any                 `toml:"name"`
-	Image               any                 `toml:"image"`
-	ContainerPort       any                 `toml:"container_port"`
-	Domains             any                 `toml:"domains"`
-	Health              *rawHealth          `toml:"health"`
-	Resources           *rawResources       `toml:"resources"`
-	Environment         map[string]any      `toml:"environment"`
-	Secrets             map[string]any      `toml:"secrets"`
+	RestoreInvariants   []*rawRestoreInvariant `toml:"restore_invariants"`
+	Runtime             *rawRuntime            `toml:"runtime"`
+	Databases           []*rawDatabase         `toml:"databases"`
+	SchemaCompatibility []*rawCompatibility    `toml:"schema_compatibility"`
+	SchemaDefinitions   []*rawDefinition       `toml:"schema_definitions"`
+	SchemaVersion       any                    `toml:"schema_version"`
+	Name                any                    `toml:"name"`
+	Image               any                    `toml:"image"`
+	ContainerPort       any                    `toml:"container_port"`
+	Domains             any                    `toml:"domains"`
+	Health              *rawHealth             `toml:"health"`
+	Resources           *rawResources          `toml:"resources"`
+	Environment         map[string]any         `toml:"environment"`
+	Secrets             map[string]any         `toml:"secrets"`
 }
 type rawHealth struct {
 	Path                   any `toml:"path"`
@@ -145,7 +147,8 @@ func Parse(data []byte) (App, error) {
 }
 
 var schemaFields = map[string][]string{
-	"$":                      {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "schema_definitions"},
+	"$":                      {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "schema_definitions", "restore_invariants"},
+	"$.restore_invariants":   {"database", "kind", "table", "column", "count", "minimum", "maximum"},
 	"$.runtime":              {"uid", "gid"},
 	"$.databases":            {"name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval"},
 	"$.schema_compatibility": {"database", "accepts", "startup"},
