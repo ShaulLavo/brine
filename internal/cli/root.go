@@ -43,8 +43,9 @@ type Dependencies struct {
 	HostDiagnose          dispatch.DiagnosticReader
 	HostConfig            dispatch.ConfigurationOperations
 	HostSecrets           dispatch.SecretOperations
+	HostWriterAttempt     func(context.Context, string) error
 	HostBackupCredentials dispatch.BackupCredentialOperations
-	HostPermits           replication.LaunchReader // Read-only composition only; nil refuses startup.
+	HostPermits           replication.LaunchReader
 }
 
 // NewRootCommand builds an independent command tree without executing it.

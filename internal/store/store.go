@@ -34,7 +34,7 @@ type Release = ops.Release
 
 const MaxEventBytes = ops.MaxEventBytes
 const MaxPlanBytes = 16 << 20
-const SchemaVersion = 4
+const SchemaVersion = 5
 
 var ErrNotFound = errors.New("control record not found")
 var ErrConflict = errors.New("conflicting control record")
@@ -70,6 +70,14 @@ type Store struct {
 // is deliberately one connection; WAL still permits other runner processes to
 // read while a writer commits. Immediate transactions avoid lock-upgrade races.
 func Open(stateDir string) (*Store, error) {
+	return OpenContext(context.Background(), stateDir)
+}
+
+// OpenContext applies the caller deadline to control-store initialization.
+func OpenContext(ctx context.Context, stateDir string) (*Store, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	dir, err := filepath.Abs(stateDir)
 	if err != nil {
 		return nil, err
@@ -101,7 +109,7 @@ func Open(stateDir string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	s := &Store{db: db, dir: dir}
-	if err = s.migrate(context.Background()); err != nil {
+	if err = s.migrate(ctx); err != nil {
 		db.Close()
 		return nil, err
 	}
@@ -178,6 +186,11 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 	}
 	if version < 4 {
 		if err = migrateData(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if version < 5 {
+		if err = migrateDataEvidence(ctx, tx); err != nil {
 			return err
 		}
 	}

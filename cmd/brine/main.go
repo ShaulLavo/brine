@@ -49,7 +49,13 @@ func run(deps cli.Dependencies, args []string) int {
 }
 
 func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) int {
-	lifecycle := cli.RuntimeLifecycle{}
+	lifecycle := cli.RuntimeLifecycle{OpenWriterAttempt: func(ctx context.Context) (cli.RuntimeServices, error) {
+		runtime, err := host.OpenWriterAttempt(ctx)
+		if err != nil {
+			return cli.RuntimeServices{}, err
+		}
+		return cli.RuntimeServices{WriterAttempt: runtime.WriterAttempt, Close: runtime.Close}, nil
+	}}
 	if cli.HostServeRequested(args) {
 		factory := host.NewServerFactory(deps.Version, authenticated)
 		deps.HostServerFactory = factory.Build

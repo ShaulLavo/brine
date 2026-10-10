@@ -2,6 +2,8 @@ package apply
 
 import (
 	"context"
+	"path"
+	"strings"
 
 	"github.com/ShaulLavo/brine/internal/replication"
 )
@@ -53,8 +55,13 @@ func (r ReplicaOrchestrator) Quiesce(ctx context.Context, b ReplicaActivation) e
 	if r.Permits == nil || r.Services == nil || r.Locks == nil {
 		return &Error{Step: "stop_replica", Code: "replica_fence_required", State: RecoveryRequired}
 	}
+	// This fenced lifecycle is not composed into the host yet. Keep its
+	// held-fence admission local rather than exporting an unused startup API.
 	state, err := r.Permits.ReadReplicaPermit(ctx, b.BindingID)
-	if err != nil || ctx.Err() != nil || state.Fence != replication.FenceHeld || state.Binding.BindingID != b.BindingID || state.LifetimeLock != b.LifetimeLock {
+	if err != nil || ctx.Err() != nil || b.LifetimeLock == "/" || !path.IsAbs(b.LifetimeLock) || path.Clean(b.LifetimeLock) != b.LifetimeLock || strings.ContainsAny(b.LifetimeLock, "$%\\\n\r\t \x00") || state.Fence != replication.FenceHeld || state.LifetimeLock != b.LifetimeLock || state.Ownership != replication.LocalOwner || !state.SourceSettled || state.Binding.DatabaseID != b.DatabaseID || state.Binding.BindingID != b.BindingID || state.Binding.EpochID != b.EpochID || state.ConfigHash != b.ConfigHash || replication.ConfigHash(state.Config) != state.ConfigHash {
+		return &Error{Step: "stop_replica", Code: "replica_fence_required", State: RecoveryRequired, Cause: err}
+	}
+	if _, err := replication.ParseConfig(state.Config, state.Binding); err != nil {
 		return &Error{Step: "stop_replica", Code: "replica_fence_required", State: RecoveryRequired, Cause: err}
 	}
 	name, err := replication.ServiceName(b.BindingID)
