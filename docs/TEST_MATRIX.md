@@ -19,7 +19,7 @@
 | T13 | Live data replicated to R2 | Isolated restore integrity check + known write verified | 04 |
 | T14 | R2 outage, missing credentials, expired secret | Deployment/backup health says degraded; no misleading backup success | 04 |
 | T15 | Prevent duplicate replicator on same destination | Second replicator refused before data corruption | 04 |
-| T16 | Rollback after schema-breaking migration | Automatic rewind refused; recovery-required state | 03/04 |
+| T16 | Persistent release admission and rollback after schema change | D12 declaration required at plan time; incompatible app rollback conflicts with no changes; automatic compensation refuses an incompatible old writer with recovery-required state; no database rewind | 03/04 |
 | T17 | Malicious app name, domain, environment or plan ID | No argv/shell injection, path escape or arbitrary admin command | 00-04 |
 | T18 | Agent key attempts an operation outside the allowlist (shell, raw Podman/Caddy, non-Brine software, purge or live restore when policy forbids), invokes the root helper directly, forges an operation record, or substitutes a path/symlink | Dispatcher and root helper each refuse independently of CLI flags and runner-writable state | 06 |
 | T19 | Operator performs real R2 restore drill to disposable destination | Restore procedure and resulting DB independently verified | 04/06 |
@@ -39,6 +39,16 @@
 | T33 | Private WebTransport preview authorization and expiry | Real browser grant/replay/Origin/revocation/incarnation/TTL/isolation cases; public safety gates | 07/08 |
 
 Detailed setup, task dependencies and acceptance requirements for T25-T33 live in the [Phase 08 plan](plans/08-webtransport.md). Initial direct-UDP full-app support and shared-port/preview support have separate exit gates.
+
+## T16 schema policy acceptance, implementation pending
+
+D12 and the [Schema migrations contract](CONTRACTS.md#schema-migrations) define these gates. P04-07's policy documents are not passing behavioral evidence.
+
+- Persistent create and update plans without complete per-database declarations conflict with `schema_compatibility_required` and have no executable changes. Config/start paths cannot bypass admission. Removing a data reference cannot disguise existing persistence. Strict parsing refuses unsupported startup migration modes. Existing stateless plans remain unchanged.
+- Known schema incompatibility conflicts with `schema_incompatible`. Unknown or contradictory current schema conflicts with `schema_state_unknown`. Declaration ordering preserves canonical hashes. Changed current schema invalidates a stored plan at apply before effects. Initial table creation uses the separate reviewed schema-change workflow.
+- Rollback planning checks the target release against current database markers, not historical release markers. Compatible rollback preserves fixture writes and schema. An incompatible target conflicts with `schema_rollback_incompatible` and has no effects. A failed candidate, reconcile and resolve cannot restart incompatible old code or reuse stale `compatibility_verified` proof. They record `recovery_required`, never a successful rollback or automatic database restore.
+- Later migration automation refuses missing review, denied policy and absent, expired, mismatched or unavailable verified restore points. Every affected database needs coverage of quiesced pre-migration data. Interrupt each schema-effect and journal boundary. Inspect partial or unknown outcomes without replaying SQL, a down script or live restore.
+- A separately authorized physical drill records an app fixture's schema and known writes, applies a reviewed schema change, and proves incompatible app rollback refuses without changing either. A real isolated R2 restore verifies the exact recorded point, integrity, invariants and schema. This lane runs no host drill and claims no working migration or R2 recovery.
 
 ## Required gate before real personal data
 
