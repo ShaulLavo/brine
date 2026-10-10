@@ -83,7 +83,7 @@ func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
 	if err != nil {
 		var refused *policy.Refusal
 		if errors.As(err, &refused) {
-			return out, result.Classify(err)
+			return out, err
 		}
 		return out, result.New(result.DependencyMissing, err)
 	}
