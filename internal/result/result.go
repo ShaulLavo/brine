@@ -44,6 +44,7 @@ const (
 	InvalidUsage              Code = "invalid_usage"
 	DependencyMissing         Code = "dependency_missing"
 	PolicyRefused             Code = "policy_refused"
+	PolicyRegistryDenied      Code = "policy_registry_denied"
 	Conflict                  Code = "conflict"
 	RecoveryRequired          Code = "recovery_required"
 	Interrupted               Code = "interrupted"
@@ -99,6 +100,7 @@ var descriptions = map[Code]description{
 	InvalidUsage:                   {Validation, "Invalid command or arguments. Use --help for usage.", false},
 	DependencyMissing:              {Dependency, "A required dependency is missing or incompatible.", false},
 	PolicyRefused:                  {Policy, "The operation was refused by policy.", false},
+	PolicyRegistryDenied:           {Policy, "The image registry or repository is not allowed by operator policy.", false},
 	Conflict:                       {StateConflict, "The plan is stale or another operation holds the lock.", true},
 	RecoveryRequired:               {Recovery, "Manual recovery is required before continuing.", false},
 	Interrupted:                    {Interruption, "The client was interrupted.", false},

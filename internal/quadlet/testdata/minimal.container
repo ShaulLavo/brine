@@ -16,6 +16,8 @@ LogOpt=max-size=10485760
 
 [Service]
 Restart=on-failure
+SuccessExitStatus=143
+RestartForceExitStatus=143
 
 [Install]
 WantedBy=default.target
