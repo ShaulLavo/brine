@@ -311,3 +311,7 @@ Operation `01a1236d9d259f648697d9740960c4ceab49cf3cd42a` succeeded with `RELEASE
 ### Physical rollback
 
 The first rollback operation `01a1236f4e35118f6721b8497c95415092f6e96f73c9` failed `stale_plan` before any effect (launch plus failure/terminal events only). After inspecting that no-effect terminal receipt, a fresh rollback plan matched the equivalent original desired specification. Operation `01a123706a2ad1fcc644fac2d543f6a1711cc68438f2` succeeded through that supported plan/apply path. Runtime environment returned to `RELEASE=one`; normally verified routed HTTPS returned 200. This is stateless app rollback, not database rollback. The initial plan discrepancy is being inspected, not silently retried as an unknown operation.
+
+### Invalid release and restricted log tail
+
+Operation `01a1237124fb21710cca0733fe6fd9e6a06730d2cc40` attempted the new digest/environment with a deliberately nonexistent health path and settled `rolled_back`. The previous writer regained `RELEASE=one` and routed HTTPS 200. Restricted `logs fixture --tail 40` returned 22 nonempty entries after real HTTP requests; restricted `diagnose fixture` succeeded with the app report. No host journal privilege was granted.
