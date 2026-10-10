@@ -82,15 +82,19 @@ func refusal(code, field, message string) error {
 }
 
 type rawApp struct {
-	SchemaVersion any            `toml:"schema_version"`
-	Name          any            `toml:"name"`
-	Image         any            `toml:"image"`
-	ContainerPort any            `toml:"container_port"`
-	Domains       any            `toml:"domains"`
-	Health        *rawHealth     `toml:"health"`
-	Resources     *rawResources  `toml:"resources"`
-	Environment   map[string]any `toml:"environment"`
-	Secrets       map[string]any `toml:"secrets"`
+	Runtime             *rawRuntime         `toml:"runtime"`
+	Databases           []*rawDatabase      `toml:"databases"`
+	SchemaCompatibility []*rawCompatibility `toml:"schema_compatibility"`
+	SchemaDefinitions   []*rawDefinition    `toml:"schema_definitions"`
+	SchemaVersion       any                 `toml:"schema_version"`
+	Name                any                 `toml:"name"`
+	Image               any                 `toml:"image"`
+	ContainerPort       any                 `toml:"container_port"`
+	Domains             any                 `toml:"domains"`
+	Health              *rawHealth          `toml:"health"`
+	Resources           *rawResources       `toml:"resources"`
+	Environment         map[string]any      `toml:"environment"`
+	Secrets             map[string]any      `toml:"secrets"`
 }
 type rawHealth struct {
 	Path                   any `toml:"path"`
@@ -141,9 +145,13 @@ func Parse(data []byte) (App, error) {
 }
 
 var schemaFields = map[string][]string{
-	"$":           {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets"},
-	"$.health":    {"path", "expected_status", "startup_deadline_seconds", "timeout_seconds"},
-	"$.resources": {"memory_mb", "pids_limit"},
+	"$":                      {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "schema_definitions"},
+	"$.runtime":              {"uid", "gid"},
+	"$.databases":            {"name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval"},
+	"$.schema_compatibility": {"database", "accepts", "startup"},
+	"$.schema_definitions":   {"database", "marker", "catalog_sha256"},
+	"$.health":               {"path", "expected_status", "startup_deadline_seconds", "timeout_seconds"},
+	"$.resources":            {"memory_mb", "pids_limit"},
 }
 
 func exactFields(fields map[string]any, prefix string) error {
@@ -153,9 +161,24 @@ func exactFields(fields map[string]any, prefix string) error {
 		}
 		nestedPrefix := prefix + "." + key
 		if _, ok := schemaFields[nestedPrefix]; ok {
-			if nested, ok := fields[key].(map[string]any); ok {
+			switch nested := fields[key].(type) {
+			case map[string]any:
 				if err := exactFields(nested, nestedPrefix); err != nil {
 					return err
+				}
+			case []map[string]any:
+				for _, entry := range nested {
+					if err := exactFields(entry, nestedPrefix); err != nil {
+						return err
+					}
+				}
+			case []any:
+				for _, entry := range nested {
+					if fields, ok := entry.(map[string]any); ok {
+						if err := exactFields(fields, nestedPrefix); err != nil {
+							return err
+						}
+					}
 				}
 			}
 		}
@@ -354,6 +377,9 @@ func validate(raw rawApp) (App, error) {
 			return app, refusal("spec.invalid_secret_reference", "secrets", "expected a Podman secret reference name, never a value")
 		}
 		app.Secrets[key] = SecretReference(value)
+	}
+	if err := validatePersistence(raw, &app); err != nil {
+		return App{}, err
 	}
 	return app, nil
 }

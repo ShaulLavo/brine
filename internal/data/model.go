@@ -29,7 +29,11 @@ type RuntimeIdentity struct {
 	UID uint32 `json:"uid"`
 	GID uint32 `json:"gid"`
 }
+
+const DefaultSyncInterval = time.Minute
+
 type Database struct {
+	SyncInterval      time.Duration        `json:"sync_interval,omitempty"`
 	Name              DatabaseName         `json:"name"`
 	PersistentRoot    PersistentRoot       `json:"persistent_root"`
 	MountPath         ContainerMountPath   `json:"mount_path"`
@@ -59,13 +63,13 @@ type DatabaseBinding struct {
 
 // Destination has references only. Credential values never enter the store.
 type Destination struct {
-	Reference     BackupDestinationRef `json:"reference"`
-	Endpoint      string               `json:"endpoint"`
-	Region        string               `json:"region"`
-	Bucket        string               `json:"bucket"`
-	BasePrefix    string               `json:"base_prefix"`
-	PathStyle     bool                 `json:"path_style"`
-	CredentialRef string               `json:"credential_ref"`
+	Reference     BackupDestinationRef `json:"reference" toml:"reference"`
+	Endpoint      string               `json:"endpoint" toml:"endpoint"`
+	Region        string               `json:"region" toml:"region"`
+	Bucket        string               `json:"bucket" toml:"bucket"`
+	BasePrefix    string               `json:"base_prefix" toml:"base_prefix"`
+	PathStyle     bool                 `json:"path_style" toml:"path_style"`
+	CredentialRef string               `json:"credential_ref" toml:"credential_ref"`
 }
 type ReplicaBinding struct {
 	BindingID         ReplicaBindingID `json:"binding_id"`
@@ -188,4 +192,19 @@ func RemotePrefix(base string, incarnation AppIncarnationID, database DatabaseID
 		return "", ErrInvalid
 	}
 	return path.Join(base, relative, "epochs", string(epoch)) + "/", nil
+}
+
+func ValidMarker(marker string) bool    { return markerPattern.MatchString(marker) }
+func ValidCatalogHash(hash string) bool { return hashPattern.MatchString(hash) }
+
+type BackupCadence struct {
+	MinSyncInterval     time.Duration `json:"min_sync_interval"`
+	MaxSyncInterval     time.Duration `json:"max_sync_interval"`
+	SnapshotInterval    time.Duration `json:"snapshot_interval"`
+	MinSnapshotInterval time.Duration `json:"min_snapshot_interval"`
+	MaxSnapshotInterval time.Duration `json:"max_snapshot_interval"`
+}
+
+func DefaultBackupCadence() BackupCadence {
+	return BackupCadence{MinSyncInterval: 10 * time.Second, MaxSyncInterval: time.Hour, SnapshotInterval: 6 * time.Hour, MinSnapshotInterval: time.Hour, MaxSnapshotInterval: 24 * time.Hour}
 }

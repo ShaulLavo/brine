@@ -29,6 +29,9 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
+	PersistentRoots      []data.PersistentRoot      `json:"persistent_roots,omitempty"`
+	Backup               *data.BackupCadence        `json:"backup,omitempty"`
+	BackupDestinations   []data.Destination         `json:"backup_destinations,omitempty"`
 	Runtime              *data.RuntimeIdentity      `json:"runtime,omitempty"`
 	Databases            []data.Database            `json:"databases,omitempty"`
 	SchemaCompatibility  []data.SchemaCompatibility `json:"schema_compatibility,omitempty"`
@@ -58,6 +61,10 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 	slices.SortFunc(d.Environment, func(a, b Environment) int { return strings.Compare(a.Name, b.Name) })
 	d.Secrets = slices.Clone(d.Secrets)
 	slices.SortFunc(d.Secrets, func(a, b Secret) int { return strings.Compare(a.Name, b.Name) })
+	d.PersistentRoots = slices.Clone(d.PersistentRoots)
+	slices.Sort(d.PersistentRoots)
+	d.BackupDestinations = slices.Clone(d.BackupDestinations)
+	slices.SortFunc(d.BackupDestinations, func(a, b data.Destination) int { return strings.Compare(string(a.Reference), string(b.Reference)) })
 	d.Databases = slices.Clone(d.Databases)
 	slices.SortFunc(d.Databases, func(a, b data.Database) int { return strings.Compare(string(a.Name), string(b.Name)) })
 	d.SchemaCompatibility = slices.Clone(d.SchemaCompatibility)
@@ -81,9 +88,6 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 // Normalize requires a policy produced by Parse. No snapshot is needed here;
 // observed ports, target identity and secret versions belong to the planner.
 func Normalize(input spec.App, p Policy) (Desired, error) {
-	if input.Runtime != nil || len(input.Databases) != 0 || len(input.SchemaCompatibility) != 0 || len(input.SchemaDefinitions) != 0 {
-		return Desired{}, refuse("policy.persistence_unavailable", "databases", "persistent admission requires verified data facts")
-	}
 	if p.config == nil {
 		return Desired{}, refuse("policy.required", "$", "explicit operator policy is required")
 	}
@@ -106,6 +110,34 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 	}
 	if input.Resources != nil {
 		raw["resources"] = map[string]int{"memory_mb": input.Resources.MemoryMB, "pids_limit": input.Resources.PIDsLimit}
+	}
+	if input.Runtime != nil {
+		raw["runtime"] = map[string]any{"uid": input.Runtime.UID, "gid": input.Runtime.GID}
+	}
+	if len(input.Databases) > 0 {
+		rows := make([]map[string]any, 0, len(input.Databases))
+		for _, d := range input.Databases {
+			r := map[string]any{"name": string(d.Name), "persistent_root": string(d.PersistentRoot), "mount_path": string(d.MountPath), "filename": string(d.Filename), "backup_destination": string(d.BackupDestination)}
+			if d.SyncInterval != 0 {
+				r["sync_interval"] = d.SyncInterval.String()
+			}
+			rows = append(rows, r)
+		}
+		raw["databases"] = rows
+	}
+	if len(input.SchemaCompatibility) > 0 {
+		rows := make([]map[string]any, 0, len(input.SchemaCompatibility))
+		for _, c := range input.SchemaCompatibility {
+			rows = append(rows, map[string]any{"database": string(c.Database), "accepts": c.Accepts, "startup": c.Startup})
+		}
+		raw["schema_compatibility"] = rows
+	}
+	if len(input.SchemaDefinitions) > 0 {
+		rows := make([]map[string]any, 0, len(input.SchemaDefinitions))
+		for _, d := range input.SchemaDefinitions {
+			rows = append(rows, map[string]any{"database": string(d.Database), "marker": d.Marker, "catalog_sha256": d.CatalogSHA256})
+		}
+		raw["schema_definitions"] = rows
 	}
 	app, e := parseMap(raw)
 	if e != nil {
@@ -157,6 +189,24 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		}
 	}
 	d := Desired{SchemaVersion: SchemaVersion, Name: app.Name, Image: app.Image, ContainerPort: app.ContainerPort, Domains: app.Domains, Health: Health{Path: app.Health.Path, ExpectedStatus: app.Health.ExpectedStatus, StartupDeadlineSeconds: app.Health.StartupDeadlineSeconds, TimeoutSeconds: app.Health.TimeoutSeconds}, Resources: resources, Environment: []Environment{}, Secrets: []Secret{}, PolicyVersion: c.Version, PolicyHash: p.hash, AppPorts: *c.AppPorts, MinimumFreeDiskBytes: *c.MinimumFreeDiskBytes}
+	d.Runtime = app.Runtime
+	d.Databases = app.Databases
+	d.SchemaCompatibility = app.SchemaCompatibility
+	d.SchemaDefinitions = app.SchemaDefinitions
+	if len(app.Databases) > 0 {
+		backup := p.Backup()
+		d.Backup = &backup
+		for _, root := range c.PersistentRoots {
+			d.PersistentRoots = append(d.PersistentRoots, data.PersistentRoot(root))
+		}
+		seen := map[data.BackupDestinationRef]bool{}
+		for _, database := range app.Databases {
+			if destination, ok := p.BackupDestination(database.BackupDestination); ok && !seen[destination.Reference] {
+				d.BackupDestinations = append(d.BackupDestinations, destination)
+				seen[destination.Reference] = true
+			}
+		}
+	}
 	slices.Sort(d.Domains)
 	for name, value := range app.Environment {
 		d.Environment = append(d.Environment, Environment{Name: name, Value: value})
@@ -183,7 +233,7 @@ func (p Policy) CheckSecret(app spec.Name, ref spec.SecretReference) error {
 
 // Stateless is affirmative only when no persistence declaration is present.
 func (d Desired) Stateless() bool {
-	return d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
+	return len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
 }
 
 // App reconstructs a detached spec input. It grants no policy authorization.

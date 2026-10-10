@@ -42,14 +42,15 @@ func TestDesiredAppPersistenceDetached(t *testing.T) {
 		}
 	}
 }
-func TestNormalizeDoesNotDiscardPersistenceCheckpoint(t *testing.T) {
+func TestNormalizeRetainsRuntimeDeclaration(t *testing.T) {
 	p, err := Parse(fixture(t))
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := app(t)
 	a.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	if _, err = Normalize(a, p); err == nil {
-		t.Fatal("unsupported persistence silently discarded")
+	d, err := Normalize(a, p)
+	if err != nil || d.Runtime == nil || d.Runtime.UID != a.Runtime.UID || d.Stateless() {
+		t.Fatalf("runtime declaration silently discarded: %v", err)
 	}
 }
