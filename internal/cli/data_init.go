@@ -12,11 +12,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newDataCmd(deps Dependencies, modes *machineModes) *cobra.Command {
-	command := &cobra.Command{Use: "data", Short: "Manage persistent data through reviewed operations"}
-	command.AddCommand(newDataInitCmd(deps, modes, false))
-	return command
-}
 func newDataInitCmd(deps Dependencies, modes *machineModes, local bool) *cobra.Command {
 	var flags operationFlags
 	var planned bool

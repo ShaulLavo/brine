@@ -13,7 +13,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 )
 
-const MappingProbeImage = "docker.io/library/python@sha256:2d9aefe2fef018a7eb2c13064c89c71929800fd2e5dccdbf52ea5da5bb8d929a"
+const MappingProbeImage = data.MappingProbeImage
 
 // ProbeDataMapping exercises real keep-id ownership with a pinned disposable
 // probe image. It never mounts app data, credentials or state; refusal never

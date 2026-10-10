@@ -154,3 +154,23 @@ func TestCadenceAbsoluteSnapshotBounds(t *testing.T) {
 func testDefaultCadence() Cadence {
 	return Cadence{SyncInterval: time.Minute, SnapshotInterval: 6 * time.Hour}
 }
+
+func TestSocketPathExactKernelBoundary(t *testing.T) {
+	for _, size := range []int{107, 108} {
+		t.Run(strings.Repeat("x", size-107)+"boundary", func(t *testing.T) {
+			binding := testBinding()
+			suffix := "/replication/" + binding.BindingID + "/control.sock"
+			binding.SocketPath = "/" + strings.Repeat("x", size-len(suffix)-1) + suffix
+			if len(binding.SocketPath) != size {
+				t.Fatal("wrong fixture boundary")
+			}
+			_, err := RenderConfig(binding)
+			if size == 107 && err != nil {
+				t.Fatalf("107-byte path refused: %v", err)
+			}
+			if size == 108 && err == nil {
+				t.Fatal("108-byte socket path accepted")
+			}
+		})
+	}
+}

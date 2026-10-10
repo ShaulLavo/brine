@@ -110,7 +110,7 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = report
-		case "plan":
+		case "plan", "data_prepare_plan":
 			p, err := decodePlanned(fields["data"])
 			if err != nil {
 				return invalid()
