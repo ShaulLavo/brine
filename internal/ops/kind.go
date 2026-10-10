@@ -10,10 +10,13 @@ import (
 type Kind string
 
 const (
-	Deploy    Kind = "deploy"
-	Resolve   Kind = "resolve"
-	SecretSet Kind = "secret_set"
-	Reconcile Kind = "reconcile"
+	Deploy               Kind = "deploy"
+	Resolve              Kind = "resolve"
+	SecretSet            Kind = "secret_set"
+	Reconcile            Kind = "reconcile"
+	RestoreTest          Kind = "restore_test"
+	CredentialActivation Kind = "credential_activation" // #nosec G101 -- A closed operation name, not credential material.
+	DataInitApply        Kind = "data_init_apply"
 )
 
 // Intent contains identity and references only. Secret values cannot be stored.
@@ -40,6 +43,8 @@ func ValidIntent(i Intent) bool {
 		return operationID.MatchString(i.RecoveryOf) && (planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == "" || i.PlanID == "" && ValidIntent(Intent{Kind: SecretSet, App: i.App, SecretRef: i.SecretRef}))
 	case Deploy:
 		return planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == ""
+	case RestoreTest, CredentialActivation, DataInitApply:
+		return i.PlanID == "" && appName.MatchString(i.App) && (operationID.MatchString(i.SecretRef) || planID.MatchString(i.SecretRef))
 	case Reconcile:
 		return i.PlanID == "" && i.App == "" && i.SecretRef == ""
 	case SecretSet:
@@ -55,7 +60,7 @@ func ValidOperation(o Operation) bool {
 	if !ValidState(o.State) {
 		return false
 	}
-	if o.Kind == Reconcile {
+	if o.Kind == Reconcile || o.Kind.IsTask() {
 		return ValidIntent(Intent{Kind: o.Kind, PlanID: o.PlanID, App: o.App, SecretRef: o.SecretRef}) && (o.State == Queued || o.State == LaunchUnknown || o.State == Preflight || o.State == Succeeded || o.State == Failed || o.State == RecoveryRequired)
 	}
 	if o.Kind == Resolve {
@@ -73,7 +78,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy, Resolve:
 		return Transitions()
-	case Reconcile:
+	case Reconcile, RestoreTest, CredentialActivation, DataInitApply:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
 	case SecretSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
@@ -131,7 +136,7 @@ func ValidateOperationEvent(op Operation, e Event) error {
 		}
 		return nil
 	}
-	if op.Kind == Reconcile {
+	if op.Kind == Reconcile || op.Kind.IsTask() {
 		if e.Kind != "launch" && e.Kind != "state" && e.Kind != "failure" {
 			return ErrInvalidEvent
 		}
@@ -147,4 +152,9 @@ func ValidateOperationEvent(op Operation, e Event) error {
 		}
 	}
 	return nil
+}
+
+// IsTask identifies reference-only detached work; handlers own their host locking.
+func (k Kind) IsTask() bool {
+	return k == RestoreTest || k == CredentialActivation || k == DataInitApply
 }
