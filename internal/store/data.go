@@ -387,6 +387,8 @@ func (s *Store) ReadCredentialScopes(ctx context.Context, app string) ([]Credent
 // CredentialRecord is deliberately incapable of carrying credential values.
 // P04-03 owns delivery and presentation types; this is their durable reference.
 type CredentialRecord struct {
+	App           string `json:"app"`
+	CredentialRef string `json:"credential_ref"`
 	// Requester comes only from the authenticated dispatcher identity, never
 	// from a request packet or credential delivery payload.
 	Requester   string                    `json:"requester"`
@@ -419,7 +421,11 @@ func (s *Store) SaveCredentialRecord(ctx context.Context, r CredentialRecord) er
 	if err != nil {
 		return err
 	}
-	if p.Replica.EpochID != r.EpochID || p.Replica.Destination.Reference != r.Destination {
+	var app string
+	if err = s.db.QueryRowContext(ctx, "SELECT app FROM data_incarnations WHERE id=?", p.Database.IncarnationID).Scan(&app); err != nil {
+		return err
+	}
+	if r.App != app || r.CredentialRef != p.Replica.Destination.CredentialRef || p.Replica.EpochID != r.EpochID || p.Replica.Destination.Reference != r.Destination {
 		return ErrConflict
 	}
 	raw, err := json.Marshal(r)

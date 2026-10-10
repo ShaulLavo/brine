@@ -126,7 +126,7 @@ func TestCredentialReferenceRecord(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := CredentialRecord{ID: id, Kind: "plan", PlanID: "plan-1", Requester: "authenticated-agent", PlanHash: "sha256:" + strings.Repeat("a", 64), TargetHash: "sha256:" + strings.Repeat("b", 64), PolicyHash: dataRequest().PolicyHash, BindingID: reserved.Replica.BindingID, Destination: reserved.Replica.Destination.Reference, EpochID: reserved.Replica.EpochID}
+	r := CredentialRecord{App: "example", CredentialRef: "primary", ID: id, Kind: "plan", PlanID: "plan-1", Requester: "authenticated-agent", PlanHash: "sha256:" + strings.Repeat("a", 64), TargetHash: "sha256:" + strings.Repeat("b", 64), PolicyHash: dataRequest().PolicyHash, BindingID: reserved.Replica.BindingID, Destination: reserved.Replica.Destination.Reference, EpochID: reserved.Replica.EpochID}
 	if err = s.SaveCredentialRecord(ctx, r); err != nil {
 		t.Fatal(err)
 	}
