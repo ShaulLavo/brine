@@ -2,6 +2,7 @@
 /bin/
 /dist/
 /brine
+/.tmp/
 
 # Editor and secrets
 .idea/

@@ -52,6 +52,8 @@ func (u diskUnits) Rollback(ctx context.Context, name, installed, previous strin
 
 func TestInstallFailureBeforeRetentionRestartsAndProvesPreviousRelease(t *testing.T) {
 	r := newRig(t, true)
+	// Real fsync needs the production budget, not the fake rig's one-second deadline.
+	r.executor.EffectTimeout = 0
 	old, err := quadlet.Render(r.oldDesired, r.oldPlan, *r.oldPlan.Image.ManifestDigest.Value)
 	if err != nil {
 		t.Fatal(err)

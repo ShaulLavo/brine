@@ -60,7 +60,8 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 	if req.App == "" || len(req.App) > 63 || !digestPattern.MatchString(req.PolicyHash) || req.Database.Validate() != nil || req.Destination.Validate() != nil || req.Database.BackupDestination != req.Destination.Reference {
 		return ReservedDatabase{}, ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return ReservedDatabase{}, err
 	}
@@ -253,7 +254,8 @@ func (s *Store) CommitReplicaBinding(ctx context.Context, b data.ReplicaBinding)
 	if b.ConfigFile != path.Join(expectedDir, "litestream.yml") || b.SocketFile != path.Join(expectedDir, "control.sock") || b.LifetimeLockFile != path.Join(s.dir, "replica-locks", string(b.BindingID)+".lock") || b.CredentialFile != path.Join(s.dir, "credentials", "s3", b.Destination.CredentialRef, "v"+strconv.FormatUint(b.CredentialVersion, 10)+".env") {
 		return ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return err
 	}
@@ -292,7 +294,8 @@ func (s *Store) HoldDataFence(ctx context.Context, id data.DatabaseID, operation
 	if operation == "" || len(operation) > 128 {
 		return data.QuiescenceFence{}, ErrInvalid
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return data.QuiescenceFence{}, err
 	}
@@ -323,7 +326,13 @@ func (s *Store) HoldDataFence(ctx context.Context, id data.DatabaseID, operation
 // ReleaseDataFence must follow fresh schema/quiescence checks by the operation
 // owner. Reconciliation must not call it merely because an upload exists.
 func (s *Store) ReleaseDataFence(ctx context.Context, id data.FenceID, operation string) error {
-	result, err := s.db.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND operation_id=? AND state='held'", id, operation)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND operation_id=? AND state='held'", id, operation)
 	if err != nil {
 		return err
 	}
@@ -334,7 +343,7 @@ func (s *Store) ReleaseDataFence(ctx context.Context, id data.FenceID, operation
 	if n != 1 {
 		return ErrConflict
 	}
-	return nil
+	return tx.Commit()
 }
 
 type CredentialScope struct {
@@ -443,8 +452,16 @@ func (s *Store) SaveCredentialRecord(ctx context.Context, r CredentialRecord) er
 	if err != nil {
 		return err
 	}
-	_, err = s.db.ExecContext(ctx, "INSERT INTO data_credential_records VALUES(?,?,?,?)", r.ID, r.BindingID, r.Kind, raw)
-	return err
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "INSERT INTO data_credential_records VALUES(?,?,?,?)", r.ID, r.BindingID, r.Kind, raw); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 func (s *Store) LoadCredentialRecord(ctx context.Context, id string) (CredentialRecord, error) {
 	var r CredentialRecord

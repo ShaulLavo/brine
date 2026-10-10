@@ -1,6 +1,7 @@
 name: Go CI
 on:
   push:
+    branches: [main]
   pull_request:
 
 permissions:
@@ -8,28 +9,79 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: Tests, types and Mac client
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          # Keep this in sync with mise.toml; go.mod declares the minimum supported Go.
+          go-version: "1.27.2"
           cache: true
-      - name: Format
-        run: test -z "$(gofmt -l ./cmd ./internal)"
-      - name: Whitespace
-        run: git diff --check "$(git hash-object -t tree /dev/null)" HEAD
-      - name: Module tidiness
+      - run: ./scripts/check.sh test
+
+  lint:
+    name: New-code static checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.2"
+          cache: true
+      - name: Select the checked-out lint base
+        id: lint-base
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BASE: ${{ github.event.before }}
         run: |
-          go mod tidy
-          git diff --exit-code -- go.mod go.sum
-      - name: Vet
-        run: go vet ./...
-      - name: Vet Mac client
-        run: GOOS=darwin GOARCH=arm64 go vet ./...
-      - name: Test
-        run: go test ./...
-      - name: Race tests
-        run: go test -race ./...
-      - name: Build
-        run: go build ./cmd/brine
+          sha=$(./scripts/lint-base.sh "$EVENT_NAME" "$PUSH_BASE")
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.14.0
+          # PR checkout is a synthetic merge; its first parent is the actual main baseline.
+          args: --new-from-merge-base= --new-from-rev=${{ steps.lint-base.outputs.sha }}
+
+  structure:
+    name: Authority, dead code and clones
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.2"
+          cache: true
+      - run: ./scripts/check.sh structure
+
+  vulnerability:
+    name: Vulnerability scan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.2"
+          cache: true
+      - run: ./scripts/check.sh vulnerability
+
+  gate:
+    name: Complete CI gate
+    if: always()
+    needs: [test, lint, structure, vulnerability]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every CI job
+        env:
+          TEST: ${{ needs.test.result }}
+          LINT: ${{ needs.lint.result }}
+          STRUCTURE: ${{ needs.structure.result }}
+          VULNERABILITY: ${{ needs.vulnerability.result }}
+        run: |
+          [[ $TEST == success && $LINT == success && $STRUCTURE == success && $VULNERABILITY == success ]]

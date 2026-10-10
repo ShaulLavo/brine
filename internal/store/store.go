@@ -133,7 +133,8 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 		_, e := s.db.ExecContext(context.WithoutCancel(ctx), "PRAGMA foreign_keys=ON")
 		err = errors.Join(err, e)
 	}()
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return err
 	}
@@ -246,7 +247,8 @@ func (s *Store) SavePlan(ctx context.Context, p plan.Plan, d policy.Desired) (Pl
 			return "", ErrInvalid
 		}
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
 	if err != nil {
 		return "", err
 	}
