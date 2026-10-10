@@ -69,11 +69,31 @@ func TestInitializationHostPolicyDefaultOffAndLocalOperator(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			engine := dataInitializationService(Service{Requester: "fixture", Policy: &fakePolicy{p: pol}}, "/unused", item.operator)
+			engine := dataInitializationService(Service{Requester: "deploy:" + strings.Repeat("a", 64), Policy: &fakePolicy{p: pol}}, "/unused", item.operator)
 			err = engine.Authorize(context.Background())
 			if (err == nil) != item.allowed {
 				t.Fatalf("authority %v", err)
 			}
 		})
+	}
+}
+
+func TestInitializationRemoteCompositionRejectsReservedOperatorIdentity(t *testing.T) {
+	raw, err := os.ReadFile("../policy/testdata/operator.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pol, err := policy.Parse(append([]byte("allow_agent_migrations=true\n"), raw...))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := Service{Requester: "local-operator", Policy: &fakePolicy{p: pol}}
+	remote := dataInitializationService(service, "/unused", false)
+	if err = remote.Authorize(context.Background()); err == nil || remote.Requester.IsLocalOperator() {
+		t.Fatal("remote composition acquired local operator authority")
+	}
+	local := dataInitializationService(service, "/unused", true)
+	if err = local.Authorize(context.Background()); err != nil || !local.Requester.IsLocalOperator() {
+		t.Fatal("local composition lost operator authority", err)
 	}
 }

@@ -55,11 +55,17 @@ func decodeReviewedInitialization(raw []byte, id string, out *data.SchemaInitial
 }
 
 func dataInitializationService(service Service, stateRoot string, operator bool) datainit.Service {
+	requester, identityErr := datainit.AgentRequester(service.Requester)
+	if operator {
+		requester = datainit.LocalOperatorRequester()
+		identityErr = nil
+	}
+
 	return datainit.Service{PrepareRestorePoint: func(ctx context.Context, p datainit.Plan, op datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 		return prepareEmptyRestorePoint(ctx, service, stateRoot, p, op)
-	}, Journal: service.Store, Requester: service.Requester, Authorize: func(ctx context.Context) error {
+	}, Journal: service.Store, Requester: requester, Authorize: func(ctx context.Context) error {
 		pol, err := service.Policy.Load(ctx)
-		if err != nil || (!operator && !pol.AllowAgentMigrations()) {
+		if identityErr != nil || err != nil || (!requester.IsLocalOperator() && !pol.AllowAgentMigrations()) {
 			return datainit.ErrRefused
 		}
 		return nil

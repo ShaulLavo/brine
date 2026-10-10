@@ -72,9 +72,13 @@ func initFixture(t *testing.T) (Service, *memoryJournal, Request) {
 	hash := "sha256:" + strings.Repeat("a", 64)
 	r := Request{App: "example", FirstReleasePlan: hash, Artifact: hash}
 	j := &memoryJournal{}
+	requester, err := AgentRequester("deploy:" + strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
 	s := Service{PrepareRestorePoint: func(_ context.Context, p Plan, o Operation) (VerifiedRestorePoint, error) {
 		return fixturePoint(p, o), nil
-	}, Journal: j, Requester: "agent", Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, Plan) (func(), error) { return func() {}, nil }, Facts: func(ctx context.Context, _ Request) (Facts, error) {
+	}, Journal: j, Requester: requester, Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, Plan) (func(), error) { return func() {}, nil }, Facts: func(ctx context.Context, _ Request) (Facts, error) {
 		return Facts{Plan: Plan{ReplicaEpoch: data.ReplicaEpochID(strings.Repeat("4", 32)), RemotePrefix: "prefix/epoch", Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: b, Definition: definition}, Initializer: artifact, Allocation: &allocation, Observation: data.ObserveSchemaWithAllocation(ctx, b, []data.SchemaDefinition{definition}, &allocation)}, nil
 	}}
 	return s, j, r

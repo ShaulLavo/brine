@@ -34,7 +34,7 @@ type Plan struct {
 	Bounds         data.InitializationBounds `json:"bounds"`
 	ID             string                    `json:"id"`
 	Request        Request                   `json:"request"`
-	Requester      string                    `json:"requester"`
+	Requester      Requester                 `json:"requester"`
 	PolicyHash     string                    `json:"policy_hash"`
 	TargetHash     string                    `json:"target_hash"`
 	Generation     uint64                    `json:"generation"`
@@ -47,8 +47,8 @@ type Plan struct {
 func (p Plan) fingerprint() (string, error) {
 	p.ID = ""
 	raw, err := json.Marshal(struct {
-		Plan      Plan   `json:"plan"`
-		Requester string `json:"requester"`
+		Plan      Plan      `json:"plan"`
+		Requester Requester `json:"requester"`
 	}{p, p.Requester})
 	if err != nil {
 		return "", err
@@ -58,7 +58,7 @@ func (p Plan) fingerprint() (string, error) {
 }
 func (p Plan) Valid() bool {
 	id, err := p.fingerprint()
-	return err == nil && id == p.ID && ValidID(p.ID) && p.Requester != "" && appName.MatchString(p.Request.App) && ValidID(p.Request.FirstReleasePlan) && ValidID(p.Request.Artifact) && data.ValidID(p.RestorePointID) && data.ValidID(string(p.ReplicaEpoch)) && data.ValidID(string(p.Database.ReplicaBindingID)) && p.RemotePrefix != "" && p.Bounds.Valid() && ValidID(p.PolicyHash) && ValidID(p.TargetHash) && ValidID(p.DesiredHash) && data.ValidID(string(p.Database.DatabaseID)) && data.ValidID(string(p.Database.IncarnationID)) && p.Definition.Database == p.Database.Name && p.Definition.Marker != data.EmptyMarker && data.ValidMarker(p.Definition.Marker) && data.ValidCatalogHash(p.Definition.CatalogSHA256) && (p.Source == data.AllocatedEmpty || p.Source == data.VerifiedEmpty)
+	return err == nil && id == p.ID && ValidID(p.ID) && p.Requester.Valid() && appName.MatchString(p.Request.App) && ValidID(p.Request.FirstReleasePlan) && ValidID(p.Request.Artifact) && data.ValidID(p.RestorePointID) && data.ValidID(string(p.ReplicaEpoch)) && data.ValidID(string(p.Database.ReplicaBindingID)) && p.RemotePrefix != "" && p.Bounds.Valid() && ValidID(p.PolicyHash) && ValidID(p.TargetHash) && ValidID(p.DesiredHash) && data.ValidID(string(p.Database.DatabaseID)) && data.ValidID(string(p.Database.IncarnationID)) && p.Definition.Database == p.Database.Name && p.Definition.Marker != data.EmptyMarker && data.ValidMarker(p.Definition.Marker) && data.ValidCatalogHash(p.Definition.CatalogSHA256) && (p.Source == data.AllocatedEmpty || p.Source == data.VerifiedEmpty)
 }
 
 type Facts struct {
@@ -103,7 +103,7 @@ type Journal interface {
 
 type Service struct {
 	Journal             Journal
-	Requester           string
+	Requester           Requester
 	Authorize           func(context.Context) error
 	Lock                func(context.Context) (func(), error)
 	Facts               func(context.Context, Request) (Facts, error)
@@ -112,7 +112,7 @@ type Service struct {
 }
 
 func (s Service) guard(ctx context.Context) (func(), error) {
-	if s.Journal == nil || s.Authorize == nil || s.Lock == nil || s.Facts == nil || s.Quiesce == nil || s.PrepareRestorePoint == nil || s.Requester == "" {
+	if s.Journal == nil || s.Authorize == nil || s.Lock == nil || s.Facts == nil || s.Quiesce == nil || s.PrepareRestorePoint == nil || !s.Requester.Valid() {
 		return nil, ErrRefused
 	}
 	if err := s.Authorize(ctx); err != nil {

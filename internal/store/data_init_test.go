@@ -24,7 +24,7 @@ func storeInitPlan(t *testing.T, s *Store) (datainit.Plan, ReservedDatabase) {
 	hash := "sha256:" + strings.Repeat("a", 64)
 	service := datainit.Service{PrepareRestorePoint: func(context.Context, datainit.Plan, datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 		return datainit.VerifiedRestorePoint{}, nil
-	}, Journal: s, Requester: "operator", Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, datainit.Plan) (func(), error) { return func() {}, nil }, Facts: func(context.Context, datainit.Request) (datainit.Facts, error) {
+	}, Journal: s, Requester: datainit.LocalOperatorRequester(), Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, datainit.Plan) (func(), error) { return func() {}, nil }, Facts: func(context.Context, datainit.Request) (datainit.Facts, error) {
 		definition := data.SchemaDefinition{Database: reserved.Database.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
 		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: reserved.Replica.EpochID, RemotePrefix: strings.TrimSuffix(reserved.Replica.RemotePrefix, "/"), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: reserved.Database, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Observation: data.SchemaObservation{State: data.AllocatedEmpty}}, nil
 	}}
