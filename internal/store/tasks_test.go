@@ -80,16 +80,19 @@ func TestTaskCompletionAtomicAndBounded(t *testing.T) {
 }
 
 func TestTaskOutcomeConcurrentCompletionSnapshot(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	setup, cancelSetup := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancelSetup()
 	writer := openTest(t)
-	reader, err := OpenReadOnly(ctx, writer.dir)
+	reader, err := OpenReadOnly(setup, writer.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = reader.Close() }()
 	// Bounded completion-boundary reproduction, not a timing or stress benchmark.
 	for iteration := 0; iteration < 64; iteration++ {
+		// Each iteration gets its own budget: one shared deadline across 64
+		// contended rounds failed on loaded hosts without any wrong outcome.
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		op, _, err := writer.CreateOperation(ctx, ops.Intent{Kind: ops.RestoreTest, App: "example", SecretRef: "input1"}, "operator", fmt.Sprintf("snapshot%d", iteration))
 		if err != nil {
 			t.Fatal(err)
@@ -134,7 +137,9 @@ func TestTaskOutcomeConcurrentCompletionSnapshot(t *testing.T) {
 		}
 		outcome, err := reader.ReadTaskOutcome(ctx, op.ID)
 		if err != nil || outcome == nil || string(outcome.Receipt) != string(raw) {
+			cancel()
 			t.Fatalf("terminal outcome missing: %+v %v", outcome, err)
 		}
+		cancel()
 	}
 }
