@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -30,16 +31,30 @@ type Port uint16
 type HealthPath string
 type SecretReference string
 
+type RuntimeIdentity = data.RuntimeIdentity
+type DatabaseName = data.DatabaseName
+type PersistentRoot = data.PersistentRoot
+type ContainerMountPath = data.ContainerMountPath
+type DatabaseFilename = data.DatabaseFilename
+type BackupDestinationRef = data.BackupDestinationRef
+type Database = data.Database
+type SchemaCompatibility = data.SchemaCompatibility
+type SchemaDefinition = data.SchemaDefinition
+
 type App struct {
-	SchemaVersion int
-	Name          Name
-	Image         ImageReference
-	ContainerPort Port
-	Domains       []Domain
-	Health        Health
-	Resources     *Resources
-	Environment   map[string]string
-	Secrets       map[string]SecretReference
+	Runtime             *RuntimeIdentity
+	Databases           []Database
+	SchemaCompatibility []SchemaCompatibility
+	SchemaDefinitions   []SchemaDefinition
+	SchemaVersion       int
+	Name                Name
+	Image               ImageReference
+	ContainerPort       Port
+	Domains             []Domain
+	Health              Health
+	Resources           *Resources
+	Environment         map[string]string
+	Secrets             map[string]SecretReference
 }
 
 type Health struct {
