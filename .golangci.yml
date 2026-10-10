@@ -1,0 +1,53 @@
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    # Mesh's foundation catches lost errors, resource leaks and suspicious code.
+    - bodyclose
+    - errcheck
+    - gosec
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    # Wrapped domain errors must still match their original cause.
+    - errorlint
+    # Cancellation must reach subprocesses, transport and storage work.
+    - contextcheck
+    - noctx
+    # An error branch returning nil can turn an unknown effect into success.
+    - nilerr
+    # Keep this list narrow; style and complexity scores are not safety evidence.
+    - gocritic
+    # Only correctness checks; naming sweeps would obscure the safety findings.
+    - revive
+  settings:
+    staticcheck:
+      checks: [all, -QF1001, -QF1003, -ST1005]
+    gocritic:
+      enabled-checks: [appendAssign, badCall, badCond, caseOrder, dupArg, dupBranchBody, dupCase, nilValReturn, offBy1, truncateCmp]
+      disable-all: true
+    revive:
+      enable-default-rules: false
+      rules:
+        - name: unconditional-recursion
+        - name: waitgroup-by-value
+        - name: atomic
+  exclusions:
+    # Run security checks in tests too, but fixture subprocesses need not carry a deadline.
+    rules:
+      - path: _test\.go$
+        linters: [contextcheck, noctx]
+
+issues:
+  # Legacy findings are recorded separately; a feature must not add new ones.
+  new-from-merge-base: origin/main
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable: [gofmt]

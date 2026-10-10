@@ -91,7 +91,7 @@ var descriptions = map[Code]description{
 	TransportInvalidTarget:    {Validation, "The SSH target configuration is invalid.", false},
 	TransportFailure:          {Operational, "The SSH transport failed; reconcile before retrying any mutation.", false},
 	TransportInvalidResponse:  {Operational, "The SSH dispatcher response is invalid.", false},
-	OfflineRequired:           {Validation, "Connected planning is not available; use --offline with --snapshot and --policy.", false},
+	OfflineRequired:           {Validation, "Choose --target NAME for connected planning, or use --offline with --snapshot and --policy.", false},
 	InternalError:             {Operational, "The operation failed.", false},
 	InvalidUsage:              {Validation, "Invalid command or arguments. Use --help for usage.", false},
 	DependencyMissing:         {Dependency, "A required dependency is missing or incompatible.", false},

@@ -1,0 +1,14 @@
+no_auto_install: true
+
+pre-commit:
+  parallel: false
+  jobs:
+    - name: format staged Go files
+      glob: '*.go'
+      run: mise exec -- gofmt -w {staged_files}
+      stage_fixed: true
+
+    # The whole-tree import and clone checks catch cross-package regressions.
+    # Changed-package lint also type-checks the edited packages before they reach CI.
+    - name: authority, clones and changed-package lint
+      run: mise exec -- ./scripts/check.sh fast

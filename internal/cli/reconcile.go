@@ -46,7 +46,7 @@ func newReconcileCmd(machine *bool, deps Dependencies) *cobra.Command {
 			if *machine {
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), accepted))
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Recovery accepted: %s.\nPoll with: brine status --target %s --operation %s\n", accepted.OperationID, flags.target, accepted.OperationID)
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Recovery accepted: %s.\nPoll with: %s\n", accepted.OperationID, flags.command("status", "--operation", accepted.OperationID))
 			return err
 		}
 		report, ok := response.Data.(reconcile.Report)

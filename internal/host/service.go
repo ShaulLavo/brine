@@ -164,17 +164,7 @@ type fixedFacts struct{ facts apply.Facts }
 func (f fixedFacts) Read(context.Context) (apply.Facts, error) { return f.facts, nil }
 
 // App reconstructs the strict spec input, not a policy authorization.
-func App(d policy.Desired) spec.App {
-	env := map[string]string{}
-	secrets := map[string]spec.SecretReference{}
-	for _, v := range d.Environment {
-		env[v.Name] = v.Value
-	}
-	for _, v := range d.Secrets {
-		secrets[v.Name] = v.Reference
-	}
-	return spec.App{SchemaVersion: 1, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: d.Domains, Environment: env, Secrets: secrets, Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}}
-}
+func App(d policy.Desired) spec.App { return d.App() }
 
 type releases struct{ *store.Store }
 

@@ -31,16 +31,7 @@ type ConfigPlan struct {
 	Conflicts       []plan.Diagnostic       `json:"conflicts"`
 }
 
-func SpecFromDesired(d policy.Desired) spec.App {
-	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}}
-	for _, v := range d.Environment {
-		a.Environment[v.Name] = v.Value
-	}
-	for _, v := range d.Secrets {
-		a.Secrets[v.Name] = v.Reference
-	}
-	return a
-}
+func SpecFromDesired(d policy.Desired) spec.App { return d.App() }
 
 func applyEdits(d policy.Desired, edits []Edit, p policy.Policy) (policy.Desired, error) {
 	bad := func() (policy.Desired, error) { return policy.Desired{}, result.New(result.InvalidUsage, nil) }

@@ -19,7 +19,7 @@ func (s *memoryStore) Save(Journal) error {
 	return nil
 }
 func TestEveryFailureConverges(t *testing.T) {
-	names := []string{"ssh-layout", "mask", "packages", "user", "layout", "linger", "binary", "polkit", "caddy-tree", "caddy-import", "caddy-validate", "unmask", "caddy-enable", "caddy-start", "caddy-writable", "inventory-key", "operator-policy", "requester", "key", "ssh-policy", "bypass", "boot-reconcile"}
+	names := []string{"ssh-layout", "mask", "packages", "litestream", "user", "layout", "linger", "binary", "polkit", "caddy-tree", "caddy-import", "caddy-validate", "unmask", "caddy-enable", "caddy-start", "caddy-writable", "inventory-key", "operator-policy", "requester", "key", "ssh-policy", "bypass", "boot-reconcile"}
 	for _, failAt := range names {
 		for _, after := range []bool{false, true} {
 			t.Run(failAt+map[bool]string{false: "-before", true: "-after"}[after], func(t *testing.T) {
