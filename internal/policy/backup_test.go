@@ -54,3 +54,13 @@ func TestPersistentPolicyRootsCannotOverlap(t *testing.T) {
 		t.Fatal("overlapping roots admitted")
 	}
 }
+
+func TestExplicitEmptyBackupDurationsRefuse(t *testing.T) {
+	for _, field := range []string{"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"} {
+		t.Run(field, func(t *testing.T) {
+			if _, err := Parse(append(fixture(t), []byte("\n[backup]\n"+field+"=\"\"\n")...)); err == nil {
+				t.Fatal("explicit empty duration became default")
+			}
+		})
+	}
+}

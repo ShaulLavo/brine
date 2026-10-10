@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -28,8 +29,20 @@ func TestRunnerHelper(t *testing.T) {
 		os.Exit(7)
 	case "timeout":
 		time.Sleep(10 * time.Second)
+	case "large-warning":
+		fmt.Fprint(os.Stdout, `{"ok":true}`)
+		fmt.Fprint(os.Stderr, strings.Repeat("warning", OutputLimit))
 	default:
-		fmt.Fprint(os.Stdout, os.Args[len(os.Args)-1])
+		mode := os.Args[len(os.Args)-1]
+		if size, ok := strings.CutPrefix(mode, "capture-"); ok {
+			n, err := strconv.Atoi(size)
+			if err != nil {
+				os.Exit(2)
+			}
+			fmt.Fprint(os.Stdout, strings.Repeat("x", n))
+		} else {
+			fmt.Fprint(os.Stdout, mode)
+		}
 	}
 	os.Exit(0)
 }
@@ -75,7 +88,7 @@ func TestExecRunnerTimeout(t *testing.T) {
 }
 
 func TestBoundedOutputConcurrent(t *testing.T) {
-	output := &boundedOutput{}
+	output := &boundedOutput{limit: OutputLimit}
 	var wg sync.WaitGroup
 	for range 8 {
 		wg.Go(func() {
@@ -84,15 +97,15 @@ func TestBoundedOutputConcurrent(t *testing.T) {
 				if n, err := output.Write(p); n != len(p) || err != nil {
 					t.Errorf("write = %d, %v", n, err)
 				}
-				if len(output.String()) > OutputLimit {
+				if len(output.snapshot().Stdout) > OutputLimit {
 					t.Error("output exceeds limit")
 				}
 			}
 		})
 	}
 	wg.Wait()
-	if len(output.String()) != OutputLimit {
-		t.Fatalf("output size = %d", len(output.String()))
+	if len(output.snapshot().Stdout) != OutputLimit {
+		t.Fatalf("output size = %d", len(output.snapshot().Stdout))
 	}
 }
 
@@ -106,5 +119,53 @@ func TestStdoutProbeSeparatesWarnings(t *testing.T) {
 	}
 	if stdout != `{"ok":true}` {
 		t.Fatalf("diagnostics entered stdout: %q", stdout)
+	}
+}
+
+func TestCaptureStdoutBoundaries(t *testing.T) {
+	for _, limit := range []int{OutputLimit, 256 << 10} {
+		for _, size := range []int{limit - 1, limit, limit + 1} {
+			t.Run(fmt.Sprintf("%d/%d", limit, size), func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				defer cancel()
+				out, err := (ExecRunner{}).CaptureStdout(ctx, limit, os.Args[0], "-test.run=^TestRunnerHelper$", "--", "BRINE_RUNNER_HELPER=1", fmt.Sprintf("capture-%d", size))
+				if err != nil || len(out.Stdout) != min(size, limit) || out.Overflow != (size > limit) || out.Stdout != strings.Repeat("x", min(size, limit)) {
+					t.Fatalf("size=%d limit=%d: capture bytes=%d overflow=%t error=%v", size, limit, len(out.Stdout), out.Overflow, err)
+				}
+			})
+		}
+	}
+}
+
+func TestBoundedOutputSplitWrites(t *testing.T) {
+	out := &boundedOutput{limit: 4}
+	for _, chunk := range []string{"abc", "d", ""} {
+		if n, err := out.Write([]byte(chunk)); n != len(chunk) || err != nil {
+			t.Fatalf("write=%d error=%v", n, err)
+		}
+	}
+	if got := out.snapshot(); got.Stdout != "abcd" || got.Overflow {
+		t.Fatalf("exact capture=%+v", got)
+	}
+	if n, err := out.Write([]byte("e")); n != 1 || err != nil {
+		t.Fatalf("overflow write=%d error=%v", n, err)
+	}
+	if got := out.snapshot(); got.Stdout != "abcd" || !got.Overflow {
+		t.Fatalf("overflow capture=%+v", got)
+	}
+}
+
+func TestCaptureStdoutSeparatesDiagnosticOverflow(t *testing.T) {
+	out, err := (ExecRunner{}).CaptureStdout(context.Background(), OutputLimit, os.Args[0], "-test.run=^TestRunnerHelper$", "--", "BRINE_RUNNER_HELPER=1", "large-warning")
+	if err != nil || out.Stdout != `{"ok":true}` || out.Overflow {
+		t.Fatalf("capture=%+v error=%v", out, err)
+	}
+}
+
+func TestCaptureStdoutRejectsInvalidLimit(t *testing.T) {
+	for _, limit := range []int{0, -1} {
+		if _, err := (ExecRunner{}).CaptureStdout(context.Background(), limit, "unused"); !errors.Is(err, ErrOutputLimit) {
+			t.Fatalf("limit=%d error=%v", limit, err)
+		}
 	}
 }

@@ -35,3 +35,16 @@ func TestOverlappingPaths(t *testing.T) {
 		}
 	}
 }
+
+func TestBtrfsAdmissionHasDynamicInodes(t *testing.T) {
+	e := RootEvidence{Root: "/srv/data", Device: 1, Inode: 2, Filesystem: "btrfs", POSIXLocks: true, DurableRename: true, FreeBytes: 1024, FreeInodes: 0, ObservedAt: time.Now()}
+	if !e.Admits("/srv/data", 1024) {
+		t.Fatal("Btrfs dynamic inodes refused")
+	}
+	for _, fs := range []string{"ext4", "xfs"} {
+		e.Filesystem = fs
+		if e.Admits("/srv/data", 1024) {
+			t.Fatal("fixed-inode filesystem exhaustion accepted")
+		}
+	}
+}

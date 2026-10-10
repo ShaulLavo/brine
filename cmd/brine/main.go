@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -40,37 +39,36 @@ func main() {
 			return cli.RunTUI(ctx, nil, stdout)
 		},
 	}
-	var closeRuntime func() error
-	if cli.HostServeRequested(os.Args[1:]) {
-		factory := host.NewServerFactory(deps.Version, authenticated)
-		deps.HostServerFactory = factory.Build
-		closeRuntime = factory.Close
-	} else if cli.HostRuntimeRequested(os.Args[1:]) {
-		open := host.Open
-		if cli.HostReconcilePreviewRequested(os.Args[1:]) {
-			open = host.OpenPreview
-		}
-		runtime, err := open(ctx, authenticated)
-		if err == nil {
-			closeRuntime = runtime.Close
-			deps.HostOperationRunner = runtime.Runner
-			deps.HostReconciler = runtime.Reconciler
-		} else {
-			fmt.Fprintln(os.Stderr, "Host runtime initialization failed:", result.Classify(err).Code())
-		}
-	}
-	code := run(deps, os.Args[1:])
-	if closeRuntime != nil {
-		if err := closeRuntime(); err != nil && code == 0 {
-			code = result.ExitCode(result.New(result.InternalError, err))
-		}
-	}
+	code := runWithRuntime(deps, os.Args[1:], authenticated)
+
 	stop()
 	os.Exit(code)
 }
 
 func run(deps cli.Dependencies, args []string) int {
 	return result.ExitCode(cli.Execute(deps, args))
+}
+
+func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) int {
+	lifecycle := cli.RuntimeLifecycle{}
+	if cli.HostServeRequested(args) {
+		factory := host.NewServerFactory(deps.Version, authenticated)
+		deps.HostServerFactory = factory.Build
+		lifecycle.Close = factory.Close
+	} else {
+		lifecycle.Open = func(ctx context.Context, preview bool) (cli.RuntimeServices, error) {
+			open := host.Open
+			if preview {
+				open = host.OpenPreview
+			}
+			runtime, err := open(ctx, authenticated)
+			if err != nil {
+				return cli.RuntimeServices{}, err
+			}
+			return cli.RuntimeServices{Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
+		}
+	}
+	return result.ExitCode(cli.ExecuteWithRuntime(deps, args, lifecycle))
 }
 
 type failedInput struct{ err error }
