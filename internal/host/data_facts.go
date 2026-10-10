@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -23,6 +24,7 @@ type PersistentFacts interface {
 // precedes reservations and private directory allocation; host effects never
 // happen in store. Planning can allocate identity, never initialize SQLite.
 type DataFacts struct {
+	StateRoot     string
 	Store         *store.Store
 	Runner        localexec.Runner
 	ExcludedRoots []string
@@ -131,7 +133,7 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 		}
 		retention := target.Observation[data.RetentionEvidence]{Status: target.Unknown}
 		for _, e := range desired.BackupRetention {
-			if e.Admits(reserved.Replica.Destination, time.Now().UTC()) {
+			if e.Admits(permit.Replica.Destination, time.Now().UTC()) {
 				retention = target.Known(e)
 			}
 		}
@@ -141,11 +143,26 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 				retained = append(retained, definition)
 			}
 		}
+		credentials := target.Observation[data.CredentialEvidence]{Status: target.Unknown}
+		if f.StateRoot != "" {
+			record, err := f.Store.CredentialReceipt(ctx, b.ReplicaBindingID, permit.Replica.CredentialVersion)
+			if err == nil && record.EpochID == permit.Replica.EpochID && record.Destination == permit.Replica.Destination.Reference && record.CredentialRef == permit.Replica.Destination.CredentialRef {
+				proof := data.CredentialEvidence{BindingID: record.BindingID, EpochID: record.EpochID, Destination: record.Destination, Reference: record.CredentialRef, Version: record.Version, PolicyHash: record.PolicyHash, ReceivedAt: record.ReceivedAt, ExpiresAt: record.ExpiresAt}
+				files := backupcredentials.Files{Root: filepath.Join(f.StateRoot, "credentials")}
+				secret, err := files.Read(record.CredentialRef, record.Version)
+				if err == nil {
+					secret.Clear()
+					if proof.Admits(b.ReplicaBindingID, desired.PolicyHash, schema.ObservedAt, time.Minute) {
+						credentials = target.Known(proof)
+					}
+				}
+			}
+		}
 		usage := target.Observation[data.StorageUsage]{Status: target.Unknown}
 		if measured, err := data.ObserveUsage(ctx, b); err == nil {
 			usage = target.Known(measured)
 		}
-		facts = append(facts, target.PersistentDatabase{Usage: usage, Definitions: retained, Database: b, Root: roots[b.Root], Mapping: target.Known(mappings[b.Root]), Retention: retention, Schema: schema, Fenced: permit.FenceState == "held"})
+		facts = append(facts, target.PersistentDatabase{Credentials: credentials, Usage: usage, Definitions: retained, Database: b, Root: roots[b.Root], Mapping: target.Known(mappings[b.Root]), Retention: retention, Schema: schema, Fenced: permit.FenceState == "held"})
 	}
 	return target.Known(facts), nil
 }

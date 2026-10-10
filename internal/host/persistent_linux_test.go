@@ -75,9 +75,39 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 		return systemd.Properties{ActiveState: "inactive", SubState: "dead"}, nil
 	}}
 	preparation := DataPreparation{State: state, StateRoot: stateRoot, Home: home, Permits: replicapermits.StorePermits{State: state, Configs: replication.DiskConfigs{}}, Publisher: replication.ArtifactPublisher{StateRoot: stateRoot, UnitRoot: filepath.Join(home, ".config/systemd/user")}, Services: services, Units: manager}
-	planned := plan.Plan{DataMounts: []data.Mount{{Database: fact.Database, HostPath: filepath.Join(string(fact.Database.Root), fact.Database.RelativeDirectory), ContainerPath: fact.Database.MountPath, BindingID: fact.Database.ReplicaBindingID}}}
+	planned := plan.Plan{DataCredentials: []data.CredentialEvidence{{BindingID: record.BindingID, EpochID: record.EpochID, Destination: record.Destination, Reference: record.CredentialRef, Version: record.Version, PolicyHash: record.PolicyHash, ReceivedAt: record.ReceivedAt}}, DataMounts: []data.Mount{{Database: fact.Database, HostPath: filepath.Join(string(fact.Database.Root), fact.Database.RelativeDirectory), ContainerPath: fact.Database.MountPath, BindingID: fact.Database.ReplicaBindingID}}}
 	if ready, _ := preparation.PersistentPrepared(ctx, "fixture", planned, desired); ready {
 		t.Fatal("unpublished artifacts claimed prepared")
+	}
+	for _, change := range []struct {
+		name   string
+		mutate func(*plan.Plan)
+	}{
+		{"missing", func(p *plan.Plan) { p.DataCredentials = nil }},
+		{"duplicate", func(p *plan.Plan) { p.DataCredentials = append(p.DataCredentials, p.DataCredentials[0]) }},
+		{"unapproved version", func(p *plan.Plan) { p.DataCredentials[0].Version = 2 }},
+		{"scope drift", func(p *plan.Plan) { p.DataCredentials[0].Reference = "foreign" }},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			candidate := planned
+			candidate.DataCredentials = append([]data.CredentialEvidence(nil), planned.DataCredentials...)
+			change.mutate(&candidate)
+			if err := preparation.PreparePersistent(ctx, "fixture", candidate, desired); err == nil {
+				t.Fatal("unapproved credential accepted")
+			}
+			if services.starts != 0 {
+				t.Fatal("refused credential started replica")
+			}
+		})
+	}
+	newer := record
+	newer.ID = strings.Repeat("d", 32)
+	newer.Version = 2
+	if err = state.SaveCredentialRecord(ctx, newer); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(stateRoot, "credentials/s3/primary/v2.env"), []byte("AWS_ACCESS_KEY_ID=new-access\nAWS_SECRET_ACCESS_KEY=new-secret\n"), 0600); err != nil {
+		t.Fatal(err)
 	}
 	if err = preparation.PreparePersistent(ctx, "fixture", planned, desired); err != nil {
 		t.Fatal(err)
@@ -87,6 +117,15 @@ func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *test
 	}
 	if ready, err := preparation.PersistentPrepared(ctx, "fixture", planned, desired); err != nil || !ready {
 		t.Fatal("complete artifacts not proven", err)
+	}
+	committed, err := state.ReadReplicaPermit(ctx, fact.Database.DatabaseID)
+	if err != nil || committed.Replica.CredentialVersion != 1 {
+		t.Fatal("new delivery substituted after approval", err)
+	}
+	facts.StateRoot = stateRoot
+	refreshed := collectPersistent(t, facts, desired)
+	if refreshed.Credentials.Value == nil || refreshed.Credentials.Value.Version != 1 {
+		t.Fatal("facts selected newest rather than committed version")
 	}
 	dbPath := filepath.Join(planned.DataMounts[0].HostPath, "app.db")
 	if _, err = os.Lstat(dbPath); !os.IsNotExist(err) {

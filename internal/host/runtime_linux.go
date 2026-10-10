@@ -104,7 +104,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 			return nil, errors.New("host: invalid requester identity")
 		}
 	}
-	service := Service{Data: DataFacts{Store: state, Runner: localexec.ExecRunner{}, ExcludedRoots: PersistentExcludedRoots(identity.HomeDir, stateDir)}, Store: state, Inventory: collector, Policy: loader, Images: Registry{}, Requester: requester}
+	service := Service{Data: DataFacts{StateRoot: stateDir, Store: state, Runner: localexec.ExecRunner{}, ExcludedRoots: PersistentExcludedRoots(identity.HomeDir, stateDir)}, Store: state, Inventory: collector, Policy: loader, Images: Registry{}, Requester: requester}
 	permits, err := OpenPermits(ctx)
 	if err != nil {
 		return nil, err

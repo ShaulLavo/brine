@@ -30,7 +30,7 @@ func persistentReady(t *testing.T) Input {
 	retention := data.RetentionEvidence{Destination: "primary", Endpoint: destination.Endpoint, Bucket: destination.Bucket, BasePrefix: destination.BasePrefix, VerificationID: "44444444444444444444444444444444", VerifiedAt: now.Add(-time.Hour).Format(time.RFC3339), FreshnessSeconds: 24 * 60 * 60, NoObjectExpiration: true}
 	in.Desired.BackupRetention = []data.RetentionEvidence{retention}
 	mapping := data.MappingEvidence{Runtime: runtime, RunnerUID: 1000, RunnerGID: 1000, Root: root.Root, Device: root.Device, Image: string(in.Desired.Image), KeepID: true, PrivateModes: true, HostReadWrite: true, ContainerReadWrite: true, ObservedAt: now}
-	facts := target.Known([]target.PersistentDatabase{{Usage: target.Known(data.StorageUsage{}), Definitions: []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}}, Database: binding, Root: root, Mapping: target.Known(mapping), Retention: target.Known(retention), Schema: data.SchemaObservation{DatabaseID: database, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}})
+	facts := target.Known([]target.PersistentDatabase{{Credentials: target.Known(data.CredentialEvidence{BindingID: binding.ReplicaBindingID, EpochID: "55555555555555555555555555555555", Destination: "primary", Reference: "primary", Version: 1, PolicyHash: in.Desired.PolicyHash, ReceivedAt: now.Add(-time.Hour)}), Usage: target.Known(data.StorageUsage{}), Definitions: []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}}, Database: binding, Root: root, Mapping: target.Known(mapping), Retention: target.Known(retention), Schema: data.SchemaObservation{DatabaseID: database, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}})
 	in.Snapshot.PersistentData = &facts
 	return in
 }
@@ -69,6 +69,14 @@ func TestPersistentPlanRequiresCompleteMeasuredEvidence(t *testing.T) {
 			f.Retention.Value.VerifiedAt = f.Schema.ObservedAt.Add(-48 * time.Hour).Format(time.RFC3339)
 		}, BackupRetentionUnknown},
 		{"expiring objects", func(f *target.PersistentDatabase) { f.Retention.Value.NoObjectExpiration = false }, BackupRetentionUnknown},
+		{"missing credentials", func(f *target.PersistentDatabase) {
+			f.Credentials = target.Observation[data.CredentialEvidence]{Status: target.Unknown}
+		}, BackupCredentialUnknown},
+		{"expired credentials", func(f *target.PersistentDatabase) {
+			expiry := f.Schema.ObservedAt
+			f.Credentials.Value.ExpiresAt = &expiry
+		}, BackupCredentialUnknown},
+		{"foreign credential scope", func(f *target.PersistentDatabase) { f.Credentials.Value.Reference = "foreign" }, BackupCredentialUnknown},
 		{"space exhausted", func(f *target.PersistentDatabase) { f.Root.FreeBytes = 0 }, InsufficientDisk},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -128,5 +136,18 @@ func TestPersistentPlanRejectsIncompleteCompatibility(t *testing.T) {
 				t.Fatal("incomplete D12 compatibility admitted")
 			}
 		})
+	}
+}
+
+func TestPersistentCredentialVersionChangesApproval(t *testing.T) {
+	in := persistentReady(t)
+	original := build(t, in)
+	if len(original.DataCredentials) != 1 || original.DataCredentials[0].Version != 1 {
+		t.Fatal("credential version omitted from approval")
+	}
+	(*in.Snapshot.PersistentData.Value)[0].Credentials.Value.Version = 2
+	changed := build(t, in)
+	if changed.Kind != Create || changed.Hash == original.Hash {
+		t.Fatal("changed credential version retained approval")
 	}
 }

@@ -15,6 +15,7 @@ const (
 	SchemaRollbackIncompatible ConflictCode = "schema_rollback_incompatible"
 	DataFenced                 ConflictCode = "data_fenced"
 	DataMappingUnknown         ConflictCode = "data_mapping_unknown"
+	BackupCredentialUnknown    ConflictCode = "backup_credential_unknown"
 	BackupRetentionUnknown     ConflictCode = "backup_retention_unknown"
 )
 
@@ -84,6 +85,11 @@ func persistentEvidence(in Input, p *Plan, add func(ConflictCode, string)) {
 		}
 		if !protectedRetention || destination == nil || fact.Retention.Status != target.KnownStatus || fact.Retention.Value == nil || !fact.Retention.Value.Admits(*destination, fact.Schema.ObservedAt) {
 			add(BackupRetentionUnknown, field+".retention")
+		}
+		if fact.Credentials.Status != target.KnownStatus || fact.Credentials.Value == nil || !fact.Credentials.Value.Admits(b.ReplicaBindingID, in.Desired.PolicyHash, fact.Schema.ObservedAt, time.Minute) || destination == nil || fact.Credentials.Value.Destination != declaration.BackupDestination || fact.Credentials.Value.Reference != destination.CredentialRef {
+			add(BackupCredentialUnknown, field+".credentials")
+		} else {
+			p.DataCredentials = append(p.DataCredentials, *fact.Credentials.Value)
 		}
 		if fact.Fenced {
 			add(DataFenced, field)

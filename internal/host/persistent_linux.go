@@ -119,6 +119,16 @@ func (p DataPreparation) expected(ctx context.Context, planned plan.Plan, desire
 	if err != nil || !data.WriterCompatibleWithAllocations(ctx, schema.Bindings, desired.SchemaCompatibility, schema.Definitions, schema.Allocations) {
 		return nil, nil, replication.ErrPermit
 	}
+	if len(planned.DataCredentials) != len(planned.DataMounts) {
+		return nil, nil, replication.ErrPermit
+	}
+	frozen := map[data.ReplicaBindingID]data.CredentialEvidence{}
+	for _, proof := range planned.DataCredentials {
+		if _, duplicate := frozen[proof.BindingID]; duplicate || !proof.Admits(proof.BindingID, desired.PolicyHash, time.Now().UTC(), time.Minute) {
+			return nil, nil, replication.ErrPermit
+		}
+		frozen[proof.BindingID] = proof
+	}
 	artifacts := make([]replication.Artifacts, 0, len(planned.DataMounts))
 	bindings := make([]data.ReplicaBinding, 0, len(planned.DataMounts))
 	for _, mount := range planned.DataMounts {
@@ -136,9 +146,18 @@ func (p DataPreparation) expected(ctx context.Context, planned plan.Plan, desire
 		if declaration == nil || (declaration.SyncInterval < desired.Backup.MinSyncInterval || declaration.SyncInterval > desired.Backup.MaxSyncInterval || desired.Backup.SnapshotInterval < desired.Backup.MinSnapshotInterval || desired.Backup.SnapshotInterval > desired.Backup.MaxSnapshotInterval) {
 			return nil, nil, replication.ErrPermit
 		}
-		version := binding.CredentialVersion
+		proof, ok := frozen[binding.BindingID]
+		if !ok || (binding.Committed && binding.CredentialVersion != proof.Version) {
+			return nil, nil, replication.ErrPermit
+		}
+		delete(frozen, binding.BindingID)
+		version := proof.Version
 		record, err := p.State.CredentialReceipt(ctx, binding.BindingID, version)
 		if err != nil || record.EpochID != binding.EpochID || record.Destination != binding.Destination.Reference || record.PolicyHash != desired.PolicyHash || (record.ExpiresAt != nil && !time.Now().UTC().Add(time.Minute).Before(*record.ExpiresAt)) {
+			return nil, nil, replication.ErrPermit
+		}
+		observedCredential := data.CredentialEvidence{BindingID: record.BindingID, EpochID: record.EpochID, Destination: record.Destination, Reference: record.CredentialRef, Version: record.Version, PolicyHash: record.PolicyHash, ReceivedAt: record.ReceivedAt, ExpiresAt: record.ExpiresAt}
+		if !proof.Equal(observedCredential) || record.CredentialRef != binding.Destination.CredentialRef {
 			return nil, nil, replication.ErrPermit
 		}
 		files := backupcredentials.Files{Root: filepath.Join(p.StateRoot, "credentials")}

@@ -66,6 +66,9 @@ func canonicalDecisionFacts(s target.Snapshot, minimum uint64) ([]byte, error) {
 			if f.Mapping.Value != nil {
 				f.Mapping.Value.ObservedAt = time.Time{}
 			}
+			if f.Credentials.Value != nil && !f.Credentials.Value.Admits(f.Database.ReplicaBindingID, f.Credentials.Value.PolicyHash, f.Schema.ObservedAt, time.Minute) {
+				f.Credentials = target.Observation[data.CredentialEvidence]{Status: target.Unknown}
+			}
 			// The retention decision is time-sensitive, its observation timestamp is not.
 			if f.Retention.Value != nil {
 				e := f.Retention.Value
