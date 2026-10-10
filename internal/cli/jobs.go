@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"unicode"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
@@ -32,7 +34,9 @@ func (f *operationFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.configDir, "config-dir", "", "Private client target directory")
 }
 func (f operationFlags) call(ctx context.Context, deps Dependencies, op string, args any) (result.Envelope, error) {
-	if !transport.ValidTargetName(f.target) {
+	if !transport.ValidTargetName(f.target) || strings.IndexFunc(f.configDir, func(r rune) bool {
+		return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
+	}) >= 0 {
 		return result.Envelope{}, result.New(result.InvalidUsage, nil)
 	}
 	dir := f.configDir

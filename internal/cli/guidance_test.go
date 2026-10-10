@@ -151,3 +151,23 @@ func TestDiagnoseFollowUpsRetainConfiguration(t *testing.T) {
 		t.Fatal("no target-specific guidance")
 	}
 }
+
+func TestGuidanceRefusesConfigurationWithTerminalControls(t *testing.T) {
+	for _, configDir := range []string{"/fixture/\x1b]52;c;private\a", "/fixture/\nprivate", "/fixture/‮private", "/fixture/\x00private"} {
+		var out, stderr bytes.Buffer
+		deps := testDependencies(t, &out, &stderr)
+		calls := 0
+		deps.LoadOperationTarget = func(string, string) (transport.Target, error) {
+			calls++
+			return transport.Target{Name: "fixture"}, nil
+		}
+		deps.OperationClient = callFunc(func(context.Context, transport.Target, dispatch.Request) (result.Envelope, error) {
+			calls++
+			return result.Success("fixture", apps.ConfigPlan{PlanID: "sha256:" + strings.Repeat("a", 64), Kind: plan.Update}), nil
+		})
+		err := Execute(deps, []string{"config", "set", "hello", "KEY=value", "--target", "fixture", "--config-dir", configDir})
+		if result.ExitCode(err) != 2 || calls != 0 || strings.Contains(out.String()+stderr.String(), "private") {
+			t.Fatalf("unsafe configuration path accepted or rendered: err=%v calls=%d", err, calls)
+		}
+	}
+}
