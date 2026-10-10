@@ -25,6 +25,27 @@ func TestConfigRoundTrip(t *testing.T) {
 		}
 	}
 }
+func TestConfigUsesCanonicalLTXObjectPrefix(t *testing.T) {
+	b := testBinding()
+	raw, err := RenderConfig(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := ParseConfig(raw, b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Litestream 0.5.17 appends its own slash before the LTX level directory.
+	objectKey := c.DBs[0].Replica.Path + "/0000/0000000000000001-0000000000000001.ltx"
+	if objectKey != b.Prefix+"0000/0000000000000001-0000000000000001.ltx" {
+		t.Fatal("replication writes outside the canonical restore namespace", objectKey)
+	}
+	invalid := strings.Replace(string(raw), "path: "+c.DBs[0].Replica.Path+"\n", "path: "+b.Prefix+"\n", 1)
+	if _, err := ParseConfig([]byte(invalid), b); err == nil {
+		t.Fatal("accepted replica path that writes double-slash object keys")
+	}
+}
+
 func TestConfigRejects(t *testing.T) {
 	b := testBinding()
 	raw, err := RenderConfig(b)
