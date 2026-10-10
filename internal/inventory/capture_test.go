@@ -65,6 +65,9 @@ func TestLargeListenerCollection(t *testing.T) {
 		t.Run(protocol, func(t *testing.T) {
 			r := fakeRunner{"ss -H -ltnpe": "", "ss -H -lunp": ""}
 			r["ss -H "+protocol] = out.String()
+			if protocol == "-lunp" {
+				r["ss -H "+protocol] = strings.ReplaceAll(out.String(), "LISTEN 0 128", "UNCONN 0 0")
+			}
 			s := target.Snapshot{UsedPorts: unknown[[]target.Port](), PortOwners: unknown[[]target.PortOwner]()}
 			udp := (Collector{FS: baseFixture(), Runner: r}).listeners(context.Background(), &s, "/home/brine", nil)
 			if s.UsedPorts.Value == nil || len(*s.UsedPorts.Value) != 160 || s.PortOwners.Value == nil || udp.Value == nil {
@@ -165,10 +168,14 @@ func TestSecretOverflowKeepsAppsUnknown(t *testing.T) {
 }
 
 func TestListenerOverflowKeepsPortsUnknown(t *testing.T) {
-	const record = "LISTEN 0 128 *:20000 *:*\n"
+	const tcpRecord = "LISTEN 0 128 *:20000 *:*\n"
 	for _, protocol := range []string{"-ltnpe", "-lunp"} {
+		record := tcpRecord
+		if protocol == "-lunp" {
+			record = "UNCONN 0 0 *:20000 *:*\n"
+		}
 		for _, size := range []int{listenerOutputLimit, listenerOutputLimit + 1} {
-			r := fakeRunner{"ss -H -ltnpe": record, "ss -H -lunp": ""}
+			r := fakeRunner{"ss -H -ltnpe": tcpRecord, "ss -H -lunp": ""}
 			r["ss -H "+protocol] = record + strings.Repeat(" ", size-len(record))
 			s := target.Snapshot{UsedPorts: unknown[[]target.Port](), PortOwners: unknown[[]target.PortOwner]()}
 			udp := (Collector{FS: baseFixture(), Runner: r}).listeners(context.Background(), &s, "/home/brine", nil)
