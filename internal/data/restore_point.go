@@ -72,7 +72,7 @@ func (p RestorePoint) Validate() error {
 			return ErrInvalid
 		}
 		key := p.Snapshot.ObjectKey
-		if len(key) > 1024 || key == "" || path.Clean(key) != key || path.IsAbs(key) || strings.HasPrefix(key, "../") || strings.ContainsAny(key, "\\\x00\r\n") {
+		if len(key) > 1024 || key == "" || path.Clean(key) != key || path.IsAbs(key) || (key == ".." || strings.HasPrefix(key, "../")) || strings.ContainsAny(key, "\\\x00\r\n") {
 			return ErrInvalid
 		}
 	default:

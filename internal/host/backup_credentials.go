@@ -90,7 +90,7 @@ func backupCredentialService(service Service, stateRoot, database string) backup
 			return backupcredentials.Scope{}, err
 		}
 		if s.PolicyHash != pol.Hash() {
-			return backupcredentials.Scope{}, backupcredentials.ErrStale
+			return backupcredentials.Scope{}, backupcredentials.ErrAdmissionRefresh
 		}
 		destination, ok := pol.BackupDestination(s.Replica.Destination.Reference)
 		if !ok || destination != s.Replica.Destination {
@@ -135,11 +135,20 @@ func selectCredentialScope(scopes []store.CredentialScope, database string) (sto
 type credentialOperations struct {
 	service   Service
 	stateRoot string
+	activate  func(context.Context, backupcredentials.Receipt) (backupcredentials.Receipt, error)
 }
 
 func (o credentialOperations) Plan(ctx context.Context, app, database string, expiry *time.Time) (backupcredentials.Plan, error) {
 	return backupCredentialService(o.service, o.stateRoot, database).Plan(ctx, app, expiry)
 }
 func (o credentialOperations) Set(ctx context.Context, app, database, planID string, packet backupcredentials.Packet) (backupcredentials.Receipt, error) {
-	return backupCredentialService(o.service, o.stateRoot, database).Set(ctx, app, planID, packet)
+	service := backupCredentialService(o.service, o.stateRoot, database)
+	service.Activate = o.activate
+	receipt, err := service.Set(ctx, app, planID, packet)
+	if err != nil {
+		return backupcredentials.Receipt{}, err
+	}
+	health := receipt.Health(time.Now().UTC(), time.Minute)
+	receipt.CredentialHealth = &health
+	return receipt, nil
 }

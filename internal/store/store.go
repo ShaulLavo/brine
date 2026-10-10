@@ -218,6 +218,7 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 
 		}
 	}
+
 	rows, e := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
 	if e != nil {
 		return e

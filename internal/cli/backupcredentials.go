@@ -44,7 +44,7 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if planDatabase != "" {
 			databaseFlag = " --database " + planDatabase
 		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Credential plan %s, version %d. Deliver with brine backup credentials set %s --plan-id %s --target %s%s. Replication activation is not implemented yet.\n", p.ID, p.Version, args[0], p.ID, planFlags.target, databaseFlag)
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Credential plan %s, version %d. Deliver with brine backup credentials set %s --plan-id %s --target %s%s. Delivery stores a private version and activates only its committed database replica.\n", p.ID, p.Version, args[0], p.ID, planFlags.target, databaseFlag)
 		return err
 	}}
 	planned.Flags().StringVar(&planDatabase, "database", "", "Database name (required for apps with multiple databases)")
@@ -83,7 +83,19 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if modes.enabled() {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), r))
 		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Stored private backup credential version %d, received %s. Replication was not restarted or activated.\n", r.Version, r.ReceivedAt.Format(time.RFC3339))
+		status := r.ActivationStatus
+		if status == "" {
+			status = "stored"
+		}
+		health := r.Health(time.Now().UTC(), time.Minute)
+		if r.CredentialHealth != nil {
+			health = *r.CredentialHealth
+		}
+		expiry := "not supplied"
+		if r.ExpiresAt != nil {
+			expiry = r.ExpiresAt.Format(time.RFC3339)
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Stored private backup credential version %d. Replica activation: %s. Credential age: %d seconds; issuer expiry: %s. The application was not restarted.\n", r.Version, status, health.AgeSeconds, expiry)
 		return err
 	}}
 	set.Flags().StringVar(&setDatabase, "database", "", "Database name (required for apps with multiple databases)")
