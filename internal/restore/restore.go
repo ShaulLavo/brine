@@ -161,7 +161,7 @@ func privateDirectory(path string) error {
 		return refuse("workspace_not_private")
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != uint32(os.Getuid()) {
+	if !ok || int64(stat.Uid) != int64(os.Getuid()) {
 		return refuse("workspace_owner")
 	}
 	return nil
@@ -181,7 +181,7 @@ func newDirectory(root, operation string) (string, error) {
 	if err != nil {
 		return "", refuse("workspace_unavailable")
 	}
-	defer handle.Close()
+	defer func() { _ = handle.Close() }() // Read-only root handle; close cannot change the created directory.
 	if err := handle.Mkdir(operation, 0700); err != nil {
 		return "", refuse("operation_directory_exists_or_unavailable")
 	}
@@ -197,7 +197,7 @@ func validateOutput(path string) error {
 		return refuse("invalid_output")
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Uid != uint32(os.Getuid()) || stat.Nlink != 1 {
+	if !ok || int64(stat.Uid) != int64(os.Getuid()) || stat.Nlink != 1 {
 		return refuse("invalid_output_owner")
 	}
 	for _, suffix := range []string{"-wal", "-shm", "-journal", "-litestream"} {
@@ -210,7 +210,7 @@ func validateOutput(path string) error {
 	}
 	return nil
 }
-func (e *Engine) restoreLTX(ctx context.Context, b Binding, c Credentials, s LTXSource, directory, output string) (uint64, error) {
+func (e *Engine) restoreLTX(ctx context.Context, b Binding, c Credentials, s LTXSource, directory, output string) (recovered uint64, resultErr error) {
 	cli := e.CLI
 	if cli == nil {
 		cli = ExecCLI{}
@@ -225,7 +225,11 @@ func (e *Engine) restoreLTX(ctx context.Context, b Binding, c Credentials, s LTX
 	if err := os.WriteFile(configPath, config, 0600); err != nil {
 		return 0, refuse("restore_config")
 	}
-	defer os.Remove(configPath)
+	defer func() {
+		if err := os.Remove(configPath); err != nil && resultErr == nil {
+			recovered, resultErr = 0, refuse("restore_config_cleanup")
+		}
+	}()
 	base := []string{"restore", "-config", configPath, "-no-expand-env", "-o", output, "-txid", txidString(s.TXID), "-json", "-integrity-check", "full"}
 	planResult, err := cli.Execute(ctx, Command{Args: append(append([]string(nil), base...), "-dry-run", selector), Credentials: c, Directory: directory})
 	if err != nil || planResult.Truncated {

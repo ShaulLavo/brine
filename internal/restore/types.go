@@ -9,11 +9,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ShaulLavo/brine/internal/localexec"
 )
 
 const (
 	LitestreamVersion   = "0.5.17"
-	LitestreamPath      = "/opt/brine/litestream/0.5.17/litestream"
+	LitestreamPath      = localexec.LitestreamPath
 	SnapshotToolVersion = "brine-s3-snapshot-v1"
 )
 
