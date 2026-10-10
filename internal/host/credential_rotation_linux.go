@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
@@ -33,6 +34,7 @@ func (j rotationJournal) WriteRotation(ctx context.Context, previous data.Rotati
 }
 
 type replicaRotation struct {
+	now             func() time.Time
 	state           *store.Store
 	stateRoot, home string
 	services        apply.ReplicaServices
@@ -159,10 +161,23 @@ func (h replicaRotation) Commit(ctx context.Context, before, after data.ReplicaB
 	return h.state.CommitReplicaBinding(ctx, after)
 }
 func (h replicaRotation) Reload(ctx context.Context) error { return h.units.DaemonReload(ctx) }
+func (h replicaRotation) admitCredential(ctx context.Context, b data.ReplicaBinding) error {
+	receipt, err := h.state.CredentialReceipt(ctx, b.BindingID, b.CredentialVersion)
+	if err != nil || receipt.EpochID != b.EpochID || receipt.Destination != b.Destination.Reference || receipt.CredentialRef != b.Destination.CredentialRef || receipt.ExpiresAt != nil && !h.currentTime().Before(*receipt.ExpiresAt) {
+		return replication.ErrPermit
+	}
+	return nil
+}
 func (h replicaRotation) Permit(ctx context.Context, b data.ReplicaBinding) error {
+	if err := h.admitCredential(ctx, b); err != nil {
+		return err
+	}
 	return replication.ReplicaPermit(ctx, h.permits, replication.ReplicaPermitRequest{DatabaseID: string(b.DatabaseID), BindingID: string(b.BindingID), EpochID: string(b.EpochID), ConfigHash: "sha256:" + b.ConfigSHA256})
 }
 func (h replicaRotation) Start(ctx context.Context, b data.ReplicaBinding) error {
+	if err := h.admitCredential(ctx, b); err != nil {
+		return err
+	}
 	name, err := replication.ServiceName(string(b.BindingID))
 	if err != nil {
 		return err
@@ -224,4 +239,11 @@ func (j rotationJournal) PendingRotation(ctx context.Context, id data.ReplicaBin
 }
 func (j rotationJournal) SupersedeRotation(ctx context.Context, old, next data.CredentialRotation) error {
 	return j.state.SupersedeCredentialRotation(ctx, old, next)
+}
+
+func (h replicaRotation) currentTime() time.Time {
+	if h.now != nil {
+		return h.now().UTC()
+	}
+	return time.Now().UTC()
 }

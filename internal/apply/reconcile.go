@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -45,9 +46,29 @@ func (x *execution) reconcileUnknown(ctx context.Context, step string) resolutio
 		if x.executor.PersistentData == nil || x.desired.Stateless() {
 			return unresolved
 		}
-		prepared, err := x.executor.PersistentData.PersistentPrepared(ctx, x.id, x.plan, x.desired)
+		operation := x.id
+		if x.replicaOperation != "" {
+			operation = x.replicaOperation
+		}
+		prepared, err := x.executor.PersistentData.PersistentPrepared(ctx, operation, x.plan, x.desired)
 		if err == nil && prepared && ctx.Err() == nil {
 			return applied
+		}
+		return unresolved
+	}
+	if x.plan.Lifecycle == plan.ReviseReplica && step == "commit" {
+		if x.nextRelease == nil {
+			return unresolved
+		}
+		current, exists, err := x.executor.Releases.CurrentRelease(ctx, x.plan.App)
+		if err != nil {
+			return unresolved
+		}
+		if exists && reflect.DeepEqual(current, *x.nextRelease) {
+			return applied
+		}
+		if exists && reflect.DeepEqual(current, x.previous) {
+			return notApplied
 		}
 		return unresolved
 	}

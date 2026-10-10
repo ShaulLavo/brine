@@ -91,7 +91,7 @@ func persistentEvidence(in Input, p *Plan, add func(ConflictCode, string)) {
 		} else {
 			p.DataCredentials = append(p.DataCredentials, *fact.Credentials.Value)
 		}
-		if fact.Fenced {
+		if fact.Fenced && p.Lifecycle != ReviseReplica {
 			add(DataFenced, field)
 		}
 		if fact.Schema.State == data.Unknown {

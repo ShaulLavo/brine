@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -25,9 +26,18 @@ type ArtifactPublisher struct {
 	sync                func(int) error
 }
 
-func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) (resultErr error) {
+func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) error {
+	return p.publish(ctx, a, true)
+}
+
+// PublishConfig stores an immutable revision without replacing the selected unit.
+func (p ArtifactPublisher) PublishConfig(ctx context.Context, a Artifacts) error {
+	return p.publish(ctx, a, false)
+}
+
+func (p ArtifactPublisher) publish(ctx context.Context, a Artifacts, service bool) (resultErr error) {
 	name, err := ServiceName(a.Binding.BindingID)
-	if err != nil || ctx.Err() != nil || !safePath(p.StateRoot) || !safePath(p.UnitRoot) || a.ConfigPath != filepath.Join(p.StateRoot, "replication", a.Binding.BindingID, "litestream.yml") || a.Binding.SocketPath != filepath.Join(p.StateRoot, "replication", a.Binding.BindingID, "control.sock") || a.LifetimeLock != filepath.Join(p.StateRoot, "replica-locks", a.Binding.BindingID+".lock") || a.ServicePath != filepath.Join(p.UnitRoot, name) || len(a.Service) == 0 || len(a.Service) > MaxConfigBytes {
+	if err != nil || ctx.Err() != nil || !safePath(p.StateRoot) || !safePath(p.UnitRoot) || a.ConfigPath != filepath.Join(p.StateRoot, "replication", a.Binding.BindingID, "configs", strings.TrimPrefix(ConfigHash(a.Config), "sha256:")+".yml") || a.Binding.SocketPath != filepath.Join(p.StateRoot, "replication", a.Binding.BindingID, "control.sock") || a.LifetimeLock != filepath.Join(p.StateRoot, "replica-locks", a.Binding.BindingID+".lock") || a.ServicePath != filepath.Join(p.UnitRoot, name) || len(a.Service) == 0 || len(a.Service) > MaxConfigBytes {
 		return ErrPublish
 	}
 	if _, err = ParseConfig(a.Config, a.Binding); err != nil {
@@ -54,7 +64,7 @@ func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) (resultErr 
 	if !privateDirectory(state) || !privateDirectory(units) {
 		return ErrPublish
 	}
-	config, err := p.directory(ctx, state, "replication", a.Binding.BindingID)
+	config, err := p.directory(ctx, state, "replication", a.Binding.BindingID, "configs")
 	if err != nil {
 		return ErrPublish
 	}
@@ -72,12 +82,14 @@ func (p ArtifactPublisher) Publish(ctx context.Context, a Artifacts) (resultErr 
 			resultErr = ErrPublish
 		}
 	}()
-	for _, file := range []struct {
-		dir  int
-		name string
-		raw  []byte
-	}{{config, "litestream.yml", a.Config}, {locks, filepath.Base(a.LifetimeLock), nil}, {units, name, a.Service}} {
-		if err = p.publishFile(ctx, file.dir, file.name, file.raw); err != nil {
+	if err = p.publishFile(ctx, config, filepath.Base(a.ConfigPath), a.Config); err != nil {
+		return ErrPublish
+	}
+	if err = p.publishFile(ctx, locks, filepath.Base(a.LifetimeLock), nil); err != nil {
+		return ErrPublish
+	}
+	if service {
+		if err = p.publishFile(ctx, units, name, a.Service); err != nil {
 			return ErrPublish
 		}
 	}

@@ -35,6 +35,9 @@ func verifyRelease(app string, r Release, p plan.Plan, d policy.Desired) error {
 	if r.ID == "" || len(r.ID) > 256 || app != p.App || string(d.Name) != app || r.PlanID != p.Hash || !reflect.DeepEqual(r.Image, p.Image) || r.HostPort != p.HostPort || r.Units == nil || len(r.Units) == 0 || r.Secrets == nil || r.CaddyFile.Name != app+".caddy" || !digestPattern.MatchString(r.CaddyFile.Hash) {
 		return ErrInvalid
 	}
+	if p.Lifecycle == plan.ReviseReplica && (p.ReplicaPrevious == nil || !reflect.DeepEqual(r.Units, p.ReplicaPrevious.Units) || r.CaddyFile != p.ReplicaPrevious.CaddyFile || r.CaddyGeneration != p.ReplicaPrevious.CaddyGeneration) {
+		return ErrInvalid
+	}
 	secrets := slices.Clone(p.Secrets)
 	slices.SortFunc(secrets, func(a, b plan.SecretBinding) int { return strings.Compare(a.Environment, b.Environment) })
 	if !reflect.DeepEqual(r.Secrets, secrets) {
@@ -202,7 +205,7 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 		if p.Target != identity {
 			return result, &IntegrityError{}
 		}
-		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile})
+		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration})
 	}
 	return result, tx.Commit()
 }

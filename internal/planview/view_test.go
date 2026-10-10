@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
@@ -372,5 +373,26 @@ func TestManifestPresentation(t *testing.T) {
 	}
 	if !strings.Contains(Human(p, ui.NewTheme(true), 80), "Platform manifest: unknown") {
 		t.Fatal("unknown manifest missing from human output")
+	}
+}
+
+func TestCadenceRevisionPresentationKeepsAppUnchanged(t *testing.T) {
+	before, after := time.Minute, 2*time.Minute
+	p := example(plan.Update)
+	p.Lifecycle = plan.ReviseReplica
+	p.Changes = []plan.Change{{Kind: plan.ReviseReplica}}
+	p.Diff = &plan.ConfigurationDiff{ReplicaSync: map[string]plan.ValueChange[time.Duration]{"main": {From: &before, To: &after}}, Secrets: []plan.SecretChange{}}
+	human := Human(p, ui.NewTheme(true), 80)
+	for _, expected := range []string{"replica sync main: 1m0s -> 2m0s", "activate replica cadence revision", "app unchanged"} {
+		if !strings.Contains(human, expected) {
+			t.Fatal("cadence consequence hidden", human)
+		}
+	}
+	if strings.Contains(human, "restart app") {
+		t.Fatal("replica change promised an app restart")
+	}
+	raw, err := JSON(p)
+	if err != nil || !bytes.Contains(raw, []byte(`"replica_sync"`)) || !bytes.Contains(raw, []byte(`"revise_replica"`)) {
+		t.Fatal("machine cadence intent hidden", err)
 	}
 }

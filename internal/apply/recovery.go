@@ -64,6 +64,9 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if !prefixOK {
 		return r, nil
 	}
+	if p.Lifecycle == plan.ReviseReplica {
+		return e.inspectReplicaRevisionRecovery(ctx, op, p, d, events, r)
+	}
 	if p.Lifecycle == plan.PrepareData {
 		return e.inspectDataPreparationRecovery(ctx, op, p, d, events, r)
 	}
@@ -159,6 +162,11 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	}
 	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, recoveryRollback: rollbackCompleted, writerStartOwners: owners}
 	r.execution = x
+	if len(owners) > 0 {
+		x.replicaOperation = owners[len(owners)-1]
+	} else {
+		x.replicaOperation = op.ID
+	}
 	var err error
 	evidence, cancel := context.WithTimeout(ctx, e.effectTimeout())
 	defer cancel()
@@ -237,6 +245,19 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 		x.reconcileUnknown(ctx, r.Step)
 		return r, nil
 	}
+	if r.Step == "prepare_data" && last.Outcome != "completed" {
+		if x.reconcileUnknown(evidence, r.Step) != applied {
+			cursor, ok := e.PersistentData.(ReplicaRevisionRecovery)
+			if !ok {
+				return r, nil
+			}
+			ready, err := cursor.InspectReplicaRevision(evidence, x.replicaOperation, p, d)
+			if err != nil || !ready {
+				return r, err
+			}
+			x.resumeReplicaOnly = true
+		}
+	}
 	// Completed durable outcomes establish earlier effects. The last boundary is
 	// read back even when its outcome was written before the crash.
 	if last.Outcome != "completed" {
@@ -244,11 +265,13 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 		case "preflight", "verify_image", "ensure_secrets", "check_direct", "check_routed":
 			// These are read-only and can be rechecked, never replayed as mutations.
 		default:
-			if x.reconcileUnknown(ctx, r.Step) != applied {
-				return r, nil
+			if !x.resumeReplicaOnly {
+				if x.reconcileUnknown(ctx, r.Step) != applied {
+					return r, nil
+				}
+				r.completed[r.Step] = true
+				r.resolved = true
 			}
-			r.completed[r.Step] = true
-			r.resolved = true
 		}
 	} else if slices.Contains([]string{"prepare_data", "quiesce_old", "install_unit", "start_unit"}, r.Step) && x.reconcileUnknown(ctx, r.Step) != applied {
 		return r, nil
@@ -327,6 +350,9 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 	}
 	switch r.Action {
 	case ResumeForward:
+		if x.plan.Lifecycle == plan.ReviseReplica {
+			return x.reviseReplica(ctx, r.completed)
+		}
 		if x.plan.Lifecycle == plan.RemoveApp {
 			return x.remove(ctx, r.completed, !r.completed["withdraw_route"] && removalRouteState(x.plan, x.facts) == applied)
 		}
@@ -349,6 +375,11 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 }
 
 func committedArtifactsObserved(facts Facts, release Release, app string) bool {
+	config := facts.Input.Snapshot.CaddyConfig
+	return config.Status == target.KnownStatus && config.Value != nil && config.Value.Generation == release.CaddyGeneration && releaseArtifactsObserved(facts, release, app)
+}
+
+func releaseArtifactsObserved(facts Facts, release Release, app string) bool {
 	apps := facts.Input.Snapshot.Apps
 	if apps.Status != target.KnownStatus || apps.Value == nil {
 		return false
@@ -400,7 +431,7 @@ func committedArtifactsObserved(facts Facts, release Release, app string) bool {
 		}
 	}
 	config := facts.Input.Snapshot.CaddyConfig
-	if config.Status != target.KnownStatus || config.Value == nil || config.Value.Generation != release.CaddyGeneration {
+	if config.Status != target.KnownStatus || config.Value == nil {
 		return false
 	}
 	for _, file := range config.Value.Files {

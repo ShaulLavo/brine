@@ -11,6 +11,16 @@ import (
 // BuildLifecycle keeps the committed bindings, including old secret versions.
 // Creating an unbound secret must not make restart implicitly rotate it.
 func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
+	if action == ReviseReplica {
+		p, err := Build(in)
+		if err != nil {
+			return Plan{}, err
+		}
+		if p.Lifecycle != ReviseReplica {
+			return Plan{}, fmt.Errorf("replica revision requires a cadence-only change")
+		}
+		return p, nil
+	}
 	if action == RemoveApp {
 		return BuildRemove(in)
 	}

@@ -257,7 +257,7 @@ func (s *Store) CommitReplicaBinding(ctx context.Context, b data.ReplicaBinding)
 		return ErrInvalid
 	}
 	expectedDir := path.Join(s.dir, "replication", string(b.BindingID))
-	if b.ConfigFile != path.Join(expectedDir, "litestream.yml") || b.SocketFile != path.Join(expectedDir, "control.sock") || b.LifetimeLockFile != path.Join(s.dir, "replica-locks", string(b.BindingID)+".lock") || b.CredentialFile != path.Join(s.dir, "credentials", "s3", b.Destination.CredentialRef, "v"+strconv.FormatUint(b.CredentialVersion, 10)+".env") {
+	if b.ConfigFile != path.Join(expectedDir, "configs", b.ConfigSHA256+".yml") || b.SocketFile != path.Join(expectedDir, "control.sock") || b.LifetimeLockFile != path.Join(s.dir, "replica-locks", string(b.BindingID)+".lock") || b.CredentialFile != path.Join(s.dir, "credentials", "s3", b.Destination.CredentialRef, "v"+strconv.FormatUint(b.CredentialVersion, 10)+".env") {
 		return ErrInvalid
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -574,7 +574,7 @@ func (s *Store) validateReplicaPermit(ctx context.Context, q dataQuerier, p Repl
 	}
 	sum := sha256.Sum256([]byte(b.ConfigContent))
 	expected := path.Join(s.dir, "replication", string(b.BindingID))
-	if len(b.ConfigContent) == 0 || hex.EncodeToString(sum[:]) != b.ConfigSHA256 || !digestPattern.MatchString("sha256:"+b.UnitSHA256) || b.ConfigFile != path.Join(expected, "litestream.yml") || b.SocketFile != path.Join(expected, "control.sock") || b.LifetimeLockFile != path.Join(s.dir, "replica-locks", string(b.BindingID)+".lock") || b.CredentialVersion == 0 || b.CredentialFile != path.Join(s.dir, "credentials", "s3", b.Destination.CredentialRef, "v"+strconv.FormatUint(b.CredentialVersion, 10)+".env") {
+	if len(b.ConfigContent) == 0 || hex.EncodeToString(sum[:]) != b.ConfigSHA256 || !digestPattern.MatchString("sha256:"+b.UnitSHA256) || b.ConfigFile != path.Join(expected, "configs", b.ConfigSHA256+".yml") || b.SocketFile != path.Join(expected, "control.sock") || b.LifetimeLockFile != path.Join(s.dir, "replica-locks", string(b.BindingID)+".lock") || b.CredentialVersion == 0 || b.CredentialFile != path.Join(s.dir, "credentials", "s3", b.Destination.CredentialRef, "v"+strconv.FormatUint(b.CredentialVersion, 10)+".env") {
 		return &IntegrityError{}
 	}
 	return nil

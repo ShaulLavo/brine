@@ -29,7 +29,7 @@ func (x *execution) startWriter(ctx context.Context) error {
 }
 
 func (x *execution) clearWriterStart(ctx context.Context) error {
-	if x.plan.Lifecycle == plan.PrepareData || x.desired.Stateless() {
+	if x.plan.Lifecycle == plan.PrepareData || x.plan.Lifecycle == plan.ReviseReplica || x.desired.Stateless() {
 		return nil
 	}
 	if x.executor.WriterStarts == nil {
@@ -62,7 +62,21 @@ func (x *execution) preparePersistent(ctx context.Context) error {
 	if x.executor.PersistentData == nil {
 		return &Error{Step: "prepare_data", Code: "writer_permit_refused"}
 	}
-	if err := x.executor.PersistentData.PreparePersistent(ctx, x.id, x.plan, x.desired); err != nil {
+	operation := x.id
+	if x.replicaOperation != "" {
+		operation = x.replicaOperation
+	}
+	if x.resumeReplicaOnly {
+		cursor, ok := x.executor.PersistentData.(ReplicaRevisionRecovery)
+		if !ok {
+			return &Error{Step: "prepare_data", Code: "interrupted"}
+		}
+		if err := cursor.ResumeReplicaRevision(ctx, operation, x.plan, x.desired); err != nil {
+			return &Error{Step: "prepare_data", Code: "interrupted", Cause: err}
+		}
+		return nil
+	}
+	if err := x.executor.PersistentData.PreparePersistent(ctx, operation, x.plan, x.desired); err != nil {
 		// Publication, binding commit and activation are separate effects. Any
 		// adapter error can leave a prefix applied; inspect it instead of replaying.
 		return &Error{Step: "prepare_data", Code: "interrupted", Cause: err}

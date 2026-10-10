@@ -182,7 +182,7 @@ func TestDataInitializationMigrationFromTaskSchemaSevenPreservesJobs(t *testing.
 		t.Fatal(err)
 	}
 	// Construct the released task-only v7 shape; initialization is the v8 addition.
-	for _, statement := range []string{"DROP TABLE data_init_events", "DROP TABLE data_init_operations", "DROP TABLE data_init_plans", "UPDATE schema_version SET version=7"} {
+	for _, statement := range []string{"DROP TABLE data_replica_revisions", "DROP TABLE data_init_events", "DROP TABLE data_init_operations", "DROP TABLE data_init_plans", "UPDATE schema_version SET version=7"} {
 		if _, err = state.db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)
 		}
@@ -200,7 +200,7 @@ func TestDataInitializationMigrationFromTaskSchemaSevenPreservesJobs(t *testing.
 		}
 	}()
 	var version int
-	if err = migrated.db.QueryRowContext(ctx, "SELECT version FROM schema_version").Scan(&version); err != nil || version != 8 {
+	if err = migrated.db.QueryRowContext(ctx, "SELECT version FROM schema_version").Scan(&version); err != nil || version != SchemaVersion {
 		t.Fatal("missing init migration", version, err)
 	}
 	retained, err := migrated.GetOperation(ctx, job.ID)
