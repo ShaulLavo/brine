@@ -9,11 +9,13 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ShaulLavo/brine/internal/localexec"
 )
 
 const (
 	LitestreamVersion   = "0.5.17"
-	LitestreamPath      = "/opt/brine/litestream/0.5.17/litestream"
+	LitestreamPath      = localexec.LitestreamPath
 	SnapshotToolVersion = "brine-s3-snapshot-v1"
 )
 
@@ -202,7 +204,7 @@ func (s RestoreSource) reference() (string, string, error) {
 		if s.LTX == nil || s.Snapshot != nil || s.LTX.TXID == 0 {
 			return "", "", refuse("invalid_source")
 		}
-		if b := s.LTX.Barrier; b != nil && (!b.Succeeded || b.BindingID != s.LTX.BindingID || b.Epoch != s.LTX.Epoch || b.TXID != s.LTX.TXID || b.ReplicaTXID < b.TXID || b.ObservedAt.IsZero()) {
+		if b := s.LTX.Barrier; b == nil || !b.Succeeded || b.BindingID != s.LTX.BindingID || b.Epoch != s.LTX.Epoch || b.TXID != s.LTX.TXID || b.ReplicaTXID < b.TXID || b.ObservedAt.IsZero() {
 			return "", "", refuse("invalid_barrier")
 		}
 		return s.LTX.BindingID, s.LTX.Epoch, nil

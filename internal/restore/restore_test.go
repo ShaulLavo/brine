@@ -29,6 +29,7 @@ func fixture(t *testing.T, statements string) []byte {
 	if err = db.Close(); err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G304 -- Fixture path is created under this test's private temporary directory.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -53,13 +54,16 @@ func setup(t *testing.T, data []byte) (*Engine, Request, *int) {
 		if !strings.HasPrefix(r.Header.Get("Authorization"), "AWS4-HMAC-SHA256 ") || r.Header.Get("X-Amz-Security-Token") != "test-session" {
 			t.Error("missing signed session credentials")
 		}
-		w.Write(data)
+		if _, err := w.Write(data); err != nil {
+			t.Log("fixture client closed response:", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 	digest := sha256.Sum256(data)
 	schema := SchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: strings.Repeat("a", 64)}
 	binding := Binding{ID: "b1", Epoch: "e1", CredentialRef: "c1", Destination: Destination{Endpoint: server.URL, Region: "test-region", Bucket: "bucket", Prefix: "epochs/e1", PathStyle: true}}
 	root := t.TempDir()
+	// #nosec G302 -- This is a private directory; owner execute permission is required to traverse it.
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +79,7 @@ const fixtureSQL = `CREATE TABLE fixture_commits(sequence INTEGER PRIMARY KEY, m
 func TestSnapshotIsolatedVerifiedReceipt(t *testing.T) {
 	e, req, calls := setup(t, fixture(t, fixtureSQL))
 	live := filepath.Join(t.TempDir(), "live.db")
-	os.WriteFile(live, []byte("untouched"), 0600)
+	mustRestoreTest(t, os.WriteFile(live, []byte("untouched"), 0600))
 	receipt, err := e.Test(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
@@ -89,7 +93,9 @@ func TestSnapshotIsolatedVerifiedReceipt(t *testing.T) {
 			t.Fatalf("private mode %s %v %v", path, info, err)
 		}
 	}
-	got, _ := os.ReadFile(live)
+	// #nosec G304 -- The test created this untouched file under its own temporary directory.
+	got, err := os.ReadFile(live)
+	mustRestoreTest(t, err)
 	if string(got) != "untouched" {
 		t.Fatal("live data changed")
 	}
@@ -218,8 +224,29 @@ func TestLTXExactPositionAndBarrier(t *testing.T) {
 func TestLTXRefusesWrongRecoveredPosition(t *testing.T) {
 	e, r, _ := setup(t, fixture(t, fixtureSQL))
 	e.CLI = &fakeCLI{t: t, data: fixture(t, fixtureSQL), txid: "0000000000000008"}
-	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7}}
+	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 7, ObservedAt: time.Now().Add(-time.Second), Succeeded: true}}}
 	if _, err := e.Test(context.Background(), r); err == nil {
 		t.Fatal("accepted wrong TXID")
+	}
+}
+
+func TestLTXRequiresCommittedBarrier(t *testing.T) {
+	e, r, _ := setup(t, fixture(t, fixtureSQL))
+	cli := &fakeCLI{t: t, data: fixture(t, fixtureSQL), txid: "0000000000000007"}
+	e.CLI = cli
+	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7}}
+	receipt, err := e.Test(context.Background(), r)
+	if err == nil {
+		t.Fatalf("missing committed barrier accepted: requested=%d recovered=%d", receipt.RequestedTXID, receipt.RecoveredTXID)
+	}
+	if err.Error() != "restore test: invalid_barrier" || len(cli.commands) != 0 {
+		t.Fatalf("barrier refusal must precede remote CLI work: err=%v commands=%d", err, len(cli.commands))
+	}
+}
+
+func mustRestoreTest(t testing.TB, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
 	}
 }
