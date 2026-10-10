@@ -63,8 +63,11 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 		return ReservedDatabase{}, err
 	}
 	defer tx.Rollback()
-	var incarnation string
-	err = tx.QueryRowContext(ctx, "SELECT id FROM data_incarnations WHERE app=?", req.App).Scan(&incarnation)
+	var incarnation, policyHash string
+	err = tx.QueryRowContext(ctx, "SELECT id,policy_hash FROM data_incarnations WHERE app=?", req.App).Scan(&incarnation, &policyHash)
+	if err == nil && policyHash != req.PolicyHash {
+		return ReservedDatabase{}, ErrConflict
+	}
 	if errors.Is(err, sql.ErrNoRows) {
 		incarnation, err = data.NewID()
 		if err == nil {
@@ -217,6 +220,9 @@ func (s *Store) ReadReplicaPermit(ctx context.Context, id data.DatabaseID) (Repl
 	defer tx.Rollback()
 	p, err := readReplicaPermit(ctx, tx, id)
 	if err != nil {
+		return p, err
+	}
+	if err = s.validateReplicaPermit(ctx, tx, p); err != nil {
 		return p, err
 	}
 	return p, tx.Commit()
@@ -490,7 +496,46 @@ func (s *Store) ReadWriterPermits(ctx context.Context, id data.AppIncarnationID)
 		if err != nil {
 			return nil, err
 		}
+		if err = s.validateReplicaPermit(ctx, tx, p); err != nil {
+			return nil, err
+		}
 		permits = append(permits, p)
 	}
 	return permits, tx.Commit()
+}
+
+func (s *Store) validateReplicaPermit(ctx context.Context, q dataQuerier, p ReplicaPermit) error {
+	d, b := p.Database, p.Replica
+	if !data.ValidID(string(d.IncarnationID)) || !data.ValidID(string(d.DatabaseID)) || !data.ValidID(string(b.BindingID)) || !data.ValidID(string(b.EpochID)) {
+		return &IntegrityError{}
+	}
+	declaration := data.Database{Name: d.Name, PersistentRoot: d.Root, MountPath: d.MountPath, Filename: d.Filename, BackupDestination: b.Destination.Reference}
+	if declaration.Validate() != nil || b.Destination.Validate() != nil {
+		return &IntegrityError{}
+	}
+	relative, err := data.RelativeDirectory(d.IncarnationID, d.DatabaseID)
+	if err != nil || relative != d.RelativeDirectory {
+		return &IntegrityError{}
+	}
+	prefix, err := data.RemotePrefix(b.Destination.BasePrefix, d.IncarnationID, d.DatabaseID, b.EpochID)
+	if err != nil || prefix != b.RemotePrefix {
+		return &IntegrityError{}
+	}
+	if err = checkDestinationOwner(ctx, q, b.Destination.Endpoint, b.Destination.Bucket, b.RemotePrefix, b.BindingID); err != nil {
+		return err
+	}
+	for _, f := range p.Fences {
+		if !data.ValidID(string(f.ID)) || f.DatabaseID != d.DatabaseID || f.IncarnationID != d.IncarnationID || f.OperationID == "" || (f.State != data.FenceHeld && f.State != data.FenceReleased) {
+			return &IntegrityError{}
+		}
+	}
+	if !b.Committed {
+		return nil
+	}
+	sum := sha256.Sum256([]byte(b.ConfigContent))
+	expected := path.Join(s.dir, "replication", string(b.BindingID))
+	if len(b.ConfigContent) == 0 || hex.EncodeToString(sum[:]) != b.ConfigSHA256 || !digestPattern.MatchString("sha256:"+b.UnitSHA256) || b.ConfigFile != path.Join(expected, "litestream.yml") || b.SocketFile != path.Join(expected, "control.sock") || b.LifetimeLockFile != path.Join(s.dir, "replica-locks", string(b.BindingID)+".lock") || b.CredentialVersion == 0 || b.CredentialFile != path.Join(s.dir, "credentials", "s3", b.Destination.CredentialRef, "v"+strconv.FormatUint(b.CredentialVersion, 10)+".env") {
+		return &IntegrityError{}
+	}
+	return nil
 }

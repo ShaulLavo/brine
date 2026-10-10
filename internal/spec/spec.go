@@ -32,6 +32,11 @@ type HealthPath string
 type SecretReference string
 
 type RuntimeIdentity = data.RuntimeIdentity
+type DatabaseName = data.DatabaseName
+type PersistentRoot = data.PersistentRoot
+type ContainerMountPath = data.ContainerMountPath
+type DatabaseFilename = data.DatabaseFilename
+type BackupDestinationRef = data.BackupDestinationRef
 type Database = data.Database
 type SchemaCompatibility = data.SchemaCompatibility
 type SchemaDefinition = data.SchemaDefinition

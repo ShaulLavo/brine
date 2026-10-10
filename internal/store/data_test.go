@@ -114,3 +114,38 @@ func TestDestinationOwnership(t *testing.T) {
 		t.Fatalf("missing permit: %v", err)
 	}
 }
+
+func TestCredentialReferenceRecord(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	reserved, err := s.ReserveDatabase(ctx, dataRequest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := data.NewID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := CredentialRecord{ID: id, Kind: "plan", PlanID: "plan-1", Requester: "authenticated-agent", PlanHash: "sha256:" + strings.Repeat("a", 64), TargetHash: "sha256:" + strings.Repeat("b", 64), PolicyHash: dataRequest().PolicyHash, BindingID: reserved.Replica.BindingID, Destination: reserved.Replica.Destination.Reference, EpochID: reserved.Replica.EpochID}
+	if err = s.SaveCredentialRecord(ctx, r); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := s.LoadCredentialRecord(ctx, id)
+	if err != nil || loaded.Requester != r.Requester || loaded.EpochID != r.EpochID {
+		t.Fatalf("credential reference record: %v", err)
+	}
+	r.Requester = "other"
+	if err = s.SaveCredentialRecord(ctx, r); err == nil {
+		t.Fatal("immutable credential record replaced")
+	}
+	r.ID, _ = data.NewID()
+	r.Requester = ""
+	if err = s.SaveCredentialRecord(ctx, r); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("unauthenticated requester: %v", err)
+	}
+	for _, table := range []string{"data_incarnations", "data_databases", "data_replica_bindings", "data_credential_records"} {
+		if _, err = s.db.ExecContext(ctx, "DELETE FROM "+table); err == nil {
+			t.Fatalf("immutable records deleted from %s", table)
+		}
+	}
+}

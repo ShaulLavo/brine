@@ -246,7 +246,13 @@ func Build(in Input) (Plan, error) {
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
 	}
-	if !in.Desired.Stateless() {
+	persistent := !in.Desired.Stateless()
+	for _, release := range in.State.Releases {
+		if release.App == string(in.Desired.Name) && !release.Desired.Stateless() {
+			persistent = true
+		}
+	}
+	if persistent {
 		add(UnknownFacts, "databases")
 	}
 	if err := in.Snapshot.Validate(); err != nil {
