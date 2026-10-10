@@ -7,6 +7,8 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/transport"
 	"github.com/spf13/cobra"
@@ -17,6 +19,7 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	credentials := &cobra.Command{Use: "credentials", Short: "Plan and deliver externally issued S3 credentials"}
 	var planFlags, setFlags operationFlags
 	var expiryText, planID, planDatabase, setDatabase string
+	var noWait bool
 	planned := &cobra.Command{Use: "plan APP --target NAME", Short: "Plan a private credential version without reading credential values", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if !dispatch.ValidApp(args[0]) || planDatabase != "" && !dispatch.ValidApp(planDatabase) || !transport.ValidTargetName(planFlags.target) {
 			return result.New(result.InvalidUsage, nil)
@@ -76,7 +79,27 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		r, ok := response.Data.(backupcredentials.Receipt)
+		accepted, ok := response.Data.(jobs.Accepted)
+		if !ok || !response.OK || accepted.Status != "accepted" || !jobs.ValidID(accepted.OperationID) {
+			return result.New(result.TransportInvalidResponse, nil)
+		}
+		if !noWait {
+			if _, err := fmt.Fprintf(cmd.ErrOrStderr(), "operation_id=%s\n", accepted.OperationID); err != nil {
+				return result.New(result.InternalError, err)
+			}
+		}
+		value, err := setFlags.waitTask(cmd.Context(), deps, accepted, ops.CredentialActivation, noWait)
+		if err != nil {
+			return err
+		}
+		if noWait {
+			if modes.enabled() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), value))
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Accepted operation %s. Check with %s.\n", accepted.OperationID, setFlags.command("status", "--operation", accepted.OperationID))
+			return err
+		}
+		r, ok := value.(backupcredentials.Receipt)
 		if !ok || !response.OK || !r.Valid() || r.PlanID != planID || r.Scope.App != args[0] {
 			return result.New(result.TransportInvalidResponse, nil)
 		}
@@ -98,6 +121,7 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Stored private backup credential version %d. Replica activation: %s. Credential age: %d seconds; issuer expiry: %s. The application was not restarted.\n", r.Version, status, health.AgeSeconds, expiry)
 		return err
 	}}
+	set.Flags().BoolVar(&noWait, "no-wait", false, "Return the detached operation ID without waiting for its receipt")
 	set.Flags().StringVar(&setDatabase, "database", "", "Database name (required for apps with multiple databases)")
 	set.Flags().StringVar(&planID, "plan-id", "", "Confirmed credential plan identity")
 	setFlags.register(set)

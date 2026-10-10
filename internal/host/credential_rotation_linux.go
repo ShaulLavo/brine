@@ -214,3 +214,14 @@ func (h replicaRotation) VerifyRemote(ctx context.Context, r backupcredentials.R
 	}
 	return verify(ctx, restore.Destination{Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket, Prefix: strings.TrimSuffix(b.RemotePrefix, "/"), PathStyle: d.PathStyle}, c)
 }
+
+func (j rotationJournal) PendingRotation(ctx context.Context, id data.ReplicaBindingID) (data.CredentialRotation, error) {
+	r, err := j.state.PendingCredentialRotation(ctx, id)
+	if errors.Is(err, store.ErrNotFound) {
+		err = backupcredentials.ErrRotationNotFound
+	}
+	return r, err
+}
+func (j rotationJournal) SupersedeRotation(ctx context.Context, old, next data.CredentialRotation) error {
+	return j.state.SupersedeCredentialRotation(ctx, old, next)
+}

@@ -3,6 +3,7 @@
 package jobs_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/cli"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -17,6 +19,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
+	"github.com/ShaulLavo/brine/internal/transport"
 )
 
 type taskLauncher func(context.Context, systemd.OperationID) error
@@ -67,11 +70,24 @@ func TestDetachedTaskReceiptBeyondObserverDeadline(t *testing.T) {
 		t.Fatalf("acceptance: %v", err)
 	}
 	<-entered
+	var out, stderr bytes.Buffer
+	cliDone := make(chan error, 1)
+	deps := cli.Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &stderr, Version: "fixture", OperationClient: taskClient{service: service, accepted: accepted}, LoadOperationTarget: func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }}
+	go func() {
+		cliDone <- cli.Execute(deps, []string{"restore", "test", "example", "--target", "fixture", "--json"})
+	}()
 	<-observer.Done()
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
+	if err := <-cliDone; err != nil {
+		t.Fatal("blocking CLI lost detached receipt", err)
+	}
+	if !strings.Contains(out.String(), `"integrity_check":"passed"`) {
+		t.Fatal("blocking CLI did not print terminal receipt")
+	}
+
 	status, err := service.Operation(context.Background(), accepted.OperationID, 0)
 	if err != nil || status.Operation.State != ops.Succeeded || status.Outcome == nil {
 		t.Fatalf("16-second receipt lost: %+v %v", status, err)
@@ -100,4 +116,26 @@ func TestDetachedTaskReceiptBeyondObserverDeadline(t *testing.T) {
 	if err != nil || durable == nil || string(durable.Receipt) != string(status.Outcome.Receipt) {
 		t.Fatal("terminal receipt not durable", err)
 	}
+}
+
+type taskClient struct {
+	service  jobs.Service
+	accepted jobs.Accepted
+}
+
+func (c taskClient) Call(ctx context.Context, _ transport.Target, request dispatch.Request) (result.Envelope, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	if request.Op == "restore_test" {
+		return result.Success("brine host restore_test", c.accepted), nil
+	}
+	if request.Op != "operation" {
+		return result.Envelope{}, result.New(result.DispatchOperationRefused, nil)
+	}
+	var args dispatch.OperationArgs
+	if err := json.Unmarshal(request.Args, &args); err != nil {
+		return result.Envelope{}, err
+	}
+	status, err := c.service.Operation(ctx, args.OperationID, args.AfterCursor)
+	return result.Success("brine host operation", status), err
 }

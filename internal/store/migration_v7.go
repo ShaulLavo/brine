@@ -24,6 +24,16 @@ CREATE UNIQUE INDEX unresolved_source ON operations(recovery_of) WHERE kind='res
 CREATE TABLE operation_outcomes(operation_id TEXT PRIMARY KEY REFERENCES operations(id),canonical BLOB NOT NULL CHECK(length(canonical)<=65536));
 CREATE TRIGGER operation_outcomes_immutable BEFORE UPDATE ON operation_outcomes BEGIN SELECT RAISE(ABORT,'immutable task outcome'); END;
 CREATE TRIGGER operation_outcomes_no_delete BEFORE DELETE ON operation_outcomes BEGIN SELECT RAISE(ABORT,'durable task outcome'); END;
+CREATE TABLE data_credential_rotations_v7(plan_id TEXT PRIMARY KEY,binding_id TEXT NOT NULL REFERENCES data_replica_bindings(id),stage TEXT NOT NULL CHECK(stage IN ('prepared','stop_issued','stopped','committed','start_issued','active','verified','superseded')),canonical BLOB NOT NULL CHECK(length(canonical)<=32768));
+INSERT INTO data_credential_rotations_v7 SELECT * FROM data_credential_rotations;
+DROP TABLE data_credential_rotations;
+ALTER TABLE data_credential_rotations_v7 RENAME TO data_credential_rotations;
+CREATE UNIQUE INDEX data_one_pending_rotation ON data_credential_rotations(binding_id) WHERE stage NOT IN ('active','verified','superseded');
+CREATE TRIGGER data_rotation_identity BEFORE UPDATE OF plan_id,binding_id ON data_credential_rotations BEGIN SELECT RAISE(ABORT,'immutable rotation identity'); END;
+CREATE TRIGGER data_rotation_no_delete BEFORE DELETE ON data_credential_rotations BEGIN SELECT RAISE(ABORT,'durable credential rotation'); END;
+CREATE TABLE restore_task_inputs(id TEXT PRIMARY KEY,requester TEXT NOT NULL,canonical BLOB NOT NULL CHECK(length(canonical)<=4096));
+CREATE TRIGGER restore_task_inputs_no_update BEFORE UPDATE ON restore_task_inputs BEGIN SELECT RAISE(ABORT,'immutable restore request'); END;
+CREATE TRIGGER restore_task_inputs_no_delete BEFORE DELETE ON restore_task_inputs BEGIN SELECT RAISE(ABORT,'durable restore request'); END;
 UPDATE schema_version SET version=7;
 `
 	if _, err := tx.ExecContext(ctx, migration); err != nil {

@@ -7,11 +7,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"path/filepath"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
@@ -135,20 +139,57 @@ func selectCredentialScope(scopes []store.CredentialScope, database string) (sto
 type credentialOperations struct {
 	service   Service
 	stateRoot string
-	activate  func(context.Context, backupcredentials.Receipt) (backupcredentials.Receipt, error)
+	jobs      jobs.Service
 }
 
 func (o credentialOperations) Plan(ctx context.Context, app, database string, expiry *time.Time) (backupcredentials.Plan, error) {
 	return backupCredentialService(o.service, o.stateRoot, database).Plan(ctx, app, expiry)
 }
-func (o credentialOperations) Set(ctx context.Context, app, database, planID string, packet backupcredentials.Packet) (backupcredentials.Receipt, error) {
+func (o credentialOperations) Set(ctx context.Context, app, database, planID string, packet backupcredentials.Packet) (jobs.Accepted, error) {
 	service := backupCredentialService(o.service, o.stateRoot, database)
-	service.Activate = o.activate
+	service.ResumeStored = true
 	receipt, err := service.Set(ctx, app, planID, packet)
 	if err != nil {
-		return backupcredentials.Receipt{}, err
+		return jobs.Accepted{}, err
 	}
-	health := receipt.Health(time.Now().UTC(), time.Minute)
-	receipt.CredentialHealth = &health
-	return receipt, nil
+	key, err := data.NewID()
+	if err != nil {
+		return jobs.Accepted{}, err
+	}
+	return o.jobs.Submit(ctx, ops.Intent{Kind: ops.CredentialActivation, App: receipt.Scope.App, SecretRef: receipt.PlanID}, key)
+}
+
+func credentialTaskHandler(service Service, dir string, rotator backupcredentials.Rotator) jobs.TaskHandler {
+	return func(ctx context.Context, op ops.Operation) (json.RawMessage, error) {
+		lock, err := service.Store.AcquireHostLock(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = lock.Release() }()
+		plan, err := (credentialJournal{state: service.Store, requester: op.Requester}).LoadPlan(ctx, op.SecretRef)
+		if err != nil || plan.Scope.App != op.App {
+			return nil, result.New(result.PolicyRefused, nil)
+		}
+		pol, err := service.Policy.Load(ctx)
+		if err != nil {
+			return nil, result.New(result.PolicyRefused, nil)
+		}
+		if pol.Hash() != plan.Scope.PolicyHash {
+			return nil, result.New(result.BackupAdmissionRefreshRequired, nil)
+		}
+		receipt, err := (backupcredentials.Files{Root: filepath.Join(dir, "credentials")}).Receipt(plan.Scope.CredentialRef, plan.Version)
+		if err != nil || receipt.PlanID != plan.ID || receipt.Requester != op.Requester {
+			return nil, result.New(result.PolicyRefused, nil)
+		}
+		activated, err := rotator.Activate(ctx, receipt)
+		if err != nil {
+			if errors.Is(err, backupcredentials.ErrExpired) || errors.Is(err, backupcredentials.ErrStale) || errors.Is(err, backupcredentials.ErrInvalid) {
+				return nil, result.New(result.PolicyRefused, nil)
+			}
+			return nil, result.New(result.RecoveryRequired, err)
+		}
+		health := activated.Health(time.Now().UTC(), time.Minute)
+		activated.CredentialHealth = &health
+		return json.Marshal(activated)
+	}
 }

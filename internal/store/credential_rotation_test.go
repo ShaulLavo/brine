@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 )
@@ -87,5 +88,53 @@ func TestCredentialRotationDurableCursorAndBindingExclusion(t *testing.T) {
 	record.After.EpochID = data.ReplicaEpochID(strings.Repeat("1", 32))
 	if err := state.WriteCredentialRotation(ctx, data.RotationStartIssued, record); !errors.Is(err, ErrInvalid) {
 		t.Fatal("rotation changed epoch", err)
+	}
+}
+
+func TestExpiredRotationSupersessionAtomicAndDurable(t *testing.T) {
+	ctx := context.Background()
+	state, before := committedDataFixture(t)
+	after := before
+	after.CredentialVersion = 2
+	after.CredentialFile = filepath.Join(state.dir, "credentials/s3/primary/v2.env")
+	after.UnitSHA256 = strings.Repeat("d", 64)
+	old := data.CredentialRotation{PlanID: "sha256:" + strings.Repeat("e", 64), App: "example", Before: before, After: after, Stage: data.RotationPrepared, ExpiresAt: "2000-01-01T00:00:00Z"}
+	if err := state.WriteCredentialRotation(ctx, "", old); err != nil {
+		t.Fatal(err)
+	}
+	next := old
+	next.PlanID = "sha256:" + strings.Repeat("f", 64)
+	next.After.CredentialVersion = 3
+	next.After.CredentialFile = filepath.Join(state.dir, "credentials/s3/primary/v3.env")
+	next.After.UnitSHA256 = strings.Repeat("f", 64)
+	next.ExpiresAt = time.Now().UTC().Add(time.Hour).Format(time.RFC3339Nano)
+	invalid := next
+	invalid.App = "foreign"
+	if err := state.SupersedeCredentialRotation(ctx, old, invalid); err == nil {
+		t.Fatal("foreign replacement admitted")
+	}
+	pending, err := state.PendingCredentialRotation(ctx, before.BindingID)
+	if err != nil || pending != old {
+		t.Fatal("failed supersession lost pending cursor", err)
+	}
+	if err := state.SupersedeCredentialRotation(ctx, old, next); err != nil {
+		t.Fatal(err)
+	}
+	closed, err := state.ReadCredentialRotation(ctx, old.PlanID)
+	if err != nil || closed.Stage != data.RotationSuperseded || closed.SupersededBy != next.PlanID {
+		t.Fatal("old cursor not explicitly closed", err)
+	}
+	pending, err = state.PendingCredentialRotation(ctx, before.BindingID)
+	if err != nil || pending != next {
+		t.Fatal("fresh pending cursor missing", err)
+	}
+	readonly, err := OpenReadOnly(ctx, state.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = readonly.Close() }()
+	durable, err := readonly.ReadCredentialRotation(ctx, old.PlanID)
+	if err != nil || durable != closed {
+		t.Fatal("supersession not durable", err)
 	}
 }
