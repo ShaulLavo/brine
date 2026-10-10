@@ -103,7 +103,7 @@ func (r lazyDataInitialization) Apply(ctx context.Context, app, id string) (data
 }
 
 func HostDataInitializationRequested(ctx context.Context, args []string) bool {
-	root := NewRootCommand(Dependencies{Context: ctx})
+	root := NewRootCommand(Dependencies{Context: ctx}) //nolint:contextcheck // Metadata-only Find never invokes host serve or its context-carrying command closure.
 	command, _, err := root.Find(args)
 	return err == nil && command != nil && command.CommandPath() == "brine host data-init"
 }
