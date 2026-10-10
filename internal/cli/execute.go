@@ -28,6 +28,7 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 	if lifecycle.Open != nil {
 		deps.HostOperationRunner = lazyOperationRunner{&runtime}
 		deps.HostReconciler = lazyReconciler{&runtime}
+		deps.HostDataInitialization = lazyDataInitialization{&runtime}
 	}
 	if lifecycle.OpenPermits != nil {
 		deps.HostPermits = lazyHostPermits{&runtime}
@@ -121,11 +122,12 @@ func validEnvelopeStream(data []byte, command string) bool {
 }
 
 type RuntimeServices struct {
-	Permits       replication.LaunchReader
-	WriterAttempt func(context.Context, string) error
-	Runner        OperationRunner
-	Reconciler    dispatch.ReconcileOperations
-	Close         func() error
+	DataInitialization dispatch.DataInitializationOperations
+	Permits            replication.LaunchReader
+	WriterAttempt      func(context.Context, string) error
+	Runner             OperationRunner
+	Reconciler         dispatch.ReconcileOperations
+	Close              func() error
 }
 type RuntimeLifecycle struct {
 	OpenPermits       func(context.Context) (RuntimeServices, error)

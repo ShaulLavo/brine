@@ -18,34 +18,35 @@ const Version = "0.1.1-dev"
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
 type Dependencies struct {
-	Context               context.Context
-	Stdin                 io.Reader // Borrowed exclusively during secret reads; see readSecretInput.
-	Stdout                io.Writer
-	Stderr                io.Writer
-	Version               string
-	LookPath              func(string) (string, error)
-	RunTUI                func(context.Context, io.Reader, io.Writer) error
-	DoctorRunner          localexec.Runner // Optional; nil uses bounded local execution.
-	HostServerFactory     dispatch.Factory
-	HostPlanner           dispatch.Planner
-	HostInventory         dispatch.Inventory
-	HostUID               func() int // Optional; nil reads the effective process UID.
-	OriginalCommandLength int
-	HostJobs              dispatch.JobOperations
-	HostAuthorization     dispatch.Authorization
-	HostReconciler        dispatch.ReconcileOperations
-	HostOperationRunner   OperationRunner
-	OperationClient       OperationClient
-	LoadOperationTarget   func(string, string) (transport.Target, error)
-	HostLogs              dispatch.LogReader
-	LogsClient            LogsClient
-	HostApps              dispatch.AppOperations
-	HostDiagnose          dispatch.DiagnosticReader
-	HostConfig            dispatch.ConfigurationOperations
-	HostSecrets           dispatch.SecretOperations
-	HostWriterAttempt     func(context.Context, string) error
-	HostBackupCredentials dispatch.BackupCredentialOperations
-	HostPermits           replication.LaunchReader
+	Context                context.Context
+	Stdin                  io.Reader // Borrowed exclusively during secret reads; see readSecretInput.
+	Stdout                 io.Writer
+	Stderr                 io.Writer
+	Version                string
+	LookPath               func(string) (string, error)
+	RunTUI                 func(context.Context, io.Reader, io.Writer) error
+	DoctorRunner           localexec.Runner // Optional; nil uses bounded local execution.
+	HostServerFactory      dispatch.Factory
+	HostPlanner            dispatch.Planner
+	HostInventory          dispatch.Inventory
+	HostUID                func() int // Optional; nil reads the effective process UID.
+	OriginalCommandLength  int
+	HostJobs               dispatch.JobOperations
+	HostAuthorization      dispatch.Authorization
+	HostReconciler         dispatch.ReconcileOperations
+	HostOperationRunner    OperationRunner
+	OperationClient        OperationClient
+	LoadOperationTarget    func(string, string) (transport.Target, error)
+	HostLogs               dispatch.LogReader
+	LogsClient             LogsClient
+	HostApps               dispatch.AppOperations
+	HostDiagnose           dispatch.DiagnosticReader
+	HostConfig             dispatch.ConfigurationOperations
+	HostSecrets            dispatch.SecretOperations
+	HostWriterAttempt      func(context.Context, string) error
+	HostBackupCredentials  dispatch.BackupCredentialOperations
+	HostDataInitialization dispatch.DataInitializationOperations
+	HostPermits            replication.LaunchReader
 }
 
 // NewRootCommand builds an independent command tree without executing it.
@@ -77,7 +78,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.json, "json", false, "Machine-readable JSON output")
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
-	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes))
+	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes), newDataCmd(deps, &modes))
 	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp), newLifecycleCmd(deps, &modes, "remove", plan.RemoveApp))
 	root.AddCommand(newReconcileCmd(&jsonOutput, deps))
 	root.AddCommand(newResolveCmd(&jsonOutput, deps))

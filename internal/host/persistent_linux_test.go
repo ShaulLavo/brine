@@ -36,8 +36,14 @@ func (s *preparedServices) ReplicaStopped(context.Context, string) (bool, error)
 func TestDataPreparationPublishesCommitsActivatesAndProvesExactArtifacts(t *testing.T) {
 	ctx := context.Background()
 	_, desired, facts := persistentHostFixture(t)
-	stateRoot, err := os.MkdirTemp(os.TempDir(), "")
+	// Keep the Unix socket below sockaddr_un's 107-byte path limit even
+	// when the worktree-local TMPDIR has a long prefix.
+	id, err := data.NewID()
 	if err != nil {
+		t.Fatal(err)
+	}
+	stateRoot := filepath.Join(os.TempDir(), id[:6])
+	if err = os.Mkdir(stateRoot, 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(stateRoot) })

@@ -46,19 +46,21 @@ type Registry struct {
 	RepositoryPrefixes []string `toml:"repository_prefixes" json:"repository_prefixes"`
 }
 type document struct {
-	BackupRetention      []persistent.RetentionEvidence `toml:"backup_retention" json:"backup_retention,omitempty"`
-	Backup               *backupDocument                `toml:"backup" json:"backup,omitempty"`
-	BackupDestinations   []persistent.Destination       `toml:"backup_destinations" json:"backup_destinations,omitempty"`
-	CaddyPort            uint16                         `toml:"caddy_port" json:"caddy_port,omitempty"`
-	SchemaVersion        int                            `toml:"schema_version" json:"schema_version"`
-	Version              string                         `toml:"version" json:"version"`
-	AllowedRegistries    []Registry                     `toml:"allowed_registries" json:"allowed_registries"`
-	AllowedDomains       []string                       `toml:"allowed_domains" json:"allowed_domains"`
-	AppPorts             *PortRange                     `toml:"app_ports" json:"app_ports"`
-	AllowedSecrets       map[string][]string            `toml:"allowed_secrets" json:"allowed_secrets"`
-	Resources            Resources                      `toml:"resources" json:"resources"`
-	PersistentRoots      []string                       `toml:"persistent_roots" json:"persistent_roots"`
-	MinimumFreeDiskBytes *uint64                        `toml:"minimum_free_disk_bytes" json:"minimum_free_disk_bytes"`
+	DataInitialization   *persistent.InitializationBounds `toml:"data_initialization" json:"data_initialization,omitempty"`
+	AllowAgentMigrations bool                             `toml:"allow_agent_migrations" json:"allow_agent_migrations,omitempty"`
+	BackupRetention      []persistent.RetentionEvidence   `toml:"backup_retention" json:"backup_retention,omitempty"`
+	Backup               *backupDocument                  `toml:"backup" json:"backup,omitempty"`
+	BackupDestinations   []persistent.Destination         `toml:"backup_destinations" json:"backup_destinations,omitempty"`
+	CaddyPort            uint16                           `toml:"caddy_port" json:"caddy_port,omitempty"`
+	SchemaVersion        int                              `toml:"schema_version" json:"schema_version"`
+	Version              string                           `toml:"version" json:"version"`
+	AllowedRegistries    []Registry                       `toml:"allowed_registries" json:"allowed_registries"`
+	AllowedDomains       []string                         `toml:"allowed_domains" json:"allowed_domains"`
+	AppPorts             *PortRange                       `toml:"app_ports" json:"app_ports"`
+	AllowedSecrets       map[string][]string              `toml:"allowed_secrets" json:"allowed_secrets"`
+	Resources            Resources                        `toml:"resources" json:"resources"`
+	PersistentRoots      []string                         `toml:"persistent_roots" json:"persistent_roots"`
+	MinimumFreeDiskBytes *uint64                          `toml:"minimum_free_disk_bytes" json:"minimum_free_disk_bytes"`
 }
 
 // Policy has no public constructor or writable fields. Its zero value refuses
@@ -80,7 +82,14 @@ func (p Policy) MinimumFreeDiskBytes() uint64 {
 	}
 	return *p.config.MinimumFreeDiskBytes
 }
-func (p Policy) Hash() string { return p.hash }
+func (p Policy) InitializationBounds() (persistent.InitializationBounds, bool) {
+	if p.config == nil || p.config.DataInitialization == nil {
+		return persistent.InitializationBounds{}, false
+	}
+	return *p.config.DataInitialization, p.config.DataInitialization.Valid()
+}
+func (p Policy) AllowAgentMigrations() bool { return p.config != nil && p.config.AllowAgentMigrations }
+func (p Policy) Hash() string               { return p.hash }
 func (p Policy) Version() string {
 	if p.config == nil {
 		return ""
@@ -154,6 +163,9 @@ func Parse(data []byte) (Policy, error) {
 	slices.SortFunc(raw.BackupRetention, func(a, b persistent.RetentionEvidence) int {
 		return strings.Compare(string(a.Destination), string(b.Destination))
 	})
+	if raw.DataInitialization != nil && !raw.DataInitialization.Valid() {
+		return bad("policy.invalid_initialization_bounds", "data_initialization", "positive bounded backup age, restore age and recovery window are required")
+	}
 	if raw.SchemaVersion != SchemaVersion {
 		return bad("policy.schema_version", "schema_version", "only schema version 1 is supported")
 	}
@@ -251,10 +263,10 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "allow_agent_migrations", "data_initialization") {
 		return false
 	}
-	for key, allowed := range map[string][]string{"backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
+	for key, allowed := range map[string][]string{"data_initialization": {"max_backup_age_seconds", "max_restore_test_age_seconds", "recovery_window_seconds"}, "backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
 		if v, ok := keys[key]; ok {
 			m, ok := v.(map[string]any)
 			if !ok || !onlyKeys(m, allowed...) {

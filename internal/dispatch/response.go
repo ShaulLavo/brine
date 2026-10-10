@@ -2,6 +2,9 @@ package dispatch
 
 import (
 	"bytes"
+	"encoding/json"
+	persistent "github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/datainit"
 
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
@@ -48,6 +51,22 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "data_init_plan":
+			var p datainit.Plan
+			decoder := json.NewDecoder(bytes.NewReader(fields["data"]))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&p) != nil || !p.Valid() {
+				return invalid()
+			}
+			value = p
+		case "data_init_apply":
+			var p datainit.Operation
+			decoder := json.NewDecoder(bytes.NewReader(fields["data"]))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&p) != nil || !persistent.ValidID(p.ID) || !datainit.ValidID(p.PlanID) || !persistent.ValidID(string(p.Fence)) || p.State != "succeeded" {
+				return invalid()
+			}
+			value = p
 		case "backup_credentials_plan":
 			p, err := backupcredentials.DecodePlan(fields["data"])
 			if err != nil {

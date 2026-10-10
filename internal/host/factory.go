@@ -66,6 +66,7 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	server.Config = runtime.Config
 	server.Secrets = runtime.Secrets
 	server.BackupCredentials = runtime.BackupCredentials
+	server.DataInitialization = runtime.DataInitialization
 	server.Logs = runtime.Logs
 	server.Diagnose = runtime.Diagnose
 	return server, nil
