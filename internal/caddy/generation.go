@@ -441,6 +441,33 @@ func (m *Manager) step(result *Result, name string) error {
 	}
 	return nil
 }
+func (m *Manager) validateCandidate(ctx context.Context, candidate string, next, previous map[string]Site, timeout time.Duration, afterValidate func() error) error {
+	validateCtx, cancel := context.WithTimeout(ctx, timeout)
+	err := m.validator.Validate(validateCtx, candidate)
+	if validateCtx.Err() != nil {
+		err = errors.Join(err, validateCtx.Err())
+	}
+	cancel()
+	if err != nil {
+		return err
+	}
+	if afterValidate != nil {
+		if err := afterValidate(); err != nil {
+			return err
+		}
+	}
+	adaptCtx, cancel := context.WithTimeout(ctx, timeout)
+	adapted, err := m.validator.Adapt(adaptCtx, candidate)
+	if adaptCtx.Err() != nil {
+		err = errors.Join(err, adaptCtx.Err())
+	}
+	cancel()
+	if err != nil {
+		return err
+	}
+	return checkAdapted(adapted, next, previous)
+}
+
 func (m *Manager) reload(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, commandTimeout)
 	defer cancel()
@@ -561,29 +588,14 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 		return result, err
 	}
 	result.Stage = "validate"
-	validateCtx, cancel := context.WithTimeout(ctx, commandTimeout)
-	err = m.validator.Validate(validateCtx, filepath.Join(m.path, candidateName))
-	if validateCtx.Err() != nil {
-		err = errors.Join(err, validateCtx.Err())
-	}
-	cancel()
+	err = m.validateCandidate(ctx, filepath.Join(m.path, candidateName), sites, expected.Sites, commandTimeout, func() error {
+		if err := m.step(&result, "validated"); err != nil {
+			return err
+		}
+		result.Stage = "adapt"
+		return nil
+	})
 	if err != nil {
-		return result, err
-	}
-	if err = m.step(&result, "validated"); err != nil {
-		return result, err
-	}
-	result.Stage = "adapt"
-	adaptCtx, adaptCancel := context.WithTimeout(ctx, commandTimeout)
-	adapted, adaptErr := m.validator.Adapt(adaptCtx, filepath.Join(m.path, candidateName))
-	if adaptCtx.Err() != nil {
-		adaptErr = errors.Join(adaptErr, adaptCtx.Err())
-	}
-	adaptCancel()
-	if adaptErr != nil {
-		return result, adaptErr
-	}
-	if err = checkAdapted(adapted, sites, expected.Sites); err != nil {
 		return result, err
 	}
 	if err = m.step(&result, "adapted"); err != nil {
@@ -721,25 +733,7 @@ func (m *Manager) Restore(ctx context.Context, main []byte, installed, previous 
 	if err = m.syncDir("."); err != nil {
 		return err
 	}
-	validateCtx, cancel := context.WithTimeout(ctx, commandTimeout)
-	err = m.validator.Validate(validateCtx, filepath.Join(m.path, name))
-	if validateCtx.Err() != nil {
-		err = errors.Join(err, validateCtx.Err())
-	}
-	cancel()
-	if err != nil {
-		return err
-	}
-	adaptCtx, adaptCancel := context.WithTimeout(ctx, commandTimeout)
-	adapted, err := m.validator.Adapt(adaptCtx, filepath.Join(m.path, name))
-	if adaptCtx.Err() != nil {
-		err = errors.Join(err, adaptCtx.Err())
-	}
-	adaptCancel()
-	if err != nil {
-		return err
-	}
-	if err = checkAdapted(adapted, sites, installed.Sites); err != nil {
+	if err = m.validateCandidate(ctx, filepath.Join(m.path, name), sites, installed.Sites, commandTimeout, nil); err != nil {
 		return err
 	}
 	if err = ctx.Err(); err != nil {
@@ -830,25 +824,7 @@ func (m *Manager) SettleWithdrawal(ctx context.Context, main []byte, before, obs
 		return err
 	}
 	defer m.root.Remove(name)
-	validateCtx, cancel := context.WithTimeout(ctx, commandTimeout)
-	err = m.validator.Validate(validateCtx, filepath.Join(m.path, name))
-	if validateCtx.Err() != nil {
-		err = errors.Join(err, validateCtx.Err())
-	}
-	cancel()
-	if err != nil {
-		return err
-	}
-	adaptCtx, cancel := context.WithTimeout(ctx, commandTimeout)
-	adapted, err := m.validator.Adapt(adaptCtx, filepath.Join(m.path, name))
-	if adaptCtx.Err() != nil {
-		err = errors.Join(err, adaptCtx.Err())
-	}
-	cancel()
-	if err != nil {
-		return err
-	}
-	if err = checkAdapted(adapted, sites, before.Sites); err != nil {
+	if err = m.validateCandidate(ctx, filepath.Join(m.path, name), sites, before.Sites, commandTimeout, nil); err != nil {
 		return err
 	}
 	actual, _, err = m.observe()
