@@ -7,15 +7,19 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 // WriterSchema is declaration evidence from the current committed release, not
 // a cached compatibility verdict. The host observes Bindings afresh with data.
 // WriterCompatible; no host filesystem access occurs in the store.
 type WriterSchema struct {
-	ReleaseID string
-	Desired   policy.Desired
-	Bindings  []data.DatabaseBinding
+	ReleaseID   string
+	Desired     policy.Desired
+	Bindings    []data.DatabaseBinding
+	Definitions []data.SchemaDefinition
+	Allocations map[data.DatabaseID]data.AllocationReceipt
+	Units       []target.Unit
 }
 
 // ReadWriterSchema works through OpenReadOnly and takes no host mutation lock.
@@ -46,34 +50,11 @@ func (s *Store) ReadWriterSchema(ctx context.Context, id data.AppIncarnationID) 
 	if err != nil {
 		return WriterSchema{}, err
 	}
-	if string(desired.Name) != app || len(desired.Databases) == 0 || desired.Runtime == nil {
-		return WriterSchema{}, ErrConflict
-	}
-	out := WriterSchema{ReleaseID: releaseID, Desired: desired, Bindings: make([]data.DatabaseBinding, 0, len(desired.Databases))}
-	var count int
-	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_databases WHERE incarnation_id=?", id).Scan(&count); err != nil {
+	out, err := candidateWriterSchema(ctx, tx, s, id, desired)
+	if err != nil {
 		return WriterSchema{}, err
 	}
-	if count != len(desired.Databases) {
-		return WriterSchema{}, ErrConflict
-	}
-	for _, declaration := range desired.Databases {
-		var database data.DatabaseID
-		if err = tx.QueryRowContext(ctx, "SELECT id FROM data_databases WHERE incarnation_id=? AND name=?", id, declaration.Name).Scan(&database); err != nil {
-			return WriterSchema{}, ErrConflict
-		}
-		permit, err := readReplicaPermit(ctx, tx, database)
-		if err != nil {
-			return WriterSchema{}, err
-		}
-		if err = s.validateReplicaPermit(ctx, tx, permit); err != nil {
-			return WriterSchema{}, err
-		}
-		binding := permit.Database
-		if binding.IncarnationID != id || binding.Root != declaration.PersistentRoot || binding.MountPath != declaration.MountPath || binding.Filename != declaration.Filename || permit.Replica.Destination.Reference != declaration.BackupDestination || permit.FenceState == "held" {
-			return WriterSchema{}, ErrConflict
-		}
-		out.Bindings = append(out.Bindings, binding)
-	}
+	out.ReleaseID = releaseID
+	out.Units = release.Units
 	return out, tx.Commit()
 }

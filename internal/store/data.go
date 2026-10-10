@@ -132,6 +132,9 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_databases VALUES(?,?,?,?,?,?)", database, incarnation, req.Database.Name, req.Database.PersistentRoot, relative, dbRaw); err != nil {
 		return ReservedDatabase{}, err
 	}
+	if err = registerSchema(ctx, tx, data.DatabaseID(database), data.EmptyMarker, data.EmptyCatalogSHA256); err != nil {
+		return ReservedDatabase{}, err
+	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_replica_bindings VALUES(?,?,?,?,?,?,?)", binding, database, epoch, req.Destination.Endpoint, req.Destination.Bucket, prefix, replicaRaw); err != nil {
 		return ReservedDatabase{}, err
 	}
