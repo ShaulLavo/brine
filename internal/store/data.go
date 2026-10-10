@@ -3,10 +3,13 @@ package store
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -24,13 +27,21 @@ type ReservedDatabase struct {
 	Replica  data.ReplicaBinding
 }
 type ReplicaPermit struct {
-	Database data.DatabaseBinding   `json:"database"`
-	Replica  data.ReplicaBinding    `json:"replica"`
-	Fences   []data.QuiescenceFence `json:"fences"`
+	DBPath               string                 `json:"db_path"`
+	SocketPath           string                 `json:"socket_path"`
+	ConfigPath           string                 `json:"config_path"`
+	CredentialPath       string                 `json:"credential_path"`
+	LifetimeLockPath     string                 `json:"lifetime_lock_path"`
+	FenceState           string                 `json:"fence_state"`
+	DestinationOwnership string                 `json:"destination_ownership"`
+	SourceSettled        bool                   `json:"source_settled"`
+	Database             data.DatabaseBinding   `json:"database"`
+	Replica              data.ReplicaBinding    `json:"replica"`
+	Fences               []data.QuiescenceFence `json:"fences"`
 }
 
 func (p ReplicaPermit) AllowsReplica(binding data.ReplicaBindingID, epoch data.ReplicaEpochID, configSHA256 string) bool {
-	if !p.Replica.Committed || p.Replica.BindingID != binding || p.Replica.EpochID != epoch || p.Replica.ConfigSHA256 != configSHA256 || !digestPattern.MatchString("sha256:"+configSHA256) || p.Database.DatabaseID != p.Replica.DatabaseID || p.Database.ReplicaBindingID != binding || p.Fences == nil {
+	if !p.SourceSettled || p.DestinationOwnership != "local" || p.FenceState == "held" || !p.Replica.Committed || p.Replica.BindingID != binding || p.Replica.EpochID != epoch || p.Replica.ConfigSHA256 != configSHA256 || !digestPattern.MatchString("sha256:"+configSHA256) || p.Database.DatabaseID != p.Replica.DatabaseID || p.Database.ReplicaBindingID != binding || p.Fences == nil {
 		return false
 	}
 	for _, f := range p.Fences {
@@ -173,7 +184,27 @@ func readReplicaPermit(ctx context.Context, q dataQuerier, id data.DatabaseID) (
 		}
 		p.Fences = append(p.Fences, f)
 	}
-	return p, rows.Err()
+	if err = rows.Err(); err != nil {
+		return p, err
+	}
+	p.DBPath = path.Join(string(p.Database.Root), p.Database.RelativeDirectory, string(p.Database.Filename))
+	p.SocketPath = p.Replica.SocketFile
+	p.ConfigPath = p.Replica.ConfigFile
+	p.CredentialPath = p.Replica.CredentialFile
+	p.LifetimeLockPath = p.Replica.LifetimeLockFile
+	p.FenceState = "unfenced"
+	for _, f := range p.Fences {
+		if f.State == data.FenceHeld {
+			p.FenceState = "held"
+			break
+		}
+		p.FenceState = "released"
+	}
+	p.DestinationOwnership = "local"
+	// A committed binding is the only settled source state until live restore
+	// introduces a separately journaled replacement transition.
+	p.SourceSettled = p.Replica.Committed
+	return p, nil
 }
 
 // ReadReplicaPermit reads one consistent snapshot without taking the host lock.
@@ -195,6 +226,14 @@ func (s *Store) ReadReplicaPermit(ctx context.Context, id data.DatabaseID) (Repl
 // Destination, database and epoch identities cannot change through this API.
 func (s *Store) CommitReplicaBinding(ctx context.Context, b data.ReplicaBinding) error {
 	if !digestPattern.MatchString("sha256:"+b.ConfigSHA256) || !digestPattern.MatchString("sha256:"+b.UnitSHA256) || b.CredentialVersion == 0 || !data.ValidRoot(b.CredentialFile) {
+		return ErrInvalid
+	}
+	sum := sha256.Sum256([]byte(b.ConfigContent))
+	if len(b.ConfigContent) == 0 || len(b.ConfigContent) > 65536 || hex.EncodeToString(sum[:]) != b.ConfigSHA256 {
+		return ErrInvalid
+	}
+	expectedDir := path.Join(s.dir, "replication", string(b.BindingID))
+	if b.ConfigFile != path.Join(expectedDir, "litestream.yml") || b.SocketFile != path.Join(expectedDir, "control.sock") || b.LifetimeLockFile != path.Join(s.dir, "replica-locks", string(b.BindingID)+".lock") || b.CredentialFile != path.Join(s.dir, "credentials", "s3", b.Destination.CredentialRef, "v"+strconv.FormatUint(b.CredentialVersion, 10)+".env") {
 		return ErrInvalid
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -342,6 +381,9 @@ func (s *Store) ReadCredentialScopes(ctx context.Context, app string) ([]Credent
 // CredentialRecord is deliberately incapable of carrying credential values.
 // P04-03 owns delivery and presentation types; this is their durable reference.
 type CredentialRecord struct {
+	// Requester comes only from the authenticated dispatcher identity, never
+	// from a request packet or credential delivery payload.
+	Requester   string                    `json:"requester"`
 	ID          string                    `json:"id"`
 	Kind        string                    `json:"kind"`
 	PlanID      string                    `json:"plan_id"`
@@ -357,10 +399,17 @@ type CredentialRecord struct {
 }
 
 func (s *Store) SaveCredentialRecord(ctx context.Context, r CredentialRecord) error {
-	if !data.ValidID(r.ID) || !data.ValidID(string(r.BindingID)) || !data.ValidID(string(r.EpochID)) || (r.Kind != "plan" && r.Kind != "receipt") || r.PlanID == "" || !digestPattern.MatchString(r.PolicyHash) || !digestPattern.MatchString(r.PlanHash) || !digestPattern.MatchString(r.TargetHash) || (r.Kind == "receipt" && (r.Version == 0 || r.ReceivedAt.IsZero())) {
+	if r.Requester == "" || len(r.Requester) > 256 || !data.ValidID(r.ID) || !data.ValidID(string(r.BindingID)) || !data.ValidID(string(r.EpochID)) || (r.Kind != "plan" && r.Kind != "receipt") || r.PlanID == "" || !digestPattern.MatchString(r.PolicyHash) || !digestPattern.MatchString(r.PlanHash) || !digestPattern.MatchString(r.TargetHash) || (r.Kind == "receipt" && (r.Version == 0 || r.ReceivedAt.IsZero())) {
 		return ErrInvalid
 	}
-	p, err := s.ReadReplicaPermit(ctx, rDatabaseID(ctx, s, r.BindingID))
+	var database data.DatabaseID
+	if err := s.db.QueryRowContext(ctx, "SELECT database_id FROM data_replica_bindings WHERE id=?", r.BindingID).Scan(&database); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+	p, err := s.ReadReplicaPermit(ctx, database)
 	if err != nil {
 		return err
 	}
@@ -373,11 +422,6 @@ func (s *Store) SaveCredentialRecord(ctx context.Context, r CredentialRecord) er
 	}
 	_, err = s.db.ExecContext(ctx, "INSERT INTO data_credential_records VALUES(?,?,?,?)", r.ID, r.BindingID, r.Kind, raw)
 	return err
-}
-func rDatabaseID(ctx context.Context, s *Store, id data.ReplicaBindingID) data.DatabaseID {
-	var database data.DatabaseID
-	_ = s.db.QueryRowContext(ctx, "SELECT database_id FROM data_replica_bindings WHERE id=?", id).Scan(&database)
-	return database
 }
 func (s *Store) LoadCredentialRecord(ctx context.Context, id string) (CredentialRecord, error) {
 	var r CredentialRecord
@@ -396,4 +440,57 @@ func (s *Store) LoadCredentialRecord(ctx context.Context, id string) (Credential
 }
 func (r ReservedDatabase) Mount() data.Mount {
 	return data.Mount{Database: r.Database, HostPath: path.Join(string(r.Database.Root), r.Database.RelativeDirectory), ContainerPath: r.Database.MountPath, BindingID: r.Replica.BindingID}
+}
+
+// ReadReplicaPermitByBinding projects the same read-only snapshot for unit gates.
+func (s *Store) ReadReplicaPermitByBinding(ctx context.Context, id data.ReplicaBindingID) (ReplicaPermit, error) {
+	var database data.DatabaseID
+	err := s.db.QueryRowContext(ctx, "SELECT database_id FROM data_replica_bindings WHERE id=?", id).Scan(&database)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ReplicaPermit{}, ErrNotFound
+	}
+	if err != nil {
+		return ReplicaPermit{}, err
+	}
+	return s.ReadReplicaPermit(ctx, database)
+}
+
+// ReadWriterPermits returns every database of an incarnation in one snapshot.
+// Schema compatibility is deliberately not a cached field in this projection.
+func (s *Store) ReadWriterPermits(ctx context.Context, id data.AppIncarnationID) ([]ReplicaPermit, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	rows, err := tx.QueryContext(ctx, "SELECT id FROM data_databases WHERE incarnation_id=? ORDER BY name", id)
+	if err != nil {
+		return nil, err
+	}
+	ids := []data.DatabaseID{}
+	for rows.Next() {
+		var database data.DatabaseID
+		if err = rows.Scan(&database); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		ids = append(ids, database)
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) == 0 {
+		return nil, ErrNotFound
+	}
+	permits := make([]ReplicaPermit, 0, len(ids))
+	for _, database := range ids {
+		p, err := readReplicaPermit(ctx, tx, database)
+		if err != nil {
+			return nil, err
+		}
+		permits = append(permits, p)
+	}
+	return permits, tx.Commit()
 }

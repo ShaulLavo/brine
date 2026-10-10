@@ -4,7 +4,10 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -34,10 +37,15 @@ func TestDataReservationAndPermit(t *testing.T) {
 		t.Fatalf("uncommitted permit allowed: %v", err)
 	}
 	binding := first.Replica
-	binding.ConfigSHA256 = strings.Repeat("b", 64)
+	binding.ConfigContent = "dbs: []\n"
+	sum := sha256.Sum256([]byte(binding.ConfigContent))
+	binding.ConfigSHA256 = hex.EncodeToString(sum[:])
+	binding.ConfigFile = filepath.Join(s.dir, "replication", string(binding.BindingID), "litestream.yml")
+	binding.SocketFile = filepath.Join(s.dir, "replication", string(binding.BindingID), "control.sock")
+	binding.LifetimeLockFile = filepath.Join(s.dir, "replica-locks", string(binding.BindingID)+".lock")
 	binding.UnitSHA256 = strings.Repeat("c", 64)
 	binding.CredentialVersion = 1
-	binding.CredentialFile = "/srv/brine-state/credentials/s3/primary/v1.env"
+	binding.CredentialFile = filepath.Join(s.dir, "credentials/s3/primary/v1.env")
 	if err = s.CommitReplicaBinding(ctx, binding); err != nil {
 		t.Fatal(err)
 	}
@@ -65,6 +73,19 @@ func TestDataReservationAndPermit(t *testing.T) {
 	scopes, err := s.ReadCredentialScopes(ctx, "example")
 	if err != nil || len(scopes) != 1 || scopes[0].FenceHeld || scopes[0].PolicyHash != req.PolicyHash {
 		t.Fatalf("scope mismatch: %v", err)
+	}
+	read, err := OpenReadOnly(ctx, s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer read.Close()
+	writer, err := read.ReadWriterPermits(ctx, first.Database.IncarnationID)
+	if err != nil || len(writer) != 1 || writer[0].DBPath == "" || writer[0].Replica.ConfigContent != binding.ConfigContent {
+		t.Fatalf("read-only writer permits: %v", err)
+	}
+	byBinding, err := read.ReadReplicaPermitByBinding(ctx, binding.BindingID)
+	if err != nil || byBinding.CredentialPath != binding.CredentialFile {
+		t.Fatalf("binding projection: %v", err)
 	}
 	changed := req
 	changed.Database.Filename = "other.db"

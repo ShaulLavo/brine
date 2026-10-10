@@ -77,6 +77,10 @@ type ReplicaBinding struct {
 	CredentialFile    string           `json:"credential_file"`
 	UnitSHA256        string           `json:"unit_sha256"`
 	ConfigSHA256      string           `json:"config_sha256"`
+	ConfigContent     string           `json:"config_content"`
+	ConfigFile        string           `json:"config_file"`
+	SocketFile        string           `json:"socket_file"`
+	LifetimeLockFile  string           `json:"lifetime_lock_file"`
 	Committed         bool             `json:"committed"`
 }
 type FenceState string
