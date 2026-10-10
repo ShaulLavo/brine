@@ -499,3 +499,20 @@ func TestAppUnitActiveObservation(t *testing.T) {
 		})
 	}
 }
+
+func fixtureCapture(out string, limit int) localexec.Capture {
+	capture := localexec.Capture{Stdout: out, Overflow: len(out) > limit}
+	if capture.Overflow {
+		capture.Stdout = out[:limit]
+	}
+	return capture
+}
+
+func (r fakeRunner) CaptureStdout(ctx context.Context, limit int, p string, args ...string) (localexec.Capture, error) {
+	out, err := r.RunStdout(ctx, p, args...)
+	return fixtureCapture(out, limit), err
+}
+func (r probeRunner) CaptureStdout(ctx context.Context, limit int, p string, args ...string) (localexec.Capture, error) {
+	out, err := r.RunStdout(ctx, p, args...)
+	return fixtureCapture(out, limit), err
+}

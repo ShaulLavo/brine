@@ -32,7 +32,7 @@ func (c Collector) absence(ctx context.Context, s *target.Snapshot, artifacts ap
 	if len(candidates) == 0 {
 		return
 	}
-	out, err := c.probe(ctx, "podman", "--remote=false", "ps", "--all", "--format", containerInventoryFormat)
+	out, err := c.probe(ctx, containerOutputLimit, "podman", "--remote=false", "ps", "--all", "--format", containerInventoryFormat)
 	if err != nil {
 		return
 	}

@@ -11,8 +11,11 @@ import (
 )
 
 type Prober struct {
-	FS                 inventory.FileSystem
-	Runner             localexec.StdoutRunner
+	FS     inventory.FileSystem
+	Runner interface {
+		localexec.StdoutRunner
+		localexec.CaptureRunner
+	}
 	IdentityKey        []byte
 	OwnedRunner        func(context.Context) (bool, error)
 	CheckAuthorization func(context.Context) error
