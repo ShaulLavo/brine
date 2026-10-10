@@ -65,6 +65,7 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		server.Apps = deps.HostApps
 		server.Config = deps.HostConfig
 		server.Secrets = deps.HostSecrets
+		server.BackupCredentials = deps.HostBackupCredentials
 		if deps.HostLogs != nil {
 			server.Logs = deps.HostLogs
 		}
