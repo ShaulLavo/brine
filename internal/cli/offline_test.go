@@ -67,7 +67,7 @@ func offlineState(t *testing.T) string {
 		t.Fatal(err)
 	}
 	current := (*snapshot.Apps.Value)[0]
-	state := plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{{App: "hello", ID: "release-0001", Desired: desired, Image: plan.Image{Digest: current.Image.Value.Digest, Platform: current.Image.Value.Platform, ManifestDigest: target.Observation[string]{Status: target.Unknown}}, HostPort: *current.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: *current.QuadletUnits.Value, CaddyFile: snapshot.CaddyConfig.Value.Files[0]}}}
+	state := plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{{App: "hello", ID: "release-0001", Desired: desired, Image: plan.Image{Digest: current.Image.Value.Digest, Platform: current.Image.Value.Platform, ManifestDigest: target.Observation[string]{Status: target.Unknown}}, HostPort: *current.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: *current.QuadletUnits.Value, CaddyFile: snapshot.CaddyConfig.Value.Files[0], CaddyGeneration: snapshot.CaddyConfig.Value.Generation}}}
 	data, err := json.Marshal(state)
 	if err != nil {
 		t.Fatal(err)

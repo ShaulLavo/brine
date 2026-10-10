@@ -43,7 +43,7 @@ func fixture(t testing.TB, name string) Input {
 	state := BrineState{Target: s.Identity, Generation: *s.Generation.Value, Releases: []CurrentRelease{}}
 	for _, app := range *s.Apps.Value {
 		if app.Name == "hello" && app.Image.Status == target.KnownStatus {
-			state.Releases = append(state.Releases, CurrentRelease{App: "hello", ID: "release-0001", Desired: d, Image: Image{Digest: app.Image.Value.Digest, Platform: app.Image.Value.Platform, ManifestDigest: target.Observation[string]{Status: target.Unknown}}, HostPort: *app.AllocatedHostPort.Value, Secrets: []SecretBinding{}, Units: *app.QuadletUnits.Value, CaddyFile: s.CaddyConfig.Value.Files[0]})
+			state.Releases = append(state.Releases, CurrentRelease{App: "hello", ID: "release-0001", Desired: d, Image: Image{Digest: app.Image.Value.Digest, Platform: app.Image.Value.Platform, ManifestDigest: target.Observation[string]{Status: target.Unknown}}, HostPort: *app.AllocatedHostPort.Value, Secrets: []SecretBinding{}, Units: *app.QuadletUnits.Value, CaddyFile: s.CaddyConfig.Value.Files[0], CaddyGeneration: s.CaddyConfig.Value.Generation})
 		}
 	}
 	raw, _ := json.Marshal(state)
