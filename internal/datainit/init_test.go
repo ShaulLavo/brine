@@ -2,6 +2,7 @@ package datainit
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -245,5 +246,34 @@ func TestInitializationRestoreEvidenceRefusalsBeforeMutation(t *testing.T) {
 				t.Fatal("recovery intent lost")
 			}
 		})
+	}
+}
+
+func TestInitializationAgentCannotApplyLocalOperatorPlan(t *testing.T) {
+	local, j, request := initFixture(t)
+	agent := local.Requester
+	local.Requester = LocalOperatorRequester()
+	p, err := local.Plan(context.Background(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remote := local
+	remote.Requester = agent
+	if _, err = remote.Apply(context.Background(), request.App, p.ID); !errors.Is(err, ErrRefused) || j.claimed {
+		t.Fatal("remote requester reused local operator plan", err)
+	}
+	raw, err := json.Marshal(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var retained Plan
+	if err = json.Unmarshal(raw, &retained); err != nil || !retained.Valid() || !retained.Requester.IsLocalOperator() {
+		t.Fatal("local authority was not retained by immutable plan", err)
+	}
+	reconstructed := local
+	reconstructed.Requester = retained.Requester
+	op, err := reconstructed.Apply(context.Background(), request.App, retained.ID)
+	if err != nil || op.State != "succeeded" {
+		t.Fatal("local initialization lost reconstructed authority", err)
 	}
 }
