@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -145,6 +146,7 @@ type PortAllocation struct {
 	Port target.Port `json:"port"`
 }
 type Quadlet struct {
+	DataMounts      []data.Mount    `json:"data_mounts,omitempty"`
 	Desired         policy.Desired  `json:"desired"`
 	EnvironmentKeys []string        `json:"environment_keys"`
 	HostPort        target.Port     `json:"host_port"`
@@ -163,6 +165,8 @@ type Restart struct {
 }
 
 type Plan struct {
+	Runtime            *data.RuntimeIdentity      `json:"runtime,omitempty"`
+	DataMounts         []data.Mount               `json:"data_mounts,omitempty"`
 	SchemaVersion      int                        `json:"schema_version"`
 	Kind               Kind                       `json:"kind"`
 	Lifecycle          ChangeKind                 `json:"lifecycle,omitempty"`
@@ -241,6 +245,9 @@ func Build(in Input) (Plan, error) {
 	p := Plan{SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{}}
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
+	}
+	if !in.Desired.Stateless() {
+		add(UnknownFacts, "databases")
 	}
 	if err := in.Snapshot.Validate(); err != nil {
 		var unsupported *target.UnsupportedError
