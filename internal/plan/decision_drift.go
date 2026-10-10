@@ -68,17 +68,19 @@ func CompareDecisionInputs(before, after []byte) (DecisionDrift, error) {
 		return DecisionDrift{}, err
 	}
 	out := DecisionDrift{Paths: []string{}}
-	changed := func(path string) {
-		out.Changed++
-		if len(out.Paths) < MaxDecisionPaths && len(path) <= maxDecisionPathBytes {
-			out.Paths = append(out.Paths, path)
-		} else {
-			out.Truncated = true
-		}
-	}
-	compareDecisionValues(reflect.ValueOf(a), reflect.ValueOf(b), "", changed)
+	compareDecisionValues(reflect.ValueOf(a), reflect.ValueOf(b), "", out.addPath)
 	slices.Sort(out.Paths)
 	return out, nil
+}
+
+// Invalid generated paths count as omitted changes, never poison valid diagnostics.
+func (d *DecisionDrift) addPath(path string) {
+	d.Changed++
+	if len(d.Paths) < MaxDecisionPaths && len(path) <= maxDecisionPathBytes && validDecisionPath(path) {
+		d.Paths = append(d.Paths, path)
+	} else {
+		d.Truncated = true
+	}
 }
 
 func compareDecisionValues(a, b reflect.Value, path string, changed func(string)) {
@@ -159,6 +161,9 @@ func validDecisionPath(path string) bool {
 		}
 		typ = found
 		for indices != "" {
+			for typ.Kind() == reflect.Pointer {
+				typ = typ.Elem()
+			}
 			index, rest, ok := strings.Cut(indices, "]")
 			n, err := strconv.Atoi(index)
 			if !ok || err != nil || n < 0 || strconv.Itoa(n) != index || typ.Kind() != reflect.Slice {

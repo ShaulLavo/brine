@@ -16,9 +16,11 @@ import (
 
 func TestDetachedStalePlanReportsDecisionPathsBeforeEffects(t *testing.T) {
 	r := newDeployRig(t)
+	r.inventory.snapshot.UsedPorts = target.Known([]target.Port{25000})
 	planned := r.call(t, "plan", dispatch.PlanArgs{Spec: r.spec}).Data.(dispatch.Planned)
 	accepted := r.call(t, "apply", dispatch.ApplyArgs{PlanID: planned.PlanID, IdempotencyKey: "drift-diagnostic"}).Data.(jobs.Accepted)
 	r.inventory.snapshot.Identity.ID = "private-identity"
+	r.inventory.snapshot.UsedPorts = target.Known([]target.Port{25001})
 	r.inventory.snapshot.Versions.Systemd = target.Known("257.1")
 	if err := r.runner.Run(context.Background(), accepted.OperationID); err == nil {
 		t.Fatal("stale plan accepted")
@@ -31,7 +33,7 @@ func TestDetachedStalePlanReportsDecisionPathsBeforeEffects(t *testing.T) {
 	for _, event := range status.Events {
 		if event.Kind == "plan_drift" {
 			var drift plan.DecisionDrift
-			if json.Unmarshal(event.Payload, &drift) != nil || !drift.Valid() || !slices.Contains(drift.Paths, "snapshot.identity.id") || !slices.Contains(drift.Paths, "snapshot.versions.systemd.value") {
+			if json.Unmarshal(event.Payload, &drift) != nil || !drift.Valid() || !slices.Contains(drift.Paths, "snapshot.identity.id") || !slices.Contains(drift.Paths, "snapshot.used_ports.value[0]") || !slices.Contains(drift.Paths, "snapshot.versions.systemd.value") {
 				t.Fatal("missing changed paths", string(event.Payload))
 			}
 			if strings.Contains(string(event.Payload), "private-identity") || strings.Contains(string(event.Payload), "257.1") {

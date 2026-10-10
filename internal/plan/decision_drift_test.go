@@ -93,3 +93,54 @@ func TestDecisionDriftRedactsDynamicMapKeys(t *testing.T) {
 		t.Fatalf("map key exposed %+v %v", drift, err)
 	}
 }
+
+func TestDecisionDriftObservedArrayPaths(t *testing.T) {
+	before, err := decodeDecisionInput(build(t, persistentReady(t)).DecisionInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	before.Snapshot.UsedPorts = target.Known([]target.Port{10000})
+	before.Snapshot.Apps = target.Known([]target.App{{Name: "before"}})
+	before.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 10000, Process: "before"}})
+	raw, err := json.Marshal(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path   string
+		change func(*decisionDocument)
+	}{
+		{"snapshot.used_ports.value[0]", func(d *decisionDocument) { (*d.Snapshot.UsedPorts.Value)[0]++ }},
+		{"snapshot.apps.value[0].name", func(d *decisionDocument) { (*d.Snapshot.Apps.Value)[0].Name = "after" }},
+		{"snapshot.port_owners.value[0].process", func(d *decisionDocument) { (*d.Snapshot.PortOwners.Value)[0].Process = "after" }},
+		{"snapshot.persistent_data.value[0].fenced", func(d *decisionDocument) {
+			(*d.Snapshot.PersistentData.Value)[0].Fenced = !(*d.Snapshot.PersistentData.Value)[0].Fenced
+		}},
+	} {
+		t.Run(tc.path, func(t *testing.T) {
+			after, err := decodeDecisionInput(raw)
+			if err != nil {
+				t.Fatal(err)
+			}
+			after.Snapshot.Identity.ID = "private-changed-identity"
+			tc.change(&after)
+			fresh, err := json.Marshal(after)
+			if err != nil {
+				t.Fatal(err)
+			}
+			drift, err := CompareDecisionInputs(raw, fresh)
+			if err != nil || !drift.Valid() || !slices.Contains(drift.Paths, tc.path) || !slices.Contains(drift.Paths, "snapshot.identity.id") {
+				t.Fatalf("observed-array drift invalid %+v %v", drift, err)
+			}
+		})
+	}
+}
+
+func TestDecisionDriftOmitsInvalidPathsWithoutLosingValidChanges(t *testing.T) {
+	drift := DecisionDrift{Paths: []string{}}
+	drift.addPath("desired.environment.PRIVATE_KEY")
+	drift.addPath("snapshot.identity.id")
+	if !drift.Valid() || !slices.Equal(drift.Paths, []string{"snapshot.identity.id"}) || drift.Changed != 2 || !drift.Truncated {
+		t.Fatalf("invalid path poisoned valid changes %+v", drift)
+	}
+}
