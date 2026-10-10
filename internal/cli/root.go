@@ -7,6 +7,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/transport"
 	"github.com/spf13/cobra"
@@ -42,6 +43,7 @@ type Dependencies struct {
 	HostDiagnose          dispatch.DiagnosticReader
 	HostConfig            dispatch.ConfigurationOperations
 	HostSecrets           dispatch.SecretOperations
+	HostPermits           replication.LaunchReader // Read-only composition only; nil refuses startup.
 }
 
 // NewRootCommand builds an independent command tree without executing it.
