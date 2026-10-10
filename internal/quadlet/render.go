@@ -100,7 +100,11 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 		r := persistent.runtime
 		fmt.Fprintf(&b, "UserNS=keep-id:uid=%d,gid=%d\nUser=%d\nGroup=%d\nPodmanArgs=--umask=0077\n", r.UID, r.GID, r.UID, r.GID)
 		for _, mount := range persistent.mounts {
-			fmt.Fprintf(&b, "Volume=%s\n", quoteAssignment(mount.HostPath+":"+string(mount.ContainerPath)+":rw"))
+			// Quadlet reads Volume as a literal line, unlike Environment's quoted words.
+			// Its generated ExecStart still needs systemd expansion escaping.
+			volume := mount.HostPath + ":" + string(mount.ContainerPath) + ":rw"
+			volume = strings.ReplaceAll(strings.ReplaceAll(volume, "%", "%%"), "$", "$$")
+			fmt.Fprintf(&b, "Volume=%s\n", volume)
 		}
 	}
 	fmt.Fprintf(&b, "LogDriver=%s\nLogOpt=max-size=%d\n", logs.ContainerLogDriver, logs.ContainerLogMaxBytes)
