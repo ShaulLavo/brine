@@ -329,3 +329,7 @@ On the healthy physical fixture, `logs` succeeded but `diagnose` consistently re
 ### Parallel apply
 
 The first pair of concurrently accepted applies both failed `stale_plan` before effects. Two subsequent plans were identical; applying that freshly measured plan concurrently produced exactly one successful mutation and one stale/no-effect refusal. No two writers ran. The earlier rollback and first parallel pair show transient plan-hash drift even though stored plan actions match; the original observed inputs are not persisted, so the exact changing fact cannot yet be attributed. No unconditional mutation retry was used: each failed receipt was inspected before explicitly replanning.
+
+### Restricted SSH/client disconnect
+
+An initial attempt completed its acknowledgement too quickly to kill the client and is not counted as disconnect evidence. A fresh operation then lost its restricted client/SSH process group to SIGKILL before receipt consumption (client exit -9). Read-only inspection found durable queued receipt `01a1237bc827be28c39874af6fa7e41e022f471c4ee7`; polling that receipt, without replaying apply, observed `succeeded`. Detached execution survived the lost response.
