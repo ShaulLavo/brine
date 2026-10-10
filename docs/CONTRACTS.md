@@ -142,6 +142,7 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `invalid_usage` | 2 | false | Invalid command or arguments. Use --help for usage. |
 | `dependency_missing` | 3 | false | A required dependency is missing or incompatible. |
 | `policy_refused` | 4 | false | The operation was refused by policy. |
+| `policy_registry_denied` | 4 | false | The image registry or repository is not allowed by operator policy. |
 | `backup_admission_refresh_required` | 4 | false | Backup credential delivery refused: the operator policy changed. An explicit approved admission refresh is required before continuing. |
 | `conflict` | 5 | true | The plan is stale or another operation holds the lock. |
 | `recovery_required` | 6 | false | Manual recovery is required before continuing. |
