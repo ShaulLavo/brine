@@ -1,0 +1,8 @@
+{
+  "internal/dispatch/jobs.go|internal/dispatch/resolution.go|dc86b5e278c615025ed1d595dafbcf38f4768b5c3bc703c343606f204be1a13f": 1,
+  "internal/dispatch/resolution.go|internal/dispatch/jobs.go|ae5116b14745477118e1969e5bb213b507f8f2427a93a76e5717399449323d89": 1,
+  "internal/podman/fake.go|internal/podman/podman.go|bdee43e95343d92a1039e5fb30690e972ff4556a344c7713557b12b545e443c7": 1,
+  "internal/podman/podman.go|internal/podman/fake.go|bf5139526c3e6a16146cb418a7b7863dfdbc0bd591508337b12f5d05aeae2441": 1,
+  "internal/systemd/fake.go|internal/systemd/systemd.go|c59b07e87b3b1b6bd67b7afc518bbe3a1f7ccc2fa9ddb967e9ef2f65f2cefc80": 1,
+  "internal/systemd/systemd.go|internal/systemd/fake.go|82fc9f9d5338139f224341558c1c7d37930c7e9a0d3fef0014233b20e3bc2875": 1
+}
