@@ -4,6 +4,12 @@ Recorded 2026-10-09. The first attempt used `9670c1a`. The resumed attempt merge
 
 ## Latest result, 2026-10-10
 
+**The stateless Phase 03 physical exit gate passed. Final restricted removal left zero committed apps and no fixture writer, selected route or listener.**
+
+After merging `1d44dc8` (#52), the real restricted client recreated the fixture with retained secret v1, updated environment and pinned image digest, rolled back, restored the previous writer after an invalid release, serialized competing applies, survived a killed client/SSH process group, and reconciled a run-op SIGKILL after a byte-preserving dry-run. Config set, immutable secret v2 and stop/start/restart passed. A small diagnose-tail defect was reproduced failing-first and fixed here; both standalone logs and diagnose returned nonempty owned app tails. One reboot returned direct and normally verified routed health in 51.039 seconds, and the boot reconciliation unit completed successfully. Final `remove` succeeded. Detailed receipts and scope limits follow below; earlier blocked results are historical, not the final state. Existing-data mounts and data rollback remain Phase 04. No zero-downtime or R2-restore claim is made.
+
+## Intermediate result before #52, 2026-10-10
+
 **Real v2-to-v3 migration and terminal-removal resolution passed. Clean-fixture recreation is blocked by retained-secret inventory after a nonzero control generation. The Phase 03 exit gate remains open.**
 
 The current run on `52977d3` preserved the existing receipt and all 13 event rows through migration, then completed its removal through `brine resolve` without operator app mutations. There are zero committed apps and no fixture unit/container/selected route/listener. D5-retained secret v1 and history remain. Planning the recreated fixture now refuses `unknown_facts` for `app.image`, `app.port`, and `apps.port`; even a different app with no secret references refuses `apps.port`. The lane reproduced the same condition locally and stopped rather than delete retained secrets, reset control generation, or invent runtime absence. Details follow at the end of this file. No new deploy was accepted, reboot issued, or acceptance checkbox changed.
@@ -337,3 +343,11 @@ An initial attempt completed its acknowledgement too quickly to kill the client 
 ### run-op SIGKILL and reconciliation
 
 Operator fault injection killed only the owned run-op MainPID for operation `01a1237cf6438a8b5cc63f580a17e821ab18b5b208e6`, after journaled `check_direct:intent` and before its completion. The candidate deliberately used an invalid health path. Restricted `reconcile --dry-run` predicted rollback from checking at that boundary; exact main SQLite DB and WAL SHA-256 bytes were unchanged before/after the preview. Restricted mutating reconciliation settled `rolled_back`, restoring the previous writer and routed HTTPS 200. No journal edits, blind replay or operator app mutation were used.
+
+### One reboot and final removal
+
+Before reboot, no updater process, active apt service or nonterminal operation was present. Four interactive sessions were recorded privately; no session was terminated or access setting changed. One authorized reboot was issued, and boot identity changed. From issuing reboot to successful direct HTTP and normally verified routed HTTPS, elapsed time was 51.039 seconds. The enabled boot `brine-reconcile.service` was loaded, completed after boot with `Result=success`/`ExecMainStatus=0`, and became inactive/dead as a oneshot. Restricted status/diagnose remained readable, and the diagnose app tail stayed known/nonempty (20 entries). One reboot remains unused.
+
+Final restricted `remove` operation `01a1237fad09601a42e9ceaca55d1b2ad46765e526b2` succeeded. Restricted status reports `apps:[]`. Read-only verification finds zero release heads, absent fixture Quadlet and selected route, no fixture container and no TCP/UDP listener on its port. SQLite integrity is `ok` with zero foreign-key errors. Secret v1/v2, image cache, release/operation history, historical routing generations and private binary/database backups remain intentionally retained, not purged. No live fixture resource remains.
+
+The stateless physical exit gate and the stateless portion of P03-04 now have acceptance evidence. Automated fault/injection tests supply complementary T11/T16/T17/disk-limit coverage; no additional physical Caddy outage, disk exhaustion or data-migration experiment is claimed. Physical log file-size turnover remains unverified. Persistent data, archival/purge, schema-breaking data rollback and R2 restore stay in their later phases. Supported binary upgrades remain the documented P06 gap; enrollment provenance was not rewritten.
