@@ -297,3 +297,9 @@ The lane stopped at that larger ownership/absence boundary as instructed. A new 
 Final state: no committed fixture app, unit, container, selected route or live port. Secret v1, image, historical route generations, original/recovery receipts and the root-private pre-upgrade binary/DB backup remain intentionally retained. Original terminal receipt/event hash still match the pre-migration observations after successor completion. No operator configuration, credentials, firewall, tailnet, policy, trust store or account was changed in this run.
 
 Final local checks passed: `go test ./...` (all 30 packages), `go vet ./...`, `go build ./cmd/brine`, `gofmt -l ./cmd ./internal` (empty), `GOOS=darwin GOARCH=arm64 go vet ./...`, and `git diff --check`. This resumed PR changes evidence/planning only, not runtime or concurrency code. These local checks do not complete the remaining physical acceptance drills.
+
+## Recreation resumed after #52, 2026-10-10
+
+Merged `origin/main` (`1d44dc8`) into this lane without rebasing. Built client/Linux arm64 binaries and installed the host executable through the previously authorized binary-only replacement, preserving the prior executable privately. Protected enrollment provenance remains unchanged. The retained-secret blocker above is historical and is fixed by #52.
+
+Recreation plan became `create` and operation `01a1236cd3356ea0b3b2c71ff7b8cfb80d47822b7b30` succeeded, binding retained secret v1. Direct HTTP and normally verified routed HTTPS both returned 200. Runtime/history were not purged. Default-deadline local tests timed out cumulatively in the progressing filesystem-effect suite (first at `remove/error/18-removed`, then at parent-sync checks; stacks showed `File.Sync`). A bounded 30-minute full-suite run with test fixtures on the data SSD is running; this is not evidence of a failed app operation.
