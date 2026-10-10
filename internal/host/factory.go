@@ -3,24 +3,31 @@ package host
 import (
 	"context"
 
+	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/inventory"
+	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 type ServerFactory struct {
-	version       string
-	authenticated string
-	open          func(context.Context, string) (*Runtime, error)
-	previewOpen   func(context.Context, string) (*Runtime, error)
-	inventory     func(context.Context) (dispatch.Inventory, error)
-	closeRuntime  func() error
+	version            string
+	authenticated      string
+	open               func(context.Context, string) (*Runtime, error)
+	previewOpen        func(context.Context, string) (*Runtime, error)
+	inventory          func(context.Context) (dispatch.Inventory, error)
+	closeRuntime       func() error
+	diagnosticStateDir string
 }
 
 func NewServerFactory(version, capturedMarker string) *ServerFactory {
 	return newServerFactory(version, capturedMarker, Open, func(ctx context.Context) (dispatch.Inventory, error) { return NewInventory(ctx) })
 }
 func newServerFactory(version, marker string, open func(context.Context, string) (*Runtime, error), inventory func(context.Context) (dispatch.Inventory, error)) *ServerFactory {
-	return &ServerFactory{version: version, authenticated: marker, open: open, previewOpen: OpenPreview, inventory: inventory}
+	return &ServerFactory{version: version, authenticated: marker, open: open, previewOpen: OpenPreview, inventory: inventory, diagnosticStateDir: "/home/brine/.local/state/brine"}
 }
 func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server, error) {
 	if _, ok := dispatch.ClassOf(op); !ok {
@@ -32,12 +39,16 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	if f.authenticated != "deploy" {
 		return nil, result.New(result.DispatchOperationRefused, nil)
 	}
-	if op == "inventory" {
+	if op == "inventory" || op == "diagnose" {
 		collector, err := f.inventory(ctx)
 		if err != nil {
 			return nil, err
 		}
-		return dispatch.NewServer(f.version, collector), nil
+		server := dispatch.NewServer(f.version, collector)
+		if op == "diagnose" {
+			server.Diagnose, server.Logs = diagnosticReaders(f.diagnosticStateDir, collector)
+		}
+		return server, nil
 	}
 	open := f.open
 	if op == "reconcile" && dispatch.IsReconcilePreview(ctx) {
@@ -63,4 +74,24 @@ func (f *ServerFactory) Close() error {
 		return f.closeRuntime()
 	}
 	return nil
+}
+
+// Diagnosis has no mutation runtime or preview fencing. DiskStore opens each
+// bounded read with OpenReadOnly so unavailable state remains a partial report.
+func diagnosticReaders(dir string, collector dispatch.Inventory) (dispatch.DiagnosticReader, dispatch.LogReader) {
+	if hostCollector, ok := collector.(*inventory.Collector); ok {
+		readCollector := *hostCollector
+		readCollector.StateInventory = func(ctx context.Context) (target.ControlInventory, error) {
+			state, err := store.OpenReadOnly(ctx, dir)
+			if err != nil {
+				return target.ControlInventory{}, err
+			}
+			defer state.Close()
+			return state.InventoryState(ctx)
+		}
+		collector = &readCollector
+	}
+	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
+	reader := diagnose.Reader{Inventory: collector, Store: diagnose.DiskStore{Dir: dir}, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: diagnosticMinimumFreeDiskBytes}
+	return reader, logReader
 }
