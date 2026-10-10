@@ -21,7 +21,7 @@ func fixtureDatabase(t *testing.T, initialize bool) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func(db *sql.DB) { _ = db.Close() }(db)
 	if initialize {
 		raw, err := os.ReadFile("schema.json")
 		if err != nil {
@@ -57,7 +57,7 @@ func TestRefuseUninitialized(t *testing.T) {
 	for _, path := range []string{fixtureDatabase(t, false), filepath.Join(t.TempDir(), "absent.db")} {
 		db, err := openDatabase(context.Background(), path)
 		if err == nil {
-			db.Close()
+			_ = db.Close()
 			t.Fatal("accepted missing schema")
 		}
 	}
@@ -117,7 +117,7 @@ func TestWriteCountLatestAndPreserve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func(db *sql.DB) { _ = db.Close() }(db)
 	var mode string
 	var timeout int
 	if err := db.QueryRow("PRAGMA journal_mode").Scan(&mode); err != nil || mode != "wal" {
@@ -151,7 +151,7 @@ func TestWriteCountLatestAndPreserve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer db.Close()
+	defer func(db *sql.DB) { _ = db.Close() }(db)
 	var count int
 	if err := db.QueryRow("SELECT count(*) FROM fixture_commits").Scan(&count); err != nil || count != 1 {
 		t.Fatalf("restart lost row: %d %v", count, err)

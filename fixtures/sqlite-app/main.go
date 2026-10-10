@@ -56,7 +56,7 @@ func checkSchema(ctx context.Context, db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = verifySchema(ctx, tx); err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func writeRow(ctx context.Context, db *sql.DB, marker string) (commitRow, error)
 	if err != nil {
 		return commitRow{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = verifySchema(ctx, tx); err != nil {
 		return commitRow{}, err
 	}
@@ -167,7 +167,7 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("database startup refused: %w", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	server := &http.Server{Addr: ":8080", Handler: routes(db), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 15 * time.Second, IdleTimeout: 30 * time.Second}
 	return server.ListenAndServe()
 }
