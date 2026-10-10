@@ -1,0 +1,10 @@
+{
+  "definition": {
+    "database": "main",
+    "marker": "fixture-v1",
+    "catalog_sha256": "f7a92d3e7a27c89c3afd455307ec78b2417b6e643aefbcf1c7c33c3c59838341"
+  },
+  "statements": [
+    "CREATE TABLE fixture_commits(sequence INTEGER PRIMARY KEY, marker TEXT NOT NULL, committed_at TEXT NOT NULL)"
+  ]
+}
