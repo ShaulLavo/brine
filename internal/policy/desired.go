@@ -29,6 +29,7 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
+	BackupRetention      []data.RetentionEvidence   `json:"backup_retention,omitempty"`
 	PersistentRoots      []data.PersistentRoot      `json:"persistent_roots,omitempty"`
 	Backup               *data.BackupCadence        `json:"backup,omitempty"`
 	BackupDestinations   []data.Destination         `json:"backup_destinations,omitempty"`
@@ -61,6 +62,10 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 	slices.SortFunc(d.Environment, func(a, b Environment) int { return strings.Compare(a.Name, b.Name) })
 	d.Secrets = slices.Clone(d.Secrets)
 	slices.SortFunc(d.Secrets, func(a, b Secret) int { return strings.Compare(a.Name, b.Name) })
+	d.BackupRetention = slices.Clone(d.BackupRetention)
+	slices.SortFunc(d.BackupRetention, func(a, b data.RetentionEvidence) int {
+		return strings.Compare(string(a.Destination), string(b.Destination))
+	})
 	d.PersistentRoots = slices.Clone(d.PersistentRoots)
 	slices.Sort(d.PersistentRoots)
 	d.BackupDestinations = slices.Clone(d.BackupDestinations)
@@ -204,6 +209,9 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 			if destination, ok := p.BackupDestination(database.BackupDestination); ok && !seen[destination.Reference] {
 				d.BackupDestinations = append(d.BackupDestinations, destination)
 				seen[destination.Reference] = true
+				if evidence, ok := p.BackupRetention(destination.Reference); ok {
+					d.BackupRetention = append(d.BackupRetention, evidence)
+				}
 			}
 		}
 	}
@@ -233,7 +241,7 @@ func (p Policy) CheckSecret(app spec.Name, ref spec.SecretReference) error {
 
 // Stateless is affirmative only when no persistence declaration is present.
 func (d Desired) Stateless() bool {
-	return len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
+	return len(d.BackupRetention) == 0 && len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
 }
 
 // App reconstructs a detached spec input. It grants no policy authorization.

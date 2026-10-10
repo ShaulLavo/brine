@@ -278,7 +278,7 @@ func TestSampledDiskMeasurementsPreserveEveryPlanKind(t *testing.T) {
 
 func TestSnapshotFieldsHaveExplicitClassification(t *testing.T) {
 	classified := map[reflect.Type][]string{
-		reflect.TypeFor[target.Snapshot]():          {"schema_version", "identity", "os", "arch", "versions", "cgroup_v2", "runner", "generation", "caddy_config", "apps", "used_ports", "live_caddy_files", "port_owners", "free_disk_bytes"},
+		reflect.TypeFor[target.Snapshot]():          {"persistent_data", "schema_version", "identity", "os", "arch", "versions", "cgroup_v2", "runner", "generation", "caddy_config", "apps", "used_ports", "live_caddy_files", "port_owners", "free_disk_bytes"},
 		reflect.TypeFor[target.Identity]():          {"id", "host_key_fingerprint"},
 		reflect.TypeFor[target.OS]():                {"id", "version"},
 		reflect.TypeFor[target.Versions]():          {"systemd", "podman", "passt", "caddy", "litestream"},

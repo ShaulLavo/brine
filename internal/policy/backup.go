@@ -36,7 +36,7 @@ func normalizeBackup(raw *backupDocument) (data.BackupCadence, error) {
 		value := f.duration.String()
 		*f.text = &value
 	}
-	if out.MinSyncInterval > out.MaxSyncInterval || out.MinSnapshotInterval > out.MaxSnapshotInterval || out.SnapshotInterval < out.MinSnapshotInterval || out.SnapshotInterval > out.MaxSnapshotInterval {
+	if out.MinSyncInterval < 10*time.Second || out.MaxSyncInterval > time.Hour || out.MinSnapshotInterval < time.Hour || out.MaxSnapshotInterval > 24*time.Hour || out.MinSyncInterval > out.MaxSyncInterval || out.MinSnapshotInterval > out.MaxSnapshotInterval || out.SnapshotInterval < out.MinSnapshotInterval || out.SnapshotInterval > out.MaxSnapshotInterval {
 		return out, refuse("policy.invalid_backup_cadence", "backup", "backup cadence is outside the admitted bounds")
 	}
 	return out, nil

@@ -24,6 +24,7 @@ type ImageResolver interface {
 	Resolve(context.Context, spec.ImageReference, target.Platform) (plan.Image, error)
 }
 type Service struct {
+	Data      PersistentFacts
 	Store     *store.Store
 	Inventory dispatch.Inventory
 	Policy    PolicyLoader
@@ -100,6 +101,16 @@ func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
 	image, err := s.Images.Resolve(ctx, d.Image, target.Platform{OS: "linux", Arch: snap.Arch})
 	if err != nil {
 		return out, err
+	}
+	if len(d.Databases) > 0 {
+		observation := target.Observation[[]target.PersistentDatabase]{Status: target.Unknown}
+		if s.Data != nil {
+			observation, err = s.Data.Collect(ctx, d)
+			if err != nil {
+				return out, err
+			}
+		}
+		snap.PersistentData = &observation
 	}
 	out.Input = plan.Input{Desired: d, Snapshot: snap, State: state, Image: image}
 	out.Routing = caddy.State{Files: map[string]string{}, Sites: map[string]caddy.Site{}}

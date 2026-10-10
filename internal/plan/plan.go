@@ -287,7 +287,7 @@ func Build(in Input) (Plan, error) {
 				add(SchemaCompatibilityRequired, field+".schema_compatibility")
 			}
 		}
-		add(UnknownFacts, "databases")
+		persistentEvidence(in, &p, add)
 	}
 	if err := in.Snapshot.Validate(); err != nil {
 		var unsupported *target.UnsupportedError
@@ -501,7 +501,7 @@ func Build(in Input) (Plan, error) {
 		for _, e := range in.Desired.Environment {
 			environmentKeys = append(environmentKeys, e.Name)
 		}
-		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{Desired: quadletDesired, EnvironmentKeys: environmentKeys, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
+		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{DataMounts: slices.Clone(p.DataMounts), Desired: quadletDesired, EnvironmentKeys: environmentKeys, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
 	}
 	return finish(p, desired, snapshot, state)
 }
