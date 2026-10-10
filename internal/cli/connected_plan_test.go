@@ -99,3 +99,28 @@ func TestConnectedPlanInvalidSpec(t *testing.T) {
 		}
 	}
 }
+
+func TestPlanMissingModeGuidanceDoesNotDenyConnectedPlanning(t *testing.T) {
+	for _, mode := range []string{"", "--json", "--jsonl"} {
+		t.Run(mode, func(t *testing.T) {
+			var out, stderr bytes.Buffer
+			deps := testDependencies(t, &out, &stderr)
+			deps.LoadOperationTarget = func(string, string) (transport.Target, error) {
+				t.Fatal("missing target loaded configuration")
+				return transport.Target{}, nil
+			}
+			args := []string{"plan", "PLANTED_PRIVATE_UNREAD_FILE"}
+			if mode != "" {
+				args = append(args, mode)
+			}
+			err := Execute(deps, args)
+			if result.ExitCode(err) != 2 || result.Classify(err).Code() != result.OfflineRequired {
+				t.Fatalf("unexpected missing-mode error %v", err)
+			}
+			text := out.String() + stderr.String()
+			if strings.Contains(text, "Connected planning is not available") || !strings.Contains(text, "--target NAME") || strings.Contains(text, "PLANTED_PRIVATE_UNREAD_FILE") {
+				t.Fatalf("misleading or unsafe planning guidance %s", text)
+			}
+		})
+	}
+}
