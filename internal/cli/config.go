@@ -11,7 +11,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/secrets"
-	"github.com/ShaulLavo/brine/internal/transport"
 	"github.com/spf13/cobra"
 )
 
@@ -111,7 +110,7 @@ func newSecretCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	parent := &cobra.Command{Use: "secret", Short: "Store unbound app secret versions"}
 	var flags operationFlags
 	cmd := &cobra.Command{Use: "set APP NAME --target NAME", Short: "Read a secret value from stdin and store an immutable unbound version", Args: cobra.ExactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		if !ops.ValidIntent(ops.Intent{Kind: ops.SecretSet, App: args[0], SecretRef: args[1]}) || !transport.ValidTargetName(flags.target) || deps.Stdin == nil {
+		if !ops.ValidIntent(ops.Intent{Kind: ops.SecretSet, App: args[0], SecretRef: args[1]}) || !flags.validSelection() || deps.Stdin == nil {
 			return result.New(result.InvalidUsage, nil)
 		}
 		input, err := readSecretInput(cmd.Context(), deps.Stdin)

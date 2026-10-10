@@ -33,10 +33,13 @@ func (f *operationFlags) register(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&f.target, "target", "", "Pinned target name")
 	cmd.Flags().StringVar(&f.configDir, "config-dir", "", "Private client target directory")
 }
-func (f operationFlags) call(ctx context.Context, deps Dependencies, op string, args any) (result.Envelope, error) {
-	if !transport.ValidTargetName(f.target) || strings.IndexFunc(f.configDir, func(r rune) bool {
+func (f operationFlags) validSelection() bool {
+	return transport.ValidTargetName(f.target) && strings.IndexFunc(f.configDir, func(r rune) bool {
 		return unicode.IsControl(r) || unicode.Is(unicode.Cf, r)
-	}) >= 0 {
+	}) < 0
+}
+func (f operationFlags) call(ctx context.Context, deps Dependencies, op string, args any) (result.Envelope, error) {
+	if !f.validSelection() {
 		return result.Envelope{}, result.New(result.InvalidUsage, nil)
 	}
 	dir := f.configDir

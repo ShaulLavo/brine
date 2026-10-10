@@ -123,3 +123,14 @@ func TestSecretInputPreservesFileFlags(t *testing.T) {
 		t.Fatalf("borrowed descriptor flags changed: %d -> %d", before, after)
 	}
 }
+
+func TestSecretInvalidConfigurationDoesNotConsumeStdin(t *testing.T) {
+	var out, stderr bytes.Buffer
+	deps := testDependencies(t, &out, &stderr)
+	input := bytes.NewBufferString("private-input")
+	deps.Stdin = input
+	err := Execute(deps, []string{"secret", "set", "hello", "TOKEN", "--target", "fixture", "--config-dir", "/fixture/\x1bprivate"})
+	if result.ExitCode(err) != 2 || input.String() != "private-input" {
+		t.Fatalf("invalid configuration consumed secret stdin: exit=%d remaining=%d", result.ExitCode(err), input.Len())
+	}
+}
