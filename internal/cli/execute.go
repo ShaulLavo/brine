@@ -9,6 +9,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/reconcile"
+	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/spf13/cobra"
 )
@@ -28,6 +29,12 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 		deps.HostOperationRunner = lazyOperationRunner{&runtime}
 		deps.HostReconciler = lazyReconciler{&runtime}
 	}
+	if lifecycle.OpenPermits != nil {
+		deps.HostPermits = lazyHostPermits{&runtime}
+	}
+	if lifecycle.OpenWriterAttempt != nil {
+		deps.HostWriterAttempt = lazyWriterAttempt{&runtime}.WriterAttempt
+	}
 	// Forced-command requests cannot select presentation or options through argv.
 	if HostServeRequested(args) {
 		return executeHostServeFinalized(deps, func(err error) error { return runtime.finalize(deps, err) })
@@ -36,7 +43,7 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 	machine := modes.enabled()
 	stdout := deps.Stdout
 	var output bytes.Buffer
-	buffered := machine || HostRuntimeRequested(args)
+	buffered := machine || HostRuntimeRequested(args) || HostStartupRequested(args)
 	if buffered {
 		deps.Stdout = &output
 	}
@@ -114,13 +121,17 @@ func validEnvelopeStream(data []byte, command string) bool {
 }
 
 type RuntimeServices struct {
-	Runner     OperationRunner
-	Reconciler dispatch.ReconcileOperations
-	Close      func() error
+	Permits       replication.LaunchReader
+	WriterAttempt func(context.Context, string) error
+	Runner        OperationRunner
+	Reconciler    dispatch.ReconcileOperations
+	Close         func() error
 }
 type RuntimeLifecycle struct {
-	Open  func(context.Context, bool) (RuntimeServices, error)
-	Close func() error
+	OpenPermits       func(context.Context) (RuntimeServices, error)
+	OpenWriterAttempt func(context.Context) (RuntimeServices, error)
+	Open              func(context.Context, bool) (RuntimeServices, error)
+	Close             func() error
 }
 
 type invocationRuntime struct {
@@ -185,4 +196,61 @@ func (r lazyReconciler) DryRun(ctx context.Context) (reconcile.Report, error) {
 		return reconcile.Report{}, result.New(result.DependencyMissing, nil)
 	}
 	return r.runtime.services.Reconciler.DryRun(ctx)
+}
+
+func (r *invocationRuntime) initializeStartup(ctx context.Context, open func(context.Context) (RuntimeServices, error)) error {
+	if !r.initialized {
+		r.initialized = true
+		if open == nil {
+			r.err = replication.ErrPermit
+		} else {
+			r.services, r.err = open(ctx)
+		}
+	}
+	return r.err
+}
+
+type lazyWriterAttempt struct{ runtime *invocationRuntime }
+
+func (a lazyWriterAttempt) WriterAttempt(ctx context.Context, id string) error {
+	if err := a.runtime.initializeStartup(ctx, a.runtime.lifecycle.OpenWriterAttempt); err != nil {
+		return err
+	}
+	if a.runtime.services.WriterAttempt == nil {
+		return replication.ErrPermit
+	}
+	return a.runtime.services.WriterAttempt(ctx, id)
+}
+
+type lazyHostPermits struct{ runtime *invocationRuntime }
+
+func (p lazyHostPermits) reader(ctx context.Context) (replication.LaunchReader, error) {
+	if err := p.runtime.initializeStartup(ctx, p.runtime.lifecycle.OpenPermits); err != nil {
+		return nil, err
+	}
+	if p.runtime.services.Permits == nil {
+		return nil, replication.ErrPermit
+	}
+	return p.runtime.services.Permits, nil
+}
+func (p lazyHostPermits) ReadReplicaPermit(ctx context.Context, id string) (replication.PermitState, error) {
+	r, err := p.reader(ctx)
+	if err != nil {
+		return replication.PermitState{}, err
+	}
+	return r.ReadReplicaPermit(ctx, id)
+}
+func (p lazyHostPermits) ReadWriterPermits(ctx context.Context, id string) ([]replication.PermitState, error) {
+	r, err := p.reader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.ReadWriterPermits(ctx, id)
+}
+func (p lazyHostPermits) ReadCredentialEnvironment(ctx context.Context, path string) ([]string, error) {
+	r, err := p.reader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.ReadCredentialEnvironment(ctx, path)
 }

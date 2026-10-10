@@ -6,6 +6,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/replication"
 )
@@ -44,7 +45,7 @@ func TestHostWriterPermitRefusesWithoutFreshSchemaCompatibility(t *testing.T) {
 	binding := strings.Repeat("2", 32)
 	epoch := strings.Repeat("3", 32)
 	incarnation := strings.Repeat("4", 32)
-	b := replication.Binding{DatabaseID: database, BindingID: binding, EpochID: epoch, IncarnationID: incarnation, DBPath: "/srv/data/apps/" + incarnation + "/databases/" + database + "/app.db", SocketPath: "/srv/state/replication/" + binding + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backup-bucket", Prefix: "base/apps/" + incarnation + "/databases/" + database + "/epochs/" + epoch + "/", Region: "auto"}
+	b := replication.Binding{Cadence: replication.Cadence{SyncInterval: time.Minute, SnapshotInterval: 6 * time.Hour}, DatabaseID: database, BindingID: binding, EpochID: epoch, IncarnationID: incarnation, DBPath: "/srv/data/apps/" + incarnation + "/databases/" + database + "/app.db", SocketPath: "/srv/state/replication/" + binding + "/control.sock", Endpoint: "https://objects.example.invalid", Bucket: "backup-bucket", Prefix: "base/apps/" + incarnation + "/databases/" + database + "/epochs/" + epoch + "/", Region: "auto"}
 	raw, err := replication.RenderConfig(b)
 	if err != nil {
 		t.Fatal(err)

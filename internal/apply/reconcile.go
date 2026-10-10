@@ -41,6 +41,16 @@ func (x *execution) reconcileUnknown(ctx context.Context, step string) resolutio
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
 	defer cancel()
+	if step == "prepare_data" {
+		if x.executor.PersistentData == nil || x.desired.Stateless() {
+			return unresolved
+		}
+		prepared, err := x.executor.PersistentData.PersistentPrepared(ctx, x.id, x.plan, x.desired)
+		if err == nil && prepared && ctx.Err() == nil {
+			return applied
+		}
+		return unresolved
+	}
 	probeCtx, probeCancel := context.WithTimeout(ctx, x.executor.effectTimeout())
 	writer := x.waitWriter(probeCtx)
 	probeCancel()

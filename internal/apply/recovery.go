@@ -57,6 +57,7 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, owners []string) (r Recovery, inspectErr error) {
 	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}, resolutionOwners: owners}
 	defer func() { r.decision, r.boundary = r.Action, r.Step }()
+	forwardSteps := deploymentSteps(d)
 	var prefixOK bool
 	var refusedEffect bool
 	events, refusedEffect, prefixOK = ops.InspectionPrefix(events)
@@ -153,7 +154,7 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if !validPrefix && op.State != RollingBack {
 		return r, nil
 	}
-	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, recoveryRollback: rollbackCompleted}
+	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, recoveryRollback: rollbackCompleted, writerStartOwners: owners}
 	r.execution = x
 	var err error
 	evidence, cancel := context.WithTimeout(ctx, e.effectTimeout())
@@ -246,7 +247,7 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 			r.completed[r.Step] = true
 			r.resolved = true
 		}
-	} else if slices.Contains([]string{"quiesce_old", "install_unit", "start_unit"}, r.Step) && x.reconcileUnknown(ctx, r.Step) != applied {
+	} else if slices.Contains([]string{"prepare_data", "quiesce_old", "install_unit", "start_unit"}, r.Step) && x.reconcileUnknown(ctx, r.Step) != applied {
 		return r, nil
 	}
 	boundary := slices.Index(forwardSteps, r.Step)
@@ -405,4 +406,15 @@ func committedArtifactsObserved(facts Facts, release Release, app string) bool {
 		}
 	}
 	return false
+}
+
+func deploymentSteps(d policy.Desired) []string {
+	if d.Stateless() {
+		return forwardSteps
+	}
+	index := slices.Index(forwardSteps, "stage_unit")
+	steps := make([]string, 0, len(forwardSteps)+1)
+	steps = append(steps, forwardSteps[:index]...)
+	steps = append(steps, "prepare_data")
+	return append(steps, forwardSteps[index:]...)
 }

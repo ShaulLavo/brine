@@ -43,6 +43,10 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	if err := validateDesired(d); err != nil {
 		return Unit{}, err
 	}
+	persistent, err := bindPersistent(d, p)
+	if err != nil {
+		return Unit{}, err
+	}
 	raw, err := d.CanonicalBytes()
 	if err != nil {
 		return Unit{}, fmt.Errorf("quadlet: invalid desired input")
@@ -85,9 +89,20 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	env := slices.Clone(d.Environment)
 	slices.SortFunc(env, func(a, b policy.Environment) int { return strings.Compare(a.Name, b.Name) })
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s%s\n# IndexDigest=%s\n# PlatformManifestDigest=%s\n# Platform=linux/%s\n\n[Unit]\nDescription=Brine app %s\n\n[Container]\n", marker, p.Hash, p.Image.Digest, platformManifestDigest, p.Image.Platform.Arch, d.Name)
+	fmt.Fprintf(&b, "%s%s\n# IndexDigest=%s\n# PlatformManifestDigest=%s\n# Platform=linux/%s\n\n[Unit]\nDescription=Brine app %s\n", marker, p.Hash, p.Image.Digest, platformManifestDigest, p.Image.Platform.Arch, d.Name)
+	for _, service := range persistent.services {
+		fmt.Fprintf(&b, "Wants=%s\nAfter=%s\n", service, service)
+	}
+	b.WriteString("\n[Container]\n")
 	repository, _, _ := strings.Cut(string(d.Image), "@")
 	fmt.Fprintf(&b, "Image=%s@%s\nPublishPort=127.0.0.1:%d:%d\nPidsLimit=%d\nPodmanArgs=--memory=%dm\n", repository, platformManifestDigest, p.HostPort, d.ContainerPort, d.Resources.PIDsLimit, d.Resources.MemoryMB)
+	if persistent.runtime != nil {
+		r := persistent.runtime
+		fmt.Fprintf(&b, "UserNS=keep-id:uid=%d,gid=%d\nUser=%d\nGroup=%d\nPodmanArgs=--umask=0077\n", r.UID, r.GID, r.UID, r.GID)
+		for _, mount := range persistent.mounts {
+			fmt.Fprintf(&b, "Volume=%s\n", quoteAssignment(mount.HostPath+":"+string(mount.ContainerPath)+":rw"))
+		}
+	}
 	fmt.Fprintf(&b, "LogDriver=%s\nLogOpt=max-size=%d\n", logs.ContainerLogDriver, logs.ContainerLogMaxBytes)
 	for _, s := range secrets {
 		fmt.Fprintf(&b, "Secret=%s,type=env,target=%s\n", s.VersionName, s.Environment)
@@ -95,7 +110,11 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	for _, e := range env {
 		fmt.Fprintf(&b, "Environment=%s\n", quoteAssignment(e.Name+"="+e.Value))
 	}
-	b.WriteString("\n[Service]\nRestart=on-failure\n\n[Install]\nWantedBy=default.target\n")
+	b.WriteString("\n[Service]\nRestart=on-failure\n")
+	if persistent.runtime != nil {
+		fmt.Fprintf(&b, "UMask=0077\nExecStartPre=/usr/local/bin/brine host writer-permit %s\nExecStartPre=/usr/local/bin/brine host writer-attempt %s\n", persistent.incarnation, persistent.incarnation)
+	}
+	b.WriteString("\n[Install]\nWantedBy=default.target\n")
 	return Unit{name: string(d.Name) + ".container", content: b.String()}, nil
 }
 

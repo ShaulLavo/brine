@@ -74,7 +74,10 @@ func WriterPermit(ctx context.Context, r PermitReader, incarnationID string) err
 	return nil
 }
 func validPermit(s PermitState) bool {
-	if (s.Fence != Unfenced && s.Fence != FenceReleased) || s.Ownership != LocalOwner || !s.SourceSettled || !hashPattern.MatchString(s.ConfigHash) || ConfigHash(s.Config) != s.ConfigHash {
+	return (s.Fence == Unfenced || s.Fence == FenceReleased) && validBinding(s)
+}
+func validBinding(s PermitState) bool {
+	if s.Ownership != LocalOwner || !s.SourceSettled || !hashPattern.MatchString(s.ConfigHash) || ConfigHash(s.Config) != s.ConfigHash {
 		return false
 	}
 	_, err := ParseConfig(s.Config, s.Binding)
@@ -82,5 +85,8 @@ func validPermit(s PermitState) bool {
 }
 
 func matchesRequest(s PermitState, req ReplicaPermitRequest) bool {
-	return validPermit(s) && s.Binding.DatabaseID == req.DatabaseID && s.Binding.BindingID == req.BindingID && s.Binding.EpochID == req.EpochID && s.ConfigHash == req.ConfigHash
+	return validPermit(s) && matchesIdentity(s, req)
+}
+func matchesIdentity(s PermitState, req ReplicaPermitRequest) bool {
+	return s.Binding.DatabaseID == req.DatabaseID && s.Binding.BindingID == req.BindingID && s.Binding.EpochID == req.EpochID && s.ConfigHash == req.ConfigHash
 }
