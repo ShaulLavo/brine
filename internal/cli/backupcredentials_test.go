@@ -32,12 +32,12 @@ func TestBackupCredentialsClientPrivateStdin(t *testing.T) {
 					t.Fatal(r.Op)
 				}
 				var f map[string]json.RawMessage
-				if json.Unmarshal(r.Args, &f) != nil || string(f["app"]) != `"hello"` || !strings.Contains(string(f["packet"]), "PLANTED_TOKEN") {
+				if json.Unmarshal(r.Args, &f) != nil || string(f["app"]) != `"hello"` || string(f["database"]) != `"audit"` || !strings.Contains(string(f["packet"]), "PLANTED_TOKEN") {
 					t.Fatal("private stdin packet missing")
 				}
 				return result.Success("brine host "+r.Op, receipt), nil
 			})
-			args := []string{"backup", "credentials", "set", "hello", "--plan-id", id, "--target", "fixture"}
+			args := []string{"backup", "credentials", "set", "hello", "--plan-id", id, "--target", "fixture", "--database", "audit"}
 			if mode != "" {
 				args = append(args, mode)
 			}
@@ -118,6 +118,45 @@ func TestBackupCredentialInputRefusals(t *testing.T) {
 		}
 		if strings.Contains(out.String()+stderr.String(), "PLANTED") {
 			t.Fatal("invalid packet leaked")
+		}
+	}
+}
+
+func TestBackupCredentialDatabasePlanWireAndHumanGuidance(t *testing.T) {
+	var out, stderr bytes.Buffer
+	deps := testDependencies(t, &out, &stderr)
+	r := backupCredentialReceipt(t)
+	p := backupcredentials.Plan{Requester: r.Requester, Kind: backupcredentials.Kind, ID: r.PlanID, Scope: r.Scope, Version: r.Version, ExpiresAt: r.ExpiresAt}
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, req dispatch.Request) (result.Envelope, error) {
+		var args dispatch.BackupCredentialPlanArgs
+		if req.Op != "backup_credentials_plan" || json.Unmarshal(req.Args, &args) != nil || args.App != "hello" || args.Database != "audit" {
+			t.Fatal("database selection lost")
+		}
+		return result.Success("brine host "+req.Op, p), nil
+	})
+	if err := Execute(deps, []string{"backup", "credentials", "plan", "hello", "--database", "audit", "--target", "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "--database audit") {
+		t.Fatal("delivery guidance lost database selection")
+	}
+}
+
+func TestBackupCredentialDatabaseNameRefusedBeforeIO(t *testing.T) {
+	for _, operation := range []string{"plan", "set"} {
+		var out, stderr bytes.Buffer
+		deps := testDependencies(t, &out, &stderr)
+		deps.LoadOperationTarget = func(string, string) (transport.Target, error) {
+			t.Fatal("invalid database reached target IO")
+			return transport.Target{}, nil
+		}
+		args := []string{"backup", "credentials", operation, "hello", "--database", "../audit", "--target", "fixture"}
+		if operation == "set" {
+			args = append(args, "--plan-id", "sha256:"+strings.Repeat("a", 64))
+		}
+		if err := Execute(deps, args); result.Classify(err).Code() != result.InvalidUsage {
+			t.Fatal("invalid database accepted", err)
 		}
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"path/filepath"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
@@ -64,7 +65,7 @@ func (j credentialJournal) RecordReceipt(ctx context.Context, r backupcredential
 	record.ReceivedAt = r.ReceivedAt
 	return j.save(ctx, record)
 }
-func backupCredentialService(service Service, stateRoot string) backupcredentials.Service {
+func backupCredentialService(service Service, stateRoot, database string) backupcredentials.Service {
 	return backupcredentials.Service{Requester: service.Requester, Files: backupcredentials.Files{Root: filepath.Join(stateRoot, "credentials")}, Journal: credentialJournal{state: service.Store, requester: service.Requester}, Lock: func(ctx context.Context) (func(), error) {
 		lock, err := service.Store.AcquireHostLock(ctx)
 		if err != nil {
@@ -81,11 +82,14 @@ func backupCredentialService(service Service, stateRoot string) backupcredential
 			return backupcredentials.Scope{}, err
 		}
 		scopes, err := service.Store.ReadCredentialScopes(ctx, app)
-		if err != nil || len(scopes) != 1 {
+		if err != nil {
 			return backupcredentials.Scope{}, backupcredentials.ErrInvalid
 		}
-		s := scopes[0]
-		if s.FenceHeld || s.PolicyHash != pol.Hash() {
+		s, err := selectCredentialScope(scopes, database)
+		if err != nil {
+			return backupcredentials.Scope{}, err
+		}
+		if s.PolicyHash != pol.Hash() {
 			return backupcredentials.Scope{}, backupcredentials.ErrStale
 		}
 		destination, ok := pol.BackupDestination(s.Replica.Destination.Reference)
@@ -103,4 +107,39 @@ func backupCredentialService(service Service, stateRoot string) backupcredential
 		sum := sha256.Sum256(raw)
 		return backupcredentials.Scope{TargetHash: "sha256:" + hex.EncodeToString(sum[:]), App: app, CredentialRef: destination.CredentialRef, Destination: string(destination.Reference), Binding: string(s.Replica.BindingID), Epoch: string(s.Replica.EpochID), PolicyHash: pol.Hash()}, nil
 	}}
+}
+
+func selectCredentialScope(scopes []store.CredentialScope, database string) (store.CredentialScope, error) {
+	if database == "" {
+		if len(scopes) != 1 {
+			return store.CredentialScope{}, backupcredentials.ErrInvalid
+		}
+		return scopes[0], nil
+	}
+	var selected store.CredentialScope
+	found := false
+	for _, scope := range scopes {
+		if string(scope.Database.Name) == database {
+			if found {
+				return store.CredentialScope{}, backupcredentials.ErrInvalid
+			}
+			selected, found = scope, true
+		}
+	}
+	if !found {
+		return store.CredentialScope{}, backupcredentials.ErrInvalid
+	}
+	return selected, nil
+}
+
+type credentialOperations struct {
+	service   Service
+	stateRoot string
+}
+
+func (o credentialOperations) Plan(ctx context.Context, app, database string, expiry *time.Time) (backupcredentials.Plan, error) {
+	return backupCredentialService(o.service, o.stateRoot, database).Plan(ctx, app, expiry)
+}
+func (o credentialOperations) Set(ctx context.Context, app, database, planID string, packet backupcredentials.Packet) (backupcredentials.Receipt, error) {
+	return backupCredentialService(o.service, o.stateRoot, database).Set(ctx, app, planID, packet)
 }

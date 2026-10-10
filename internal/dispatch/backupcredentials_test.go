@@ -12,7 +12,7 @@ import (
 func TestBackupCredentialPrivateRequest(t *testing.T) {
 	id := "sha256:" + strings.Repeat("a", 64)
 	packet := []byte(`{"access_key_id":"PLANTED_KEY","secret_access_key":"PLANTED_SECRET","session_token":"PLANTED_SESSION"}`)
-	args, err := EncodeBackupCredentialSet("hello", id, packet)
+	args, err := EncodeBackupCredentialSet("hello", "", id, packet)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,6 +38,44 @@ func TestBackupCredentialPrivateRequest(t *testing.T) {
 	for _, bad := range []string{strings.Replace(string(args), `"app":"hello"`, `"app":"hello","app":"hello"`, 1), strings.Replace(string(args), `"session_token":"PLANTED_SESSION"`, `"session_token":"PLANTED_SESSION","provider_token":"PLANTED"`, 1)} {
 		if _, err := decodeBackupCredentialSet([]byte(bad)); err == nil {
 			t.Fatal("accepted invalid delivery")
+		}
+	}
+}
+
+func TestBackupCredentialDatabaseStrictWire(t *testing.T) {
+	id := "sha256:" + strings.Repeat("a", 64)
+	packet := []byte(`{"access_key_id":"fixture-access","secret_access_key":"fixture-secret"}`)
+	raw, err := EncodeBackupCredentialSet("hello", "audit", id, packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeBackupCredentialSet(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	args := decoded.(BackupCredentialSetArgs)
+	defer args.Packet.Clear()
+	if args.Database != "audit" {
+		t.Fatal("database lost")
+	}
+	for _, invalid := range []string{
+		strings.Replace(string(raw), `"database":"audit",`, "", 1),
+		strings.Replace(string(raw), `"database":"audit"`, `"database":"audit","database":"main"`, 1),
+		strings.Replace(string(raw), `"database":"audit"`, `"database":"../audit"`, 1),
+		strings.Replace(string(raw), `"database":"audit"`, `"database":null`, 1),
+	} {
+		if _, err := decodeBackupCredentialSet([]byte(invalid)); err == nil {
+			t.Fatal("invalid selector accepted")
+		}
+	}
+	for _, database := range []string{"", "audit"} {
+		raw, err := json.Marshal(BackupCredentialPlanArgs{App: "hello", Database: database})
+		if err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := decodeBackupCredentialPlan(raw)
+		if err != nil || decoded.(BackupCredentialPlanArgs).Database != database {
+			t.Fatal("plan selector lost", err)
 		}
 	}
 }

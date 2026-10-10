@@ -215,7 +215,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		if s.BackupCredentials == nil {
 			return fail(result.New(result.DependencyMissing, nil))
 		}
-		p, err := s.BackupCredentials.Plan(ctx, args.App, args.ExpiresAt)
+		p, err := s.BackupCredentials.Plan(ctx, args.App, args.Database, args.ExpiresAt)
 		if err != nil {
 			return fail(credentialFailure(err))
 		}
@@ -225,7 +225,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		if s.BackupCredentials == nil {
 			return fail(result.New(result.DependencyMissing, nil))
 		}
-		receipt, err := s.BackupCredentials.Set(ctx, args.App, args.PlanID, args.Packet)
+		receipt, err := s.BackupCredentials.Set(ctx, args.App, args.Database, args.PlanID, args.Packet)
 		if err != nil {
 			return fail(credentialFailure(err))
 		}
