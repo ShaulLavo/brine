@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -317,5 +318,24 @@ func TestCoverageCannotDescribeAnotherRestore(t *testing.T) {
 	r.Coverage = &CoverageEvidence{Source: RestoreSource{Kind: SQLiteSnapshot, Snapshot: &unrelated}, CoveredThrough: time.Now().Add(-time.Minute)}
 	if _, err := e.Test(context.Background(), r); err == nil {
 		t.Fatal("coverage for another source accepted")
+	}
+}
+
+func TestOperatorDrillRejectsInputBeyondByteBound(t *testing.T) {
+	input := `{"endpoint":"https://storage.example","region":"auto","bucket":"brine-test","prefix":"p04-05-gate/test-run/","access_key":"test-key","secret_key":"test-secret"}` + strings.Repeat(" ", 64<<10)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestRealStorageRestore$", "-test.v")
+	command.Env = append(os.Environ(), "BRINE_RESTORE_GATE=1", "BRINE_LITESTREAM_GATE_BINARY=")
+	command.Stdin = strings.NewReader(input)
+	output := &boundedBuffer{}
+	command.Stdout = output
+	command.Stderr = output
+	if err := command.Run(); err == nil {
+		t.Fatal("oversized input accepted")
+	}
+	text, _ := output.snapshot()
+	if !bytes.Contains(text, []byte("drill stdin bound exceeded")) {
+		t.Fatalf("wrong refusal %s", text)
 	}
 }
