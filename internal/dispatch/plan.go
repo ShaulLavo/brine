@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -11,20 +12,22 @@ import (
 )
 
 type PlanArgs struct {
-	Spec string `json:"spec"`
+	Spec            string                `json:"spec"`
+	SchemaArtifacts []data.SchemaArtifact `json:"schema_artifacts"`
 }
 type Planned struct {
-	PlanID    string                  `json:"plan_id"`
-	Kind      plan.Kind               `json:"kind"`
-	Diff      *plan.ConfigurationDiff `json:"diff"`
-	Conflicts []plan.Diagnostic       `json:"conflicts"`
+	PlanID          string                  `json:"plan_id"`
+	Kind            plan.Kind               `json:"kind"`
+	Diff            *plan.ConfigurationDiff `json:"diff"`
+	SchemaArtifacts []data.SchemaArtifact   `json:"schema_artifacts"`
+	Conflicts       []plan.Diagnostic       `json:"conflicts"`
 }
 type Planner interface {
 	Plan(context.Context, spec.App) (Planned, error)
 }
 
 func decodePlan(raw json.RawMessage) (any, error) {
-	f, err := strictjson.Object(raw, "spec")
+	f, err := strictjson.Object(raw, "spec", "schema_artifacts")
 	if err != nil {
 		return nil, err
 	}
@@ -32,10 +35,23 @@ func decodePlan(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return spec.Parse([]byte(text))
+	app, err := spec.Parse([]byte(text))
+	if err != nil {
+		return nil, err
+	}
+	var artifacts []data.SchemaArtifact
+	if rawArtifacts, ok := f["schema_artifacts"]; ok {
+		if err := json.Unmarshal(rawArtifacts, &artifacts); err != nil {
+			return nil, err
+		}
+	}
+	if err := app.ResolveSchemas(artifacts); err != nil {
+		return nil, err
+	}
+	return app, nil
 }
 func decodePlanned(raw json.RawMessage) (Planned, error) {
-	_, err := strictjson.Object(raw, "plan_id", "kind", "diff", "conflicts")
+	_, err := strictjson.Object(raw, "plan_id", "kind", "diff", "conflicts", "schema_artifacts")
 	if err != nil {
 		return Planned{}, err
 	}

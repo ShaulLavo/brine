@@ -20,10 +20,11 @@ func newDataCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		if _, err = spec.Parse(raw); err != nil {
+		app, err := spec.ParseFile(cmd.Context(), args[0], raw)
+		if err != nil {
 			return result.New(result.InvalidUsage, err)
 		}
-		response, err := flags.call(cmd.Context(), deps, "data_prepare_plan", dispatch.PlanArgs{Spec: string(raw)})
+		response, err := flags.call(cmd.Context(), deps, "data_prepare_plan", dispatch.PlanArgs{Spec: string(raw), SchemaArtifacts: app.SchemaArtifacts})
 		if err != nil {
 			return err
 		}
@@ -37,6 +38,9 @@ func newDataCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if _, err = fmt.Fprintf(cmd.OutOrStdout(), "Data preparation plan %s: %s\n", p.PlanID, p.Kind); err != nil {
 			return err
 		}
+		if err := printSchemaArtifacts(cmd.OutOrStdout(), p.SchemaArtifacts); err != nil {
+			return err
+		}
 		if p.Kind == plan.Conflict {
 			return printConflicts(cmd.OutOrStdout(), p.Conflicts)
 		}
@@ -44,6 +48,6 @@ func newDataCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		return err
 	}}
 	flags.register(prepare)
-	root.AddCommand(prepare, newDataInitCmd(deps, modes, false))
+	root.AddCommand(prepare, newDataInitCmd(deps, modes, false), newSchemaCmd())
 	return root
 }

@@ -46,6 +46,9 @@ type App struct {
 	Runtime             *RuntimeIdentity
 	Databases           []Database
 	SchemaCompatibility []SchemaCompatibility
+	SchemaFiles         []SchemaFile
+	SchemaArtifacts     []data.SchemaArtifact
+	Initializers        []data.SchemaInitializer
 	SchemaDefinitions   []SchemaDefinition
 	SchemaVersion       int
 	Name                Name
@@ -87,7 +90,6 @@ type rawApp struct {
 	Runtime             *rawRuntime            `toml:"runtime"`
 	Databases           []*rawDatabase         `toml:"databases"`
 	SchemaCompatibility []*rawCompatibility    `toml:"schema_compatibility"`
-	SchemaDefinitions   []*rawDefinition       `toml:"schema_definitions"`
 	SchemaVersion       any                    `toml:"schema_version"`
 	Name                any                    `toml:"name"`
 	Image               any                    `toml:"image"`
@@ -147,12 +149,11 @@ func Parse(data []byte) (App, error) {
 }
 
 var schemaFields = map[string][]string{
-	"$":                      {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "schema_definitions", "restore_invariants"},
+	"$":                      {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "restore_invariants"},
 	"$.restore_invariants":   {"database", "kind", "table", "column", "count", "minimum", "maximum"},
 	"$.runtime":              {"uid", "gid"},
-	"$.databases":            {"name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval"},
+	"$.databases":            {"name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval", "schema", "marker"},
 	"$.schema_compatibility": {"database", "accepts", "startup"},
-	"$.schema_definitions":   {"database", "marker", "catalog_sha256"},
 	"$.health":               {"path", "expected_status", "startup_deadline_seconds", "timeout_seconds"},
 	"$.resources":            {"memory_mb", "pids_limit"},
 }

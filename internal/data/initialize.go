@@ -26,28 +26,15 @@ func (a SchemaInitializer) Validate(ctx context.Context) error {
 	if !ValidMarker(a.Definition.Marker) || a.Definition.Marker == EmptyMarker || !ValidCatalogHash(a.Definition.CatalogSHA256) || !namePattern.MatchString(string(a.Definition.Database)) || len(a.Statements) == 0 || len(a.Statements) > 128 {
 		return ErrInvalid
 	}
-	total := 0
-	for _, statement := range a.Statements {
-		total += len(statement)
-		upper := strings.ToUpper(strings.TrimSpace(statement))
-		if total > maxCatalogBytes || strings.ContainsAny(statement, ";\x00") || !(strings.HasPrefix(upper, "CREATE TABLE ") || strings.HasPrefix(upper, "CREATE INDEX ") || strings.HasPrefix(upper, "CREATE UNIQUE INDEX ") || strings.HasPrefix(upper, "CREATE VIEW ")) {
-			return ErrInvalid
-		}
-	}
-	db, err := sql.Open("sqlite", ":memory:")
+	entries, err := initializerEntries(a.Statements)
 	if err != nil {
-		return err
-	}
-	defer func() { _ = db.Close() }()
-	db.SetMaxOpenConns(1)
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err = applyInitializer(ctx, tx, a); err != nil {
 		return ErrInvalid
 	}
+	hash, err := compileInitializer(ctx, entries)
+	if err != nil || hash != a.Definition.CatalogSHA256 {
+		return ErrInvalid
+	}
+
 	return nil
 }
 
@@ -132,8 +119,12 @@ func InitializeSchema(ctx context.Context, b DatabaseBinding, a SchemaInitialize
 }
 
 func applyInitializer(ctx context.Context, tx *sql.Tx, a SchemaInitializer) error {
-	for _, statement := range a.Statements {
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
+	entries, err := initializerEntries(a.Statements)
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if _, err := tx.ExecContext(ctx, entry.statement); err != nil {
 			return err
 		}
 	}

@@ -14,20 +14,48 @@ The initialization reference named `first_release_plan` can be the retained data
 
 ## Review boundary
 
-`SchemaDefinition` specifies the database, marker and normative application catalog SHA-256. It is not executable SQL. A separately reviewed initializer contains that exact definition and bounded schema-creation statements:
+An app declares a client-side schema file under its database:
 
-```json
-{
-  "definition": {
-    "database": "main",
-    "marker": "v1",
-    "catalog_sha256": "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"
-  },
-  "statements": ["CREATE TABLE t(x TEXT)"]
-}
+```toml
+[[databases]]
+name = "main"
+persistent_root = "/srv/brine-data"
+mount_path = "/data"
+filename = "app.db"
+backup_destination = "primary"
+schema = "db/main.sql"
+# Optional. Omit this to derive sha256:<first 12 catalog hex digits>.
+marker = "v1"
 ```
 
-The operator reviews the exact file bytes, computes their SHA-256, and installs the file as `/etc/ssh/brine/data-init/schemas/<64-hex-digest>.json`. The file and its ancestors must be root-owned, not group/other writable, and symlink-free. A typical operator installation is:
+The path is clean and relative to `brine.toml`. Only the client reads it. The
+file is bounded to 1 MiB and 128 `;`-terminated entries. Each entry is one
+`CREATE TABLE`, `CREATE INDEX`, `CREATE UNIQUE INDEX` or `CREATE VIEW` statement.
+Triggers, table creation from query results and migration/data statements are
+refused with their source line. Brine removes SQL comments and normalizes
+inter-token whitespace before compiling in an in-memory SQLite database.
+Whitespace/comment-only edits do not change the catalog marker; literal and
+identifier contents remain significant. An empty file is refused.
+
+The client uses the host's compiler and catalog observer to derive the catalog
+SHA-256, marker and initializer bytes. Handwritten `[[schema_definitions]]` and
+`catalog_sha256` are no longer spec fields. Without an explicit
+`[[schema_compatibility]]` entry, that database accepts only its current file's
+marker with `startup = "preserve"`. An explicit compatibility entry remains
+unchanged. It may accept older schemas but never authorizes a migration.
+
+Export the exact initializer JSON for review and installation:
+
+```sh
+brine data schema brine.toml --database main > reviewed-schema.json
+```
+
+Export writes canonical JSON bytes with no added newline. Its SHA-256 matches
+the initializer digest shown in deployment and data-preparation plans, including
+machine output. Plan transport carries only catalog/marker/digest metadata,
+never SQL or initializer bytes. Deployment still changes no schema.
+
+The operator reviews the exported file bytes, verifies their SHA-256, and installs the file as `/etc/ssh/brine/data-init/schemas/<64-hex-digest>.json`. The file and its ancestors must be root-owned, not group/other writable, and symlink-free. A typical operator installation is:
 
 ```sh
 artifact=$(sha256sum reviewed-schema.json | cut -d ' ' -f 1)
@@ -36,7 +64,7 @@ sudo install -o root -g root -m 0644 reviewed-schema.json "/etc/ssh/brine/data-i
 printf 'sha256:%s\n' "$artifact"
 ```
 
-This is an explicit operator action; enrollment and agent requests cannot install artifacts. The definition must exactly match both the registered definition and the intended release declaration. The artifact is compiled in an isolated in-memory database and its resulting catalog hash checked before live-file creation. Supported statements are single `CREATE TABLE`, `CREATE INDEX`, `CREATE UNIQUE INDEX` and `CREATE VIEW` statements, without semicolons. Trigger bodies and arbitrary migration/data statements are outside this minimal operation.
+This is an explicit operator action; enrollment and agent requests cannot install artifacts. The definition must exactly match both the registered definition and the intended release declaration. The artifact is compiled in an isolated in-memory database and its resulting catalog hash checked before live-file creation. The initializer contains canonical single statements without entry terminators. The host recompiles those statements independently and rejects a catalog mismatch before touching the live file. The separately installed artifact must match the retained release definition. Automatic artifact delivery is deferred to P10-03.
 
 The request supplies only app, retained release/preparation plan ID and artifact digest. SQL, arbitrary filesystem paths, approval booleans, operator identity and caller-installed restore receipts are rejected.
 

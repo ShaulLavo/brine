@@ -1,0 +1,22 @@
+[
+  {
+    "name": "table",
+    "sql": "CREATE TABLE t(x TEXT);",
+    "catalog_sha256": "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"
+  },
+  {
+    "name": "index",
+    "sql": "CREATE TABLE t(x TEXT);CREATE INDEX t_x ON t(x);",
+    "catalog_sha256": "4ab6ce5234856e0f94fa012c955bba65fd7a60253b28c69fd0846133acb9d82f"
+  },
+  {
+    "name": "unique-index",
+    "sql": "CREATE TABLE t(x TEXT);CREATE UNIQUE INDEX t_unique ON t(x);",
+    "catalog_sha256": "963e4ade57cb0c4b3e4ce30e870ce067c0506f0d7b093a43d76238b20368f76a"
+  },
+  {
+    "name": "view",
+    "sql": "CREATE TABLE t(x TEXT);CREATE VIEW v AS SELECT x FROM t;",
+    "catalog_sha256": "4ae818ad4a9d488bbb665bb8b68ac2a53037d7ef6526c34e74514a3e0b84e7e8"
+  }
+]

@@ -1,0 +1,22 @@
+schema_version = 1
+name = "sqlite-fixture"
+# Replace this placeholder with the exact published image digest before a drill.
+image = "ghcr.io/shaullavo/brine-sqlite-fixture@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+container_port = 8080
+domains = ["sqlite-fixture.example.test"]
+
+[health]
+path = "/health"
+
+[runtime]
+uid = 10001
+gid = 10001
+
+[[databases]]
+name = "main"
+persistent_root = "/srv/brine-data"
+mount_path = "/data"
+filename = "app.db"
+backup_destination = "primary"
+schema = "schema.sql"
+marker = "fixture-v1"

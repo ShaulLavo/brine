@@ -33,26 +33,37 @@ Startup fails on an absent, empty, unmarked, or incompatible database. Every
 write verifies the expected marker and actual catalog inside the same
 transaction as its insert. Startup and health never create or migrate schema.
 
-## Reviewed initialization artifacts
+## Schema file and reviewed initialization
 
-- `fixtures/sqlite-app/schema.sql`: reviewed application DDL, no marker DDL.
-- `fixtures/sqlite-app/schema.json`: the exact reviewed initializer format
-  accepted by `brine data init` (PR #77). Database name `main`, marker
-  `fixture-v1`, catalog SHA-256
-  `f7a92d3e7a27c89c3afd455307ec78b2417b6e643aefbcf1c7c33c3c59838341`.
+`brine.toml` declares `schema = "schema.sql"` and `marker = "fixture-v1"`
+under the `main` database. Replace its placeholder image digest and domain
+before a private drill. Brine reads the SQL relative to that TOML file on the
+client, derives the catalog hash and initializer, and defaults compatibility
+to `accepts = ["fixture-v1"]` with `startup = "preserve"`. The fixture keeps an
+explicit marker because its app code checks that marker. Other apps may omit
+`marker` to use `sha256:<first 12 catalog hex digits>`.
 
-Use database name `main` and register the initializer's `definition` in the
-operator schema definitions. Declare release compatibility for `main` with
-`accepts = ["fixture-v1"]` and `startup = "preserve"`. `data init` creates the
-fixed `brine_schema_marker` table and row atomically with the reviewed statements;
-do not add that table to the initializer or execute schema.sql at app startup.
+Generate the exact artifact bytes for operator review:
 
-Follow the data-init operator review/install flow: hash the **exact JSON file
-bytes**, install that artifact under its hash in the protected operator schema
-location, and pass that artifact digest to the planned `data init` operation.
-The artifact-file hash is different from the application catalog hash above.
-Prepare data and establish the required independently verified empty backup
-point before initialization. The app does not bypass any of those gates.
+```sh
+brine data schema fixtures/sqlite-app/brine.toml --database main > reviewed-schema.json
+sha256sum reviewed-schema.json
+```
+
+The catalog SHA-256 is
+`f7a92d3e7a27c89c3afd455307ec78b2417b6e643aefbcf1c7c33c3c59838341`.
+The artifact-file digest is different and appears in connected and offline
+plans. Follow [the operator review/install flow](../../docs/data-initialization.md).
+The operator still installs those exact bytes under their digest in the protected
+schema location and supplies that digest to `data init`. Automatic artifact
+delivery is P10-03, not part of schema-file support.
+
+`data init` creates the fixed `brine_schema_marker` table and row atomically
+with the reviewed statements. Do not add that table to the SQL file or execute
+schema.sql at app startup. Prepare data and establish the required independently
+verified empty backup point before initialization. The app bypasses none of
+those gates. Schema-file behavior is verified locally; the updated physical
+drill remains unverified until P10-06.
 
 ## HTTP drill contract
 

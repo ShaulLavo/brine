@@ -13,6 +13,8 @@ type rawRuntime struct {
 	GID any `toml:"gid"`
 }
 type rawDatabase struct {
+	Schema            any `toml:"schema"`
+	Marker            any `toml:"marker"`
 	Name              any `toml:"name"`
 	PersistentRoot    any `toml:"persistent_root"`
 	MountPath         any `toml:"mount_path"`
@@ -24,11 +26,6 @@ type rawCompatibility struct {
 	Database any `toml:"database"`
 	Accepts  any `toml:"accepts"`
 	Startup  any `toml:"startup"`
-}
-type rawDefinition struct {
-	Database      any `toml:"database"`
-	Marker        any `toml:"marker"`
-	CatalogSHA256 any `toml:"catalog_sha256"`
 }
 
 func validatePersistence(raw rawApp, app *App) error {
@@ -97,6 +94,28 @@ func validatePersistence(raw rawApp, app *App) error {
 				return bad("databases.mount_path")
 			}
 		}
+		if r.Schema != nil {
+			file, err := text(r.Schema, "databases.schema")
+			if err != nil {
+				return err
+			}
+			if !validSchemaPath(file) {
+				return bad("databases.schema")
+			}
+			marker := ""
+			if r.Marker != nil {
+				marker, err = text(r.Marker, "databases.marker")
+				if err != nil {
+					return err
+				}
+				if !data.ValidMarker(marker) || marker == data.EmptyMarker {
+					return bad("databases.marker")
+				}
+			}
+			app.SchemaFiles = append(app.SchemaFiles, SchemaFile{Database: d.Name, Path: file, Marker: marker})
+		} else if r.Marker != nil {
+			return bad("databases.marker")
+		}
 		names[d.Name] = true
 		environmentNames[data.DatabaseEnvironmentName(d.Name)] = true
 		app.Databases = append(app.Databases, d)
@@ -144,38 +163,5 @@ func validatePersistence(raw rawApp, app *App) error {
 		app.SchemaCompatibility = append(app.SchemaCompatibility, c)
 	}
 	slices.SortFunc(app.SchemaCompatibility, func(a, b SchemaCompatibility) int { return strings.Compare(string(a.Database), string(b.Database)) })
-	if len(raw.SchemaDefinitions) > 16*128 {
-		return bad("schema_definitions")
-	}
-	definitionSeen := map[[2]string]bool{}
-	for _, r := range raw.SchemaDefinitions {
-		if r == nil {
-			return bad("schema_definitions")
-		}
-		name, err := text(r.Database, "schema_definitions.database")
-		if err != nil {
-			return err
-		}
-		marker, err := text(r.Marker, "schema_definitions.marker")
-		if err != nil {
-			return err
-		}
-		hash, err := text(r.CatalogSHA256, "schema_definitions.catalog_sha256")
-		if err != nil {
-			return err
-		}
-		key := [2]string{name, marker}
-		if !names[DatabaseName(name)] || !data.ValidMarker(marker) || !data.ValidCatalogHash(hash) || definitionSeen[key] || (marker == data.EmptyMarker && hash != data.EmptyCatalogSHA256) {
-			return bad("schema_definitions")
-		}
-		definitionSeen[key] = true
-		app.SchemaDefinitions = append(app.SchemaDefinitions, SchemaDefinition{Database: DatabaseName(name), Marker: marker, CatalogSHA256: hash})
-	}
-	slices.SortFunc(app.SchemaDefinitions, func(a, b SchemaDefinition) int {
-		if c := strings.Compare(string(a.Database), string(b.Database)); c != 0 {
-			return c
-		}
-		return strings.Compare(a.Marker, b.Marker)
-	})
 	return validateRestoreInvariants(raw, app)
 }

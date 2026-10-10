@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,7 +29,7 @@ func newValidateCmd(machine *bool) *cobra.Command {
 		Short: "Validate an app against an explicit policy without contacting a host",
 		Args:  offlineSpecArg,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			desired, err := readDesired(args[0], policyPath)
+			desired, err := readDesired(cmd.Context(), args[0], policyPath)
 			if err != nil {
 				return err
 			}
@@ -72,10 +73,11 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 				if err != nil {
 					return err
 				}
-				if _, err = spec.Parse(raw); err != nil {
+				app, err := spec.ParseFile(cmd.Context(), args[0], raw)
+				if err != nil {
 					return result.New(result.InvalidUsage, err)
 				}
-				response, err := connected.call(cmd.Context(), deps, "plan", dispatch.PlanArgs{Spec: string(raw)})
+				response, err := connected.call(cmd.Context(), deps, "plan", dispatch.PlanArgs{Spec: string(raw), SchemaArtifacts: app.SchemaArtifacts})
 				if err != nil {
 					return err
 				}
@@ -87,6 +89,9 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 					return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), p))
 				}
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Plan %s: %s\n", p.PlanID, p.Kind)
+				if err == nil {
+					err = printSchemaArtifacts(cmd.OutOrStdout(), p.SchemaArtifacts)
+				}
 				if err == nil && p.Diff != nil {
 					err = json.NewEncoder(cmd.OutOrStdout()).Encode(p.Diff)
 				}
@@ -101,7 +106,7 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 			if snapshotPath == "" || (cmd.Flags().Changed("state") && statePath == "") || (cmd.Flags().Changed("out") && outDir == "") {
 				return result.New(result.InvalidUsage, nil)
 			}
-			desired, err := readDesired(args[0], policyPath)
+			desired, err := readDesired(cmd.Context(), args[0], policyPath)
 			if err != nil {
 				return err
 			}
@@ -194,7 +199,7 @@ func offlineSpecArg(_ *cobra.Command, args []string) error {
 	return nil
 }
 
-func readDesired(specPath, policyPath string) (policy.Desired, error) {
+func readDesired(ctx context.Context, specPath, policyPath string) (policy.Desired, error) {
 	if policyPath == "" {
 		return policy.Desired{}, result.New(result.InvalidUsage, nil)
 	}
@@ -202,7 +207,7 @@ func readDesired(specPath, policyPath string) (policy.Desired, error) {
 	if err != nil {
 		return policy.Desired{}, err
 	}
-	app, err := spec.Parse(raw)
+	app, err := spec.ParseFile(ctx, specPath, raw)
 	if err != nil {
 		return policy.Desired{}, result.New(result.InvalidUsage, err)
 	}
