@@ -1,6 +1,12 @@
 # Brine v1 contracts
 
-**Status: Approved design target, not an implemented API.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports. The CLI exposes `version`, `doctor`, the placeholder `tui`, `validate`, and offline `plan`; connected planning and deployment remain unimplemented. Stabilize these contracts with tests before claiming compatibility.
+**Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` remains a welcome screen. Do not infer that every contract below is shipped.
+
+## App-owned UDP and WebTransport (D10, Phase 08; implementation pending)
+
+Brine owns policy-approved UDP allocation/publishing, scoped TLS file delivery when requested, inventory and lifecycle recovery. The app owns WebTransport, its browser/draft interoperability and its game/session protocol. The planned endpoint selects TLS ownership explicitly. `file_secrets` binds immutable app-scoped cert/key versions; `app_managed_hashes` leaves short-lived self-signed certificate rotation and trusted browser `serverCertificateHashes` delivery to the app, with no Brine key injection or claim of normal public trust.
+
+Default readiness combines existing HTTP health with ownership of the exact expected UDP mapping/listener. Protocol-session verification and remote UDP reachability are separate facts and remain unverified unless actually probed. Optional WebTransport health requires an explicit bounded echo contract or a supported app-specific protocol; ordinary-health Rust servers do not implement it merely to deploy. P08-05 specifies the optional nonce exchange and refusal budgets. A successful HTTP/3 GET never substitutes for that opted-in protocol check. Shared UDP 443 and private previews remain separately gated.
 
 ## Command surface
 
