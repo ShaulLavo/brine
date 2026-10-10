@@ -281,7 +281,7 @@ func (s *Store) LoadInitRestorePoint(ctx context.Context, o datainit.Operation) 
 	}
 	registered, err := s.ReadRestorePoint(ctx, point.PointID, p.Database.ReplicaBindingID, p.ReplicaEpoch)
 	snapshot := point.Receipt.Source.Snapshot
-	if err != nil || registered.Kind != data.RestorePointSnapshot || registered.Snapshot == nil || registered.Schema.State != data.VerifiedEmpty || registered.Schema.DatabaseID != point.DatabaseID || registered.Snapshot.ObjectKey != snapshot.ObjectKey || registered.Snapshot.SHA256 != snapshot.SHA256 || registered.Snapshot.Size != snapshot.Size {
+	if err != nil || registered.Kind != data.RestorePointSnapshot || registered.Snapshot == nil || registered.Schema.State != data.VerifiedEmpty || registered.Schema.DatabaseID != point.DatabaseID || !registered.RecordedAt.Equal(point.Receipt.ObservedAt) || !registered.Schema.ObservedAt.Equal(point.Receipt.ObservedAt) || registered.Snapshot.ObjectKey != snapshot.ObjectKey || registered.Snapshot.SHA256 != snapshot.SHA256 || registered.Snapshot.Size != snapshot.Size {
 		return point, &IntegrityError{}
 	}
 	return point, nil

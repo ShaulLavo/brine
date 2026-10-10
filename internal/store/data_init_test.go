@@ -120,7 +120,7 @@ func TestDataInitializationRefusesWriterHistoryAndForeignFence(t *testing.T) {
 func storeInitPoint(p datainit.Plan, o datainit.Operation) datainit.VerifiedRestorePoint {
 	now := time.Now().UTC()
 	snapshot := restore.SnapshotSource{BindingID: string(p.Database.ReplicaBindingID), Epoch: string(p.ReplicaEpoch), PointID: p.RestorePointID, ObjectKey: p.RemotePrefix + "/restore-points/" + p.RestorePointID + "/snapshot.sqlite", SHA256: strings.Repeat("a", 64), Size: 4096}
-	return datainit.VerifiedRestorePoint{PointID: p.RestorePointID, DatabaseID: p.Database.DatabaseID, UploadedAt: now, RetainUntil: now.Add(2 * time.Hour), Receipt: restore.Receipt{OperationID: o.ID + "-empty-verify", Source: restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &snapshot}, ObservedAt: now, Schema: restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed"}}
+	return datainit.VerifiedRestorePoint{PointID: p.RestorePointID, DatabaseID: p.Database.DatabaseID, UploadedAt: now, RetainUntil: now.Add(2 * time.Hour), Receipt: restore.Receipt{ToolVersion: restore.SnapshotToolVersion, OperationID: o.ID + "-empty-verify", Source: restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &snapshot}, ObservedAt: now, Schema: restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed"}}
 }
 func TestDataInitializationReceiptRemainsImmutableAndReopens(t *testing.T) {
 	s := openTest(t)

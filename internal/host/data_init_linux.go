@@ -116,6 +116,10 @@ func initializationFacts(ctx context.Context, s Service, stateRoot string, r dat
 	if !ok || destination != permit.Replica.Destination {
 		return f, datainit.ErrRefused
 	}
+	retention, ok := pol.BackupRetention(destination.Reference)
+	if !ok || !retention.Admits(destination, time.Now().UTC()) {
+		return f, datainit.ErrRefused
+	}
 	if err = trustedInitJSON(ctx, r.Artifact, &f.Initializer); err != nil {
 		return f, err
 	}

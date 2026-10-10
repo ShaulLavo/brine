@@ -21,7 +21,7 @@ import (
 // of preexisting data. Unknown requests are never retried by this adapter.
 func CreateEmptySnapshot(ctx context.Context, root string, b Binding, c Credentials, pointID string, budget time.Duration, allowHTTPForTests bool) (SnapshotSource, time.Time, error) {
 	var source SnapshotSource
-	if !token.MatchString(pointID) || budget <= 0 || budget > 30*time.Minute {
+	if !token.MatchString(b.ID) || !token.MatchString(b.Epoch) || !token.MatchString(b.CredentialRef) || !token.MatchString(pointID) || budget <= 0 || budget > 30*time.Minute {
 		return source, time.Time{}, refuse("invalid_empty_point")
 	}
 	ctx, cancel := context.WithTimeout(ctx, budget)
