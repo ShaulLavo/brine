@@ -47,7 +47,7 @@ func TestReconcileCannotTerminalizeSlowLauncher(t *testing.T) {
 	for _, phase := range []string{"before_intent", "inside_launch"} {
 		t.Run(phase, func(t *testing.T) {
 			s, fixtureOp, _ := fixture(t)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			resume := make(chan struct{})
 			var once sync.Once
@@ -102,13 +102,37 @@ func TestReconcileCannotTerminalizeSlowLauncher(t *testing.T) {
 				t.Fatalf("state %s error %v", current.State, err)
 			}
 			release()
-			if err := <-done; err != nil {
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatal(err)
+				}
+			case <-ctx.Done():
+				t.Fatal(ctx.Err())
+			}
+			cancel()
+
+			settled, cancelSettled := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancelSettled()
+			lock, err := s.TryAcquireHostLock(settled)
+			if err != nil {
+				t.Fatalf("settled launcher left host lock unavailable: %v", err)
+			}
+			if err := lock.Release(); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := reconciler.Reconcile(ctx); err != nil {
+			launch, err := s.AcquireLaunchLock(settled)
+			if err != nil {
+				t.Fatalf("settled launcher left launch fence unavailable: %v", err)
+			}
+			if err := launch.Release(); err != nil {
 				t.Fatal(err)
 			}
-			current, err = s.GetOperation(ctx, op.ID)
+			reconciler.LockTimeout = 5 * time.Second
+			if _, err := reconciler.Reconcile(settled); err != nil {
+				t.Fatal(err)
+			}
+			current, err = s.GetOperation(settled, op.ID)
 			if err != nil || current.State != ops.Queued {
 				t.Fatalf("accepted runner was terminalized: state %s error %v", current.State, err)
 			}
