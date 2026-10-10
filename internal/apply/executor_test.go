@@ -119,7 +119,7 @@ func newRig(t testing.TB, update bool) *rig {
 		}
 	}
 	r.facts = Facts{Input: in, Routing: route}
-	r.executor = Executor{Journal: r, Releases: r, Plans: r, Facts: FactsFunc(func(context.Context) (Facts, error) { err := r.hit("preflight"); return r.facts, err }), Units: r, Routes: r, Health: r, Compatibility: r, EffectTimeout: time.Second}
+	r.executor = Executor{Journal: r, Releases: r, Plans: r, Facts: FactsFunc(r.readFacts), Units: r, Routes: r, Health: r, Compatibility: r, EffectTimeout: time.Second}
 	r.executor.Podman = &podman.Fake{
 		ContainerStateFunc: func(context.Context, podman.Name) (podman.ContainerState, error) {
 			return podman.ContainerState{Running: r.active, Status: "exited"}, nil
@@ -156,6 +156,74 @@ func newRig(t testing.TB, update bool) *rig {
 	configureSettledRecoveryWriter(r)
 	return r
 }
+func (r *rig) readFacts(ctx context.Context) (Facts, error) {
+	if r.intent == "preflight" {
+		return r.facts, r.hit("preflight")
+	}
+	var outcome ops.StepPayload
+	if len(r.events) == 0 || r.events[len(r.events)-1].Kind != "step" || json.Unmarshal(r.events[len(r.events)-1].Payload, &outcome) != nil || outcome.Step != r.intent || outcome.Outcome != "unknown" {
+		panic("facts inspection without its journaled unknown outcome: " + r.intent)
+	}
+	if _, bounded := ctx.Deadline(); !bounded {
+		panic("unbounded facts inspection: " + r.intent)
+	}
+	return r.facts, ctx.Err()
+}
+
+func TestRigRejectsUnjournaledFactsInspection(t *testing.T) {
+	for _, tc := range []struct {
+		name, step, outcome string
+		bounded             bool
+	}{
+		{"no event", "", "", true},
+		{"intent only", "install_unit", "intent", true},
+		{"completed outcome", "install_unit", "completed", true},
+		{"different step", "rollback_unit", "unknown", true},
+		{"unbounded", "install_unit", "unknown", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRig(t, true)
+			if tc.step != "" {
+				payload, err := json.Marshal(ops.StepPayload{Step: tc.step, Outcome: tc.outcome})
+				if err != nil {
+					t.Fatal(err)
+				}
+				r.events = []Event{{Kind: "step", Payload: payload}}
+			}
+			r.intent = "install_unit"
+			ctx := context.Background()
+			if tc.bounded {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, time.Second)
+				defer cancel()
+			}
+			defer func() {
+				if recover() == nil {
+					t.Fatal("invalid inspection accepted")
+				}
+				if len(r.effects) != 0 {
+					t.Fatal("inspection recorded a mutation")
+				}
+			}()
+			_, _ = r.executor.Facts.Read(ctx)
+		})
+	}
+}
+
+func TestRigRejectsEffectWithoutMatchingIntent(t *testing.T) {
+	r := newRig(t, true)
+	r.intent = "preflight"
+	defer func() {
+		if got := recover(); got != "effect without its journaled intent: install_unit after preflight" {
+			t.Fatalf("mutation guard panic = %v", got)
+		}
+		if len(r.effects) != 0 {
+			t.Fatal("unjournaled mutation recorded")
+		}
+	}()
+	_ = r.hit("install_unit")
+}
+
 func (r *rig) hit(step string) error {
 	if r.intent != step {
 		panic("effect without its journaled intent: " + step + " after " + r.intent)
