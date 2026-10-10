@@ -162,7 +162,7 @@ func TestInstalledImageObservationAndPlanning(t *testing.T) {
 				snapshot.PortOwners = target.Known([]target.PortOwner{})
 			}
 			collector := Collector{FS: f, Runner: r, RunnerUser: "brine"}
-			artifacts := collector.apps(context.Background(), &snapshot, "/home/brine", true)
+			artifacts := collector.apps(context.Background(), &snapshot, "/home/brine", true, nil)
 			collector.images(context.Background(), &snapshot, "/home/brine", artifacts)
 			app := (*snapshot.Apps.Value)[0]
 			if (app.Image.Status == target.KnownStatus) != tc.known {

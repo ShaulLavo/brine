@@ -40,3 +40,31 @@ func TestRemovePersistentDataRefused(t *testing.T) {
 		t.Fatalf("expected archive refusal, got %v", err)
 	}
 }
+
+func TestRemoveRetainedResourcesAreNotAnOwnedDeployment(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		change func(*target.App)
+		kind   Kind
+	}{
+		{"retained secret", func(*target.App) {}, NoOp},
+		{"unknown image", func(a *target.App) { a.Image.Status = target.Unknown }, Conflict},
+		{"unknown port", func(a *target.App) { a.AllocatedHostPort.Status = target.Unknown }, Conflict},
+		{"unknown units", func(a *target.App) { a.QuadletUnits = target.Observation[[]target.Unit]{Status: target.Unknown} }, Conflict},
+		{"remaining unit", func(a *target.App) {
+			a.QuadletUnits = target.Known([]target.Unit{{Name: "hello.container", Hash: "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}})
+		}, Conflict},
+		{"unreadable secrets", func(a *target.App) { a.Secrets = target.Observation[[]target.Secret]{Status: target.Unknown} }, Conflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			in := fixture(t, "ready-arm64")
+			app := target.App{Name: "hello", Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{{Name: "brine.hello.db.v1", ID: "retained"}})}
+			tc.change(&app)
+			in.Snapshot.Apps = target.Known([]target.App{app})
+			p, err := BuildRemove(in)
+			if err != nil || p.Kind != tc.kind {
+				t.Fatal(p.Conflicts, err)
+			}
+		})
+	}
+}

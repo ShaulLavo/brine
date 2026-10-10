@@ -44,6 +44,7 @@ type Collector struct {
 	IdentityKey     []byte
 	RunnerUser      string
 	StateGeneration func(context.Context) (uint64, error)
+	StateInventory  func(context.Context) (target.ControlInventory, error)
 }
 
 func unknown[T any]() target.Observation[T] { return target.Observation[T]{Status: target.Unknown} }
@@ -132,10 +133,20 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 		}
 	}
 	home, exists := c.runner(ctx, &s)
-	c.generation(ctx, &s, home, exists)
+	var control *target.ControlInventory
+	if c.StateInventory != nil {
+		state, err := c.StateInventory(ctx)
+		if err == nil && (state.Target == nil || *state.Target == s.Identity) {
+			control = &state
+			s.Generation = target.Known(state.Generation)
+		}
+	} else {
+		c.generation(ctx, &s, home, exists)
+	}
 	c.disk(ctx, &s, home)
-	artifacts := c.apps(ctx, &s, home, exists)
-	c.listeners(ctx, &s, home, artifacts.publications)
+	artifacts := c.apps(ctx, &s, home, exists, control)
+	udpPorts := c.listeners(ctx, &s, home, artifacts.publications)
+	c.absence(ctx, &s, artifacts, control, udpPorts)
 	if e = c.caddy(ctx, &s); e != nil {
 		return s, e
 	}
