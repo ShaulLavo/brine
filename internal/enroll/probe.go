@@ -26,7 +26,7 @@ func (p Prober) Collect(ctx context.Context) (Facts, error) {
 	if err != nil {
 		return Facts{}, err
 	}
-	f := Facts{Snapshot: s, Packages: map[string]string{}}
+	f := Facts{Snapshot: s, Packages: map[string]string{}, Litestream: (inventory.LitestreamCollector{Runner: p.Runner}).Collect(ctx)}
 	key, err := p.FS.ReadFile(ctx, "/etc/ssh/ssh_host_ed25519_key.pub")
 	if err != nil {
 		return f, errors.New("cannot read host public key")
