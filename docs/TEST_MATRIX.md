@@ -232,3 +232,11 @@ Resolution review regressions (local, physical rerun still pending):
   a fresh bounded observer after its detached worker finishes. Earlier contexts
   are canceled before observation, so accidental reuse fails without sleeps.
   Production timeouts and the resumed-health deadline assertion are unchanged.
+
+### Stop status and host-port isolation
+
+- T09/T12: rendered stateless and persistent Quadlets accept numeric SIGTERM exit 143 only with a forced restart for spontaneous 143. Explicit stop must leave inactive/dead with no pending manager job or container; exit 1 or 137 remains a failure and repeated spontaneous 143 reaches the start limit. Persistent restarts repeat writer-permit and writer-attempt; held fences block them.
+- T05/T09: another committed app with failed or unknown runtime state retains its stable port without making new-app admission unknown. Reserve both committed and differing observed ports, including missing runtime app records. Unknown ports without a committed app record still refuse. The failed app's own plan stays conservative.
+- T12/T15: stop the independent pinned Litestream replica and check inactive/dead and exit zero. Shutdown errors remain failed. Starting or restarting it under a held fence must fail replica-permit, and pending jobs must settle before quiescence is accepted.
+
+Rendering and pure planner tests cover the policy and reservations locally. The physical systemd/Podman stop, crash and fence drill remains required.

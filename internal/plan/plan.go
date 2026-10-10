@@ -414,12 +414,18 @@ func Build(in Input) (Plan, error) {
 		for _, owner := range *in.Snapshot.PortOwners.Value {
 			busy[owner.Port] = true
 		}
+		reserved := make(map[string]target.Port, len(in.State.Releases))
+		for _, committed := range in.State.Releases {
+			reserved[committed.App] = committed.HostPort
+			busy[committed.HostPort] = true
+		}
 		for _, a := range *in.Snapshot.Apps.Value {
+			_, committed := reserved[a.Name]
 			if a.AllocatedHostPort.Status == target.KnownStatus {
 				busy[*a.AllocatedHostPort.Value] = true
-			} else if a.AllocatedHostPort.Status == target.Unknown {
+			} else if a.AllocatedHostPort.Status == target.Unknown && !committed {
 				add(UnknownFacts, "apps.port")
-			} else if a.AllocatedHostPort.Status == target.Unsupported {
+			} else if a.AllocatedHostPort.Status == target.Unsupported && !committed {
 				add(UnsupportedTarget, "apps.port")
 			}
 		}

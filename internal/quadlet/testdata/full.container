@@ -19,6 +19,8 @@ Environment="Z=line one\nline two"
 
 [Service]
 Restart=on-failure
+SuccessExitStatus=143
+RestartForceExitStatus=143
 
 [Install]
 WantedBy=default.target
