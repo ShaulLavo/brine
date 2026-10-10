@@ -44,6 +44,6 @@ func newDataCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		return err
 	}}
 	flags.register(prepare)
-	root.AddCommand(prepare)
+	root.AddCommand(prepare, newDataInitCmd(deps, modes, false))
 	return root
 }

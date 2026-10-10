@@ -2,12 +2,17 @@ package ops
 
 import (
 	"encoding/json"
+	"regexp"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
+
+var initializationPlanID = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
+var initializationReceiptID = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 const MaxTaskOutcomeBytes = 65536
 
@@ -20,6 +25,15 @@ type TaskOutcome struct {
 
 func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 	switch op.Kind {
+	case DataInitApply:
+		if _, err := strictjson.Object(raw, "id", "plan_id", "state", "fence_id"); err != nil {
+			return nil, strictjson.ErrObject
+		}
+		var receipt datainit.Operation
+		if json.Unmarshal(raw, &receipt) != nil || !initializationReceiptID.MatchString(receipt.ID) || !initializationReceiptID.MatchString(string(receipt.Fence)) || receipt.PlanID != op.SecretRef || !initializationPlanID.MatchString(receipt.PlanID) || receipt.State != "succeeded" {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
 	case RestoreTest:
 		receipt, err := restore.DecodeReceipt(raw)
 		if err != nil || receipt.OperationID != op.ID {

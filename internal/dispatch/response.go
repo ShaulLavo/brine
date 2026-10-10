@@ -2,6 +2,8 @@ package dispatch
 
 import (
 	"bytes"
+	"encoding/json"
+	"github.com/ShaulLavo/brine/internal/datainit"
 
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
@@ -48,7 +50,15 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
-		case "restore_test", "backup_credentials_set":
+		case "data_init_plan":
+			var p datainit.Plan
+			decoder := json.NewDecoder(bytes.NewReader(fields["data"]))
+			decoder.DisallowUnknownFields()
+			if decoder.Decode(&p) != nil || !p.Valid() {
+				return invalid()
+			}
+			value = p
+		case "data_init_apply", "restore_test", "backup_credentials_set":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()

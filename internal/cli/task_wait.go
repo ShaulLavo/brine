@@ -15,6 +15,26 @@ import (
 // observer has an overall job-runtime bound; its departure cannot cancel work.
 // A no-wait caller receives the accepted operation ID and can query status later.
 func (f operationFlags) waitTask(ctx context.Context, deps Dependencies, accepted jobs.Accepted, kind ops.Kind, noWait bool) (any, error) {
+	return waitAcceptedTask(ctx, accepted, kind, noWait, func(ctx context.Context, args dispatch.OperationArgs) (jobs.Status, error) {
+		response, err := f.call(ctx, deps, "operation", args)
+		if err != nil {
+			return jobs.Status{}, err
+		}
+		if !response.OK {
+			if response.Error == nil || !result.KnownCode(response.Error.Code) {
+				return jobs.Status{}, result.New(result.TransportInvalidResponse, nil)
+			}
+			return jobs.Status{}, result.New(response.Error.Code, nil)
+		}
+		status, ok := response.Data.(jobs.Status)
+		if !ok {
+			return jobs.Status{}, result.New(result.TransportInvalidResponse, nil)
+		}
+		return status, nil
+	})
+}
+
+func waitAcceptedTask(ctx context.Context, accepted jobs.Accepted, kind ops.Kind, noWait bool, readStatus func(context.Context, dispatch.OperationArgs) (jobs.Status, error)) (any, error) {
 	if accepted.Status != "accepted" || !jobs.ValidID(accepted.OperationID) || !kind.IsTask() {
 		return nil, result.New(result.TransportInvalidResponse, nil)
 	}
@@ -25,18 +45,11 @@ func (f operationFlags) waitTask(ctx context.Context, deps Dependencies, accepte
 	defer cancel()
 	var cursor uint64
 	for {
-		response, err := f.call(ctx, deps, "operation", dispatch.OperationArgs{OperationID: accepted.OperationID, AfterCursor: cursor})
+		status, err := readStatus(ctx, dispatch.OperationArgs{OperationID: accepted.OperationID, AfterCursor: cursor})
 		if err != nil {
 			return nil, err
 		}
-		if !response.OK {
-			if response.Error == nil || !result.KnownCode(response.Error.Code) {
-				return nil, result.New(result.TransportInvalidResponse, nil)
-			}
-			return nil, result.New(response.Error.Code, nil)
-		}
-		status, ok := response.Data.(jobs.Status)
-		if !ok || status.Operation.ID != accepted.OperationID || status.Operation.Kind != kind || status.NextCursor < cursor {
+		if status.Operation.ID != accepted.OperationID || status.Operation.Kind != kind || status.NextCursor < cursor {
 			return nil, result.New(result.TransportInvalidResponse, nil)
 		}
 		cursor = status.NextCursor
