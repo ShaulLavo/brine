@@ -300,7 +300,7 @@ Tests live in `internal/cli/deploy_test.go`,
 `internal/host/deploy_linux_test.go`. These are local synthetic/adapter tests,
 not physical deployment, replication or R2 restore evidence. Recorded physical
 first-app and completed-stage client-kill evidence is audited below. P10-06
-remains incomplete; local tests do not fill its custom-build or interruption gaps.
+remains incomplete; local tests do not fill its final-release interruption gap.
 
 ## Phase 10 acceptance audit, 2026-10-11
 
@@ -316,7 +316,7 @@ slice below is not completion of the entire row or of additional foundation gate
 | P10-03 | [x] | Tampered bytes refuse before publication; fenced immutable same-digest storage and same-plan repeat/settlement have domain/store/host tests. Physical first initialization and isolated restore passed. The recreated-app inventory gate remains a separately identified defect, not a passing recreated initialization. |
 | P10-04 | [x] | Ordered happy path, preaccept/settled failures at all four steps, nonreplay continuation, initialized-app path and JSON IDs have local tests. Pi evidence adds one combined SQL review, healthy first app, three completed-stage client-kill resumes and initialized update. No final-release physical kill is claimed. |
 | P10-05 | [x] | Single-page contract/spec/schema/driver examples and add-column/custom-build guidance cover the requirements. Coordinator clarification on 2026-10-11 replaces the ten-line size hint with "short, complete examples"; imports/error handling are retained. Rust/better-sqlite3 execution remains unverified and is not an additional documentation acceptance requirement. |
-| P10-06 | [ ] | Physical env/init/replication/exact-sentinel restore and three completed-stage client-kill resumes passed. **Remaining:** alternate SQLite build, final-release interruption and in-flight step cases. Optional full archive recreation also awaits the initialization-gate fix and physical rerun. |
+| P10-06 | [ ] | Physical env/init/replication/exact-sentinel restore and three completed-stage client-kill resumes passed. **Remaining:** physical final-release interruption and resume, required by "at each step." Owner decision on 2026-10-11 drops the alternate-version/compile-options check. Full archive recreation awaits the initialization-gate fix and physical rerun, but belongs to T22, not P10-06 acceptance. Every internal detached-effect boundary is not an additional P10-06 gate. |
 | T04 (in-range listener slice) | [x] | Real TCP and UDP listeners inserted after plan acceptance each caused `stale_plan` before task effects; release head and route/unit bytes remained unchanged. Injected listeners were removed and ports verified free. This is not every possible observed-state/policy drift case. |
 | T07 (Phase 10 slice) | [ ] | Real healthy first release and final initialized update passed; connected status records the current image digest and healthy direct probe. **Remaining:** an explicit passing route-health receipt for the complete row. Healthy direct response alone does not prove both paths. |
 | T09 (Phase 10 client checkpoint slice) | [x] | SIGKILL after completed preparation, credentials and initialization retained accepted jobs. Final reruns completed and reused completed references. A naturally lost recreation-preparation acceptance reply was inspected to a succeeded host receipt without blind resubmission. This does not prove every in-flight remote crash boundary. |

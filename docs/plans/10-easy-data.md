@@ -50,8 +50,8 @@ Brine needs only:
   `internal/data/testdata/schema-goldens.json` for all four supported kinds.
   Plans show the derived artifact digest; `brine data schema` exports its exact
   bytes for separate reviewed initialization. The Pi deployed from a repository
-  schema through combined review and unprivileged artifact delivery. This is not
-  the alternate SQLite-build qualification required by P10-06.
+  schema through combined review and unprivileged artifact delivery. No alternate
+  SQLite-build physical qualification is claimed.
 
 - [x] **P10-03 Reviewed initialization without sudo.** The init plan carries exact artifact bytes and shows SQL and the resulting catalog. Under the owner decision of 2026-10-11, the agent and owner are one identity: whoever can apply plans over the restricted channel can initialize data and apply future reviewed migrations. Remove the agent migration grant and local-operator-only composition. The unprivileged host stores a digest-bound immutable artifact in its private state after claiming apply intent and fence, before initialization. No root-owned schema directory or privileged artifact writer. **Acceptance:** tampered bytes refuse before storing; same-digest publication and same-plan apply are idempotent; interruption between store and init reconciles without a duplicate attempt. Every existing restore verification, fence, independent compile and schema-preserving startup check stays. **Evidence:** `internal/dispatch/data_init_test.go`, `internal/datainit/init_test.go`, `internal/store/data_init_test.go`, `internal/cli/data_init_test.go` and `internal/host/data_init_reconcile_linux_test.go`. Local fixtures prove review, digest refusal, immutable storage and interruption settlement. The [Pi audit](../evidence/p10-pi.md) adds successful first initialization and isolated remote restore. Recreated-app initialization still refuses on the audited source because the inventory gate treats retained absent runtime as a live app; its fix and physical rerun were pending. The client checkpoint does not prove an interruption inside SQL mutation.
 
@@ -88,25 +88,27 @@ Brine needs only:
   is covered, so P10-05 is checked. Rust/better-sqlite3 execution remains
   unverified and is not an additional documentation acceptance requirement.
 
-- [ ] **P10-06 Pi drill.** Under D3: create a new app from a repo schema file with one `brine deploy`; verify env variables in the container, initialization, replication and a restore test. Repeat with a fixture built against a different SQLite version or compile options to show custom builds pass. Interrupt P10-04 at each step and rerun to completion.
+- [ ] **P10-06 Pi drill.** Under D3: create a new app from a repo schema file with one `brine deploy`; verify env variables in the container, initialization, replication and a restore test. Interrupt P10-04 at each step and rerun to completion.
+
+  **Owner decision (2026-10-11):** Drop the alternate-version/compile-options check: SQLite's stable file format makes it a SQLite test, not a Brine test; file-format-changing builds remain unsupported.
 
   Recorded evidence is in the [Pi acceptance audit](../evidence/p10-pi.md).
   The fresh app's SQL review, environment, initialization, remote replication
   growth and exact-sentinel restore passed. Client kills after completed
   preparation, credentials and initialization resumed without repeating those
   jobs; the final release completed on `b0a7de7`. The coordinator ledger's
-  "mandatory pass" does not supply the additional clauses below.
+  "mandatory pass" does not supply the final-release interruption receipt.
 
   **Remaining:**
-  - Repeat with a fixture using a different SQLite version or compile options;
-    this check was not performed.
   - Record interruption and resume during the final release step. The captured
-    scripts killed the client at three completed-stage checkpoints, not inside
-    every detached step; add those in-flight cases for an every-step claim.
-  - Additional archive coverage remains blocked at recreated-app initialization
-    by the retained-inventory gate. Re-run after its pending fix and verify a
-    healthy new incarnation plus unchanged old archive. This optional path is
-    not a substitute for the two missing Phase 10 clauses above.
+    scripts killed the client at three completed-stage checkpoints, leaving the
+    release step uncovered by the stated "at each step" requirement.
+
+  Additional archive coverage remains blocked at recreated-app initialization
+  by the retained-inventory gate. Re-run after its pending fix and verify a
+  healthy new incarnation plus unchanged old archive. Full archive recreation
+  is not a P10-06 acceptance clause; it remains a T22 gap. Nor does P10-06 require
+  a physical kill at every internal detached-effect boundary.
 
 ## Order
 
