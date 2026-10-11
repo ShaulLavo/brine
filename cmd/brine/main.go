@@ -75,7 +75,9 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 			if preview {
 				open = host.OpenPreview
 			}
-			runtime, err := open(ctx, authenticated)
+			// Local archive commands use the same enrolled requester as host serve.
+			channel := runtimeRequesterChannel(ctx, args, authenticated)
+			runtime, err := open(ctx, channel)
 			if err != nil {
 				return cli.RuntimeServices{}, err
 			}
@@ -98,4 +100,11 @@ func captureHostEnvironment(args []string, getenv func(string) string, clearenv 
 	length := len(getenv("SSH_ORIGINAL_COMMAND"))
 	clearenv()
 	return marker, length
+}
+
+func runtimeRequesterChannel(ctx context.Context, args []string, authenticated string) string {
+	if cli.HostArchiveRequested(ctx, args) {
+		return "deploy"
+	}
+	return authenticated
 }

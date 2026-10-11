@@ -47,7 +47,7 @@ func (s Service) now() time.Time {
 	return time.Now().UTC()
 }
 func (s Service) guard(ctx context.Context) (func() error, error) {
-	if s.Journal == nil || s.Host == nil || s.Authorize == nil || s.Lock == nil || !(s.Requester == "local-operator" || requesterName.MatchString(s.Requester)) || s.Authorize(ctx) != nil {
+	if s.Journal == nil || s.Host == nil || s.Authorize == nil || s.Lock == nil || !requesterName.MatchString(s.Requester) || s.Authorize(ctx) != nil {
 		return nil, ErrRefused
 	}
 	return s.Lock(ctx)

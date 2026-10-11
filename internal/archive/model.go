@@ -64,7 +64,7 @@ func (p Plan) Fingerprint() (string, error) {
 
 func (p Plan) Valid() bool {
 	id, err := p.Fingerprint()
-	if err != nil || id != p.ID || !digest.MatchString(p.ID) || !data.ValidID(string(p.ArchiveID)) || !digest.MatchString(p.PolicyHash) || !digest.MatchString(p.TargetHash) || p.CreatedAt.IsZero() || !(p.Requester == "local-operator" || requesterName.MatchString(p.Requester)) || len(p.Candidate.ReleaseID) > 256 || !appName.MatchString(p.Candidate.App) || !data.ValidID(string(p.Candidate.Incarnation)) || len(p.Candidate.Databases) == 0 || len(p.Candidate.Databases) > 16 || len(p.Trees) == 0 || len(p.Trees) > 16 {
+	if err != nil || id != p.ID || !digest.MatchString(p.ID) || !data.ValidID(string(p.ArchiveID)) || !digest.MatchString(p.PolicyHash) || !digest.MatchString(p.TargetHash) || p.CreatedAt.IsZero() || !requesterName.MatchString(p.Requester) || len(p.Candidate.ReleaseID) > 256 || !appName.MatchString(p.Candidate.App) || !data.ValidID(string(p.Candidate.Incarnation)) || len(p.Candidate.Databases) == 0 || len(p.Candidate.Databases) > 16 || len(p.Trees) == 0 || len(p.Trees) > 16 {
 		return false
 	}
 	roots := map[data.PersistentRoot]bool{}

@@ -37,7 +37,7 @@ func storedArchivePlan(t *testing.T, s *Store) archive.Plan {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p := archive.Plan{ArchiveID: data.ArchiveID(id), Requester: "local-operator", PolicyHash: req.PolicyHash, TargetHash: "sha256:" + strings.Repeat("b", 64), CreatedAt: now, Candidate: c, Trees: []data.ArchiveTree{{Root: r.Database.Root, RootDevice: 1, RootInode: 2, SourceDevice: 1, SourceInode: 4, SourceRelative: "apps/" + string(c.Incarnation), ArchiveRelative: "archives/" + id}}}
+	p := archive.Plan{ArchiveID: data.ArchiveID(id), Requester: "deploy:" + strings.Repeat("a", 64), PolicyHash: req.PolicyHash, TargetHash: "sha256:" + strings.Repeat("b", 64), CreatedAt: now, Candidate: c, Trees: []data.ArchiveTree{{Root: r.Database.Root, RootDevice: 1, RootInode: 2, SourceDevice: 1, SourceInode: 4, SourceRelative: "apps/" + string(c.Incarnation), ArchiveRelative: "archives/" + id}}}
 	p.ID, err = p.Fingerprint()
 	if err != nil || !p.Valid() {
 		t.Fatal("invalid plan", err)

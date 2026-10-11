@@ -20,13 +20,13 @@ func TestArchiveCommandRejectsPathsAndInvalidPlansBeforeRuntime(t *testing.T) {
 		}
 	}
 }
-func TestArchiveOperatorCommandIsNotRemoteDispatch(t *testing.T) {
+func TestArchiveCommandIsNotRemoteDispatch(t *testing.T) {
 	for _, test := range []struct {
-		args     []string
-		operator bool
+		args    []string
+		archive bool
 	}{{[]string{"host", "archive-prepare", "hello", "--plan"}, true}, {[]string{"host", "serve"}, false}, {[]string{"app", "remove", "hello"}, false}} {
-		if got := HostArchiveRequested(context.Background(), test.args); got != test.operator {
-			t.Fatal("incorrect operator role", test.args, got)
+		if got := HostArchiveRequested(context.Background(), test.args); got != test.archive {
+			t.Fatal("incorrect archive selection", test.args, got)
 		}
 	}
 }
