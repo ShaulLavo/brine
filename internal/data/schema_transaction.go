@@ -103,7 +103,7 @@ func ObserveSchemaTransaction(ctx context.Context, tx *sql.Tx, database Database
 		}
 		valid := rows.Next() && rows.Scan(&id, &marker, &declaredHash) == nil && !rows.Next() && rows.Err() == nil
 		_ = rows.Close()
-		if !valid || id != 1 || !markerPattern.MatchString(marker) || !hashPattern.MatchString(declaredHash) || marker == EmptyMarker || declaredHash != fingerprint {
+		if !valid || id != 1 || !ValidMarker(marker) || !hashPattern.MatchString(declaredHash) || marker == EmptyMarker || declaredHash != fingerprint {
 			o.UnknownReason = "marker_mismatch"
 			return o
 		}

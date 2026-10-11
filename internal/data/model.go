@@ -132,6 +132,7 @@ var ErrInvalid = errors.New("invalid persistent data record")
 var identityPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 var filenamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+var derivedMarkerPattern = regexp.MustCompile(`^sha256:[a-f0-9]{12}$`)
 var markerPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 var hashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
@@ -200,7 +201,9 @@ func RemotePrefix(base string, incarnation AppIncarnationID, database DatabaseID
 	return path.Join(base, relative, "epochs", string(epoch)) + "/", nil
 }
 
-func ValidMarker(marker string) bool    { return markerPattern.MatchString(marker) }
+func ValidMarker(marker string) bool {
+	return markerPattern.MatchString(marker) || derivedMarkerPattern.MatchString(marker)
+}
 func ValidCatalogHash(hash string) bool { return hashPattern.MatchString(hash) }
 
 type BackupCadence struct {

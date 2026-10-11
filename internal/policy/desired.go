@@ -39,6 +39,7 @@ type Desired struct {
 	Runtime              *data.RuntimeIdentity      `json:"runtime,omitempty"`
 	Databases            []data.Database            `json:"databases,omitempty"`
 	SchemaCompatibility  []data.SchemaCompatibility `json:"schema_compatibility,omitempty"`
+	SchemaArtifacts      []data.SchemaArtifact      `json:"schema_artifacts,omitempty"`
 	SchemaDefinitions    []data.SchemaDefinition    `json:"schema_definitions,omitempty"`
 	SchemaVersion        int                        `json:"schema_version"`
 	Name                 spec.Name                  `json:"name"`
@@ -83,6 +84,10 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 	}
 	slices.SortFunc(d.SchemaCompatibility, func(a, b data.SchemaCompatibility) int {
 		return strings.Compare(string(a.Database), string(b.Database))
+	})
+	d.SchemaArtifacts = slices.Clone(d.SchemaArtifacts)
+	slices.SortFunc(d.SchemaArtifacts, func(a, b data.SchemaArtifact) int {
+		return strings.Compare(string(a.Definition.Database), string(b.Definition.Database))
 	})
 	d.SchemaDefinitions = slices.Clone(d.SchemaDefinitions)
 	slices.SortFunc(d.SchemaDefinitions, func(a, b data.SchemaDefinition) int {
@@ -142,13 +147,6 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		}
 		raw["schema_compatibility"] = rows
 	}
-	if len(input.SchemaDefinitions) > 0 {
-		rows := make([]map[string]any, 0, len(input.SchemaDefinitions))
-		for _, d := range input.SchemaDefinitions {
-			rows = append(rows, map[string]any{"database": string(d.Database), "marker": d.Marker, "catalog_sha256": d.CatalogSHA256})
-		}
-		raw["schema_definitions"] = rows
-	}
 	if len(input.RestoreInvariants) > 0 {
 		rows := make([]map[string]any, 0, len(input.RestoreInvariants))
 		for _, i := range input.RestoreInvariants {
@@ -174,6 +172,11 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 	if e != nil {
 		return Desired{}, refuse("policy.invalid_spec", "$", "app configuration failed the strict spec boundary")
 	}
+	if spec.ValidateDefinitions(input) != nil {
+		return Desired{}, refuse("policy.invalid_spec", "databases", "invalid derived schema evidence")
+	}
+	app.SchemaDefinitions = slices.Clone(input.SchemaDefinitions)
+	app.SchemaArtifacts = slices.Clone(input.SchemaArtifacts)
 	c := p.config
 	ref := strings.SplitN(string(app.Image), "@", 2)[0]
 	host, repo, _ := strings.Cut(ref, "/")
@@ -224,6 +227,7 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 	d.Databases = app.Databases
 	d.SchemaCompatibility = app.SchemaCompatibility
 	d.SchemaDefinitions = app.SchemaDefinitions
+	d.SchemaArtifacts = app.SchemaArtifacts
 	d.RestoreInvariants = app.RestoreInvariants
 	if len(app.Databases) > 0 {
 		backup := p.Backup()
@@ -269,12 +273,12 @@ func (p Policy) CheckSecret(app spec.Name, ref spec.SecretReference) error {
 
 // Stateless is affirmative only when no persistence declaration is present.
 func (d Desired) Stateless() bool {
-	return len(d.RestoreInvariants) == 0 && len(d.BackupRetention) == 0 && len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0
+	return len(d.RestoreInvariants) == 0 && len(d.BackupRetention) == 0 && len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0 && len(d.SchemaArtifacts) == 0
 }
 
 // App reconstructs a detached spec input. It grants no policy authorization.
 func (d Desired) App() spec.App {
-	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}, Databases: slices.Clone(d.Databases), SchemaCompatibility: slices.Clone(d.SchemaCompatibility), SchemaDefinitions: slices.Clone(d.SchemaDefinitions), RestoreInvariants: slices.Clone(d.RestoreInvariants)}
+	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}, Databases: slices.Clone(d.Databases), SchemaCompatibility: slices.Clone(d.SchemaCompatibility), SchemaDefinitions: slices.Clone(d.SchemaDefinitions), SchemaArtifacts: slices.Clone(d.SchemaArtifacts), RestoreInvariants: slices.Clone(d.RestoreInvariants)}
 	if d.Runtime != nil {
 		r := *d.Runtime
 		a.Runtime = &r

@@ -76,7 +76,7 @@ func (s Service) Plan(ctx context.Context, app spec.App) (dispatch.Planned, erro
 		return dispatch.Planned{}, err
 	}
 	id, err := s.Store.SavePlan(ctx, p, facts.Input.Desired)
-	return dispatch.Planned{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}, err
+	return dispatch.Planned{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts, SchemaArtifacts: p.SchemaArtifacts}, err
 }
 
 func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {

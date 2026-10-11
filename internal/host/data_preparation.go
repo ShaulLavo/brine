@@ -96,7 +96,7 @@ func (s Service) PlanDataPreparation(ctx context.Context, app spec.App) (_ dispa
 		return dispatch.Planned{}, err
 	}
 	id, err := s.Store.SavePlan(ctx, p, d)
-	return dispatch.Planned{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}, err
+	return dispatch.Planned{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts, SchemaArtifacts: p.SchemaArtifacts}, err
 }
 
 // runDataPreparation executes only the approved allocation effect. It has no

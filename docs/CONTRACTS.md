@@ -599,11 +599,42 @@ Golden tests also cover SQL NULL, Unicode, U+2028/U+2029, HTML escaping, row ord
 
 ## Schema migrations
 
-**Approved design target under D12, not an implemented spec extension or operation.** P04-01 supplies persistent database identities and observations. This section specifies schema policy without changing D11's data layout, mount lifecycle or replication contract. It applies to app databases, not `internal/store` control-database upgrades.
+**Approved under D12.** Release compatibility checks and reviewed empty-data initialization are implemented. General schema migration execution remains a design target. This contract preserves D11's data layout, mount lifecycle and replication guarantees. It applies to app databases, not control-database upgrades.
+
+### Client schema files
+
+A SQLite database may declare `schema = "db/main.sql"` and an optional `marker`
+under `[[databases]]`. The clean relative path is resolved against `brine.toml`
+on the client only, using a directory-confined open that refuses symlink files
+and directory components. The file contains at most 128 semicolon-terminated
+bounded DDL entries and at most 1 MiB. The client and host share one in-memory
+compiler and catalog observer. Comments and inter-token whitespace are
+canonicalized; quoted values remain significant. Blob prefixes must be adjacent
+to their literal. If normalization changes SQLite's inferred view column names,
+the original view statement is retained. Explicit view column names or `AS`
+aliases avoid formatting-dependent inferred names. Refusals identify the source
+line.
+
+The client derives the catalog SHA-256, initializer bytes and exact artifact
+SHA-256. The default marker is `sha256:<first 12 lowercase catalog hex digits>`.
+An explicit marker must be valid and cannot name the empty schema. Handwritten
+`schema_definitions` and `catalog_sha256` are refused. Internal retained schema
+definitions remain immutable catalog identities, not author-facing spec fields.
+
+Connected plan requests contain the original spec and required
+`schema_artifacts` metadata (an empty/null list for no schema files). Every
+artifact has exactly `definition` (database, marker, catalog SHA-256) and
+`digest`. No SQL or artifact bytes cross the planning boundary. The host checks
+metadata against declared databases and markers, while actual initialization
+still requires an operator-installed digest-addressed artifact and independently
+recompiles it before live-file creation. Metadata alone grants no data authority.
+Plans show derived artifact digests. `brine data schema <brine.toml> --database
+NAME` exports the exact canonical JSON bytes without a trailing newline. Machine modes use the standard envelope with `data.artifact` metadata and the exact JSON in the `data.bytes` string.
+P10-03 owns delivery without manual installation.
 
 ### Release compatibility declaration
 
-The future app spec adds a `schema_compatibility` array with one entry per declared persistent database. The entry has exactly these fields:
+The app spec accepts a `schema_compatibility` array with one entry per declared persistent database. The entry has exactly these fields:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
@@ -611,7 +642,7 @@ The future app spec adds a `schema_compatibility` array with one entry per decla
 | `accepts` | nonempty set of bounded schema markers | Exact schemas this release can read and write without a schema change. No wildcards, ranges or inferred ordering. |
 | `startup` | enum with only `preserve` | Startup, restart, normal writes and health checks do not change schema. |
 
-Markers are app-defined ASCII tokens matching `[A-Za-z0-9][A-Za-z0-9_.-]{0,127}`. They identify schema structure and application invariants, not release order. The same marker cannot be reused for a different meaning within an app incarnation. Each `accepts` set has at most 128 unique markers and sorts lexically in canonical input. Entries sort by database reference. Duplicate database entries, unknown references, invalid markers, extra fields and unsupported startup modes fail strict validation. Missing entries remain a planning conflict, so the planner can explain the required declaration.
+Markers are app-defined ASCII tokens matching `[A-Za-z0-9][A-Za-z0-9_.-]{0,127}` or derived tokens matching `sha256:[a-f0-9]{12}`. They identify schema structure and application invariants, not release order. The same marker cannot be reused for a different meaning within an app incarnation. Each `accepts` set has at most 128 unique markers and sorts lexically in canonical input. Entries sort by database reference. Duplicate database entries, unknown references, invalid markers, extra fields and unsupported startup modes fail strict validation. For a database with a schema file, a missing entry defaults to accepting that file's current marker with `startup = "preserve"`. Without a schema file, missing entries remain a planning conflict.
 
 For example, a release that can use either schema `orders-v1` or `orders-v2` declares both in `accepts`. A release that can use only `orders-v2` cannot deploy against `orders-v1`, and an `orders-v1`-only release cannot roll back against `orders-v2`. Brine does not infer that adding a column is safe or that a higher version contains a lower one.
 

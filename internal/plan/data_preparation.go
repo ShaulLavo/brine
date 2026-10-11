@@ -27,7 +27,7 @@ func BuildDataPreparation(in Input, proposals []data.AllocationProposal, roots [
 	if in.Desired.Runtime == nil || in.Desired.Runtime.Validate() != nil || len(proposals) == 0 || len(proposals) != len(in.Desired.Databases) || len(proposals) > 16 || !validHash(in.Desired.PolicyHash) || !validHash(in.Image.Digest) || !in.Image.validManifest() || in.Image.ManifestDigest.Status != target.KnownStatus || in.Image.ManifestDigest.Value == nil {
 		return Plan{}, fmt.Errorf("invalid preparation input")
 	}
-	p := Plan{SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Kind: Create, Lifecycle: PrepareData, Runtime: in.Desired.Runtime, Backup: in.Desired.Backup, MappingImage: data.MappingProbeImage, Secrets: []SecretBinding{}, Changes: []Change{{Kind: PrepareData}}, Conflicts: []Diagnostic{}}
+	p := Plan{SchemaArtifacts: slices.Clone(in.Desired.SchemaArtifacts), DatabaseEnvironment: in.Desired.DatabaseEnvironmentValues(), SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Kind: Create, Lifecycle: PrepareData, Runtime: in.Desired.Runtime, Backup: in.Desired.Backup, MappingImage: data.MappingProbeImage, Secrets: []SecretBinding{}, Changes: []Change{{Kind: PrepareData}}, Conflicts: []Diagnostic{}}
 	if err = in.Snapshot.Validate(); err != nil {
 		return Plan{}, err
 	}

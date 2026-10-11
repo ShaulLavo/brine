@@ -189,7 +189,8 @@ type ReplicaPrevious struct {
 }
 
 type Plan struct {
-	DatabaseEnvironment []policy.Environment `json:"database_environment,omitempty"`
+	SchemaArtifacts     []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
+	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
 
 	decisionInput      []byte
 	ReplicaPrevious    *ReplicaPrevious           `json:"replica_previous,omitempty"`
@@ -276,7 +277,7 @@ func Build(in Input) (Plan, error) {
 	if in.Desired.AppPorts.Min < 1024 || in.Desired.AppPorts.Max < in.Desired.AppPorts.Min || in.Desired.PolicyVersion == "" || !validHash(in.Desired.PolicyHash) {
 		return Plan{}, fmt.Errorf("normalized policy desired state required")
 	}
-	p := Plan{DatabaseEnvironment: in.Desired.DatabaseEnvironmentValues(), SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{}}
+	p := Plan{SchemaArtifacts: slices.Clone(in.Desired.SchemaArtifacts), DatabaseEnvironment: in.Desired.DatabaseEnvironmentValues(), SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{}}
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
 	}

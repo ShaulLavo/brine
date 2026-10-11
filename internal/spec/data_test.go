@@ -27,10 +27,7 @@ backup_destination="primary"
 database="main"
 accepts=["orders-v2","orders-v1"]
 startup="preserve"
-[[schema_definitions]]
-database="main"
-marker="orders-v1"
-catalog_sha256="688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"
+
 `
 }
 func TestPersistentDeclaration(t *testing.T) {

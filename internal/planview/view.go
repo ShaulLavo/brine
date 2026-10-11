@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -37,7 +38,8 @@ type secret struct {
 }
 
 type presentation struct {
-	DatabaseEnvironment []policy.Environment `json:"database_environment,omitempty"`
+	SchemaArtifacts     []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
+	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
 
 	SchemaVersion      int                        `json:"schema_version"`
 	Lifecycle          plan.ChangeKind            `json:"lifecycle,omitempty"`
@@ -60,6 +62,7 @@ type presentation struct {
 
 func project(p plan.Plan) presentation {
 	v := presentation{
+		SchemaArtifacts:     slices.Clone(p.SchemaArtifacts),
 		DatabaseEnvironment: slices.Clone(p.DatabaseEnvironment),
 		SchemaVersion:       p.SchemaVersion, Kind: p.Kind, Lifecycle: p.Lifecycle, App: p.App,
 		Target: p.Target, ObservedGeneration: p.ObservedGeneration,
@@ -148,6 +151,9 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 		manifest = shortDigest(*v.Image.ManifestDigest.Value, v)
 	}
 	add("  Platform manifest: " + manifest)
+	for _, artifact := range v.SchemaArtifacts {
+		add(fmt.Sprintf("  Schema initializer %s: %s", artifact.Definition.Database, artifact.Digest))
+	}
 	for _, e := range v.DatabaseEnvironment {
 		add("  " + e.Name + "=" + e.Value)
 	}

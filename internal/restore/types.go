@@ -199,7 +199,7 @@ func refuse(code string) error { return &Error{Code: code} }
 var token = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$`)
 var identifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,127}$`)
 var hash = regexp.MustCompile(`^[0-9a-f]{64}$`)
-var schemaMarker = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
+var schemaMarker = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,127}|sha256:[a-f0-9]{12})$`)
 
 func (s RestoreSource) reference() (string, string, error) {
 	switch s.Kind {
