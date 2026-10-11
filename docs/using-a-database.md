@@ -175,7 +175,9 @@ import { Database } from "bun:sqlite";
 const path = process.env.BRINE_DB_MAIN_PATH;
 if (!path) throw new Error("BRINE_DB_MAIN_PATH is required");
 const db = new Database(path, { readwrite: true, create: false });
-db.exec("PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;");
+db.exec("PRAGMA busy_timeout=5000;");
+const mode = db.query("PRAGMA journal_mode=WAL").get() as { journal_mode: string };
+if (mode.journal_mode !== "wal") throw new Error("WAL is required");
 const row = db.query("SELECT marker FROM brine_schema_marker WHERE id = 1").get() as { marker: string } | null;
 const accepts = (process.env.BRINE_DB_MAIN_ACCEPTS ?? "").split(",");
 if (!row || !accepts.includes(row.marker)) throw new Error("Unsupported database schema");
@@ -189,7 +191,7 @@ import Database from "better-sqlite3";
 const path = process.env.BRINE_DB_MAIN_PATH;
 if (!path) throw new Error("BRINE_DB_MAIN_PATH is required");
 const db = new Database(path, { fileMustExist: true });
-db.pragma("journal_mode = WAL");
+if (db.pragma("journal_mode = WAL", { simple: true }) !== "wal") throw new Error("WAL is required");
 db.pragma("busy_timeout = 5000");
 const row = db.prepare("SELECT marker FROM brine_schema_marker WHERE id = 1").get() as { marker: string } | undefined;
 const accepts = (process.env.BRINE_DB_MAIN_ACCEPTS ?? "").split(",");
@@ -204,7 +206,8 @@ use rusqlite::{Connection, OpenFlags};
 use std::{env, time::Duration};
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let db = Connection::open_with_flags(env::var("BRINE_DB_MAIN_PATH")?, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-    db.pragma_update(None, "journal_mode", "WAL")?;
+    let mode: String = db.pragma_update_and_check(None, "journal_mode", "WAL", |row| row.get(0))?;
+    if mode != "wal" { return Err("WAL is required".into()); }
     db.busy_timeout(Duration::from_secs(5))?;
     let marker: String = db.query_row("SELECT marker FROM brine_schema_marker WHERE id = 1", [], |row| row.get(0))?;
     let accepts = env::var("BRINE_DB_MAIN_ACCEPTS")?;
@@ -246,6 +249,10 @@ func main() {
     // Query notes here; a real server keeps db alive until shutdown.
 }
 ```
+
+Driver API references: [Bun SQLite](https://bun.sh/docs/api/sqlite),
+[better-sqlite3](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md)
+and [rusqlite connections](https://docs.rs/rusqlite/latest/rusqlite/struct.Connection.html).
 
 ## Custom SQLite builds
 
