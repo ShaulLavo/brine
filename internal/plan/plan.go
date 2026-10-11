@@ -253,6 +253,7 @@ func Build(in Input) (Plan, error) {
 	if e = json.Unmarshal(snapshot, &in.Snapshot); e != nil {
 		return Plan{}, e
 	}
+	in.Snapshot = portAdmissionSnapshot(in)
 	snapshot, e = canonicalDecisionFacts(in)
 	if e != nil {
 		return Plan{}, e

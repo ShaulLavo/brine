@@ -20,7 +20,7 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home strin
 	ports := map[target.Port]bool{}
 	udpPorts := []target.Port{}
 	owners := map[target.PortOwner]bool{}
-	// The snapshot reserves UDP as well as TCP, even though owners cover TCP only.
+	// ss includes both IPv4 and IPv6; unconnected UDP binds have no ownership proof.
 	for _, protocol := range []string{"-ltnpe", "-lunp"} {
 		out, e := c.probe(ctx, listenerOutputLimit, "ss", "-H", protocol)
 		if e != nil {
@@ -34,14 +34,20 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home strin
 			if len(f) < 5 {
 				return unknown[[]target.Port]()
 			}
-			index := 3 // ss normally includes LISTEN/UNCONN state.
-			if f[0] != "LISTEN" && f[0] != "UNCONN" {
-				index = 2
+			state := "LISTEN"
+			if protocol == "-lunp" {
+				state = "UNCONN"
 			}
-			if len(f) <= index {
+			if f[0] != state {
+				if f[0] == "ESTAB" {
+					continue
+				}
 				return unknown[[]target.Port]()
 			}
-			address := f[index]
+			if protocol == "-lunp" && f[4] != "*:*" && f[4] != "0.0.0.0:*" && f[4] != "[::]:*" {
+				continue
+			}
+			address := f[3]
 			i := strings.LastIndexByte(address, ':')
 			if i < 0 {
 				return unknown[[]target.Port]()

@@ -5,6 +5,7 @@ package inventory
 import (
 	"context"
 	"io/fs"
+	"slices"
 	"strings"
 	"testing"
 
@@ -187,6 +188,26 @@ func TestSocketIdentityBeforeAppAttribution(t *testing.T) {
 			owner := (*snapshot.PortOwners.Value)[0]
 			if (owner.App == "api") != tc.owned {
 				t.Fatalf("unproven socket ownership=%+v", owner)
+			}
+		})
+	}
+}
+
+func TestListenerSocketStates(t *testing.T) {
+	for _, tc := range []struct {
+		name, tcp, udp string
+		want           []target.Port
+	}{
+		{"IPv4 and IPv6 listeners", "LISTEN 0 128 127.0.0.1:20000 0.0.0.0:*\nLISTEN 0 128 [::]:20001 [::]:*", "UNCONN 0 0 0.0.0.0:20002 0.0.0.0:*\nUNCONN 0 0 [::]:20003 [::]:*", []target.Port{20000, 20001, 20002, 20003}},
+		{"connected clients are not listeners", "ESTAB 0 0 127.0.0.1:20000 127.0.0.1:443", "ESTAB 0 0 127.0.0.1:20001 127.0.0.1:53\nUNCONN 0 0 127.0.0.1:20002 127.0.0.1:53", []target.Port{}},
+		{"unconnected ephemeral binds remain inventory", "", "UNCONN 0 0 *:45006 *:*", []target.Port{45006}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := target.Snapshot{}
+			r := fakeRunner{"ss -H -ltnpe": tc.tcp, "ss -H -lunp": tc.udp}
+			(Collector{FS: baseFixture(), Runner: r}).listeners(context.Background(), &s, "/home/brine", nil)
+			if s.UsedPorts.Value == nil || !slices.Equal(*s.UsedPorts.Value, tc.want) {
+				t.Fatalf("ports=%+v want=%v", s.UsedPorts, tc.want)
 			}
 		})
 	}
