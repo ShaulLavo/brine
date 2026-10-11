@@ -57,6 +57,10 @@ If any exact-capture or observer gate fails, leave managed mutation admission di
 
 **Evidence.** T35 covers this task. Add TEST_MATRIX standalone runtime cases for immediate acknowledged-write stop, active WS, scheduled reducers, signal forwarding, stop timeout, corruption, incomplete snapshots, durable offsets, torn active-head records, concurrent rotation/compaction, metadata drift and private replay. Record finite test budgets and exact expected marker values. Document remaining unproven durability semantics and refuse dependent admission rather than claim zero loss.
 
+**Delivered prerequisite slice.** [P09 runtime evidence](../evidence/p09-runtime.md) and the [manual repository gate](../../tools/spacetime-runtime/README.md) retain actual native/OCI, online-prefix, metadata, shutdown, guarded-bootstrap, publication and JWT facts. The shared Go canonicalizer and hook-free metadata observer are qualified without managed admission. Canonicalizer v2 fixes reducer-set ordering; the pilot v1 hash remains historical only. Actual program hashing is Keccak-256 with a reversed u256 JSON wire representation, not BLAKE3. The retained repository gate recovers 180 explicitly confirmed rows with active history versus 135 from closed history, and refuses missing-history reconstruction when bootstrap bytes are withheld. Its nonzero source stop earns no exact point.
+
+P09-02 stays unchecked. Production startup provenance/fence composition and exact-state native framing/high-water qualification remain required; unknown stops cannot supply exact preparation. P09-04/05 own their integration, and the physical Brine/R2 operation drill remains P09-08. No spec or backup capability is admitted by these helpers.
+
 ### P09-03. Publish a reproducible multi-architecture game-data fixture
 
 - [ ] **P09-03**

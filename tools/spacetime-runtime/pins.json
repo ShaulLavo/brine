@@ -1,0 +1,22 @@
+{
+  "runtime_version": "2.11.0",
+  "module_sdk": "2.11.0",
+  "client_sdk": "2.11.0",
+  "rust_toolchain": "1.96.1",
+  "bun": "1.4.2",
+  "image": "docker.io/clockworklabs/spacetime@sha256:088aeefda7397bc265876e27fa254cbff64b8563dcc8d28db98423176c64af63",
+  "container_uid": 1000,
+  "container_gid": 1000,
+  "platforms": {
+    "linux/amd64": {
+      "manifest": "sha256:9fb3048daa9fa68ddfe6418ee680e0171761770caca6e0dff7595cda9366f462",
+      "archive_sha256": "fe4645f3abc96a5386ebe98879bba0bea2d0bf56ad7612c322e36a7b93ba04d0",
+      "standalone_sha256": "71b5cff71ad5f8d8b3f66292a0ce88f99877454ef465744246c22204d0a72729"
+    },
+    "linux/arm64": {
+      "manifest": "sha256:c4a7048f9ff3981980b97f0119c6221ac51c0a7b78e2d4447f0ee1ee22bae6fa",
+      "archive_sha256": "be9f967b9df9d4581b88146e6f22f01cbaccd126f0d5eacd5cc4e72d427e1d16",
+      "standalone_sha256": "a22798d577d88f285f477f61b5b1a385b27c479eb6c0a25a1a7869468630a533"
+    }
+  }
+}
