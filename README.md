@@ -6,7 +6,7 @@ Agent-first self-hosted deployments, with a human-friendly Charm CLI.
 
 An experiment for running personal applications on enrolled Linux servers. Routine deployments use a deterministic command API; the full terminal interface is still planned.
 
-> **Status: stateless deployment implemented.** Brine supports enrollment, connected planning, detached deployment, app and operation status, logs, diagnosis, reconciliation, recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical test](docs/evidence/p03-pi.md) passed on the authorized test host. This is not a production-readiness, zero-downtime or R2-restore claim. Persistent app data and Litestream/R2 backup and restore remain Phase 04 work. The Charm TUI is currently a welcome screen.
+> **Status: deployment and reviewed first-database initialization implemented.** Brine supports enrollment, connected planning, detached deployment, app and operation status, logs, diagnosis, reconciliation, recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical test](docs/evidence/p03-pi.md) passed on the authorized test host. This is not a production-readiness, zero-downtime or R2-restore claim. The one-command SQLite workflow is implemented; the remaining Phase 04 backup, migration, removal and recovery acceptance gates are still open. The Charm TUI is currently a welcome screen.
 
 ## Components
 
@@ -16,8 +16,8 @@ An experiment for running personal applications on enrolled Linux servers. Routi
 | Containers | Podman | Digest-pinned images and immutable secret versions |
 | Service lifecycle | Quadlet + systemd | Owned app units, detached jobs and boot reconciliation |
 | Control state | SQLite | Durable plans, releases and operation records |
-| Persistent app databases | SQLite | Planned in Phase 04 |
-| App backups | Litestream to S3-compatible storage, including R2 | Planned in Phase 04; no verified restore yet |
+| Persistent app databases | SQLite | Prepared storage, reviewed first initialization and schema-preserving releases |
+| App backups | Litestream to S3-compatible storage, including R2 | Credential delivery, replication units and isolated restore checks; full Phase 04 acceptance remains open |
 | Private administration | Tailscale | Operator-managed access, not a deployment prerequisite |
 | Reference cloud host | Hetzner | Deployment is limited to enrolled Linux servers, not one provider |
 | Human UI | Charm | Welcome screen now; full operation UI planned |
@@ -127,7 +127,7 @@ No success here claims that a physical deployment or full R2 recovery drill ran.
 
 ## Next work
 
-- Persistent SQLite app data, independently managed Litestream replication to operator-supplied S3-compatible storage and isolated restore drills.
+- Remaining Phase 04 backup, recovery and persistent removal acceptance drills.
 - Separate, policy-gated application schema changes.
 - A full Charm TUI sharing the command API's operation engine.
 - Later drops, git previews and approved WebTransport support.
@@ -138,7 +138,10 @@ No destructive operation should bypass authorization boundaries, durable operati
 
 Start with the [implementation roadmap](docs/PLAN.md), then the [phase-by-phase task list](docs/plans/README.md). These documents include [command contracts](docs/CONTRACTS.md), a [failure/acceptance test matrix](docs/TEST_MATRIX.md), and [agent instructions](AGENTS.md). Use completed task checkboxes and recorded evidence to distinguish implemented behavior from future work.
 
-See also [Architecture](docs/ARCHITECTURE.md).
+For app-owned SQLite, start with [Using a database](docs/using-a-database.md).
+It covers the schema file, one-command first deployment and ordinary driver
+examples. See [initialization and recovery](docs/data-initialization.md) for the
+operation guarantees, and [Architecture](docs/ARCHITECTURE.md) for the system.
 
 ## License
 
