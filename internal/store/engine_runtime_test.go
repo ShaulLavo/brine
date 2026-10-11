@@ -52,18 +52,18 @@ func TestEngineRuntimeCommitNeedsOwnedFenceAndKeepsStartupFenced(t *testing.T) {
 		t.Fatal(err)
 	}
 	permit, err := s.ReadEnginePermit(ctx, reserved.Database.BindingID)
-	if err != nil || permit.AllowsStart(time.Now().UTC()) {
+	if err != nil || permit.AllowsVerification(time.Now().UTC()) {
 		t.Fatal("committed runtime released the fence", err)
 	}
 	if err = s.ReleaseDataFence(ctx, fence.ID, "fixture"); err != nil {
 		t.Fatal(err)
 	}
 	permit, err = s.ReadEnginePermit(ctx, reserved.Database.BindingID)
-	if err != nil || !permit.AllowsStart(time.Now().UTC()) {
+	if err != nil || !permit.AllowsVerification(time.Now().UTC()) {
 		t.Fatal("matching initialized ownership refused", err)
 	}
 	permit.Runtime.Secrets.Publisher.ExpiresAt = time.Now().UTC().Add(-time.Second)
-	if permit.AllowsStart(time.Now().UTC()) {
+	if permit.AllowsVerification(time.Now().UTC()) {
 		t.Fatal("expired publisher metadata admitted startup")
 	}
 }
