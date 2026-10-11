@@ -159,6 +159,7 @@ func TestArchiveMigrationTwelvePreservesPreparedManifestAndFences(t *testing.T) 
 	s := openTest(t)
 	p, o, m := preparedStoredArchive(t, s)
 	ctx := context.Background()
+	dropEngineMigrationFixture(t, ctx, s)
 	for _, table := range []string{"data_archive_credential_receipts", "data_archive_credential_plans", "data_archive_retention_proofs", "data_archive_deletions", "data_archive_maintenance_plans", "data_archive_retirements", "data_archive_dispositions"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatal(err)
