@@ -130,6 +130,7 @@ func TestArchiveRenameSymlinkSwapCannotMoveOutsideData(t *testing.T) {
 			if _, statErr = os.Lstat(filepath.Join(outside, "archives", string(id))); !os.IsNotExist(statErr) {
 				t.Fatal("wrote outside destination", statErr)
 			}
+			// #nosec G304 -- Fixed sentinel filename under this test's private outside fixture.
 			if raw, readErr := os.ReadFile(filepath.Join(foreignSource, "sentinel")); readErr != nil || string(raw) != "outside" {
 				t.Fatal("changed outside bytes", readErr)
 			}

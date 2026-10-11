@@ -78,7 +78,11 @@ func TestRemoveMountedDataRefusesArchive(t *testing.T) {
 func TestArchiveRemovalAcceptsRenderedPersistentUnitAndPreservesData(t *testing.T) {
 	home := t.TempDir()
 	m := manager(t, home)
-	defer m.Close()
+	defer func() {
+		if err := m.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	d, p := persistentFixture(t)
 	dataRoot := t.TempDir()
 	d.Databases[0].PersistentRoot = data.PersistentRoot(dataRoot)
@@ -114,6 +118,7 @@ func TestArchiveRemovalAcceptsRenderedPersistentUnitAndPreservesData(t *testing.
 	if err = m.VerifyArchiveRemove(context.Background(), u.Name(), u.Hash()); err == nil {
 		t.Fatal("absent unit mistaken for pristine runtime")
 	}
+	// #nosec G304 -- Fixed filename inside this test's privately created database directory.
 	if got, err := os.ReadFile(databasePath); err != nil || string(got) != "retained database" {
 		t.Fatal("deleted database", err)
 	}
