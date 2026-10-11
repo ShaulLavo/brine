@@ -250,12 +250,16 @@ func Build(in Input) (Plan, error) {
 	if e = json.Unmarshal(desired, &in.Desired); e != nil {
 		return Plan{}, e
 	}
-	if in.Desired.SpacetimeDB != nil {
-		return buildManagedPreview(in, desired)
-	}
 	in.Snapshot = target.Snapshot{}
 	if e = json.Unmarshal(snapshot, &in.Snapshot); e != nil {
 		return Plan{}, e
+	}
+	if value := in.Image.ManifestDigest.Value; value != nil {
+		detached := *value
+		in.Image.ManifestDigest.Value = &detached
+	}
+	if in.Desired.SpacetimeDB != nil {
+		return buildManagedPreview(in, desired)
 	}
 	in.Snapshot = portAdmissionSnapshot(in)
 	snapshot, e = canonicalDecisionFacts(in)
@@ -272,9 +276,6 @@ func Build(in Input) (Plan, error) {
 	}
 	if !in.Image.validManifest() {
 		return Plan{}, fmt.Errorf("image requires a known digest or unknown manifest observation")
-	}
-	if in.Image.ManifestDigest.Value != nil {
-		in.Image.ManifestDigest = target.Known(*in.Image.ManifestDigest.Value)
 	}
 	if !validHash(in.Image.Digest) || !strings.HasSuffix(string(in.Desired.Image), "@"+in.Image.Digest) {
 		return Plan{}, fmt.Errorf("image metadata must match pinned desired digest")

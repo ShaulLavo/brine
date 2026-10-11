@@ -10,6 +10,11 @@ secret-purpose separation, independent ports and typed client-route denies.
 Managed plans must remain conflict-only with zero executable changes. Renderer
 checks cover the typed Podman supervisor service and optional frontend Quadlet;
 an explicit pinned local Caddy CLI can independently adapt both route previews.
+Optional actual Caddy routing probes compare the pure checker with forwarding
+to private HTTP stubs, covering literal/escaped/cleaned paths, duplicate and
+encoded token keys, SDK query fields, malformed encoding and terminal original
+managed-prefix denial before frontend fallback. Caller input mutation must not
+change an already hashed managed plan.
 These checks do not complete T37 or verify physical routing, startup, publishing,
 backup, fence handoff or reboot.
 

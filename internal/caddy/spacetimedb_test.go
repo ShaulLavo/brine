@@ -53,16 +53,7 @@ func managedPreview(t testing.TB, frontend bool) plan.ManagedRenderPreview {
 }
 
 func TestManagedPreviewAdaptsWithPinnedCaddy(t *testing.T) {
-	binary := os.Getenv("BRINE_TEST_CADDY")
-	if binary == "" {
-		t.Skip("explicit local Caddy verifier not provided")
-	}
-	if !filepath.IsAbs(binary) {
-		t.Fatal("Caddy verifier must be an absolute path")
-	}
-	if !bytes.HasPrefix(runCaddyVerifier(t, binary, "version"), []byte("v2.10.2 ")) {
-		t.Fatal("Caddy verifier must be pinned to v2.10.2")
-	}
+	binary := pinnedCaddyVerifier(t)
 	for _, frontend := range []bool{false, true} {
 		raw, err := RenderManagedPreview(managedPreview(t, frontend))
 		if err != nil {
@@ -79,18 +70,39 @@ func TestManagedPreviewAdaptsWithPinnedCaddy(t *testing.T) {
 	}
 }
 
+func pinnedCaddyVerifier(t *testing.T) string {
+	t.Helper()
+	binary := os.Getenv("BRINE_TEST_CADDY")
+	if binary == "" {
+		t.Skip("explicit local Caddy verifier not provided")
+	}
+	if !filepath.IsAbs(binary) {
+		t.Fatal("Caddy verifier must be an absolute path")
+	}
+	if !bytes.HasPrefix(runCaddyVerifier(t, binary, "version"), []byte("v2.10.2 ")) {
+		t.Fatal("Caddy verifier must be pinned to v2.10.2")
+	}
+	return binary
+}
+
 func runCaddyVerifier(t *testing.T, binary string, args ...string) []byte {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// #nosec G204 G702 -- Explicit local test opt-in selects the verifier; production previews launch no process.
-	command := exec.CommandContext(ctx, binary, args...)
-	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
+	command := caddyVerifierCommand(t, ctx, binary, args...)
 	output, err := command.Output()
 	if err != nil {
 		t.Fatal("Caddy verifier failed", err)
 	}
 	return output
+}
+
+func caddyVerifierCommand(t *testing.T, ctx context.Context, binary string, args ...string) *exec.Cmd {
+	t.Helper()
+	// #nosec G204 G702 -- Explicit local test opt-in selects the verifier; production previews launch no process.
+	command := exec.CommandContext(ctx, binary, args...)
+	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
+	return command
 }
 
 func TestManagedClientRouteAllowlist(t *testing.T) {
@@ -125,7 +137,7 @@ func TestManagedCaddyPreviewOrdersDenyBeforeFrontend(t *testing.T) {
 		if deny < 0 || frontend && fallback < deny || !frontend && !bytes.Contains(raw, []byte("respond 404")) {
 			t.Fatal("managed denial did not precede fallback")
 		}
-		if bytes.Contains(raw, []byte("/v1/*")) || !bytes.Contains(raw, []byte("uri strip_prefix /_brine/db/main")) || !bytes.Contains(raw, []byte("header Upgrade websocket")) || !bytes.Contains(raw, []byte("Authorization")) {
+		if bytes.Contains(raw, []byte("/v1/*")) || !bytes.Contains(raw, []byte("uri strip_prefix /_brine/db/main")) || !bytes.Contains(raw, []byte("lowerAscii() == 'websocket'")) || !bytes.Contains(raw, []byte("Authorization")) {
 			t.Fatal("missing typed route/auth boundaries")
 		}
 	}

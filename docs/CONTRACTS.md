@@ -86,6 +86,16 @@ requests before frontend fallback. The engine must authenticate JWTs; Caddy
 does not validate them. Real forwarding and boot/fence qualification remain
 P09-04 integration acceptance.
 
+The executable route guard matches the original literal client path, so escaped
+and cleaned path aliases cannot pass the allowlist. Subscription queries retain
+SDK fields such as `confirmed`, `compression` and `connection_id`, but require
+one nonempty token and reject duplicate token keys, including encoded aliases.
+Malformed query encoding refuses. Both original decoded and normalized managed
+namespaces terminate before frontend fallback, including traversal out of the
+reserved prefix. Optional local checks drive the actual pinned Caddy config
+against private HTTP stubs. They qualify route selection, not native JWT or
+WebSocket subscription behavior.
+
 Wasm artifact SHA-256 and native runtime identity are distinct. The pinned
 runtime hashes program bytes with Keccak-256; API JSON encodes a little-endian
 u256, unlike its display digest. Client `ParseFile` reads confined regular files

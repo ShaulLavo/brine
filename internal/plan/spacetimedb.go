@@ -89,10 +89,16 @@ func buildManagedPreview(in Input, desired []byte) (Plan, error) {
 	}
 	d := in.Desired
 	image := in.Image
+	if d.App().HasAppContainer() && (!image.validManifest() || !validHash(image.Digest) || !strings.HasSuffix(string(d.Image), "@"+image.Digest)) {
+		return Plan{}, errors.New("managed preview: frontend image metadata must match its pinned digest")
+	}
 	if !d.App().HasAppContainer() {
 		image = Image{Digest: strings.SplitN(string(d.SpacetimeDB.Image), "@", 2)[1], Platform: target.Platform{OS: "linux", Arch: in.Snapshot.Arch}, ManifestDigest: target.Observation[string]{Status: target.Unknown}}
 	}
 	p := Plan{SchemaVersion: SchemaVersion, Kind: Conflict, App: string(d.Name), Image: image, Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: d.PolicyVersion, PolicyHash: d.PolicyHash, DesiredHash: hash(desired), DatabaseEnvironment: d.DatabaseEnvironmentValues(), Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{{Code: ManagedEngineUnsupported, Field: "databases.spacetimedb"}}}
+	if d.App().HasAppContainer() && (image.Platform.OS != "linux" || image.Platform.Arch != in.Snapshot.Arch) {
+		p.Conflicts = append(p.Conflicts, Diagnostic{Code: ImagePlatform, Field: "image.platform"})
+	}
 	ports, known := previewPorts(in)
 	needed := 1
 	if d.App().HasAppContainer() {
