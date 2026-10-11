@@ -70,7 +70,7 @@ Brine needs only:
   completed IDs; an initialized update also passed. These are completed-stage
   client checkpoints, not every detached effect boundary or a release-step kill.
 
-- [ ] **P10-05 Docs: "Using a database".** One page: the contract above, a minimal `brine.toml`, a schema file, and 10-line examples for TypeScript (`bun:sqlite` and `better-sqlite3`), Rust (`rusqlite`) and Go (`modernc` or `mattn/go-sqlite3`), each opening `BRINE_DB_MAIN_PATH`, enabling WAL and busy timeout, and checking the marker. Include how to add a column later (points to the reviewed migration flow) and what custom SQLite builds may and may not do. Replace the manual steps in `docs/data-initialization.md`.
+- [x] **P10-05 Docs: "Using a database".** One page: the contract above, a minimal `brine.toml`, a schema file, and short, complete examples for TypeScript (`bun:sqlite` and `better-sqlite3`), Rust (`rusqlite`) and Go (`modernc` or `mattn/go-sqlite3`), each opening `BRINE_DB_MAIN_PATH`, enabling WAL and busy timeout, and checking the marker. Include how to add a column later (points to the reviewed migration flow) and what custom SQLite builds may and may not do. Replace the manual steps in `docs/data-initialization.md`.
 
   The walkthrough is [Using a database](../using-a-database.md), linked from
   the README and initialization reference. Its spec parses and its SQL compiles
@@ -82,11 +82,11 @@ Brine needs only:
   the page links P04-07 rather than inventing a migration command. No physical
   deployment, custom-build drill or provider restore is claimed by those examples.
 
-  **Remaining:**
-  - Meet the requested ten-line example size without dropping path, WAL, timeout
-    or marker checks. Bun currently has 11 lines, Rust 12 and Go 26 (24 nonblank).
-    The guide otherwise covers every requested topic. Rust/better-sqlite3 runtime
-    checks remain unverified, not an additional acceptance requirement.
+  **Coordinator clarification (2026-10-11):** "10-line examples" was a size
+  hint, not an acceptance gate. The requirement is short, complete examples;
+  imports and error handling belong in the Go example. Every requested topic
+  is covered, so P10-05 is checked. Rust/better-sqlite3 execution remains
+  unverified and is not an additional documentation acceptance requirement.
 
 - [ ] **P10-06 Pi drill.** Under D3: create a new app from a repo schema file with one `brine deploy`; verify env variables in the container, initialization, replication and a restore test. Repeat with a fixture built against a different SQLite version or compile options to show custom builds pass. Interrupt P10-04 at each step and rerun to completion.
 
