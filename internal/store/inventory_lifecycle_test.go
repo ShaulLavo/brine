@@ -50,9 +50,8 @@ func (r inventoryFixtureRunner) Execute(ctx context.Context, cmd localexec.Comma
 	return localexec.Result{Stdout: out}, err
 }
 
-func TestCreateRemoveRecreateThroughProductionCollector(t *testing.T) {
-	ctx := context.Background()
-	s := openTest(t)
+func inventoryLifecycleFixture(t *testing.T, s *Store) (inventory.Collector, inventoryFixtureRunner, string, func(string, string), func(string) string) {
+	t.Helper()
 	root := t.TempDir()
 	write := func(path, content string) {
 		t.Helper()
@@ -97,7 +96,7 @@ func TestCreateRemoveRecreateThroughProductionCollector(t *testing.T) {
 	if err := os.Symlink("gen-0", filepath.Join(root, "/etc/caddy/brine/current")); err != nil {
 		t.Fatal(err)
 	}
-	const secretsCommand = "podman --remote=false secret ls --format {{.ID}} {{.Name}}"
+	const listCommand = "podman --remote=false secret ls --format {{.ID}} {{.Name}}"
 	const containersCommand = `podman --remote=false ps --all --format {{.Names}} {{.Label "PODMAN_SYSTEMD_UNIT"}}`
 	const liveConfigCommand = "curl --disable --noproxy * --silent --fail --max-time 2 http://127.0.0.1:2019/config/"
 	const adaptCommand = "caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile"
@@ -105,9 +104,21 @@ func TestCreateRemoveRecreateThroughProductionCollector(t *testing.T) {
 	runner := inventoryFixtureRunner{
 		"uname -m": "aarch64", "systemctl --version": "systemd 257", "podman version --format json": `{"Client":{"Version":"5.4.2"}}`,
 		"passt --version": "passt 0.0~git20250503.587980c", "caddy version": "2.6.2", "df -B1 --output=avail /home/brine/.local/state/brine": "Avail\n10737418240\n",
-		"ss -H -ltnpe": "", "ss -H -lunp": "", secretsCommand: "fixture-id brine.hello.db.v1", containersCommand: "", adaptCommand: empty, liveConfigCommand: empty,
+		"ss -H -ltnpe": "", "ss -H -lunp": "", listCommand: "fixture-id brine.hello.db.v1", containersCommand: "", adaptCommand: empty, liveConfigCommand: empty,
 	}
 	collector := inventory.Collector{FS: inventoryFixtureFS{root}, Runner: runner, IdentityKey: []byte("fixture-only-key"), StateInventory: s.InventoryState}
+	return collector, runner, root, write, read
+}
+
+func TestCreateRemoveRecreateThroughProductionCollector(t *testing.T) {
+	ctx := context.Background()
+	s := openTest(t)
+	collector, runner, root, write, read := inventoryLifecycleFixture(t, s)
+	const listCommand = "podman --remote=false secret ls --format {{.ID}} {{.Name}}"
+	const containersCommand = `podman --remote=false ps --all --format {{.Names}} {{.Label "PODMAN_SYSTEMD_UNIT"}}`
+	const liveConfigCommand = "curl --disable --noproxy * --silent --fail --max-time 2 http://127.0.0.1:2019/config/"
+	const adaptCommand = "caddy adapt --config /etc/caddy/Caddyfile --adapter caddyfile"
+	empty := read("../inventory/testdata/import-empty.json")
 	in := fixture(t)
 	in.Desired.Secrets = []policy.Secret{{Name: "DB", Reference: "db"}}
 	facts := func() plan.Input {
@@ -230,7 +241,7 @@ func TestCreateRemoveRecreateThroughProductionCollector(t *testing.T) {
 	if p, err := plan.Build(observed); err != nil || p.Kind != plan.NoOp || *observed.Snapshot.Generation.Value != 3 {
 		t.Fatal("recreated app not observed as committed", p.Conflicts, err)
 	}
-	if _, err = s.ReleaseByID(ctx, "hello", first.ID); err != nil || runner[secretsCommand] != "fixture-id brine.hello.db.v1" {
+	if _, err = s.ReleaseByID(ctx, "hello", first.ID); err != nil || runner[listCommand] != "fixture-id brine.hello.db.v1" {
 		t.Fatal("retained history or secret changed", err)
 	}
 }
