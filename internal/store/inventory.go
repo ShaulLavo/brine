@@ -141,6 +141,14 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 		if err != nil {
 			return result, err
 		}
+		releasePlan, _, err := loadPlan(ctx, tx, release.PlanID)
+		if err != nil {
+			return result, err
+		}
+		if releasePlan.App != item.app || result.Target != nil && *result.Target != releasePlan.Target {
+			return result, &IntegrityError{}
+		}
+		result.Target = &releasePlan.Target
 		app := apps[item.app]
 		if app.Status != target.KnownStatus && latest[item.app] == item.release {
 			app.Status = target.Absent
