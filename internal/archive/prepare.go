@@ -64,7 +64,7 @@ func (s Service) Plan(ctx context.Context, app string) (p Plan, err error) {
 	}
 	defer func() { err = errors.Join(err, release()) }()
 	p, err = s.Host.Facts(ctx, app)
-	if err != nil {
+	if err != nil || !preparationCoverageSupported(p.Candidate) {
 		return Plan{}, ErrRefused
 	}
 	id, err := data.NewID()
@@ -129,7 +129,7 @@ func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest
 		return s.Journal.ReadArchiveManifest(ctx, p.ArchiveID)
 	}
 	fresh, err := s.Host.Facts(ctx, app)
-	if err != nil || !reflect.DeepEqual(fresh.Candidate, p.Candidate) || fresh.PolicyHash != p.PolicyHash || fresh.TargetHash != p.TargetHash || fresh.Generation != p.Generation {
+	if err != nil || !preparationCoverageSupported(fresh.Candidate) || !reflect.DeepEqual(fresh.Candidate, p.Candidate) || fresh.PolicyHash != p.PolicyHash || fresh.TargetHash != p.TargetHash || fresh.Generation != p.Generation {
 		return manifest, ErrRefused
 	}
 	for _, tree := range p.Trees {
@@ -208,4 +208,16 @@ func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest
 		return Manifest{}, ErrRecovery
 	}
 	return manifest, nil
+}
+
+// Initialized coverage currently restores one exact epoch source. Reject known
+// unsupported histories before recording a plan or claiming any startup fences.
+// Never-written allocations use fresh emptiness evidence, not an epoch restore.
+func preparationCoverageSupported(candidate Candidate) bool {
+	for _, database := range candidate.Databases {
+		if database.Written && len(database.Epochs) != 1 {
+			return false
+		}
+	}
+	return true
 }

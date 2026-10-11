@@ -198,3 +198,65 @@ func TestArchiveLockReleaseFailureDoesNotBecomeSuccess(t *testing.T) {
 		t.Fatal("lost cleanup failure or terminal evidence", err)
 	}
 }
+
+func multiEpochPreparationPlan(t *testing.T, p Plan, written bool) Plan {
+	t.Helper()
+	p.Candidate.Databases = append([]Database(nil), p.Candidate.Databases...)
+	d := &p.Candidate.Databases[0]
+	d.Written = written
+	epoch := d.Epochs[0]
+	epoch.EpochID = data.ReplicaEpochID(strings.Repeat("f", 32))
+	var err error
+	epoch.RemotePrefix, err = data.RemotePrefix(epoch.Destination.BasePrefix, d.Binding.IncarnationID, d.Binding.DatabaseID, epoch.EpochID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.Epochs = append(append([]data.ReplicaBinding(nil), d.Epochs...), epoch)
+	d.Retention = append(append([]data.RetentionEvidence(nil), d.Retention...), d.Retention[0])
+	p.ID, err = p.Fingerprint()
+	if err != nil || !p.Valid() {
+		t.Fatal("invalid multi-epoch fixture", err)
+	}
+	return p
+}
+
+type preparationFactsRig struct {
+	*preparationRig
+	fresh Plan
+}
+
+func (r preparationFactsRig) Facts(context.Context, string) (Plan, error) {
+	return r.fresh, r.event("facts")
+}
+
+func TestArchiveUnsupportedEpochCoverageRefusesBeforeEffects(t *testing.T) {
+	for _, phase := range []string{"planning", "retained plan", "fresh facts"} {
+		t.Run(phase, func(t *testing.T) {
+			s, r := preparationFixture(t)
+			unsupported := multiEpochPreparationPlan(t, r.p, true)
+			if phase == "fresh facts" {
+				s.Host = preparationFactsRig{preparationRig: r, fresh: unsupported}
+			} else {
+				r.p = unsupported
+			}
+			retained := r.p
+			var err error
+			if phase == "planning" {
+				_, err = s.Plan(context.Background(), r.p.Candidate.App)
+			} else {
+				_, err = s.Prepare(context.Background(), r.p.Candidate.App, r.p.ID)
+			}
+			if !errors.Is(err, ErrRefused) || r.op.ID != "" || !reflect.DeepEqual(r.p, retained) || !reflect.DeepEqual(r.events, []string{"facts", "unlock host"}) {
+				t.Fatal("unsupported coverage caused an outage or saved a plan", err, r.op, r.events)
+			}
+		})
+	}
+}
+
+func TestArchiveNeverWrittenMultiEpochPlanningRemainsSupported(t *testing.T) {
+	s, r := preparationFixture(t)
+	r.p = multiEpochPreparationPlan(t, r.p, false)
+	if _, err := s.Plan(context.Background(), r.p.Candidate.App); err != nil {
+		t.Fatal(err)
+	}
+}
