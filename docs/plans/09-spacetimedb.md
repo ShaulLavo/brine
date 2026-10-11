@@ -35,7 +35,7 @@ If any exact-capture or observer gate fails, leave managed mutation admission di
 
 ### P09-01. Extract the typed engine boundary without changing SQLite behavior
 
-- [ ] **P09-01**
+- [x] **P09-01**
 
 **Dependencies.** Merged Phase 04 identity/allocation, durable fence/permit, credential and restore-source foundations. Existing implementation must pass its regression suite. Full Phase 04 physical exit is not a prerequisite for this behavior-preserving extraction.
 
@@ -43,7 +43,7 @@ If any exact-capture or observer gate fails, leave managed mutation admission di
 
 **Acceptance.** Existing SQLite TOML, JSON plans, schema fingerprints, restore receipts, initialization, credential activation, fence/reboot semantics and archive reservations remain correct. An engine mismatch cannot consume a SQLite restore point or start a service. A SpacetimeDB declaration does not require a `.db` filename, LTX TXID or Litestream unit.
 
-**Evidence.** T34 covers this task. Add TEST_MATRIX engine-boundary cases beside T12-T16/T19/T22-T23, including unknown tags, cross-engine receipts, missing permits and SQLite golden regressions. Run the complete existing suite and contract goldens. Show before/after SQLite plan and receipt examples with no unexplained semantic differences. No physical SpacetimeDB claim in this task.
+**Evidence.** T34 is implemented by the closed-codec, ownership/null, unsupported-operation and cross-engine permit/source tests, plus `scripts/check-engine-boundary.sh`. Independent review reproduced and verified fixes for caller-owned evidence and required-null gaps. Persistent allocated/unknown desired and plan goldens and a checked SQLite receipt match actual pre-extraction bytes. Full `go test ./...`, Linux and darwin/arm64 vet, CLI build, lint, authority/dead-code/clone checks and focused race tests pass. No physical SpacetimeDB claim is made in this task.
 
 ### P09-02. Prove the pinned standalone runtime and capture prerequisites
 

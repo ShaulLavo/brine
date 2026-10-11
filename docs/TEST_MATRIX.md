@@ -49,7 +49,7 @@
 
 Detailed setup, task dependencies and acceptance requirements for T25-T33 live in the [Phase 08 plan](plans/08-webtransport.md). Initial direct-UDP full-app support and shared-port/preview support have separate exit gates.
 
-Phase 09 cases T34-T42 are **required acceptance, not shipped evidence**. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
+T34 has local typed-boundary acceptance evidence. Phase 09 cases T35-T42 are **required acceptance, not shipped evidence**. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
 
 ## T16 schema policy acceptance, physical completion pending
 
@@ -373,3 +373,12 @@ Before T22 is checked, complete the separately authorized physical fixture: init
 Retained purge mount-boundary regressions compare known/missing/zero/different mount-ID evidence without privileges. A separate subprocess with its own private mount namespace bind-mounts live data into an archived bundle and checks both live bytes and an ordinary archived file survive refusal. The mount regression explicitly skips where namespace or mount permissions are unavailable; such a skip is not physical mount-isolation evidence.
 
 Retained multi-root reconciliation adopts an already missing first tree only under its pre-existing in-flight intent, then refuses a later tree renamed away immediately before its deletion call. The regression asserts recovery-required at the later intent, no deletion receipt/completion, and preserved moved-tree bytes.
+
+
+## Typed engine boundary evidence (P09-01 / T34)
+
+Closed engine records reject unknown, missing, null, duplicate and mismatched tags. SpacetimeDB structural declarations and sources have no SQLite filename, catalog, PRAGMA, LTX or Litestream requirement, while current spec/runtime admission stays disabled. Unsupported observation/capture/verification refuses before binding/credential/workspace effects. SQLite writer/replica permits require the matching engine and shared identity/fence/ownership proof before exact Litestream runtime checks.
+
+`internal/data/ownership_test.go` and `internal/restore/ownership_test.go` mutate caller/getter evidence and prove retained source, barrier, declared invariants, coverage, sentinel and nested allocation proofs stay unchanged. The verifier still enforces a two-row requirement after the caller changes its original slice to one row. Null negatives cover every required concrete binding/source/barrier field and invalid binding/epoch tokens. Independent overlay reproductions pass after these fixes.
+
+`internal/plan/testdata/sqlite-allocated-*.json`, `sqlite-unknown-*.json` and `internal/restore/testdata/sqlite-engine-receipt.json` preserve actual pre-extraction bytes. Independent review compiled the actual base with the same fixtures and confirmed all five outputs. `scripts/check-engine-boundary.sh` forces golden regeneration off even under inherited update settings. Full regression tests, Linux/darwin vet, CLI build, static authority/dead-code/clone gates and focused race tests pass. T34 claims local SQLite preservation and fail-closed typed dispatch only; physical SpacetimeDB acceptance remains T35-T42.
