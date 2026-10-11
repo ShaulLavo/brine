@@ -70,6 +70,13 @@ Brine needs only:
   completed IDs; an initialized update also passed. These are completed-stage
   client checkpoints, not every detached effect boundary or a release-step kill.
 
+  Local regressions also cover immediate resume while an accepted release still
+  holds the mutation lock, with and without a saved acceptance ID. Observation
+  completes before retained checkpoint validation, without another release. Host
+  fixtures cover the terminal-status/lock-release handoff and return a typed
+  conflict after a five-second checkpoint lock wait. No new physical receipt is
+  claimed by these fixtures; P10-06 remains open for the authorized host drill.
+
 - [x] **P10-05 Docs: "Using a database".** One page: the contract above, a minimal `brine.toml`, a schema file, and short, complete examples for TypeScript (`bun:sqlite` and `better-sqlite3`), Rust (`rusqlite`) and Go (`modernc` or `mattn/go-sqlite3`), each opening `BRINE_DB_MAIN_PATH`, enabling WAL and busy timeout, and checking the marker. Include how to add a column later (points to the reviewed migration flow) and what custom SQLite builds may and may not do. Replace the manual steps in `docs/data-initialization.md`.
 
   The walkthrough is [Using a database](../using-a-database.md), linked from

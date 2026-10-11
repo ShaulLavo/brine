@@ -45,6 +45,7 @@ type Command struct {
 	Timeout     time.Duration
 	Mutation    bool
 	OutputLimit int
+	StderrTail  bool
 }
 type Result struct {
 	Stdout, Stderr string

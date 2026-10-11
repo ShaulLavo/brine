@@ -74,15 +74,15 @@ func (c Client) call(ctx context.Context, t Target, request dispatch.Request, re
 	if agent := os.Getenv("SSH_AUTH_SOCK"); agent != "" {
 		env = []string{"SSH_AUTH_SOCK=" + agent}
 	}
-	output, runErr := runner.RunInput(ctx, localexec.Command{Path: ssh, Args: args, Stdin: input, Env: env, OutputLimit: dispatch.ResponseLimit})
+	output, runErr := runner.RunInput(ctx, localexec.Command{Path: ssh, Args: args, Stdin: input, Env: env, OutputLimit: dispatch.ResponseLimit, StderrTail: true})
 	if ctx.Err() != nil {
-		return result.Envelope{}, result.New(result.TransportFailure, ctx.Err())
+		return result.Envelope{}, transportFailure(request.Op, output.Stderr, ctx.Err())
 	}
 	// SSH status 255 describes transport failure, not a dispatcher exit category.
 	if runErr != nil {
 		var exit *exec.ExitError
 		if !errors.As(runErr, &exit) || exit.ExitCode() == 255 {
-			return result.Envelope{}, result.New(result.TransportFailure, runErr)
+			return result.Envelope{}, transportFailure(request.Op, output.Stderr, runErr)
 		}
 	}
 	response, err := dispatch.DecodeResponse(output.Stdout, request.Op)

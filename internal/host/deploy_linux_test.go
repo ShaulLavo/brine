@@ -3,14 +3,17 @@
 package host
 
 import (
+	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
 
@@ -152,5 +155,63 @@ func TestDeploymentCheckpointRejectsAnotherAppsValidRetainedPlan(t *testing.T) {
 	q.Step = "preparation"
 	if _, err = r.service.DeploymentCheckpoint(t.Context(), changed, q); err == nil {
 		t.Fatal("same app's different desired input accepted")
+	}
+}
+
+func TestDeploymentCheckpointHeldMutationLockReturnsConflict(t *testing.T) {
+	r, _, _, _ := connectedPreparationRig(t)
+	app, err := spec.Parse([]byte(r.spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := r.service.PlanDataPreparation(t.Context(), app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := r.service.Store.AcquireHostLock(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := lock.Release(); err != nil {
+			t.Error(err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(t.Context(), 2*deploymentCheckpointLockWait)
+	defer cancel()
+	_, err = r.service.DeploymentCheckpoint(ctx, app, dispatch.DeploymentCheckpointArgs{Spec: r.spec, PlanID: own.PlanID, Step: "preparation"})
+	if result.Classify(err).Code() != result.Conflict || ctx.Err() != nil {
+		t.Fatal("lock contention did not return promptly", err, ctx.Err())
+	}
+}
+
+func TestDeploymentCheckpointAllowsTerminalLockHandoff(t *testing.T) {
+	r, _, _, _ := connectedPreparationRig(t)
+	app, err := spec.Parse([]byte(r.spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := r.service.PlanDataPreparation(t.Context(), app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock, err := r.service.Store.AcquireHostLock(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := lock.Release(); err != nil {
+			t.Error(err)
+		}
+	}()
+	released := make(chan error, 1)
+	timer := time.AfterFunc(100*time.Millisecond, func() { released <- lock.Release() })
+	defer timer.Stop()
+	_, err = r.service.DeploymentCheckpoint(t.Context(), app, dispatch.DeploymentCheckpointArgs{Spec: r.spec, PlanID: own.PlanID, Step: "preparation"})
+	if err != nil {
+		t.Fatal("settled lock handoff refused", err)
+	}
+	if err := <-released; err != nil {
+		t.Fatal(err)
 	}
 }

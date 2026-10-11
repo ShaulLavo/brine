@@ -112,8 +112,9 @@ var descriptions = map[Code]description{
 // Error keeps the cause for reconciliation without exposing it in presentations.
 // Codes select fixed messages; external values never become message text.
 type Error struct {
-	code  Code
-	cause error
+	code      Code
+	cause     error
+	transport *TransportDiagnostics
 }
 
 func New(code Code, cause error) *Error {
@@ -121,6 +122,19 @@ func New(code Code, cause error) *Error {
 		code = InternalError
 	}
 	return &Error{code: code, cause: cause}
+}
+
+// TransportDiagnostics contains only client-generated metadata and sanitized SSH diagnostics.
+type TransportDiagnostics struct {
+	Operation     string `json:"operation"`
+	Reason        string `json:"reason"`
+	SSHStderrTail string `json:"ssh_stderr_tail,omitempty"`
+}
+
+func TransportError(cause error, diagnostics TransportDiagnostics) *Error {
+	e := New(TransportFailure, cause)
+	e.transport = &diagnostics
+	return e
 }
 
 func (e *Error) Error() string      { return descriptions[e.Code()].message }
@@ -155,9 +169,10 @@ func ExitCode(err error) int {
 }
 
 type MachineError struct {
-	Code      Code   `json:"code"`
-	Message   string `json:"message"`
-	Retryable bool   `json:"retryable"`
+	Code      Code                  `json:"code"`
+	Message   string                `json:"message"`
+	Retryable bool                  `json:"retryable"`
+	Details   *TransportDiagnostics `json:"details,omitempty"`
 }
 
 type Envelope struct {
@@ -175,7 +190,7 @@ func Success(command string, data any) Envelope {
 func Failure(command string, err error) Envelope {
 	domain := Classify(err)
 	d := descriptions[domain.Code()]
-	return Envelope{SchemaVersion: SchemaVersion, Command: command, Error: &MachineError{domain.Code(), d.message, d.retryable}}
+	return Envelope{SchemaVersion: SchemaVersion, Command: command, Error: &MachineError{Code: domain.Code(), Message: d.message, Retryable: d.retryable, Details: domain.transport}}
 }
 
 // KnownCode reports whether a machine error belongs to this result schema.

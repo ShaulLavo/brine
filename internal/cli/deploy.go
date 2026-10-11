@@ -88,29 +88,6 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 				retErr = &deploymentFailure{error: retErr, report: report}
 			}
 		}()
-		checkpointPlans := map[string]*dispatch.Planned{}
-		for _, step := range resume.journal.Steps {
-			if step.PlanID == "" {
-				continue
-			}
-			checked, err := flags.deploymentCheckpoint(cmd.Context(), deps, request, step)
-			if err != nil {
-				return err
-			}
-			if checked.Planned != nil {
-				checkpointPlans[step.Name] = checked.Planned
-			}
-			if step.OperationID != "" {
-				retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, step, string(app.Name))
-				if err != nil {
-					return err
-				}
-				if step.Complete && retry {
-					return result.New(result.Conflict, nil)
-				}
-			}
-
-		}
 		for i := range resume.journal.Steps {
 			step := &resume.journal.Steps[i]
 			if step.Complete || step.OperationID != "" || step.PlanID == "" {
@@ -139,8 +116,8 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 				return err
 			}
 		}
-		// An unfinished task may hold a fence or expose a partial schema. Observe
-		// its durable outcome before asking readiness facts to admit fresh work.
+		// Observe accepted work before checkpoint validation, which takes the
+		// mutation lock held by a live release. Retained plans still gate fresh work.
 		for i := range resume.journal.Steps {
 			step := &resume.journal.Steps[i]
 			if step.Complete || step.OperationID == "" {
@@ -160,6 +137,29 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 			if err = resume.save(); err != nil {
 				return err
 			}
+		}
+		checkpointPlans := map[string]*dispatch.Planned{}
+		for _, step := range resume.journal.Steps {
+			if step.PlanID == "" {
+				continue
+			}
+			checked, err := flags.deploymentCheckpoint(cmd.Context(), deps, request, step)
+			if err != nil {
+				return err
+			}
+			if checked.Planned != nil {
+				checkpointPlans[step.Name] = checked.Planned
+			}
+			if step.OperationID != "" {
+				retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, step, string(app.Name))
+				if err != nil {
+					return err
+				}
+				if step.Complete && retry {
+					return result.New(result.Conflict, nil)
+				}
+			}
+
 		}
 		state, err := flags.deploymentState(cmd.Context(), deps, request)
 		if err != nil {

@@ -30,7 +30,7 @@ func (ExecRunner) RunInput(ctx context.Context, command Command) (Output, error)
 		return Output{}, err
 	}
 	stdout := &limitedCapture{limit: command.OutputLimit}
-	stderr := &limitedCapture{limit: command.OutputLimit}
+	stderr := &limitedCapture{limit: command.OutputLimit, tail: command.StderrTail}
 	cmd := exec.CommandContext(ctx, path, command.Args...)
 	cmd.Env = env
 	cmd.Dir = command.Dir
@@ -55,12 +55,25 @@ type limitedCapture struct {
 	data     []byte
 	limit    int
 	overflow bool
+	tail     bool
 }
 
 func (b *limitedCapture) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	n := len(p)
+	if b.tail {
+		b.overflow = b.overflow || len(b.data)+n > b.limit
+		if n >= b.limit {
+			b.data = append(b.data[:0], p[n-b.limit:]...)
+		} else {
+			if excess := len(b.data) + n - b.limit; excess > 0 {
+				b.data = b.data[excess:]
+			}
+			b.data = append(b.data, p...)
+		}
+		return n, nil
+	}
 	remaining := b.limit - len(b.data)
 	if len(p) > remaining {
 		b.overflow = true
