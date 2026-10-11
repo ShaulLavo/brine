@@ -393,8 +393,15 @@ func (s MaintenanceService) deleteRun(ctx context.Context, p Plan, d Disposition
 	return s.deleteRunLocked(ctx, p, d, plan, out, adopt)
 }
 func (s MaintenanceService) deleteRunLocked(ctx context.Context, p Plan, d Disposition, plan MaintenancePlan, out Deletion, adopt bool) (Deletion, error) {
+	// Only an intent already in flight when reconciliation started can explain
+	// an unknown prior deletion effect. New intents in this run cannot.
+	adoptIndex := -1
+	if adopt && out.Stage == TreeDeletionIntent {
+		adoptIndex = out.TreeIndex
+	}
 	for out.Stage != DeletionComplete {
-		if ctx.Err() != nil || out.Kind == ExpireArchive && s.now().Before(d.RetainUntil) || verifyDeletionLocations(p, plan, out, adopt) != nil {
+		adoptCurrent := out.Stage == TreeDeletionIntent && out.TreeIndex == adoptIndex
+		if ctx.Err() != nil || out.Kind == ExpireArchive && s.now().Before(d.RetainUntil) || verifyDeletionLocations(p, plan, out, adoptCurrent) != nil {
 			return out, ErrRecovery
 		}
 		admission, admissionErr := s.Host.ArchiveMaintenanceAdmission(ctx, p, d)
@@ -407,7 +414,7 @@ func (s MaintenanceService) deleteRunLocked(ctx context.Context, p Plan, d Dispo
 		case DeletionIntent:
 			next.Stage = TreeDeletionIntent
 		case TreeDeletionIntent:
-			if err := s.Host.DeleteArchivedTree(ctx, p, plan, out.TreeIndex, adopt); err != nil {
+			if err := s.Host.DeleteArchivedTree(ctx, p, plan, out.TreeIndex, adoptCurrent); err != nil {
 				return out, ErrRecovery
 			}
 			next.Stage = TreeDeleted

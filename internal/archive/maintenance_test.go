@@ -17,14 +17,15 @@ import (
 
 type maintenanceRig struct {
 	*dispositionRig
-	plans       map[string]MaintenancePlan
-	deletion    Deletion
-	proof       RetentionProof
-	fail        string
-	effects     int
-	now         time.Time
-	health      []CredentialHealth
-	retentionOK bool
+	plans        map[string]MaintenancePlan
+	deletion     Deletion
+	proof        RetentionProof
+	fail         string
+	effects      int
+	now          time.Time
+	health       []CredentialHealth
+	retentionOK  bool
+	beforeDelete func(int, bool)
 }
 
 func (r *maintenanceRig) SaveMaintenancePlan(_ context.Context, p MaintenancePlan) error {
@@ -72,6 +73,9 @@ func (r *maintenanceRig) VerifyArchiveRetention(context.Context, Plan, Manifest,
 }
 func (r *maintenanceRig) DeleteArchivedTree(ctx context.Context, p Plan, reviewed MaintenancePlan, index int, adopt bool) error {
 	r.effects++
+	if r.beforeDelete != nil {
+		r.beforeDelete(index, adopt)
+	}
 	if r.fail == "effect" {
 		r.fail = ""
 		if err := data.DeleteArchiveTree(ctx, p.Trees[index], p.Candidate.Incarnation, p.ArchiveID, reviewed.Parents[index], adopt); err != nil {
@@ -459,5 +463,46 @@ func TestArchiveInitializedStatusReportsUnknownLifecycleWithoutRefreshingEvidenc
 	status, err = s.Status(context.Background(), r.p.ArchiveID)
 	if err != nil || status.State != "unverified" || status.Proof != nil {
 		t.Fatal("status invented remote verification", status, err)
+	}
+}
+
+func TestArchiveMaintenanceReconcileCannotAdoptNewTreeAbsence(t *testing.T) {
+	s, r := multiRootMaintenanceFixture(t)
+	ctx := context.Background()
+	plan, err := s.Plan(ctx, r.p.ArchiveID, PurgeArchive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.fail = "effect"
+	if _, err = s.Apply(ctx, r.p.ArchiveID, plan.ID); !errors.Is(err, ErrRecovery) || r.deletion.Stage != TreeDeletionIntent || r.deletion.TreeIndex != 0 {
+		t.Fatal("expected earlier in-flight first-tree deletion", r.deletion, err)
+	}
+	second := r.p.Trees[1]
+	bundle := filepath.Join(string(second.Root), second.ArchiveRelative)
+	marker := filepath.Join(bundle, "preserved")
+	if err = os.WriteFile(marker, []byte("untouched"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	moved := filepath.Join(string(second.Root), "retained-away")
+	firstAdopt, laterAdopt := false, false
+	r.beforeDelete = func(index int, adopt bool) {
+		if index == 0 {
+			firstAdopt = adopt
+			return
+		}
+		laterAdopt = adopt
+		// Move after fresh location validation, just before the host deletion call.
+		// This run has written the second intent, but has never deleted this tree.
+		if err := os.Rename(bundle, moved); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := s.ReconcileDelete(ctx, r.p.ArchiveID)
+	if !errors.Is(err, ErrRecovery) || out.Stage != TreeDeletionIntent || out.TreeIndex != 1 || r.deletion != out || !firstAdopt || laterAdopt {
+		t.Fatal("new tree absence adopted as a prior deletion effect", out, err, firstAdopt, laterAdopt)
+	}
+	raw, err := os.ReadFile(filepath.Join(moved, "preserved")) // #nosec G304 -- Private fixture moved within its own temporary root.
+	if err != nil || string(raw) != "untouched" {
+		t.Fatal("later tree was changed", err)
 	}
 }
