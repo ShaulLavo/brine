@@ -13,6 +13,8 @@ import (
 
 type ClientIngress struct{ prefix, database string }
 
+const tokenQueryKeyPattern = "(t|%74)(o|%6[fF])(k|%6[bB])(e|%65)(n|%6[eE])"
+
 func NewManagedClientIngress(preview plan.ManagedRenderPreview) (ClientIngress, error) {
 	d, _, _, err := preview.Values()
 	if err != nil {
@@ -61,7 +63,7 @@ func RenderManagedPreview(preview plan.ManagedRenderPreview) ([]byte, error) {
 	queryValid := "{http.request.orig_uri.query}.matches('^([^%;]|%[0-9a-fA-F]{2})*$')"
 	subscribePath := i.prefix + "v1/database/" + i.database + "/subscribe"
 	tokenPath := i.prefix + "v1/identity/websocket-token"
-	fmt.Fprintf(&b, "\t\t@subscribe {\n\t\t\tpath %s\n\t\t\tmethod GET\n\t\t\texpression {http.request.orig_uri}.matches('^%s([?].*)?$') && %s && {http.request.header.Upgrade}.lowerAscii() == 'websocket' && {http.request.uri.query.token} != '' && {http.request.orig_uri.query}.split('&').filter(pair, pair.matches('^%s(=|$)')).size() == 1\n\t\t}\n", subscribePath, regexp.QuoteMeta(subscribePath), queryValid, encodedLiteralPattern("token"))
+	fmt.Fprintf(&b, "\t\t@subscribe {\n\t\t\tpath %s\n\t\t\tmethod GET\n\t\t\texpression {http.request.orig_uri}.matches('^%s([?].*)?$') && %s && {http.request.header.Upgrade}.lowerAscii() == 'websocket' && {http.request.uri.query.token} != '' && {http.request.orig_uri.query}.split('&').filter(pair, pair.matches('^%s(=|$)')).size() == 1\n\t\t}\n", subscribePath, regexp.QuoteMeta(subscribePath), queryValid, tokenQueryKeyPattern)
 	fmt.Fprintf(&b, "\t\t@token {\n\t\t\tpath %s\n\t\t\tmethod POST\n\t\t\texpression {http.request.orig_uri}.matches('^%s([?].*)?$') && %s && {http.request.header.Authorization}.matches('^Bearer .+$')\n\t\t}\n", tokenPath, regexp.QuoteMeta(tokenPath), queryValid)
 	for _, matcher := range []string{"subscribe", "token"} {
 		fmt.Fprintf(&b, "\t\thandle @%s {\n\t\t\turi strip_prefix %s\n\t\t\treverse_proxy 127.0.0.1:%d\n\t\t}\n", matcher, strings.TrimSuffix(i.prefix, "/"), enginePort)
@@ -74,12 +76,4 @@ func RenderManagedPreview(preview plan.ManagedRenderPreview) ([]byte, error) {
 	}
 	b.WriteString("\t\t}\n\t}\n\theader X-Content-Type-Options nosniff\n\theader Referrer-Policy no-referrer\n}\n")
 	return []byte(b.String()), nil
-}
-
-func encodedLiteralPattern(value string) string {
-	var b strings.Builder
-	for n := range len(value) {
-		fmt.Fprintf(&b, "(%s|(?i:%%%02x))", regexp.QuoteMeta(value[n:n+1]), value[n])
-	}
-	return b.String()
 }
