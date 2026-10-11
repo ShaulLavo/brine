@@ -196,6 +196,7 @@ func TestDataInitializationMigrationFromTaskSchemaSevenPreservesJobs(t *testing.
 		t.Fatal(err)
 	}
 	// Construct the released task-only v7 shape; initialization is the v8 addition.
+	dropArchiveMigrationFixture(t, ctx, state)
 	for _, statement := range []string{"DROP TABLE data_init_reviews", "DROP TABLE data_init_artifacts", "DROP TABLE plan_inputs", "DROP TABLE data_replica_revisions", "DROP TABLE data_init_events", "DROP TABLE data_init_operations", "DROP TABLE data_init_plans", "UPDATE schema_version SET version=7"} {
 		if _, err = state.db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)

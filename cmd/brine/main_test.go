@@ -78,3 +78,18 @@ func TestHostEnvironmentCapturedBeforeClear(t *testing.T) {
 		}
 	}
 }
+
+func TestArchiveRuntimeUsesEnrolledRequesterWithoutAnOperatorRole(t *testing.T) {
+	for _, test := range []struct {
+		args    []string
+		channel string
+	}{
+		{[]string{"host", "archive-prepare", "hello", "--plan"}, "deploy"},
+		{[]string{"host", "reconcile"}, ""},
+		{[]string{"version"}, ""},
+	} {
+		if got := runtimeRequesterChannel(context.Background(), test.args, ""); got != test.channel {
+			t.Fatal("wrong requester channel", got, test.channel)
+		}
+	}
+}
