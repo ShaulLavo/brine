@@ -150,27 +150,16 @@ func validRecovery(recovery SigningRecovery, members []CheckpointMember) bool {
 	if !validReference(recovery.Reference) || recovery.Version == 0 || !hashPattern.MatchString(recovery.SHA256) {
 		return false
 	}
-	if recovery.Kind == "external_immutable" {
-		return recovery.Member == "" && !containsSigningMember(members)
-	}
-	if recovery.Kind != "encrypted_member" || recovery.Member != "recovery/signing.key" {
-		return false
-	}
-	for _, member := range members {
-		if member.Path == recovery.Member {
-			return member.SHA256 == recovery.SHA256
-		}
-	}
-	return false
-}
-
-func containsSigningMember(members []CheckpointMember) bool {
+	var memberHash string
 	for _, member := range members {
 		if member.Path == "recovery/signing.key" {
-			return true
+			memberHash = member.SHA256
 		}
 	}
-	return false
+	if recovery.Kind == "external_immutable" {
+		return recovery.Member == "" && memberHash == ""
+	}
+	return recovery.Kind == "encrypted_member" && recovery.Member == "recovery/signing.key" && memberHash == recovery.SHA256
 }
 
 func configurationMatches(expected string, members []CheckpointMember) bool {
