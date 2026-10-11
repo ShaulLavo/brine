@@ -1,0 +1,10 @@
+/bin/
+/client/node_modules/
+/module/target/
+/web/browser.js
+/artifacts/
+*.token
+*.pem
+/browser-test/node_modules/
+/release/
+__pycache__/
