@@ -56,11 +56,16 @@ func (s *Store) ReadManagedApp(ctx context.Context, app string) (ManagedAppProje
 		return ManagedAppProjection{}, err
 	}
 	projection := ManagedAppProjection{App: app, Reserved: reserved}
-	permit, err := readEnginePermit(ctx, tx, bindings[0])
-	if err == nil {
-		projection.Permit = &permit
-	} else if !errors.Is(err, sql.ErrNoRows) && !errors.Is(err, ErrNotFound) {
+	var runtimes int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_engine_runtime_commits WHERE binding_id=?", bindings[0]).Scan(&runtimes); err != nil {
 		return ManagedAppProjection{}, err
+	}
+	if runtimes != 0 {
+		permit, err := readEnginePermit(ctx, tx, bindings[0])
+		if err != nil {
+			return ManagedAppProjection{}, err
+		}
+		projection.Permit = &permit
 	}
 	return projection, tx.Commit()
 }
