@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/planfile"
 )
 
 func managedValidateSpec(t *testing.T, frontend bool) string {
@@ -73,7 +74,8 @@ func checkManagedOfflinePlan(t *testing.T, frontend bool) {
 	if !strings.Contains(out, "Engine resources: 128 MiB memory, 128 PIDs") || frontend && !strings.Contains(out, "Frontend resources: 384 MiB memory, 384 PIDs") {
 		t.Fatal("managed plan omitted resource budgets")
 	}
-	out, diagnostics, exit = offlineExecute(t, append(args, "--json")...)
+	directory := t.TempDir()
+	out, diagnostics, exit = offlineExecute(t, append(args, "--out", directory, "--json")...)
 	if exit != 0 || diagnostics != "" {
 		t.Fatalf("machine plan exit %d, output %q, diagnostics %q", exit, out, diagnostics)
 	}
@@ -89,6 +91,14 @@ func checkManagedOfflinePlan(t *testing.T, frontend bool) {
 	}
 	if frontend && (p.AppHostPort != 20001 || p.AppResources == nil || p.AppResources.MemoryMB != 384) {
 		t.Fatal("machine preview omitted frontend port/budget")
+	}
+	files, err := os.ReadDir(directory)
+	if err != nil || len(files) != 1 {
+		t.Fatal("offline preview did not persist exactly one plan", err)
+	}
+	document, err := planfile.Read(filepath.Join(directory, files[0].Name()))
+	if err != nil || document.Applyable() || document.Plan().ManagedPreview == nil {
+		t.Fatal("persisted managed preview did not round trip without apply authority", err)
 	}
 }
 
