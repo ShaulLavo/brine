@@ -25,7 +25,7 @@ func TestClientRechecksAllBundleQuotasBeforeRepositoryAccess(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer bundle.Close()
+	defer func() { _ = bundle.Close() }()
 	point := TransportPoint{Identity: testIdentity(), Scope: testScope(), SnapshotID: strings.Repeat("a", 64), ManifestSHA256: bundle.manifest.SHA256(), ArchiveSHA256: bundle.sha256, ArchiveBytes: bundle.size}
 	for _, quota := range []string{"file", "total", "archive", "members"} {
 		t.Run(quota, func(t *testing.T) { checkClientQuota(t, quota, bundle, point, work) })

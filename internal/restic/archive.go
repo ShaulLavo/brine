@@ -50,7 +50,7 @@ func Seal(ctx context.Context, source, workspace string, identity Identity, limi
 	if err != nil {
 		return Bundle{}, ErrInvalid
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	rootInfo, err := root.Stat(".")
 	if err != nil {
 		return Bundle{}, ErrInvalid
@@ -67,7 +67,7 @@ func Seal(ctx context.Context, source, workspace string, identity Identity, limi
 	if err != nil {
 		return Bundle{}, ErrFailed
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	defer func() {
 		if err != nil {
 			_ = os.Remove(file.Name())
@@ -179,7 +179,7 @@ func directoryNames(root *os.Root, name string, maximum int) ([]string, error) {
 	if err != nil {
 		return nil, ErrInvalid
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	names, err := file.Readdirnames(maximum + 1)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return nil, ErrInvalid
@@ -209,7 +209,7 @@ func inspectMember(ctx context.Context, root *os.Root, rootInfo os.FileInfo, nam
 	if err != nil {
 		return Member{}, ErrInvalid
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	opened, err := file.Stat()
 	if err != nil || !os.SameFile(info, opened) || !safeNode(opened, rootInfo) {
 		return Member{}, ErrIntegrity
@@ -313,7 +313,7 @@ func writeTarMember(ctx context.Context, w *tar.Writer, root *os.Root, rootInfo 
 	if err != nil {
 		return ErrIntegrity
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	n, err := io.Copy(io.MultiWriter(w, hash), io.LimitReader(contextReader{ctx: ctx, reader: file}, member.Size+1))
 	if err != nil || n != member.Size || hex.EncodeToString(hash.Sum(nil)) != member.SHA256 {
@@ -327,7 +327,7 @@ func (b Bundle) verify(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	return nil
 }
 
@@ -371,12 +371,12 @@ func extractEnvelope(ctx context.Context, archive, directory string, manifest Ma
 	if err != nil {
 		return ErrInvalid
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
 	file, err := openArchive(archive)
 	if err != nil {
 		return ErrIntegrity
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if err := validateTarBoundary(file, manifest, limits); err != nil {
 		return err
 	}
@@ -442,7 +442,7 @@ func validHeader(h *tar.Header, name, kind string, size int64) bool {
 		return false
 	}
 	expected := tarHeader(name, kind, size)
-	return h.Name == expected.Name && h.Typeflag == expected.Typeflag && h.Mode == expected.Mode && h.Size == size && h.Format == tar.FormatUSTAR && h.Uid == 0 && h.Gid == 0 && h.Uname == "" && h.Gname == "" && h.Linkname == "" && h.Devmajor == 0 && h.Devminor == 0 && len(h.PAXRecords) == 0 && len(h.Xattrs) == 0
+	return h.Name == expected.Name && h.Typeflag == expected.Typeflag && h.Mode == expected.Mode && h.Size == size && h.Format == tar.FormatUSTAR && h.Uid == 0 && h.Gid == 0 && h.Uname == "" && h.Gname == "" && h.Linkname == "" && h.Devmajor == 0 && h.Devminor == 0 && len(h.PAXRecords) == 0
 }
 
 func extractMember(ctx context.Context, reader *tar.Reader, root *os.Root, member Member) error {
@@ -460,7 +460,7 @@ func extractMember(ctx context.Context, reader *tar.Reader, root *os.Root, membe
 	if err != nil {
 		return ErrIntegrity
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	hash := sha256.New()
 	n, err := io.Copy(io.MultiWriter(file, hash), contextReader{ctx: ctx, reader: reader})
 	if err != nil || n != member.Size || hex.EncodeToString(hash.Sum(nil)) != member.SHA256 {

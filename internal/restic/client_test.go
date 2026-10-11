@@ -3,6 +3,7 @@ package restic
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,11 +53,11 @@ func TestRepositoryRedactionScopeAndExpiry(t *testing.T) {
 		t.Fatal("private environment aliases caller")
 	}
 	repository.scope.ExpiresAt = time.Now().UTC()
-	if err := repository.admit(time.Now().UTC().Add(time.Minute), testIdentity()); err != ErrExpired {
+	if err := repository.admit(time.Now().UTC().Add(time.Minute), testIdentity()); !errors.Is(err, ErrExpired) {
 		t.Fatal(err)
 	}
 	scope.DestinationSHA256 = strings.Repeat("a", 64)
-	if _, err := NewS3Repository(scope, location, []byte("fixture-recovery-password"), packet, ""); err != ErrInvalid {
+	if _, err := NewS3Repository(scope, location, []byte("fixture-recovery-password"), packet, ""); !errors.Is(err, ErrInvalid) {
 		t.Fatal("destination mismatch admitted")
 	}
 }
@@ -72,7 +73,7 @@ func TestProtectedPinRefusesBeforeRepositoryUse(t *testing.T) {
 	repository := Repository{scope: testScope(), private: func() []string { called = true; return nil }}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if err := client.Check(ctx, repository, work); err != ErrTool || called {
+	if err := client.Check(ctx, repository, work); !errors.Is(err, ErrTool) || called {
 		t.Fatal("secret accessor ran before protected pin")
 	}
 }
@@ -104,7 +105,7 @@ func TestResticLocalEncryptedRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer bundle.Close()
+	defer func() { _ = bundle.Close() }()
 	point, err := client.Backup(ctx, repository, work, bundle)
 	if err != nil {
 		t.Fatal("actual encrypted backup", err)
@@ -123,17 +124,19 @@ func TestResticLocalEncryptedRoundTrip(t *testing.T) {
 	if err := client.RestoreExact(ctx, repository, work, output, point, bundle.Manifest()); err != nil {
 		t.Fatal("actual exact remote download and member verification", err)
 	}
+	// #nosec G304 -- Exact member in disposable local fixture source.
 	want, err := os.ReadFile(filepath.Join(source, "state"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G304 -- Exact member in disposable local fixture restoration.
 	got, err := os.ReadFile(filepath.Join(output, "state"))
 	if err != nil || !bytes.Equal(want, got) {
 		t.Fatal("actual restored member differs")
 	}
 	wrong := point
 	wrong.ArchiveSHA256 = strings.Repeat("0", 64)
-	if err := client.RestoreExact(ctx, repository, work, filepath.Join(work, "bad-restore"), wrong, bundle.Manifest()); err != ErrIntegrity {
+	if err := client.RestoreExact(ctx, repository, work, filepath.Join(work, "bad-restore"), wrong, bundle.Manifest()); !errors.Is(err, ErrIntegrity) {
 		t.Fatal("actual wrong archive digest admitted", err)
 	}
 	if _, err := os.Stat(filepath.Join(work, "bad-restore")); !os.IsNotExist(err) {
@@ -142,7 +145,7 @@ func TestResticLocalEncryptedRoundTrip(t *testing.T) {
 	if _, err := client.Backup(ctx, repository, work, bundle); err != nil {
 		t.Fatal("second exact capture", err)
 	}
-	if _, err := client.InspectCapture(ctx, repository, work, bundle); err != ErrIntegrity {
+	if _, err := client.InspectCapture(ctx, repository, work, bundle); !errors.Is(err, ErrIntegrity) {
 		t.Fatal("duplicate capture snapshots admitted", err)
 	}
 	t.Logf("restic=%s tool_sha256=%s archive_bytes=%d manifest_sha256=%s exact_snapshot=%s local_encrypted_members=verified", Version, sha, point.ArchiveBytes, point.ManifestSHA256, point.SnapshotID)

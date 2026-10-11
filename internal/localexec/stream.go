@@ -28,6 +28,7 @@ func (ExecRunner) RunStreams(ctx context.Context, command Command, input io.Read
 	if ctx.Err() != nil {
 		return &Error{Kind: Timeout}
 	}
+	// #nosec G204 -- Separate typed argv, never a shell. Adapters own executable admission.
 	cmd := exec.CommandContext(ctx, path, command.Args...)
 	cmd.Dir = command.Dir
 	cmd.Env, cmd.Stdin = command.Env, input

@@ -20,7 +20,7 @@ func TestArchiveRefusesPhysicalTailAndCorruptMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer bundle.Close()
+	defer func() { _ = bundle.Close() }()
 	raw, err := os.ReadFile(bundle.path)
 	if err != nil {
 		t.Fatal(err)
@@ -31,10 +31,11 @@ func TestArchiveRefusesPhysicalTailAndCorruptMember(t *testing.T) {
 		bytes.Replace(raw, []byte("confirmed fixture state"), []byte("corrupted fixture state"), 1),
 	} {
 		file := filepath.Join(work, "attack-"+string(rune('a'+i))+".tar")
+		// #nosec G703 -- Controlled attack bytes under disposable private test root.
 		if err := os.WriteFile(file, attack, 0600); err != nil {
 			t.Fatal(err)
 		}
-		if err := extractEnvelope(context.Background(), file, filepath.Join(work, "output-"+string(rune('a'+i))), bundle.Manifest(), DefaultLimits()); err != ErrIntegrity {
+		if err := extractEnvelope(context.Background(), file, filepath.Join(work, "output-"+string(rune('a'+i))), bundle.Manifest(), DefaultLimits()); !errors.Is(err, ErrIntegrity) {
 			t.Fatal("unsafe physical archive admitted", err)
 		}
 	}
@@ -43,6 +44,7 @@ func TestArchiveRefusesPhysicalTailAndCorruptMember(t *testing.T) {
 func testTree(t *testing.T) (string, string) {
 	t.Helper()
 	base := t.TempDir()
+	// #nosec G302 -- Directory mode, not a file permission.
 	if err := os.Chmod(base, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +66,7 @@ func TestArchiveRoundTripAndChangedSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer bundle.Close()
+	defer func() { _ = bundle.Close() }()
 	manifest := bundle.Manifest()
 	members := manifest.Members()
 	members[0].SHA256 = strings.Repeat("f", 64)
@@ -75,6 +77,7 @@ func TestArchiveRoundTripAndChangedSource(t *testing.T) {
 	if err := extractEnvelope(context.Background(), bundle.path, output, manifest, DefaultLimits()); err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G304 -- Exact restored member under disposable test directory.
 	got, err := os.ReadFile(filepath.Join(output, "state"))
 	if err != nil || string(got) != "confirmed fixture state" {
 		t.Fatal("restored member differs")
@@ -102,6 +105,7 @@ func TestArchiveRejectsLinksModesAndQuotas(t *testing.T) {
 					t.Fatal(err)
 				}
 			case "mode":
+				// #nosec G302 -- Deliberately unsafe fixture permissions must be refused.
 				if err := os.Chmod(filepath.Join(source, "state"), 0644); err != nil {
 					t.Fatal(err)
 				}
@@ -110,7 +114,7 @@ func TestArchiveRejectsLinksModesAndQuotas(t *testing.T) {
 			}
 			bundle, err := Seal(context.Background(), source, work, testIdentity(), limits)
 			if err == nil {
-				bundle.Close()
+				_ = bundle.Close()
 				t.Fatal("unsafe archive admitted")
 			}
 		})
@@ -123,7 +127,7 @@ func TestManifestRejectsUntrustedShapes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer bundle.Close()
+	defer func() { _ = bundle.Close() }()
 	raw := bundle.Manifest().Bytes()
 	for _, attack := range []string{
 		strings.Replace(string(raw), `"state"`, `"../state"`, 1),

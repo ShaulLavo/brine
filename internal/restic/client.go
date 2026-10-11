@@ -70,7 +70,7 @@ func (c *Client) Backup(ctx context.Context, repository Repository, workspace st
 	if err != nil {
 		return TransportPoint{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	args := []string{"backup", "--stdin", "--stdin-filename", archiveName, "--host", "brine", "--tag", captureTag(bundle.manifest.document.Identity)}
 	raw, err := c.jsonCommand(ctx, repository, workspace, true, file, args)
 	if err != nil {
@@ -145,8 +145,8 @@ func (c *Client) RestoreExact(ctx context.Context, repository Repository, worksp
 	if err != nil {
 		return ErrFailed
 	}
-	defer os.Remove(file.Name())
-	defer file.Close()
+	defer func() { _ = os.Remove(file.Name()) }()
+	defer func() { _ = file.Close() }()
 	output := &quotaWriter{writer: file, remaining: point.ArchiveBytes}
 	if err := c.command(ctx, repository, workspace, false, nil, output, []string{"dump", point.SnapshotID, "/" + archiveName}, false); err != nil {
 		return err
@@ -210,7 +210,7 @@ func (c *Client) command(ctx context.Context, repository Repository, workspace s
 	if err != nil {
 		return ErrFailed
 	}
-	defer os.RemoveAll(directory)
+	defer func() { _ = os.RemoveAll(directory) }()
 	if err := c.checkTool(ctx, directory); err != nil {
 		return err
 	}
@@ -235,6 +235,7 @@ func privateEnvironment(directory string) []string {
 
 func (c *Client) checkTool(ctx context.Context, directory string) error {
 	for p := c.toolPath; ; p = filepath.Dir(p) {
+		// #nosec G703 -- Fixed production path; root-owned no-follow parents are the check.
 		info, err := os.Lstat(p)
 		if err != nil || !protectedNode(info, p == c.toolPath) {
 			return ErrTool
@@ -243,11 +244,12 @@ func (c *Client) checkTool(ctx context.Context, directory string) error {
 			break
 		}
 	}
+	// #nosec G703 -- Fixed protected executable, verified root-owned parents above.
 	file, err := os.Open(c.toolPath)
 	if err != nil {
 		return ErrTool
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil || info.Size() > 128<<20 {
 		return ErrTool

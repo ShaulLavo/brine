@@ -22,6 +22,7 @@ func TestStreamDeadlineTerminatesDescendants(t *testing.T) {
 	if !errors.As(err, &operation) || operation.Kind != UnknownOutcome {
 		t.Fatal("stream mutation timeout was not unknown", err)
 	}
+	// #nosec G304 -- Exact disposable helper PID file under t.TempDir.
 	raw, err := os.ReadFile(pidfile)
 	if err != nil {
 		t.Fatal(err)

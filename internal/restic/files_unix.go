@@ -18,13 +18,13 @@ func privateDirectory(directory string) error {
 			return ErrInvalid
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || stat.Uid != 0 && stat.Uid != uint32(os.Geteuid()) {
+		if !ok || stat.Uid != 0 && !runnerUID(stat.Uid) {
 			return ErrInvalid
 		}
 		if info.Mode().Perm()&0022 != 0 && !(stat.Uid == 0 && info.Mode()&os.ModeSticky != 0) {
 			return ErrInvalid
 		}
-		if p == directory && (stat.Uid != uint32(os.Geteuid()) || info.Mode() != os.ModeDir|0700) {
+		if p == directory && (!runnerUID(stat.Uid) || info.Mode() != os.ModeDir|0700) {
 			return ErrInvalid
 		}
 		if p == "/" {
@@ -36,7 +36,7 @@ func privateDirectory(directory string) error {
 func safeNode(info os.FileInfo, rootInfo os.FileInfo) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	rootStat, rootOK := rootInfo.Sys().(*syscall.Stat_t)
-	if !ok || !rootOK || stat.Uid != uint32(os.Geteuid()) || stat.Dev != rootStat.Dev {
+	if !ok || !rootOK || !runnerUID(stat.Uid) || stat.Dev != rootStat.Dev {
 		return false
 	}
 	if info.IsDir() {
@@ -61,5 +61,14 @@ func openMember(root *os.Root, member string) (*os.File, error) {
 }
 
 func openArchive(path string) (*os.File, error) {
+	// #nosec G304 -- Private envelope path; no-follow open and descriptor identity checked by caller.
 	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+}
+
+func runnerUID(uid uint32) bool {
+	runner := os.Geteuid()
+	if runner < 0 {
+		return false
+	}
+	return uint64(uid) == uint64(runner)
 }

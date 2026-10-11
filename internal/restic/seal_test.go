@@ -2,6 +2,7 @@ package restic
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,7 +16,7 @@ func TestSealRefusesWorkspaceInsideSourceWithoutCreatingArchive(t *testing.T) {
 	if err := os.Mkdir(workspace, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Seal(context.Background(), source, workspace, testIdentity(), DefaultLimits()); err != ErrInvalid {
+	if _, err := Seal(context.Background(), source, workspace, testIdentity(), DefaultLimits()); !errors.Is(err, ErrInvalid) {
 		t.Fatal("overlapping source/workspace admitted", err)
 	}
 	entries, err := os.ReadDir(workspace)
@@ -34,7 +35,7 @@ func TestVerifiedUploadDescriptorIgnoresReplacedPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	if err := os.Rename(bundle.path, bundle.path+".original"); err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +46,7 @@ func TestVerifiedUploadDescriptorIgnoresReplacedPath(t *testing.T) {
 	if err != nil || digest(raw) != bundle.sha256 {
 		t.Fatal("upload descriptor followed replaced source path")
 	}
-	if err := bundle.verify(context.Background()); err != ErrIntegrity {
+	if err := bundle.verify(context.Background()); !errors.Is(err, ErrIntegrity) {
 		t.Fatal("replaced path remained valid", err)
 	}
 }
@@ -80,7 +81,7 @@ func (c *sourceMutationContext) Err() error {
 func TestSealRefusesMemberAddedAfterInitialScan(t *testing.T) {
 	source, work := testTree(t)
 	ctx := &sourceMutationContext{Context: context.Background(), source: source, workspace: work}
-	if _, err := Seal(ctx, source, work, testIdentity(), DefaultLimits()); err != ErrIntegrity {
+	if _, err := Seal(ctx, source, work, testIdentity(), DefaultLimits()); !errors.Is(err, ErrIntegrity) {
 		t.Fatal("late member produced sealed evidence", err)
 	}
 	if !ctx.mutated || ctx.writeErr != nil {
