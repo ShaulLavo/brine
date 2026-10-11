@@ -39,7 +39,7 @@ pub struct Request {
 #[derive(Clone, Copy, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum History {
-    Logs,
+    Logs {},
     Snapshot { offset: u64, replica_id: u64 },
 }
 

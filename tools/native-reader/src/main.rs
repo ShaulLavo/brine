@@ -2,6 +2,7 @@ mod framing;
 mod input;
 mod memory;
 mod protocol;
+mod snapshot;
 mod state;
 
 use protocol::{ALGORITHM, Deadline, Evidence, FORMAT, Refusal, Request, Result, UPSTREAM};
@@ -31,26 +32,30 @@ fn main() {
     let code = match outcome {
         Ok(()) => 0,
         Err(code) => {
-            let failure = Failure {
-                format: FORMAT,
-                outcome: "refused",
-                code,
-            };
-            let bytes = serde_json::to_vec(&failure).unwrap_or_default();
-            unsafe {
-                let flags = libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL);
-                if flags >= 0 {
-                    libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                }
-            }
-            let mut output = std::io::stdout().lock();
-            let _ = output.write_all(&bytes);
-            let _ = output.write_all(b"\n");
-            let _ = output.flush();
+            write_refusal(code);
             70
         }
     };
     std::process::exit(code);
+}
+
+fn write_refusal(code: Refusal) {
+    let failure = Failure {
+        format: FORMAT,
+        outcome: "refused",
+        code,
+    };
+    let bytes = serde_json::to_vec(&failure).unwrap_or_default();
+    unsafe {
+        let flags = libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL);
+        if flags >= 0 {
+            libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        }
+    }
+    let mut output = std::io::stdout().lock();
+    let _ = output.write_all(&bytes);
+    let _ = output.write_all(b"\n");
+    let _ = output.flush();
 }
 
 fn run() -> Result<()> {

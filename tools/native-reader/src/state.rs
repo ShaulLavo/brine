@@ -2,6 +2,7 @@ use crate::framing::Head;
 use crate::protocol::{
     Deadline, History, Limits, Refusal, Result, SnapshotEvidence, TableEvidence, add,
 };
+use crate::snapshot::PinnedSnapshot;
 use sha2::{Digest, Sha256};
 use spacetimedb_datastore::{
     execution_context::Workload,
@@ -17,7 +18,7 @@ use spacetimedb_lib::Identity;
 use spacetimedb_paths::server::ReplicaDir;
 use spacetimedb_runtime::Handle;
 use spacetimedb_sats::{bsatn, buffer::BufWriter};
-use spacetimedb_snapshot::{Snapshot, SnapshotRepository};
+use spacetimedb_snapshot::SnapshotRepository;
 use spacetimedb_table::page_pool::PagePool;
 use std::sync::Arc;
 
@@ -66,24 +67,21 @@ pub fn observe(
         .enable_all()
         .build()
         .map_err(|_| Refusal::Native)?;
-    let (worker, snapshot) = snapshot(root, database, history, head, &runtime)?;
+    let pool = PagePool::new(Some(8 << 20));
+    let prepared = snapshot(root, database, history, head, &runtime, &pool)?;
     let (sender, _) = tokio::sync::watch::channel(Some(head.last));
     let persistence = Persistence::new(
         Frozen { sender },
         || Ok(Default::default()),
-        worker,
+        prepared.worker,
         Handle::tokio(runtime.handle().clone()),
     );
     let history = LocalHistory::open(root.commit_log()).map_err(|_| Refusal::Framing)?;
-    let (db, clients) = RelationalDB::open(
-        database,
-        owner,
-        history,
-        Some(persistence),
-        None,
-        PagePool::new(Some(8 << 20)),
-    )
-    .map_err(|_| Refusal::Identity)?;
+    let (db, clients) = RelationalDB::open(database, owner, history, Some(persistence), None, pool)
+        .map_err(|_| Refusal::Identity)?;
+    if let Some(proof) = prepared.proof {
+        proof.was_restored()?;
+    }
     deadline.check()?;
     check_counts(&db, limits, deadline)?;
     let metadata = db
@@ -130,7 +128,7 @@ pub fn observe(
         connected: clients.len() as u64,
         tables,
         hash: hash.finalize().to_hex().to_string(),
-        snapshot,
+        snapshot: prepared.evidence,
     })
 }
 
@@ -155,30 +153,34 @@ fn check_counts(db: &RelationalDB, limits: &Limits, deadline: &Deadline) -> Resu
     Ok(())
 }
 
+struct PreparedSnapshot {
+    worker: Option<SnapshotWorker>,
+    proof: Option<Arc<PinnedSnapshot>>,
+    evidence: Option<SnapshotEvidence>,
+}
+
 fn snapshot(
     root: &ReplicaDir,
     database: Identity,
     history: History,
     head: &Head,
     runtime: &tokio::runtime::Runtime,
-) -> Result<(Option<SnapshotWorker>, Option<SnapshotEvidence>)> {
+    pool: &PagePool,
+) -> Result<PreparedSnapshot> {
     let History::Snapshot { offset, replica_id } = history else {
         if head.first != 0 {
             return Err(Refusal::Snapshot);
         }
-        return Ok((None, None));
+        return Ok(PreparedSnapshot {
+            worker: None,
+            proof: None,
+            evidence: None,
+        });
     };
     if replica_id == 0 || offset > head.last || (head.first > 0 && offset < head.first - 1) {
         return Err(Refusal::Snapshot);
     }
-    let path = root.snapshots().snapshot_dir(offset).snapshot_file(offset);
-    let (snapshot, _) = Snapshot::read_from_file(&path).map_err(|_| Refusal::Snapshot)?;
-    if snapshot.database_identity != database
-        || snapshot.replica_id != replica_id
-        || snapshot.tx_offset != offset
-    {
-        return Err(Refusal::Snapshot);
-    }
+    selected_directory(root, offset)?;
     let repo = Arc::new(
         SnapshotRepository::open(root.snapshots(), database, replica_id)
             .map_err(|_| Refusal::Snapshot)?,
@@ -190,17 +192,48 @@ fn snapshot(
     if offsets != [offset] {
         return Err(Refusal::Snapshot);
     }
+    let snapshot = repo
+        .read_snapshot(offset, pool)
+        .map_err(|_| Refusal::Snapshot)?;
+    if snapshot.database_identity != database
+        || snapshot.replica_id != replica_id
+        || snapshot.tx_offset != offset
+        || snapshot.module_abi_version != [7, 0]
+    {
+        return Err(Refusal::Snapshot);
+    }
     let evidence = SnapshotEvidence {
         observed_database_identity: snapshot.database_identity.to_string(),
         observed_replica_id: snapshot.replica_id,
         offset: snapshot.tx_offset,
     };
+    let proof = Arc::new(PinnedSnapshot::new(snapshot));
     let worker = SnapshotWorker::new(
-        repo,
+        proof.clone(),
         Compression::Disabled,
         Handle::tokio(runtime.handle().clone()),
     );
-    Ok((Some(worker), Some(evidence)))
+    Ok(PreparedSnapshot {
+        worker: Some(worker),
+        proof: Some(proof),
+        evidence: Some(evidence),
+    })
+}
+
+fn selected_directory(root: &ReplicaDir, offset: u64) -> Result<()> {
+    let expected = format!("{offset:020}.snapshot_dir");
+    let mut count = 0;
+    for entry in std::fs::read_dir(root.snapshots()).map_err(|_| Refusal::Snapshot)? {
+        let entry = entry.map_err(|_| Refusal::Snapshot)?;
+        if entry.file_name() != expected.as_str() {
+            return Err(Refusal::Snapshot);
+        }
+        count += 1;
+    }
+    if count != 1 {
+        return Err(Refusal::Snapshot);
+    }
+    Ok(())
 }
 
 struct HashWriter {

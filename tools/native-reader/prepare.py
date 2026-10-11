@@ -19,13 +19,17 @@ def archive(output, supplied):
     else:
         url = 'https://codeload.github.com/clockworklabs/SpacetimeDB/tar.gz/' + PINS['upstream_commit']
         with urllib.request.urlopen(url, timeout=45) as response, target.open('wb') as writer:
-            while chunk := response.read(1 << 20):
-                writer.write(chunk)
-                if writer.tell() > 32 << 20:
-                    raise ValueError('upstream archive quota')
+            download(response, writer)
     if hashlib.sha256(target.read_bytes()).hexdigest() != PINS['archive_sha256']:
         raise ValueError('upstream archive pin mismatch')
     return target
+
+
+def download(response, writer):
+    while chunk := response.read(1 << 20):
+        if writer.tell() + len(chunk) > 32 << 20:
+            raise ValueError('upstream archive quota')
+        writer.write(chunk)
 
 
 def prepare(output, supplied):

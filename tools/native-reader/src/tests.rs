@@ -136,7 +136,7 @@ fn seed(snapshot: bool) -> Fixture {
                     replica_id: 1,
                 }
             } else {
-                History::Logs
+                History::Logs {}
             },
             limits: Limits::MAX,
         },
@@ -198,7 +198,7 @@ fn current_program_and_all_state_match_logs_snapshot_and_compression() {
             .rows,
         20
     );
-    fixture.request.history = History::Logs;
+    fixture.request.history = History::Logs {};
     assert_eq!(
         observed(&fixture, |_| {}).unwrap().state_blake3,
         baseline.state_blake3
@@ -386,7 +386,7 @@ fn snapshot_suffix_requires_connected_snapshot_and_actual_replica_identity() {
         replica_id: 2,
     };
     assert!(matches!(observed(&fixture, |_| {}), Err(Refusal::Snapshot)));
-    fixture.request.history = History::Logs;
+    fixture.request.history = History::Logs {};
     assert!(matches!(
         observed(&fixture, remove_older),
         Err(Refusal::Snapshot)
@@ -417,4 +417,47 @@ fn cleanly_removed_complete_commit_requires_independent_source_witness() {
         spacetimedb_lib::hash_bytes(b"initial-program").to_string()
     );
     assert_ne!(older.state_blake3, baseline.state_blake3);
+}
+
+#[test]
+fn selected_snapshot_objects_must_be_complete_without_log_fallback() {
+    let fixture = seed(true);
+    let History::Snapshot { offset, .. } = fixture.request.history else {
+        panic!()
+    };
+    assert!(matches!(
+        observed(&fixture, |root| {
+            let objects = root
+                .join("snapshots")
+                .join(format!("{offset:020}.snapshot_dir"))
+                .join("objects");
+            let prefix = fs::read_dir(objects)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            let object = fs::read_dir(prefix)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path();
+            fs::remove_file(object).unwrap();
+        }),
+        Err(Refusal::Snapshot)
+    ));
+}
+
+#[test]
+fn logs_history_is_an_exact_empty_object() {
+    let fixture = seed(false);
+    let mut request = serde_json::to_value(&fixture.request).unwrap();
+    for history in [
+        serde_json::json!({"kind":"logs","x":1}),
+        serde_json::json!({"kind":"logs","offset":21,"replica_id":1}),
+    ] {
+        request["history"] = history;
+        assert!(serde_json::from_value::<Request>(request.clone()).is_err());
+    }
 }
