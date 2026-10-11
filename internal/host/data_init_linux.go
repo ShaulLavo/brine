@@ -16,56 +16,17 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/restore"
-	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-const initializationEvidenceRoot = "/etc/ssh/brine/data-init"
-
-func trustedInitJSON(ctx context.Context, id string, out *data.SchemaInitializer) error {
-	if !datainit.ValidID(id) {
-		return datainit.ErrRefused
-	}
-	raw, err := trustedRead(ctx, filepath.Join(initializationEvidenceRoot, "schemas", strings.TrimPrefix(id, "sha256:")+".json"), 1<<20)
-	if err != nil {
-		return err
-	}
-	return decodeReviewedInitialization(raw, id, out)
-}
-
-func decodeReviewedInitialization(raw []byte, id string, out *data.SchemaInitializer) error {
-	if !datainit.ValidID(id) || len(raw) > 1<<20 {
-		return datainit.ErrRefused
-	}
-	sum := sha256.Sum256(raw)
-	if "sha256:"+hex.EncodeToString(sum[:]) != id {
-		return datainit.ErrRefused
-	}
-	fields, err := strictjson.Object(raw, "definition", "statements")
-	if err != nil {
-		return datainit.ErrRefused
-	}
-	if _, err = strictjson.Object(fields["definition"], "database", "marker", "catalog_sha256"); err != nil {
-		return datainit.ErrRefused
-	}
-	if err = json.Unmarshal(raw, out); err != nil {
-		return datainit.ErrRefused
-	}
-	return nil
-}
-
-func dataInitializationService(service Service, stateRoot string, operator bool) datainit.Service {
-	requester, identityErr := datainit.AgentRequester(service.Requester)
-	if operator {
-		requester = datainit.LocalOperatorRequester()
-		identityErr = nil
-	}
+func dataInitializationService(service Service, stateRoot string) datainit.Service {
+	requester, identityErr := datainit.ParseRequester(service.Requester)
 
 	return datainit.Service{PrepareRestorePoint: func(ctx context.Context, p datainit.Plan, op datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 		return prepareEmptyRestorePoint(ctx, service, stateRoot, p, op)
 	}, Journal: service.Store, Requester: requester, Authorize: func(ctx context.Context) error {
-		pol, err := service.Policy.Load(ctx)
-		if identityErr != nil || err != nil || (!requester.IsLocalOperator() && !pol.AllowAgentMigrations()) {
+		_, err := service.Policy.Load(ctx)
+		if identityErr != nil || err != nil {
 			return datainit.ErrRefused
 		}
 		return nil
@@ -126,11 +87,11 @@ func initializationFacts(ctx context.Context, s Service, stateRoot string, r dat
 	if !ok || !retention.Admits(destination, time.Now().UTC()) {
 		return f, datainit.ErrRefused
 	}
-	if err = trustedInitJSON(ctx, r.Artifact, &f.Initializer); err != nil {
+	if f.Initializer, err = datainit.DecodeArtifact(r.ArtifactBytes, r.Artifact); err != nil {
 		return f, err
 	}
 	definition := f.Initializer.Definition
-	if !slices.Contains(candidate.Definitions, definition) || !slices.Contains(desired.SchemaDefinitions, definition) {
+	if !slices.Contains(candidate.Definitions, definition) || !slices.Contains(desired.SchemaDefinitions, definition) || !slices.Contains(desired.SchemaArtifacts, data.SchemaArtifact{Definition: definition, Digest: r.Artifact}) {
 		return f, datainit.ErrRefused
 	}
 	accepts := false

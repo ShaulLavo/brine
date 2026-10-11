@@ -4,6 +4,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -23,13 +26,24 @@ func storeInitPlan(t *testing.T, s *Store) (datainit.Plan, ReservedDatabase) {
 		t.Fatal(err)
 	}
 	hash := "sha256:" + strings.Repeat("a", 64)
+	requester, err := datainit.ParseRequester("deploy:" + strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := data.SchemaDefinition{Database: reserved.Database.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
+	artifact := data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}
+	raw, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
 	service := datainit.Service{PrepareRestorePoint: func(context.Context, datainit.Plan, datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 		return datainit.VerifiedRestorePoint{}, nil
-	}, Journal: s, Requester: datainit.LocalOperatorRequester(), Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, datainit.Plan) (func(), error) { return func() {}, nil }, Facts: func(context.Context, datainit.Request) (datainit.Facts, error) {
+	}, Journal: s, Requester: requester, Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, datainit.Plan) (func(), error) { return func() {}, nil }, Facts: func(context.Context, datainit.Request) (datainit.Facts, error) {
 		definition := data.SchemaDefinition{Database: reserved.Database.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
 		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: reserved.Replica.EpochID, RemotePrefix: strings.TrimSuffix(reserved.Replica.RemotePrefix, "/"), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: reserved.Database, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Observation: data.SchemaObservation{State: data.AllocatedEmpty}}, nil
 	}}
-	p, err := service.Plan(ctx, datainit.Request{App: "example", FirstReleasePlan: hash, Artifact: hash})
+	p, err := service.Plan(ctx, datainit.Request{App: "example", FirstReleasePlan: hash, Artifact: "sha256:" + hex.EncodeToString(sum[:]), ArtifactBytes: raw})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +196,7 @@ func TestDataInitializationMigrationFromTaskSchemaSevenPreservesJobs(t *testing.
 		t.Fatal(err)
 	}
 	// Construct the released task-only v7 shape; initialization is the v8 addition.
-	for _, statement := range []string{"DROP TABLE plan_inputs", "DROP TABLE data_replica_revisions", "DROP TABLE data_init_events", "DROP TABLE data_init_operations", "DROP TABLE data_init_plans", "UPDATE schema_version SET version=7"} {
+	for _, statement := range []string{"DROP TABLE data_init_reviews", "DROP TABLE data_init_artifacts", "DROP TABLE plan_inputs", "DROP TABLE data_replica_revisions", "DROP TABLE data_init_events", "DROP TABLE data_init_operations", "DROP TABLE data_init_plans", "UPDATE schema_version SET version=7"} {
 		if _, err = state.db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)
 		}
@@ -208,4 +222,76 @@ func TestDataInitializationMigrationFromTaskSchemaSevenPreservesJobs(t *testing.
 		t.Fatal("v7 task changed during migration", err)
 	}
 	storeInitPlan(t, migrated)
+}
+
+func TestInitializationArtifactPublicationIsFencedAndDigestIdempotent(t *testing.T) {
+	s := openTest(t)
+	p, _ := storeInitPlan(t, s)
+	ctx := context.Background()
+	count := func() int {
+		t.Helper()
+		var n int
+		if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM data_init_artifacts").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if count() != 0 {
+		t.Fatal("planning published an artifact")
+	}
+	if err := s.SaveInitArtifact(ctx, p); !errors.Is(err, ErrConflict) || count() != 0 {
+		t.Fatal("unfenced publication accepted", err)
+	}
+	if _, err := s.ClaimInitialization(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := s.SaveInitArtifact(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if count() != 1 {
+		t.Fatal("same digest published twice")
+	}
+	loaded, err := s.LoadInitPlan(ctx, p.ID)
+	if err != nil || !loaded.Valid() || string(loaded.Request.ArtifactBytes) != string(p.Request.ArtifactBytes) || len(loaded.Catalog) != 1 {
+		t.Fatal("review did not roundtrip", err)
+	}
+	for _, sql := range []string{"UPDATE data_init_reviews SET artifact='changed'", "DELETE FROM data_init_reviews", "UPDATE data_init_artifacts SET bytes='changed'", "DELETE FROM data_init_artifacts"} {
+		if _, err := s.db.ExecContext(ctx, sql); err == nil {
+			t.Fatal("immutable review/artifact changed")
+		}
+	}
+	if _, err := s.db.ExecContext(ctx, "DROP TRIGGER data_init_artifacts_no_update; UPDATE data_init_artifacts SET bytes='changed'"); err != nil {
+		t.Fatal(err)
+	}
+	var integrity *IntegrityError
+	if err := s.SaveInitArtifact(ctx, p); !errors.As(err, &integrity) {
+		t.Fatal("digest cache corruption accepted", err)
+	}
+}
+
+func TestInitializationStoredReviewTamperRefusesBeforePublication(t *testing.T) {
+	for _, column := range []string{"artifact", "catalog"} {
+		t.Run(column, func(t *testing.T) {
+			s := openTest(t)
+			p, _ := storeInitPlan(t, s)
+			ctx := context.Background()
+			statement := "DROP TRIGGER data_init_reviews_no_update; UPDATE data_init_reviews SET artifact='[]'"
+			if column == "catalog" {
+				statement = "DROP TRIGGER data_init_reviews_no_update; UPDATE data_init_reviews SET catalog='[]'"
+			}
+			if _, err := s.db.ExecContext(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+			var integrity *IntegrityError
+			if _, err := s.LoadInitPlan(ctx, p.ID); !errors.As(err, &integrity) {
+				t.Fatal("tampered review accepted", err)
+			}
+			var n int
+			if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM data_init_artifacts").Scan(&n); err != nil || n != 0 {
+				t.Fatal("tamper published an artifact", err)
+			}
+		})
+	}
 }

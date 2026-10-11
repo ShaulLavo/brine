@@ -75,15 +75,11 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 			if preview {
 				open = host.OpenPreview
 			}
-			role := authenticated
-			if cli.HostDataInitializationRequested(ctx, args) {
-				role = "operator"
-			}
-			runtime, err := open(ctx, role)
+			runtime, err := open(ctx, authenticated)
 			if err != nil {
 				return cli.RuntimeServices{}, err
 			}
-			return cli.RuntimeServices{DataInitialization: runtime.DataInitialization, Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
+			return cli.RuntimeServices{Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
 		}
 	}
 	return result.ExitCode(cli.ExecuteWithRuntime(deps, args, lifecycle))

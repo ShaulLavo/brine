@@ -4,6 +4,8 @@ package host
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -54,7 +56,12 @@ func initializationJobFixture(t *testing.T, requester datainit.Requester) (*stor
 	}, Facts: func(ctx context.Context, _ datainit.Request) (datainit.Facts, error) {
 		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: reserved.Replica.EpochID, RemotePrefix: strings.TrimSuffix(reserved.Replica.RemotePrefix, "/"), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: reserved.Database, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Allocation: &allocation, Observation: data.ObserveSchemaWithAllocation(ctx, reserved.Database, []data.SchemaDefinition{definition}, &allocation)}, nil
 	}}
-	p, err := engine.Plan(context.Background(), datainit.Request{App: "example", FirstReleasePlan: hash, Artifact: hash})
+	rawArtifact, err := json.Marshal(data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(rawArtifact)
+	p, err := engine.Plan(context.Background(), datainit.Request{App: "example", FirstReleasePlan: hash, Artifact: "sha256:" + hex.EncodeToString(sum[:]), ArtifactBytes: rawArtifact})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +77,7 @@ func (l initializationLauncher) Launch(_ context.Context, id systemd.OperationID
 }
 
 func TestDataInitializationJobFinishesAfterSixteenSecondsAndRemainsObservable(t *testing.T) {
-	requester, err := datainit.AgentRequester("deploy:" + strings.Repeat("a", 64))
+	requester, err := datainit.ParseRequester("deploy:" + strings.Repeat("a", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +133,7 @@ func TestDataInitializationJobFinishesAfterSixteenSecondsAndRemainsObservable(t 
 }
 
 func TestInitializationJobReconstructsOnlyMatchingServerAuthority(t *testing.T) {
-	agent, err := datainit.AgentRequester("deploy:" + strings.Repeat("a", 64))
+	agent, err := datainit.ParseRequester("deploy:" + strings.Repeat("a", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +145,7 @@ func TestInitializationJobReconstructsOnlyMatchingServerAuthority(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, requester := range []datainit.Requester{agent, datainit.LocalOperatorRequester()} {
+	for _, requester := range []datainit.Requester{agent} {
 		state, _, p := initializationJobFixture(t, requester)
 		// run-op's ambient requester is deliberately unrelated to the accepted job.
 		base := Service{Store: state, Requester: "local-operator", Policy: &fakePolicy{p: pol}}
@@ -154,42 +161,43 @@ func TestInitializationJobReconstructsOnlyMatchingServerAuthority(t *testing.T) 
 		if err != nil || reconstructed.Requester != requester {
 			t.Fatal("immutable authority lost", err)
 		}
-		err = reconstructed.Authorize(context.Background())
-		if requester.IsLocalOperator() {
-			if err != nil || !reconstructed.Requester.IsLocalOperator() {
-				t.Fatal("local job lost operator authority", err)
-			}
-		} else if err == nil || reconstructed.Requester.IsLocalOperator() {
-			t.Fatal("remote job acquired ambient operator authority")
+		if err = reconstructed.Authorize(context.Background()); err != nil {
+			t.Fatal("restricted identity denied initialization", err)
 		}
 		foreign := job
-		foreign.Requester = agent.String()
-		if !requester.IsLocalOperator() {
-			foreign.Requester = datainit.LocalOperatorRequester().String()
-		}
+		foreign.Requester = "deploy:" + strings.Repeat("b", 64)
 		if _, err = initializationTaskEngine(context.Background(), base, "/unused", foreign); err == nil {
 			t.Fatal("foreign job reused a requester identity")
 		}
 	}
 }
 
-func TestInitializationRemoteJobCannotAcceptOrReuseLocalAuthority(t *testing.T) {
-	state, engine, p := initializationJobFixture(t, datainit.LocalOperatorRequester())
-	agent, err := datainit.AgentRequester("deploy:" + strings.Repeat("a", 64))
+func TestInitializationJobCannotReuseForeignRequester(t *testing.T) {
+	state, engine, p := initializationJobFixture(t, initializationRequester(t))
+	agent, err := datainit.ParseRequester("deploy:" + strings.Repeat("b", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
 	engine.Requester = agent
-	tasks := jobs.Service{Store: state, Requester: agent.String(), Launcher: initializationLauncher{launch: func(systemd.OperationID) error { t.Fatal("remote launched a local operator plan"); return nil }}}
+	tasks := jobs.Service{Store: state, Requester: agent.String(), Launcher: initializationLauncher{launch: func(systemd.OperationID) error { t.Fatal("requester launched a foreign plan"); return nil }}}
 	if _, err = (initializationOperations{engine: engine, tasks: tasks}).Apply(context.Background(), p.Request.App, p.ID); err == nil {
-		t.Fatal("remote reused a local operator plan")
+		t.Fatal("requester reused a foreign plan")
 	}
-	engine.Requester = datainit.LocalOperatorRequester()
+	engine.Requester = initializationRequester(t)
 	if _, err = (initializationOperations{engine: engine, tasks: tasks}).Apply(context.Background(), p.Request.App, p.ID); err == nil {
-		t.Fatal("remote job acquired operator authority from ambient composition")
+		t.Fatal("job requester did not match plan requester")
 	}
 	pending, err := state.ListUnfinished(context.Background())
 	if err != nil || len(pending) != 0 {
-		t.Fatal("refused remote authority wrote a job", err)
+		t.Fatal("refused requester wrote a job", err)
 	}
+}
+
+func initializationRequester(t *testing.T) datainit.Requester {
+	t.Helper()
+	requester, err := datainit.ParseRequester("deploy:" + strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return requester
 }

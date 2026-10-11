@@ -4,15 +4,13 @@ import (
 	"testing"
 )
 
-func TestAgentMigrationsDefaultOff(t *testing.T) {
+func TestObsoleteAgentMigrationFlagIsRefused(t *testing.T) {
 	raw := fixture(t)
-	p, err := Parse(raw)
-	if err != nil || p.AllowAgentMigrations() {
-		t.Fatalf("default authority widened: %v", err)
+	if _, err := Parse(raw); err != nil {
+		t.Fatal(err)
 	}
-	p, err = Parse(append([]byte("allow_agent_migrations=true\n"), raw...))
-	if err != nil || !p.AllowAgentMigrations() {
-		t.Fatalf("explicit permission refused: %v", err)
+	if _, err := Parse(append([]byte("allow_agent_migrations=true\n"), raw...)); err == nil {
+		t.Fatal("obsolete policy flag accepted")
 	}
 }
 

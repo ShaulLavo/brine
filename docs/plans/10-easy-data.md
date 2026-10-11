@@ -4,14 +4,14 @@
 
 ## Why
 
-The Pi drills proved Brine's data guarantees, but adding a database to an app takes far more ceremony than Kamal (a volume plus an environment variable) or Coolify (click, paste a connection URL). Today an app author must:
+The Pi drills proved Brine's data guarantees, but adding a database to an app originally took far more ceremony than Kamal (a volume plus an environment variable) or Coolify (click, paste a connection URL). The starting workflow required an app author to:
 
 - keep `SQLITE_PATH` in the app and `mount_path`/`filename` in `brine.toml` in sync by hand;
 - copy a catalog SHA-256 into `[[schema_definitions]]`;
-- hand-write an initializer JSON, hash it, and `sudo install` it under `/etc/ssh/brine/data-init/schemas/` on the server;
+- hand-write, hash and manually install initializer JSON on the server;
 - run prepare, credentials, init and deploy as four separate commands.
 
-Goal: **declare the database in `brine.toml`, keep the schema in the app repo, deploy.** Keep every guarantee from D11/D12: no schema change on startup, reviewed initialization, verified empty restore point, operator-only data authority by default, fail-closed fences.
+Goal: **declare the database in `brine.toml`, keep the schema in the app repo, deploy.** Keep every guarantee from D11/D12: no schema change on startup, reviewed initialization, verified empty restore point, the same personal identity for reviewed data plans, fail-closed fences.
 
 ## Non-goals
 
@@ -48,10 +48,10 @@ Brine needs only:
   Client compilation and live host initialization share the golden hashes in
   `internal/data/testdata/schema-goldens.json` for all four supported kinds.
   Plans show the derived artifact digest; `brine data schema` exports its exact
-  bytes for the existing operator install flow. Hardware is unverified and
+  bytes for separate reviewed initialization. Hardware is unverified and
   remains P10-06. Artifact delivery without sudo remains P10-03.
 
-- [ ] **P10-03 Reviewed initialization without sudo.** Replace the manual `sudo install` step. The init plan carries the artifact bytes and shows the SQL and resulting catalog for review. Applying it with operator authority makes the host store the artifact itself in the existing root-owned location (written by the privileged dispatcher, `0644`, digest-named, symlink-free) before initialization. Restricted agent credentials still cannot initialize unless `allow_agent_migrations = true`; the plan states which authority it needs. **Acceptance:** an agent-scoped apply refuses before storing anything; tampered artifact bytes refuse; a second apply of the same digest is idempotent; interruption between store and init reconciles without a duplicate attempt. **Evidence:** dispatcher authority tests; interruption cases next to T23.
+- [x] **P10-03 Reviewed initialization without sudo.** The init plan carries exact artifact bytes and shows SQL and the resulting catalog. Under the owner decision of 2026-10-11, the agent and owner are one identity: whoever can apply plans over the restricted channel can initialize data and apply future reviewed migrations. Remove the agent migration grant and local-operator-only composition. The unprivileged host stores a digest-bound immutable artifact in its private state after claiming apply intent and fence, before initialization. No root-owned schema directory or privileged artifact writer. **Acceptance:** tampered bytes refuse before storing; same-digest publication and same-plan apply are idempotent; interruption between store and init reconciles without a duplicate attempt. Every existing restore verification, fence, independent compile and schema-preserving startup check stays. **Evidence:** `internal/dispatch/data_init_test.go`, `internal/datainit/init_test.go`, `internal/store/data_init_test.go`, `internal/cli/data_init_test.go` and `internal/host/data_init_reconcile_linux_test.go`. Local fixtures prove review, digest refusal, immutable storage and interruption settlement; a physical deploy/restore drill remains P10-06.
 
 - [ ] **P10-04 One command for a new app.** `brine deploy brine.toml` on an app whose databases are not yet initialized prints one combined review: data preparation, credential status, schema initialization (with SQL), then the release. On approval it runs the existing operations in order, each with its own journal and detached task, stops at the first failure, and resumes from the first unfinished step when rerun. Backup credentials are never minted: if none are delivered, it asks for `--backup-credentials FILE` (same 0600 file format as `backup credentials set`) or stops with the exact command to run. **Acceptance:** happy path end to end; failure at each step leaves earlier steps intact and a rerun continues; an already initialized app deploys as today; `--json` output lists each step's operation ID. **Evidence:** CLI orchestration tests with fake host; the Pi drill in P10-06.
 

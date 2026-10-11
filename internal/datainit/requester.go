@@ -6,26 +6,21 @@ import (
 )
 
 // Requester is a server-established identity, not an initialization request field.
-// Its private representation keeps agent identities separate from local authority.
+// Its private representation prevents callers from inventing a request identity.
 type Requester struct{ identity string }
 
 var restrictedIdentity = regexp.MustCompile(`^deploy:[a-f0-9]{64}$`)
 
-// AgentRequester refuses the reserved local operator identity, including aliases.
-func AgentRequester(identity string) (Requester, error) {
+// ParseRequester accepts only the server-established restricted-channel identity.
+func ParseRequester(identity string) (Requester, error) {
 	if !restrictedIdentity.MatchString(identity) {
 		return Requester{}, ErrRefused
 	}
 	return Requester{identity: identity}, nil
 }
 
-// LocalOperatorRequester is selected only by local host-command composition.
-func LocalOperatorRequester() Requester   { return Requester{identity: "local-operator"} }
-func (r Requester) String() string        { return r.identity }
-func (r Requester) IsLocalOperator() bool { return r == LocalOperatorRequester() }
-func (r Requester) Valid() bool {
-	return r.IsLocalOperator() || restrictedIdentity.MatchString(r.identity)
-}
+func (r Requester) String() string { return r.identity }
+func (r Requester) Valid() bool    { return restrictedIdentity.MatchString(r.identity) }
 func (r Requester) MarshalJSON() ([]byte, error) {
 	if !r.Valid() {
 		return nil, ErrRefused
@@ -40,11 +35,7 @@ func (r *Requester) UnmarshalJSON(raw []byte) error {
 	if json.Unmarshal(raw, &identity) != nil {
 		return ErrRefused
 	}
-	if identity == LocalOperatorRequester().identity {
-		*r = LocalOperatorRequester()
-		return nil
-	}
-	parsed, err := AgentRequester(identity)
+	parsed, err := ParseRequester(identity)
 	if err != nil {
 		return err
 	}

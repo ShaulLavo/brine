@@ -57,7 +57,6 @@ type Registry struct {
 }
 type document struct {
 	DataInitialization   *persistent.InitializationBounds `toml:"data_initialization" json:"data_initialization,omitempty"`
-	AllowAgentMigrations bool                             `toml:"allow_agent_migrations" json:"allow_agent_migrations,omitempty"`
 	BackupRetention      []persistent.RetentionEvidence   `toml:"backup_retention" json:"backup_retention,omitempty"`
 	Backup               *backupDocument                  `toml:"backup" json:"backup,omitempty"`
 	BackupDestinations   []persistent.Destination         `toml:"backup_destinations" json:"backup_destinations,omitempty"`
@@ -98,8 +97,7 @@ func (p Policy) InitializationBounds() (persistent.InitializationBounds, bool) {
 	}
 	return *p.config.DataInitialization, p.config.DataInitialization.Valid()
 }
-func (p Policy) AllowAgentMigrations() bool { return p.config != nil && p.config.AllowAgentMigrations }
-func (p Policy) Hash() string               { return p.hash }
+func (p Policy) Hash() string { return p.hash }
 func (p Policy) Version() string {
 	if p.config == nil {
 		return ""
@@ -273,7 +271,7 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "allow_agent_migrations", "data_initialization") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "data_initialization") {
 		return false
 	}
 	for key, allowed := range map[string][]string{"data_initialization": {"max_backup_age_seconds", "max_restore_test_age_seconds", "recovery_window_seconds"}, "backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {

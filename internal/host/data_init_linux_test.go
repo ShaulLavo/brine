@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/policy"
 )
 
@@ -30,8 +30,7 @@ func TestReviewedInitializationArtifactExactBytesAndShape(t *testing.T) {
 		t.Run(item.name, func(t *testing.T) {
 			digest := sha256.Sum256([]byte(item.text))
 			id := "sha256:" + hex.EncodeToString(digest[:])
-			var artifact data.SchemaInitializer
-			err := decodeReviewedInitialization([]byte(item.text), id, &artifact)
+			artifact, err := datainit.DecodeArtifact([]byte(item.text), id)
 			if item.valid {
 				if err != nil {
 					t.Fatal(err)
@@ -44,56 +43,25 @@ func TestReviewedInitializationArtifactExactBytesAndShape(t *testing.T) {
 			}
 		})
 	}
-	var artifact data.SchemaInitializer
-	if err := decodeReviewedInitialization([]byte(raw), "sha256:"+strings.Repeat("a", 64), &artifact); err == nil {
+	if _, err := datainit.DecodeArtifact([]byte(raw), "sha256:"+strings.Repeat("a", 64)); err == nil {
 		t.Fatal("altered artifact accepted")
 	}
 }
 
-func TestInitializationHostPolicyDefaultOffAndLocalOperator(t *testing.T) {
+func TestInitializationRestrictedIdentityNeedsValidPolicyOnly(t *testing.T) {
 	raw, err := os.ReadFile("../policy/testdata/operator.toml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, item := range []struct {
-		name              string
-		operator, allowed bool
-		prefix            string
-	}{
-		{"restricted-agent", false, false, ""},
-		{"permitted-agent", false, true, "allow_agent_migrations=true\n"},
-		{"local-operator", true, true, ""},
-	} {
-		t.Run(item.name, func(t *testing.T) {
-			pol, err := policy.Parse(append([]byte(item.prefix), raw...))
-			if err != nil {
-				t.Fatal(err)
-			}
-			engine := dataInitializationService(Service{Requester: "deploy:" + strings.Repeat("a", 64), Policy: &fakePolicy{p: pol}}, "/unused", item.operator)
-			err = engine.Authorize(context.Background())
-			if (err == nil) != item.allowed {
-				t.Fatalf("authority %v", err)
-			}
-		})
-	}
-}
-
-func TestInitializationRemoteCompositionRejectsReservedOperatorIdentity(t *testing.T) {
-	raw, err := os.ReadFile("../policy/testdata/operator.toml")
+	pol, err := policy.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pol, err := policy.Parse(append([]byte("allow_agent_migrations=true\n"), raw...))
-	if err != nil {
-		t.Fatal(err)
-	}
-	service := Service{Requester: "local-operator", Policy: &fakePolicy{p: pol}}
-	remote := dataInitializationService(service, "/unused", false)
-	if err = remote.Authorize(context.Background()); err == nil || remote.Requester.IsLocalOperator() {
-		t.Fatal("remote composition acquired local operator authority")
-	}
-	local := dataInitializationService(service, "/unused", true)
-	if err = local.Authorize(context.Background()); err != nil || !local.Requester.IsLocalOperator() {
-		t.Fatal("local composition lost operator authority", err)
+	for _, identity := range []string{"deploy:" + strings.Repeat("a", 64), "local-operator", "operator", ""} {
+		engine := dataInitializationService(Service{Requester: identity, Policy: &fakePolicy{p: pol}}, "/unused")
+		err := engine.Authorize(context.Background())
+		if (err == nil) != strings.HasPrefix(identity, "deploy:") {
+			t.Fatalf("identity %q: %v", identity, err)
+		}
 	}
 }
