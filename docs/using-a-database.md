@@ -81,7 +81,7 @@ marker = "notes-v1"
 
 Replace the image and domain with real, policy-approved values. The image must
 serve HTTP on port 8080 and satisfy the configured health check (the default
-path is `/health`). The enrolled target's protected operator policy must already
+path is `/`). The enrolled target's protected operator policy must already
 allow the app, runtime UID/GID and persistent root, define the `primary` backup
 destination and initialization freshness bounds, and admit its declared backup
 retention. This app file neither creates a storage bucket nor changes host policy.
