@@ -65,7 +65,7 @@ func TestInvalidManagedEnvironment(t *testing.T) {
 	cases := map[string]string{
 		"BRINE_DB_MAIN_ENGINE":  "sqlite",
 		"BRINE_DB_MAIN_ACCEPTS": "unknown-marker",
-		"BRINE_DB_MAIN_URL":     "https://user:password@fixture.example/",
+		"BRINE_DB_MAIN_URL":     "https://user@fixture.example/",
 		"BRINE_DB_MAIN_NAME":    "../other",
 	}
 	for field, value := range cases {

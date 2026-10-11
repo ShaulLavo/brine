@@ -249,8 +249,7 @@ class Probe:
         preflight = self.preflight(variant)
         automatic = preflight.get('AutoMigrate')
         if automatic is None:
-            self.result[variant] = {'preflight': scrub_preflight(preflight), 'published': False}
-            return
+            raise RuntimeError('pinned fixture candidate unexpectedly requires manual migration')
         if automatic['break_clients']:
             self.publish(variant, 'BreakClients', automatic['token'])
         else:
