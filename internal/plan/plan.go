@@ -189,6 +189,7 @@ type ReplicaPrevious struct {
 }
 
 type Plan struct {
+	ManagedPreview      *ManagedBlueprint     `json:"managed_preview,omitempty"`
 	SchemaArtifacts     []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
 	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
 
@@ -248,6 +249,9 @@ func Build(in Input) (Plan, error) {
 	in.Desired = policy.Desired{}
 	if e = json.Unmarshal(desired, &in.Desired); e != nil {
 		return Plan{}, e
+	}
+	if in.Desired.SpacetimeDB != nil {
+		return buildManagedPreview(in, desired)
 	}
 	in.Snapshot = target.Snapshot{}
 	if e = json.Unmarshal(snapshot, &in.Snapshot); e != nil {

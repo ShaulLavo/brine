@@ -1,0 +1,36 @@
+schema_version = 1
+version = "managed-preview-1"
+allowed_domains = ["*.example.com", "other.example.net"]
+persistent_roots = ["/srv/brine-data"]
+
+[[allowed_registries]]
+host = "registry.example.com:5000"
+repository_prefixes = ["team"]
+
+[[backup_destinations]]
+reference = "primary"
+endpoint = "https://storage.example.com"
+region = "auto"
+bucket = "fixture-backups"
+base_prefix = "fixture"
+path_style = true
+credential_ref = "backup-credentials"
+
+[app_ports]
+min = 20000
+max = 20010
+
+[resources]
+memory_mb = 512
+pids_limit = 512
+
+[allowed_secrets]
+hello = ["publisher", "signing-private", "signing-public", "auth", "frontend-token"]
+
+[spacetimedb]
+license_use = "fixture"
+license_authority = "operator-fixture-grant"
+capture_interval_seconds = 86400
+verification_interval_seconds = 604800
+max_remote_loss_seconds = 90000
+max_maintenance_seconds = 120
