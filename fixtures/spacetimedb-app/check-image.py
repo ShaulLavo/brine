@@ -13,7 +13,7 @@ FIXTURE = pathlib.Path(__file__).resolve().parent
 
 
 def docker(*args):
-    return subprocess.check_output(['docker', *args], text=True).strip()
+    return subprocess.check_output(['docker', *args], text=True, stderr=subprocess.STDOUT, timeout=15).strip()
 
 
 def flatten_transfer(root, manifest):
@@ -45,24 +45,53 @@ def qualify(root, arch, manifest):
 
 def inspect_running(container, root, arch, manifest):
     state = json.loads(docker('inspect', container))[0]
-    assert state['State']['Running'] and state['Config']['User'] == '10001:10001'
+    assert state['Config']['User'] == '10001:10001'
+    if not state['State']['Running']:
+        raise readiness_failure(container, container_state(container))
     entrypoint = root / ('entrypoint-' + arch)
     docker('cp', container + ':/spacetimedb-app', str(entrypoint))
     assert stat.S_IMODE(entrypoint.stat().st_mode) == 0o555
     assert hashlib.sha256(entrypoint.read_bytes()).hexdigest() == manifest['app_binaries'][arch]
     binding = state['NetworkSettings']['Ports']['8080/tcp'][0]
     base = 'http://127.0.0.1:' + binding['HostPort'] + '/'
-    for _ in range(50):
-        try:
-            return inspect_http(base, arch, manifest)
-        except urllib.error.URLError:
-            time.sleep(.1)
-    raise RuntimeError('container HTTP readiness deadline')
+    wait_http(base, container)
+    return inspect_http(base, arch, manifest)
+
+
+def container_state(container):
+    state = json.loads(docker('inspect', container))[0]['State']
+    return {key: state[key] for key in ['Running', 'Status', 'ExitCode', 'OOMKilled']}
+
+
+def readiness_failure(container, state):
+    logs = docker('logs', '--tail', '20', container)[-4096:]
+    return RuntimeError('container HTTP readiness failed; state=' + json.dumps(state) + '; fixture logs=' + logs)
+
+
+def health_ready(base, timeout):
+    try:
+        with urllib.request.urlopen(base + 'health', timeout=timeout) as response:
+            assert response.status == 200 and response.read() == b'{"ok":true}\n'
+        return True
+    except urllib.error.HTTPError:
+        raise
+    except (urllib.error.URLError, OSError):
+        return False
+
+
+def wait_http(base, container, timeout=5):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        state = container_state(container)
+        if not state['Running']:
+            raise readiness_failure(container, state)
+        if health_ready(base, min(1, max(.001, deadline - time.monotonic()))):
+            return
+        time.sleep(min(.1, max(0, deadline - time.monotonic())))
+    raise readiness_failure(container, container_state(container))
 
 
 def inspect_http(base, arch, manifest):
-    with urllib.request.urlopen(base + 'health', timeout=1) as response:
-        assert response.status == 200
     with urllib.request.urlopen(base + 'config.json', timeout=1) as response:
         config = json.load(response)
     assert config == {'endpoint': 'https://fixture.example/', 'database': 'recovery-fixture'}
