@@ -75,6 +75,36 @@ func TestOrderedProductsAndExistingConstraintsCannotBeDowngraded(t *testing.T) {
 	}
 }
 
+func TestImplicitExistingNameCannotBecomeReviewedAddition(t *testing.T) {
+	source := schemaObject(t)
+	names := sectionObject(source, "ExplicitNames").(map[string]any)
+	entries := names["entries"].([]any)
+	kind, value, _ := variant(entries[0])
+	mapping := value.(map[string]any)
+	name := mapping["source_name"].(string)
+	names["entries"] = entries[1:]
+	before := mustSchemaValue(t, source)
+	names["entries"] = append(names["entries"].([]any), map[string]any{kind: map[string]any{"source_name": name, "canonical_name": "renamed_existing"}})
+	after := mustSchemaValue(t, source)
+	diff, err := CompareSchemas(before, after)
+	if err != nil || diff.Decision() != OperatorProcedureRequired {
+		t.Fatal("existing implicit name gained unreviewed alias", diff.Decision(), diff.Changes(), err)
+	}
+}
+
+func mustSchemaValue(t *testing.T, value any) CanonicalSchema {
+	t.Helper()
+	raw, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := CanonicalSchemaV10(raw, DefaultSchemaLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return schema
+}
+
 func changePrimaryKey(schema map[string]any) {
 	table := sectionObject(schema, "Tables").([]any)[0].(map[string]any)
 	table["primary_key"] = []any{json.Number("1")}

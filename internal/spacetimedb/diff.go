@@ -123,14 +123,14 @@ func (d *SchemaDiff) effects(old, next map[string]any) {
 		}
 		d.change(SchemaChange{Kind: "effects_changed", Section: section.name}, StagedValidationRequired, section.requirement)
 	}
-	if !reflect.DeepEqual(old["ExplicitNames"], next["ExplicitNames"]) && !explicitNamesOnlyAdded(old["ExplicitNames"], next["ExplicitNames"]) {
+	if !reflect.DeepEqual(old["ExplicitNames"], next["ExplicitNames"]) && !explicitNamesOnlyNewDeclarations(old, next) {
 		d.change(SchemaChange{Kind: "explicit_names_changed", Section: "ExplicitNames"}, OperatorProcedureRequired, "")
 	}
 }
 
-func explicitNamesOnlyAdded(old, next any) bool {
-	previous, oldOK := old.(map[string]any)
-	current, nextOK := next.(map[string]any)
+func explicitNamesOnlyNewDeclarations(old, next map[string]any) bool {
+	previous, oldOK := old["ExplicitNames"].(map[string]any)
+	current, nextOK := next["ExplicitNames"].(map[string]any)
 	if !oldOK || !nextOK {
 		return false
 	}
@@ -139,7 +139,50 @@ func explicitNamesOnlyAdded(old, next any) bool {
 			return false
 		}
 	}
+	for _, entry := range current["entries"].([]any) {
+		if containsValue(previous["entries"].([]any), entry) {
+			continue
+		}
+		if mappingTargetsExistingDeclaration(entry, old) {
+			return false
+		}
+	}
 	return true
+}
+
+func mappingTargetsExistingDeclaration(entry any, source map[string]any) bool {
+	kind, value, _ := variant(entry)
+	name := value.(map[string]any)["source_name"].(string)
+	switch kind {
+	case "Table":
+		return namedRows(source["Tables"])[name] != nil
+	case "Function":
+		return namedRows(source["Reducers"])[name] != nil
+	case "Index":
+		return namedIndexExists(source["Tables"], name)
+	default:
+		return true
+	}
+}
+
+func namedIndexExists(section any, name string) bool {
+	rows, _ := section.([]any)
+	for _, row := range rows {
+		if indexEntriesContain(row.(map[string]any)["indexes"].([]any), name) {
+			return true
+		}
+	}
+	return false
+}
+
+func indexEntriesContain(rows []any, name string) bool {
+	for _, row := range rows {
+		kind, value, _ := variant(row.(map[string]any)["source_name"])
+		if kind == "some" && value == name {
+			return true
+		}
+	}
+	return false
 }
 
 func containsValue(values []any, expected any) bool {
