@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -275,5 +276,46 @@ func TestRestrictionProbeRequiresDispatcherResponse(t *testing.T) {
 		if runner.command.Args[len(runner.command.Args)-1] != "printf brine-unrestricted-key" {
 			t.Fatal("restriction probe accidentally invoked dispatcher directly")
 		}
+	}
+}
+
+func TestTransportFailureDiagnosticsAreBoundedAndRedacted(t *testing.T) {
+	runner := &captureRunner{exit: errors.New("PLANTED_SECRET"), output: localexec.Output{Stderr: []byte(strings.Repeat("private material\n", 1000) + "ssh: connect to host fixture.invalid port 22: Connection refused\nPLANTED_SECRET ssh-ed25519 AAAA\n")}}
+	client := Client{Runner: runner, LookPath: func(string) (string, error) { return "/fixture/ssh", nil }, KnownHostsDir: filepath.Join(t.TempDir(), "pins")}
+	request := dispatch.Request{SchemaVersion: 1, Op: "ping", RequestID: "fixture", Args: json.RawMessage(`{}`)}
+	_, err := client.Call(t.Context(), validTarget(), request)
+	raw, marshalErr := json.Marshal(result.Failure("brine ping", err))
+	if marshalErr != nil {
+		t.Fatal(marshalErr)
+	}
+	for _, secret := range []string{"PLANTED", "fixture.invalid", "ssh-ed25519", "AAAA", "private material"} {
+		if strings.Contains(string(raw), secret) {
+			t.Fatal("diagnostic leaked", secret)
+		}
+	}
+	if !strings.Contains(string(raw), "Connection refused") || !strings.Contains(string(raw), `"operation":"ping"`) || len(raw) > 3000 {
+		t.Fatal("missing or unbounded diagnostic", string(raw))
+	}
+	if !runner.command.StderrTail {
+		t.Fatal("SSH did not request bounded stderr tail")
+	}
+}
+
+func TestTransportFailureReasons(t *testing.T) {
+	for _, test := range []struct {
+		cause  error
+		reason string
+	}{
+		{context.DeadlineExceeded, "deadline_exceeded"},
+		{localexec.ErrOutputLimit, "output_limit"},
+		{errors.New("private cause"), "runner_failure"},
+	} {
+		t.Run(test.reason, func(t *testing.T) {
+			err := transportFailure("operation", []byte("private diagnostic"), test.cause)
+			envelope := result.Failure("brine status", err)
+			if envelope.Error.Code != result.TransportFailure || envelope.Error.Details == nil || envelope.Error.Details.Reason != test.reason || envelope.Error.Details.SSHStderrTail != "[redacted]" {
+				t.Fatal(envelope.Error)
+			}
+		})
 	}
 }

@@ -816,3 +816,59 @@ func TestDeployRetainedOperationFromAnotherAppRefuses(t *testing.T) {
 		t.Fatal("work was submitted after reference mismatch", host.submitted)
 	}
 }
+
+func TestDeployImmediateResumeObservesReleaseBeforeCheckpointLock(t *testing.T) {
+	for _, lostAcceptance := range []bool{false, true} {
+		t.Run(fmt.Sprint(lostAcceptance), func(t *testing.T) {
+			host, deps, args, out, stderr := deploymentFixture(t)
+			if lostAcceptance {
+				host.loseAcceptance = "release"
+			} else {
+				host.failPoll = "release-op"
+			}
+			if err := Execute(deps, args); err == nil {
+				t.Fatal("interruption ignored")
+			}
+			status := host.accepted["release-op"]
+			status.Operation.State = ops.Checking
+			host.accepted["release-op"] = status
+			host.released = false
+			observer := &lockedReleaseHost{firstDeployHost: host, locked: true}
+			deps.OperationClient = observer
+			out.Reset()
+			stderr.Reset()
+			if err := Execute(deps, args); err != nil {
+				t.Fatal("immediate resume", err, stderr.String())
+			}
+			if observer.polls < 3 || observer.locked {
+				t.Fatal("release was not observed to completion", observer.polls)
+			}
+			if host.counts["release"] != 1 {
+				t.Fatal("release resubmitted", host.counts)
+			}
+		})
+	}
+}
+
+type lockedReleaseHost struct {
+	*firstDeployHost
+	locked bool
+	polls  int
+}
+
+func (h *lockedReleaseHost) Call(ctx context.Context, target transport.Target, r dispatch.Request) (result.Envelope, error) {
+	if r.Op == "deploy_checkpoint" && h.locked {
+		return result.Envelope{}, result.New(result.TransportFailure, context.DeadlineExceeded)
+	}
+	if r.Op == "operation" && strings.Contains(string(r.Args), "release-op") {
+		h.polls++
+		if h.polls == 3 {
+			status := h.accepted["release-op"]
+			status.Operation.State = ops.Succeeded
+			h.accepted["release-op"] = status
+			h.released = true
+			h.locked = false
+		}
+	}
+	return h.firstDeployHost.Call(ctx, target, r)
+}

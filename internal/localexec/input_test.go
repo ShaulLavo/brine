@@ -70,3 +70,15 @@ func helperCoverageWarning() string {
 	}
 	return ""
 }
+
+func TestInputStderrTailRemainsBounded(t *testing.T) {
+	capture := &limitedCapture{limit: 8, tail: true}
+	for _, chunk := range []string{"012345", "6789", "abcdefghijk", "END"} {
+		if n, err := capture.Write([]byte(chunk)); err != nil || n != len(chunk) {
+			t.Fatal(n, err)
+		}
+	}
+	if string(capture.data) != "ghijkEND" || !capture.overflow {
+		t.Fatal(string(capture.data), capture.overflow)
+	}
+}

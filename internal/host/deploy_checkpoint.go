@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
@@ -15,6 +16,8 @@ import (
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
+
+const deploymentCheckpointLockWait = 5 * time.Second
 
 // DeploymentCheckpoint never treats a private client checkpoint as authority.
 // LoadPlan/LoadInitPlan verify retained hashes; this binds their actual contents
@@ -24,7 +27,14 @@ func (s Service) DeploymentCheckpoint(ctx context.Context, app spec.App, q dispa
 	if s.Requester == "" || s.Store == nil {
 		return out, result.New(result.DispatchOperationRefused, nil)
 	}
-	lock, err := s.Store.AcquireHostLock(ctx)
+	// Terminal status can precede the runner's deferred lock release. Allow
+	// that handoff, but return a typed conflict before the SSH call expires.
+	wait, cancel := context.WithTimeout(ctx, deploymentCheckpointLockWait)
+	lock, err := s.Store.AcquireHostLock(wait)
+	cancel()
+	if errors.Is(err, context.DeadlineExceeded) {
+		return out, result.New(result.Conflict, err)
+	}
 	if err != nil {
 		return out, err
 	}
