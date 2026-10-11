@@ -12,7 +12,12 @@ import (
 
 func actualSchema(t *testing.T, name string) []byte {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/" + name)
+	root, err := os.OpenRoot("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	raw, err := root.ReadFile(name)
 	if err != nil {
 		t.Fatal(err)
 	}

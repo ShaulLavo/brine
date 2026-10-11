@@ -48,7 +48,7 @@ func (f *metadataFixture) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if f.mode == "oversize" {
-		fmt.Fprint(w, strings.Repeat("x", (1<<20)+1))
+		_, _ = fmt.Fprint(w, strings.Repeat("x", (1<<20)+1))
 		return
 	}
 	w.Header().Set("Spacetime-Identity-Token", privateTestToken)
@@ -57,7 +57,7 @@ func (f *metadataFixture) serve(w http.ResponseWriter, r *http.Request) {
 	case "":
 		f.writeInfo(w)
 	case "/names":
-		fmt.Fprint(w, `{"names":["fixture"]}`)
+		_, _ = fmt.Fprint(w, `{"names":["fixture"]}`)
 	case "/environment":
 		f.environments++
 		f.writeEnvironment(w)
@@ -137,8 +137,8 @@ func TestFixedPrivateObserverUsesCurrentHashAndNoHooks(t *testing.T) {
 	if observed.Names()[0] != "fixture" {
 		t.Fatal("caller mutated the observation")
 	}
-	encoded, _ := json.Marshal(observed)
-	if strings.Contains(string(encoded), privateTestToken) || strings.Contains(string(encoded), "PRIVATE_NAME") {
+	diagnostic := fmt.Sprintf("%+v", observed)
+	if strings.Contains(diagnostic, privateTestToken) || strings.Contains(diagnostic, "PRIVATE_NAME") {
 		t.Fatal("private HTTP metadata reached public observation")
 	}
 }

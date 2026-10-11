@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -30,7 +29,7 @@ type PrivateEndpoint struct {
 	database DatabaseIdentity
 }
 
-// Location validation does not establish runtime ownership or a startup permit.
+// NewPrivateEndpoint validates loopback location, not runtime ownership or a startup permit.
 func NewPrivateEndpoint(host string, port uint16, database string) (PrivateEndpoint, error) {
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() || port == 0 || !validHexIdentity(database) {
@@ -150,7 +149,7 @@ func (r metadataReader) read(suffix string) (any, error) {
 	if err != nil {
 		return nil, ErrObservation
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, ErrObservation
 	}
@@ -310,5 +309,3 @@ func normalizedNames(names []string) ([]string, error) {
 	}
 	return result, nil
 }
-
-var _ fmt.Stringer = PublisherCredential{}

@@ -3,6 +3,7 @@ package spacetimedb
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"math/big"
 	"slices"
@@ -28,7 +29,7 @@ func decodeDocument(raw []byte, limits SchemaLimits) (any, error) {
 	if err != nil {
 		return nil, ErrSchema
 	}
-	if _, err = d.Token(); err != io.EOF {
+	if _, err = d.Token(); !errors.Is(err, io.EOF) {
 		return nil, ErrSchema
 	}
 	return value, nil
