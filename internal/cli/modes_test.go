@@ -420,3 +420,19 @@ func TestHumanThemeOutputPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestRequestInputPlainTerminalStillAllowsConfirmation(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	var out, diagnostics bytes.Buffer
+	deps := testDependencies(t, &out, &diagnostics)
+	withTestTerminal(t, &deps)
+	root := NewRootCommand(deps)
+	called := false
+	root.AddCommand(&cobra.Command{Use: "ask", RunE: func(cmd *cobra.Command, _ []string) error {
+		return RequestInput(cmd, func(context.Context, io.Reader, io.Writer) error { called = true; return nil })
+	}})
+	root.SetArgs([]string{"ask"})
+	if err := root.Execute(); err != nil || !called {
+		t.Fatal("NO_COLOR erased terminal identity", err)
+	}
+}
