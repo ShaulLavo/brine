@@ -78,6 +78,18 @@ type App struct {
 	Secrets           Observation[[]Secret] `json:"secrets"`
 }
 
+// UnitsAbsent requires measured absence of all owned units, not an unknown list.
+func (a App) UnitsAbsent() bool {
+	return a.QuadletUnits.Status == KnownStatus && a.QuadletUnits.Value != nil && len(*a.QuadletUnits.Value) == 0
+}
+
+// RuntimeAbsent is the inventory proof required to reuse a historical app name.
+// Retained secrets are not runtime; durable release ownership is checked separately.
+func (a App) RuntimeAbsent() bool {
+	return a.Image.Status == Absent && a.AllocatedHostPort.Status == Absent && a.UnitsAbsent() &&
+		(a.UnitActive == nil || a.UnitActive.Status == KnownStatus && a.UnitActive.Value != nil && !*a.UnitActive.Value)
+}
+
 // CaddyConfigSet describes the generation selected by the current symlink,
 // including files that do not correspond to any recorded Brine app.
 type CaddyConfigSet struct {

@@ -119,7 +119,7 @@ func initializationFacts(ctx context.Context, s Service, stateRoot string, r dat
 		return f, datainit.ErrRefused
 	}
 	for _, app := range *snapshot.Apps.Value {
-		if app.Name == r.App {
+		if app.Name == r.App && !app.RuntimeAbsent() {
 			return f, datainit.ErrRefused
 		}
 	}
