@@ -2,6 +2,10 @@
 
 Status: Approved
 
+For the app-author walkthrough, schema file and driver examples, start with
+[Using a database](using-a-database.md). This page explains the initialization
+review, authority and recovery guarantees behind `brine deploy`.
+
 Deploy and application startup preserve schema. For a new app, the default
 workflow composes reviewed initialization before its first compatible release:
 
@@ -76,17 +80,20 @@ SHA-256, marker and initializer bytes. Handwritten `[[schema_definitions]]` and
 marker with `startup = "preserve"`. An explicit compatibility entry remains
 unchanged. It may accept older schemas but never authorizes a migration.
 
-Export the exact initializer JSON for review:
+`brine deploy` compiles the schema locally and sends the generated exact bytes
+when it plans initialization. No initializer export or host installation is
+required. The normal deployment and preparation requests carry only
+catalog/marker/digest metadata; their plans do not authorize schema mutation.
+The dependent initialization plan carries the reviewed bytes and catalog.
 
-```sh
-brine data schema brine.toml --database main > reviewed-schema.json
-```
-
-Without a machine flag, export writes canonical JSON bytes with no added newline. With `--json` or `--jsonl`, the normal result envelope contains `data.artifact` metadata and a `data.bytes` string holding those exact bytes. Its SHA-256 matches
-the initializer digest shown in deployment and data-preparation plans, including
-machine output. Deployment and preparation transport carry only catalog/marker/digest metadata. The separate initialization plan carries the reviewed bytes and catalog. Deployment still changes no schema.
-
-The client reads a bounded regular initializer file (at most 1 MiB), hashes its exact bytes and sends those bytes with the digest in the initialization planning request. The host independently recompiles the SQL in isolated in-memory SQLite and rejects a catalog mismatch. Human plans show the SQL and resulting catalog; machine plans include `artifact_bytes` (JSON base64), the exact digest and `catalog`. The immutable plan binds all of them. At apply, the host stores the approved artifact by digest in its own private control database, only after claiming the durable fence and one-attempt intent. Planning retains the review payload but does not publish an apply artifact. There is no sudo step, root-owned schema directory or privileged writer.
+The host independently recompiles the SQL in isolated in-memory SQLite and
+rejects a catalog mismatch. Human review shows the SQL and resulting catalog;
+machine initialization plans include `artifact_bytes` as JSON base64, the exact
+digest and `catalog`. At apply, the host stores the approved artifact by digest
+in its private control database, only after claiming the durable fence and
+one-attempt intent. Planning retains the review payload but does not publish an
+apply artifact. There is no sudo step, root-owned schema directory or privileged
+writer.
 
 The request supplies only app, retained release/preparation plan ID, artifact digest and artifact bytes. Host filesystem paths, approval booleans, requester identity and caller-installed restore receipts are rejected. Apply supplies only app and the retained initialization plan ID.
 
@@ -105,22 +112,15 @@ recovery_window_seconds = 86400
 
 Zero/missing bounds refuse initialization. Maximums are one day for upload age, five minutes for restore-test age, and thirty days for the recovery window. Current nonexpiring retention evidence and exact binding/epoch credential evidence are required. No caller-supplied bounds override protected policy.
 
-## Commands
+## Detached initialization jobs
 
-```sh
-brine data init APP --target NAME --plan \
-  --first-release-plan sha256:PREPARATION_PLAN_DIGEST \
-  --artifact reviewed-schema.json
-brine data init APP --target NAME --plan-id sha256:INITIALIZATION_PLAN_DIGEST
-```
-
-Apply records and launches a detached host job, returning an accepted operation ID promptly. The CLI polls status to a terminal result by default; `--no-wait` returns that ID without polling. Each transport call keeps its short request deadline; losing the observer never cancels accepted host work. Inspect it with `brine status --operation OPERATION_ID --target NAME`. Reapplying the same plan recovers the same accepted job and never launches another initialization.
+Individual initialization apply records and launches a detached host job, returning an accepted operation ID promptly. The combined `deploy` waits for each prerequisite before moving on. The CLI polls status to a terminal result by default; `--no-wait` returns that ID without polling. Each transport call keeps its short request deadline; losing the observer never cancels accepted host work. Inspect it with `brine status --operation OPERATION_ID --target NAME`. Reapplying the same plan recovers the same accepted job and never launches another initialization.
 
 Apply does not accept planning-only inputs. Initialization plans bind the requester, policy, target identity/generation, desired declaration, exact database binding, replica epoch/prefix, source state, destination definition and generated restore-point ID.
 
 ## Empty restore point and durable boundaries
 
-The minimal operation admits exactly one never-started database and an uncommitted replica. It refuses a committed release, writer history, unresolved writer-start intent, active operation, foreign fence, observed app unit, unknown inventory, nonempty/unknown schema, or missing allocation evidence for an absent file. It consumes preparation's bindings and receipt; it does not reserve identities or create live data directories.
+Each initialization operation admits one selected never-started database and an uncommitted replica. An app can declare several databases; the combined deploy creates separate operations for them. It refuses a committed release, writer history, unresolved writer-start intent, active operation, foreign fence, observed app unit, unknown inventory, nonempty/unknown schema, or missing allocation evidence for an absent file. It consumes preparation's bindings and receipt; it does not reserve identities or create live data directories.
 
 Under the host mutation lock, initialization claims a durable database fence and one-attempt journal record atomically, then stores the digest-bound reviewed artifact. An interruption between storage and initialization remains an attempted operation and is inspected, never blindly restarted. Both application and replica startup permits honor the fence. Fresh inventory and never-started identity checks establish that no registered writer exists; this path does not stop or initialize a previously running app.
 
@@ -150,4 +150,4 @@ Inspection after success is not a migration and does not start code. A new deplo
 
 Unit tests cover initializer refusal, atomic schema/marker creation, reviewed-byte planning and reference-only apply requests, single-identity authority, digest idempotence, tamper refusal, explicit bounds, conditional-upload capability/collision/unknown failures, independent empty restore, and interruption at each journal boundary. These tests use private local fixtures and fake HTTP storage, not a production restore claim.
 
-The physical acceptance drill is: prepare a fresh disposable app, deliver limited backup credentials, initialize from an operator-reviewed artifact, verify the remote empty point with an independent restore, deploy a schema-preserving first release, write a sentinel, restart it, and prove the same rows and marker survive. Repeat interrupted initialization boundaries and prove neither the app nor replica starts while its fence remains held. No Pi or live R2 action is performed by this implementation lane; the existing P04 acceptance checkbox remains open until that drill supplies evidence.
+The P10-06 physical acceptance drill starts with a fresh disposable app and a repository schema file. Use one `brine deploy` with externally supplied limited backup credentials, verify the remote empty point with an independent restore, write a sentinel, restart the app, and prove the same rows and marker survive. Repeat interrupted initialization boundaries and prove neither the app nor replica starts while its fence remains held. No Pi or live R2 action is performed by this implementation lane; the existing P04 acceptance checkbox remains open until that drill supplies evidence.
