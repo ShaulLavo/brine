@@ -87,6 +87,7 @@ func (h archiveHost) ArchiveMaintenanceAdmission(ctx context.Context, p archive.
 	sum := sha256.Sum256(raw)
 	out.TargetHash = "sha256:" + hex.EncodeToString(sum[:])
 	out.PolicyHash = pol.Hash()
+	out.RetentionAdmitted = true
 	if out.TargetHash != p.TargetHash {
 		return out, archive.ErrRefused
 	}
@@ -122,6 +123,12 @@ func (h archiveHost) ArchiveMaintenanceAdmission(ctx context.Context, p archive.
 			destination, ok := pol.BackupDestination(binding.Destination.Reference)
 			if !ok || destination != binding.Destination {
 				return out, archive.ErrRefused
+			}
+			if database.Written {
+				retention, known := pol.BackupRetention(binding.Destination.Reference)
+				if !known || !retention.Admits(binding.Destination, time.Now().UTC()) {
+					out.RetentionAdmitted = false
+				}
 			}
 		}
 	}
@@ -182,6 +189,7 @@ func (h archiveHost) retainedCredentials(ctx context.Context, id data.ArchiveID,
 		if !out.ExpiresAt.IsZero() && out.ExpiresAt.Before(validUntil) {
 			validUntil = out.ExpiresAt
 		}
+		out.ExpiresAt = validUntil
 		return out, validUntil, err
 	}
 	if err != nil || r.Plan.Scope.CredentialRef != binding.Destination.CredentialRef || r.Plan.Scope.Destination != string(binding.Destination.Reference) || !r.Plan.Scope.RetainUntil.Equal(deadline) || r.Admit(time.Now().UTC(), 3*time.Minute) != nil {
@@ -218,6 +226,8 @@ func (h archiveHost) retainedCredentials(ctx context.Context, id data.ArchiveID,
 			out.SessionToken = value
 		}
 	}
+	// The restore budget must fit both issuer expiry and the immutable archive deadline.
+	out.ExpiresAt = validUntil
 	return out, validUntil, nil
 }
 func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan, m archive.Manifest, d archive.Disposition) (out archive.RetentionProof, err error) {
@@ -281,7 +291,6 @@ func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan,
 		}
 		engine := h.archiveRestoreEngine(database, remote, credentials)
 		receipt, err := engine.Test(ctx, request)
-		credentials = restore.Credentials{}
 		if err != nil || receipt.OperationID != request.OperationID || !archiveRecoveryReceiptMatches(m.Coverage[i], receipt, time.Now().UTC()) || len(database.Invariants) > 0 && receipt.InvariantCheck != "passed" {
 			return out, archive.ErrRefused
 		}

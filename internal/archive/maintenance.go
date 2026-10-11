@@ -21,8 +21,9 @@ const (
 )
 
 type MaintenanceAdmission struct {
-	PolicyHash string `json:"policy_hash"`
-	TargetHash string `json:"target_hash"`
+	RetentionAdmitted bool   `json:"retention_admitted"`
+	PolicyHash        string `json:"policy_hash"`
+	TargetHash        string `json:"target_hash"`
 }
 type MaintenancePlan struct {
 	ID            string                       `json:"id"`

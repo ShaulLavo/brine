@@ -38,7 +38,7 @@ func (j *archiveCredentialJournal) RecordArchiveCredentialReceipt(_ context.Cont
 func archiveCredentialFixture(t *testing.T) (ArchiveService, *archiveCredentialJournal, *ArchiveScope, *time.Time) {
 	t.Helper()
 	root := t.TempDir()
-	if err := os.Chmod(root, 0700); err != nil {
+	if err := os.Chmod(root, 0700); err != nil { // #nosec G302 -- Private fixture directory requires owner traversal.
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 11, 12, 0, 0, 0, time.UTC)

@@ -64,9 +64,9 @@ no_object_expiration=true
 	executor := &archiveExecutor{show: archiveStopped}
 	h := archiveHostForTest(t, executor)
 	h.stateRoot = t.TempDir()
-	if err = os.Chmod(h.stateRoot, 0700); err != nil {
+	if err = os.Chmod(h.stateRoot, 0700); err != nil { // #nosec G302 -- Private fixture directory requires owner traversal.
 		t.Fatal(err)
-	} //nolint:gosec // Owner traversal for private fixture.
+	}
 	h.service = Service{Store: state, Requester: "deploy:" + strings.Repeat("a", 64), Policy: &fakePolicy{p: pol}, Inventory: &fakeInventory{store: state, snapshot: target.Snapshot{Generation: target.Known(uint64(0)), Apps: target.Known([]target.App{})}}}
 	service := newArchiveService(h.service, h.stateRoot, t.TempDir(), h.session, executor, nil, nil)
 	p, err := service.Plan(ctx, string(desired.Name))
@@ -251,9 +251,9 @@ func TestArchiveRetentionEngineIndependentlyRestoresExactOriginalSource(t *testi
 	remote := restore.Binding{ID: string(epoch.BindingID), Epoch: string(epoch.EpochID), CredentialRef: epoch.Destination.CredentialRef, Destination: restore.Destination{Endpoint: server.URL, Region: "test-region", Bucket: "backups", Prefix: strings.TrimSuffix(epoch.RemotePrefix, "/"), PathStyle: true}}
 	credentials := restore.Credentials{AccessKey: "PLANTED_ACCESS", SecretKey: "PLANTED_SECRET", ReceivedAt: time.Now().UTC().Add(-time.Minute)}
 	uploadRoot := t.TempDir()
-	if err := os.Chmod(uploadRoot, 0700); err != nil {
+	if err := os.Chmod(uploadRoot, 0700); err != nil { // #nosec G302 -- Private fixture directory requires owner traversal.
 		t.Fatal(err)
-	} //nolint:gosec // Private fixture directory needs traversal.
+	}
 	cutoff := time.Now().UTC()
 	source, _, err := restore.CreateEmptySnapshot(context.Background(), uploadRoot, remote, credentials, point, time.Minute, true)
 	if err != nil {
@@ -335,7 +335,7 @@ func TestArchiveCredentialHostHealthUsesSealedOriginalScopeWithoutActivation(t *
 		t.Fatal("secret entered health metadata")
 	}
 	credentials, until, err := h.retainedCredentials(ctx, p.ArchiveID, binding, d.RetainUntil)
-	if err != nil || !until.Equal(d.RetainUntil) || credentials.AccessKey != "PLANTED_ACCESS" || credentials.SecretKey != "PLANTED_SECRET" {
+	if err != nil || !until.Equal(d.RetainUntil) || !credentials.ExpiresAt.Equal(d.RetainUntil) || credentials.AccessKey != "PLANTED_ACCESS" || credentials.SecretKey != "PLANTED_SECRET" {
 		t.Fatal("exact sealed archive credentials not selected", err)
 	}
 	credentials = restore.Credentials{}

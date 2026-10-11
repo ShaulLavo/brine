@@ -21,7 +21,7 @@ func TestArchiveCredentialsPersistExactOriginalScopeWithoutActivation(t *testing
 	binding := p.Candidate.Databases[0].Epochs[0]
 	scope := backupcredentials.ArchiveScope{ArchiveID: string(p.ArchiveID), Binding: string(binding.BindingID), Epoch: string(binding.EpochID), CredentialRef: binding.Destination.CredentialRef, Destination: string(binding.Destination.Reference), TargetHash: p.TargetHash, PolicyHash: p.PolicyHash, RetainUntil: d.RetainUntil}
 	root := t.TempDir()
-	if err := os.Chmod(root, 0700); err != nil {
+	if err := os.Chmod(root, 0700); err != nil { // #nosec G302 -- Private fixture directory requires owner traversal.
 		t.Fatal(err)
 	}
 	service := backupcredentials.ArchiveService{Requester: p.Requester, Journal: s, Files: backupcredentials.Files{Root: root}, Scope: func(context.Context, string, string, string) (backupcredentials.ArchiveScope, error) {

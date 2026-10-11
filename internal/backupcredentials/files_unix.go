@@ -225,12 +225,12 @@ func (f Files) Receipt(ref string, n uint64) (Receipt, error) {
 	}
 	return receipt, nil
 }
-func (f Files) receiptBytes(ref string, n uint64) ([]byte, error) {
+func (f Files) receiptBytes(ref string, n uint64) (out []byte, err error) {
 	root, err := f.open()
 	if err != nil {
 		return nil, err
 	}
-	defer root.Close()
+	defer func() { err = errors.Join(err, root.Close()) }()
 	if err := ensure(root, ref); err != nil {
 		return nil, err
 	}
@@ -243,7 +243,7 @@ func (f Files) receiptBytes(ref string, n uint64) ([]byte, error) {
 	if err != nil {
 		return nil, ErrStorage
 	}
-	defer fd.Close()
+	defer func() { err = errors.Join(err, fd.Close()) }()
 	actual, err := fd.Stat()
 	if err != nil || !os.SameFile(info, actual) || !protected(actual, false, 0600) || actual.Size() > 8192 {
 		return nil, ErrStorage

@@ -58,6 +58,10 @@ func loadMaintenancePlan(ctx context.Context, q dataQuerier, id string) (out arc
 	if len(raw) > 16384 || json.Unmarshal(raw, &out) != nil || !out.Valid() || out.ID != id || string(out.ArchiveID) != archiveID {
 		return out, &IntegrityError{}
 	}
+	canonical, err := json.Marshal(out)
+	if err != nil || !bytes.Equal(raw, canonical) {
+		return out, &IntegrityError{}
+	}
 	p, d, err := retiredArchive(ctx, q, out.ArchiveID)
 	if err != nil || out.ArchivePlanID != p.ID || out.Requester != p.Requester || !out.RetiredAt.Equal(d.CommittedAt) || !out.RetainUntil.Equal(d.RetainUntil) || len(out.Parents) != len(p.Trees) {
 		return out, &IntegrityError{}
@@ -122,6 +126,10 @@ func readArchiveDeletion(ctx context.Context, q dataQuerier, id data.ArchiveID) 
 			return out, err
 		}
 		if len(raw) > 4096 || json.Unmarshal(raw, &next) != nil || next.Sequence != n || next.ArchiveID != id || next.PlanID != planID || !archive.DeletionNext(out, next, len(p.Trees)) {
+			return out, &IntegrityError{}
+		}
+		canonical, marshalErr := json.Marshal(next)
+		if marshalErr != nil || !bytes.Equal(raw, canonical) {
 			return out, &IntegrityError{}
 		}
 		out = next

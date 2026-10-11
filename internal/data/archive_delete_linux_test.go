@@ -116,7 +116,7 @@ func TestArchiveDeletionRejectsUnsafeEntriesBeforeAnyEffects(t *testing.T) {
 			if err := DeleteArchiveTree(context.Background(), tree, inc, id, parent, false); err == nil {
 				t.Fatal("unsafe tree deleted")
 			}
-			if content, err := os.ReadFile(good); err != nil || string(content) != "preserved" {
+			if content, err := os.ReadFile(good); err != nil || string(content) != "preserved" { // #nosec G304 -- Path belongs to the private test fixture.
 				t.Fatal("preflight refusal changed bytes", err)
 			}
 		})
@@ -194,9 +194,9 @@ func TestArchiveDeletionRefusesDepthOverflowBeforeAnyEffects(t *testing.T) {
 	if err := DeleteArchiveTree(context.Background(), tree, inc, id, parent, false); err == nil {
 		t.Fatal("unbounded archive traversal admitted")
 	}
-	if raw, err := os.ReadFile(good); err != nil || string(raw) != "preserved" {
+	if raw, err := os.ReadFile(good); err != nil || string(raw) != "preserved" { // #nosec G304 -- Path belongs to the private test fixture.
 		t.Fatal("preflight overflow deleted good file", err)
-	} //nolint:gosec // Private test fixture path.
+	}
 }
 
 func TestArchiveDeletionRefusesSetIDAndStickyEntryModes(t *testing.T) {

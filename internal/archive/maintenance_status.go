@@ -87,6 +87,13 @@ func (s MaintenanceService) Status(ctx context.Context, id data.ArchiveID) (out 
 		out.Reason = "current_admission_refused"
 		return out, nil
 	}
+	for _, database := range p.Candidate.Databases {
+		if database.Written && !admission.RetentionAdmitted {
+			out.State = "degraded"
+			out.Reason = "destination_retention_unknown"
+			return out, nil
+		}
+	}
 	for _, tree := range p.Trees {
 		if data.VerifyArchivedTree(tree, p.Candidate.Incarnation, id) != nil {
 			out.State = "degraded"
@@ -106,23 +113,28 @@ func (s MaintenanceService) Status(ctx context.Context, id data.ArchiveID) (out 
 }
 
 func credentialHealthMatches(p Plan, health []CredentialHealth, now time.Time) bool {
-	expected := map[data.ReplicaBindingID]data.ReplicaEpochID{}
+	type scope struct {
+		binding data.ReplicaBindingID
+		epoch   data.ReplicaEpochID
+	}
+	expected := map[scope]bool{}
 	for _, database := range p.Candidate.Databases {
 		if !database.Written {
 			continue
 		}
 		for _, binding := range database.Epochs {
-			expected[binding.BindingID] = binding.EpochID
+			expected[scope{binding.BindingID, binding.EpochID}] = true
 		}
 	}
 	if len(expected) != len(health) {
 		return false
 	}
 	for _, item := range health {
-		if epoch, ok := expected[item.BindingID]; !ok || epoch != item.EpochID {
+		key := scope{item.BindingID, item.EpochID}
+		if !expected[key] {
 			return false
 		}
-		delete(expected, item.BindingID)
+		delete(expected, key)
 		if !item.Missing && (item.ReceivedAt.IsZero() || now.Before(item.ReceivedAt) || item.AgeSeconds < 0) {
 			return false
 		}

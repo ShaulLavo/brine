@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"reflect"
 	"testing"
@@ -86,9 +87,9 @@ func TestArchiveMaintenanceJournalSurvivesReopenAndRejectsStaleCAS(t *testing.T)
 	if got, err := reopened.ReadRetentionProof(ctx, p.ArchiveID); err != nil || !reflect.DeepEqual(got, proof) {
 		t.Fatal("historical retention proof lost", got, err)
 	}
-	for _, table := range []string{"data_archive_maintenance_plans", "data_archive_deletions", "data_archive_retention_proofs"} {
-		if _, err := reopened.db.ExecContext(ctx, "DELETE FROM "+table); err == nil {
-			t.Fatal("maintenance history mutable", table)
+	for _, statement := range []string{"DELETE FROM data_archive_maintenance_plans", "DELETE FROM data_archive_deletions", "DELETE FROM data_archive_retention_proofs"} {
+		if _, err := reopened.db.ExecContext(ctx, statement); err == nil {
+			t.Fatal("maintenance history mutable", statement)
 		}
 	}
 }
@@ -121,5 +122,40 @@ func TestArchiveMaintenanceRejectsChangedDeadlineAndEarlyExpiry(t *testing.T) {
 	}
 	if got, err := s.ReadArchiveDeletion(ctx, p.ArchiveID); err != nil || got.Sequence != 0 {
 		t.Fatal("rejected expiry left authority", got, err)
+	}
+}
+
+func TestArchiveMaintenanceRejectsNoncanonicalJournalEvidence(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	m, p, _ := storedMaintenancePlan(t, s)
+	reviewed := m
+	reviewed.Kind = archive.VerifyRetention
+	var err error
+	reviewed.ID, err = reviewed.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(reviewed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.ExecContext(ctx, "INSERT INTO data_archive_maintenance_plans VALUES(?,?,?)", reviewed.ID, reviewed.ArchiveID, append([]byte(" "), raw...)); err != nil {
+		t.Fatal(err)
+	}
+	var integrity *IntegrityError
+	if _, err = s.LoadMaintenancePlan(ctx, reviewed.ID); !errors.As(err, &integrity) {
+		t.Fatal("noncanonical review admitted", err)
+	}
+	intent := archive.Deletion{ArchiveID: p.ArchiveID, PlanID: m.ID, Kind: m.Kind, Sequence: 1, Stage: archive.DeletionIntent, StartedAt: time.Now().UTC()}
+	raw, err = json.Marshal(intent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.db.ExecContext(ctx, "INSERT INTO data_archive_deletions VALUES(?,?,?,?)", intent.ArchiveID, intent.Sequence, intent.PlanID, append([]byte(" "), raw...)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.ReadArchiveDeletion(ctx, p.ArchiveID); !errors.As(err, &integrity) {
+		t.Fatal("noncanonical deletion authority admitted", err)
 	}
 }

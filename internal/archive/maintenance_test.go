@@ -17,12 +17,14 @@ import (
 
 type maintenanceRig struct {
 	*dispositionRig
-	plans    map[string]MaintenancePlan
-	deletion Deletion
-	proof    RetentionProof
-	fail     string
-	effects  int
-	now      time.Time
+	plans       map[string]MaintenancePlan
+	deletion    Deletion
+	proof       RetentionProof
+	fail        string
+	effects     int
+	now         time.Time
+	health      []CredentialHealth
+	retentionOK bool
 }
 
 func (r *maintenanceRig) SaveMaintenancePlan(_ context.Context, p MaintenancePlan) error {
@@ -60,7 +62,7 @@ func (r *maintenanceRig) ArchiveMaintenanceAdmission(context.Context, Plan, Disp
 	if r.fail == "ownership" || r.fail == "running" {
 		return MaintenanceAdmission{}, ErrRefused
 	}
-	return MaintenanceAdmission{PolicyHash: r.p.PolicyHash, TargetHash: r.p.TargetHash}, nil
+	return MaintenanceAdmission{RetentionAdmitted: r.retentionOK, PolicyHash: r.p.PolicyHash, TargetHash: r.p.TargetHash}, nil
 }
 func (r *maintenanceRig) VerifyArchiveRetention(context.Context, Plan, Manifest, Disposition) (RetentionProof, error) {
 	if r.fail == "credentials" || r.fail == "remote" || r.fail == "retention" {
@@ -207,7 +209,7 @@ func TestArchiveDeletionCannotInferAuthorityBeforeDurableIntent(t *testing.T) {
 }
 
 func (r *maintenanceRig) ArchiveCredentialHealth(context.Context, Plan) ([]CredentialHealth, error) {
-	return nil, nil
+	return r.health, nil
 }
 
 func TestArchiveMaintenanceStatusPreservesProofAgeAndReportsTerminalStates(t *testing.T) {
@@ -263,9 +265,9 @@ func multiRootMaintenanceFixture(t *testing.T) (MaintenanceService, *maintenance
 	service, prepared := preparationFixture(t)
 	p := prepared.p
 	root := t.TempDir()
-	if err := os.Chmod(root, 0700); err != nil {
+	if err := os.Chmod(root, 0700); err != nil { // #nosec G302 -- Private fixture directory requires owner traversal.
 		t.Fatal(err)
-	} //nolint:gosec // Private test directory needs traversal.
+	}
 	second := p.Candidate.Databases[0]
 	second.Binding.DatabaseID = data.DatabaseID(strings.Repeat("f", 32))
 	second.Binding.ReplicaBindingID = data.ReplicaBindingID(strings.Repeat("1", 32))
@@ -433,5 +435,29 @@ func TestArchiveMaintenanceHealthCannotHideMissingOrDifferentEpochs(t *testing.T
 	health.RenewalNeeded = true
 	if !credentialHealthMatches(p, []CredentialHealth{health}, now) {
 		t.Fatal("affirmative expired metadata refused")
+	}
+}
+
+func TestArchiveInitializedStatusReportsUnknownLifecycleWithoutRefreshingEvidence(t *testing.T) {
+	s, r := maintenanceFixture(t)
+	_, _, coverage, preparedAt := initializedCoverage(t)
+	r.p.Candidate.Databases[0].Written = true
+	var err error
+	r.p.ID, err = r.p.Fingerprint()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.m = Manifest{Plan: r.p, OperationID: strings.Repeat("a", 32), Coverage: []Coverage{coverage}, QuiescedAt: preparedAt, PreparedAt: preparedAt}
+	r.now = preparedAt.Add(time.Second)
+	binding := r.p.Candidate.Databases[0].Epochs[0]
+	r.health = []CredentialHealth{{BindingID: binding.BindingID, EpochID: binding.EpochID, ReceivedAt: preparedAt, AgeSeconds: 1}}
+	status, err := s.Status(context.Background(), r.p.ArchiveID)
+	if err != nil || status.State != "degraded" || status.Reason != "destination_retention_unknown" || status.Proof != nil {
+		t.Fatal("unknown lifecycle reported healthy or refreshed", status, err)
+	}
+	r.retentionOK = true
+	status, err = s.Status(context.Background(), r.p.ArchiveID)
+	if err != nil || status.State != "unverified" || status.Proof != nil {
+		t.Fatal("status invented remote verification", status, err)
 	}
 }
