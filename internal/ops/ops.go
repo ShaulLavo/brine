@@ -88,6 +88,7 @@ type Release struct {
 	Units           []target.Unit        `json:"units"`
 	CaddyFile       target.CaddyFile     `json:"caddy_file"`
 	CaddyGeneration uint64               `json:"caddy_generation"`
+	Managed         *ManagedRelease      `json:"managed,omitempty"`
 }
 
 const MaxEventBytes = 4096

@@ -105,15 +105,16 @@ type DataIncarnation struct {
 }
 
 type CurrentRelease struct {
-	App             string           `json:"app"`
-	ID              string           `json:"id"`
-	Desired         policy.Desired   `json:"desired"`
-	Image           Image            `json:"image"`
-	HostPort        target.Port      `json:"host_port"`
-	Secrets         []SecretBinding  `json:"secrets"`
-	Units           []target.Unit    `json:"units"`
-	CaddyFile       target.CaddyFile `json:"caddy_file"`
-	CaddyGeneration uint64           `json:"caddy_generation"`
+	App             string              `json:"app"`
+	ID              string              `json:"id"`
+	Desired         policy.Desired      `json:"desired"`
+	Image           Image               `json:"image"`
+	HostPort        target.Port         `json:"host_port"`
+	Secrets         []SecretBinding     `json:"secrets"`
+	Units           []target.Unit       `json:"units"`
+	CaddyFile       target.CaddyFile    `json:"caddy_file"`
+	CaddyGeneration uint64              `json:"caddy_generation"`
+	Managed         *ManagedServicePlan `json:"managed,omitempty"`
 }
 
 type SecretBinding struct {
@@ -191,6 +192,7 @@ type ReplicaPrevious struct {
 type Plan struct {
 	SchemaArtifacts     []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
 	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
+	Managed             *ManagedServicePlan   `json:"managed,omitempty"`
 
 	decisionInput      []byte
 	ReplicaPrevious    *ReplicaPrevious               `json:"replica_previous,omitempty"`
@@ -226,6 +228,9 @@ type Plan struct {
 // puts every set and ordered change in canonical order. Callers must not mutate
 // a returned Plan before serializing or storing it under its Hash.
 func (p Plan) CanonicalBytes() ([]byte, error) {
+	if p.Managed != nil && (!p.Managed.Valid() || len(p.SchemaArtifacts) != 0 || len(p.DataAllocations) != 0 || len(p.DataMounts) != 0 || len(p.DataSchemas) != 0 || len(p.DataCredentials) != 0 || p.Backup != nil || p.Runtime != nil || p.ReplicaPrevious != nil) {
+		return nil, fmt.Errorf("managed plan contains foreign data payload")
+	}
 	b, e := json.Marshal(p)
 	if e != nil {
 		return nil, e

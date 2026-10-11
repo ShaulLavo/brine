@@ -44,6 +44,12 @@ func verifyRelease(app string, r Release, p plan.Plan, d policy.Desired) error {
 	if !reflect.DeepEqual(r.Secrets, secrets) {
 		return ErrInvalid
 	}
+	if p.Managed != nil {
+		return verifyManagedRelease(app, r, p)
+	}
+	if r.Managed != nil {
+		return ErrInvalid
+	}
 	found := false
 	for i, u := range r.Units {
 		if u.Name == app+".container" {
@@ -224,7 +230,12 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 		if p.Target != identity {
 			return result, &IntegrityError{}
 		}
-		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration})
+		var managed *plan.ManagedServicePlan
+		if p.Managed != nil {
+			copy := p.Managed.Clone()
+			managed = &copy
+		}
+		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration, Managed: managed})
 	}
 	return result, tx.Commit()
 }
