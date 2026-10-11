@@ -16,7 +16,13 @@ import (
 
 func TestArchiveSnapshotPreservesCommittedRowsWithoutTouchingLiveDatabase(t *testing.T) {
 	ctx := context.Background()
-	root := t.TempDir()
+	// Persistent roots must be on a real filesystem; t.TempDir may be tmpfs,
+	// which persistent data records refuse.
+	root, err := os.MkdirTemp("/var/tmp", "brine-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	// #nosec G302 -- Private fixture directory requires owner traversal.
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
