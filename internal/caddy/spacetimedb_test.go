@@ -83,7 +83,7 @@ func runCaddyVerifier(t *testing.T, binary string, args ...string) []byte {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	// #nosec G204 -- Explicit local test opt-in selects the verifier; production previews launch no process.
+	// #nosec G204 G702 -- Explicit local test opt-in selects the verifier; production previews launch no process.
 	command := exec.CommandContext(ctx, binary, args...)
 	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
 	output, err := command.Output()
