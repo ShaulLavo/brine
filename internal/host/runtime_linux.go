@@ -137,7 +137,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
-	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{})
+	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{}, engine.Routes.(apply.RemovalRoutes), units)
 	initEngine := dataInitializationService(service, stateDir)
 	initTasks := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
 	initTasks.Requester = initEngine.Requester.String()
@@ -259,4 +259,11 @@ func diagnosticMinimumFreeDiskBytes(ctx context.Context) (uint64, error) {
 		return 0, err
 	}
 	return p.MinimumFreeDiskBytes(), nil
+}
+
+func (u lazyUnits) VerifyArchiveRemove(ctx context.Context, name, hash string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.VerifyArchiveRemove(ctx, name, hash) })
+}
+func (u lazyUnits) RemoveArchived(ctx context.Context, name, hash string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.RemoveArchived(ctx, name, hash) })
 }

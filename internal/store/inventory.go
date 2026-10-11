@@ -3,10 +3,13 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
 
+	"github.com/ShaulLavo/brine/internal/archive"
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -20,7 +23,7 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 		return result, err
 	}
 	defer tx.Rollback()
-	if err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)").Scan(&result.Generation); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)").Scan(&result.Generation); err != nil {
 		return result, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT app,EXISTS(SELECT 1 FROM release_heads h WHERE h.app=r.app),(SELECT id FROM releases latest WHERE latest.app=r.app ORDER BY rowid DESC LIMIT 1) FROM releases r GROUP BY app`)
@@ -99,6 +102,50 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 			}
 			app.RetiredPorts = append(app.RetiredPorts, r.HostPort)
 			apps[receipt.app] = app
+		}
+	}
+
+	rows, err = tx.QueryContext(ctx, "SELECT archive_id,app,release_id FROM data_archive_retirements ORDER BY archive_id")
+	if err != nil {
+		return result, err
+	}
+	type archivedRelease struct {
+		id           data.ArchiveID
+		app, release string
+	}
+	archived := []archivedRelease{}
+	for rows.Next() {
+		var item archivedRelease
+		if err = rows.Scan(&item.id, &item.app, &item.release); err != nil {
+			return result, errors.Join(err, rows.Close())
+		}
+		archived = append(archived, item)
+	}
+	err = errors.Join(rows.Err(), rows.Close())
+	if err != nil {
+		return result, err
+	}
+	for _, item := range archived {
+		disposition, exists, err := readArchiveDisposition(ctx, tx, item.id)
+		if err != nil || !exists || disposition.Stage != archive.Retired {
+			return result, &IntegrityError{}
+		}
+		p, err := loadArchivePlanByArchive(ctx, tx, item.id)
+		if err != nil || p.Candidate.App != item.app || p.Candidate.ReleaseID != item.release {
+			return result, &IntegrityError{}
+		}
+		if item.release == "" {
+			continue
+		}
+		release, err := readRelease(ctx, tx, item.app, item.release)
+		if err != nil {
+			return result, err
+		}
+		app := apps[item.app]
+		if app.Status != target.KnownStatus && latest[item.app] == item.release {
+			app.Status = target.Absent
+			app.RetiredPorts = append(app.RetiredPorts, release.HostPort)
+			apps[item.app] = app
 		}
 	}
 	rows, err = tx.QueryContext(ctx, `SELECT o.id,o.app,o.plan_id FROM operations o JOIN plans p ON p.id=o.plan_id WHERE json_extract(p.canonical,'$.lifecycle')='remove_app' AND json_extract(p.canonical,'$.kind')='update' AND o.state NOT IN ('succeeded','failed','rolled_back')`)

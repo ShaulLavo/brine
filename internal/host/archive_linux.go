@@ -17,17 +17,19 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/restore"
+	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-func newArchiveService(s Service, stateRoot, home string, session localexec.Session, executor localexec.Executor) archive.Service {
-	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
+func newArchiveService(s Service, stateRoot, home string, session localexec.Session, executor localexec.Executor, routes apply.RemovalRoutes, units archiveRemovalUnits) archive.Service {
+	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home, routes: routes, units: units}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
 		_, err := s.Policy.Load(ctx)
 		return err
 	}, Lock: func(ctx context.Context) (func() error, error) {
@@ -40,12 +42,20 @@ func newArchiveService(s Service, stateRoot, home string, session localexec.Sess
 }
 
 func (h archiveHost) Facts(ctx context.Context, app string) (archive.Plan, error) {
+	return h.archiveFacts(ctx, app, "", true)
+}
+func (h archiveHost) archiveFacts(ctx context.Context, app, owner string, requireRetention bool) (archive.Plan, error) {
 	var p archive.Plan
 	pol, err := h.service.Policy.Load(ctx)
 	if err != nil {
 		return p, err
 	}
-	c, err := h.service.Store.ArchiveCandidate(ctx, app)
+	var c archive.Candidate
+	if owner == "" {
+		c, err = h.service.Store.ArchiveCandidate(ctx, app)
+	} else {
+		c, err = h.service.Store.ArchiveOwnedCandidate(ctx, app, owner)
+	}
 	if err != nil {
 		return p, err
 	}
@@ -54,7 +64,12 @@ func (h archiveHost) Facts(ctx context.Context, app string) (archive.Plan, error
 		return p, archive.ErrRefused
 	}
 	if c.ReleaseID != "" {
-		writer, err := h.service.Store.ReadWriterSchema(ctx, c.Incarnation)
+		var writer store.WriterSchema
+		if owner == "" {
+			writer, err = h.service.Store.ReadWriterSchema(ctx, c.Incarnation)
+		} else {
+			writer, err = h.service.Store.ReadArchiveWriterSchema(ctx, c.Incarnation, owner)
+		}
 		if err != nil || writer.ReleaseID != c.ReleaseID {
 			return p, archive.ErrRefused
 		}
@@ -92,7 +107,7 @@ func (h archiveHost) Facts(ctx context.Context, app string) (archive.Plan, error
 				return p, archive.ErrRefused
 			}
 			evidence, ok := pol.BackupRetention(destination.Reference)
-			if !ok || !evidence.Admits(destination, time.Now().UTC()) {
+			if requireRetention && (!ok || !evidence.Admits(destination, time.Now().UTC())) {
 				return p, archive.ErrRefused
 			}
 			database.Retention = append(database.Retention, evidence)

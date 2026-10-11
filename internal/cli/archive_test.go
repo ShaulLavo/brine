@@ -9,7 +9,7 @@ import (
 
 func TestArchiveCommandRejectsPathsAndInvalidPlansBeforeRuntime(t *testing.T) {
 	hash := "sha256:" + strings.Repeat("a", 64)
-	for _, args := range [][]string{{"host", "archive-prepare", "hello"}, {"host", "archive-prepare", "hello", "--plan-id", "bad"}, {"host", "archive-prepare", "hello", "--plan", "--plan-id", hash}, {"host", "archive-prepare", "hello", "--plan", "--archive-path", "/private/data"}, {"host", "archive-prepare", "hello", "--plan", "--requester", "local-operator"}} {
+	for _, args := range [][]string{{"host", "archive-retire", "/private/data"}, {"host", "archive-abandon", "hello"}, {"host", "archive-abandon", strings.Repeat("a", 32), "--path", "/private/data"}, {"host", "archive-prepare", "hello"}, {"host", "archive-prepare", "hello", "--plan-id", "bad"}, {"host", "archive-prepare", "hello", "--plan", "--plan-id", hash}, {"host", "archive-prepare", "hello", "--plan", "--archive-path", "/private/data"}, {"host", "archive-prepare", "hello", "--plan", "--requester", "local-operator"}} {
 		var stdout, stderr bytes.Buffer
 		deps := testDependencies(t, &stdout, &stderr)
 		if err := ExecuteWithRuntime(deps, args, RuntimeLifecycle{Open: func(context.Context, bool) (RuntimeServices, error) {
@@ -24,7 +24,7 @@ func TestArchiveCommandIsNotRemoteDispatch(t *testing.T) {
 	for _, test := range []struct {
 		args    []string
 		archive bool
-	}{{[]string{"host", "archive-prepare", "hello", "--plan"}, true}, {[]string{"host", "serve"}, false}, {[]string{"app", "remove", "hello"}, false}} {
+	}{{[]string{"host", "archive-prepare", "hello", "--plan"}, true}, {[]string{"host", "archive-retire", strings.Repeat("a", 32)}, true}, {[]string{"host", "archive-abandon", strings.Repeat("a", 32)}, true}, {[]string{"host", "serve"}, false}, {[]string{"app", "remove", "hello"}, false}} {
 		if got := HostArchiveRequested(context.Background(), test.args); got != test.archive {
 			t.Fatal("incorrect archive selection", test.args, got)
 		}

@@ -6,17 +6,20 @@ import (
 	"errors"
 
 	"github.com/ShaulLavo/brine/internal/archive"
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/spf13/cobra"
 )
 
-// ArchiveOperations is local operator preparation, not completed removal.
+// ArchiveOperations is the local operator archive workflow, not remote removal.
 // Interrupted attempts require inspection and keep their durable data fences.
 type ArchiveOperations interface {
 	Plan(context.Context, string) (archive.Plan, error)
 	Prepare(context.Context, string, string) (archive.Manifest, error)
+	Retire(context.Context, data.ArchiveID) (archive.Disposition, error)
+	Abandon(context.Context, data.ArchiveID) (archive.Disposition, error)
 }
 
 func newArchivePrepareCmd(deps Dependencies) *cobra.Command {
@@ -74,5 +77,50 @@ func (l lazyArchives) Prepare(ctx context.Context, app, id string) (archive.Mani
 func HostArchiveRequested(ctx context.Context, args []string) bool {
 	root := NewRootCommand(Dependencies{Context: ctx}) //nolint:contextcheck // Metadata-only command lookup does not execute a handler.
 	command, _, err := root.Find(args)
-	return err == nil && command != nil && command.CommandPath() == "brine host archive-prepare"
+	return err == nil && command != nil && (command.CommandPath() == "brine host archive-prepare" || command.CommandPath() == "brine host archive-retire" || command.CommandPath() == "brine host archive-abandon")
+}
+
+func (l lazyArchives) Retire(ctx context.Context, id data.ArchiveID) (archive.Disposition, error) {
+	s, err := l.service(ctx)
+	if err != nil {
+		return archive.Disposition{}, err
+	}
+	return s.Retire(ctx, id)
+}
+func (l lazyArchives) Abandon(ctx context.Context, id data.ArchiveID) (archive.Disposition, error) {
+	s, err := l.service(ctx)
+	if err != nil {
+		return archive.Disposition{}, err
+	}
+	return s.Abandon(ctx, id)
+}
+func newArchiveDispositionCmd(deps Dependencies, abandon bool) *cobra.Command {
+	name := "archive-retire"
+	short := "Retire a prepared archive by immutable ID"
+	if abandon {
+		name = "archive-abandon"
+		short = "Abandon a prepared archive and restore managed startup permission"
+	}
+	return &cobra.Command{Use: name + " ARCHIVE_ID", Hidden: true, Short: short, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !data.ValidID(args[0]) {
+			return result.New(result.InvalidUsage, nil)
+		}
+		if deps.HostArchives == nil {
+			return result.New(result.DependencyMissing, nil)
+		}
+		var value archive.Disposition
+		var err error
+		if abandon {
+			value, err = deps.HostArchives.Abandon(cmd.Context(), data.ArchiveID(args[0]))
+		} else {
+			value, err = deps.HostArchives.Retire(cmd.Context(), data.ArchiveID(args[0]))
+		}
+		if err != nil {
+			if errors.Is(err, archive.ErrRecovery) {
+				return result.New(result.RecoveryRequired, nil)
+			}
+			return result.New(result.PolicyRefused, nil)
+		}
+		return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), value))
+	}}
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/plan"
 )
 
@@ -71,5 +72,54 @@ func TestRemoveMountedDataRefusesArchive(t *testing.T) {
 				t.Fatal("changed persistent unit", err)
 			}
 		})
+	}
+}
+
+func TestArchiveRemovalAcceptsRenderedPersistentUnitAndPreservesData(t *testing.T) {
+	home := t.TempDir()
+	m := manager(t, home)
+	defer func() {
+		if err := m.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	d, p := persistentFixture(t)
+	dataRoot := t.TempDir()
+	d.Databases[0].PersistentRoot = data.PersistentRoot(dataRoot)
+	p.DesiredHash = bind(t, d).DesiredHash
+	p.DataMounts[0].Database.Root = data.PersistentRoot(dataRoot)
+	p.DataMounts[0].HostPath = filepath.Join(dataRoot, p.DataMounts[0].Database.RelativeDirectory)
+	if err := os.MkdirAll(p.DataMounts[0].HostPath, 0700); err != nil {
+		t.Fatal(err)
+	}
+	databasePath := filepath.Join(p.DataMounts[0].HostPath, "app.db")
+	if err := os.WriteFile(databasePath, []byte("retained database"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	u, err := Render(d, p, manifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(u.Bytes()), "Volume=") {
+		t.Fatal("not a persistent Quadlet")
+	}
+	if err = m.Install(context.Background(), u, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = m.VerifyRemove(context.Background(), u.Name(), u.Hash()); !errors.Is(err, plan.ErrPersistentData) {
+		t.Fatal(err)
+	}
+	if err = m.VerifyArchiveRemove(context.Background(), u.Name(), u.Hash()); err != nil {
+		t.Fatal(err)
+	}
+	if err = m.RemoveArchived(context.Background(), u.Name(), u.Hash()); err != nil {
+		t.Fatal(err)
+	}
+	if err = m.VerifyArchiveRemove(context.Background(), u.Name(), u.Hash()); err == nil {
+		t.Fatal("absent unit mistaken for pristine runtime")
+	}
+	// #nosec G304 -- Fixed filename inside this test's privately created database directory.
+	if got, err := os.ReadFile(databasePath); err != nil || string(got) != "retained database" {
+		t.Fatal("deleted database", err)
 	}
 }
