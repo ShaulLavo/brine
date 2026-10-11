@@ -22,6 +22,14 @@ MAX_FILES = 1024
 DB = "brine-runtime-fixture"
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise RuntimeError("fixture redirect refused")
+
+
+HTTP = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+
+
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -38,7 +46,7 @@ def request(port, path, token=None, data=None, method="GET"):
         headers["Authorization"] = "Bearer " + token
     req = urllib.request.Request(f"http://127.0.0.1:{port}/v1/{path}", data=data, method=method, headers=headers)
     try:
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with HTTP.open(req, timeout=5) as response:
             raw = response.read((1 << 20) + 1)
             if len(raw) > 1 << 20:
                 raise RuntimeError("fixture response budget")
