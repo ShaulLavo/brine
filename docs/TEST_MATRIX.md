@@ -298,8 +298,39 @@ credential file admission and guarded/cancelable human confirmation.
 Tests live in `internal/cli/deploy_test.go`,
 `internal/cli/deploy_resume_test.go`, `internal/dispatch/deploy_test.go` and
 `internal/host/deploy_linux_test.go`. These are local synthetic/adapter tests,
-not physical deployment, replication or R2 restore evidence. The real first-app
-and interrupted-stage drill remains P10-06.
+not physical deployment, replication or R2 restore evidence. Recorded physical
+first-app and completed-stage client-kill evidence is audited below. P10-06
+remains incomplete; local tests do not fill its custom-build or interruption gaps.
+
+## Phase 10 acceptance audit, 2026-10-11
+
+Audited `b0a7de7` against implementation/tests and every recorded Phase 10 JSON
+receipt. See [scrubbed evidence and source provenance](evidence/p10-pi.md).
+The required evidence in the shared scenario table is unchanged. A checked
+slice below is not completion of the entire row or of additional foundation gates.
+
+| Row or gate | Acceptance | Evidence and remaining clauses |
+| --- | --- | --- |
+| P10-01 | [x] | One/several database env goldens, collision/reserved-key refusals and mount-path hash changes have local tests. Actual Pi container process environment contains the engine/path/accepted marker variables; the app opens the injected path. |
+| P10-02 | [x] | Shared client/host catalog goldens cover all four DDL kinds. Source-line refusals and whitespace/comment versus schema-change marker tests cover the stated deterministic acceptance. Physical initialization uses repository SQL. |
+| P10-03 | [x] | Tampered bytes refuse before publication; fenced immutable same-digest storage and same-plan repeat/settlement have domain/store/host tests. Physical first initialization and isolated restore passed. The recreated-app inventory gate remains a separately identified defect, not a passing recreated initialization. |
+| P10-04 | [x] | Ordered happy path, preaccept/settled failures at all four steps, nonreplay continuation, initialized-app path and JSON IDs have local tests. Pi evidence adds one combined SQL review, healthy first app, three completed-stage client-kill resumes and initialized update. No final-release physical kill is claimed. |
+| P10-05 | [ ] | Single-page contract/spec/schema/driver examples and add-column/custom-build guidance exist. **Remaining:** meet the requested ten-line examples; Bun/Rust/Go currently exceed that size. Rust/better-sqlite3 execution is unverified but was not explicitly required. |
+| P10-06 | [ ] | Physical env/init/replication/exact-sentinel restore and three completed-stage client-kill resumes passed. **Remaining:** alternate SQLite build, final-release interruption and in-flight step cases. Optional full archive recreation also awaits the initialization-gate fix and physical rerun. |
+| T04 (in-range listener slice) | [x] | Real TCP and UDP listeners inserted after plan acceptance each caused `stale_plan` before task effects; release head and route/unit bytes remained unchanged. Injected listeners were removed and ports verified free. This is not every possible observed-state/policy drift case. |
+| T07 (Phase 10 slice) | [ ] | Real healthy first release and final initialized update passed; connected status records the current image digest and healthy direct probe. **Remaining:** an explicit passing route-health receipt for the complete row. Healthy direct response alone does not prove both paths. |
+| T09 (Phase 10 client checkpoint slice) | [x] | SIGKILL after completed preparation, credentials and initialization retained accepted jobs. Final reruns completed and reused completed references. A naturally lost recreation-preparation acceptance reply was inspected to a succeeded host receipt without blind resubmission. This does not prove every in-flight remote crash boundary. |
+| T10 | [ ] | Private locked resume state and host serialization have local fixtures. **Remaining:** physical concurrent same-target applies with one winner and clean refusal; the sequential interruption drill is not concurrency evidence. |
+| T13 | [x] | Another real selected-epoch remote restore recovered the exact sequence/marker/commit-time sentinel with passed integrity/FK and verified schema. The receipt's declared-invariant check/loss window remain unknown. Additional conditional-upload/foundation gates are not completed here. |
+| T14 | [ ] | Externally supplied credentials and real remote access succeeded. **Remaining:** physical outage, absent credentials and actual expiry with truthful degraded-health reporting. Local refusals and working access are not adverse-provider drills. |
+| T16 | [ ] | Preserve-only first initialization and already-initialized release paths passed. **Remaining:** reviewed existing-schema migration and incompatible rollback/compensation/reconcile/resolve without data rewind. No schema-changing physical drill is supplied. |
+| T19 | [x] | Connected real remote restore into an isolated disposable file plus independent exact-sentinel SQLite inspection; live data untouched. No live restore claim. |
+| T22 (persistent slice) | [ ] | Physical archive retire preserved inode/sentinel and old fences; abandon preserved source and allowed normal start; recreation preparation produced fresh identities and retained the archive. **Remaining:** healthy full recreation after the initialization fix, thirty-day restorable retention/renewal, expiry, allowed/denied purge and every interrupted archive/purge boundary. A recorded deadline is not elapsed retention proof. |
+| T23 | [ ] | Local credential-redaction fixtures and scrubbed public evidence exist; acceptance-reply recovery did not blindly redeliver the secret. **Remaining:** full logs/plans/TUI/JSON-error and subprocess-output audit. This CLI drill does not prove TUI behavior. |
+
+No new Phase 04 full-row checkboxes are earned by the limited archive exercise.
+The [earlier Phase 04 audit](evidence/p04-pi.md) remains a dated account; T22's
+new partial evidence above does not replace its still-open retention/purge gates.
 
 ### P04-08 archive preparation evidence (a1)
 

@@ -37,8 +37,9 @@ Brine needs only:
   `internal/planview/database_environment_test.go` and
   `internal/quadlet/database_environment_test.go` with one/several database goldens.
   Reserved keys are refused for secrets too; app units have no environment-file
-  input. The fixture requires the injected path with no fallback. Hardware
-  verification is deferred to P10-06 and is not claimed by this task.
+  input. The fixture requires the injected path with no fallback. The recorded
+  Pi drill read all three variables from the actual container process environment
+  and wrote through the injected path. See the [Phase 10 audit](../evidence/p10-pi.md).
 
 - [x] **P10-02 Schema files in the app repo.** `[[databases]]` gains `schema = "db/main.sql"`, a path relative to `brine.toml`, read by the client only. The file holds the same bounded DDL subset accepted today (`CREATE TABLE`, `CREATE INDEX`, `CREATE UNIQUE INDEX`, `CREATE VIEW`), one statement per `;`-terminated entry. The client compiles it in an in-memory SQLite with the same compiler and catalog observer the host uses, derives the marker (default `sha256:<first 12 hex of catalog>`, or an explicit `marker =`), the catalog SHA-256 and the initializer artifact. `[[schema_definitions]]` and `catalog_sha256` disappear from hand-written specs; `[[schema_compatibility]]` defaults to accepting the current file's marker. The host recompiles the artifact and rejects any mismatch. **Acceptance:** identical catalogs on client and host for every supported statement kind; unsupported statements, multiple statements per entry, triggers, and data statements refuse client-side with the line number; whitespace/comment-only edits do not change the marker; a real schema change does. **Evidence:** golden catalog hashes shared by client and host tests.
 
@@ -48,10 +49,11 @@ Brine needs only:
   Client compilation and live host initialization share the golden hashes in
   `internal/data/testdata/schema-goldens.json` for all four supported kinds.
   Plans show the derived artifact digest; `brine data schema` exports its exact
-  bytes for separate reviewed initialization. Hardware is unverified and
-  remains P10-06. Artifact delivery without sudo remains P10-03.
+  bytes for separate reviewed initialization. The Pi deployed from a repository
+  schema through combined review and unprivileged artifact delivery. This is not
+  the alternate SQLite-build qualification required by P10-06.
 
-- [x] **P10-03 Reviewed initialization without sudo.** The init plan carries exact artifact bytes and shows SQL and the resulting catalog. Under the owner decision of 2026-10-11, the agent and owner are one identity: whoever can apply plans over the restricted channel can initialize data and apply future reviewed migrations. Remove the agent migration grant and local-operator-only composition. The unprivileged host stores a digest-bound immutable artifact in its private state after claiming apply intent and fence, before initialization. No root-owned schema directory or privileged artifact writer. **Acceptance:** tampered bytes refuse before storing; same-digest publication and same-plan apply are idempotent; interruption between store and init reconciles without a duplicate attempt. Every existing restore verification, fence, independent compile and schema-preserving startup check stays. **Evidence:** `internal/dispatch/data_init_test.go`, `internal/datainit/init_test.go`, `internal/store/data_init_test.go`, `internal/cli/data_init_test.go` and `internal/host/data_init_reconcile_linux_test.go`. Local fixtures prove review, digest refusal, immutable storage and interruption settlement; a physical deploy/restore drill remains P10-06.
+- [x] **P10-03 Reviewed initialization without sudo.** The init plan carries exact artifact bytes and shows SQL and the resulting catalog. Under the owner decision of 2026-10-11, the agent and owner are one identity: whoever can apply plans over the restricted channel can initialize data and apply future reviewed migrations. Remove the agent migration grant and local-operator-only composition. The unprivileged host stores a digest-bound immutable artifact in its private state after claiming apply intent and fence, before initialization. No root-owned schema directory or privileged artifact writer. **Acceptance:** tampered bytes refuse before storing; same-digest publication and same-plan apply are idempotent; interruption between store and init reconciles without a duplicate attempt. Every existing restore verification, fence, independent compile and schema-preserving startup check stays. **Evidence:** `internal/dispatch/data_init_test.go`, `internal/datainit/init_test.go`, `internal/store/data_init_test.go`, `internal/cli/data_init_test.go` and `internal/host/data_init_reconcile_linux_test.go`. Local fixtures prove review, digest refusal, immutable storage and interruption settlement. The [Pi audit](../evidence/p10-pi.md) adds successful first initialization and isolated remote restore. Recreated-app initialization still refuses on the audited source because the inventory gate treats retained absent runtime as a live app; its fix and physical rerun were pending. The client checkpoint does not prove an interruption inside SQL mutation.
 
 - [x] **P10-04 One command for a new app.** `brine deploy brine.toml` on an app whose databases are not yet initialized prints one combined review: data preparation, credential status, schema initialization (with SQL), then the release. On approval it runs the existing operations in order, each with its own journal and detached task, stops at the first failure, and resumes from the first unfinished step when rerun. Backup credentials are never minted: if none are delivered, it asks for `--backup-credentials FILE` (same 0600 file format as `backup credentials set`) or stops with the exact command to run. **Acceptance:** happy path end to end; failure at each step leaves earlier steps intact and a rerun continues; an already initialized app deploys as today; `--json` output lists each step's operation ID. **Evidence:** CLI orchestration tests with fake host; the Pi drill in P10-06.
 
@@ -62,10 +64,13 @@ Brine needs only:
   jobs or secret redelivery, requester-bound read-only lookup, uncertain schema
   observation, recovery-required refusal, private locked resume state, several
   databases and unchanged initialized/stateless release paths. JSON failures
-  retain accepted operation IDs. The real Pi/replication/restore and physical
-  interruption drill remains P10-06; it is not claimed here.
+  retain accepted operation IDs. The [Pi audit](../evidence/p10-pi.md) adds a real
+  healthy combined deployment, exact-sentinel remote restore and client SIGKILL
+  after completed preparation, credentials and initialization. Final reruns reused
+  completed IDs; an initialized update also passed. These are completed-stage
+  client checkpoints, not every detached effect boundary or a release-step kill.
 
-- [x] **P10-05 Docs: "Using a database".** One page: the contract above, a minimal `brine.toml`, a schema file, and 10-line examples for TypeScript (`bun:sqlite` and `better-sqlite3`), Rust (`rusqlite`) and Go (`modernc` or `mattn/go-sqlite3`), each opening `BRINE_DB_MAIN_PATH`, enabling WAL and busy timeout, and checking the marker. Include how to add a column later (points to the reviewed migration flow) and what custom SQLite builds may and may not do. Replace the manual steps in `docs/data-initialization.md`.
+- [ ] **P10-05 Docs: "Using a database".** One page: the contract above, a minimal `brine.toml`, a schema file, and 10-line examples for TypeScript (`bun:sqlite` and `better-sqlite3`), Rust (`rusqlite`) and Go (`modernc` or `mattn/go-sqlite3`), each opening `BRINE_DB_MAIN_PATH`, enabling WAL and busy timeout, and checking the marker. Include how to add a column later (points to the reviewed migration flow) and what custom SQLite builds may and may not do. Replace the manual steps in `docs/data-initialization.md`.
 
   The walkthrough is [Using a database](../using-a-database.md), linked from
   the README and initialization reference. Its spec parses and its SQL compiles
@@ -75,9 +80,33 @@ Brine needs only:
   better-sqlite3 examples were checked against the driver APIs but not compiled
   or run. Existing-schema migration execution remains explicitly unshipped;
   the page links P04-07 rather than inventing a migration command. No physical
-  deployment, custom-build drill or provider restore is claimed.
+  deployment, custom-build drill or provider restore is claimed by those examples.
+
+  **Remaining:**
+  - Meet the requested ten-line example size without dropping path, WAL, timeout
+    or marker checks. Bun currently has 11 lines, Rust 12 and Go 26 (24 nonblank).
+    The guide otherwise covers every requested topic. Rust/better-sqlite3 runtime
+    checks remain unverified, not an additional acceptance requirement.
 
 - [ ] **P10-06 Pi drill.** Under D3: create a new app from a repo schema file with one `brine deploy`; verify env variables in the container, initialization, replication and a restore test. Repeat with a fixture built against a different SQLite version or compile options to show custom builds pass. Interrupt P10-04 at each step and rerun to completion.
+
+  Recorded evidence is in the [Pi acceptance audit](../evidence/p10-pi.md).
+  The fresh app's SQL review, environment, initialization, remote replication
+  growth and exact-sentinel restore passed. Client kills after completed
+  preparation, credentials and initialization resumed without repeating those
+  jobs; the final release completed on `b0a7de7`. The coordinator ledger's
+  "mandatory pass" does not supply the additional clauses below.
+
+  **Remaining:**
+  - Repeat with a fixture using a different SQLite version or compile options;
+    this check was not performed.
+  - Record interruption and resume during the final release step. The captured
+    scripts killed the client at three completed-stage checkpoints, not inside
+    every detached step; add those in-flight cases for an every-step claim.
+  - Additional archive coverage remains blocked at recreated-app initialization
+    by the retained-inventory gate. Re-run after its pending fix and verify a
+    healthy new incarnation plus unchanged old archive. This optional path is
+    not a substitute for the two missing Phase 10 clauses above.
 
 ## Order
 
