@@ -282,3 +282,20 @@ Rendering and pure planner tests cover the policy and reservations locally. The 
 - T03/T04/T05/T22: running image inventory proves both single-manifest pins and locally retained index/selected-manifest aliases without a registry read. A short planning budget and a longer detached-worker budget produce the same deploy, stop and remove hashes immediately after deployment. Missing index association remains unknown without any registry request, even when an exact manifest list is available. Running-container and stored-image alias-layout regressions assert no manifest command runs. Stalled local probes still receive fair bounded slices across apps.
 - T03/T04: unrelated apps' known, unknown, absent or unsupported image observations and failed unit activity do not change another app's plan hash. The planned app's image status/digest and owned unit changes still change its hash. Removal still refuses owned unit drift. Executor tests also require a target image digest/status change to emit plan drift before any removal effects.
 - These are fake collector and pure-planner checks. Physical acceptance requires fresh connected plans and one-shot apply on an authorized disposable fixture; no physical check is claimed here.
+
+## P10-04 combined first-deployment acceptance
+
+Local CLI orchestration fixtures exercise T09/T10/T14/T16/T23 without a real
+host: ordered independent preparation/credential/initialization/release jobs;
+preaccept and settled-terminal failures at every stage; lost acceptance and
+lost polling responses; requester-bound read-only job recovery without secret
+redelivery; unknown initialization observations before task settlement;
+recovery-required refusal; private locked resume files; multiple databases;
+already-initialized and stateless releases; changed later releases; review-only,
+credential file admission and guarded/cancelable human confirmation.
+
+Tests live in `internal/cli/deploy_test.go`,
+`internal/cli/deploy_resume_test.go`, `internal/dispatch/deploy_test.go` and
+`internal/host/deploy_linux_test.go`. These are local synthetic/adapter tests,
+not physical deployment, replication or R2 restore evidence. The real first-app
+and interrupted-stage drill remains P10-06.

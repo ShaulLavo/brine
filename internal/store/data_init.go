@@ -117,7 +117,7 @@ func (s *Store) LoadInitPlan(ctx context.Context, id string) (datainit.Plan, err
 // binds the exact desired input retained by the intended first release's plan.
 func (s *Store) InitializationCandidate(ctx context.Context, app, planID string) (WriterSchema, error) {
 	_, desired, err := s.LoadPlan(ctx, planID)
-	if err != nil || string(desired.Name) != app || len(desired.Databases) != 1 {
+	if err != nil || string(desired.Name) != app || len(desired.Databases) == 0 {
 		return WriterSchema{}, ErrConflict
 	}
 	id, err := s.ActiveDataIncarnation(ctx, app)
@@ -136,26 +136,28 @@ func (s *Store) InitializationCandidate(ctx context.Context, app, planID string)
 	if err != nil {
 		return WriterSchema{}, err
 	}
-	var database data.DatabaseID
-	if err = tx.QueryRowContext(ctx, "SELECT id FROM data_databases WHERE incarnation_id=? AND name=?", id, desired.Databases[0].Name).Scan(&database); err != nil {
-		return WriterSchema{}, err
+	out := WriterSchema{Desired: desired, Bindings: []data.DatabaseBinding{}, Definitions: definitions, Allocations: map[data.DatabaseID]data.AllocationReceipt{}}
+	for _, declaration := range desired.Databases {
+		var database data.DatabaseID
+		if err = tx.QueryRowContext(ctx, "SELECT id FROM data_databases WHERE incarnation_id=? AND name=?", id, declaration.Name).Scan(&database); err != nil {
+			return WriterSchema{}, err
+		}
+		permit, err := readReplicaPermit(ctx, tx, database)
+		if err != nil {
+			return WriterSchema{}, err
+		}
+		if err = s.validateReplicaPermit(ctx, tx, permit); err != nil {
+			return WriterSchema{}, err
+		}
+		allocation, err := readAllocation(ctx, tx, database)
+		if err != nil {
+			return WriterSchema{}, err
+		}
+		if allocation != nil {
+			out.Allocations[database] = *allocation
+		}
+		out.Bindings = append(out.Bindings, permit.Database)
 	}
-	permit, err := readReplicaPermit(ctx, tx, database)
-	if err != nil {
-		return WriterSchema{}, err
-	}
-	if err = s.validateReplicaPermit(ctx, tx, permit); err != nil {
-		return WriterSchema{}, err
-	}
-	allocation, err := readAllocation(ctx, tx, database)
-	if err != nil {
-		return WriterSchema{}, err
-	}
-	allocations := map[data.DatabaseID]data.AllocationReceipt{}
-	if allocation != nil {
-		allocations[database] = *allocation
-	}
-	out := WriterSchema{Desired: desired, Bindings: []data.DatabaseBinding{permit.Database}, Definitions: definitions, Allocations: allocations}
 	return out, tx.Commit()
 }
 func untouchedInitialization(ctx context.Context, q dataQuerier, app string, id data.AppIncarnationID) error {

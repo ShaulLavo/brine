@@ -17,6 +17,36 @@ import (
 // polled without changing their flags or closing them. Other blocking readers
 // must provide ReadContext; only bounded in-memory readers use plain Read.
 func readSecretInput(ctx context.Context, input io.Reader) ([]byte, error) {
+	read, err := contextInputReader(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	inputBuffer := make([]byte, secrets.ValueLimit+1)
+	n := 0
+	for n < len(inputBuffer) {
+		if err := ctx.Err(); err != nil {
+			clear(inputBuffer)
+			return nil, err
+		}
+		count, err := read(inputBuffer[n:])
+		n += count
+		if canceled := ctx.Err(); canceled != nil {
+			clear(inputBuffer)
+			return nil, canceled
+		}
+		if errors.Is(err, io.EOF) {
+			return inputBuffer[:n], nil
+		}
+		if err != nil || count == 0 {
+			clear(inputBuffer)
+			return nil, result.New(result.InvalidUsage, err)
+		}
+	}
+	return inputBuffer, nil
+}
+
+// contextInputReader borrows input without spawning an uncancelable reader.
+func contextInputReader(ctx context.Context, input io.Reader) (func([]byte) (int, error), error) {
 	var read func([]byte) (int, error)
 	switch r := input.(type) {
 	case *os.File:
@@ -62,26 +92,38 @@ func readSecretInput(ctx context.Context, input io.Reader) ([]byte, error) {
 	default:
 		return nil, result.New(result.InvalidUsage, nil)
 	}
-	inputBuffer := make([]byte, secrets.ValueLimit+1)
-	n := 0
-	for n < len(inputBuffer) {
-		if err := ctx.Err(); err != nil {
-			clear(inputBuffer)
-			return nil, err
+	return read, nil
+}
+func readDeploymentApproval(ctx context.Context, input io.Reader) error {
+	read, err := contextInputReader(ctx, input)
+	if err != nil {
+		return err
+	}
+	answer := make([]byte, 0, 4)
+	var b [1]byte
+	for len(answer) < 4 {
+		if err = ctx.Err(); err != nil {
+			return err
 		}
-		count, err := read(inputBuffer[n:])
-		n += count
-		if canceled := ctx.Err(); canceled != nil {
-			clear(inputBuffer)
-			return nil, canceled
+		n, e := read(b[:])
+		if n == 1 {
+			answer = append(answer, b[0])
+			if b[0] == '\n' {
+				break
+			}
 		}
-		if err == io.EOF {
-			return inputBuffer[:n], nil
+		if errors.Is(e, io.EOF) {
+			break
 		}
-		if err != nil || count == 0 {
-			clear(inputBuffer)
-			return nil, result.New(result.InvalidUsage, err)
+		if e != nil || n == 0 {
+			return result.New(result.InvalidUsage, e)
 		}
 	}
-	return inputBuffer, nil
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if string(answer) != "yes" && string(answer) != "yes\n" {
+		return result.New(result.InvalidUsage, nil)
+	}
+	return nil
 }

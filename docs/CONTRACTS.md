@@ -100,7 +100,7 @@ Only `plan --offline --out <existing directory>` persists anything. It writes on
 
 `__complete` and `__completeNoDesc` use Cobra's shell-completion protocol. Their arguments describe another command line, so machine flags inside that command line do not change the protocol response.
 
-`--no-input` forbids all prompts. JSON and JSONL also forbid prompts without requiring `--no-input`. Read-only commands that need no input still succeed. Commands must route every prompt through `internal/cli.RequestInput`, which checks the flags and injected input/output streams before running the prompt callback. If input is needed but forbidden, or either stream is not a terminal, it returns typed `input_required` with exit 2 before printing or reading anything. Callers must supply explicit arguments instead; no automatic answer or authorization is implied. Allowed prompt callbacks receive the injected context, stdin and stderr. The helper checks cancellation before asking. No production command prompts yet.
+`--no-input` forbids all prompts. JSON and JSONL also forbid prompts without requiring `--no-input`. Read-only commands that need no input still succeed. Commands must route every prompt through `internal/cli.RequestInput`, which checks the flags and injected input/output streams before running the prompt callback. If input is needed but forbidden, or either stream is not a terminal, it returns typed `input_required` with exit 2 before printing or reading anything. Callers must supply explicit arguments instead; no automatic answer or authorization is implied. Allowed prompt callbacks receive the injected context, stdin and stderr. The helper checks cancellation before asking. `deploy` uses this guard for its explicit combined-review confirmation.
 
 Terminal detection uses the injected stream's `Fd()` when available, never an unrelated process stdout. Streams without a terminal file descriptor are nonterminals. Human stdout contains no ANSI sequences when redirected, even if `CLICOLOR_FORCE` is set. A nonempty `NO_COLOR` also removes styling from human command output. Styled human renderers use `internal/cli.humanTheme` to derive their theme from the injected stdout terminal and `NO_COLOR`, instead of emitting styles for redirected output. The plain-output writer is a defensive backstop. It keeps escape-parser state across writes so split escape sequences cannot leak, and preserves text bytes even when UTF-8 is invalid or truncated. It drops standalone C0 and C1 terminal controls except LF, CR and TAB, including vertical tab and form feed; it is not a lossless control-character filter. JSON and JSONL never include ANSI styling, spinners or prompts, on terminals or pipes. Safe diagnostics go to stderr and never include raw subprocess output or argument values.
 
@@ -625,12 +625,11 @@ Connected plan requests contain the original spec and required
 `schema_artifacts` metadata (an empty/null list for no schema files). Every
 artifact has exactly `definition` (database, marker, catalog SHA-256) and
 `digest`. No SQL or artifact bytes cross the planning boundary. The host checks
-metadata against declared databases and markers, while actual initialization
-still requires an operator-installed digest-addressed artifact and independently
-recompiles it before live-file creation. Metadata alone grants no data authority.
+metadata against declared databases and markers, while the separate initialization plan carries exact reviewed bytes and the host
+independently recompiles them before live-file creation. The unprivileged host
+publishes a digest-bound artifact only after claiming initialization intent and fence. Metadata alone grants no data authority.
 Plans show derived artifact digests. `brine data schema <brine.toml> --database
 NAME` exports the exact canonical JSON bytes without a trailing newline. Machine modes use the standard envelope with `data.artifact` metadata and the exact JSON in the `data.bytes` string.
-P10-03 owns delivery without manual installation.
 
 ### Release compatibility declaration
 
@@ -933,3 +932,51 @@ replaying its completed effects; compatibility proof, restored predecessor
 artifacts and writer state are checked. Ambiguous, noncanonical or still-pending
 rollback outcomes remain recovery-required. Read-only failed health probes can
 be inspected again; uncertain mutations are never converted into refusals.
+
+
+### Combined first-deployment review
+
+`brine deploy brine.toml --target NAME` composes the existing preparation,
+credential delivery, initialization and deployment operations. It never creates
+backup credentials or runs application code as a schema initializer. The client
+compiles every declared schema before contacting the target. One review shows
+allocation, delivered credential status, exact SQL/catalog and the intended
+release. `--yes` approves execution; `--json` without it returns the review only.
+`--no-input` without it never changes application or data state.
+
+The read-only `deploy_state` request uses the same strict spec/artifact metadata
+shape as connected planning. It returns a normalized desired-input review hash
+and affirmative preparation, schema, credential and fence facts for each
+configured database. Missing reservations are not unknown observations. Unknown
+schema or prepared-data observations refuse; they never authorize initialization.
+
+Dependent immutable plans cannot exist before their prerequisites. The client
+builds them in order after approval and rechecks the normalized desired-input
+hash before each new effect. It carries the exact locally reviewed initializer,
+and the host independently validates its retained plan. A changed policy or
+spec stops the sequence; the original reviewed intent is not silently replaced.
+
+Each step has an independent host operation journal and detached job. The client
+also retains only plan IDs, operation IDs, idempotency keys and completion flags
+in a locked 0700 resume directory with a 0600, atomically replaced journal under
+the selected target configuration directory. Its name binds the pinned target,
+original spec and schema artifact metadata. No credential packet, SQL or spec
+contents are stored in that journal. A lost acceptance response uses the read-only `deploy_operation` lookup, bound
+to the server-established requester, original plan and deployment key. It
+recovers the existing operation ID without resubmitting a mutation or secret
+packet; ambiguous task attempts refuse. Host journals remain authoritative;
+the client journal only remembers which jobs to observe.
+
+A rerun polls unfinished work before advancing. Explicitly settled failed or
+rolled-back work can receive a fresh plan only after affirmative unfenced host
+observations; recovery-required or unknown work is never blindly replayed.
+Initialization still allows one mutation attempt per immutable plan. A held
+fence requires the existing inspect/reconcile flow, not a new initializer.
+Initialized and stateless applications use ordinary release planning/apply.
+Machine results, including interrupted/failure results, list the accepted
+operation IDs for every step so observers can inspect independent host journals.
+
+When fresh data needs credentials, `--backup-credentials FILE` accepts only a
+bounded regular 0600 file in the same JSON packet format as `backup credentials
+set` stdin. Existing delivered credentials are reused. Missing credentials stop
+before apply and print a copyable deploy command naming the required file.

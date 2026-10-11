@@ -2,13 +2,39 @@
 
 Status: Approved
 
-Deploy and application startup preserve schema. Creating a new persistent app therefore requires a separate operation before its first compatible release starts:
+Deploy and application startup preserve schema. For a new app, the default
+workflow composes reviewed initialization before its first compatible release:
 
-1. Prepare persistent data with `brine data prepare brine.toml --target NAME`, then apply that preparation plan. Preparation registers the declared schema and existing database/replica identities, allocates private directories, and records absence evidence. It does not create SQLite files.
-2. Deliver backup credentials through `brine backup credentials set`.
-3. Export the schema initializer below and review the initialization plan.
-4. Plan and apply initialization. Initialization uploads and independently restores an empty snapshot itself. Operators do not fabricate restore receipts.
-5. Make a fresh deployment plan, then deploy the first release accepting the initialized marker with `startup = "preserve"`.
+```sh
+# Existing externally issued credentials; Brine does not mint keys.
+chmod 600 backup-credentials.json
+brine deploy brine.toml --target NAME --backup-credentials backup-credentials.json
+```
+
+The combined review shows data preparation, current credential status, each
+schema's exact SQL and resulting catalog, then the intended release. Type `yes`
+to approve, or use `--yes` after review. `--json` without `--yes` returns only the
+review; `--no-input` never prompts. Delivered credentials need no file argument.
+A missing packet stops before any apply and prints the exact command to run.
+
+The operations run in order with separate detached jobs and journals. A failed
+step stops later work. Rerun the same command, pinned target and unchanged spec
+to observe the unfinished job and continue, without repeating successful steps.
+The private client resume journal contains only safe IDs and completion flags;
+no credential values or app source. Keep that journal when recovering a lost
+response. `--json` lists each step's operation ID, also on failure.
+
+Unknown or recovery-required initialization still requires inspection and
+reconciliation. A rerun does not replay a possibly executed schema mutation.
+After a settled failure and affirmative unfenced observations, a rerun may
+create a fresh reviewed plan. Already initialized apps use ordinary release
+planning/apply; startup never changes schema.
+
+The individual `data prepare`, `backup credentials`, `data init`, `plan` and
+`apply` commands remain available for examining each boundary separately.
+Initialization itself uploads and independently restores an empty snapshot;
+operators do not fabricate restore receipts. Each database receives its own
+credential and initialization operations before the release starts.
 
 The initialization reference named `first_release_plan` can be the retained data-preparation plan: its frozen app declaration identifies the intended first release without incorrectly requiring that release to accept an empty database. Initialization never applies that release plan or starts app code.
 

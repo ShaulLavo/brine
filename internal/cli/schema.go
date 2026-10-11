@@ -16,7 +16,7 @@ import (
 
 func newSchemaCmd(modes *machineModes) *cobra.Command {
 	var database string
-	cmd := &cobra.Command{Use: "schema <brine.toml> --database NAME", Short: "Write the derived initializer JSON for operator review and installation", Args: offlineSpecArg, RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "schema <brine.toml> --database NAME", Short: "Write the derived initializer JSON for review", Args: offlineSpecArg, RunE: func(cmd *cobra.Command, args []string) error {
 		raw, err := readOfflineInput(args[0], dispatch.RequestLimit/2)
 		if err != nil {
 			return err

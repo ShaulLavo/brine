@@ -91,7 +91,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newApplyCmd(&jsonOutput, deps), newOperationStatusCmd(&jsonOutput, &modes, deps), newRollbackCmd(deps, &modes))
 	root.AddCommand(newValidateCmd(&jsonOutput))
-	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version, deps))
+	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version, deps), newDeployCmd(deps, &modes, &noInput))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps))
 	for _, cmd := range root.Commands() {
 		if cmd.Args == nil {
