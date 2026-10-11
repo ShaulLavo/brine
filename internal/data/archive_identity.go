@@ -2,7 +2,7 @@ package data
 
 import "path/filepath"
 
-func VerifyArchiveAllocation(b DatabaseBinding, a AllocationReceipt) error {
+func VerifyArchiveAllocation(b SQLiteDatabaseBinding, a AllocationReceipt) error {
 	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
 	if err != nil || !ValidRoot(string(b.Root)) || b.RelativeDirectory != relative || !a.Valid() || a.DatabaseID != b.DatabaseID || a.IncarnationID != b.IncarnationID {
 		return ErrInvalid

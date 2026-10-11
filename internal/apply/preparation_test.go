@@ -73,8 +73,8 @@ func TestPreparePersistentRequiresAdapterAndPositiveReadback(t *testing.T) {
 func persistentRecoveryRig(t *testing.T) *rig {
 	r := newRig(t, false)
 	r.desired.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	r.desired.Databases = []data.Database{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}
-	r.desired.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
+	r.desired.Databases = []data.SQLiteDatabase{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}
+	r.desired.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
 	cadence := data.DefaultBackupCadence()
 	r.desired.Backup = &cadence
 	r.plan.Runtime = r.desired.Runtime
@@ -86,7 +86,7 @@ func persistentRecoveryRig(t *testing.T) *rig {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := data.DatabaseBinding{DatabaseID: db, IncarnationID: inc, Name: "main", Root: "/srv/data", RelativeDirectory: relative, MountPath: "/data", Filename: "app.db", ReplicaBindingID: binding}
+	b := data.SQLiteDatabaseBinding{DatabaseID: db, IncarnationID: inc, Name: "main", Root: "/srv/data", RelativeDirectory: relative, MountPath: "/data", Filename: "app.db", ReplicaBindingID: binding}
 	r.plan.DataMounts = []data.Mount{{Database: b, BindingID: binding, HostPath: filepath.Join(string(b.Root), relative), ContainerPath: b.MountPath}}
 	raw, err := r.desired.CanonicalBytes()
 	if err != nil {

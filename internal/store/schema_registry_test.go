@@ -20,7 +20,7 @@ func TestImmutableSchemaRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definitions := []data.SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("a", 64)}}
+	definitions := []data.SQLiteSchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("a", 64)}}
 	if err = s.RegisterSchemaDefinitions(ctx, reserved.Database.IncarnationID, definitions); err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestImmutableSchemaRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, definitions[0]}
+	want := []data.SQLiteSchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, definitions[0]}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("definitions: %+v", got)
 	}
@@ -67,11 +67,11 @@ func TestSchemaRegistryRejectsAccumulatedLimitTransactionally(t *testing.T) {
 		t.Fatal(err)
 	}
 	incarnation := reserved.Database.IncarnationID
-	var rejected []data.SchemaDefinition
+	var rejected []data.SQLiteSchemaDefinition
 	for batch := 0; batch < 16; batch++ {
-		definitions := make([]data.SchemaDefinition, 128)
+		definitions := make([]data.SQLiteSchemaDefinition, 128)
 		for i := range definitions {
-			definitions[i] = data.SchemaDefinition{Database: "main", Marker: fmt.Sprintf("v%04d", batch*128+i), CatalogSHA256: strings.Repeat("a", 64)}
+			definitions[i] = data.SQLiteSchemaDefinition{Database: "main", Marker: fmt.Sprintf("v%04d", batch*128+i), CatalogSHA256: strings.Repeat("a", 64)}
 		}
 		err := s.RegisterSchemaDefinitions(ctx, incarnation, definitions)
 		if batch < 15 {

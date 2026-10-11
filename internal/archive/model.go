@@ -24,13 +24,13 @@ const MaxManifestBytes = 1 << 20
 const MaxEvidenceAge = 5 * time.Minute
 
 type Database struct {
-	Binding     data.DatabaseBinding     `json:"binding"`
-	Epochs      []data.ReplicaBinding    `json:"epochs"`
-	Allocation  *data.AllocationReceipt  `json:"allocation,omitempty"`
-	Written     bool                     `json:"written"`
-	Definitions []data.SchemaDefinition  `json:"definitions"`
-	Invariants  []data.RestoreInvariant  `json:"invariants"`
-	Retention   []data.RetentionEvidence `json:"retention"`
+	Binding     data.SQLiteDatabaseBinding    `json:"binding"`
+	Epochs      []data.ReplicaBinding         `json:"epochs"`
+	Allocation  *data.AllocationReceipt       `json:"allocation,omitempty"`
+	Written     bool                          `json:"written"`
+	Definitions []data.SQLiteSchemaDefinition `json:"definitions"`
+	Invariants  []data.RestoreInvariant       `json:"invariants"`
+	Retention   []data.RetentionEvidence      `json:"retention"`
 }
 
 type Candidate struct {
@@ -86,7 +86,7 @@ func (p Plan) Valid() bool {
 		if err != nil || relative != b.RelativeDirectory || b.IncarnationID != p.Candidate.Incarnation || !roots[b.Root] || databases[b.DatabaseID] || bindings[b.ReplicaBindingID] || !data.ValidID(string(b.ReplicaBindingID)) || i > 0 && p.Candidate.Databases[i-1].Binding.DatabaseID >= b.DatabaseID || len(database.Epochs) == 0 || len(database.Epochs) != len(database.Retention) {
 			return false
 		}
-		declaration := data.Database{Name: b.Name, PersistentRoot: b.Root, MountPath: b.MountPath, Filename: b.Filename, BackupDestination: database.Epochs[0].Destination.Reference}
+		declaration := data.SQLiteDatabase{Name: b.Name, PersistentRoot: b.Root, MountPath: b.MountPath, Filename: b.Filename, BackupDestination: database.Epochs[0].Destination.Reference}
 		if declaration.Validate() != nil {
 			return false
 		}
@@ -121,12 +121,12 @@ func (p Plan) Valid() bool {
 }
 
 type Coverage struct {
-	DatabaseID        data.DatabaseID         `json:"database_id"`
-	WritersQuiescedAt time.Time               `json:"writers_quiesced_at"`
-	Empty             *data.AllocationReceipt `json:"never_written,omitempty"`
-	Observation       data.SchemaObservation  `json:"observation"`
-	Point             *data.RestorePoint      `json:"point,omitempty"`
-	Receipt           *restore.Receipt        `json:"restore_receipt,omitempty"`
+	DatabaseID        data.DatabaseID              `json:"database_id"`
+	WritersQuiescedAt time.Time                    `json:"writers_quiesced_at"`
+	Empty             *data.AllocationReceipt      `json:"never_written,omitempty"`
+	Observation       data.SQLiteSchemaObservation `json:"observation"`
+	Point             *data.SQLiteRestorePoint     `json:"point,omitempty"`
+	Receipt           *restore.SQLiteReceipt       `json:"restore_receipt,omitempty"`
 }
 
 func (c Coverage) Admits(p Plan, database Database, operation string, now time.Time) bool {

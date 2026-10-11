@@ -19,7 +19,7 @@ func TestRestorePointDurabilityAndExactEvidence(t *testing.T) {
 	ctx := context.Background()
 	state, binding := committedDataFixture(t)
 	now := time.Now().UTC()
-	point := data.RestorePoint{ID: strings.Repeat("d", 32), BindingID: binding.BindingID, EpochID: binding.EpochID, Kind: data.RestorePointLTX, Schema: data.SchemaObservation{DatabaseID: binding.DatabaseID, State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}, RecordedAt: now, LTX: &data.RestoreLTXPoint{TXID: 7}}
+	point := data.SQLiteRestorePoint{ID: strings.Repeat("d", 32), BindingID: binding.BindingID, EpochID: binding.EpochID, Kind: data.RestorePointLTX, Schema: data.SQLiteSchemaObservation{DatabaseID: binding.DatabaseID, State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}, RecordedAt: now, LTX: &data.RestoreLTXPoint{TXID: 7}}
 	if err := state.SaveRestorePoint(ctx, point); !errors.Is(err, ErrInvalid) {
 		t.Fatal("barrier-less recoverability proof accepted as exact point", err)
 	}
@@ -64,7 +64,7 @@ func TestEmptyPointNeedsMatchingHeldInitializationFence(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	point := data.RestorePoint{ID: strings.Repeat("a", 32), BindingID: reserved.Replica.BindingID, EpochID: reserved.Replica.EpochID, Kind: data.RestorePointSnapshot, Schema: data.SchemaObservation{DatabaseID: reserved.Database.DatabaseID, State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}, RecordedAt: now, Snapshot: &data.RestoreSnapshotPoint{ObjectKey: reserved.Replica.RemotePrefix + "restore-points/" + strings.Repeat("a", 32) + "/snapshot.sqlite", SHA256: strings.Repeat("b", 64), Size: 8192}}
+	point := data.SQLiteRestorePoint{ID: strings.Repeat("a", 32), BindingID: reserved.Replica.BindingID, EpochID: reserved.Replica.EpochID, Kind: data.RestorePointSnapshot, Schema: data.SQLiteSchemaObservation{DatabaseID: reserved.Database.DatabaseID, State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}, RecordedAt: now, Snapshot: &data.RestoreSnapshotPoint{ObjectKey: reserved.Replica.RemotePrefix + "restore-points/" + strings.Repeat("a", 32) + "/snapshot.sqlite", SHA256: strings.Repeat("b", 64), Size: 8192}}
 	if err := state.SaveRestorePoint(ctx, point); !errors.Is(err, ErrConflict) {
 		t.Fatal("ordinary save admitted uncommitted binding", err)
 	}

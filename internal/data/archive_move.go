@@ -58,7 +58,7 @@ func VerifyArchivedTree(t ArchiveTree, inc AppIncarnationID, id ArchiveID) (err 
 	}
 	return nil
 }
-func VerifyArchivedAllocation(b DatabaseBinding, a AllocationReceipt, id ArchiveID) error {
+func VerifyArchivedAllocation(b SQLiteDatabaseBinding, a AllocationReceipt, id ArchiveID) error {
 	if !ValidID(string(id)) || !a.Valid() || a.DatabaseID != b.DatabaseID || a.IncarnationID != b.IncarnationID {
 		return ErrInvalid
 	}

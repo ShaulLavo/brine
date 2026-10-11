@@ -36,7 +36,7 @@ func writerExecution(t testing.TB) (*execution, *writerStartsFake, *int) {
 	r := newRig(t, false)
 	d := r.desired
 	d.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	d.Databases = []data.Database{{Name: "main"}}
+	d.Databases = []data.SQLiteDatabase{{Name: "main"}}
 	unit, err := systemd.ParseUnit("hello.service")
 	if err != nil {
 		t.Fatal(err)
@@ -146,7 +146,7 @@ func TestPersistentCompensationRefusesWrongRestoredHash(t *testing.T) {
 	}
 	r.setLiveUnits([]target.Unit{{Name: u.Name(), Hash: u.Hash()}})
 	d := r.desired
-	d.Databases = []data.Database{{Name: "main"}}
+	d.Databases = []data.SQLiteDatabase{{Name: "main"}}
 	intent := &writerStartsFake{calls: []string{"bind:operation"}}
 	r.executor.WriterStarts = intent
 	r.executor.Units = intentRollbackUnits{Units: r, intent: intent, t: t}

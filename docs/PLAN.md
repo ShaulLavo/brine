@@ -44,7 +44,7 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 - Managed deploys accept brief maintenance downtime. **Zero downtime is not claimed.**
 - One mutation at a time per host; read-only status/logs may run concurrently.
 - Versioned app configuration, durable operation journal and release history.
-- Managed data lives outside releases. SQLite uses independent Litestream replication; Phase 09 adds a separately managed SpacetimeDB engine with fenced scheduled captures.
+- Managed data lives outside releases. SQLite uses independent Litestream replication; Phase 09 adds a separately managed SpacetimeDB engine with online native snapshot/log archives and fenced data operations.
 - Agent mode requires stable, noninteractive structured output and limited credentials.
 - No dashboard, multi-server orchestration, Kubernetes, OpenTofu/Ansible requirement, custom OCI engine, or automatic cloud resource deletion in v1.
 
@@ -61,7 +61,7 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 | 06 | [Release hardening](plans/06-release-and-ops.md) | Policy gates, disaster drills, binaries and runbooks | End-to-end checklist passes on reference host |
 | 07 | [Drops and previews](plans/07-drops-and-previews.md) | Temporary websites with short links, git branch/PR previews (D9) | One-command drop with pill controls; pull request gets a preview URL |
 | 08 | [WebTransport apps](plans/08-webtransport.md) | Policy-approved UDP publishing, app TLS delivery/ownership and HTTP-plus-UDP readiness (D10); optional protocol health | UDP mapping/reachability, certificate lifecycle and recovery on both architectures; shared UDP 443 and previews gated separately |
-| 09 | [Managed SpacetimeDB](plans/09-spacetimedb.md) | Shared engine boundary, standalone service, reviewed module publish and stopped-tree S3 backups (D13) | Published amd64/arm64 fixture, Pi/browser drill, verified remote restore and no SQLite regression |
+| 09 | [Managed SpacetimeDB](plans/09-spacetimedb.md) | Shared engine boundary, standalone service, reviewed module publish and encrypted online S3 backups (D13) | Published amd64/arm64 fixture, Pi/browser drill, verified remote restore and no SQLite regression |
 | 10 | [Easy app data](plans/10-easy-data.md) | `BRINE_DB_*` environment contract, schema files in the app repo, reviewed init without manual install, one-command first deploy | New app with a database deploys with one command; custom SQLite builds pass restore tests |
 
 Phase 10 makes data easy to use without an SDK: apps read `BRINE_DB_*` variables and keep schema files in their repo. P10-01 to P10-03 run before P09-04 so SpacetimeDB shares the same contract.

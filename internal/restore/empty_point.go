@@ -121,10 +121,10 @@ func UploadSnapshot(ctx context.Context, b Binding, c Credentials, pointID strin
 // Engine.Test supplies query_only, integrity_check and foreign_key_check.
 type EmptySchemaObserver struct{}
 
-func (EmptySchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (SchemaObservation, error) {
+func (EmptySchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (SQLiteSchemaObservation, error) {
 	var count int
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*'").Scan(&count); err != nil || count != 0 {
-		return SchemaObservation{}, refuse("not_empty")
+		return SQLiteSchemaObservation{}, refuse("not_empty")
 	}
-	return SchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}, nil
+	return SQLiteSchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}, nil
 }

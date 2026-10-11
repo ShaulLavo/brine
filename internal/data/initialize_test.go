@@ -12,12 +12,12 @@ func TestInitializeReviewedSchemaOnAllocatedEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := SchemaDefinition{Database: b.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
+	definition := SQLiteSchemaDefinition{Database: b.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
 	artifact := SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}
 	if err := InitializeSchema(context.Background(), b, artifact, &receipt); err != nil {
 		t.Fatal(err)
 	}
-	observation := ObserveSchema(context.Background(), b, []SchemaDefinition{definition})
+	observation := ObserveSQLiteSchema(context.Background(), b, []SQLiteSchemaDefinition{definition})
 	if observation.State != VerifiedSchema || observation.Marker != "v1" {
 		t.Fatalf("schema not initialized: %+v", observation)
 	}
@@ -48,7 +48,7 @@ func TestInitializeSchemaRefusesWithoutEffects(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			artifact := SchemaInitializer{Definition: SchemaDefinition{Database: b.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}, Statements: []string{"CREATE TABLE t(x TEXT)"}}
+			artifact := SchemaInitializer{Definition: SQLiteSchemaDefinition{Database: b.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}, Statements: []string{"CREATE TABLE t(x TEXT)"}}
 			if state == "hash-mismatch" {
 				artifact.Definition.CatalogSHA256 = EmptyCatalogSHA256
 			}

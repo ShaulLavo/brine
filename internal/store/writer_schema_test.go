@@ -28,8 +28,8 @@ func TestReadWriterSchemaRequiresCurrentCommittedRelease(t *testing.T) {
 	}
 	in := fixture(t)
 	in.Desired.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	in.Desired.Databases = []data.Database{req.Database}
-	in.Desired.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
+	in.Desired.Databases = []data.SQLiteDatabase{req.Database}
+	in.Desired.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
 	// Store-only historical fixture: no deployment or startup is performed.
 	p, err := plan.Build(in)
 	if err != nil {

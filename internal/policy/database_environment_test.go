@@ -15,8 +15,8 @@ func TestNormalizedDatabaseEnvironment(t *testing.T) {
 	}
 	a := app(t)
 	a.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	a.Databases = []data.Database{{Name: "main-db", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}}
-	a.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main-db", Accepts: []string{"v2", "v1"}, Startup: "preserve"}}
+	a.Databases = []data.SQLiteDatabase{{Name: "main-db", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}}
+	a.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main-db", Accepts: []string{"v2", "v1"}, Startup: "preserve"}}
 	d, err := Normalize(a, p)
 	if err != nil {
 		t.Fatal(err)

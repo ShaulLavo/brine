@@ -39,7 +39,7 @@ func TestIdentityAndFixedLayout(t *testing.T) {
 	}
 }
 func TestDatabaseDeclarationBoundary(t *testing.T) {
-	valid := Database{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}
+	valid := SQLiteDatabase{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}
 	if err := valid.Validate(); err != nil {
 		t.Fatal(err)
 	}

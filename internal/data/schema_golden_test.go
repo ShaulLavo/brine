@@ -34,7 +34,7 @@ func TestClientAndHostSchemaGoldens(t *testing.T) {
 			if err := InitializeSchema(context.Background(), b, a, &allocation); err != nil {
 				t.Fatal(err)
 			}
-			observed := ObserveSchema(t.Context(), b, []SchemaDefinition{a.Definition})
+			observed := ObserveSQLiteSchema(t.Context(), b, []SQLiteSchemaDefinition{a.Definition})
 			if observed.State != VerifiedSchema || observed.CatalogSHA256 != v.CatalogSHA256 {
 				t.Fatalf("host catalog: %+v", observed)
 			}

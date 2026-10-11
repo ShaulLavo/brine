@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/data"
 	"strings"
 	"testing"
 	"time"
@@ -109,7 +110,7 @@ func (fencedReplicaReader) ReadReplicaPermit(_ context.Context, id string) (repl
 	if err != nil {
 		return replication.PermitState{}, err
 	}
-	return replication.PermitState{Binding: b, Config: raw, ConfigHash: replication.ConfigHash(raw), Fence: replication.FenceHeld, Ownership: replication.LocalOwner, SourceSettled: true, LifetimeLock: "/state/replica-locks/" + id + ".lock"}, nil
+	return replication.PermitState{Engine: data.EngineSQLite, Binding: b, Config: raw, ConfigHash: replication.ConfigHash(raw), Fence: replication.FenceHeld, Ownership: replication.LocalOwner, SourceSettled: true, LifetimeLock: "/state/replica-locks/" + id + ".lock"}, nil
 }
 func (fencedReplicaReader) ReadWriterPermits(context.Context, string) ([]replication.PermitState, error) {
 	return nil, replication.ErrPermit

@@ -10,7 +10,7 @@ import (
 )
 
 func TestArchiveAbandonAllowsChangedContextButNeverChangedOwnership(t *testing.T) {
-	planned := archive.Plan{TargetHash: "same", PolicyHash: "old", Generation: 1, Candidate: archive.Candidate{App: "hello", Incarnation: "original", ReleaseID: "release", Databases: []archive.Database{{Binding: data.DatabaseBinding{DatabaseID: "database"}, Retention: []data.RetentionEvidence{{VerificationID: "old"}}}}}}
+	planned := archive.Plan{TargetHash: "same", PolicyHash: "old", Generation: 1, Candidate: archive.Candidate{App: "hello", Incarnation: "original", ReleaseID: "release", Databases: []archive.Database{{Binding: data.SQLiteDatabaseBinding{DatabaseID: "database"}, Retention: []data.RetentionEvidence{{VerificationID: "old"}}}}}}
 	observed := planned
 	observed.PolicyHash = "new"
 	observed.Generation = 2
@@ -34,18 +34,18 @@ func TestArchiveAbandonAllowsChangedContextButNeverChangedOwnership(t *testing.T
 }
 
 func TestArchiveAbandonSchemaVerificationNeedsNoManifestButRefusesUnknown(t *testing.T) {
-	previous := data.SchemaObservation{State: data.VerifiedSchema, Marker: "old", CatalogSHA256: "old"}
-	fresh := data.SchemaObservation{State: data.VerifiedSchema, Marker: "declared", CatalogSHA256: "verified"}
-	if !archiveDispositionSchemaMatches(fresh, data.SchemaObservation{}, true) || archiveDispositionSchemaMatches(fresh, previous, false) {
+	previous := data.SQLiteSchemaObservation{State: data.VerifiedSchema, Marker: "old", CatalogSHA256: "old"}
+	fresh := data.SQLiteSchemaObservation{State: data.VerifiedSchema, Marker: "declared", CatalogSHA256: "verified"}
+	if !archiveDispositionSchemaMatches(fresh, data.SQLiteSchemaObservation{}, true) || archiveDispositionSchemaMatches(fresh, previous, false) {
 		t.Fatal("manifest-free exit or retirement binding is wrong")
 	}
-	for _, unknown := range []data.SchemaObservation{
+	for _, unknown := range []data.SQLiteSchemaObservation{
 		{State: data.Unknown},
 		{State: data.AllocatedEmpty},
 		{State: data.VerifiedSchema, UnknownReason: "invalid_marker"},
 		{State: data.VerifiedEmpty, UnknownReason: "unverified_path"},
 	} {
-		if archiveDispositionSchemaMatches(unknown, data.SchemaObservation{}, true) {
+		if archiveDispositionSchemaMatches(unknown, data.SQLiteSchemaObservation{}, true) {
 			t.Fatal("unknown schema released fences", unknown)
 		}
 	}

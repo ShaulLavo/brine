@@ -14,23 +14,23 @@ func persistentReady(t *testing.T) Input {
 	now := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
 	runtime := data.RuntimeIdentity{UID: 10001, GID: 10001}
 	cadence := data.DefaultBackupCadence()
-	declaration := data.Database{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}
+	declaration := data.SQLiteDatabase{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}
 	destination := data.Destination{Reference: "primary", Endpoint: "https://storage.example", Region: "region-1", Bucket: "backups", BasePrefix: "brine", CredentialRef: "primary"}
 	in.Desired.Runtime = &runtime
 	in.Desired.Backup = &cadence
-	in.Desired.Databases = []data.Database{declaration}
+	in.Desired.Databases = []data.SQLiteDatabase{declaration}
 	in.Desired.PersistentRoots = []data.PersistentRoot{declaration.PersistentRoot}
 	in.Desired.BackupDestinations = []data.Destination{destination}
-	in.Desired.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
+	in.Desired.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
 	incarnation := data.AppIncarnationID("11111111111111111111111111111111")
 	database := data.DatabaseID("22222222222222222222222222222222")
 	relative, _ := data.RelativeDirectory(incarnation, database)
-	binding := data.DatabaseBinding{DatabaseID: database, IncarnationID: incarnation, Name: "main", Root: declaration.PersistentRoot, RelativeDirectory: relative, MountPath: declaration.MountPath, Filename: declaration.Filename, ReplicaBindingID: "33333333333333333333333333333333"}
+	binding := data.SQLiteDatabaseBinding{DatabaseID: database, IncarnationID: incarnation, Name: "main", Root: declaration.PersistentRoot, RelativeDirectory: relative, MountPath: declaration.MountPath, Filename: declaration.Filename, ReplicaBindingID: "33333333333333333333333333333333"}
 	root := data.RootEvidence{Root: binding.Root, Device: 1, Inode: 2, Filesystem: "ext4", POSIXLocks: true, DurableRename: true, FreeBytes: in.Desired.MinimumFreeDiskBytes * 2, FreeInodes: 10, ObservedAt: now}
 	retention := data.RetentionEvidence{Destination: "primary", Endpoint: destination.Endpoint, Bucket: destination.Bucket, BasePrefix: destination.BasePrefix, VerificationID: "44444444444444444444444444444444", VerifiedAt: now.Add(-time.Hour).Format(time.RFC3339), FreshnessSeconds: 24 * 60 * 60, NoObjectExpiration: true}
 	in.Desired.BackupRetention = []data.RetentionEvidence{retention}
 	mapping := data.MappingEvidence{Runtime: runtime, RunnerUID: 1000, RunnerGID: 1000, Root: root.Root, Device: root.Device, Image: string(in.Desired.Image), KeepID: true, PrivateModes: true, HostReadWrite: true, ContainerReadWrite: true, ObservedAt: now}
-	facts := target.Known([]target.PersistentDatabase{{Credentials: target.Known(data.CredentialEvidence{BindingID: binding.ReplicaBindingID, EpochID: "55555555555555555555555555555555", Destination: "primary", Reference: "primary", Version: 1, PolicyHash: in.Desired.PolicyHash, ReceivedAt: now.Add(-time.Hour)}), Usage: target.Known(data.StorageUsage{}), Definitions: []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}}, Database: binding, Root: root, Mapping: target.Known(mapping), Retention: target.Known(retention), Schema: data.SchemaObservation{DatabaseID: database, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}})
+	facts := target.Known([]target.PersistentDatabase{{Credentials: target.Known(data.CredentialEvidence{BindingID: binding.ReplicaBindingID, EpochID: "55555555555555555555555555555555", Destination: "primary", Reference: "primary", Version: 1, PolicyHash: in.Desired.PolicyHash, ReceivedAt: now.Add(-time.Hour)}), Usage: target.Known(data.StorageUsage{}), Definitions: []data.SQLiteSchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}}, Database: binding, Root: root, Mapping: target.Known(mapping), Retention: target.Known(retention), Schema: data.SQLiteSchemaObservation{DatabaseID: database, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}})
 	in.Snapshot.PersistentData = &facts
 	return in
 }
@@ -118,7 +118,7 @@ func TestPersistentPlanRejectsIncompleteCompatibility(t *testing.T) {
 		change func(*Input)
 	}{
 		{"schema registry remap", func(in *Input) {
-			in.Desired.SchemaDefinitions = []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
+			in.Desired.SchemaDefinitions = []data.SQLiteSchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}
 		}},
 		{"unregistered marker", func(in *Input) {
 			in.Desired.SchemaCompatibility[0].Accepts = append(in.Desired.SchemaCompatibility[0].Accepts, "v2")
@@ -127,7 +127,7 @@ func TestPersistentPlanRejectsIncompleteCompatibility(t *testing.T) {
 			in.Desired.SchemaCompatibility = append(in.Desired.SchemaCompatibility, in.Desired.SchemaCompatibility[0])
 		}},
 		{"unmatched set", func(in *Input) {
-			in.Desired.SchemaCompatibility = append(in.Desired.SchemaCompatibility, data.SchemaCompatibility{Database: "other", Startup: "preserve", Accepts: []string{data.EmptyMarker}})
+			in.Desired.SchemaCompatibility = append(in.Desired.SchemaCompatibility, data.SQLiteSchemaCompatibility{Database: "other", Startup: "preserve", Accepts: []string{data.EmptyMarker}})
 		}},
 		{"wrong fingerprint", func(in *Input) {
 			(*in.Snapshot.PersistentData.Value)[0].Schema.CatalogSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
@@ -160,7 +160,7 @@ func TestPersistentCredentialVersionChangesApproval(t *testing.T) {
 func TestPersistentRetainedDefinitionsHaveCanonicalOrdering(t *testing.T) {
 	in := persistentReady(t)
 	fact := &(*in.Snapshot.PersistentData.Value)[0]
-	fact.Definitions = append(fact.Definitions, data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
+	fact.Definitions = append(fact.Definitions, data.SQLiteSchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"})
 	original := build(t, in)
 	fact.Definitions[0], fact.Definitions[1] = fact.Definitions[1], fact.Definitions[0]
 	reordered := build(t, in)

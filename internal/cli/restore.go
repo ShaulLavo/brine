@@ -47,7 +47,7 @@ func newRestoreCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Accepted operation %s. Check with %s.\n", accepted.OperationID, flags.command("status", "--operation", accepted.OperationID))
 			return err
 		}
-		receipt, ok := value.(restore.Receipt)
+		receipt, ok := value.(restore.SQLiteReceipt)
 		if !ok || !response.OK || !receipt.Valid() {
 			return result.New(result.TransportInvalidResponse, nil)
 		}

@@ -46,7 +46,7 @@ func TestDeclaredChecks(t *testing.T) {
 }
 
 func TestAffirmativeEmptySnapshot(t *testing.T) {
-	schema := SchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
+	schema := SQLiteSchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
 	e, r, _ := setup(t, fixture(t, "PRAGMA user_version=0"))
 	e.Observer = gateSchemaObserver{}
 	r.ExpectedSchema = schema
@@ -66,9 +66,9 @@ func TestAffirmativeEmptySnapshot(t *testing.T) {
 
 type mutationObserver struct{}
 
-func (mutationObserver) Observe(ctx context.Context, tx *sql.Tx) (SchemaObservation, error) {
+func (mutationObserver) Observe(ctx context.Context, tx *sql.Tx) (SQLiteSchemaObservation, error) {
 	_, err := tx.ExecContext(ctx, "DELETE FROM fixture_commits")
-	return SchemaObservation{}, err
+	return SQLiteSchemaObservation{}, err
 }
 func TestObserverCannotWrite(t *testing.T) {
 	e, r, _ := setup(t, fixture(t, fixtureSQL))
@@ -113,7 +113,7 @@ func TestPrivateWorkspaceAndOutput(t *testing.T) {
 }
 
 func TestSourceAndBindingRefusals(t *testing.T) {
-	for _, source := range []RestoreSource{{Kind: "file"}, {Kind: LitestreamLTX, LTX: &LTXSource{TXID: 0}}, {Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{PointID: "../escape"}}, {Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 6, ObservedAt: time.Now(), Succeeded: true}}}} {
+	for _, source := range []SQLiteSource{{Kind: "file"}, {Kind: LitestreamLTX, LTX: &LTXSource{TXID: 0}}, {Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{PointID: "../escape"}}, {Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 6, ObservedAt: time.Now(), Succeeded: true}}}} {
 		if _, _, err := source.reference(); err == nil {
 			t.Fatal("invalid tagged source accepted")
 		}
@@ -277,7 +277,7 @@ func TestGateFixtureSchemaObserver(t *testing.T) {
 	rows := [][4]any{{"table", "fixture_commits", "fixture_commits", "CREATE TABLE fixture_commits(sequence INTEGER PRIMARY KEY, marker TEXT NOT NULL, committed_at TEXT NOT NULL)"}}
 	data, _ := json.Marshal(rows)
 	digest := sha256.Sum256(data)
-	expected := SchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: hex.EncodeToString(digest[:])}
+	expected := SQLiteSchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: hex.EncodeToString(digest[:])}
 	committed := time.Now().UTC().Truncate(time.Second)
 	if _, err := db.Exec(`INSERT INTO brine_schema_marker VALUES(1,?,?);`, expected.Marker, expected.CatalogSHA256); err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestGateFixtureSchemaObserver(t *testing.T) {
 	if _, err := db.Exec(`INSERT INTO fixture_commits VALUES(7,'marker-7',?);`, committed.Format(time.RFC3339)); err != nil {
 		t.Fatal(err)
 	}
-	_, sentinel, err := verify(context.Background(), path, gateSchemaObserver{}, Request{ExpectedSchema: expected, Sentinel: &Sentinel{Table: "fixture_commits", Sequence: 7, Marker: "marker-7", CommittedAt: committed}})
+	_, sentinel, err := verify(context.Background(), path, gateSchemaObserver{}, SQLiteRequest{ExpectedSchema: expected, Sentinel: &Sentinel{Table: "fixture_commits", Sequence: 7, Marker: "marker-7", CommittedAt: committed}})
 	if err != nil || sentinel == nil {
 		t.Fatalf("gate fixture verification %v", err)
 	}
@@ -306,7 +306,7 @@ func TestReceiptOwnsSourceIdentity(t *testing.T) {
 
 func TestD12MarkerGrammar(t *testing.T) {
 	for _, marker := range []string{"V1", "1_initial.schema", "v" + strings.Repeat("a", 127)} {
-		if !validSchema(SchemaObservation{State: VerifiedSchema, Marker: marker, CatalogSHA256: strings.Repeat("a", 64)}) {
+		if !validSchema(SQLiteSchemaObservation{State: VerifiedSchema, Marker: marker, CatalogSHA256: strings.Repeat("a", 64)}) {
 			t.Fatal("D12-valid marker rejected")
 		}
 	}
@@ -316,7 +316,7 @@ func TestCoverageCannotDescribeAnotherRestore(t *testing.T) {
 	e, r, _ := setup(t, fixture(t, fixtureSQL))
 	unrelated := *r.Source.Snapshot
 	unrelated.Epoch = "another-epoch"
-	r.Coverage = &CoverageEvidence{Source: RestoreSource{Kind: SQLiteSnapshot, Snapshot: &unrelated}, CoveredThrough: time.Now().Add(-time.Minute)}
+	r.Coverage = &CoverageEvidence{Source: SQLiteSource{Kind: SQLiteSnapshot, Snapshot: &unrelated}, CoveredThrough: time.Now().Add(-time.Minute)}
 	if _, err := e.Test(context.Background(), r); err == nil {
 		t.Fatal("coverage for another source accepted")
 	}

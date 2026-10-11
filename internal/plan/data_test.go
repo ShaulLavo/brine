@@ -11,7 +11,7 @@ import (
 func TestPersistentCheckpointCannotDeploy(t *testing.T) {
 	in := fixture(t, "ready-arm64")
 	in.Desired.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	in.Desired.Databases = []data.Database{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}}
+	in.Desired.Databases = []data.SQLiteDatabase{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}}
 	p := build(t, in)
 	if p.Kind != Conflict || len(p.Changes) != 0 {
 		t.Fatal("checkpoint enabled unverified persistent deployment")
@@ -29,7 +29,7 @@ func TestPersistentCheckpointCannotDeploy(t *testing.T) {
 
 func TestPersistentCheckpointCannotRemove(t *testing.T) {
 	in := installed(t)
-	in.State.Releases[0].Desired.Databases = []data.Database{{Name: "main"}}
+	in.State.Releases[0].Desired.Databases = []data.SQLiteDatabase{{Name: "main"}}
 	if _, err := BuildRemove(in); !errors.Is(err, ErrPersistentData) {
 		t.Fatalf("stored persistent app removed: %v", err)
 	}
@@ -57,10 +57,10 @@ func TestPersistentAdmissionDiagnostics(t *testing.T) {
 			cadence := data.DefaultBackupCadence()
 			in.Desired.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
 			in.Desired.Backup = &cadence
-			in.Desired.Databases = []data.Database{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}
+			in.Desired.Databases = []data.SQLiteDatabase{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}
 			in.Desired.PersistentRoots = []data.PersistentRoot{"/srv/data"}
 			in.Desired.BackupDestinations = []data.Destination{{Reference: "primary"}}
-			in.Desired.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
+			in.Desired.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
 			tc.change(&in)
 			p := build(t, in)
 			found := false

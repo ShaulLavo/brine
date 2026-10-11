@@ -63,8 +63,8 @@ func TestEmptySnapshotCreateOnlyAndIndependentRestore(t *testing.T) {
 	if !uploaded.Before(time.Unix(0, capabilityObserved.Load())) {
 		t.Fatal("capability check refreshed the upload age")
 	}
-	engine := Engine{Root: root, AllowHTTPForTests: true, MaxSnapshotBytes: 1 << 20, Observer: EmptySchemaObserver{}, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) { return credentials, nil })}
-	request := Request{OperationID: "empty-proof", Source: RestoreSource{Kind: SQLiteSnapshot, Snapshot: &source}, Budget: time.Minute, ExpectedSchema: SchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}}
+	engine := SQLiteEngine{Root: root, AllowHTTPForTests: true, MaxSnapshotBytes: 1 << 20, Observer: EmptySchemaObserver{}, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) { return credentials, nil })}
+	request := SQLiteRequest{OperationID: "empty-proof", Source: SQLiteSource{Kind: SQLiteSnapshot, Snapshot: &source}, Budget: time.Minute, ExpectedSchema: SQLiteSchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}}
 	receipt, err := engine.Test(context.Background(), request)
 	if err != nil || receipt.ObservedAt.Before(uploaded) || receipt.IntegrityCheck != "passed" || receipt.ForeignKeyCheck != "passed" || puts != 2 || gets != 1 {
 		t.Fatalf("proof %+v puts=%d gets=%d err=%v", receipt, puts, gets, err)
@@ -130,7 +130,7 @@ func TestEmptySchemaObserverRefusesApplicationData(t *testing.T) {
 	e, r, _ := setup(t, fixture(t, fixtureSQL))
 	e.Observer = EmptySchemaObserver{}
 	r.Sentinel = nil
-	r.ExpectedSchema = SchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
+	r.ExpectedSchema = SQLiteSchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
 	if _, err := e.Test(context.Background(), r); err == nil {
 		t.Fatal("nonempty restore accepted")
 	}
@@ -182,9 +182,9 @@ func TestInitializedSnapshotUploadAndIndependentRemoteCoverage(t *testing.T) {
 	if err = os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	schema := SchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: strings.Repeat("a", 64)}
-	engine := Engine{Root: root, AllowHTTPForTests: true, Observer: observer{schema}, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) { return credentials, nil })}
-	request := Request{OperationID: "archive-coverage", Source: RestoreSource{Kind: SQLiteSnapshot, Snapshot: &source}, Budget: time.Minute, ExpectedSchema: schema, Invariants: []Invariant{{Kind: RowCount, Table: "fixture_commits", Count: 1}}}
+	schema := SQLiteSchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: strings.Repeat("a", 64)}
+	engine := SQLiteEngine{Root: root, AllowHTTPForTests: true, Observer: observer{schema}, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) { return credentials, nil })}
+	request := SQLiteRequest{OperationID: "archive-coverage", Source: SQLiteSource{Kind: SQLiteSnapshot, Snapshot: &source}, Budget: time.Minute, ExpectedSchema: schema, Invariants: []Invariant{{Kind: RowCount, Table: "fixture_commits", Count: 1}}}
 	request.Coverage = &CoverageEvidence{Source: request.Source, CoveredThrough: cutoff}
 	receipt, err := engine.Test(context.Background(), request)
 	if err != nil || !receipt.Valid() || receipt.LossWindow.State != LossBounded || receipt.InvariantCheck != "passed" || strings.Join(methods, ",") != "PUT,PUT,GET" {

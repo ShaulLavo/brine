@@ -11,7 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 )
 
-func (s *Store) SaveRestorePoint(ctx context.Context, p data.RestorePoint) error {
+func (s *Store) SaveRestorePoint(ctx context.Context, p data.SQLiteRestorePoint) error {
 	return s.saveRestorePoint(ctx, p, nil)
 }
 
@@ -21,13 +21,13 @@ type emptyPointAdmission struct {
 }
 
 // SaveEmptyRestorePoint admits only a fenced, active, never-started empty snapshot.
-func (s *Store) SaveEmptyRestorePoint(ctx context.Context, p data.RestorePoint, operationID string, fenceID data.FenceID) error {
+func (s *Store) SaveEmptyRestorePoint(ctx context.Context, p data.SQLiteRestorePoint, operationID string, fenceID data.FenceID) error {
 	if operationID == "" || len(operationID) > 128 || !data.ValidID(string(fenceID)) || p.Kind != data.RestorePointSnapshot || p.Schema.State != data.VerifiedEmpty {
 		return ErrInvalid
 	}
 	return s.saveRestorePoint(ctx, p, &emptyPointAdmission{operation: operationID, fence: fenceID})
 }
-func (s *Store) saveRestorePoint(ctx context.Context, p data.RestorePoint, empty *emptyPointAdmission) error {
+func (s *Store) saveRestorePoint(ctx context.Context, p data.SQLiteRestorePoint, empty *emptyPointAdmission) error {
 	if s.readOnly || p.Validate() != nil {
 		return ErrInvalid
 	}
@@ -98,23 +98,23 @@ func (s *Store) saveRestorePoint(ctx context.Context, p data.RestorePoint, empty
 }
 
 // ReadRestorePoint works through OpenReadOnly and refuses another binding/epoch.
-func (s *Store) ReadRestorePoint(ctx context.Context, id string, binding data.ReplicaBindingID, epoch data.ReplicaEpochID) (data.RestorePoint, error) {
+func (s *Store) ReadRestorePoint(ctx context.Context, id string, binding data.ReplicaBindingID, epoch data.ReplicaEpochID) (data.SQLiteRestorePoint, error) {
 	var raw []byte
 	err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_restore_points WHERE id=? AND binding_id=? AND epoch_id=?", id, binding, epoch).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return data.RestorePoint{}, ErrNotFound
+		return data.SQLiteRestorePoint{}, ErrNotFound
 	}
 	if err != nil {
-		return data.RestorePoint{}, err
+		return data.SQLiteRestorePoint{}, err
 	}
-	var point data.RestorePoint
+	var point data.SQLiteRestorePoint
 	if len(raw) > 16<<10 || json.Unmarshal(raw, &point) != nil || point.Validate() != nil || point.ID != id {
-		return data.RestorePoint{}, &IntegrityError{}
+		return data.SQLiteRestorePoint{}, &IntegrityError{}
 	}
 	b, e := point.BindingID, point.EpochID
 	canonical, _ := json.Marshal(point)
 	if b != binding || e != epoch || !bytes.Equal(canonical, raw) {
-		return data.RestorePoint{}, &IntegrityError{}
+		return data.SQLiteRestorePoint{}, &IntegrityError{}
 	}
 	return point, nil
 }

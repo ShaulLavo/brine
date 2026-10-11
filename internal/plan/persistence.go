@@ -133,8 +133,8 @@ func persistentEvidence(in Input, p *Plan, add func(ConflictCode, string)) {
 
 // Every accepted token must have a retained immutable definition, including
 // tokens other than the current schema. Ordering never implies compatibility.
-func completeCompatibility(name data.DatabaseName, observation data.SchemaObservation, c data.SchemaCompatibility, definitions []data.SchemaDefinition) bool {
-	if !data.CompatibleObservation(name, observation, c) || len(c.Accepts) > 128 {
+func completeCompatibility(name data.DatabaseName, observation data.SQLiteSchemaObservation, c data.SQLiteSchemaCompatibility, definitions []data.SQLiteSchemaDefinition) bool {
+	if !data.CompatibleSQLiteObservation(name, observation, c) || len(c.Accepts) > 128 {
 		return false
 	}
 	registry := map[string]string{}

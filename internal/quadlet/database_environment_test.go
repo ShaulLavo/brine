@@ -20,14 +20,14 @@ func TestDatabaseEnvironmentGolden(t *testing.T) {
 	for _, name := range []string{"one", "several"} {
 		t.Run(name, func(t *testing.T) {
 			d, p := persistentFixture(t)
-			d.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Accepts: []string{"v2", "v1"}, Startup: "preserve"}}
+			d.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Accepts: []string{"v2", "v1"}, Startup: "preserve"}}
 			if name == "several" {
 				second := d.Databases[0]
 				second.Name = "audit-log"
 				second.MountPath = "/audit"
 				second.Filename = "events.db"
 				d.Databases = append(d.Databases, second)
-				d.SchemaCompatibility = append(d.SchemaCompatibility, data.SchemaCompatibility{Database: "audit-log", Accepts: []string{"audit-v1"}, Startup: "preserve"})
+				d.SchemaCompatibility = append(d.SchemaCompatibility, data.SQLiteSchemaCompatibility{Database: "audit-log", Accepts: []string{"audit-v1"}, Startup: "preserve"})
 				mount := p.DataMounts[0]
 				mount.Database.Name = second.Name
 				mount.Database.MountPath = second.MountPath

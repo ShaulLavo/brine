@@ -15,7 +15,7 @@ func archivePlan(t *testing.T) Plan {
 	id := func(letter string) string { return strings.Repeat(letter, 32) }
 	now := time.Now().UTC()
 	destination := data.Destination{Reference: "backup", Endpoint: "https://storage.example", Region: "auto", Bucket: "test", BasePrefix: "brine", CredentialRef: "backup"}
-	b := data.DatabaseBinding{DatabaseID: data.DatabaseID(id("b")), IncarnationID: data.AppIncarnationID(id("a")), Name: "main", Root: "/private/data", RelativeDirectory: "apps/" + id("a") + "/databases/" + id("b"), MountPath: "/data", Filename: "app.sqlite", ReplicaBindingID: data.ReplicaBindingID(id("c"))}
+	b := data.SQLiteDatabaseBinding{DatabaseID: data.DatabaseID(id("b")), IncarnationID: data.AppIncarnationID(id("a")), Name: "main", Root: "/private/data", RelativeDirectory: "apps/" + id("a") + "/databases/" + id("b"), MountPath: "/data", Filename: "app.sqlite", ReplicaBindingID: data.ReplicaBindingID(id("c"))}
 	prefix, err := data.RemotePrefix(destination.BasePrefix, b.IncarnationID, b.DatabaseID, data.ReplicaEpochID(id("d")))
 	if err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestNeverWrittenCoverageCannotPretendInitializedDataIsEmpty(t *testing.T) {
 	now := p.CreatedAt.Add(time.Second)
 	fresh := *d.Allocation
 	fresh.AllocatedAt = now
-	c := Coverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: now, Empty: &fresh, Observation: data.SchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}
+	c := Coverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: now, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}
 	if !c.Admits(p, d, strings.Repeat("a", 32), now) {
 		t.Fatal("affirmative never-written evidence refused")
 	}
@@ -83,7 +83,7 @@ func TestArchiveNeverWrittenEvidenceMustBeFresh(t *testing.T) {
 	p := archivePlan(t)
 	d := p.Candidate.Databases[0]
 	now := p.CreatedAt.Add(time.Second)
-	c := Coverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: now, Empty: d.Allocation, Observation: data.SchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}
+	c := Coverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: now, Empty: d.Allocation, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}
 	if c.Admits(p, d, strings.Repeat("a", 32), now) {
 		t.Fatal("historical empty allocation is not a fresh empty observation")
 	}
@@ -99,10 +99,10 @@ func initializedCoverage(t *testing.T) (Plan, Database, Coverage, time.Time) {
 	cutoff := p.CreatedAt.Add(time.Second)
 	epoch := d.Epochs[0]
 	operation := strings.Repeat("a", 32)
-	observed := data.SchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: cutoff}
-	point := data.RestorePoint{ID: strings.Repeat("f", 32), BindingID: epoch.BindingID, EpochID: epoch.EpochID, Kind: data.RestorePointSnapshot, Schema: observed, RecordedAt: cutoff.Add(time.Second), Snapshot: &data.RestoreSnapshotPoint{ObjectKey: path.Join(epoch.RemotePrefix, "restore-points", strings.Repeat("f", 32), "snapshot.sqlite"), SHA256: strings.Repeat("a", 64), Size: 4096}}
-	source := restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &restore.SnapshotSource{BindingID: string(epoch.BindingID), Epoch: string(epoch.EpochID), PointID: point.ID, ObjectKey: point.Snapshot.ObjectKey, SHA256: point.Snapshot.SHA256, Size: point.Snapshot.Size}}
-	receipt := restore.Receipt{OperationID: operation + "-" + string(d.Binding.DatabaseID), Source: source, ToolVersion: restore.SnapshotToolVersion, ObservedAt: now, Schema: restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "unknown", Coverage: &restore.CoverageEvidence{Source: source, CoveredThrough: cutoff}, LossWindow: restore.LossWindow{State: restore.LossBounded, From: cutoff, To: now, Reason: "Independent source-bound coverage proof bounds possible loss; later writes may be absent."}}
+	observed := data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: cutoff}
+	point := data.SQLiteRestorePoint{ID: strings.Repeat("f", 32), BindingID: epoch.BindingID, EpochID: epoch.EpochID, Kind: data.RestorePointSnapshot, Schema: observed, RecordedAt: cutoff.Add(time.Second), Snapshot: &data.RestoreSnapshotPoint{ObjectKey: path.Join(epoch.RemotePrefix, "restore-points", strings.Repeat("f", 32), "snapshot.sqlite"), SHA256: strings.Repeat("a", 64), Size: 4096}}
+	source := restore.SQLiteSource{Kind: restore.SQLiteSnapshot, Snapshot: &restore.SnapshotSource{BindingID: string(epoch.BindingID), Epoch: string(epoch.EpochID), PointID: point.ID, ObjectKey: point.Snapshot.ObjectKey, SHA256: point.Snapshot.SHA256, Size: point.Snapshot.Size}}
+	receipt := restore.SQLiteReceipt{OperationID: operation + "-" + string(d.Binding.DatabaseID), Source: source, ToolVersion: restore.SnapshotToolVersion, ObservedAt: now, Schema: restore.SQLiteSchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "unknown", Coverage: &restore.CoverageEvidence{Source: source, CoveredThrough: cutoff}, LossWindow: restore.LossWindow{State: restore.LossBounded, From: cutoff, To: now, Reason: "Independent source-bound coverage proof bounds possible loss; later writes may be absent."}}
 	c := Coverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: cutoff, Observation: observed, Point: &point, Receipt: &receipt}
 	if !c.Admits(p, d, operation, now) {
 		t.Fatal("valid remote receipt refused")

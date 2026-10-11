@@ -97,7 +97,7 @@ func TestInitializationPlanSendsExactArtifactAndShowsSQLAndCatalog(t *testing.T)
 			var out, stderr bytes.Buffer
 			deps := testDependencies(t, &out, &stderr)
 			filename := filepath.Join(t.TempDir(), "initializer.json")
-			artifact := data.SchemaInitializer{Definition: data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}, Statements: []string{"CREATE TABLE t(x TEXT)"}}
+			artifact := data.SchemaInitializer{Definition: data.SQLiteSchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}, Statements: []string{"CREATE TABLE t(x TEXT)"}}
 			raw, err := json.Marshal(artifact)
 			if err != nil {
 				t.Fatal(err)

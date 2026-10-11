@@ -34,8 +34,8 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 			}
 			continue
 		}
-		observed := data.ObserveSchema(ctx, d.Binding, d.Definitions)
-		var previous data.SchemaObservation
+		observed := data.ObserveSQLiteSchema(ctx, d.Binding, d.Definitions)
+		var previous data.SQLiteSchemaObservation
 		if !abandon {
 			previous = m.Coverage[i].Observation
 		}
@@ -240,7 +240,7 @@ func (h archiveHost) archiveRouteState(ctx context.Context, p archive.Plan) (bef
 	return before, nil
 }
 
-func archiveDispositionSchemaMatches(observed, previous data.SchemaObservation, abandon bool) bool {
+func archiveDispositionSchemaMatches(observed, previous data.SQLiteSchemaObservation, abandon bool) bool {
 	if observed.UnknownReason != "" || observed.State != data.VerifiedSchema && observed.State != data.VerifiedEmpty {
 		return false
 	}

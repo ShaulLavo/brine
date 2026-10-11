@@ -131,7 +131,7 @@ func TestArchiveMaintenanceRealRootAdmissionAndFreshIncarnationIsolation(t *test
 		t.Fatal("prepared retired root refused", err)
 	}
 	original := p.Candidate.Databases[0]
-	reserved, err := h.service.Store.ReserveDatabase(ctx, store.DataReservation{App: p.Candidate.App, PolicyHash: p.PolicyHash, Database: data.Database{Name: original.Binding.Name, PersistentRoot: original.Binding.Root, MountPath: original.Binding.MountPath, Filename: original.Binding.Filename, BackupDestination: original.Epochs[0].Destination.Reference, SyncInterval: time.Minute}, Destination: original.Epochs[0].Destination})
+	reserved, err := h.service.Store.ReserveDatabase(ctx, store.DataReservation{App: p.Candidate.App, PolicyHash: p.PolicyHash, Database: data.SQLiteDatabase{Name: original.Binding.Name, PersistentRoot: original.Binding.Root, MountPath: original.Binding.MountPath, Filename: original.Binding.Filename, BackupDestination: original.Epochs[0].Destination.Reference, SyncInterval: time.Minute}, Destination: original.Epochs[0].Destination})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -264,8 +264,8 @@ func TestArchiveRetentionEngineIndependentlyRestoresExactOriginalSource(t *testi
 	}
 	engine := h.archiveRestoreEngine(database, remote, credentials)
 	engine.AllowHTTPForTests = true
-	schema := restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}
-	request := restore.Request{OperationID: "archive-retention-test", Budget: time.Minute, Source: restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &source}, ExpectedSchema: schema}
+	schema := restore.SQLiteSchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}
+	request := restore.SQLiteRequest{OperationID: "archive-retention-test", Budget: time.Minute, Source: restore.SQLiteSource{Kind: restore.SQLiteSnapshot, Snapshot: &source}, ExpectedSchema: schema}
 	request.Coverage = &restore.CoverageEvidence{Source: request.Source, CoveredThrough: cutoff}
 	receipt, err := engine.Test(context.Background(), request)
 	if err != nil || !receipt.Valid() || gets.Load() != 1 || receipt.Schema != schema || receipt.Coverage == nil || !receipt.Coverage.CoveredThrough.Equal(cutoff) || receipt.LossWindow.State != restore.LossBounded {

@@ -3,6 +3,8 @@ package replication
 import (
 	"context"
 	"errors"
+
+	"github.com/ShaulLavo/brine/internal/data"
 )
 
 var ErrPermit = errors.New("replication: startup permit refused")
@@ -27,6 +29,7 @@ const (
 // epoch and destination reservation consistency. WriterCompatible additionally
 // requires a fresh D12 schema observation against the committed release.
 type PermitState struct {
+	Engine           data.EngineKind
 	Binding          Binding
 	Config           []byte
 	ConfigHash       string
@@ -74,10 +77,13 @@ func WriterPermit(ctx context.Context, r PermitReader, incarnationID string) err
 	return nil
 }
 func validPermit(s PermitState) bool {
-	return (s.Fence == Unfenced || s.Fence == FenceReleased) && validBinding(s)
+	return s.StartupIdentity().Allows(data.EngineSQLite) && validSQLiteRuntime(s)
 }
-func validBinding(s PermitState) bool {
-	if s.Ownership != LocalOwner || !s.SourceSettled || !hashPattern.MatchString(s.ConfigHash) || ConfigHash(s.Config) != s.ConfigHash {
+func (s PermitState) StartupIdentity() data.StartupIdentity {
+	return data.StartupIdentity{Engine: s.Engine, IncarnationID: data.AppIncarnationID(s.Binding.IncarnationID), DatabaseID: data.DatabaseID(s.Binding.DatabaseID), BindingID: data.ReplicaBindingID(s.Binding.BindingID), EpochID: data.ReplicaEpochID(s.Binding.EpochID), Fence: data.StartupFenceState(s.Fence), Ownership: data.DestinationOwnership(s.Ownership), SourceSettled: s.SourceSettled}
+}
+func validSQLiteRuntime(s PermitState) bool {
+	if !hashPattern.MatchString(s.ConfigHash) || ConfigHash(s.Config) != s.ConfigHash {
 		return false
 	}
 	_, err := ParseConfig(s.Config, s.Binding)

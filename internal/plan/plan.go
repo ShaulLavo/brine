@@ -193,33 +193,33 @@ type Plan struct {
 	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
 
 	decisionInput      []byte
-	ReplicaPrevious    *ReplicaPrevious           `json:"replica_previous,omitempty"`
-	DataAllocations    []data.AllocationProposal  `json:"data_allocations,omitempty"`
-	PreparationRoots   []data.RootEvidence        `json:"preparation_roots,omitempty"`
-	MappingImage       string                     `json:"mapping_image,omitempty"`
-	Backup             *data.BackupCadence        `json:"backup,omitempty"`
-	Runtime            *data.RuntimeIdentity      `json:"runtime,omitempty"`
-	DataCredentials    []data.CredentialEvidence  `json:"data_credentials,omitempty"`
-	DataSchemas        []data.SchemaObservation   `json:"data_schemas,omitempty"`
-	DataMounts         []data.Mount               `json:"data_mounts,omitempty"`
-	SchemaVersion      int                        `json:"schema_version"`
-	Kind               Kind                       `json:"kind"`
-	Lifecycle          ChangeKind                 `json:"lifecycle,omitempty"`
-	Removal            *Removal                   `json:"removal,omitempty"`
-	App                string                     `json:"app"`
-	Target             target.Identity            `json:"target"`
-	ObservedGeneration target.Observation[uint64] `json:"observed_generation"`
-	PolicyVersion      string                     `json:"policy_version"`
-	PolicyHash         string                     `json:"policy_hash"`
-	DesiredHash        string                     `json:"desired_hash"`
-	ConfigHash         string                     `json:"config_hash"`
-	Image              Image                      `json:"image"`
-	HostPort           target.Port                `json:"host_port"`
-	Secrets            []SecretBinding            `json:"secrets"`
-	Changes            []Change                   `json:"changes"`
-	Diff               *ConfigurationDiff         `json:"diff,omitempty"`
-	Conflicts          []Diagnostic               `json:"conflicts"`
-	Hash               string                     `json:"hash"`
+	ReplicaPrevious    *ReplicaPrevious               `json:"replica_previous,omitempty"`
+	DataAllocations    []data.AllocationProposal      `json:"data_allocations,omitempty"`
+	PreparationRoots   []data.RootEvidence            `json:"preparation_roots,omitempty"`
+	MappingImage       string                         `json:"mapping_image,omitempty"`
+	Backup             *data.BackupCadence            `json:"backup,omitempty"`
+	Runtime            *data.RuntimeIdentity          `json:"runtime,omitempty"`
+	DataCredentials    []data.CredentialEvidence      `json:"data_credentials,omitempty"`
+	DataSchemas        []data.SQLiteSchemaObservation `json:"data_schemas,omitempty"`
+	DataMounts         []data.Mount                   `json:"data_mounts,omitempty"`
+	SchemaVersion      int                            `json:"schema_version"`
+	Kind               Kind                           `json:"kind"`
+	Lifecycle          ChangeKind                     `json:"lifecycle,omitempty"`
+	Removal            *Removal                       `json:"removal,omitempty"`
+	App                string                         `json:"app"`
+	Target             target.Identity                `json:"target"`
+	ObservedGeneration target.Observation[uint64]     `json:"observed_generation"`
+	PolicyVersion      string                         `json:"policy_version"`
+	PolicyHash         string                         `json:"policy_hash"`
+	DesiredHash        string                         `json:"desired_hash"`
+	ConfigHash         string                         `json:"config_hash"`
+	Image              Image                          `json:"image"`
+	HostPort           target.Port                    `json:"host_port"`
+	Secrets            []SecretBinding                `json:"secrets"`
+	Changes            []Change                       `json:"changes"`
+	Diff               *ConfigurationDiff             `json:"diff,omitempty"`
+	Conflicts          []Diagnostic                   `json:"conflicts"`
+	Hash               string                         `json:"hash"`
 }
 
 // CanonicalBytes returns compact JSON with a trailing newline. Build already

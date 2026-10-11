@@ -38,7 +38,7 @@ func persistentHostFixture(t *testing.T) (*store.Store, policy.Desired, DataFact
 	now := time.Now().UTC()
 	cadence := data.DefaultBackupCadence()
 	destination := data.Destination{Reference: "primary", Endpoint: "https://storage.example", Region: "region-1", Bucket: "backups", BasePrefix: "brine", CredentialRef: "primary"}
-	d := policy.Desired{SchemaVersion: 1, AppPorts: policy.PortRange{Min: 20000, Max: 20100}, PolicyVersion: "fixture", Image: spec.ImageReference("ghcr.io/team/hello@sha256:" + strings.Repeat("a", 64)), Name: "hello", PolicyHash: "sha256:" + strings.Repeat("a", 64), Runtime: &data.RuntimeIdentity{UID: 10001, GID: 10001}, Backup: &cadence, Databases: []data.Database{{Name: "main", PersistentRoot: data.PersistentRoot(root), MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}, PersistentRoots: []data.PersistentRoot{data.PersistentRoot(root)}, BackupDestinations: []data.Destination{destination}, SchemaCompatibility: []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}, BackupRetention: []data.RetentionEvidence{{Destination: "primary", Endpoint: destination.Endpoint, Bucket: destination.Bucket, BasePrefix: destination.BasePrefix, VerificationID: strings.Repeat("b", 32), VerifiedAt: now.Add(-time.Minute).Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}}}
+	d := policy.Desired{SchemaVersion: 1, AppPorts: policy.PortRange{Min: 20000, Max: 20100}, PolicyVersion: "fixture", Image: spec.ImageReference("ghcr.io/team/hello@sha256:" + strings.Repeat("a", 64)), Name: "hello", PolicyHash: "sha256:" + strings.Repeat("a", 64), Runtime: &data.RuntimeIdentity{UID: 10001, GID: 10001}, Backup: &cadence, Databases: []data.SQLiteDatabase{{Name: "main", PersistentRoot: data.PersistentRoot(root), MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}, PersistentRoots: []data.PersistentRoot{data.PersistentRoot(root)}, BackupDestinations: []data.Destination{destination}, SchemaCompatibility: []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}, BackupRetention: []data.RetentionEvidence{{Destination: "primary", Endpoint: destination.Endpoint, Bucket: destination.Bucket, BasePrefix: destination.BasePrefix, VerificationID: strings.Repeat("b", 32), VerifiedAt: now.Add(-time.Minute).Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}}}
 	f := DataFacts{Store: s, ProbeRoot: func(ctx context.Context, path string) (data.RootEvidence, error) { return data.ProbeRoot(ctx, path) }, ProbeMapping: func(_ context.Context, _ localexec.Runner, r data.RootEvidence, identity data.RuntimeIdentity) (data.MappingEvidence, error) {
 		return data.MappingEvidence{Runtime: identity, Root: r.Root, Device: r.Device, RunnerUID: 1000, RunnerGID: 1000, Image: data.MappingProbeImage, KeepID: true, PrivateModes: true, HostReadWrite: true, ContainerReadWrite: true, ObservedAt: now}, nil
 	}}
@@ -173,7 +173,7 @@ func TestDataCompatibilityReobservesAndRejectsOldWriter(t *testing.T) {
 		t.Fatal("first untouched candidate blocked", err)
 	}
 	previous := d
-	previous.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{"v1"}}}
+	previous.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{"v1"}}}
 	if safe, _ := c.Safe(ctx, previous, d); safe {
 		t.Fatal("incompatible previous writer accepted")
 	}
@@ -233,8 +233,8 @@ func TestDataWriterStartsBindsFreshCandidateThenRefusesDrift(t *testing.T) {
 
 func TestDataFactsRetainSchemaRegistryAfterCandidateRemap(t *testing.T) {
 	_, desired, facts := persistentHostFixture(t)
-	original := data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("c", 64)}
-	desired.SchemaDefinitions = []data.SchemaDefinition{original}
+	original := data.SQLiteSchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("c", 64)}
+	desired.SchemaDefinitions = []data.SQLiteSchemaDefinition{original}
 	collectPersistent(t, facts, desired)
 	desired.SchemaDefinitions[0].CatalogSHA256 = strings.Repeat("d", 64)
 	changed := collectPersistent(t, facts, desired)
@@ -256,8 +256,8 @@ func TestDataFactsUnapprovedRenameCannotPoisonIncarnation(t *testing.T) {
 	state, desired, facts := persistentHostFixture(t)
 	original := collectPersistent(t, facts, desired)
 	changed := desired
-	changed.Databases = append([]data.Database(nil), desired.Databases...)
-	changed.SchemaCompatibility = append([]data.SchemaCompatibility(nil), desired.SchemaCompatibility...)
+	changed.Databases = append([]data.SQLiteDatabase(nil), desired.Databases...)
+	changed.SchemaCompatibility = append([]data.SQLiteSchemaCompatibility(nil), desired.SchemaCompatibility...)
 	changed.Databases[0].Name = "renamed"
 	changed.SchemaCompatibility[0].Database = "renamed"
 	_, _ = facts.Collect(context.Background(), changed)

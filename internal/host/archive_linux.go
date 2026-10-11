@@ -5,11 +5,8 @@ package host
 import (
 	"context"
 	"crypto/sha256"
-	"database/sql"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -184,7 +181,7 @@ func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Databa
 		coverage.Observation = observed
 		return coverage, nil
 	}
-	observed := data.ObserveSchema(ctx, d.Binding, d.Definitions)
+	observed := data.ObserveSQLiteSchema(ctx, d.Binding, d.Definitions)
 	if observed.State != data.VerifiedEmpty && observed.State != data.VerifiedSchema {
 		return coverage, archive.ErrRefused
 	}
@@ -200,7 +197,7 @@ func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Databa
 	defer func() { credentials = restore.Credentials{} }()
 	binding := restore.Binding{ID: string(b.BindingID), Epoch: string(b.EpochID), CredentialRef: b.Destination.CredentialRef, Destination: restore.Destination{Endpoint: b.Destination.Endpoint, Region: b.Destination.Region, Bucket: b.Destination.Bucket, Prefix: strings.TrimSuffix(b.RemotePrefix, "/"), PathStyle: b.Destination.PathStyle}}
 	seed := sha256.Sum256([]byte(string(p.ArchiveID) + ":" + string(d.Binding.DatabaseID)))
-	point := data.RestorePoint{ID: hex.EncodeToString(seed[:16]), BindingID: b.BindingID, EpochID: b.EpochID, Schema: observed}
+	point := data.SQLiteRestorePoint{ID: hex.EncodeToString(seed[:16]), BindingID: b.BindingID, EpochID: b.EpochID, Schema: observed}
 	if b.Committed {
 		rotation := replicaRotation{state: h.service.Store, stateRoot: h.stateRoot, home: h.home}
 		artifact, _, err := rotation.artifact(ctx, b)
@@ -235,7 +232,7 @@ func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Databa
 		point.Snapshot = &data.RestoreSnapshotPoint{ObjectKey: source.ObjectKey, SHA256: source.SHA256, Size: source.Size}
 	}
 	point.RecordedAt = time.Now().UTC()
-	request := requestAtPoint(restore.Request{OperationID: operation + "-" + string(d.Binding.DatabaseID), Budget: 3 * time.Minute}, point)
+	request := requestAtPoint(restore.SQLiteRequest{OperationID: operation + "-" + string(d.Binding.DatabaseID), Budget: 3 * time.Minute}, point)
 	request.Coverage = &restore.CoverageEvidence{Source: request.Source, CoveredThrough: writersAt}
 	for _, invariant := range d.Invariants {
 		request.Invariants = append(request.Invariants, restore.Invariant{Kind: restore.InvariantKind(invariant.Kind), Table: invariant.Table, Column: invariant.Column, Count: invariant.Count, Minimum: invariant.Minimum, Maximum: invariant.Maximum})
@@ -244,7 +241,7 @@ func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Databa
 		return coverage, err
 	}
 	engine := h.archiveRestoreEngine(d, binding, credentials)
-	receipt, err := engine.Test(ctx, request)
+	receipt, err := restore.VerifySQLite(ctx, &engine, request)
 	if err != nil {
 		return coverage, err
 	}
@@ -253,77 +250,24 @@ func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Databa
 	return coverage, nil
 }
 
-func (h archiveHost) snapshot(ctx context.Context, d archive.Database, id string) (raw []byte, err error) {
-	if err = ensurePrivateChild(h.stateRoot, "archive-snapshots"); err != nil {
+func (h archiveHost) snapshot(ctx context.Context, d archive.Database, id string) ([]byte, error) {
+	if err := ensurePrivateChild(h.stateRoot, "archive-snapshots"); err != nil {
 		return nil, err
 	}
-	root := filepath.Join(h.stateRoot, "archive-snapshots")
-	handle, err := os.OpenRoot(root)
+	target := data.SQLiteCaptureTarget(data.SQLiteCaptureRequest{Binding: d.Binding, StagingRoot: filepath.Join(h.stateRoot, "archive-snapshots"), PointID: id, MaxBytes: data.MaxSQLiteCaptureBytes})
+	captured, err := data.CaptureEngine(ctx, target, data.MaxCaptureBudget)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { err = errors.Join(err, handle.Close()) }()
-	if err = handle.Mkdir(id, 0700); err != nil {
-		return nil, err
-	}
-	directory := filepath.Join(root, id)
-	defer func() { err = errors.Join(err, handle.RemoveAll(id)) }()
-	output := filepath.Join(directory, "snapshot.sqlite")
-	source := filepath.Join(string(d.Binding.Root), d.Binding.RelativeDirectory, string(d.Binding.Filename))
-	if err = data.VerifyRunnerFile(source); err != nil {
-		return nil, err
-	}
-	sourceInfo, err := os.Lstat(source)
-	if err != nil || sourceInfo.Size() <= 0 || sourceInfo.Size() > 64<<20 {
+	raw, ok := captured.SQLite()
+	if !ok {
 		return nil, archive.ErrRefused
 	}
-	total := sourceInfo.Size()
-	for _, suffix := range []string{"-wal", "-shm", "-journal"} {
-		info, statErr := os.Lstat(source + suffix)
-		if os.IsNotExist(statErr) {
-			continue
-		}
-		if statErr != nil || data.VerifyRunnerFile(source+suffix) != nil || info.Size() < 0 || info.Size() > 64<<20 {
-			return nil, archive.ErrRefused
-		}
-		total += info.Size()
-		if total > 64<<20 {
-			return nil, archive.ErrRefused
-		}
-	}
-	uri := url.URL{Scheme: "file", Path: source}
-	query := uri.Query()
-	query.Set("mode", "ro")
-	uri.RawQuery = query.Encode()
-	db, err := sql.Open("sqlite", uri.String())
-	if err != nil {
-		return nil, err
-	}
-	_, copyErr := db.ExecContext(ctx, "VACUUM INTO ?", output)
-	err = errors.Join(copyErr, db.Close())
-	if err != nil {
-		return nil, err
-	}
-	if err = os.Chmod(output, 0600); err != nil {
-		return nil, err
-	}
-	info, err := os.Lstat(output)
-	if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 64<<20 {
-		return nil, archive.ErrRefused
-	}
-	if err = data.VerifyRunnerFile(output); err != nil {
-		return nil, err
-	}
-	after, err := os.Lstat(source)
-	if err != nil || !os.SameFile(sourceInfo, after) {
-		return nil, archive.ErrRefused
-	}
-	raw, err = os.ReadFile(output) // #nosec G304 -- Fixed file in the new private, root-confined snapshot directory.
-	return raw, err
+	return raw, nil
 }
 
-func (h archiveHost) archiveRestoreEngine(d archive.Database, binding restore.Binding, credentials restore.Credentials) restore.Engine {
-	return restore.Engine{Root: filepath.Join(h.stateRoot, "archive-restores"), MaxSnapshotBytes: 64 << 20, Observer: restoreSchemaObserver{database: d.Binding.Name, definitions: d.Definitions}, Bindings: restore.BindingReaderFunc(func(_ context.Context, id, epoch string) (restore.Binding, error) {
+func (h archiveHost) archiveRestoreEngine(d archive.Database, binding restore.Binding, credentials restore.Credentials) restore.SQLiteEngine {
+	return restore.SQLiteEngine{Root: filepath.Join(h.stateRoot, "archive-restores"), MaxSnapshotBytes: 64 << 20, Observer: restoreSchemaObserver{database: d.Binding.Name, definitions: d.Definitions}, Bindings: restore.BindingReaderFunc(func(_ context.Context, id, epoch string) (restore.Binding, error) {
 		if id != binding.ID || epoch != binding.Epoch {
 			return restore.Binding{}, archive.ErrRefused
 		}

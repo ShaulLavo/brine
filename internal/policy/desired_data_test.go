@@ -9,7 +9,7 @@ import (
 )
 
 func TestDesiredAppPersistenceDetached(t *testing.T) {
-	d := Desired{SchemaVersion: 1, Runtime: &data.RuntimeIdentity{UID: 10001, GID: 10002}, Databases: []data.Database{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}}, SchemaCompatibility: []data.SchemaCompatibility{{Database: "main", Accepts: []string{"v2", "v1"}, Startup: "preserve"}}, SchemaDefinitions: []data.SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: data.EmptyCatalogSHA256}}}
+	d := Desired{SchemaVersion: 1, Runtime: &data.RuntimeIdentity{UID: 10001, GID: 10002}, Databases: []data.SQLiteDatabase{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}}, SchemaCompatibility: []data.SQLiteSchemaCompatibility{{Database: "main", Accepts: []string{"v2", "v1"}, Startup: "preserve"}}, SchemaDefinitions: []data.SQLiteSchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: data.EmptyCatalogSHA256}}}
 	before, err := d.CanonicalBytes()
 	if err != nil {
 		t.Fatal(err)

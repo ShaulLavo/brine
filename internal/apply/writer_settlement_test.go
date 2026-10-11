@@ -156,7 +156,7 @@ func TestPersistentResolutionClearsSourceBeforeUnitCompensation(t *testing.T) {
 	r.setLiveUnits(r.release.Units)
 	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
 	d := r.desired
-	d.Databases = []data.Database{{Name: "main"}}
+	d.Databases = []data.SQLiteDatabase{{Name: "main"}}
 	intent := &pendingWriterStarts{pending: map[string]bool{"source": true}, failOwner: "source"}
 	r.executor.WriterStarts = intent
 	x := &execution{executor: &r.executor, id: "operation", writerStartOwners: []string{"source"}, plan: r.plan, desired: d, previous: r.release, previousDesired: r.oldDesired, hasPrevious: true, unit: unit, service: mustUnit(t), facts: r.facts, installed: true, quiesced: true, state: Starting}

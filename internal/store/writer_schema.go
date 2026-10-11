@@ -16,8 +16,8 @@ import (
 type WriterSchema struct {
 	ReleaseID   string
 	Desired     policy.Desired
-	Bindings    []data.DatabaseBinding
-	Definitions []data.SchemaDefinition
+	Bindings    []data.SQLiteDatabaseBinding
+	Definitions []data.SQLiteSchemaDefinition
 	Allocations map[data.DatabaseID]data.AllocationReceipt
 	Units       []target.Unit
 }

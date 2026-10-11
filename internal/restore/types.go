@@ -5,6 +5,7 @@ package restore
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -26,11 +27,25 @@ const (
 	SQLiteSnapshot SourceKind = "sqlite_snapshot"
 )
 
-type RestoreSource struct {
+type SQLiteSource struct {
 	Kind     SourceKind      `json:"kind"`
 	LTX      *LTXSource      `json:"litestream_ltx,omitempty"`
 	Snapshot *SnapshotSource `json:"sqlite_snapshot,omitempty"`
 }
+
+func (s *SQLiteSource) UnmarshalJSON(raw []byte) error {
+	if err := receiptSource(raw); err != nil {
+		return err
+	}
+	type record SQLiteSource
+	var decoded record
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	*s = SQLiteSource(decoded)
+	return nil
+}
+
 type LTXSource struct {
 	// Recoverability is a read-only remote check, never exact preparation evidence.
 	Recoverability bool            `json:"recoverability"`
@@ -106,7 +121,7 @@ const (
 	Unknown        SchemaState = "unknown"
 )
 
-type SchemaObservation struct {
+type SQLiteSchemaObservation struct {
 	State         SchemaState `json:"state"`
 	Marker        string      `json:"marker"`
 	CatalogSHA256 string      `json:"catalog_sha256"`
@@ -115,8 +130,8 @@ type SchemaObservation struct {
 // SchemaObserver adapts P04-01's fixed observer. It must independently verify the
 // fixed marker structure and normative catalog hash in this read-only transaction.
 // There is deliberately no permissive built-in observer while that lane lands.
-type SchemaObserver interface {
-	Observe(context.Context, *sql.Tx) (SchemaObservation, error)
+type SQLiteSchemaObserver interface {
+	Observe(context.Context, *sql.Tx) (SQLiteSchemaObservation, error)
 }
 
 type InvariantKind string
@@ -139,14 +154,14 @@ type Sentinel struct {
 	Marker      string    `json:"marker"`
 	CommittedAt time.Time `json:"committed_at"`
 }
-type Request struct {
+type SQLiteRequest struct {
 	OperationID string
-	Source      RestoreSource
+	Source      SQLiteSource
 	// Latest resolves the remote plan boundary before making an exact LTX restore.
 	Latest          bool
 	Budget          time.Duration
-	ExpectedSchema  SchemaObservation
-	AcceptedSchemas []SchemaObservation
+	ExpectedSchema  SQLiteSchemaObservation
+	AcceptedSchemas []SQLiteSchemaObservation
 	Invariants      []Invariant
 	Sentinel        *Sentinel
 	Coverage        *CoverageEvidence
@@ -156,8 +171,8 @@ type Request struct {
 // object timestamp, recovered sentinel time or upload barrier alone.
 // Its source identity must match the exact restored point.
 type CoverageEvidence struct {
-	Source         RestoreSource `json:"source"`
-	CoveredThrough time.Time     `json:"covered_through"`
+	Source         SQLiteSource `json:"source"`
+	CoveredThrough time.Time    `json:"covered_through"`
 }
 type LossState string
 
@@ -172,23 +187,23 @@ type LossWindow struct {
 	To     time.Time `json:"to,omitempty"`
 	Reason string    `json:"reason"`
 }
-type Receipt struct {
-	OperationID      string            `json:"operation_id"`
-	Source           RestoreSource     `json:"source"`
-	ToolVersion      string            `json:"tool_version"`
-	RequestedTXID    uint64            `json:"requested_txid,omitempty"`
-	RecoveredTXID    uint64            `json:"recovered_txid,omitempty"`
-	ObservedAt       time.Time         `json:"observed_at"`
-	Schema           SchemaObservation `json:"schema"`
-	Sentinel         *Sentinel         `json:"sentinel,omitempty"`
-	Barrier          *BarrierReceipt   `json:"upload_barrier,omitempty"`
-	LossWindow       LossWindow        `json:"loss_window"`
-	Coverage         *CoverageEvidence `json:"coverage,omitempty"`
-	IntegrityCheck   string            `json:"integrity_check"`
-	ForeignKeyCheck  string            `json:"foreign_key_check"`
-	InvariantCheck   string            `json:"invariant_check"`
-	PositionEvidence string            `json:"position_evidence,omitempty"`
-	DatabasePath     string            `json:"-"`
+type SQLiteReceipt struct {
+	OperationID      string                  `json:"operation_id"`
+	Source           SQLiteSource            `json:"source"`
+	ToolVersion      string                  `json:"tool_version"`
+	RequestedTXID    uint64                  `json:"requested_txid,omitempty"`
+	RecoveredTXID    uint64                  `json:"recovered_txid,omitempty"`
+	ObservedAt       time.Time               `json:"observed_at"`
+	Schema           SQLiteSchemaObservation `json:"schema"`
+	Sentinel         *Sentinel               `json:"sentinel,omitempty"`
+	Barrier          *BarrierReceipt         `json:"upload_barrier,omitempty"`
+	LossWindow       LossWindow              `json:"loss_window"`
+	Coverage         *CoverageEvidence       `json:"coverage,omitempty"`
+	IntegrityCheck   string                  `json:"integrity_check"`
+	ForeignKeyCheck  string                  `json:"foreign_key_check"`
+	InvariantCheck   string                  `json:"invariant_check"`
+	PositionEvidence string                  `json:"position_evidence,omitempty"`
+	DatabasePath     string                  `json:"-"`
 }
 
 type Error struct{ Code string }
@@ -201,7 +216,7 @@ var identifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,127}$`)
 var hash = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var schemaMarker = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,127}|sha256:[a-f0-9]{12})$`)
 
-func (s RestoreSource) reference() (string, string, error) {
+func (s SQLiteSource) reference() (string, string, error) {
 	switch s.Kind {
 	case LitestreamLTX:
 		if s.LTX == nil || s.Snapshot != nil || s.LTX.TXID == 0 {
@@ -236,7 +251,7 @@ func validKey(key string) bool {
 	}
 	return true
 }
-func validSchema(s SchemaObservation) bool {
+func validSchema(s SQLiteSchemaObservation) bool {
 	if !hash.MatchString(s.CatalogSHA256) {
 		return false
 	}
@@ -245,8 +260,8 @@ func validSchema(s SchemaObservation) bool {
 	}
 	return s.State == VerifiedSchema && s.Marker != "brine-empty-v1" && schemaMarker.MatchString(s.Marker)
 }
-func validateChecks(r Request) error {
-	if len(r.Invariants) > 64 || len(r.AcceptedSchemas) > 128 || len(r.AcceptedSchemas) == 0 && !validSchema(r.ExpectedSchema) || len(r.AcceptedSchemas) > 0 && r.ExpectedSchema != (SchemaObservation{}) {
+func validateChecks(r SQLiteRequest) error {
+	if len(r.Invariants) > 64 || len(r.AcceptedSchemas) > 128 || len(r.AcceptedSchemas) == 0 && !validSchema(r.ExpectedSchema) || len(r.AcceptedSchemas) > 0 && r.ExpectedSchema != (SQLiteSchemaObservation{}) {
 		return refuse("invalid_verification")
 	}
 	for _, schema := range r.AcceptedSchemas {
@@ -285,7 +300,7 @@ func validateChecks(r Request) error {
 }
 func txidString(txid uint64) string { return fmt.Sprintf("%016x", txid) }
 
-func samePoint(first, second RestoreSource) bool {
+func samePoint(first, second SQLiteSource) bool {
 	if _, _, err := first.reference(); err != nil {
 		return false
 	}

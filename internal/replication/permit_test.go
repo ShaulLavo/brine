@@ -3,6 +3,7 @@ package replication
 import (
 	"context"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/data"
 	"testing"
 )
 
@@ -30,7 +31,7 @@ func allowedState(t *testing.T) PermitState {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return PermitState{Binding: b, Config: raw, ConfigHash: ConfigHash(raw), Fence: Unfenced, Ownership: LocalOwner, SourceSettled: true, WriterCompatible: true}
+	return PermitState{Engine: data.EngineSQLite, Binding: b, Config: raw, ConfigHash: ConfigHash(raw), Fence: Unfenced, Ownership: LocalOwner, SourceSettled: true, WriterCompatible: true}
 }
 func TestReplicaPermitEveryStartFailsClosed(t *testing.T) {
 	for _, start := range []string{"boot", "restart", "credential-rotation"} {
@@ -77,5 +78,17 @@ func TestWriterPermitRequiresFreshCompatibility(t *testing.T) {
 	r.state.WriterCompatible = false
 	if WriterPermit(context.Background(), r, s.Binding.IncarnationID) == nil {
 		t.Fatal("incompatible writer permitted")
+	}
+}
+
+func TestSQLiteRuntimePermitRejectsAnotherEngine(t *testing.T) {
+	state := allowedState(t)
+	r := &permitReader{state: state}
+	req := ReplicaPermitRequest{DatabaseID: state.Binding.DatabaseID, BindingID: state.Binding.BindingID, EpochID: state.Binding.EpochID, ConfigHash: state.ConfigHash}
+	for _, engine := range []data.EngineKind{"", "unknown", data.EngineSpacetimeDB} {
+		r.state.Engine = engine
+		if ReplicaPermit(context.Background(), r, req) == nil || WriterPermit(context.Background(), r, state.Binding.IncarnationID) == nil {
+			t.Fatal("another engine consumed a valid Litestream permit")
+		}
 	}
 }

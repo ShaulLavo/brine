@@ -29,21 +29,21 @@ type Request struct {
 }
 
 type Plan struct {
-	Catalog        []data.CatalogRow         `json:"catalog"`
-	ReplicaEpoch   data.ReplicaEpochID       `json:"replica_epoch"`
-	RemotePrefix   string                    `json:"remote_prefix"`
-	RestorePointID string                    `json:"restore_point_id"`
-	Bounds         data.InitializationBounds `json:"bounds"`
-	ID             string                    `json:"id"`
-	Request        Request                   `json:"request"`
-	Requester      Requester                 `json:"requester"`
-	PolicyHash     string                    `json:"policy_hash"`
-	TargetHash     string                    `json:"target_hash"`
-	Generation     uint64                    `json:"generation"`
-	DesiredHash    string                    `json:"desired_hash"`
-	Database       data.DatabaseBinding      `json:"database"`
-	Definition     data.SchemaDefinition     `json:"definition"`
-	Source         data.SchemaState          `json:"source"`
+	Catalog        []data.CatalogRow           `json:"catalog"`
+	ReplicaEpoch   data.ReplicaEpochID         `json:"replica_epoch"`
+	RemotePrefix   string                      `json:"remote_prefix"`
+	RestorePointID string                      `json:"restore_point_id"`
+	Bounds         data.InitializationBounds   `json:"bounds"`
+	ID             string                      `json:"id"`
+	Request        Request                     `json:"request"`
+	Requester      Requester                   `json:"requester"`
+	PolicyHash     string                      `json:"policy_hash"`
+	TargetHash     string                      `json:"target_hash"`
+	Generation     uint64                      `json:"generation"`
+	DesiredHash    string                      `json:"desired_hash"`
+	Database       data.SQLiteDatabaseBinding  `json:"database"`
+	Definition     data.SQLiteSchemaDefinition `json:"definition"`
+	Source         data.SchemaState            `json:"source"`
 }
 
 func (p Plan) fingerprint() (string, error) {
@@ -69,15 +69,15 @@ type Facts struct {
 	Plan        Plan
 	Initializer data.SchemaInitializer
 	Allocation  *data.AllocationReceipt
-	Observation data.SchemaObservation
+	Observation data.SQLiteSchemaObservation
 }
 
 type VerifiedRestorePoint struct {
-	PointID     string          `json:"point_id"`
-	DatabaseID  data.DatabaseID `json:"database_id"`
-	UploadedAt  time.Time       `json:"uploaded_at"`
-	RetainUntil time.Time       `json:"retain_until"`
-	Receipt     restore.Receipt `json:"receipt"`
+	PointID     string                `json:"point_id"`
+	DatabaseID  data.DatabaseID       `json:"database_id"`
+	UploadedAt  time.Time             `json:"uploaded_at"`
+	RetainUntil time.Time             `json:"retain_until"`
+	Receipt     restore.SQLiteReceipt `json:"receipt"`
 }
 
 func (point VerifiedRestorePoint) Admits(p Plan, now time.Time) bool {
@@ -281,7 +281,7 @@ func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
 	if err != nil {
 		return op, ErrRecovery
 	}
-	observation := data.ObserveSchema(ctx, p.Database, []data.SchemaDefinition{p.Definition})
+	observation := data.ObserveSQLiteSchema(ctx, p.Database, []data.SQLiteSchemaDefinition{p.Definition})
 	if observation.State != data.VerifiedSchema || observation.Marker != p.Definition.Marker || observation.CatalogSHA256 != p.Definition.CatalogSHA256 {
 		return op, ErrRecovery
 	}

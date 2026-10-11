@@ -10,7 +10,7 @@ import (
 )
 
 func TestCredentialDatabaseSelection(t *testing.T) {
-	scopes := []store.CredentialScope{{Database: data.DatabaseBinding{Name: "primary"}}, {Database: data.DatabaseBinding{Name: "audit"}}}
+	scopes := []store.CredentialScope{{Database: data.SQLiteDatabaseBinding{Name: "primary"}}, {Database: data.SQLiteDatabaseBinding{Name: "audit"}}}
 	if _, err := selectCredentialScope(scopes, ""); err == nil {
 		t.Fatal("ambiguous database selected")
 	}

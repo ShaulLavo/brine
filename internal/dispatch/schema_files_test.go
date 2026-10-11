@@ -16,7 +16,7 @@ func TestPlanSchemaMetadataNeverReadsHostPaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw = append(raw, []byte("\n[runtime]\nuid=10001\ngid=10001\n[[databases]]\nname=\"main\"\npersistent_root=\"/srv/brine-data\"\nmount_path=\"/data\"\nfilename=\"app.db\"\nbackup_destination=\"primary\"\nschema=\"missing-on-host.sql\"\n")...)
-	artifact := data.SchemaArtifact{Definition: data.SchemaDefinition{Database: "main", Marker: "sha256:688d95e9133c", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}, Digest: "sha256:" + strings.Repeat("a", 64)}
+	artifact := data.SchemaArtifact{Definition: data.SQLiteSchemaDefinition{Database: "main", Marker: "sha256:688d95e9133c", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}, Digest: "sha256:" + strings.Repeat("a", 64)}
 	wire, err := json.Marshal(PlanArgs{Spec: string(raw), SchemaArtifacts: []data.SchemaArtifact{artifact}})
 	if err != nil {
 		t.Fatal(err)

@@ -375,14 +375,14 @@ func TestArchiveInitializedRetentionProofRequiresFreshExactRemoteEvidence(t *tes
 	fresh.OperationID = "archive-retention-test"
 	fresh.ObservedAt = now
 	fresh.LossWindow.To = now
-	proof := RetentionProof{ArchiveID: p.ArchiveID, PolicyHash: p.PolicyHash, TargetHash: p.TargetHash, VerifiedAt: now, ValidUntil: now.Add(MaxEvidenceAge), RetainUntil: disposition.RetainUntil, Receipts: []restore.Receipt{fresh}}
+	proof := RetentionProof{ArchiveID: p.ArchiveID, PolicyHash: p.PolicyHash, TargetHash: p.TargetHash, VerifiedAt: now, ValidUntil: now.Add(MaxEvidenceAge), RetainUntil: disposition.RetainUntil, Receipts: []restore.SQLiteReceipt{fresh}}
 	if !RetentionProofMatches(proof, p, disposition, manifest, now) {
 		t.Fatal("fresh initialized retained proof refused")
 	}
 	for _, kind := range []string{"old", "source", "cutoff", "schema", "missing", "deadline", "invariants"} {
 		t.Run(kind, func(t *testing.T) {
 			changed := proof
-			changed.Receipts = append([]restore.Receipt(nil), proof.Receipts...)
+			changed.Receipts = append([]restore.SQLiteReceipt(nil), proof.Receipts...)
 			plan := p
 			originalManifest := manifest
 			switch kind {

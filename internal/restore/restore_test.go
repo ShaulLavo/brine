@@ -37,13 +37,13 @@ func fixture(t *testing.T, statements string) []byte {
 	return data
 }
 
-type observer struct{ observation SchemaObservation }
+type observer struct{ observation SQLiteSchemaObservation }
 
-func (o observer) Observe(context.Context, *sql.Tx) (SchemaObservation, error) {
+func (o observer) Observe(context.Context, *sql.Tx) (SQLiteSchemaObservation, error) {
 	return o.observation, nil
 }
 
-func setup(t *testing.T, data []byte) (*Engine, Request, *int) {
+func setup(t *testing.T, data []byte) (*SQLiteEngine, SQLiteRequest, *int) {
 	t.Helper()
 	calls := new(int)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -60,17 +60,17 @@ func setup(t *testing.T, data []byte) (*Engine, Request, *int) {
 	}))
 	t.Cleanup(server.Close)
 	digest := sha256.Sum256(data)
-	schema := SchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: strings.Repeat("a", 64)}
+	schema := SQLiteSchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: strings.Repeat("a", 64)}
 	binding := Binding{ID: "b1", Epoch: "e1", CredentialRef: "c1", Destination: Destination{Endpoint: server.URL, Region: "test-region", Bucket: "bucket", Prefix: "epochs/e1", PathStyle: true}}
 	root := t.TempDir()
 	// #nosec G302 -- This is a private directory; owner execute permission is required to traverse it.
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	e := &Engine{Root: root, AllowHTTPForTests: true, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) {
+	e := &SQLiteEngine{Root: root, AllowHTTPForTests: true, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) {
 		return Credentials{AccessKey: "test-key", SecretKey: "test-secret", SessionToken: "test-session"}, nil
 	}), Observer: observer{schema}}
-	request := Request{OperationID: "op1", Source: RestoreSource{Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{BindingID: "b1", Epoch: "e1", PointID: "p1", ObjectKey: "epochs/e1/restore-points/p1/snapshot.sqlite", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(data))}}, Budget: time.Minute, ExpectedSchema: schema, Sentinel: &Sentinel{Table: "fixture_commits", Sequence: 7, Marker: "marker-7", CommittedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}}
+	request := SQLiteRequest{OperationID: "op1", Source: SQLiteSource{Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{BindingID: "b1", Epoch: "e1", PointID: "p1", ObjectKey: "epochs/e1/restore-points/p1/snapshot.sqlite", SHA256: hex.EncodeToString(digest[:]), Size: int64(len(data))}}, Budget: time.Minute, ExpectedSchema: schema, Sentinel: &Sentinel{Table: "fixture_commits", Sequence: 7, Marker: "marker-7", CommittedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)}}
 	return e, request, calls
 }
 
@@ -121,26 +121,28 @@ func TestCredentialsMayBeIssuedDuringRead(t *testing.T) {
 func TestSnapshotRefusals(t *testing.T) {
 	cases := []struct {
 		name   string
-		change func(*Engine, *Request)
+		change func(*SQLiteEngine, *SQLiteRequest)
 	}{
-		{"hash", func(_ *Engine, r *Request) { r.Source.Snapshot.SHA256 = strings.Repeat("0", 64) }},
-		{"size", func(_ *Engine, r *Request) { r.Source.Snapshot.Size-- }},
-		{"prefix", func(_ *Engine, r *Request) { r.Source.Snapshot.ObjectKey = "foreign/snapshot.sqlite" }},
-		{"union", func(_ *Engine, r *Request) { r.Source.LTX = &LTXSource{} }},
-		{"expired", func(e *Engine, _ *Request) {
+		{"hash", func(_ *SQLiteEngine, r *SQLiteRequest) { r.Source.Snapshot.SHA256 = strings.Repeat("0", 64) }},
+		{"size", func(_ *SQLiteEngine, r *SQLiteRequest) { r.Source.Snapshot.Size-- }},
+		{"prefix", func(_ *SQLiteEngine, r *SQLiteRequest) { r.Source.Snapshot.ObjectKey = "foreign/snapshot.sqlite" }},
+		{"union", func(_ *SQLiteEngine, r *SQLiteRequest) { r.Source.LTX = &LTXSource{} }},
+		{"expired", func(e *SQLiteEngine, _ *SQLiteRequest) {
 			e.Credentials = CredentialReaderFunc(func(context.Context, string) (Credentials, error) {
 				return Credentials{AccessKey: "test-key", SecretKey: "test-secret", ExpiresAt: time.Now().Add(time.Second)}, nil
 			})
 		}},
-		{"schema", func(_ *Engine, r *Request) { r.ExpectedSchema.Marker = "different" }},
-		{"sentinel", func(_ *Engine, r *Request) { r.Sentinel.Marker = "wrong" }},
-		{"supplied SQL", func(_ *Engine, r *Request) {
+		{"schema", func(_ *SQLiteEngine, r *SQLiteRequest) { r.ExpectedSchema.Marker = "different" }},
+		{"sentinel", func(_ *SQLiteEngine, r *SQLiteRequest) { r.Sentinel.Marker = "wrong" }},
+		{"supplied SQL", func(_ *SQLiteEngine, r *SQLiteRequest) {
 			r.Invariants = []Invariant{{Kind: RowCount, Table: "fixture_commits; DROP TABLE fixture_commits", Count: 1}}
 		}},
-		{"invariant", func(_ *Engine, r *Request) {
+		{"invariant", func(_ *SQLiteEngine, r *SQLiteRequest) {
 			r.Invariants = []Invariant{{Kind: RowCount, Table: "fixture_commits", Count: 2}}
 		}},
-		{"unknown schema", func(e *Engine, _ *Request) { e.Observer = observer{SchemaObservation{State: Unknown}} }},
+		{"unknown schema", func(e *SQLiteEngine, _ *SQLiteRequest) {
+			e.Observer = observer{SQLiteSchemaObservation{State: Unknown}}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -206,7 +208,7 @@ func TestLTXExactPositionAndBarrier(t *testing.T) {
 	e, r, calls := setup(t, fixture(t, fixtureSQL))
 	cli := &fakeCLI{t: t, data: fixture(t, fixtureSQL), txid: "0000000000000007"}
 	e.CLI = cli
-	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 8, ObservedAt: time.Now().Add(-time.Second), Succeeded: true}}}
+	r.Source = SQLiteSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 8, ObservedAt: time.Now().Add(-time.Second), Succeeded: true}}}
 	receipt, err := e.Test(context.Background(), r)
 	if err != nil {
 		t.Fatal(err)
@@ -224,7 +226,7 @@ func TestLTXExactPositionAndBarrier(t *testing.T) {
 func TestLTXRefusesWrongRecoveredPosition(t *testing.T) {
 	e, r, _ := setup(t, fixture(t, fixtureSQL))
 	e.CLI = &fakeCLI{t: t, data: fixture(t, fixtureSQL), txid: "0000000000000008"}
-	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 7, ObservedAt: time.Now().Add(-time.Second), Succeeded: true}}}
+	r.Source = SQLiteSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 7, ObservedAt: time.Now().Add(-time.Second), Succeeded: true}}}
 	if _, err := e.Test(context.Background(), r); err == nil {
 		t.Fatal("accepted wrong TXID")
 	}
@@ -234,7 +236,7 @@ func TestLTXRequiresCommittedBarrier(t *testing.T) {
 	e, r, _ := setup(t, fixture(t, fixtureSQL))
 	cli := &fakeCLI{t: t, data: fixture(t, fixtureSQL), txid: "0000000000000007"}
 	e.CLI = cli
-	r.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7}}
+	r.Source = SQLiteSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7}}
 	receipt, err := e.Test(context.Background(), r)
 	if err == nil {
 		t.Fatalf("missing committed barrier accepted: requested=%d recovered=%d", receipt.RequestedTXID, receipt.RecoveredTXID)

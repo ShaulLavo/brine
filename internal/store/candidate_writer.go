@@ -50,7 +50,7 @@ func candidateSchema(ctx context.Context, tx *sql.Tx, s *Store, id data.AppIncar
 	if app != string(desired.Name) {
 		return WriterSchema{}, ErrConflict
 	}
-	out := WriterSchema{Desired: desired, Bindings: make([]data.DatabaseBinding, 0, len(desired.Databases)), Allocations: map[data.DatabaseID]data.AllocationReceipt{}}
+	out := WriterSchema{Desired: desired, Bindings: make([]data.SQLiteDatabaseBinding, 0, len(desired.Databases)), Allocations: map[data.DatabaseID]data.AllocationReceipt{}}
 	definitions, err := readSchemaDefinitions(ctx, tx, id)
 	if err != nil {
 		return WriterSchema{}, err

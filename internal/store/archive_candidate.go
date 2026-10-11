@@ -99,7 +99,7 @@ func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner st
 		if len(raw) > 4096 || json.Unmarshal(raw, &allocation) != nil || !allocation.Valid() || allocation.DatabaseID != id || allocation.IncarnationID != c.Incarnation {
 			return c, &IntegrityError{}
 		}
-		database := archive.Database{Binding: permit.Database, Allocation: &allocation, Definitions: []data.SchemaDefinition{}, Invariants: []data.RestoreInvariant{}, Epochs: []data.ReplicaBinding{}, Retention: []data.RetentionEvidence{}}
+		database := archive.Database{Binding: permit.Database, Allocation: &allocation, Definitions: []data.SQLiteSchemaDefinition{}, Invariants: []data.RestoreInvariant{}, Epochs: []data.ReplicaBinding{}, Retention: []data.RetentionEvidence{}}
 		var written int
 		if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM data_writer_history WHERE database_id=? UNION ALL SELECT 1 FROM data_writer_starts WHERE incarnation_id=?)`, id, c.Incarnation).Scan(&written); err != nil {
 			return c, err

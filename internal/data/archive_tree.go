@@ -39,11 +39,11 @@ func CaptureArchiveTree(root PersistentRoot, incarnation AppIncarnationID, archi
 	return t, nil
 }
 
-func FreshArchiveAllocation(b DatabaseBinding, original AllocationReceipt) (AllocationReceipt, SchemaObservation, error) {
+func FreshArchiveAllocation(b SQLiteDatabaseBinding, original AllocationReceipt) (AllocationReceipt, SQLiteSchemaObservation, error) {
 	fresh, err := CaptureAllocation(b)
-	observation := SchemaObservation{DatabaseID: b.DatabaseID, State: AllocatedEmpty, Marker: EmptyMarker, CatalogSHA256: EmptyCatalogSHA256, ObservedAt: time.Now().UTC()}
+	observation := SQLiteSchemaObservation{DatabaseID: b.DatabaseID, State: AllocatedEmpty, Marker: EmptyMarker, CatalogSHA256: EmptyCatalogSHA256, ObservedAt: time.Now().UTC()}
 	if err != nil || !original.Valid() || fresh.DatabaseID != original.DatabaseID || fresh.IncarnationID != original.IncarnationID || fresh.RootDevice != original.RootDevice || fresh.RootInode != original.RootInode || fresh.DirectoryDevice != original.DirectoryDevice || fresh.DirectoryInode != original.DirectoryInode {
-		return AllocationReceipt{}, SchemaObservation{}, ErrInvalid
+		return AllocationReceipt{}, SQLiteSchemaObservation{}, ErrInvalid
 	}
 	return fresh, observation, nil
 }

@@ -58,7 +58,7 @@ func storePermitFixture(t testing.TB) (store.ReplicaPermit, replication.Binding,
 	}
 	// #nosec G101 -- CredentialPath is a synthetic fixture path, not a credential.
 	p := store.ReplicaPermit{DBPath: b.DBPath, SocketPath: b.SocketPath, ConfigPath: path.Join(path.Dir(b.SocketPath), "litestream.yml"), CredentialPath: "/srv/state/credentials/s3/primary/v1.env", LifetimeLockPath: "/srv/state/replica-locks/" + b.BindingID + ".lock", FenceState: "unfenced", DestinationOwnership: "local", SourceSettled: true, Fences: []data.QuiescenceFence{}}
-	p.Database = data.DatabaseBinding{DatabaseID: data.DatabaseID(b.DatabaseID), IncarnationID: data.AppIncarnationID(b.IncarnationID), ReplicaBindingID: data.ReplicaBindingID(b.BindingID)}
+	p.Database = data.SQLiteDatabaseBinding{DatabaseID: data.DatabaseID(b.DatabaseID), IncarnationID: data.AppIncarnationID(b.IncarnationID), ReplicaBindingID: data.ReplicaBindingID(b.BindingID)}
 	p.Replica = data.ReplicaBinding{BindingID: data.ReplicaBindingID(b.BindingID), DatabaseID: data.DatabaseID(b.DatabaseID), EpochID: data.ReplicaEpochID(b.EpochID), Destination: data.Destination{Endpoint: b.Endpoint, Region: b.Region, Bucket: b.Bucket, PathStyle: b.ForcePathStyle}, RemotePrefix: b.Prefix, ConfigContent: string(raw), ConfigSHA256: strings.TrimPrefix(replication.ConfigHash(raw), "sha256:"), ConfigFile: p.ConfigPath, SocketFile: p.SocketPath, CredentialFile: p.CredentialPath, LifetimeLockFile: p.LifetimeLockPath, Committed: true}
 	return p, b, raw
 }
@@ -123,7 +123,7 @@ func TestStoreWriterPermitsNeverCacheSchemaCompatibility(t *testing.T) {
 	if err := replication.WriterPermit(context.Background(), r, b.IncarnationID); !errors.Is(err, replication.ErrPermit) {
 		t.Fatal("missing current schema allowed", err)
 	}
-	state.schema = store.WriterSchema{ReleaseID: "committed-release", Bindings: []data.DatabaseBinding{p.Database}}
+	state.schema = store.WriterSchema{ReleaseID: "committed-release", Bindings: []data.SQLiteDatabaseBinding{p.Database}}
 	if err := replication.WriterPermit(context.Background(), r, b.IncarnationID); !errors.Is(err, replication.ErrPermit) {
 		t.Fatal("missing fresh on-disk schema allowed", err)
 	}
@@ -190,7 +190,7 @@ func allocatedWriterFixture(t *testing.T) (StorePermits, *permitStoreFake, *writ
 	if err != nil {
 		t.Fatal(err)
 	}
-	state := &permitStoreFake{permit: p, schema: store.WriterSchema{ReleaseID: "release", Bindings: []data.DatabaseBinding{p.Database}, Desired: policy.Desired{SchemaCompatibility: []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}}, Allocations: map[data.DatabaseID]data.AllocationReceipt{p.Database.DatabaseID: receipt}, Units: []target.Unit{{Name: "app.container", Hash: "sha256:" + strings.Repeat("a", 64)}}}}
+	state := &permitStoreFake{permit: p, schema: store.WriterSchema{ReleaseID: "release", Bindings: []data.SQLiteDatabaseBinding{p.Database}, Desired: policy.Desired{SchemaCompatibility: []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}}, Allocations: map[data.DatabaseID]data.AllocationReceipt{p.Database.DatabaseID: receipt}, Units: []target.Unit{{Name: "app.container", Hash: "sha256:" + strings.Repeat("a", 64)}}}}
 	evidence := &writerEvidenceFake{active: true, match: true}
 	return StorePermits{State: state, Configs: configFilesFake{raw: raw}, Writers: evidence}, state, evidence, b.IncarnationID
 }
@@ -262,9 +262,9 @@ func TestWriterUsesRegistryDefinitionsAndObservesSchemaAfresh(t *testing.T) {
 	}
 	state.schema.Allocations = nil
 	state.schema.Desired.SchemaCompatibility[0].Accepts = []string{"v1"}
-	state.schema.Definitions = []data.SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: hash}}
+	state.schema.Definitions = []data.SQLiteSchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: hash}}
 	// Candidate declarations are not the authoritative registry definition.
-	state.schema.Desired.SchemaDefinitions = []data.SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("f", 64)}}
+	state.schema.Desired.SchemaDefinitions = []data.SQLiteSchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("f", 64)}}
 	if err := replication.WriterPermit(context.Background(), r, id); err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +278,7 @@ func TestWriterUsesRegistryDefinitionsAndObservesSchemaAfresh(t *testing.T) {
 
 func TestWriterBridgeRejectsIncompleteOrExtraCompatibilitySets(t *testing.T) {
 	r, state, _, id := allocatedWriterFixture(t)
-	state.schema.Desired.SchemaCompatibility = append(state.schema.Desired.SchemaCompatibility, data.SchemaCompatibility{Database: "extra", Startup: "preserve", Accepts: []string{data.EmptyMarker}})
+	state.schema.Desired.SchemaCompatibility = append(state.schema.Desired.SchemaCompatibility, data.SQLiteSchemaCompatibility{Database: "extra", Startup: "preserve", Accepts: []string{data.EmptyMarker}})
 	if replication.WriterPermit(context.Background(), r, id) == nil {
 		t.Fatal("extra compatibility declaration admitted")
 	}

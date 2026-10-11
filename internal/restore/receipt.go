@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"bytes"
 	"encoding/json"
 	"slices"
 
@@ -9,44 +10,44 @@ import (
 
 // DecodeReceipt refuses unknown and duplicate fields, including nested evidence.
 // Successful receipts contain only checked identities and fixed diagnostics.
-func DecodeReceipt(raw []byte) (Receipt, error) {
+func DecodeReceipt(raw []byte) (SQLiteReceipt, error) {
 	required := []string{"operation_id", "source", "tool_version", "observed_at", "schema", "loss_window", "integrity_check", "foreign_key_check", "invariant_check"}
 	optional := []string{"requested_txid", "recovered_txid", "sentinel", "upload_barrier", "coverage", "position_evidence"}
 	f, err := receiptObject(raw, required, optional)
 	if err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	if err := receiptSource(f["source"]); err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	if _, err := strictjson.Object(f["schema"], "state", "marker", "catalog_sha256"); err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	if _, err := receiptObject(f["loss_window"], []string{"state", "reason"}, []string{"from", "to"}); err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	if nested, ok := f["sentinel"]; ok {
 		if _, err := strictjson.Object(nested, "table", "sequence", "marker", "committed_at"); err != nil {
-			return Receipt{}, err
+			return SQLiteReceipt{}, err
 		}
 	}
 	if nested, ok := f["upload_barrier"]; ok {
 		if err := receiptBarrier(nested); err != nil {
-			return Receipt{}, err
+			return SQLiteReceipt{}, err
 		}
 	}
 	if nested, ok := f["coverage"]; ok {
 		fields, err := strictjson.Object(nested, "source", "covered_through")
 		if err != nil {
-			return Receipt{}, err
+			return SQLiteReceipt{}, err
 		}
 		if err := receiptSource(fields["source"]); err != nil {
-			return Receipt{}, err
+			return SQLiteReceipt{}, err
 		}
 	}
-	var r Receipt
+	var r SQLiteReceipt
 	if err := json.Unmarshal(raw, &r); err != nil || !r.Valid() {
-		return Receipt{}, strictjson.ErrObject
+		return SQLiteReceipt{}, strictjson.ErrObject
 	}
 	return r, nil
 }
@@ -57,7 +58,7 @@ func receiptObject(raw []byte, required, optional []string) (map[string]json.Raw
 	}
 	names := make([]string, 0, len(fields))
 	for name, value := range fields {
-		if !slices.Contains(required, name) && !slices.Contains(optional, name) || string(value) == "null" {
+		if !slices.Contains(required, name) && !slices.Contains(optional, name) || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return nil, strictjson.ErrObject
 		}
 		names = append(names, name)
@@ -70,7 +71,7 @@ func receiptObject(raw []byte, required, optional []string) (map[string]json.Raw
 	return strictjson.Object(raw, names...)
 }
 func receiptBarrier(raw []byte) error {
-	_, err := strictjson.Object(raw, "binding_id", "epoch", "txid", "replica_txid", "observed_at", "succeeded")
+	_, err := receiptObject(raw, []string{"binding_id", "epoch", "txid", "replica_txid", "observed_at", "succeeded"}, nil)
 	return err
 }
 func receiptSource(raw []byte) error {
@@ -98,7 +99,7 @@ func receiptSource(raw []byte) error {
 		if len(f) != 2 || f["sqlite_snapshot"] == nil {
 			return strictjson.ErrObject
 		}
-		_, err := strictjson.Object(f["sqlite_snapshot"], "binding_id", "epoch", "point_id", "object_key", "sha256", "size")
+		_, err := receiptObject(f["sqlite_snapshot"], []string{"binding_id", "epoch", "point_id", "object_key", "sha256", "size"}, nil)
 		return err
 	default:
 		return strictjson.ErrObject
@@ -106,7 +107,7 @@ func receiptSource(raw []byte) error {
 	return nil
 }
 
-func (r Receipt) Valid() bool {
+func (r SQLiteReceipt) Valid() bool {
 	id, epoch, err := r.Source.reference()
 	if err != nil || !token.MatchString(id) || !token.MatchString(epoch) || !token.MatchString(r.OperationID) || r.ObservedAt.IsZero() || !validSchema(r.Schema) || r.IntegrityCheck != "passed" || r.ForeignKeyCheck != "passed" || r.InvariantCheck != "passed" && r.InvariantCheck != "unknown" {
 		return false

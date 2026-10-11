@@ -171,7 +171,7 @@ func (h *firstDeployHost) Call(ctx context.Context, _ transport.Target, r dispat
 		if err != nil {
 			h.t.Fatal(err)
 		}
-		p := datainit.Plan{Request: datainit.Request(request), Requester: requester, Catalog: catalog, ReplicaEpoch: data.ReplicaEpochID(strings.Repeat("b", 32)), RemotePrefix: "fixture/epoch", RestorePointID: strings.Repeat("c", 32), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: data.DatabaseBinding{Name: initializer.Definition.Database, DatabaseID: data.DatabaseID(strings.Repeat("d", 32)), IncarnationID: data.AppIncarnationID(strings.Repeat("e", 32)), ReplicaBindingID: data.ReplicaBindingID(strings.Repeat("f", 32))}, Definition: initializer.Definition, Source: data.AllocatedEmpty}
+		p := datainit.Plan{Request: datainit.Request(request), Requester: requester, Catalog: catalog, ReplicaEpoch: data.ReplicaEpochID(strings.Repeat("b", 32)), RemotePrefix: "fixture/epoch", RestorePointID: strings.Repeat("c", 32), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: data.SQLiteDatabaseBinding{Name: initializer.Definition.Database, DatabaseID: data.DatabaseID(strings.Repeat("d", 32)), IncarnationID: data.AppIncarnationID(strings.Repeat("e", 32)), ReplicaBindingID: data.ReplicaBindingID(strings.Repeat("f", 32))}, Definition: initializer.Definition, Source: data.AllocatedEmpty}
 		raw, err := json.Marshal(struct {
 			Plan      datainit.Plan      `json:"plan"`
 			Requester datainit.Requester `json:"requester"`

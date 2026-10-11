@@ -11,12 +11,12 @@ import (
 type PersistentDatabase struct {
 	Credentials Observation[data.CredentialEvidence] `json:"credentials"`
 	Usage       Observation[data.StorageUsage]       `json:"usage"`
-	Definitions []data.SchemaDefinition              `json:"definitions"`
-	Database    data.DatabaseBinding                 `json:"database"`
+	Definitions []data.SQLiteSchemaDefinition        `json:"definitions"`
+	Database    data.SQLiteDatabaseBinding           `json:"database"`
 	Root        data.RootEvidence                    `json:"root"`
 	Mapping     Observation[data.MappingEvidence]    `json:"mapping"`
 	Retention   Observation[data.RetentionEvidence]  `json:"retention"`
-	Schema      data.SchemaObservation               `json:"schema"`
+	Schema      data.SQLiteSchemaObservation         `json:"schema"`
 	Fenced      bool                                 `json:"fenced"`
 }
 

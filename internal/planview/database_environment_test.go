@@ -33,7 +33,7 @@ func TestDatabaseEnvironmentVisibleWithoutUserValues(t *testing.T) {
 
 func TestSchemaArtifactDigestVisible(t *testing.T) {
 	p := example(plan.Create)
-	p.SchemaArtifacts = []data.SchemaArtifact{{Definition: data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: data.EmptyCatalogSHA256}, Digest: "sha256:" + data.EmptyCatalogSHA256}}
+	p.SchemaArtifacts = []data.SchemaArtifact{{Definition: data.SQLiteSchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: data.EmptyCatalogSHA256}, Digest: "sha256:" + data.EmptyCatalogSHA256}}
 	raw, err := JSON(p)
 	if err != nil {
 		t.Fatal(err)
