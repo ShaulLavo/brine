@@ -16,8 +16,8 @@ import (
 
 func TestArchiveSnapshotPreservesCommittedRowsWithoutTouchingLiveDatabase(t *testing.T) {
 	ctx := context.Background()
-	// Persistent roots must be on a real filesystem; t.TempDir may be tmpfs,
-	// which persistent data records refuse.
+	// Persistent roots and archive staging must be on a real filesystem;
+	// t.TempDir may be tmpfs, which persistent data records refuse.
 	root, err := os.MkdirTemp("/var/tmp", "brine-")
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +61,12 @@ func TestArchiveSnapshotPreservesCommittedRowsWithoutTouchingLiveDatabase(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := archiveHost{stateRoot: t.TempDir()}
+	state, err := os.MkdirTemp("/var/tmp", "brine-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(state) })
+	h := archiveHost{stateRoot: state}
 	// #nosec G302 -- Private fixture state requires owner traversal.
 	if err = os.Chmod(h.stateRoot, 0700); err != nil {
 		t.Fatal(err)
