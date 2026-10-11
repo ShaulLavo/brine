@@ -151,6 +151,19 @@ func TestObserverRefusesDriftUnknownMetadataAndSensitiveErrors(t *testing.T) {
 	}
 }
 
+func TestFixedObserverAcceptsNativeDefaultBytes(t *testing.T) {
+	endpoint, credential, expected, fixture := observationFixture(t, "")
+	fixture.schema = actualSchema(t, "schema-default-column.json")
+	observed, err := ObserveCurrent(context.Background(), endpoint, credential, expected, DefaultObserverLimits())
+	if err != nil {
+		t.Fatal("native default-column GET schema refused", err)
+	}
+	canonical, err := CanonicalSchemaV10(fixture.schema, DefaultSchemaLimits())
+	if err != nil || observed.Schema().SHA256() != canonical.SHA256() {
+		t.Fatal("observer changed native default schema", err)
+	}
+}
+
 func assertObservationRefused(t *testing.T, mode string) {
 	t.Helper()
 	endpoint, credential, expected, _ := observationFixture(t, mode)
