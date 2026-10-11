@@ -140,8 +140,23 @@ func TestManagedFrontendDefaultsShareOperatorCeilings(t *testing.T) {
 	if d.Resources.MemoryMB+d.SpacetimeDB.Resources.MemoryMB != p.config.Resources.MemoryMB || d.Resources.PIDsLimit+d.SpacetimeDB.Resources.PIDsLimit != p.config.Resources.PIDsLimit {
 		t.Fatal("frontend default did not use the remaining operator ceilings")
 	}
+	a.Resources = &spec.Resources{MemoryMB: 128, PIDsLimit: 128}
+	d, err = Normalize(a, p)
+	if err != nil || d.Resources != (Resources{MemoryMB: 128, PIDsLimit: 128}) {
+		t.Fatal("explicit frontend resources changed", err)
+	}
+	a.Resources.MemoryMB = p.config.Resources.MemoryMB
+	if _, err := Normalize(a, p); err == nil {
+		t.Fatal("explicit frontend exceeded the combined memory budget")
+	}
+	a.Resources = nil
 	a.SpacetimeDB.Resources.MemoryMB = p.config.Resources.MemoryMB
 	if _, err := Normalize(a, p); err == nil {
 		t.Fatal("frontend admitted without any memory budget")
+	}
+	a.SpacetimeDB.Resources.MemoryMB = 128
+	a.SpacetimeDB.Resources.PIDsLimit = p.config.Resources.PIDsLimit
+	if _, err := Normalize(a, p); err == nil {
+		t.Fatal("frontend admitted without any PID budget")
 	}
 }

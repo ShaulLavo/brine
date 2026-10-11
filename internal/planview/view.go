@@ -38,8 +38,9 @@ type secret struct {
 }
 
 type presentation struct {
-	SchemaArtifacts     []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
-	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
+	ManagedPreview      *plan.ManagedBlueprint `json:"managed_preview,omitempty"`
+	SchemaArtifacts     []data.SchemaArtifact  `json:"schema_artifacts,omitempty"`
+	DatabaseEnvironment []policy.Environment   `json:"database_environment,omitempty"`
 
 	SchemaVersion      int                        `json:"schema_version"`
 	Lifecycle          plan.ChangeKind            `json:"lifecycle,omitempty"`
@@ -71,6 +72,14 @@ func project(p plan.Plan) presentation {
 		Image: p.Image, HostPort: p.HostPort,
 		Secrets: []secret{}, Changes: []change{},
 		Diff: canonicalDiff(p.Diff), Conflicts: slices.Clone(p.Conflicts), Hash: p.Hash,
+	}
+	if p.ManagedPreview != nil {
+		managed := *p.ManagedPreview
+		if managed.AppResources != nil {
+			resources := *managed.AppResources
+			managed.AppResources = &resources
+		}
+		v.ManagedPreview = &managed
 	}
 	slices.SortFunc(v.DatabaseEnvironment, func(a, b policy.Environment) int { return strings.Compare(a.Name, b.Name) })
 	if v.Conflicts == nil {
@@ -146,11 +155,15 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 	if v.Kind == plan.NoOp {
 		add("  No changes required.")
 	}
-	manifest := "unknown"
-	if v.Image.ManifestDigest.Status == target.KnownStatus && v.Image.ManifestDigest.Value != nil {
-		manifest = shortDigest(*v.Image.ManifestDigest.Value, v)
+	if v.ManagedPreview != nil {
+		renderManagedPreview(v.ManagedPreview, add)
+	} else {
+		manifest := "unknown"
+		if v.Image.ManifestDigest.Status == target.KnownStatus && v.Image.ManifestDigest.Value != nil {
+			manifest = shortDigest(*v.Image.ManifestDigest.Value, v)
+		}
+		add("  Platform manifest: " + manifest)
 	}
-	add("  Platform manifest: " + manifest)
 	for _, artifact := range v.SchemaArtifacts {
 		add(fmt.Sprintf("  Schema initializer %s: %s", artifact.Definition.Database, artifact.Digest))
 	}
@@ -190,6 +203,27 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 		add(ConflictText(c))
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+func renderManagedPreview(p *plan.ManagedBlueprint, add func(string)) {
+	add("  Managed engine: SpacetimeDB " + p.EngineVersion)
+	add("  Engine image: " + string(p.EngineImage))
+	add(fmt.Sprintf("  Engine resources: %d MiB memory, %d PIDs", p.EngineResources.MemoryMB, p.EngineResources.PIDsLimit))
+	add("  Engine loopback port: " + managedPort(p.EngineHostPort))
+	if p.AppResources == nil {
+		add("  Frontend: none")
+	} else {
+		add(fmt.Sprintf("  Frontend resources: %d MiB memory, %d PIDs", p.AppResources.MemoryMB, p.AppResources.PIDsLimit))
+		add("  Frontend loopback port: " + managedPort(p.AppHostPort))
+	}
+	add("  Client prefix: " + p.ClientPrefix)
+}
+
+func managedPort(port target.Port) string {
+	if port == 0 {
+		return "unknown"
+	}
+	return fmt.Sprintf("%d (proposed)", port)
 }
 
 func shortDigest(digest string, v presentation) string {

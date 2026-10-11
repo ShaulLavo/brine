@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ShaulLavo/brine/internal/plan"
 )
 
 func managedValidateSpec(t *testing.T, frontend bool) string {
@@ -14,7 +17,7 @@ func managedValidateSpec(t *testing.T, frontend bool) string {
 		t.Fatal(err)
 	}
 	if frontend {
-		raw = []byte("image=\"registry.example.com:5000/team/web@sha256:" + strings.Repeat("a", 64) + "\"\ncontainer_port=8080\nresources={memory_mb=128,pids_limit=128}\n" + string(raw))
+		raw = []byte("image=\"registry.example.com:5000/team/web@sha256:" + strings.Repeat("a", 64) + "\"\ncontainer_port=8080\n" + string(raw))
 	}
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "module"), 0700); err != nil {
@@ -47,6 +50,9 @@ func checkManagedValidate(t *testing.T, frontend bool) {
 	if frontend && !strings.Contains(out, "Frontend container port: 8080\n") {
 		t.Fatal("frontend port missing")
 	}
+	if !strings.Contains(out, "Engine resources: 128 MiB memory, 128 PIDs\n") || frontend && !strings.Contains(out, "Frontend resources: 384 MiB memory, 384 PIDs\n") {
+		t.Fatal("derived engine/frontend budgets missing")
+	}
 	if !frontend && !strings.Contains(out, "Frontend: none\n") {
 		t.Fatal("engine-only presentation did not state frontend absence")
 	}
@@ -55,4 +61,38 @@ func checkManagedValidate(t *testing.T, frontend bool) {
 func TestManagedValidateHumanPresentation(t *testing.T) {
 	t.Run("engine only", func(t *testing.T) { checkManagedValidate(t, false) })
 	t.Run("frontend", func(t *testing.T) { checkManagedValidate(t, true) })
+}
+
+func checkManagedOfflinePlan(t *testing.T, frontend bool) {
+	t.Helper()
+	args := []string{"plan", managedValidateSpec(t, frontend), "--offline", "--snapshot", offlineExamples + "fresh-host.json", "--policy", "../policy/testdata/managed-operator.toml"}
+	out, diagnostics, exit := offlineExecute(t, args...)
+	if exit != 0 || diagnostics != "" || !strings.Contains(out, "managed_engine_not_admitted") {
+		t.Fatalf("managed offline plan exit %d, output %q, diagnostics %q", exit, out, diagnostics)
+	}
+	if !strings.Contains(out, "Engine resources: 128 MiB memory, 128 PIDs") || frontend && !strings.Contains(out, "Frontend resources: 384 MiB memory, 384 PIDs") {
+		t.Fatal("managed plan omitted resource budgets")
+	}
+	out, diagnostics, exit = offlineExecute(t, append(args, "--json")...)
+	if exit != 0 || diagnostics != "" {
+		t.Fatalf("machine plan exit %d, output %q, diagnostics %q", exit, out, diagnostics)
+	}
+	var envelope struct {
+		Data plan.Plan `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	p := envelope.Data.ManagedPreview
+	if p == nil || p.EngineHostPort != 20000 || p.EngineResources.MemoryMB != 128 || !frontend && (p.AppHostPort != 0 || p.AppResources != nil) {
+		t.Fatal("machine preview omitted engine identity/budget or created a dummy frontend")
+	}
+	if frontend && (p.AppHostPort != 20001 || p.AppResources == nil || p.AppResources.MemoryMB != 384) {
+		t.Fatal("machine preview omitted frontend port/budget")
+	}
+}
+
+func TestManagedOfflinePlanSupportsEngineOnlyAndFrontend(t *testing.T) {
+	t.Run("engine only", func(t *testing.T) { checkManagedOfflinePlan(t, false) })
+	t.Run("frontend", func(t *testing.T) { checkManagedOfflinePlan(t, true) })
 }

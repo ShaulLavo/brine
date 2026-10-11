@@ -13,11 +13,14 @@ import (
 const ManagedEngineUnsupported ConflictCode = "managed_engine_not_admitted"
 
 type ManagedBlueprint struct {
-	EngineHostPort target.Port         `json:"engine_host_port"`
-	AppHostPort    target.Port         `json:"app_host_port,omitempty"`
-	ClientPrefix   string              `json:"client_prefix"`
-	ClientDatabase string              `json:"client_database"`
-	EngineImage    spec.ImageReference `json:"engine_image"`
+	EngineHostPort  target.Port             `json:"engine_host_port"`
+	AppHostPort     target.Port             `json:"app_host_port,omitempty"`
+	ClientPrefix    string                  `json:"client_prefix"`
+	ClientDatabase  string                  `json:"client_database"`
+	EngineImage     spec.ImageReference     `json:"engine_image"`
+	EngineVersion   string                  `json:"engine_version"`
+	EngineResources spec.SpacetimeResources `json:"engine_resources"`
+	AppResources    *policy.Resources       `json:"app_resources,omitempty"`
 }
 
 // ManagedRenderPreview is renderer input only. No apply engine consumes it.
@@ -96,7 +99,11 @@ func buildManagedPreview(in Input, desired []byte) (Plan, error) {
 	if known && len(ports) < needed {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: PortsExhausted, Field: "ports"})
 	}
-	blueprint := &ManagedBlueprint{ClientPrefix: d.SpacetimeDB.ClientPrefix(), ClientDatabase: d.SpacetimeDB.Database, EngineImage: d.SpacetimeDB.Image}
+	blueprint := &ManagedBlueprint{ClientPrefix: d.SpacetimeDB.ClientPrefix(), ClientDatabase: d.SpacetimeDB.Database, EngineImage: d.SpacetimeDB.Image, EngineVersion: d.SpacetimeDB.Version, EngineResources: d.SpacetimeDB.Resources}
+	if d.App().HasAppContainer() {
+		resources := d.Resources
+		blueprint.AppResources = &resources
+	}
 	if known && len(ports) >= needed {
 		blueprint.EngineHostPort = ports[0]
 		if needed == 2 {
