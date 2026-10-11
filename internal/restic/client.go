@@ -66,12 +66,9 @@ func (c *Client) Backup(ctx context.Context, repository Repository, workspace st
 	if repository.initializationPlan != "" || repository.scope.BindingID != bundle.manifest.document.Identity.BindingID || repository.scope.EpochID != bundle.manifest.document.Identity.EpochID {
 		return TransportPoint{}, ErrInvalid
 	}
-	if err := bundle.verify(ctx); err != nil {
-		return TransportPoint{}, err
-	}
-	file, err := os.Open(bundle.path)
+	file, err := bundle.openVerified(ctx)
 	if err != nil {
-		return TransportPoint{}, ErrIntegrity
+		return TransportPoint{}, err
 	}
 	defer file.Close()
 	args := []string{"backup", "--stdin", "--stdin-filename", archiveName, "--host", "brine", "--tag", captureTag(bundle.manifest.document.Identity)}

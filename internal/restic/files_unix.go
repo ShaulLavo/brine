@@ -57,5 +57,9 @@ func protectedNode(info os.FileInfo, executable bool) bool {
 }
 
 func openMember(root *os.Root, member string) (*os.File, error) {
-	return root.OpenFile(member, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	return root.OpenFile(member, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+}
+
+func openArchive(path string) (*os.File, error) {
+	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 }

@@ -323,20 +323,38 @@ func writeTarMember(ctx context.Context, w *tar.Writer, root *os.Root, rootInfo 
 }
 
 func (b Bundle) verify(ctx context.Context) error {
-	info, err := os.Lstat(b.path)
-	if err != nil || b.info == nil || !os.SameFile(info, b.info) || info.Size() != b.size || !safeNode(info, b.info) {
-		return ErrIntegrity
-	}
-	file, err := os.Open(b.path)
+	file, err := b.openVerified(ctx)
 	if err != nil {
-		return ErrIntegrity
+		return err
 	}
 	defer file.Close()
+	return nil
+}
+
+func (b Bundle) openVerified(ctx context.Context) (*os.File, error) {
+	info, err := os.Lstat(b.path)
+	if err != nil || b.info == nil || !os.SameFile(info, b.info) || info.Size() != b.size || !safeNode(info, b.info) {
+		return nil, ErrIntegrity
+	}
+	file, err := openArchive(b.path)
+	if err != nil {
+		return nil, ErrIntegrity
+	}
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(opened, b.info) || !safeNode(opened, b.info) || opened.Size() != b.size {
+		_ = file.Close()
+		return nil, ErrIntegrity
+	}
 	hash, err := hashFile(ctx, file, b.size)
 	if err != nil || hash != b.sha256 {
-		return ErrIntegrity
+		_ = file.Close()
+		return nil, ErrIntegrity
 	}
-	return nil
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		_ = file.Close()
+		return nil, ErrIntegrity
+	}
+	return file, nil
 }
 
 func extractEnvelope(ctx context.Context, archive, directory string, manifest Manifest, limits Limits) error {
@@ -354,7 +372,7 @@ func extractEnvelope(ctx context.Context, archive, directory string, manifest Ma
 		return ErrInvalid
 	}
 	defer root.Close()
-	file, err := os.Open(archive)
+	file, err := openArchive(archive)
 	if err != nil {
 		return ErrIntegrity
 	}
