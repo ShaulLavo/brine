@@ -71,7 +71,10 @@ func normalizeManaged(a spec.App, p Policy) (Desired, error) {
 			resources = Resources{MemoryMB: a.Resources.MemoryMB, PIDsLimit: a.Resources.PIDsLimit}
 		}
 	}
-	if resources.MemoryMB > c.Resources.MemoryMB-engine.Resources.MemoryMB || resources.PIDsLimit > c.Resources.PIDsLimit-engine.Resources.PIDsLimit || a.HasAppContainer() && (resources.MemoryMB < 1 || resources.PIDsLimit < 1) {
+	if a.HasAppContainer() && (resources.MemoryMB < 1 || resources.PIDsLimit < 1) {
+		return Desired{}, refuse("policy.resources_denied", "resources", "engine request leaves no usable frontend memory or process budget")
+	}
+	if resources.MemoryMB > c.Resources.MemoryMB-engine.Resources.MemoryMB || resources.PIDsLimit > c.Resources.PIDsLimit-engine.Resources.PIDsLimit {
 		return Desired{}, refuse("policy.resources_denied", "resources", "combined app and engine resources exceed operator ceilings")
 	}
 	review := *c.SpacetimeDB

@@ -159,12 +159,19 @@ func validateManaged(raw rawApp, db *rawDatabase, app *App) error {
 }
 
 func managedNumbers(r *rawSpacetimeDB, d *SpacetimeDB) error {
+	uid, err := managedRuntimeID(r.Runtime.UID)
+	if err != nil {
+		return err
+	}
+	gid, err := managedRuntimeID(r.Runtime.GID)
+	if err != nil {
+		return err
+	}
+	d.Runtime = data.RuntimeIdentity{UID: uid, GID: gid}
 	fields := []struct {
 		raw any
 		set func(int64)
 	}{
-		{r.Runtime.UID, func(v int64) { d.Runtime.UID = uint32(v) }},
-		{r.Runtime.GID, func(v int64) { d.Runtime.GID = uint32(v) }},
 		{r.Resources.MemoryMB, func(v int64) { d.Resources.MemoryMB = int(v) }},
 		{r.Resources.PIDsLimit, func(v int64) { d.Resources.PIDsLimit = int(v) }},
 		{r.Resources.PagePoolMB, func(v int64) { d.Resources.PagePoolMB = int(v) }},
@@ -178,6 +185,14 @@ func managedNumbers(r *rawSpacetimeDB, d *SpacetimeDB) error {
 		field.set(v)
 	}
 	return nil
+}
+
+func managedRuntimeID(raw any) (uint32, error) {
+	v, err := integer(raw, "databases.spacetimedb.runtime")
+	if err != nil || v < 1 || v > 2147483647 {
+		return 0, data.ErrInvalid
+	}
+	return uint32(v), nil
 }
 
 func (d SpacetimeDB) Declaration() (data.EngineDeclaration, error) {
@@ -237,7 +252,7 @@ func (d SpacetimeDB) ClientPrefix() string { return "/_brine/db/" + string(d.Nam
 func (d SpacetimeDB) EnvironmentPrefix() string {
 	return "BRINE_DB_" + data.DatabaseEnvironmentName(d.Name)
 }
-func (a App) HasAppContainer() bool { return a.Image != "" && a.ContainerPort != 0 }
+func (app App) HasAppContainer() bool { return app.Image != "" && app.ContainerPort != 0 }
 func (d SpacetimeDB) References() []SecretReference {
 	return []SecretReference{d.Publisher, d.SigningPrivate, d.SigningPublic, d.Auth}
 }

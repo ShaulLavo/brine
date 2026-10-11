@@ -60,6 +60,9 @@ func TestManagedPreviewAdaptsWithPinnedCaddy(t *testing.T) {
 	if !filepath.IsAbs(binary) {
 		t.Fatal("Caddy verifier must be an absolute path")
 	}
+	if !bytes.HasPrefix(runCaddyVerifier(t, binary, "version"), []byte("v2.10.2 ")) {
+		t.Fatal("Caddy verifier must be pinned to v2.10.2")
+	}
 	for _, frontend := range []bool{false, true} {
 		raw, err := RenderManagedPreview(managedPreview(t, frontend))
 		if err != nil {
@@ -69,18 +72,25 @@ func TestManagedPreviewAdaptsWithPinnedCaddy(t *testing.T) {
 		if err := os.WriteFile(file, raw, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		command := exec.CommandContext(ctx, binary, "adapt", "--config", file, "--adapter", "caddyfile")
-		command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
-		output, err := command.Output()
-		cancel()
-		if err != nil {
-			t.Fatal("Caddy rejected managed preview", err)
-		}
+		output := runCaddyVerifier(t, binary, "adapt", "--config", file, "--adapter", "caddyfile")
 		if !json.Valid(output) || !bytes.Contains(output, []byte("/v1/identity/websocket-token")) {
 			t.Fatal("missing adapted client routes")
 		}
 	}
+}
+
+func runCaddyVerifier(t *testing.T, binary string, args ...string) []byte {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	// #nosec G204 -- Explicit local test opt-in selects the verifier; production previews launch no process.
+	command := exec.CommandContext(ctx, binary, args...)
+	command.Env = []string{"PATH=/usr/bin:/bin", "HOME=" + t.TempDir()}
+	output, err := command.Output()
+	if err != nil {
+		t.Fatal("Caddy verifier failed", err)
+	}
+	return output
 }
 
 func TestManagedClientRouteAllowlist(t *testing.T) {
