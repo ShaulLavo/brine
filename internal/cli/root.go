@@ -46,6 +46,7 @@ type Dependencies struct {
 	HostSecrets            dispatch.SecretOperations
 	HostWriterAttempt      func(context.Context, string) error
 	HostBackupCredentials  dispatch.BackupCredentialOperations
+	HostArchives           ArchiveOperations
 	HostDataInitialization dispatch.DataInitializationOperations
 	HostPermits            replication.LaunchReader
 	HostRestoreTests       dispatch.RestoreTestOperations

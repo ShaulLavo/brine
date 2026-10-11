@@ -51,6 +51,7 @@ func TestEmptySnapshotCreateOnlyAndIndependentRestore(t *testing.T) {
 	binding := Binding{ID: "b1", Epoch: "e1", CredentialRef: "c1", Destination: Destination{Endpoint: server.URL, Region: "test-region", Bucket: "bucket", Prefix: "epochs/e1", PathStyle: true}}
 	credentials := Credentials{AccessKey: "test-key", SecretKey: "test-secret", SessionToken: "test-session"}
 	root := t.TempDir()
+	// #nosec G302 -- Private fixture directory requires owner traversal.
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	} // #nosec G302 -- Private directory requires owner traversal.
@@ -100,6 +101,7 @@ func TestEmptySnapshotCapabilityFailuresNeverRetry(t *testing.T) {
 			}))
 			defer server.Close()
 			root := t.TempDir()
+			// #nosec G302 -- Private fixture directory requires owner traversal.
 			if err := os.Chmod(root, 0700); err != nil {
 				t.Fatal(err)
 			} // #nosec G302 -- Private directory requires owner traversal.
@@ -131,5 +133,61 @@ func TestEmptySchemaObserverRefusesApplicationData(t *testing.T) {
 	r.ExpectedSchema = SchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
 	if _, err := e.Test(context.Background(), r); err == nil {
 		t.Fatal("nonempty restore accepted")
+	}
+}
+
+func TestInitializedSnapshotUploadAndIndependentRemoteCoverage(t *testing.T) {
+	raw := fixture(t, fixtureSQL)
+	var stored []byte
+	var methods []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		if r.URL.Path != "/bucket/epochs/e1/restore-points/p1/snapshot.sqlite" {
+			t.Error("unexpected object", r.URL.Path)
+		}
+		switch r.Method {
+		case http.MethodPut:
+			if r.Header.Get("If-None-Match") != "*" {
+				t.Error("upload can overwrite")
+			}
+			if stored != nil {
+				w.WriteHeader(http.StatusPreconditionFailed)
+				return
+			}
+			var err error
+			stored, err = io.ReadAll(r.Body)
+			if err != nil {
+				t.Error(err)
+			}
+			w.WriteHeader(http.StatusCreated)
+		case http.MethodGet:
+			if _, err := w.Write(stored); err != nil {
+				t.Error(err)
+			}
+		default:
+			t.Error("unexpected provider operation")
+		}
+	}))
+	defer server.Close()
+	binding := Binding{ID: "b1", Epoch: "e1", CredentialRef: "c1", Destination: Destination{Endpoint: server.URL, Region: "test-region", Bucket: "bucket", Prefix: "epochs/e1", PathStyle: true}}
+	credentials := Credentials{AccessKey: "test-key", SecretKey: "test-secret"}
+	cutoff := time.Now().UTC()
+	source, _, err := UploadSnapshot(context.Background(), binding, credentials, "p1", raw, time.Minute, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	clear(raw) // The independent read must use the stored remote copy, not upload bytes.
+	root := t.TempDir()
+	// #nosec G302 -- Private fixture directory requires owner traversal.
+	if err = os.Chmod(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	schema := SchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: strings.Repeat("a", 64)}
+	engine := Engine{Root: root, AllowHTTPForTests: true, Observer: observer{schema}, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) { return credentials, nil })}
+	request := Request{OperationID: "archive-coverage", Source: RestoreSource{Kind: SQLiteSnapshot, Snapshot: &source}, Budget: time.Minute, ExpectedSchema: schema, Invariants: []Invariant{{Kind: RowCount, Table: "fixture_commits", Count: 1}}}
+	request.Coverage = &CoverageEvidence{Source: request.Source, CoveredThrough: cutoff}
+	receipt, err := engine.Test(context.Background(), request)
+	if err != nil || !receipt.Valid() || receipt.LossWindow.State != LossBounded || receipt.InvariantCheck != "passed" || strings.Join(methods, ",") != "PUT,PUT,GET" {
+		t.Fatal("remote coverage failed", receipt, err, methods)
 	}
 }

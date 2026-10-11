@@ -1,12 +1,14 @@
 package host
 
 import (
+	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
 type Runtime struct {
+	Archives           archive.Service
 	DataInitialization dispatch.DataInitializationOperations
 	previewStore       *store.Store
 	Reconciler         dispatch.ReconcileOperations
