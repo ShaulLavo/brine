@@ -129,3 +129,19 @@ func TestManagedPolicyRefusesMissingAndCrossedFacts(t *testing.T) {
 		}
 	}
 }
+
+func TestManagedFrontendDefaultsShareOperatorCeilings(t *testing.T) {
+	a, p := managedInputs(t, true)
+	a.Resources = nil
+	d, err := Normalize(a, p)
+	if err != nil {
+		t.Fatal("frontend defaults exhausted resources before an explicit request", err)
+	}
+	if d.Resources.MemoryMB+d.SpacetimeDB.Resources.MemoryMB != p.config.Resources.MemoryMB || d.Resources.PIDsLimit+d.SpacetimeDB.Resources.PIDsLimit != p.config.Resources.PIDsLimit {
+		t.Fatal("frontend default did not use the remaining operator ceilings")
+	}
+	a.SpacetimeDB.Resources.MemoryMB = p.config.Resources.MemoryMB
+	if _, err := Normalize(a, p); err == nil {
+		t.Fatal("frontend admitted without any memory budget")
+	}
+}

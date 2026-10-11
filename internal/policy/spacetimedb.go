@@ -66,12 +66,12 @@ func normalizeManaged(a spec.App, p Policy) (Desired, error) {
 		if !managedRegistryAllowed(a.Image, c.AllowedRegistries) {
 			return Desired{}, refuse("policy.registry_denied", "image", "image registry or repository is not allowed")
 		}
-		resources = c.Resources
+		resources = Resources{MemoryMB: c.Resources.MemoryMB - engine.Resources.MemoryMB, PIDsLimit: c.Resources.PIDsLimit - engine.Resources.PIDsLimit}
 		if a.Resources != nil {
 			resources = Resources{MemoryMB: a.Resources.MemoryMB, PIDsLimit: a.Resources.PIDsLimit}
 		}
 	}
-	if resources.MemoryMB > c.Resources.MemoryMB-engine.Resources.MemoryMB || resources.PIDsLimit > c.Resources.PIDsLimit-engine.Resources.PIDsLimit {
+	if resources.MemoryMB > c.Resources.MemoryMB-engine.Resources.MemoryMB || resources.PIDsLimit > c.Resources.PIDsLimit-engine.Resources.PIDsLimit || a.HasAppContainer() && (resources.MemoryMB < 1 || resources.PIDsLimit < 1) {
 		return Desired{}, refuse("policy.resources_denied", "resources", "combined app and engine resources exceed operator ceilings")
 	}
 	review := *c.SpacetimeDB

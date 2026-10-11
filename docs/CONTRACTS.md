@@ -69,6 +69,8 @@ Protected operator `[spacetimedb]` policy supplies license-use authority and
 explicit capture/verification intervals, maintenance and remote-loss budgets.
 The 24-hour/seven-day proposals are not automatic admission or a durability
 guarantee. Combined engine and frontend resource requests fit operator ceilings.
+An omitted frontend resource request uses the remaining memory and PID ceilings
+after the engine request, and refuses when either remaining budget is empty.
 Engine credentials cannot be reused as app secrets.
 
 Managed planning returns `managed_engine_not_admitted` and no executable
