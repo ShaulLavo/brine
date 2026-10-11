@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -25,6 +26,8 @@ type archiveHost struct {
 	session   localexec.Session
 	executor  localexec.Executor
 	home      string
+	routes    apply.RemovalRoutes
+	units     apply.RemovalUnits
 }
 
 func (h archiveHost) serviceStopped(ctx context.Context, name string, allowAbsent bool) (bool, error) {

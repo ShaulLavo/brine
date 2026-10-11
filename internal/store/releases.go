@@ -234,10 +234,10 @@ func (s *Store) ReleaseByID(ctx context.Context, app, id string) (Release, error
 	return readRelease(ctx, s.db, app, id)
 }
 
-// Generation advances once for each immutable committed release. Replaying a
-// commit does not advance it, and plans and queued jobs do not affect it.
+// Generation advances for committed releases, removals and archive retirements.
+// Replaying a commit does not advance it; plans and queued jobs do not affect it.
 func (s *Store) Generation(ctx context.Context) (uint64, error) {
 	var n uint64
-	err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)").Scan(&n)
+	err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)").Scan(&n)
 	return n, err
 }

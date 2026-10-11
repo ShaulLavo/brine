@@ -106,6 +106,14 @@ func readArchiveOperation(ctx context.Context, q dataQuerier, id string) (o arch
 	if count != o.Sequence {
 		return o, false, &IntegrityError{}
 	}
+	requiredFence := data.FenceHeld
+	disposition, _, err := readArchiveDisposition(ctx, q, o.ArchiveID)
+	if err != nil {
+		return o, false, err
+	}
+	if disposition.Stage == archive.Abandoned {
+		requiredFence = data.FenceReleased
+	}
 	o.Fences = []data.QuiescenceFence{}
 	rows, err := q.QueryContext(ctx, `SELECT f.id,f.incarnation_id,f.database_id,f.operation_id,f.state FROM data_archive_fences a JOIN data_fences f ON f.id=a.fence_id WHERE a.operation_id=? ORDER BY a.database_id`, o.ID)
 	if err != nil {
@@ -116,7 +124,7 @@ func readArchiveOperation(ctx context.Context, q dataQuerier, id string) (o arch
 		if err = rows.Scan(&fence.ID, &fence.IncarnationID, &fence.DatabaseID, &fence.OperationID, &fence.State); err != nil {
 			return o, false, errors.Join(err, rows.Close())
 		}
-		if fence.OperationID != o.ID || fence.State != data.FenceHeld {
+		if fence.OperationID != o.ID || fence.State != requiredFence {
 			return o, false, errors.Join(&IntegrityError{}, rows.Close())
 		}
 		o.Fences = append(o.Fences, fence)

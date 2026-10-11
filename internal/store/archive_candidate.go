@@ -26,6 +26,9 @@ func (s *Store) ArchiveCandidate(ctx context.Context, app string) (archive.Candi
 }
 
 func readArchiveCandidate(ctx context.Context, q dataQuerier, app string) (archive.Candidate, error) {
+	return readArchiveCandidateOwned(ctx, q, app, "")
+}
+func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner string) (archive.Candidate, error) {
 	c := archive.Candidate{App: app, Databases: []archive.Database{}}
 	if app == "" {
 		return c, ErrInvalid
@@ -77,8 +80,16 @@ func readArchiveCandidate(ctx context.Context, q dataQuerier, app string) (archi
 	}
 	for _, id := range ids {
 		permit, err := readReplicaPermit(ctx, q, id)
-		if err != nil || permit.Database.IncarnationID != c.Incarnation || permit.FenceState == "held" {
+		if err != nil || permit.Database.IncarnationID != c.Incarnation {
 			return c, ErrConflict
+		}
+		if owner != "" && permit.FenceState != "held" {
+			return c, ErrConflict
+		}
+		for _, fence := range permit.Fences {
+			if fence.State == data.FenceHeld && (owner == "" || fence.OperationID != owner) {
+				return c, ErrConflict
+			}
 		}
 		var allocation data.AllocationReceipt
 		var raw []byte

@@ -26,6 +26,18 @@ type WriterSchema struct {
 // Missing active incarnation, committed release or complete database identity
 // evidence refuses. The release and its declarations are read in one transaction.
 func (s *Store) ReadWriterSchema(ctx context.Context, id data.AppIncarnationID) (WriterSchema, error) {
+	return s.readWriterSchema(ctx, id, "")
+}
+
+// ReadArchiveWriterSchema reads declarations under an exact archive-owned fence.
+// It never authorizes startup; ordinary ReadWriterSchema still refuses held fences.
+func (s *Store) ReadArchiveWriterSchema(ctx context.Context, id data.AppIncarnationID, owner string) (WriterSchema, error) {
+	if !data.ValidID(owner) {
+		return WriterSchema{}, ErrInvalid
+	}
+	return s.readWriterSchema(ctx, id, owner)
+}
+func (s *Store) readWriterSchema(ctx context.Context, id data.AppIncarnationID, owner string) (WriterSchema, error) {
 	if !data.ValidID(string(id)) {
 		return WriterSchema{}, ErrInvalid
 	}
@@ -50,7 +62,12 @@ func (s *Store) ReadWriterSchema(ctx context.Context, id data.AppIncarnationID) 
 	if err != nil {
 		return WriterSchema{}, err
 	}
-	out, err := candidateWriterSchema(ctx, tx, s, id, desired)
+	if owner != "" {
+		if _, err = readArchiveCandidateOwned(ctx, tx, app, owner); err != nil {
+			return WriterSchema{}, err
+		}
+	}
+	out, err := candidateSchema(ctx, tx, s, id, desired, owner != "")
 	if err != nil {
 		return WriterSchema{}, err
 	}
