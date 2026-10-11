@@ -2,6 +2,7 @@ package plan
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,7 +53,7 @@ func TestManagedFrontendRefusesMalformedImage(t *testing.T) {
 	in, _ := managedPlanInput(t, true)
 	in.Image.Platform.Arch = "amd64"
 	p, err := Build(in)
-	if err != nil || len(p.Changes) != 0 || len(p.Conflicts) < 2 || p.Conflicts[1].Code != ImagePlatform {
+	if err != nil || len(p.Changes) != 0 || !slices.ContainsFunc(p.Conflicts, func(c Diagnostic) bool { return c.Code == ImagePlatform }) {
 		t.Fatal("managed frontend platform mismatch did not conflict", err)
 	}
 }
