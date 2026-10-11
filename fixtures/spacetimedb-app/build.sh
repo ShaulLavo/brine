@@ -18,6 +18,9 @@ printf '%s  %s\n' "$archive_sha" "$archive" | sha256sum -c -
 tar -xzf "$archive" -C "$build_root/runtime"
 cli="$build_root/runtime/spacetimedb-cli"
 export SOURCE_DATE_EPOCH=0
+cargo_home=${CARGO_HOME:-$HOME/.cargo}
+rustup_home=${RUSTUP_HOME:-$HOME/.rustup}
+export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$cargo_home=/brine-cargo"$'\x1f'"--remap-path-prefix=$rustup_home=/brine-rustup"$'\x1f'"--remap-path-prefix=$fixture_dir/module=/brine-module"
 for variant in v1 additive destructive observer-hooks default-column access-change; do
   args=()
   if [[ $variant != v1 ]]; then args=(--features "$variant"); fi

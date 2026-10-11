@@ -6,7 +6,7 @@ This small fixture tests module identity, authenticated writes, browser subscrip
 
 The module uses Rust **1.96.1**, exact SpacetimeDB SDK **2.11.0** and retained Cargo.lock. The published crate requires Rust 1.96.0; the upstream tagged toolchain pins 1.96.1. Client SDK **2.11.0**, TypeScript **5.6.3**, Bun **1.4.2** and Playwright **1.64.0** have retained lockfiles. Official CLI/runtime **2.11.0** comes from a release archive checked against SHA-256 `fe4645f3abc96a5386ebe98879bba0bea2d0bf56ad7612c322e36a7b93ba04d0`.
 
-`build.sh` builds each module into its own target directory and checks a second independent v1 build for identical bytes. It generates the official client bindings directly from each compatible Wasm, checks their types, bundles browser assets and cross-compiles the asset server for amd64 and arm64. `module/artifact-pins.json` records the exact module and client artifact identities. `manifest.py` produces a publication manifest binding those bytes to the source commit and input hashes.
+`build.sh` builds each module into its own target directory and checks a second independent v1 build for identical bytes. Rust remaps crate/toolchain/module source prefixes so panic metadata cannot embed host-specific cache paths. It generates the official client bindings directly from each compatible Wasm, checks their types, bundles browser assets and cross-compiles the asset server for amd64 and arm64. `module/artifact-pins.json` records the exact module and client artifact identities. `manifest.py` produces a publication manifest binding those bytes to the source commit and input hashes.
 
 Set `BRINE_FIXTURE_BUILD_ROOT` to a new private scratch directory and keep local toolchains/caches on your data drive. Install the pinned toolchain and run:
 
@@ -20,7 +20,7 @@ python3 fixtures/spacetimedb-app/smoke.py "$BRINE_FIXTURE_BUILD_ROOT"
 
 The **Publish SpacetimeDB drill fixture** workflow runs build and native/browser checks on pull requests. Only a successful main-branch verification job can publish to `ghcr.io/shaullavo/brine-spacetimedb-fixture`. It retains module/client hashes, the source revision and actual image index/platform digests. Use the immutable index from that workflow's summary, never a tag. Publication and both architectures' execution evidence remain required before P09-03 is complete.
 
-The serving image is `scratch` with one static binary, about 6 MiB per architecture, and UID/GID **10001:10001**. It contains no compiler, shell, module publisher, signing key or backup credential. It embeds the same v1 browser assets for both architectures. SpacetimeDB runs in a separate pinned engine service.
+The serving image is `scratch` with one static binary, about 6 MiB per architecture, and UID/GID **10001:10001**. Image assembly sets the entrypoint mode to 0555 even when artifact transfer reduces files to 0644. The workflow removes executable bits, builds both images and checks actual entrypoint startup plus HTTP/browser identity before publication. Arm64 runs under CI emulation; native Pi execution remains a physical gate. It contains no compiler, shell, module publisher, signing key or backup credential. It embeds the same v1 browser assets for both architectures. SpacetimeDB runs in a separate pinned engine service.
 
 ## App environment and HTTP contract
 

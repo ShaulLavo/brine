@@ -16,7 +16,8 @@ assert len(set(modules.values())) == len(variants), 'fixture variants are not di
 clients = {name: {'browser_sha256': digest(root / 'artifacts' / ('browser-' + name + '.js')), 'module_sha256': modules[name]} for name in ['v1', 'additive', 'default-column']}
 inputs = ['module/Cargo.toml', 'module/Cargo.lock', 'module/rust-toolchain.toml', 'module/src/lib.rs', 'client/package.json', 'client/bun.lock', 'client/session.ts', 'client/browser.ts', 'main.go', 'browser-test/package.json', 'browser-test/bun.lock', 'browser-test/browser.mjs', 'checks/default-column.ts', 'smoke.py']
 pinned = json.loads((fixture / 'module/artifact-pins.json').read_text())
-assert modules == pinned['modules'] and clients == pinned['clients'], 'rebuild differs from retained module/client pins'
+if modules != pinned['modules'] or clients != pinned['clients']:
+    raise RuntimeError('rebuild differs from retained pins: ' + json.dumps({'modules': modules, 'clients': clients}, sort_keys=True))
 manifest = {
     'version': 1,
     'source_head': subprocess.check_output(['git', '-C', str(fixture), 'rev-parse', 'HEAD'], text=True).strip(),
