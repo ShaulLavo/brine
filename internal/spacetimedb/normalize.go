@@ -204,6 +204,9 @@ func (e *typeExpansion) declaration(name string, row any) (any, error) {
 	if err != nil || product["Product"] == nil {
 		return nil, ErrSchema
 	}
+	if err := validateTableColumns(object, product["Product"]); err != nil {
+		return nil, err
+	}
 	delete(object, "product_type_ref")
 	for _, field := range []string{"indexes", "constraints", "sequences", "default_values"} {
 		key := "source_name"
@@ -233,8 +236,25 @@ func (e *typeExpansion) explicitNames(value any) (any, error) {
 			return nil, err
 		}
 	}
+	if err := uniqueNameMappings(rows, e.limits.MaxBytes); err != nil {
+		return nil, err
+	}
 	result, err := sortDeclarations(rows, "", false, e.limits.MaxBytes)
 	return map[string]any{"entries": result}, err
+}
+
+func uniqueNameMappings(rows []any, limit int) error {
+	seen := make(map[string]bool, len(rows))
+	for _, row := range rows {
+		name, value, _ := variant(row)
+		mapping := value.(map[string]any)
+		key, err := encodeDocument(map[string]any{name: mapping["source_name"]}, limit)
+		if err != nil || seen[string(key)] {
+			return ErrSchema
+		}
+		seen[string(key)] = true
+	}
+	return nil
 }
 
 type sortableValue struct {

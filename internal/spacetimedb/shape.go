@@ -50,12 +50,32 @@ func validateElements(value any) error {
 	if !ok {
 		return ErrSchema
 	}
+	names := map[string]bool{}
 	for _, value := range rows {
 		row, err := exactObject(value, "name", "algebraic_type")
 		if err != nil || optionalName(row["name"]) != nil || validateType(row["algebraic_type"]) != nil {
 			return ErrSchema
 		}
+		if err := uniqueElementName(row["name"], names); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func uniqueElementName(value any, names map[string]bool) error {
+	variant, body, err := variant(value)
+	if err != nil {
+		return err
+	}
+	if variant == "none" {
+		return nil
+	}
+	name := body.(string)
+	if names[name] {
+		return ErrSchema
+	}
+	names[name] = true
 	return nil
 }
 
