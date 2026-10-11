@@ -61,7 +61,11 @@ func (b *SpacetimeDBBinding) UnmarshalJSON(raw []byte) error {
 }
 
 func (b *ArchiveBinding) UnmarshalJSON(raw []byte) error {
-	if err := engineRecord(raw, []string{"binding_id", "database_id", "destination", "epoch_id", "remote_prefix"}, nil); err != nil {
+	fields, err := engineRecordFields(raw, []string{"binding_id", "database_id", "destination", "epoch_id", "remote_prefix"}, nil)
+	if err != nil {
+		return err
+	}
+	if err = engineRecord(fields["destination"], []string{"reference", "endpoint", "region", "bucket", "base_prefix", "path_style", "credential_ref"}, nil); err != nil {
 		return err
 	}
 	type record ArchiveBinding

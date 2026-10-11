@@ -30,7 +30,7 @@ func engineReservation(t *testing.T) EngineReservation {
 
 func dropEngineMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
-	for _, table := range []string{"data_engine_runtime_commits", "data_engine_modules", "data_engine_kinds"} {
+	for _, table := range []string{"data_engine_runtime_commits", "data_engine_modules", "data_engine_schemas", "data_engine_kinds"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatal(err)
 		}
