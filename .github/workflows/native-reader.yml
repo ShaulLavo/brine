@@ -93,6 +93,8 @@ jobs:
           for arch in amd64 arm64; do
             test "$(cat "package/$arch/source-head")" = "$GITHUB_SHA"
             (cd "package/$arch" && sha256sum --check SHA256SUMS)
+            chmod 0555 "package/$arch/brine-native-reader"
+            test -x "package/$arch/brine-native-reader"
           done
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
