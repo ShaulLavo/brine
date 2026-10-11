@@ -189,7 +189,7 @@ func changeAccess(schema map[string]any) {
 
 func changeDefaults(schema map[string]any) {
 	table := sectionObject(schema, "Tables").([]any)[0].(map[string]any)
-	table["default_values"] = []any{map[string]any{"col_id": json.Number("0"), "value": []any{json.Number("7")}}}
+	table["default_values"] = []any{map[string]any{"col_id": json.Number("0"), "value": "07"}}
 }
 
 func changeIndexColumns(schema map[string]any) {
