@@ -67,15 +67,19 @@ func DeleteArchiveTree(ctx context.Context, t ArchiveTree, inc AppIncarnationID,
 				return ErrInvalid
 			}
 		} else {
+			mountID, err := archiveMountID(int(bundle.Fd()), "", unix.AT_EMPTY_PATH) // #nosec G115 -- OS descriptors fit int.
+			if err != nil {
+				return err
+			}
 			count := 0
-			if err := archiveDeleteContents(ctx, bundle, t.RootDevice, false, 0, &count); err != nil {
+			if err := archiveDeleteContents(ctx, bundle, t.RootDevice, mountID, false, 0, &count); err != nil {
 				return err
 			}
 			count = 0
 			if _, err := bundle.Seek(0, 0); err != nil {
 				return err
 			}
-			if err := archiveDeleteContents(ctx, bundle, t.RootDevice, true, 0, &count); err != nil {
+			if err := archiveDeleteContents(ctx, bundle, t.RootDevice, mountID, true, 0, &count); err != nil {
 				return err
 			}
 			var current unix.Stat_t
@@ -117,8 +121,12 @@ func withArchiveDeletion(t ArchiveTree, inc AppIncarnationID, id ArchiveID, work
 	if err = unix.Fstat(fd, &rootStat); err != nil || !archivePrivateDirectory(rootStat, t.RootDevice) || rootStat.Ino != t.RootInode {
 		return ErrInvalid
 	}
+	rootMountID, mountErr := archiveMountID(fd, "", unix.AT_EMPTY_PATH)
+	if mountErr != nil {
+		return mountErr
+	}
 	for _, name := range []string{"apps", "archives"} {
-		childFD, openErr := unix.Openat(fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+		childFD, openErr := archiveOpenDirectory(fd, name)
 		if openErr != nil {
 			return openErr
 		}
@@ -135,7 +143,7 @@ func withArchiveDeletion(t ArchiveTree, inc AppIncarnationID, id ArchiveID, work
 		return ErrInvalid
 	}
 	// #nosec G115 -- Valid OS file descriptors fit the syscall descriptor type.
-	bundleFD, err := unix.Openat(int(files[2].Fd()), string(id), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	bundleFD, err := archiveOpenDirectory(int(files[2].Fd()), string(id))
 	var bundle *os.File
 	if err != nil && !errors.Is(err, unix.ENOENT) {
 		return err
@@ -153,7 +161,13 @@ func withArchiveDeletion(t ArchiveTree, inc AppIncarnationID, id ArchiveID, work
 		if identityErr != nil || device != t.RootDevice || inode != t.RootInode {
 			return ErrInvalid
 		}
+		if currentMountID, mountErr := archiveMountID(unix.AT_FDCWD, string(t.Root), unix.AT_SYMLINK_NOFOLLOW); mountErr != nil || currentMountID != rootMountID {
+			return ErrInvalid
+		}
 		for _, parent := range files[1:3] {
+			if currentMountID, mountErr := archiveMountID(fd, parent.Name(), unix.AT_SYMLINK_NOFOLLOW); mountErr != nil || currentMountID != rootMountID {
+				return ErrInvalid
+			}
 			var pinned, entry unix.Stat_t
 			// #nosec G115 -- Valid OS file descriptors fit the syscall descriptor type.
 			if unix.Fstat(int(parent.Fd()), &pinned) != nil || unix.Fstatat(fd, parent.Name(), &entry, unix.AT_SYMLINK_NOFOLLOW) != nil || entry.Mode&unix.S_IFMT != unix.S_IFDIR || entry.Dev != pinned.Dev || entry.Ino != pinned.Ino {
@@ -174,7 +188,7 @@ func archivePrivateDirectory(stat unix.Stat_t, device uint64) bool {
 	// #nosec G115 -- The OS effective UID is nonnegative and fits the platform UID type.
 	return stat.Mode&unix.S_IFMT == unix.S_IFDIR && stat.Mode&07777 == 0700 && stat.Uid == uint32(os.Geteuid()) && uint64(stat.Dev) == device
 }
-func archiveDeleteContents(ctx context.Context, directory *os.File, device uint64, remove bool, depth int, count *int) (err error) {
+func archiveDeleteContents(ctx context.Context, directory *os.File, device, mountID uint64, remove bool, depth int, count *int) (err error) {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -183,6 +197,9 @@ func archiveDeleteContents(ctx context.Context, directory *os.File, device uint6
 	}
 	// Bound entries before any effects; a retained tree is never followed through
 	// symlinks, special files, foreign devices, hard links or foreign ownership.
+	if observed, mountErr := archiveMountID(int(directory.Fd()), "", unix.AT_EMPTY_PATH); mountErr != nil || observed != mountID { // #nosec G115 -- OS descriptors fit int.
+		return ErrInvalid
+	}
 	entries, err := directory.ReadDir(100001)
 	if err != nil && !errors.Is(err, io.EOF) {
 		return err
@@ -205,12 +222,15 @@ func archiveDeleteContents(ctx context.Context, directory *os.File, device uint6
 		if uint64(stat.Dev) != device || stat.Uid != uint32(os.Geteuid()) {
 			return ErrInvalid
 		}
+		if observed, mountErr := archiveMountID(fd, entry.Name(), unix.AT_SYMLINK_NOFOLLOW); mountErr != nil || observed != mountID {
+			return ErrInvalid
+		}
 		switch stat.Mode & unix.S_IFMT {
 		case unix.S_IFDIR:
 			if !archivePrivateDirectory(stat, device) {
 				return ErrInvalid
 			}
-			childFD, openErr := unix.Openat(fd, entry.Name(), unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+			childFD, openErr := archiveOpenDirectory(fd, entry.Name())
 			if openErr != nil {
 				return openErr
 			}
@@ -219,7 +239,7 @@ func archiveDeleteContents(ctx context.Context, directory *os.File, device uint6
 			if err = unix.Fstat(childFD, &pinned); err != nil || pinned.Dev != stat.Dev || pinned.Ino != stat.Ino {
 				return errors.Join(ErrInvalid, child.Close())
 			}
-			walkErr := archiveDeleteContents(ctx, child, device, remove, depth+1, count)
+			walkErr := archiveDeleteContents(ctx, child, device, mountID, remove, depth+1, count)
 			if err = errors.Join(walkErr, child.Close()); err != nil {
 				return err
 			}
@@ -249,4 +269,23 @@ func archiveDeleteContents(ctx context.Context, directory *os.File, device uint6
 		return directory.Sync()
 	}
 	return nil
+}
+
+// Do not cross mounts, including bind mounts with the same device and inode.
+// Unsupported kernel facilities refuse deletion rather than weaken traversal.
+func archiveOpenDirectory(fd int, name string) (int, error) {
+	return unix.Openat2(fd, name, &unix.OpenHow{Flags: unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC, Resolve: unix.RESOLVE_NO_XDEV | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_BENEATH})
+}
+func archiveMountEvidenceMatches(stat unix.Statx_t, expected uint64) bool {
+	return expected != 0 && stat.Mask&unix.STATX_MNT_ID != 0 && stat.Mnt_id == expected
+}
+func archiveMountID(fd int, name string, flags int) (uint64, error) {
+	var stat unix.Statx_t
+	if err := unix.Statx(fd, name, flags, unix.STATX_MNT_ID, &stat); err != nil {
+		return 0, err
+	}
+	if !archiveMountEvidenceMatches(stat, stat.Mnt_id) {
+		return 0, ErrInvalid
+	}
+	return stat.Mnt_id, nil
 }

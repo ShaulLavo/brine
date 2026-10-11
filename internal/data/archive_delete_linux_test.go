@@ -6,8 +6,13 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
 	"testing"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -220,6 +225,117 @@ func TestArchiveDeletionRefusesSetIDAndStickyEntryModes(t *testing.T) {
 		}
 		if err := DeleteArchiveTree(context.Background(), tree, inc, id, parent, false); err == nil {
 			t.Fatal("special entry mode admitted", directory)
+		}
+	}
+}
+
+func TestArchiveDeletionMountEvidenceRefusesSameDeviceMount(t *testing.T) {
+	const original uint64 = 71
+	for _, test := range []struct {
+		name     string
+		stat     unix.Statx_t
+		expected uint64
+		ok       bool
+	}{
+		{"original", unix.Statx_t{Mask: unix.STATX_MNT_ID, Mnt_id: original}, original, true},
+		{"bind mount", unix.Statx_t{Mask: unix.STATX_MNT_ID, Mnt_id: original + 1}, original, false},
+		{"unknown mount", unix.Statx_t{Mnt_id: original}, original, false},
+		{"zero mount", unix.Statx_t{Mask: unix.STATX_MNT_ID}, 0, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if archiveMountEvidenceMatches(test.stat, test.expected) != test.ok {
+				t.Fatal("incorrect mount admission")
+			}
+		})
+	}
+}
+
+// Isolate every mount in a subprocess namespace: neither a successful test nor
+// a failure can mount anything into the host or other tests' namespaces.
+func TestArchiveDeletionRefusesBindMountedLiveData(t *testing.T) {
+	if os.Getenv("BRINE_ARCHIVE_BIND_TEST") != "1" {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		defer cancel()
+		binary, err := os.Executable()
+		if err != nil {
+			t.Fatal(err)
+		}
+		command := exec.CommandContext(ctx, binary, "-test.run=^TestArchiveDeletionRefusesBindMountedLiveData$", "-test.v") // #nosec G204 -- Only this test binary and fixed test selection execute.
+		command.Env = append(os.Environ(), "BRINE_ARCHIVE_BIND_TEST=1")
+		command.SysProcAttr = &syscall.SysProcAttr{Cloneflags: unix.CLONE_NEWNS}
+		output, err := command.CombinedOutput()
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
+			t.Skip("private mount namespaces are not permitted")
+		}
+		if err != nil {
+			t.Fatalf("bind-mount regression failed: %s: %v", output, err)
+		}
+		if strings.Contains(string(output), "--- SKIP: TestArchiveDeletionRefusesBindMountedLiveData") {
+			t.Skip(string(output))
+		}
+		t.Log(string(output))
+		return
+	}
+	currentNamespace, err := os.Stat("/proc/self/ns/mnt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	parentNamespace, err := os.Stat(filepath.Join("/proc", strconv.Itoa(os.Getppid()), "ns", "mnt")) // #nosec G304 -- Kernel namespace of this test process's own parent.
+	if err != nil || os.SameFile(currentNamespace, parentNamespace) {
+		t.Fatal("mount fixture is not isolated from its parent namespace", err)
+	}
+	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
+			t.Skip("private mounts are not permitted")
+		}
+		t.Fatal(err)
+	}
+	tree, inc, id, parent := archiveDeleteFixture(t)
+	bundle := filepath.Join(string(tree.Root), tree.ArchiveRelative)
+	live := t.TempDir()
+	if err := os.Chmod(live, 0700); err != nil { // #nosec G302 -- Private live-data fixture requires traversal.
+		t.Fatal(err)
+	}
+	liveFile := filepath.Join(live, "live.sqlite")
+	good := filepath.Join(bundle, "a-good")
+	mountpoint := filepath.Join(bundle, "z-mounted-live")
+	for _, file := range []string{liveFile, good} {
+		if err := os.WriteFile(file, []byte("preserved"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Mkdir(mountpoint, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Mount(live, mountpoint, "", unix.MS_BIND, ""); err != nil {
+		if errors.Is(err, unix.EPERM) || errors.Is(err, unix.EACCES) {
+			t.Skip("bind mounts are not permitted")
+		}
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := unix.Unmount(mountpoint, 0); err != nil {
+			t.Error(err)
+		}
+	}()
+	// Both paths have the same filesystem device: device checks cannot detect it.
+	var original, mounted unix.Stat_t
+	if err := unix.Stat(live, &original); err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Stat(mountpoint, &mounted); err != nil {
+		t.Fatal(err)
+	}
+	if original.Dev != mounted.Dev {
+		t.Fatal("fixture is not a same-device bind mount")
+	}
+	if err := DeleteArchiveTree(context.Background(), tree, inc, id, parent, false); err == nil {
+		t.Fatal("bind-mounted live data traversed")
+	}
+	for _, file := range []string{liveFile, filepath.Join(mountpoint, "live.sqlite"), good} {
+		raw, err := os.ReadFile(file) // #nosec G304 -- Private test fixture paths only.
+		if err != nil || string(raw) != "preserved" {
+			t.Fatal("refused archive purge changed live or archived data", file, err)
 		}
 	}
 }
