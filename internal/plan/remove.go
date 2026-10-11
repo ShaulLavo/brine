@@ -98,7 +98,7 @@ func BuildRemove(in Input) (Plan, error) {
 		conflict("caddy_config")
 	}
 	if current == nil {
-		if observed != nil && (observed.Image.Status != target.Absent || observed.AllocatedHostPort.Status != target.Absent || observed.QuadletUnits.Status != target.KnownStatus || len(*observed.QuadletUnits.Value) != 0 || observed.Secrets.Status != target.KnownStatus) {
+		if observed != nil && (!observed.RuntimeAbsent() || observed.Secrets.Status != target.KnownStatus) {
 			conflict("unowned_app")
 		}
 		for _, f := range cfg.Files {
