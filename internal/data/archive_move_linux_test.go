@@ -146,3 +146,28 @@ func TestArchiveRenameSymlinkSwapCannotMoveOutsideData(t *testing.T) {
 		})
 	}
 }
+
+func TestArchiveRenameReceiptAdoptionSyncsOnlyRecordedTree(t *testing.T) {
+	tree, inc, id := archiveMoveFixture(t)
+	if err := SyncArchivedTree(tree, inc, id); err == nil {
+		t.Fatal("unmoved source adopted")
+	}
+	if err := RenameArchiveTree(tree, inc, id); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if err := SyncArchivedTree(tree, inc, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	destination := filepath.Join(string(tree.Root), tree.ArchiveRelative)
+	if err := os.Rename(destination, destination+"-saved"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(destination, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := SyncArchivedTree(tree, inc, id); err == nil {
+		t.Fatal("replacement inode adopted")
+	}
+}

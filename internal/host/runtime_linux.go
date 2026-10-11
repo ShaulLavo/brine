@@ -267,3 +267,7 @@ func (u lazyUnits) VerifyArchiveRemove(ctx context.Context, name, hash string) e
 func (u lazyUnits) RemoveArchived(ctx context.Context, name, hash string) error {
 	return u.withManager(func(m *quadlet.Manager) error { return m.RemoveArchived(ctx, name, hash) })
 }
+
+func (u lazyUnits) InspectArchiveRemove(ctx context.Context, name, hash string) (bool, error) {
+	return quadlet.InspectArchiveRemove(ctx, u.home, name, hash)
+}

@@ -177,7 +177,7 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 	if err != nil {
 		return old, err
 	}
-	if next.Stage == archive.Abandoned {
+	{
 		candidate, err := readArchiveCandidateOwned(ctx, tx, p.Candidate.App, o.ID)
 		if err != nil {
 			return old, err
@@ -191,6 +191,8 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 		if !reflect.DeepEqual(candidate, p.Candidate) {
 			return old, ErrConflict
 		}
+	}
+	if next.Stage == archive.Abandoned {
 		for _, f := range o.Fences {
 			result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND state='held' AND operation_id=?", f.ID, o.ID)
 			if err != nil {
