@@ -289,7 +289,8 @@ Local CLI orchestration fixtures exercise T09/T10/T14/T16/T23 without a real
 host: ordered independent preparation/credential/initialization/release jobs;
 preaccept and settled-terminal failures at every stage; lost acceptance and
 lost polling responses; requester-bound read-only job recovery without secret
-redelivery; unknown initialization observations before task settlement;
+redelivery; valid foreign/same-app-different-spec checkpoint plan refusal;
+release decision changes after initialization requiring a new review; unknown initialization observations before task settlement;
 recovery-required refusal; private locked resume files; multiple databases;
 already-initialized and stateless releases; changed later releases; review-only,
 credential file admission and guarded/cancelable human confirmation.

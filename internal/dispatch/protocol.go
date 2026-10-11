@@ -53,6 +53,7 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"deploy_checkpoint":       {ReadOnly, decodeDeploymentCheckpointArgs},
 	"deploy_operation":        {ReadOnly, decodeDeploymentOperationQuery},
 	"deploy_state":            {ReadOnly, decodeDeployment},
 	"data_init_plan":          {Mutating, decodeDataInitPlan},
@@ -326,6 +327,16 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			}
 			value = accepted
 		}
+	case deploymentCheckpointArgs:
+		reader, ok := s.Planner.(DeploymentCheckpointReader)
+		if !ok {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		checked, err := reader.DeploymentCheckpoint(ctx, args.App, args.Request)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = checked
 	case DeploymentOperationQuery:
 		reader, ok := s.Planner.(DeploymentOperationReader)
 		if !ok {

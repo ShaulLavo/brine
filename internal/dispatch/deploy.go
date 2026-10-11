@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -100,4 +101,64 @@ func decodeDeploymentOperation(raw json.RawMessage) (DeploymentOperation, error)
 		return DeploymentOperation{}, strictjson.ErrObject
 	}
 	return value, nil
+}
+
+// DeploymentCheckpointArgs asks the host to validate an advisory reference
+// against the actual app, target and desired input, not a client-supplied label.
+type DeploymentCheckpointArgs struct {
+	Spec            string                `json:"spec"`
+	SchemaArtifacts []data.SchemaArtifact `json:"schema_artifacts"`
+	PlanID          string                `json:"plan_id"`
+	Step            string                `json:"step"`
+	Database        string                `json:"database"`
+}
+type deploymentCheckpointArgs struct {
+	Request DeploymentCheckpointArgs
+	App     spec.App
+}
+type DeploymentCheckpoint struct {
+	PlanID     string   `json:"plan_id"`
+	ReviewHash string   `json:"review_hash"`
+	Planned    *Planned `json:"planned"`
+}
+type DeploymentCheckpointReader interface {
+	DeploymentCheckpoint(context.Context, spec.App, DeploymentCheckpointArgs) (DeploymentCheckpoint, error)
+}
+
+func decodeDeploymentCheckpointArgs(raw json.RawMessage) (any, error) {
+	f, err := strictjson.Object(raw, "spec", "schema_artifacts", "plan_id", "step", "database")
+	if err != nil {
+		return nil, err
+	}
+	q, err := strictjson.Value[DeploymentCheckpointArgs](raw)
+	if err != nil || !jobs.ValidPlanID(q.PlanID) || (q.Step != "preparation" && q.Step != "release" && q.Step != "credentials" && q.Step != "initialization") || ((q.Step == "credentials" || q.Step == "initialization") && !ValidApp(q.Database)) || ((q.Step == "preparation" || q.Step == "release") && q.Database != "") {
+		return nil, strictjson.ErrObject
+	}
+	planRaw, err := json.Marshal(map[string]json.RawMessage{"spec": f["spec"], "schema_artifacts": f["schema_artifacts"]})
+	if err != nil {
+		return nil, err
+	}
+	app, err := decodePlan(planRaw)
+	if err != nil {
+		return nil, err
+	}
+	return deploymentCheckpointArgs{Request: q, App: app.(spec.App)}, nil
+}
+func decodeDeploymentCheckpoint(raw json.RawMessage) (DeploymentCheckpoint, error) {
+	f, err := strictjson.Object(raw, "plan_id", "review_hash", "planned")
+	if err != nil {
+		return DeploymentCheckpoint{}, err
+	}
+	q, err := strictjson.Value[DeploymentCheckpoint](raw)
+	if err != nil || !jobs.ValidPlanID(q.PlanID) || !jobs.ValidPlanID(q.ReviewHash) {
+		return DeploymentCheckpoint{}, strictjson.ErrObject
+	}
+	if q.Planned != nil {
+		p, err := decodePlanned(f["planned"])
+		if err != nil || p.PlanID != q.PlanID {
+			return DeploymentCheckpoint{}, strictjson.ErrObject
+		}
+		q.Planned = &p
+	}
+	return q, nil
 }

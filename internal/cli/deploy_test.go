@@ -35,6 +35,9 @@ type firstDeployHost struct {
 	terminalFailure                    bool
 	blockInitObservation               bool
 	stateBlocked                       bool
+	checkpointPlans                    map[string]dispatch.Planned
+	changeAfterInit                    bool
+	reviewChanged                      bool
 	recoveryFailure                    bool
 	stateless                          bool
 	released                           bool
@@ -51,7 +54,34 @@ type firstDeployHost struct {
 func (h *firstDeployHost) Call(ctx context.Context, _ transport.Target, r dispatch.Request) (result.Envelope, error) {
 	success := func(value any) (result.Envelope, error) { return result.Success("brine host "+r.Op, value), nil }
 	hash := "sha256:" + strings.Repeat("a", 64)
+	reviewHash := hash
+	if h.reviewChanged {
+		reviewHash = "sha256:" + strings.Repeat("9", 64)
+	}
 	switch r.Op {
+	case "deploy_checkpoint":
+		var q dispatch.DeploymentCheckpointArgs
+		if json.Unmarshal(r.Args, &q) != nil {
+			h.t.Fatal("invalid checkpoint query")
+		}
+		checked := dispatch.DeploymentCheckpoint{PlanID: q.PlanID, ReviewHash: reviewHash}
+		switch q.Step {
+		case "preparation", "release":
+			p, ok := h.checkpointPlans[q.PlanID]
+			if !ok {
+				return result.Envelope{}, result.New(result.Conflict, nil)
+			}
+			checked.Planned = &p
+		case "credentials":
+			if _, ok := h.credentialPlans[q.PlanID]; !ok {
+				return result.Envelope{}, result.New(result.Conflict, nil)
+			}
+		case "initialization":
+			if db, ok := h.initPlans[q.PlanID]; !ok || db != q.Database {
+				return result.Envelope{}, result.New(result.Conflict, nil)
+			}
+		}
+		return success(checked)
 	case "deploy_operation":
 		var q dispatch.DeploymentOperationQuery
 		if json.Unmarshal(r.Args, &q) != nil {
@@ -69,7 +99,7 @@ func (h *firstDeployHost) Call(ctx context.Context, _ transport.Target, r dispat
 			return result.Envelope{}, result.New(result.Conflict, nil)
 		}
 		if h.stateless {
-			return success(dispatch.DeploymentState{ReviewHash: hash, Databases: []dispatch.DeploymentDatabase{}})
+			return success(dispatch.DeploymentState{ReviewHash: reviewHash, Databases: []dispatch.DeploymentDatabase{}})
 		}
 		names := h.databases
 		if len(names) == 0 {
@@ -84,15 +114,24 @@ func (h *firstDeployHost) Call(ctx context.Context, _ transport.Target, r dispat
 			}
 			databases = append(databases, dispatch.DeploymentDatabase{Name: name, Prepared: h.prepared, Credentials: credentials, Initialized: initialized})
 		}
-		return success(dispatch.DeploymentState{ReviewHash: hash, Databases: databases})
+		return success(dispatch.DeploymentState{ReviewHash: reviewHash, Databases: databases})
 	case "data_prepare_plan":
-		return success(dispatch.Planned{PlanID: hash, Kind: plan.Create, Conflicts: []plan.Diagnostic{}})
+		p := dispatch.Planned{PlanID: hash, Kind: plan.Create, Conflicts: []plan.Diagnostic{}}
+		h.checkpointPlans[p.PlanID] = p
+		return success(p)
 	case "plan":
 		kind := plan.Create
 		if h.released {
 			kind = plan.NoOp
 		}
-		return success(dispatch.Planned{PlanID: "sha256:" + strings.Repeat("b", 64), Kind: kind, Conflicts: []plan.Diagnostic{}})
+		id := "sha256:" + strings.Repeat("b", 64)
+		if h.reviewChanged {
+			id = "sha256:" + strings.Repeat("8", 64)
+			kind = plan.Update
+		}
+		p := dispatch.Planned{PlanID: id, Kind: kind, Conflicts: []plan.Diagnostic{}}
+		h.checkpointPlans[p.PlanID] = p
+		return success(p)
 	case "backup_credentials_plan":
 		receipt := h.credential
 		if len(h.databases) > 1 {
@@ -162,6 +201,10 @@ func (h *firstDeployHost) Call(ctx context.Context, _ transport.Target, r dispat
 		}
 		if status.Operation.Kind == ops.DataInitApply {
 			h.stateBlocked = false
+			if h.changeAfterInit {
+				h.reviewChanged = true
+				h.released = true
+			}
 		}
 		return success(status)
 	case "apply", "backup_credentials_set", "data_init_apply":
@@ -305,7 +348,7 @@ func deploymentFixture(t *testing.T) (*firstDeployHost, Dependencies, []string, 
 	}
 	out, stderr := &bytes.Buffer{}, &bytes.Buffer{}
 	deps := testDependencies(t, out, stderr)
-	host := &firstDeployHost{t: t, accepted: map[string]jobs.Status{}, counts: map[string]int{}, credential: backupCredentialReceipt(t), credentialStates: map[string]bool{}, initializedStates: map[string]bool{}, credentialPlans: map[string]backupcredentials.Receipt{}, initPlans: map[string]string{}}
+	host := &firstDeployHost{checkpointPlans: map[string]dispatch.Planned{}, t: t, accepted: map[string]jobs.Status{}, counts: map[string]int{}, credential: backupCredentialReceipt(t), credentialStates: map[string]bool{}, initializedStates: map[string]bool{}, credentialPlans: map[string]backupcredentials.Receipt{}, initPlans: map[string]string{}}
 	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
 	deps.OperationClient = host
 	args := []string{"deploy", filepath.Join(dir, "brine.toml"), "--target", "fixture", "--config-dir", filepath.Join(dir, "targets"), "--backup-credentials", credentialFile, "--yes", "--json"}
@@ -656,5 +699,120 @@ func TestDeployLostInitializationAcceptancePollsBeforeUnknownLiveSchema(t *testi
 	}
 	if host.counts["initialization"] != 1 {
 		t.Fatal("replayed uncertain init")
+	}
+}
+
+func TestDeploySubstitutedPreparationCheckpointRefusesBeforeApply(t *testing.T) {
+	host, deps, args, out, stderr := deploymentFixture(t)
+	host.failAt = "preparation"
+	if err := Execute(deps, args); err == nil {
+		t.Fatal("expected paused preparation")
+	}
+	files, err := filepath.Glob(filepath.Join(args[5], "deploys", "*", "journal.json"))
+	if err != nil || len(files) != 1 {
+		t.Fatal(files, err)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	} // #nosec G304 -- Private test-owned checkpoint.
+	var journal deploymentJournal
+	if err = json.Unmarshal(raw, &journal); err != nil {
+		t.Fatal(err)
+	}
+	journal.Steps[0].PlanID = "sha256:" + strings.Repeat("f", 64)
+	raw, err = json.Marshal(journal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(files[0], raw, 0600); err != nil {
+		t.Fatal(err)
+	} // #nosec G703 -- Private test-owned checkpoint.
+	out.Reset()
+	stderr.Reset()
+	if err = Execute(deps, args); err == nil {
+		t.Fatal("foreign retained plan accepted")
+	}
+	if len(host.submitted) != 0 {
+		t.Fatal("checkpoint substituted an apply", host.submitted)
+	}
+}
+func TestDeployReleaseChangeAfterInitializationRequiresNewReview(t *testing.T) {
+	host, deps, args, out, stderr := deploymentFixture(t)
+	host.changeAfterInit = true
+	if err := Execute(deps, args); err == nil {
+		t.Fatal("unreviewed update applied")
+	}
+	if host.counts["release"] != 0 || strings.Join(host.submitted, ",") != "preparation,credentials,initialization" {
+		t.Fatal(host.submitted)
+	}
+	if !strings.Contains(stderr.String(), "changed after approval") {
+		t.Fatal(stderr.String())
+	}
+	var envelope struct {
+		OK   bool             `json:"ok"`
+		Data deploymentReport `json:"data"`
+	}
+	if json.Unmarshal(out.Bytes(), &envelope) != nil || envelope.OK || envelope.Data.Review.Release == nil || envelope.Data.Review.Release.Kind != plan.Update {
+		t.Fatal("new release decision missing", out.String())
+	}
+	host.changeAfterInit = false
+	out.Reset()
+	stderr.Reset()
+	if err := Execute(deps, args); err != nil {
+		t.Fatal("fresh review cannot proceed", err, stderr.String())
+	}
+	if host.counts["initialization"] != 1 || host.counts["release"] != 1 {
+		t.Fatal("replayed data", host.counts)
+	}
+}
+
+type deploymentApprovalTTY struct{ terminalReader }
+
+func (r deploymentApprovalTTY) ReadContext(ctx context.Context, p []byte) (int, error) {
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.Read(p)
+}
+func TestDeployChangedReleaseAsksHumanAgain(t *testing.T) {
+	for _, answer := range []string{"yes\n", "no\n"} {
+		t.Run(strings.TrimSpace(answer), func(t *testing.T) {
+			host, deps, args, _, stderr := deploymentFixture(t)
+			host.changeAfterInit = true
+			deps.Stdin = strings.NewReader("yes\n" + answer)
+			withTestTerminal(t, &deps)
+			deps.Stdin = deploymentApprovalTTY{deps.Stdin.(terminalReader)}
+			args = args[:len(args)-2]
+			err := Execute(deps, args)
+			if answer == "yes\n" {
+				if err != nil || host.counts["release"] != 1 {
+					t.Fatal("new approval did not release", err, stderr.String())
+				}
+			} else if err == nil || host.counts["release"] != 0 {
+				t.Fatal("rejected release applied", err)
+			}
+			if !strings.Contains(stderr.String(), "approve the changed release diff") {
+				t.Fatal("second approval not requested", stderr.String())
+			}
+		})
+	}
+}
+
+func TestDeployRetainedOperationFromAnotherAppRefuses(t *testing.T) {
+	host, deps, args, _, stderr := deploymentFixture(t)
+	host.failPoll = "preparation-op"
+	if err := Execute(deps, args); err == nil {
+		t.Fatal("fixture did not pause after acceptance")
+	}
+	operation := host.accepted["preparation-op"]
+	operation.Operation.App = "another-app"
+	host.accepted["preparation-op"] = operation
+	submitted := len(host.submitted)
+	if err := Execute(deps, args); err == nil {
+		t.Fatal("foreign operation was trusted", stderr.String())
+	}
+	if len(host.submitted) != submitted {
+		t.Fatal("work was submitted after reference mismatch", host.submitted)
 	}
 }

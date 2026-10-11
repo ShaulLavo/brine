@@ -113,3 +113,44 @@ func TestDeploymentOperationLookupIsRequesterBoundAndReadOnly(t *testing.T) {
 
 	}
 }
+
+func TestDeploymentCheckpointRejectsAnotherAppsValidRetainedPlan(t *testing.T) {
+	r, _, _, _ := connectedPreparationRig(t)
+	app, err := spec.Parse([]byte(r.spec))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own, err := r.service.PlanDataPreparation(t.Context(), app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := dispatch.DeploymentCheckpointArgs{Spec: r.spec, PlanID: own.PlanID, Step: "preparation"}
+	checked := r.call(t, "deploy_checkpoint", q).Data.(dispatch.DeploymentCheckpoint)
+	if checked.Planned == nil || checked.Planned.PlanID != own.PlanID {
+		t.Fatal("did not retrieve actual retained review", checked)
+	}
+	alien := app
+	alien.Name = "another-app"
+	foreign, err := r.service.PlanDataPreparation(t.Context(), alien)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if foreign.Kind == "conflict" {
+		t.Fatal("foreign plan must be valid for the regression", foreign)
+	}
+	q.PlanID = foreign.PlanID
+	if _, err = r.service.DeploymentCheckpoint(t.Context(), app, q); err == nil {
+		t.Fatal("another app's retained preparation accepted")
+	}
+	q.PlanID = own.PlanID
+	q.Step = "release"
+	if _, err = r.service.DeploymentCheckpoint(t.Context(), app, q); err == nil {
+		t.Fatal("preparation substituted for release")
+	}
+	changed := app
+	changed.ContainerPort++
+	q.Step = "preparation"
+	if _, err = r.service.DeploymentCheckpoint(t.Context(), changed, q); err == nil {
+		t.Fatal("same app's different desired input accepted")
+	}
+}

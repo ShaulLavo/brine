@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/result"
 )
 
@@ -55,5 +57,29 @@ func TestDeploymentOperationRecoveryProtocolIsReadOnlyAndStrict(t *testing.T) {
 	}
 	if _, err := decodeDeploymentOperation([]byte(`{"operation_id":"job","secret":"refused"}`)); err == nil {
 		t.Fatal("extra data admitted")
+	}
+}
+
+func TestDeploymentCheckpointProtocolIsStrictAndReadOnly(t *testing.T) {
+	class, ok := ClassOf("deploy_checkpoint")
+	if !ok || class != ReadOnly {
+		t.Fatal("checkpoint query can mutate")
+	}
+	id := "sha256:" + strings.Repeat("a", 64)
+	wire, err := json.Marshal(result.Success("brine host deploy_checkpoint", DeploymentCheckpoint{PlanID: id, ReviewHash: id, Planned: &Planned{PlanID: id, Kind: "create", Conflicts: []plan.Diagnostic{}, SchemaArtifacts: []data.SchemaArtifact{}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = DecodeResponse(wire, "deploy_checkpoint"); err != nil {
+		t.Fatal(err)
+	}
+	for _, raw := range []string{
+		`{"plan_id":"` + id + `","review_hash":"bad","planned":null}`,
+		`{"plan_id":"` + id + `","review_hash":"` + id + `","planned":null,"app":"forged"}`,
+		`{"plan_id":"` + id + `","review_hash":"` + id + `","planned":{"plan_id":"sha256:` + strings.Repeat("b", 64) + `","kind":"create","diff":null,"conflicts":[],"schema_artifacts":[]}}`,
+	} {
+		if _, err := decodeDeploymentCheckpoint([]byte(raw)); err == nil {
+			t.Fatal("invalid checkpoint accepted", raw)
+		}
 	}
 }

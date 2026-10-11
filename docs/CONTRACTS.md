@@ -945,14 +945,24 @@ release. `--yes` approves execution; `--json` without it returns the review only
 `--no-input` without it never changes application or data state.
 
 The read-only `deploy_state` request uses the same strict spec/artifact metadata
-shape as connected planning. It returns a normalized desired-input review hash
-and affirmative preparation, schema, credential and fence facts for each
-configured database. Missing reservations are not unknown observations. Unknown
+shape as connected planning. It returns a review hash binding normalized
+desired input, target identity,
+image resolution, committed releases and the same non-data admission facts as
+release planning, plus affirmative preparation, schema, credential and fence
+facts for each configured database. Missing reservations are not unknown observations. Unknown
 schema or prepared-data observations refuse; they never authorize initialization.
 
 Dependent immutable plans cannot exist before their prerequisites. The client
-builds them in order after approval and rechecks the normalized desired-input
-hash before each new effect. It carries the exact locally reviewed initializer,
+builds them in order after approval and rechecks the approved decision-facts
+hash before each new effect. Only workflow-produced data observations and
+incarnation reservations are excluded from that hash; the immutable data
+plans and engines validate those independently. A changed release, route,
+port, generation, policy or other admission decision refuses with `conflict`
+and exposes the new release diff instead of silently changing the approved
+release. `--yes` and machine modes stop and require a fresh invocation to
+review and approve it. An interactive release presents the new diff and asks
+again before using its exact plan hash.
+It carries the exact locally reviewed initializer,
 and the host independently validates its retained plan. A changed policy or
 spec stops the sequence; the original reviewed intent is not silently replaced.
 
@@ -965,7 +975,12 @@ contents are stored in that journal. A lost acceptance response uses the read-on
 to the server-established requester, original plan and deployment key. It
 recovers the existing operation ID without resubmitting a mutation or secret
 packet; ambiguous task attempts refuse. Host journals remain authoritative;
-the client journal only remembers which jobs to observe.
+the client journal only remembers which jobs to observe. Every checkpoint
+reference is read back through `deploy_checkpoint` and bound to the actual app,
+target, normalized desired input, database and step. Retained preparation
+reviews come from their host plans, never fabricated client plan summaries.
+Operation references, including completed ones, must match the app and retained
+plan before the client uses them.
 
 A rerun polls unfinished work before advancing. Explicitly settled failed or
 rolled-back work can receive a fresh plan only after affirmative unfenced host

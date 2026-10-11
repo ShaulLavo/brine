@@ -2,12 +2,11 @@ package host
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/store"
@@ -31,12 +30,10 @@ func (s Service) DeploymentState(ctx context.Context, app spec.App) (_ dispatch.
 		return out, err
 	}
 	desired := facts.Input.Desired
-	raw, err := desired.CanonicalBytes()
+	out.ReviewHash, err = plan.DeploymentReviewHash(facts.Input)
 	if err != nil {
 		return out, err
 	}
-	digest := sha256.Sum256(raw)
-	out.ReviewHash = "sha256:" + hex.EncodeToString(digest[:])
 	for _, declaration := range desired.Databases {
 		item := dispatch.DeploymentDatabase{Name: string(declaration.Name)}
 		var destination data.Destination

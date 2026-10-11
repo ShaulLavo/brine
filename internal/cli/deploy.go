@@ -88,6 +88,29 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 				retErr = &deploymentFailure{error: retErr, report: report}
 			}
 		}()
+		checkpointPlans := map[string]*dispatch.Planned{}
+		for _, step := range resume.journal.Steps {
+			if step.PlanID == "" {
+				continue
+			}
+			checked, err := flags.deploymentCheckpoint(cmd.Context(), deps, request, step)
+			if err != nil {
+				return err
+			}
+			if checked.Planned != nil {
+				checkpointPlans[step.Name] = checked.Planned
+			}
+			if step.OperationID != "" {
+				retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, step, string(app.Name))
+				if err != nil {
+					return err
+				}
+				if step.Complete && retry {
+					return result.New(result.Conflict, nil)
+				}
+			}
+
+		}
 		for i := range resume.journal.Steps {
 			step := &resume.journal.Steps[i]
 			if step.Complete || step.OperationID != "" || step.PlanID == "" {
@@ -123,7 +146,7 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 			if step.Complete || step.OperationID == "" {
 				continue
 			}
-			retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, *step)
+			retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, *step, string(app.Name))
 			if err != nil {
 				return err
 			}
@@ -196,13 +219,19 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 		for _, step := range resume.journal.Steps {
 			previousComplete = previousComplete && step.Complete
 		}
-		if previousComplete && (needsData || resume.journal.ReviewHash != state.ReviewHash) {
+		if previousComplete && needsData {
 			// A completed workflow is not authority for a later app incarnation
 			// or policy. Review the new host facts from scratch.
 			resume.journal = deploymentJournal{Steps: []deploymentStep{}}
 		}
 		if resume.journal.ReviewHash != "" && resume.journal.ReviewHash != state.ReviewHash {
-			return result.New(result.Conflict, nil)
+			// This invocation must display and approve the current release diff. The
+			// checkpoint is advisory, never approval for a changed decision context.
+			last := &resume.journal.Steps[len(resume.journal.Steps)-1]
+			if last.OperationID == "" {
+				*last = deploymentStep{Name: "release"}
+			}
+			resume.journal.ReviewHash = state.ReviewHash
 		}
 		if len(resume.journal.Steps) == 0 {
 			resume.journal.Steps = append(resume.journal.Steps, deploymentStep{Name: "preparation"})
@@ -223,6 +252,8 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 			}
 		}
 		report.Steps = resume.journal.Steps
+		report.Review.Preparation = checkpointPlans["preparation"]
+		report.Review.Release = checkpointPlans["release"]
 		if !needsData {
 			for i := 0; i < len(report.Steps)-1; i++ {
 				if report.Steps[i].OperationID == "" {
@@ -249,7 +280,7 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 						return err
 					}
 				} else {
-					report.Review.Preparation = &dispatch.Planned{PlanID: step.PlanID, Kind: plan.Create, SchemaArtifacts: app.SchemaArtifacts, Conflicts: []plan.Diagnostic{}}
+					report.Review.Preparation = checkpointPlans["preparation"]
 				}
 			}
 		} else {
@@ -309,7 +340,7 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 					continue
 				}
 				if step.OperationID != "" {
-					retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, *step)
+					retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, *step, string(app.Name))
 					if err != nil {
 						return err
 					}
@@ -340,7 +371,7 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 					return err
 				}
 				if fresh.ReviewHash != report.Review.State.ReviewHash {
-					return result.New(result.Conflict, nil)
+					return flags.changedDeploymentReview(cmd, deps, request, &report, app, nil)
 				}
 				var db dispatch.DeploymentDatabase
 				for _, candidate := range fresh.Databases {
@@ -427,6 +458,13 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 					op = "data_init_apply"
 					payload = dispatch.DataInitApplyArgs{App: string(app.Name), PlanID: step.PlanID}
 				}
+				checked, err := flags.deploymentCheckpoint(cmd.Context(), deps, request, *step)
+				if err != nil {
+					return err
+				}
+				if checked.ReviewHash != report.Review.State.ReviewHash {
+					return flags.changedDeploymentReview(cmd, deps, request, &report, app, nil)
+				}
 				if err = resume.save(); err != nil {
 					return err
 				}
@@ -459,7 +497,7 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 		}
 		step := &resume.journal.Steps[len(resume.journal.Steps)-1]
 		if step.OperationID != "" && !step.Complete {
-			retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, *step)
+			retry, err := flags.settledDeploymentFailure(cmd.Context(), deps, *step, string(app.Name))
 			if err != nil {
 				return err
 			}
@@ -477,7 +515,9 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 					return err
 				}
 				if fresh.ReviewHash != report.Review.State.ReviewHash {
-					return result.New(result.Conflict, nil)
+					if err = flags.changedDeploymentReview(cmd, deps, request, &report, app, step); err != nil {
+						return err
+					}
 				}
 				if step.PlanID == "" {
 					p, err := flags.deploymentPlan(cmd.Context(), deps, "plan", request)
@@ -493,6 +533,15 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 					}
 				}
 				if !step.Complete {
+					checked, err := flags.deploymentCheckpoint(cmd.Context(), deps, request, *step)
+					if err != nil {
+						return err
+					}
+					if checked.ReviewHash != report.Review.State.ReviewHash || report.Review.Release != nil && checked.PlanID != report.Review.Release.PlanID {
+						if err = flags.changedDeploymentReview(cmd, deps, request, &report, app, step); err != nil {
+							return err
+						}
+					}
 					if step.Key == "" {
 						step.Key, err = randomOperationKey()
 						if err != nil {
@@ -708,13 +757,13 @@ func printDeploymentReview(ctx context.Context, w io.Writer, review deploymentRe
 
 // Only explicitly settled failures can admit a fresh attempt on a rerun. Live
 // affirmative facts and the existing engines still own mutation admission.
-func (f operationFlags) settledDeploymentFailure(ctx context.Context, deps Dependencies, step deploymentStep) (bool, error) {
+func (f operationFlags) settledDeploymentFailure(ctx context.Context, deps Dependencies, step deploymentStep, app string) (bool, error) {
 	response, err := f.call(ctx, deps, "operation", dispatch.OperationArgs{OperationID: step.OperationID})
 	if err != nil {
 		return false, err
 	}
 	s, ok := response.Data.(jobs.Status)
-	if !response.OK || !ok || s.Operation.ID != step.OperationID {
+	if !response.OK || !ok || s.Operation.App != app || s.Operation.ID != step.OperationID {
 		return false, result.New(result.TransportInvalidResponse, nil)
 	}
 	kind := ops.Deploy
@@ -748,4 +797,62 @@ func deploymentFenced(s dispatch.DeploymentState) bool {
 		}
 	}
 	return false
+}
+
+func (f operationFlags) deploymentCheckpoint(ctx context.Context, deps Dependencies, request dispatch.PlanArgs, step deploymentStep) (dispatch.DeploymentCheckpoint, error) {
+	response, err := f.call(ctx, deps, "deploy_checkpoint", dispatch.DeploymentCheckpointArgs{Spec: request.Spec, SchemaArtifacts: request.SchemaArtifacts, PlanID: step.PlanID, Step: step.Name, Database: step.Database})
+	if err != nil {
+		return dispatch.DeploymentCheckpoint{}, err
+	}
+	checked, ok := response.Data.(dispatch.DeploymentCheckpoint)
+	ordinary := step.Name == "preparation" || step.Name == "release"
+	if !ok || !response.OK || checked.PlanID != step.PlanID || !jobs.ValidPlanID(checked.ReviewHash) || (checked.Planned != nil) != ordinary || checked.Planned != nil && checked.Planned.PlanID != step.PlanID {
+		return dispatch.DeploymentCheckpoint{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	return checked, nil
+}
+func (f operationFlags) changedDeploymentReview(cmd *cobra.Command, deps Dependencies, request dispatch.PlanArgs, report *deploymentReport, app spec.App, release *deploymentStep) error {
+	p, err := f.deploymentPlan(cmd.Context(), deps, "plan", request)
+	if err != nil {
+		return err
+	}
+	report.Review.Release = &p
+	jsonMode, _ := cmd.Flags().GetBool("json")
+	jsonlMode, _ := cmd.Flags().GetBool("jsonl")
+	if !jsonMode && !jsonlMode {
+		if err = printDeploymentReview(cmd.Context(), cmd.OutOrStdout(), report.Review, app); err != nil {
+			return err
+		}
+	}
+	if _, err = fmt.Fprintln(cmd.ErrOrStderr(), "Deployment decision facts changed after approval. No new step was submitted. The new release diff requires fresh approval."); err != nil {
+		return err
+	}
+	yes, _ := cmd.Flags().GetBool("yes")
+	if yes || jsonMode || jsonlMode || release == nil {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Rerun to review and approve the changed deployment.")
+		return result.New(result.Conflict, nil)
+	}
+	fresh, err := f.deploymentState(cmd.Context(), deps, request)
+	if err != nil {
+		return err
+	}
+	candidate := deploymentStep{Name: "release", PlanID: p.PlanID}
+	checked, err := f.deploymentCheckpoint(cmd.Context(), deps, request, candidate)
+	if err != nil {
+		return err
+	}
+	if checked.ReviewHash != fresh.ReviewHash || p.Kind == plan.Conflict {
+		return result.New(result.Conflict, nil)
+	}
+	if err = RequestInput(cmd, func(ctx context.Context, input io.Reader, output io.Writer) error {
+		if _, err := fmt.Fprintln(output, "Type yes to approve the changed release diff:"); err != nil {
+			return err
+		}
+		return readDeploymentApproval(ctx, input)
+	}); err != nil {
+		return err
+	}
+	report.Review.State = fresh
+	*release = candidate
+	return nil
 }
