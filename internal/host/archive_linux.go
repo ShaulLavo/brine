@@ -98,6 +98,9 @@ func (h archiveHost) archiveFacts(ctx context.Context, app, owner string, requir
 			return p, archive.ErrRefused
 		}
 		root, err := data.InspectRoot(string(database.Binding.Root))
+		if err == nil {
+			root, err = root.WithPreparationProof(database.Allocation.RootProof)
+		}
 		if err != nil || !root.Admits(database.Binding.Root, 0) {
 			return p, archive.ErrRefused
 		}

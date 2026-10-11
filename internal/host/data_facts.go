@@ -82,12 +82,12 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 			return unknown, nil
 		}
 		root, err := data.InspectRoot(string(b.Root))
-		proof := proofReceipt.RootProof
-		if err != nil || root.Root != proof.Root || root.Device != proof.Device || root.Inode != proof.Inode || root.Filesystem != proof.Filesystem {
+		if err == nil {
+			root, err = root.WithPreparationProof(proofReceipt.RootProof)
+		}
+		if err != nil {
 			return unknown, nil //nolint:nilerr // Root identity inspection failure cannot become admission.
 		}
-		root.POSIXLocks = proof.POSIXLocks
-		root.DurableRename = proof.DurableRename
 		if !root.Admits(b.Root, desired.MinimumFreeDiskBytes) || !proofReceipt.MappingProof.Admits(*desired.Runtime, root) {
 			return unknown, nil
 		}

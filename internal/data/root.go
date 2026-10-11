@@ -28,6 +28,19 @@ type QuotaObservation struct {
 func (e RootEvidence) Admits(root PersistentRoot, minimum uint64) bool {
 	return e.Root == root && e.Device != 0 && e.Inode != 0 && e.POSIXLocks && e.DurableRename && (e.Filesystem == "ext4" || e.Filesystem == "xfs" || e.Filesystem == "btrfs") && !e.ObservedAt.IsZero() && e.FreeBytes >= minimum && (e.Filesystem == "btrfs" || e.FreeInodes > 0)
 }
+
+// WithPreparationProof carries measured capabilities forward only for the exact
+// prepared directory and filesystem. Capacity and observation time remain fresh;
+// a read-only inspection never substitutes for the original lock/rename probes.
+func (e RootEvidence) WithPreparationProof(proof *RootEvidence) (RootEvidence, error) {
+	if proof == nil || !proof.Admits(e.Root, 0) || e.Root != proof.Root || e.Device != proof.Device || e.Inode != proof.Inode || e.Filesystem != proof.Filesystem {
+		return RootEvidence{}, ErrInvalid
+	}
+	e.POSIXLocks = proof.POSIXLocks
+	e.DurableRename = proof.DurableRename
+	return e, nil
+}
+
 func OverlappingPaths(a, b string) bool {
 	return a == b || strings.HasPrefix(a, strings.TrimSuffix(b, "/")+"/") || strings.HasPrefix(b, strings.TrimSuffix(a, "/")+"/")
 }
