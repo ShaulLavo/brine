@@ -1,0 +1,17 @@
+{
+  "name": "brine-spacetimedb-client",
+  "private": true,
+  "version": "0.1.1",
+  "type": "module",
+  "dependencies": {
+    "spacetimedb": "2.11.0"
+  },
+  "devDependencies": {
+    "typescript": "5.6.3",
+    "@types/node": "22.10.1"
+  },
+  "scripts": {
+    "check": "tsc -p .",
+    "build": "bun build browser.ts --target browser --minify --outfile ../web/browser.js"
+  }
+}

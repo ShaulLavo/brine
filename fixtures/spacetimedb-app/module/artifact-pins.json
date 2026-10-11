@@ -1,0 +1,26 @@
+{
+  "rust": "1.96.1",
+  "spacetimedb": "2.11.0",
+  "modules": {
+    "v1": "f9d9510db3d75c78cd77ff4816f5af4b97c0af0499cad6c6ec0ebf4072d5c811",
+    "additive": "4a970f96b238bccca9c8385bcc84e3f568e4db23e525571ba9dfbf8958525d8a",
+    "destructive": "9834728b71275cbfef14df467c8f33d8cfb3204a708005e6edf799f9b9beec26",
+    "observer-hooks": "d28e8b073e378a36804a6368d0f01b8c922aa91889aa01b7fcfb549c072d6c6f",
+    "default-column": "70ef4334907cbbdef06f48a1e064807f2512f2651fccb85540ca2c65d403f642",
+    "access-change": "2186b52adad96f665c11d914417f8e6ccd68a55d062b60ccc825a9262163fcb6"
+  },
+  "clients": {
+    "v1": {
+      "browser_sha256": "af3bb9da1fb28fa807d3fee9b12b85ed564c66915bdc8d79a79d48dc312b1217",
+      "module_sha256": "f9d9510db3d75c78cd77ff4816f5af4b97c0af0499cad6c6ec0ebf4072d5c811"
+    },
+    "additive": {
+      "browser_sha256": "84b65b4cc2f43e4f6f1d66188fb4e61157716fb342c2168e611fd4dc6911fe24",
+      "module_sha256": "4a970f96b238bccca9c8385bcc84e3f568e4db23e525571ba9dfbf8958525d8a"
+    },
+    "default-column": {
+      "browser_sha256": "b644f35a6f0092bb42ed467f90251be5d4c673228e2ea0efb8658e53d5b3682d",
+      "module_sha256": "70ef4334907cbbdef06f48a1e064807f2512f2651fccb85540ca2c65d403f642"
+    }
+  }
+}

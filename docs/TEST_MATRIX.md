@@ -382,3 +382,38 @@ Closed engine records reject unknown, missing, null, duplicate and mismatched ta
 `internal/data/ownership_test.go` and `internal/restore/ownership_test.go` mutate caller/getter evidence and prove retained source, barrier, declared invariants, coverage, sentinel and nested allocation proofs stay unchanged. The verifier still enforces a two-row requirement after the caller changes its original slice to one row. Null negatives cover every required concrete binding/source/barrier field and invalid binding/epoch tokens. Independent overlay reproductions pass after these fixes.
 
 `internal/plan/testdata/sqlite-allocated-*.json`, `sqlite-unknown-*.json` and `internal/restore/testdata/sqlite-engine-receipt.json` preserve actual pre-extraction bytes. Independent review compiled the actual base with the same fixtures and confirmed all five outputs. `scripts/check-engine-boundary.sh` forces golden regeneration off even under inherited update settings. Full regression tests, Linux/darwin vet, CLI build, static authority/dead-code/clone gates and focused race tests pass. T34 claims local SQLite preservation and fail-closed typed dispatch only; physical SpacetimeDB acceptance remains T35-T42.
+
+### T36 fixture artifact, client and publication cases
+
+Run `fixtures/spacetimedb-app/build.sh` with a new private build directory and
+`smoke.py` against its pinned runtime. The latter imports the shared production
+observer through `tools/spacetime-runtime`; it does not reproduce its renderer.
+
+- Distinct mutually exclusive module variants and identical independent v1
+  builds. Retain artifact SHA-256 and explicit module/client pairing; the native
+  program identity uses its own Keccak and wire representation.
+- Base and additive module clients decode the same paired rows. A defaulted
+  column uses regenerated official bindings, preserves prior column order and
+  default seven, and is not accepted by the published base client image.
+- An outsider's write refuses, excess schedules refuse, and client writes
+  refuse while the bounded scheduler writes without connected clients.
+- An actual browser receives an explicitly confirmed WebSocket subscription
+  and records a write only after the matching confirmed marker. Its user input
+  is cleared and browser storage stays empty. An unconfirmed acknowledgement
+  cannot construct recovery evidence.
+- A stopped private tree copy replays identical paired sequence/marker/time
+  values and the complete shared canonical/module/owner/name observation.
+  A marker read on the base fixture does not change rows. A separate lifecycle
+  candidate changes the marker during connection and is refused by the fixture
+  invariant reader.
+- Preflight keeps source rows unchanged. Nonempty table removal and access
+  changes require independent Brine review even when native preflight says
+  automatic. Uncertain or merely clean candidate shutdown supplies no exact
+  capture receipt by itself.
+- Public app configuration has only endpoint/name fields. Publisher/signing/S3
+  material never enters Wasm, browser assets, app layers or retained workflow
+  evidence. App startup never publishes a module.
+- The main-only publication job consumes verified bytes, records actual GHCR
+  index and both platform digests, and binds the source revision and retained
+  module digest. Execute the published amd64 and arm64 images; cross-builds
+  alone do not establish either container runtime or remote restore acceptance.
