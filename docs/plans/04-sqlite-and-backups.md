@@ -46,7 +46,8 @@
 
 - [ ] **P04-08** Persistent removal, retention and purge per D8 (needs P04-01 to P04-04 and P03-09). Removal proves a fresh remote restore point, quiesces writers and replicator (including lifetime-lock ownership), and journal-renames the same-filesystem data tree under an immutable archive ID bound to incarnation, recorded paths and every replica epoch. Destination authorization/renewable credential references outlive removal; short-lived credentials may need operator renewal. A recreated app receives new incarnation and replica prefixes. Retention runs 30 days from commit with a restorable backup set throughout, and removal refuses if an S3-compatible storage lifecycle rule or running replicator would break that. Expiry and `data purge ARCHIVE_ID` act by ID only, refuse live or reused paths and destinations, and purge needs `allow_agent_purge = true`. Tests: refusal by default, the retention boundary, remove-recreate-expire, active replication, and interruption during archive and purge (T22).
   **Remaining:**
-  - Implement initialized and prepared-only incarnation archive/retirement, fresh remote coverage, writer/replica/lifetime-lock quiescence and journaled same-filesystem rename. Current initialized removal refuses; prepared-only removal is a no-op.
+  - Implement initialized and prepared-only incarnation archive/retirement, fresh remote coverage, writer/replica/lifetime-lock quiescence and journaled same-filesystem rename. Removal now refuses every active persistent incarnation, including one without a committed release, rather than reporting a misleading prepared-only no-op. This is a safety prerequisite, not archive/retirement implementation.
+  - Local refusal evidence covers prepared allocations, interrupted initialization with a held fence, settled `not_initialized`, and successful initialization without a release. Initialization journals, fences, reservations and verified restore receipts remain unchanged. Connected removal does not save a no-op plan. Physical verification and executable archive plans remain open.
   - Implement retained destination authorization/renewal, 30-day restorable retention and lifecycle refusal, new incarnation/prefix on recreate, ID-only expiry/purge and default-denied allow_agent_purge.
   - Complete T22 refusal, retention-boundary, remove-recreate-expire, active-replica and interrupted archive/purge tests, including the prepared-incarnation cases below and an authorized physical fixture.
 
@@ -108,10 +109,12 @@ committed schema without its exact verified restore receipt remains fenced.
 The outer interrupted task receipt stays immutable. This does not free the
 active incarnation, allocated directory or replica destination reservations.
 
-With no committed release, `brine remove APP --target TARGET --json` still
-returns `kind: "no-op"`, `diff: null`, `conflicts: []` for this prepared
-incarnation. `internal/store/data_init.go` retains the consumed attempt and
-active incarnation; the removal planner is bound to committed release heads.
+The original reproduction returned `kind: "no-op"`, `diff: null`,
+`conflicts: []` with no committed release. The safety prerequisite now loads
+active data incarnation ownership alongside release heads and refuses removal
+with `persistent_archive_required`, without saving a plan or changing data.
+`internal/store/data_init.go` still retains the consumed attempt and active
+incarnation. The archive/retirement operation below remains unimplemented.
 Reproduce on an authorized disposable fixture by preparing data, planning
 initialization, interrupting after the durable restore-point intent, running
 reconcile, and then planning remove. Record the inner journal and fence,

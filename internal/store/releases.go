@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -190,6 +191,24 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 	}
 	err = rows.Err()
 	rows.Close()
+	if err != nil {
+		return result, err
+	}
+	rows, err = tx.QueryContext(ctx, "SELECT app,incarnation_id FROM data_active_incarnations ORDER BY app")
+	if err != nil {
+		return result, err
+	}
+	for rows.Next() {
+		var incarnation plan.DataIncarnation
+		if err = rows.Scan(&incarnation.App, &incarnation.ID); err != nil {
+			return result, errors.Join(err, rows.Close())
+		}
+		if incarnation.App == "" || !data.ValidID(incarnation.ID) {
+			return result, errors.Join(&IntegrityError{}, rows.Close())
+		}
+		result.DataIncarnations = append(result.DataIncarnations, incarnation)
+	}
+	err = errors.Join(rows.Err(), rows.Close())
 	if err != nil {
 		return result, err
 	}

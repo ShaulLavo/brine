@@ -568,7 +568,9 @@ Versioned runner-owned 0600 environment files contain `AWS_ACCESS_KEY_ID`, `AWS_
 
 ### State transitions and restore evidence
 
-Deploy/update/rollback preserve incarnation/data/binding and may leave replication running. Removal/live restore require independent app-writer and replica-process/lock quiescence, not `systemctl stop` exit alone. Before freeze, verify a fresh remote restore point covering the recorded marker/TXID. Unknown upload/stop/swap outcomes enter reconciliation. No retry starts a competing writer. Archive retention begins at committed removal, lasts 30 days and is keyed only by archive ID. Recreation never reuses its incarnation or replica prefix. Purge/expiry recheck all live references immediately before deleting any recorded path or prefix. Local metadata and all recorded remote epochs stay bound to that archive.
+Deploy/update/rollback preserve incarnation/data/binding and may leave replication running. Removal/live restore require independent app-writer and replica-process/lock quiescence, not `systemctl stop` exit alone. Before freeze, verify a fresh remote restore point covering the recorded marker/TXID. Unknown upload/stop/swap outcomes enter reconciliation. No retry starts a competing writer. Archive retention begins at committed removal, lasts 30 days and is keyed only by archive ID. Recreation never reuses its incarnation or replica prefix. Purge/expiry recheck all live path and destination references immediately before deleting local archived data. They never delete remote backup objects or prefixes; Brine has no provider-delete authority. Local metadata and all recorded remote epochs stay bound to that archive.
+
+An archive must distinguish `never_written` from initialized data. The former requires exact allocation device/inode evidence, a fresh affirmative empty observation, no application writer history and settled initialization attempts. It retains that evidence rather than claiming a remote restore receipt. Its local data retention also lasts 30 days from committed retirement; ID-only early purge still requires `allow_agent_purge = true`. Initialized or unknown data cannot use this exception. Initialized data needs the independently verified fresh remote restore point and restorable backup retention described above; unknown data refuses. These archive and expiry rules are execution requirements for P04-08, not shipped behavior.
 
 `restore test` resolves a stored remote binding/epoch and renders a private structured config. Invoke typed `litestream restore -config <restore-config> -o <fresh-output> <config-db-path>`; the final DB path is a config selector, not a read of live DB bytes. Never omit `-o`, use `-force`, mount live data in the fixture, or substitute local metadata. Require new output and no WAL/SHM/journal siblings. Run `PRAGMA integrity_check`, require `PRAGMA foreign_key_check` to return no rows, and check fixture marker/invariants through a read-only checker; no application-supplied SQL. `RestoreTestResult` holds operation/database/binding/epoch IDs, source identity, tool version, requested restore point, recovered TXID/marker/commit time when known, observed time, integrity/invariant outcomes and an explicit known/unknown recovery-point bound. Generic production databases without a supported invariant return that check as unknown, not passed. No public listener is created.
 
@@ -798,9 +800,14 @@ An old removal receipt cannot retire a recreated application's different head.
 A genuinely uninstalled app yields a clean no-op plan; repeated removal is safe.
 An observed orphan artifact is a conflict, not proof of an uninstalled app.
 
-Committed volume units and mounted-data directives refuse with
-`persistent_archive_required` (exit 4) before effects and explain that P04-08
-archival is required. This does not implement archival, expiry or purge.
+Active persistent incarnations, committed volume units and mounted-data
+directives refuse with `persistent_archive_required` (exit 4) before effects
+and explain that P04-08 archival is required. Active incarnation ownership is
+loaded from the same control-store transaction as release heads; a missing
+release is not proof of absence. Prepared, settled-empty and successfully
+initialized incarnations without a release all refuse. Initialization attempts,
+fences, allocations, replica bindings and restore receipts remain untouched.
+This does not implement archival, retirement, expiry or purge.
 
 Interrupted removal uses a read-only, ownership-bound contiguous-prefix
 assessment under the same host lock as single-use continuation. Policy, target,
