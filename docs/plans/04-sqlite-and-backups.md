@@ -153,3 +153,7 @@ remove must be a no-op only after retirement. Remove/recreate/expire must not
 touch the new incarnation or reuse its remote prefix. Retain schema/restore and
 initialization receipts, enforce archive retention and purge policy, and prove
 all boundaries on a separately authorized disposable physical fixture.
+
+#### P04-08 prepared-root admission correction
+
+Status: Approved. Reuse retained preparation lock/rename proofs only after fresh read-only inspection matches the exact root/device/inode/filesystem, through the same evidence composition used by persistent inventory. Local real-filesystem archive-facts regression checks admission, no planning probe artifacts and substituted-root refusal. Bounded concurrent live-WAL archive-candidate coverage uses separate store handles; no speculative SQLite workaround is added. This correction does not complete P04-08 or T22.
