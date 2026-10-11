@@ -260,3 +260,10 @@ func diagnosticMinimumFreeDiskBytes(ctx context.Context) (uint64, error) {
 	}
 	return p.MinimumFreeDiskBytes(), nil
 }
+
+func (u lazyUnits) VerifyArchiveRemove(ctx context.Context, name, hash string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.VerifyArchiveRemove(ctx, name, hash) })
+}
+func (u lazyUnits) RemoveArchived(ctx context.Context, name, hash string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.RemoveArchived(ctx, name, hash) })
+}

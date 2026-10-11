@@ -28,7 +28,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-func newArchiveService(s Service, stateRoot, home string, session localexec.Session, executor localexec.Executor, routes apply.RemovalRoutes, units apply.RemovalUnits) archive.Service {
+func newArchiveService(s Service, stateRoot, home string, session localexec.Session, executor localexec.Executor, routes apply.RemovalRoutes, units archiveRemovalUnits) archive.Service {
 	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home, routes: routes, units: units}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
 		_, err := s.Policy.Load(ctx)
 		return err

@@ -20,9 +20,12 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 	if err != nil || !archiveDispositionFactsMatch(p, fresh, abandon) {
 		return archive.ErrRefused
 	}
-	m, err := h.service.Store.ReadArchiveManifest(ctx, p.ArchiveID)
-	if err != nil || m.OperationID != o.ID {
-		return archive.ErrRefused
+	var m archive.Manifest
+	if !abandon {
+		m, err = h.service.Store.ReadArchiveManifest(ctx, p.ArchiveID)
+		if err != nil || !m.Valid() || m.OperationID != o.ID {
+			return archive.ErrRefused
+		}
 	}
 	for i, d := range p.Candidate.Databases {
 		if !d.Written {
@@ -32,8 +35,11 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 			continue
 		}
 		observed := data.ObserveSchema(ctx, d.Binding, d.Definitions)
-		old := m.Coverage[i].Observation
-		if observed.State != old.State || observed.Marker != old.Marker || observed.CatalogSHA256 != old.CatalogSHA256 || observed.UnknownReason != "" {
+		var previous data.SchemaObservation
+		if !abandon {
+			previous = m.Coverage[i].Observation
+		}
+		if !archiveDispositionSchemaMatches(observed, previous, abandon) {
 			return archive.ErrRefused
 		}
 	}
@@ -50,6 +56,9 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 // Credentials, configs, journal history and remote epoch objects are retained.
 // An uncertain result is never retried by disposition execution.
 func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) error {
+	if err := h.VerifyArchiveRuntime(ctx, p); err != nil {
+		return err
+	}
 	if p.Candidate.ReleaseID != "" {
 		if h.routes == nil || h.units == nil {
 			return archive.ErrRefused
@@ -59,33 +68,12 @@ func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) e
 			return archive.ErrRefused
 		}
 		unit := release.Units[0]
-		if err = h.units.VerifyRemove(ctx, unit.Name, unit.Hash); err != nil {
+		if err = h.units.VerifyArchiveRemove(ctx, unit.Name, unit.Hash); err != nil {
 			return err
 		}
-		snapshot, err := h.service.Inventory.Collect(ctx)
-		if err != nil || snapshot.CaddyConfig.Status != target.KnownStatus || snapshot.CaddyConfig.Value == nil {
-			return archive.ErrRefused
-		}
-		before := caddy.State{Generation: snapshot.CaddyConfig.Value.Generation, Files: map[string]string{}, Sites: map[string]caddy.Site{}}
-		for _, file := range snapshot.CaddyConfig.Value.Files {
-			before.Files[file.Name] = file.Hash
-		}
-		state, err := h.service.Store.LoadBrineState(ctx, snapshot.Identity, p.Generation)
+		before, err := h.archiveRouteState(ctx, p)
 		if err != nil {
 			return err
-		}
-		for _, current := range state.Releases {
-			if current.HostPort == 0 || current.HostPort > 65535 {
-				return archive.ErrRefused
-			}
-			site, err := caddy.CommittedSite(current.Desired, spec.Port(current.HostPort))
-			if err != nil {
-				return err
-			}
-			before.Sites[current.CaddyFile.Name] = site
-		}
-		if before.Files[release.CaddyFile.Name] != release.CaddyFile.Hash {
-			return archive.ErrRefused
 		}
 		outcome, err := h.routes.Withdraw(ctx, before, p.Candidate.App)
 		if err != nil || outcome.Outcome != caddy.Applied {
@@ -95,7 +83,7 @@ func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) e
 		if err != nil || !stopped {
 			return archive.ErrRecovery
 		}
-		if err = h.units.Remove(ctx, unit.Name, unit.Hash); err != nil {
+		if err = h.units.RemoveArchived(ctx, unit.Name, unit.Hash); err != nil {
 			return err
 		}
 	}
@@ -181,4 +169,83 @@ func archiveDispositionFactsMatch(planned, observed archive.Plan, abandon bool) 
 		}
 	}
 	return reflect.DeepEqual(candidate, planned.Candidate)
+}
+
+// VerifyArchiveRuntime is effect-free and requires every recorded runtime
+// artifact, including the route, still present before a safe cleanup exit.
+func (h archiveHost) VerifyArchiveRuntime(ctx context.Context, p archive.Plan) error {
+	if p.Candidate.ReleaseID != "" {
+		if h.routes == nil || h.units == nil {
+			return archive.ErrRefused
+		}
+		release, err := h.service.Store.CurrentRelease(ctx, p.Candidate.App)
+		if err != nil || release.ID != p.Candidate.ReleaseID || len(release.Units) != 1 {
+			return archive.ErrRefused
+		}
+		unit := release.Units[0]
+		if err = h.units.VerifyArchiveRemove(ctx, unit.Name, unit.Hash); err != nil {
+			return err
+		}
+		if _, err = h.archiveRouteState(ctx, p); err != nil {
+			return err
+		}
+	}
+	for _, d := range p.Candidate.Databases {
+		for _, binding := range d.Epochs {
+			if !binding.Committed {
+				continue
+			}
+			artifact, hash, err := (replicaRotation{state: h.service.Store, stateRoot: h.stateRoot, home: h.home}).artifact(ctx, binding)
+			if err != nil || hash != binding.UnitSHA256 || data.VerifyRunnerFile(artifact.ServicePath) != nil {
+				return archive.ErrRefused
+			}
+			raw, err := os.ReadFile(artifact.ServicePath)
+			if err != nil || string(raw) != string(artifact.Service) {
+				return archive.ErrRefused
+			}
+		}
+	}
+	return nil
+}
+func (h archiveHost) archiveRouteState(ctx context.Context, p archive.Plan) (before caddy.State, err error) {
+	release, err := h.service.Store.CurrentRelease(ctx, p.Candidate.App)
+	if err != nil || release.ID != p.Candidate.ReleaseID {
+		return before, archive.ErrRefused
+	}
+	snapshot, err := h.service.Inventory.Collect(ctx)
+	if err != nil || snapshot.CaddyConfig.Status != target.KnownStatus || snapshot.CaddyConfig.Value == nil {
+		return before, archive.ErrRefused
+	}
+	before = caddy.State{Generation: snapshot.CaddyConfig.Value.Generation, Files: map[string]string{}, Sites: map[string]caddy.Site{}}
+	for _, file := range snapshot.CaddyConfig.Value.Files {
+		before.Files[file.Name] = file.Hash
+	}
+	state, err := h.service.Store.LoadBrineState(ctx, snapshot.Identity, p.Generation)
+	if err != nil {
+		return before, err
+	}
+	for _, current := range state.Releases {
+		if current.HostPort == 0 || current.HostPort > 65535 {
+			return before, archive.ErrRefused
+		}
+		site, err := caddy.CommittedSite(current.Desired, spec.Port(current.HostPort))
+		if err != nil {
+			return before, err
+		}
+		before.Sites[current.CaddyFile.Name] = site
+	}
+	if before.Files[release.CaddyFile.Name] != release.CaddyFile.Hash {
+		return before, archive.ErrRefused
+	}
+	return before, nil
+}
+
+func archiveDispositionSchemaMatches(observed, previous data.SchemaObservation, abandon bool) bool {
+	if observed.UnknownReason != "" || observed.State != data.VerifiedSchema && observed.State != data.VerifiedEmpty {
+		return false
+	}
+	if abandon {
+		return true
+	}
+	return observed.State == previous.State && observed.Marker == previous.Marker && observed.CatalogSHA256 == previous.CatalogSHA256
 }

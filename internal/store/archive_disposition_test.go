@@ -267,3 +267,93 @@ func TestArchivePublishedRetirementReleasesHeadAndInventoryForRecreation(t *test
 		t.Fatal("release history lost", err)
 	}
 }
+
+func TestArchiveAbandonEveryStoredPreManifestBoundary(t *testing.T) {
+	for sequence := uint64(1); sequence < 8; sequence++ {
+		stage, _ := archive.StageAt(sequence)
+		t.Run(string(stage), func(t *testing.T) {
+			ctx := context.Background()
+			s := openTest(t)
+			p := storedArchivePlan(t, s)
+			o, err := s.ClaimArchive(ctx, p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for o.Sequence < sequence {
+				next, _ := archive.StageAt(o.Sequence + 1)
+				if next == archive.CoverageVerified {
+					d := p.Candidate.Databases[0]
+					fresh := *d.Allocation
+					fresh.AllocatedAt = time.Now().UTC()
+					coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}}}
+					o, err = s.SaveArchiveCoverage(ctx, o, coverage)
+				} else {
+					o, err = s.AdvanceArchive(ctx, o, next)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			before := o
+			before.Fences = append([]data.QuiescenceFence(nil), o.Fences...)
+			for i := range before.Fences {
+				before.Fences[i].State = data.FenceReleased
+			}
+			request := dataRequest()
+			request.App = "other"
+			unrelated, err := s.ReserveDatabase(ctx, request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			foreign, err := s.HoldDataFence(ctx, unrelated.Database.DatabaseID, "other-operation")
+			if err != nil {
+				t.Fatal(err)
+			}
+			retained, err := s.LoadArchivePlanByArchive(ctx, p.ArchiveID)
+			if err != nil || !reflect.DeepEqual(retained, p) {
+				t.Fatal("lost immutable plan", err)
+			}
+			intent := archive.Disposition{ArchiveID: p.ArchiveID, Sequence: 1, Stage: archive.AbandonIntent}
+			intent, err = s.AdvanceArchiveDisposition(ctx, o, archive.Disposition{}, intent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// An interrupted abandonment resumes the same intent, never preparation.
+			read, exists, err := s.ReadArchiveDisposition(ctx, p.ArchiveID)
+			if err != nil || !exists || !reflect.DeepEqual(read, intent) {
+				t.Fatal(err, read)
+			}
+			done := archive.Disposition{ArchiveID: p.ArchiveID, Sequence: 2, Stage: archive.Abandoned, CommittedAt: time.Now().UTC()}
+			wrong := o
+			wrong.ID = strings.Repeat("a", 32)
+			if _, err = s.FinishArchiveDisposition(ctx, wrong, intent, done); !errors.Is(err, ErrConflict) {
+				t.Fatal("foreign operation released fences", err)
+			}
+			own, err := s.ReadReplicaPermit(ctx, p.Candidate.Databases[0].Binding.DatabaseID)
+			if err != nil || own.FenceState != "held" {
+				t.Fatal("failed transaction changed fence", err)
+			}
+			if _, err = s.FinishArchiveDisposition(ctx, o, intent, done); err != nil {
+				t.Fatal(err)
+			}
+			own, err = s.ReadReplicaPermit(ctx, p.Candidate.Databases[0].Binding.DatabaseID)
+			if err != nil || own.FenceState != "released" {
+				t.Fatal("owned fence not released", err)
+			}
+			other, err := s.ReadReplicaPermit(ctx, unrelated.Database.DatabaseID)
+			if err != nil || other.FenceState != "held" || len(other.Fences) != 1 || other.Fences[0] != foreign {
+				t.Fatal("foreign fence changed", err)
+			}
+			after, exists, err := s.ReadArchiveOperation(ctx, p.ID)
+			if err != nil || !exists || !reflect.DeepEqual(after, before) {
+				t.Fatal("preparation history changed", err)
+			}
+			if _, err = s.ReadArchiveManifest(ctx, p.ArchiveID); err == nil {
+				t.Fatal("invented manifest")
+			}
+			if _, err = s.ArchiveCandidate(ctx, p.Candidate.App); err != nil {
+				t.Fatal("app remains blocked", err)
+			}
+		})
+	}
+}

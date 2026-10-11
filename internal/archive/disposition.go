@@ -40,7 +40,7 @@ func DispositionNext(old, next Disposition, trees int) bool {
 	case "":
 		return old.Sequence == 0 && next.TreeIndex == 0 && (next.Stage == CleanupIntent || next.Stage == AbandonIntent)
 	case CleanupIntent:
-		return next.Stage == RuntimeRetired && next.TreeIndex == 0
+		return (next.Stage == RuntimeRetired || next.Stage == AbandonIntent) && next.TreeIndex == 0
 	case RuntimeRetired:
 		return next.Stage == RenameIntent && next.TreeIndex == 0
 	case RenameIntent:
@@ -58,11 +58,13 @@ func DispositionNext(old, next Disposition, trees int) bool {
 }
 
 type DispositionJournal interface {
+	LoadArchivePlanByArchive(context.Context, data.ArchiveID) (Plan, error)
 	ReadArchiveDisposition(context.Context, data.ArchiveID) (Disposition, bool, error)
 	AdvanceArchiveDisposition(context.Context, Operation, Disposition, Disposition) (Disposition, error)
 	FinishArchiveDisposition(context.Context, Operation, Disposition, Disposition) (Disposition, error)
 }
 type DispositionHost interface {
+	VerifyArchiveRuntime(context.Context, Plan) error
 	RecheckArchive(context.Context, Plan, Operation, bool) error
 	RetireArchiveRuntime(context.Context, Plan) error
 	ArchiveRuntimeStopped(context.Context, Plan) (bool, error)
@@ -79,6 +81,11 @@ func (s Service) Retire(ctx context.Context, id data.ArchiveID) (Disposition, er
 func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (out Disposition, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
+	defer func() {
+		if err != nil && out.Sequence != 0 && out.Stage != Abandoned && out.Stage != Retired {
+			err = ErrRecovery
+		}
+	}()
 	if !data.ValidID(string(id)) {
 		return out, ErrRefused
 	}
@@ -95,8 +102,8 @@ func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (
 	if !ok {
 		return out, ErrRefused
 	}
-	m, err := s.Journal.ReadArchiveManifest(ctx, id)
-	if err != nil || !m.Valid() || m.Plan.Requester != s.Requester {
+	p, err := journal.LoadArchivePlanByArchive(ctx, id)
+	if err != nil || !p.Valid() || p.ArchiveID != id || p.Requester != s.Requester {
 		return out, ErrRefused
 	}
 	old, exists, err := journal.ReadArchiveDisposition(ctx, id)
@@ -107,13 +114,44 @@ func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (
 		if abandon && old.Stage == Abandoned || !abandon && old.Stage == Retired {
 			return old, nil
 		}
-		return old, ErrRecovery
+		if !abandon || old.Stage != AbandonIntent && old.Stage != CleanupIntent {
+			return old, ErrRecovery
+		}
+		out = old
 	}
-	op, exists, err := s.Journal.ReadArchiveOperation(ctx, m.Plan.ID)
-	if err != nil || !exists || op.Stage != Prepared || op.ID != m.OperationID {
+	op, exists, err := s.Journal.ReadArchiveOperation(ctx, p.ID)
+	stage, validStage := StageAt(op.Sequence)
+	if err != nil || !exists || !validStage || stage != op.Stage || op.PlanID != p.ID || op.ArchiveID != id {
 		return out, ErrRecovery
 	}
-	p := m.Plan
+	var m Manifest
+	if !abandon {
+		m, err = s.Journal.ReadArchiveManifest(ctx, id)
+		if err != nil || !m.Valid() || op.Stage != Prepared || op.ID != m.OperationID || m.Plan.ID != p.ID {
+			return out, ErrRecovery
+		}
+	}
+	// Affirmative pristine artifact ownership is required before cleanup intent,
+	// and before adopting any interrupted pre-effect cleanup as abandonment.
+	if host.VerifyArchiveRuntime(ctx, p) != nil {
+		return out, ErrRefused
+	}
+	if abandon {
+		if host.RecheckArchive(ctx, p, op, true) != nil {
+			return out, ErrRefused
+		}
+		if out.Stage != AbandonIntent {
+			next := Disposition{ArchiveID: id, Sequence: out.Sequence + 1, Stage: AbandonIntent}
+			out, err = journal.AdvanceArchiveDisposition(ctx, op, out, next)
+			if err != nil {
+				return out, ErrRecovery
+			}
+		}
+		// Stop only owned managed services; the durable intent precedes every effect.
+		if s.Host.StopWriters(ctx, p) != nil || s.Host.StopReplicas(ctx, p) != nil {
+			return out, ErrRecovery
+		}
+	}
 	if !abandon {
 		for i, c := range m.Coverage {
 			if !c.Admits(p, p.Candidate.Databases[i], op.ID, s.now()) {
@@ -168,10 +206,7 @@ func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (
 		return err
 	}
 	if abandon {
-		if advance(AbandonIntent, 0, false) != nil {
-			return out, ErrRecovery
-		}
-		if host.RecheckArchive(ctx, p, op, abandon) != nil {
+		if host.VerifyArchiveRuntime(ctx, p) != nil || host.RecheckArchive(ctx, p, op, abandon) != nil {
 			return out, ErrRecovery
 		}
 		for _, tree := range p.Trees {

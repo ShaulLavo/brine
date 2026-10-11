@@ -11,6 +11,9 @@ import (
 )
 
 func (m *Manager) verifyRemove(ctx context.Context, name, hash string) error {
+	return m.verifyRemoval(ctx, name, hash, false)
+}
+func (m *Manager) verifyRemoval(ctx context.Context, name, hash string, archived bool) error {
 	if !unitNamePattern.MatchString(name) || !hashPattern.MatchString(hash) {
 		return errors.New("quadlet: invalid removal intent")
 	}
@@ -25,6 +28,9 @@ func (m *Manager) verifyRemove(ctx context.Context, name, hash string) error {
 		return err
 	}
 	if !present {
+		if archived {
+			return refuseOwnership(Unrecorded)
+		}
 		return nil
 	}
 	if err = checkExpected(data, present, hash); err != nil {
@@ -37,7 +43,7 @@ func (m *Manager) verifyRemove(ctx context.Context, name, hash string) error {
 	for _, line := range strings.Split(string(data), "\n") {
 		key, _, ok := strings.Cut(strings.TrimSpace(line), "=")
 		key = strings.TrimSpace(key)
-		if ok && (key == "Volume" || key == "Mount" || key == "ReadWritePaths") {
+		if !archived && ok && (key == "Volume" || key == "Mount" || key == "ReadWritePaths") {
 			return plan.ErrPersistentData
 		}
 	}
@@ -54,6 +60,24 @@ func (m *Manager) Remove(ctx context.Context, name, hash string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if err := m.verifyRemove(ctx, name, hash); err != nil {
+		return err
+	}
+	return m.replace(ctx, name, hash, "", nil, false)
+}
+
+// VerifyArchiveRemove requires the exact recorded persistent artifact to remain
+// present. Callers must hold archive fences and independently prove quiescence.
+func (m *Manager) VerifyArchiveRemove(ctx context.Context, name, hash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.verifyRemoval(ctx, name, hash, true)
+}
+
+// RemoveArchived removes only the owned unit, never its mounted data.
+func (m *Manager) RemoveArchived(ctx context.Context, name, hash string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := m.verifyRemoval(ctx, name, hash, true); err != nil {
 		return err
 	}
 	return m.replace(ctx, name, hash, "", nil, false)

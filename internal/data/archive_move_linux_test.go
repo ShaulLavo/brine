@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func archiveMoveFixture(t *testing.T) (ArchiveTree, AppIncarnationID, ArchiveID) {
@@ -77,5 +79,69 @@ func TestArchiveRenamePreservesTreeIdentityAndRefusesReplacement(t *testing.T) {
 	}
 	if err := VerifyArchivedTree(tree, inc, id); err == nil {
 		t.Fatal("replaced archived inode admitted")
+	}
+}
+
+func TestArchiveRenameSymlinkSwapCannotMoveOutsideData(t *testing.T) {
+	for _, swap := range []string{"apps", "archives", "both"} {
+		t.Run(swap, func(t *testing.T) {
+			tree, inc, id := archiveMoveFixture(t)
+			outside := t.TempDir()
+			for _, name := range []string{"apps", "archives"} {
+				if err := os.Mkdir(filepath.Join(outside, name), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			foreignSource := filepath.Join(outside, "apps", string(inc))
+			if err := os.Mkdir(foreignSource, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(foreignSource, "sentinel"), []byte("outside"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			foreignBefore, err := os.Stat(foreignSource)
+			if err != nil {
+				t.Fatal(err)
+			}
+			called := false
+			err = renameArchiveTree(tree, inc, id, func(fromFD int, from string, toFD int, to string, flags uint) error {
+				called = true
+				for _, name := range []string{"apps", "archives"} {
+					if swap != name && swap != "both" {
+						continue
+					}
+					parent := filepath.Join(string(tree.Root), name)
+					if err := os.Rename(parent, parent+"-pinned"); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(filepath.Join(outside, name), parent); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return unix.Renameat2(fromFD, from, toFD, to, flags)
+			})
+			if !called || err == nil {
+				t.Fatal("swapped parents not detected", err)
+			}
+			foreignAfter, statErr := os.Stat(foreignSource)
+			if statErr != nil || !os.SameFile(foreignBefore, foreignAfter) {
+				t.Fatal("moved outside source", statErr)
+			}
+			if _, statErr = os.Lstat(filepath.Join(outside, "archives", string(id))); !os.IsNotExist(statErr) {
+				t.Fatal("wrote outside destination", statErr)
+			}
+			if raw, readErr := os.ReadFile(filepath.Join(foreignSource, "sentinel")); readErr != nil || string(raw) != "outside" {
+				t.Fatal("changed outside bytes", readErr)
+			}
+			archiveParent := "archives"
+			if swap == "archives" || swap == "both" {
+				archiveParent += "-pinned"
+			}
+			device, inode, identityErr := directoryIdentity(filepath.Join(string(tree.Root), archiveParent, string(id)))
+			if identityErr != nil || device != tree.SourceDevice || inode != tree.SourceInode {
+				t.Fatal("lost the recorded tree in pinned parents", identityErr)
+			}
+
+		})
 	}
 }

@@ -81,6 +81,11 @@ func loadArchivePlanByArchive(ctx context.Context, q dataQuerier, id data.Archiv
 	}
 	return loadArchivePlan(ctx, q, planID)
 }
+
+// LoadArchivePlanByArchive resolves the immutable identity even before a manifest exists.
+func (s *Store) LoadArchivePlanByArchive(ctx context.Context, id data.ArchiveID) (archive.Plan, error) {
+	return loadArchivePlanByArchive(ctx, s.db, id)
+}
 func (s *Store) ReadArchiveDisposition(ctx context.Context, id data.ArchiveID) (archive.Disposition, bool, error) {
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -99,16 +104,21 @@ func validateDispositionOperation(ctx context.Context, tx *sql.Tx, o archive.Ope
 		return p, err
 	}
 	current, exists, err := readArchiveOperation(ctx, tx, o.PlanID)
-	if err != nil || !exists || current.Stage != archive.Prepared || !reflect.DeepEqual(current, o) || p.ArchiveID != next.ArchiveID {
+	if err != nil || !exists || !reflect.DeepEqual(current, o) || p.ArchiveID != next.ArchiveID {
 		return p, ErrConflict
 	}
 	state, _, err := readArchiveDisposition(ctx, tx, p.ArchiveID)
 	if err != nil || !reflect.DeepEqual(state, old) || !archive.DispositionNext(old, next, len(p.Trees)) {
 		return p, ErrConflict
 	}
-	var manifested string
-	if err = tx.QueryRowContext(ctx, "SELECT operation_id FROM data_archive_manifests WHERE archive_id=?", p.ArchiveID).Scan(&manifested); err != nil || manifested != o.ID {
-		return p, ErrConflict
+	if next.Stage != archive.AbandonIntent && next.Stage != archive.Abandoned {
+		var manifested string
+		if current.Stage != archive.Prepared {
+			return p, ErrConflict
+		}
+		if err = tx.QueryRowContext(ctx, "SELECT operation_id FROM data_archive_manifests WHERE archive_id=?", p.ArchiveID).Scan(&manifested); err != nil || manifested != o.ID {
+			return p, ErrConflict
+		}
 	}
 	// Active identity must still be this incarnation, even while its source paths
 	// have moved. Never let a delayed receipt retire a recreated app.
@@ -171,6 +181,9 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 		candidate, err := readArchiveCandidateOwned(ctx, tx, p.Candidate.App, o.ID)
 		if err != nil {
 			return old, err
+		}
+		if len(candidate.Databases) != len(p.Candidate.Databases) {
+			return old, ErrConflict
 		}
 		for i := range candidate.Databases {
 			candidate.Databases[i].Retention = p.Candidate.Databases[i].Retention

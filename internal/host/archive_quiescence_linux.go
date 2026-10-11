@@ -20,6 +20,10 @@ import (
 
 var containerIdentity = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
+type archiveRemovalUnits interface {
+	VerifyArchiveRemove(context.Context, string, string) error
+	RemoveArchived(context.Context, string, string) error
+}
 type archiveHost struct {
 	service   Service
 	stateRoot string
@@ -27,7 +31,7 @@ type archiveHost struct {
 	executor  localexec.Executor
 	home      string
 	routes    apply.RemovalRoutes
-	units     apply.RemovalUnits
+	units     archiveRemovalUnits
 }
 
 func (h archiveHost) serviceStopped(ctx context.Context, name string, allowAbsent bool) (bool, error) {

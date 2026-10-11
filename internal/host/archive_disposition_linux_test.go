@@ -32,3 +32,24 @@ func TestArchiveAbandonAllowsChangedContextButNeverChangedOwnership(t *testing.T
 		t.Fatal("comparison mutated borrowed evidence")
 	}
 }
+
+func TestArchiveAbandonSchemaVerificationNeedsNoManifestButRefusesUnknown(t *testing.T) {
+	previous := data.SchemaObservation{State: data.VerifiedSchema, Marker: "old", CatalogSHA256: "old"}
+	fresh := data.SchemaObservation{State: data.VerifiedSchema, Marker: "declared", CatalogSHA256: "verified"}
+	if !archiveDispositionSchemaMatches(fresh, data.SchemaObservation{}, true) || archiveDispositionSchemaMatches(fresh, previous, false) {
+		t.Fatal("manifest-free exit or retirement binding is wrong")
+	}
+	for _, unknown := range []data.SchemaObservation{
+		{State: data.Unknown},
+		{State: data.AllocatedEmpty},
+		{State: data.VerifiedSchema, UnknownReason: "invalid_marker"},
+		{State: data.VerifiedEmpty, UnknownReason: "unverified_path"},
+	} {
+		if archiveDispositionSchemaMatches(unknown, data.SchemaObservation{}, true) {
+			t.Fatal("unknown schema released fences", unknown)
+		}
+	}
+	if !archiveDispositionSchemaMatches(previous, previous, false) {
+		t.Fatal("exact coverage refused")
+	}
+}
