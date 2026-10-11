@@ -341,3 +341,53 @@ func TestUnitHealthDoesNotChangePlan(t *testing.T) {
 		}
 	}
 }
+
+func TestPortDecisionScope(t *testing.T) {
+	in := fixture(t, "ready-arm64")
+	baseline := build(t, in)
+	maximum := in.Desired.AppPorts.Max
+	in.Snapshot.UsedPorts = target.Known([]target.Port{25103, 40972, 45006, 55650})
+	in.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: 45006, Process: "client"}})
+	churn := build(t, in)
+	if churn.Hash != baseline.Hash || churn.HostPort != baseline.HostPort {
+		t.Fatal("out-of-range sockets changed admission or freshness")
+	}
+	drift, err := CompareDecisionInputs(baseline.DecisionInput(), churn.DecisionInput())
+	if err != nil || drift.Changed != 0 {
+		t.Fatalf("drift=%+v err=%v", drift, err)
+	}
+	for _, protocol := range []string{"tcp", "udp"} {
+		for _, port := range []target.Port{target.Port(in.Desired.AppPorts.Min), target.Port(in.Desired.AppPorts.Max), 80, 443, 2019} {
+			in.Snapshot.UsedPorts = target.Known([]target.Port{port})
+			in.Snapshot.PortOwners = target.Known([]target.PortOwner{})
+			if protocol == "tcp" {
+				in.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: port, Process: "listener"}})
+			}
+			next := build(t, in)
+			if next.Hash == baseline.Hash {
+				t.Fatalf("%s listener %d did not change freshness", protocol, port)
+			}
+			if port == baseline.HostPort && next.HostPort == baseline.HostPort {
+				t.Fatal("new listener did not block allocation")
+			}
+			in.Desired.AppPorts.Max = in.Desired.AppPorts.Min
+			if port == baseline.HostPort && build(t, in).Kind != Conflict {
+				t.Fatal("occupied allocation range did not conflict")
+			}
+			in.Desired.AppPorts.Max = maximum
+		}
+	}
+}
+
+func TestExistingPortOutsidePolicyRangeStillProtected(t *testing.T) {
+	in := installed(t)
+	in.Desired.AppPorts.Min = 21000
+	in.Desired.AppPorts.Max = 21999
+	baseline := build(t, in)
+	port := in.State.Releases[0].HostPort
+	in.Snapshot.PortOwners = target.Known([]target.PortOwner{{Port: port, Process: "foreign"}})
+	next := build(t, in)
+	if next.Hash == baseline.Hash || next.Kind != Conflict {
+		t.Fatal("existing out-of-range port lost ownership protection")
+	}
+}

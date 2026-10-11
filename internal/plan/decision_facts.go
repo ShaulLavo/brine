@@ -47,7 +47,7 @@ type decisionApp struct {
 
 // The snapshot has already passed target.Encode's validation and sorting.
 func canonicalDecisionFacts(in Input) ([]byte, error) {
-	s := in.Snapshot
+	s := portAdmissionSnapshot(in)
 	minimum := in.Desired.MinimumFreeDiskBytes
 	apps := target.Observation[[]decisionApp]{Status: s.Apps.Status}
 	if s.Apps.Value != nil {
@@ -120,4 +120,47 @@ func canonicalDecisionFacts(in Input) ([]byte, error) {
 		PortOwners:     s.PortOwners,
 		SufficientDisk: sufficientDisk(s, minimum),
 	})
+}
+
+// Inventory remains policy-independent. Admission and freshness share this
+// projection, including a retained app port outside a revised allocation range.
+func portAdmissionSnapshot(in Input) target.Snapshot {
+	s := in.Snapshot
+	relevant := func(port target.Port) bool {
+		if port == 80 || port == 443 || port == 2019 || (port >= target.Port(in.Desired.AppPorts.Min) && port <= target.Port(in.Desired.AppPorts.Max)) {
+			return true
+		}
+		if s.Apps.Value != nil {
+			for _, app := range *s.Apps.Value {
+				if app.Name == string(in.Desired.Name) && app.AllocatedHostPort.Value != nil && *app.AllocatedHostPort.Value == port {
+					return true
+				}
+			}
+		}
+		for _, release := range in.State.Releases {
+			if release.App == string(in.Desired.Name) && release.HostPort == port {
+				return true
+			}
+		}
+		return false
+	}
+	if s.UsedPorts.Value != nil {
+		ports := []target.Port{}
+		for _, port := range *s.UsedPorts.Value {
+			if relevant(port) {
+				ports = append(ports, port)
+			}
+		}
+		s.UsedPorts.Value = &ports
+	}
+	if s.PortOwners.Value != nil {
+		owners := []target.PortOwner{}
+		for _, owner := range *s.PortOwners.Value {
+			if relevant(owner.Port) {
+				owners = append(owners, owner)
+			}
+		}
+		s.PortOwners.Value = &owners
+	}
+	return s
 }

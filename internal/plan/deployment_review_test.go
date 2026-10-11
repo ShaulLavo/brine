@@ -49,3 +49,28 @@ func TestDeploymentReviewExcludesOnlyExpectedDataWorkflowChanges(t *testing.T) {
 		t.Fatal("expected data preparation invalidated review", hash, err)
 	}
 }
+
+func TestDeploymentReviewPortScopeBetweenDataSteps(t *testing.T) {
+	in := fixture(t, "ready-arm64")
+	before, err := DeploymentReviewHash(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ports := range [][]target.Port{{25103, 40972}, {45006, 55650}, {}} {
+		in.Snapshot.UsedPorts = target.Known(ports)
+		observation := target.Observation[[]target.PersistentDatabase]{Status: target.Unknown}
+		in.Snapshot.PersistentData = &observation
+		in.State.DataIncarnations = []DataIncarnation{{App: string(in.Desired.Name), ID: "prepared-reservation"}}
+		after, err := DeploymentReviewHash(in)
+		if err != nil || after != before {
+			t.Fatal("UDP churn between data steps invalidated deployment review", err)
+		}
+	}
+	for _, port := range []target.Port{20000, 20999, 443} {
+		in.Snapshot.UsedPorts = target.Known([]target.Port{port})
+		after, err := DeploymentReviewHash(in)
+		if err != nil || after == before {
+			t.Fatalf("listener %d not bound to deployment review: %v", port, err)
+		}
+	}
+}
