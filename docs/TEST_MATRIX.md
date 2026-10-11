@@ -60,7 +60,19 @@ backup, fence handoff or reboot.
 
 Detailed setup, task dependencies and acceptance requirements for T25-T33 live in the [Phase 08 plan](plans/08-webtransport.md). Initial direct-UDP full-app support and shared-port/preview support have separate exit gates.
 
-T34 has local typed-boundary acceptance evidence. Phase 09 cases T35-T42 are **required acceptance, not shipped evidence**. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
+T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequisite slice below; its complete acceptance and T36-T42 remain **required acceptance, not shipped admission**. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
+
+## T35 qualified runtime prerequisites, admission pending
+
+[P09 runtime evidence](evidence/p09-runtime.md) records the actual cases and [tools/spacetime-runtime](../tools/spacetime-runtime/README.md) supplies the finite repository gate. The shared Go production primitives are used by the gate; no duplicate schema renderer or mock runtime replaces native replay.
+
+- Canonical v2 tests use real before/restart schema-v10 payloads. Declaration and correctly rebound Typespace permutations preserve evidence; ordered columns/params/index lists, defaults and access changes remain different. Unsupported sections, duplicate names/JSON, recursion, invalid references and resource overflow refuse.
+- Fixed private metadata tests verify current environment hash rather than immutable initial_program, exact owner/database/names, module-read bracketing, immutable outputs, no SQL/WS paths, private credentials, scrubbed errors, redirects and byte/deadline limits.
+- The repository's native amd64 core gate records 180 explicitly confirmed paired rows, a 135-row closed-only point, and an exact 180-row active-prefix replay. Missing historical replicas can falsely reconstruct initial metadata with bootstrap available; withholding bootstrap in an isolated copy refuses. Source seals and verifier disappearance are checked. Source SIGINT exit 1 is unknown and earns no exact receipt.
+- The earlier physical arm64 cases cover torn tails, missing logs/snapshot objects, twelve rotation/finalization captures, mutable completed segments, low-rate tail exposure, metadata-generation drift, ACK-only loss on exit 0, confirmed-read survival, active WS, scheduled writes, SIGTERM/kill/timeout/OOM and rootless UID/entrypoint SIGINT forwarding.
+- Supplied-key JWT ingress denies missing/forged/signed-expired credentials and reserved management paths; valid ordinary user WS/exchange passes. External OIDC is unexecuted. Native preflight binding/default backfill passed; AutoMigrate's destructive/access-changing results are not authority.
+
+Remaining T35 predicates are production startup ownership/quiescence/fence composition and independent exact native framing/high-water coverage qualification. The public spec and engine dispatch remain unsupported. Full protected Brine/S3 capture, restore and interruption admission belongs to T37-T41 and the physical exit drill.
 
 ## T16 schema policy acceptance, physical completion pending
 

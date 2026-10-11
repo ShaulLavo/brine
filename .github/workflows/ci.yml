@@ -20,6 +20,8 @@ jobs:
           go-version: "1.27.2"
           cache: true
       - run: ./scripts/check.sh test
+      - name: Check optional SpacetimeDB runtime probe
+        run: bash scripts/check-spacetime-runtime.sh
 
   lint:
     name: New-code static checks
