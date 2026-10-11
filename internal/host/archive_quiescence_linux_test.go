@@ -94,3 +94,28 @@ func TestArchiveAbsenceMustBeAffirmative(t *testing.T) {
 		t.Fatal("affirmative absence refused", err)
 	}
 }
+
+func TestArchiveRecoveryQuiescenceAcceptsStoppedOrAbsentButNeverStops(t *testing.T) {
+	p := archive.Plan{Candidate: archive.Candidate{App: "hello"}, Trees: []data.ArchiveTree{{Root: "/private/data", SourceRelative: "apps/old", ArchiveRelative: "archives/retained"}}}
+	for _, show := range []string{archiveStopped, strings.ReplaceAll(archiveStopped, "loaded", "not-found"), strings.ReplaceAll(archiveStopped, "Job=", "Job=17"), strings.ReplaceAll(archiveStopped, "ControlGroup=", "ControlGroup=/user.slice/job"), "garbage"} {
+		e := &archiveExecutor{show: show}
+		h := archiveHostForTest(t, e)
+		err := h.recoveryQuiescent(context.Background(), p)
+		want := show == archiveStopped || show == strings.ReplaceAll(archiveStopped, "loaded", "not-found")
+		if (err == nil) != want || e.stopCalls != 0 {
+			t.Fatal("unsafe recovery process proof", show, err, e.stopCalls)
+		}
+	}
+	id := strings.Repeat("a", 64)
+	for _, source := range []string{"/private/data/apps/old", "/private/data/archives/retained"} {
+		raw, err := json.Marshal([]map[string]any{{"Id": id, "State": map[string]any{"Running": true, "Pid": 101}, "Mounts": []map[string]string{{"Source": source}}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e := &archiveExecutor{show: archiveStopped, listed: id, inspected: string(raw)}
+		h := archiveHostForTest(t, e)
+		if err = h.recoveryQuiescent(context.Background(), p); err == nil || e.stopCalls != 0 {
+			t.Fatal("running source/archive mount admitted", source, err)
+		}
+	}
+}

@@ -62,11 +62,19 @@ func CatalogFingerprint(rows []CatalogRow) ([]byte, string, error) {
 // ObserveSchema never allocates, initializes or repairs a database. An absent
 // file cannot be called empty here; allocated_empty needs a store-owned receipt.
 func ObserveSchema(ctx context.Context, b DatabaseBinding, definitions []SchemaDefinition) SchemaObservation {
-	o := SchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
 	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
-	if err != nil || relative != b.RelativeDirectory || !ValidRoot(string(b.Root)) {
+	if err != nil || relative != b.RelativeDirectory {
+		return SchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
+	}
+	return observeSchemaDirectory(ctx, b, definitions, relative)
+}
+
+func observeSchemaDirectory(ctx context.Context, b DatabaseBinding, definitions []SchemaDefinition, relative string) SchemaObservation {
+	o := SchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
+	if !ValidRoot(string(b.Root)) {
 		return o
 	}
+	var err error
 	declaration := Database{Name: b.Name, PersistentRoot: b.Root, MountPath: b.MountPath, Filename: b.Filename, BackupDestination: "observer"}
 	if declaration.Validate() != nil {
 		return o

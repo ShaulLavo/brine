@@ -29,7 +29,7 @@ import (
 )
 
 func newArchiveService(s Service, stateRoot, home string, session localexec.Session, executor localexec.Executor, routes apply.RemovalRoutes, units archiveRemovalUnits) archive.Service {
-	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home, routes: routes, units: units}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
+	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home, routes: routes, units: units, recoveryVerified: make(map[string]time.Time)}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
 		_, err := s.Policy.Load(ctx)
 		return err
 	}, Lock: func(ctx context.Context) (func() error, error) {
@@ -240,17 +240,7 @@ func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Databa
 	if err = ensurePrivateChild(h.stateRoot, "archive-restores"); err != nil {
 		return coverage, err
 	}
-	engine := restore.Engine{Root: filepath.Join(h.stateRoot, "archive-restores"), MaxSnapshotBytes: 64 << 20, Observer: restoreSchemaObserver{database: d.Binding.Name, definitions: d.Definitions}, Bindings: restore.BindingReaderFunc(func(_ context.Context, id, epoch string) (restore.Binding, error) {
-		if id != binding.ID || epoch != binding.Epoch {
-			return restore.Binding{}, archive.ErrRefused
-		}
-		return binding, nil
-	}), Credentials: restore.CredentialReaderFunc(func(_ context.Context, ref string) (restore.Credentials, error) {
-		if ref != binding.CredentialRef {
-			return restore.Credentials{}, archive.ErrRefused
-		}
-		return credentials, nil
-	})}
+	engine := h.archiveRestoreEngine(d, binding, credentials)
 	receipt, err := engine.Test(ctx, request)
 	if err != nil {
 		return coverage, err
@@ -327,4 +317,18 @@ func (h archiveHost) snapshot(ctx context.Context, d archive.Database, id string
 	}
 	raw, err = os.ReadFile(output) // #nosec G304 -- Fixed file in the new private, root-confined snapshot directory.
 	return raw, err
+}
+
+func (h archiveHost) archiveRestoreEngine(d archive.Database, binding restore.Binding, credentials restore.Credentials) restore.Engine {
+	return restore.Engine{Root: filepath.Join(h.stateRoot, "archive-restores"), MaxSnapshotBytes: 64 << 20, Observer: restoreSchemaObserver{database: d.Binding.Name, definitions: d.Definitions}, Bindings: restore.BindingReaderFunc(func(_ context.Context, id, epoch string) (restore.Binding, error) {
+		if id != binding.ID || epoch != binding.Epoch {
+			return restore.Binding{}, archive.ErrRefused
+		}
+		return binding, nil
+	}), Credentials: restore.CredentialReaderFunc(func(_ context.Context, ref string) (restore.Credentials, error) {
+		if ref != binding.CredentialRef {
+			return restore.Credentials{}, archive.ErrRefused
+		}
+		return credentials, nil
+	})}
 }

@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/archive"
@@ -25,13 +26,14 @@ type archiveRemovalUnits interface {
 	RemoveArchived(context.Context, string, string) error
 }
 type archiveHost struct {
-	service   Service
-	stateRoot string
-	session   localexec.Session
-	executor  localexec.Executor
-	home      string
-	routes    apply.RemovalRoutes
-	units     archiveRemovalUnits
+	service          Service
+	stateRoot        string
+	session          localexec.Session
+	executor         localexec.Executor
+	home             string
+	routes           apply.RemovalRoutes
+	units            archiveRemovalUnits
+	recoveryVerified map[string]time.Time
 }
 
 func (h archiveHost) serviceStopped(ctx context.Context, name string, allowAbsent bool) (bool, error) {
@@ -96,6 +98,9 @@ func (h archiveHost) WritersStopped(ctx context.Context, p archive.Plan) (bool, 
 	if err != nil || !stopped {
 		return false, archive.ErrRefused
 	}
+	return h.archiveContainersStopped(ctx, p)
+}
+func (h archiveHost) archiveContainersStopped(ctx context.Context, p archive.Plan) (bool, error) {
 	listed, err := h.session.Execute(ctx, "/usr/bin/podman", []string{"ps", "--all", "--quiet", "--no-trunc"}, nil, false)
 	if err != nil || listed.ExitCode != 0 || listed.Truncated {
 		return false, archive.ErrRefused

@@ -123,3 +123,68 @@ func TestArchiveRemovalAcceptsRenderedPersistentUnitAndPreservesData(t *testing.
 		t.Fatal("deleted database", err)
 	}
 }
+
+func TestArchiveRemovalInspectionDoesNotAdoptDriftOrChangeArtifacts(t *testing.T) {
+	home := t.TempDir()
+	m := manager(t, home)
+	defer func() {
+		if err := m.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	u := rendered(t, "owned")
+	ctx := context.Background()
+	if present, err := m.InspectArchiveRemove(ctx, u.Name(), u.Hash()); err != nil || present {
+		t.Fatal("absence not distinguished", present, err)
+	}
+	if err := m.Install(ctx, u, ""); err != nil {
+		t.Fatal(err)
+	}
+	if present, err := m.InspectArchiveRemove(ctx, u.Name(), u.Hash()); err != nil || !present {
+		t.Fatal("presence not distinguished", present, err)
+	}
+	file := filepath.Join(home, ActiveDirectory, u.Name())
+	changed := append(u.Bytes(), []byte("# changed\n")...)
+	if err := os.WriteFile(file, changed, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.InspectArchiveRemove(ctx, u.Name(), u.Hash()); err == nil {
+		t.Fatal("drift adopted")
+	}
+	// #nosec G304 -- Rendered unit filename inside this test's private home.
+	raw, err := os.ReadFile(file)
+	if err != nil || string(raw) != string(changed) {
+		t.Fatal("inspection changed artifact", err)
+	}
+}
+
+func TestArchiveReadOnlyInspectionNeverCreatesMissingRuntimeDirectories(t *testing.T) {
+	home := t.TempDir()
+	u := rendered(t, "owned")
+	if _, err := InspectArchiveRemove(context.Background(), home, u.Name(), u.Hash()); err == nil {
+		t.Fatal("missing runtime namespace adopted")
+	}
+	entries, err := os.ReadDir(home)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("read-only inspection created runtime directories", entries, err)
+	}
+	m := manager(t, home)
+	if err = m.Install(context.Background(), u, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err = m.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if present, err := InspectArchiveRemove(context.Background(), home, u.Name(), u.Hash()); err != nil || !present {
+		t.Fatal("owned runtime was not inspected", present, err)
+	}
+	if err = os.Remove(filepath.Join(home, stagingDirectory)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = InspectArchiveRemove(context.Background(), home, u.Name(), u.Hash()); err == nil {
+		t.Fatal("missing staging namespace adopted")
+	}
+	if _, err = os.Stat(filepath.Join(home, stagingDirectory)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("missing staging namespace recreated", err)
+	}
+}
