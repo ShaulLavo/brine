@@ -199,12 +199,12 @@ func (f Files) install(r Receipt, env []byte) error {
 	}
 	return f.installMetadata(r.Scope.CredentialRef, r.Version, metadata, env)
 }
-func (f Files) installMetadata(ref string, version uint64, metadata, env []byte) error {
+func (f Files) installMetadata(ref string, version uint64, metadata, env []byte) (err error) {
 	root, err := f.open()
 	if err != nil {
 		return err
 	}
-	defer root.Close()
+	defer func() { err = errors.Join(err, root.Close()) }()
 	if err := ensure(root, ref); err != nil {
 		return err
 	}
