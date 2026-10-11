@@ -21,6 +21,11 @@ func SQLiteObservationTarget(b SQLiteDatabaseBinding, definitions []SQLiteSchema
 	var detached *AllocationReceipt
 	if allocation != nil {
 		copy := *allocation
+		copy.RootProof = cloneRootProof(copy.RootProof)
+		if copy.MappingProof != nil {
+			mapping := *copy.MappingProof
+			copy.MappingProof = &mapping
+		}
 		detached = &copy
 	}
 	return ObservationTarget{kind: EngineSQLite, sqlite: b, definitions: slices.Clone(definitions), allocation: detached}
@@ -57,4 +62,16 @@ func ObserveSQLiteSchemaWithAllocation(ctx context.Context, b SQLiteDatabaseBind
 		return SQLiteSchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unreadable"}
 	}
 	return sqlite
+}
+
+func cloneRootProof(proof *RootEvidence) *RootEvidence {
+	if proof == nil {
+		return nil
+	}
+	copy := *proof
+	if copy.OperatorQuota != nil {
+		quota := *copy.OperatorQuota
+		copy.OperatorQuota = &quota
+	}
+	return &copy
 }

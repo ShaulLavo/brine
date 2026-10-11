@@ -40,7 +40,12 @@ func assertEngineGolden(t *testing.T, name string, encode func() ([]byte, error)
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(file) // #nosec G304 -- Golden name comes from the fixed case list in this test.
+	root, err := os.OpenRoot("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	want, err := root.ReadFile(name + ".json")
 	if err != nil || !bytes.Equal(raw, want) {
 		t.Fatalf("SQLite canonical bytes changed: %s: %v", name, err)
 	}

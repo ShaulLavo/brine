@@ -3,7 +3,6 @@ package restore
 import (
 	"context"
 	"encoding/json"
-	"reflect"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -32,8 +31,10 @@ func (s SpacetimeDBSource) Valid() bool {
 	return data.ValidID(string(s.BindingID)) && data.ValidID(string(s.EpochID)) && data.ValidID(s.CaptureID) && hash.MatchString(s.RepositorySnapshot) && hash.MatchString(s.ManifestSHA256)
 }
 func SQLiteSourceVariant(s SQLiteSource) (Source, error) {
-	if _, _, err := s.reference(); err != nil {
-		return Source{}, err
+	s = cloneSQLiteSource(s)
+	id, epoch, err := s.reference()
+	if err != nil || !token.MatchString(id) || !token.MatchString(epoch) {
+		return Source{}, refuse("invalid_source")
 	}
 	return Source{kind: data.EngineSQLite, sqlite: s}, nil
 }
@@ -43,8 +44,10 @@ func SpacetimeDBSourceVariant(s SpacetimeDBSource) (Source, error) {
 	}
 	return Source{kind: data.EngineSpacetimeDB, spacetime: s}, nil
 }
-func (s Source) Engine() data.EngineKind      { return s.kind }
-func (s Source) SQLite() (SQLiteSource, bool) { return s.sqlite, s.kind == data.EngineSQLite }
+func (s Source) Engine() data.EngineKind { return s.kind }
+func (s Source) SQLite() (SQLiteSource, bool) {
+	return cloneSQLiteSource(s.sqlite), s.kind == data.EngineSQLite
+}
 func (s Source) SpacetimeDB() (SpacetimeDBSource, bool) {
 	return s.spacetime, s.kind == data.EngineSpacetimeDB
 }
@@ -106,26 +109,31 @@ func (s *Source) UnmarshalJSON(raw []byte) error {
 // Verification is closed over concrete checks. Engine-specific invariants and
 // schema observations cannot be reinterpreted by a different verifier.
 type Verification struct {
-	source          Source
-	schemaEngine    data.EngineKind
-	sqlite          SQLiteRequest
-	spacetimeSchema data.SpacetimeDBSchemaObservation
-	operationID     string
-	budget          time.Duration
+	kind      data.EngineKind
+	sqlite    SQLiteRequest
+	spacetime spacetimeVerification
+}
+
+type spacetimeVerification struct {
+	source      SpacetimeDBSource
+	schema      data.SpacetimeDBSchemaObservation
+	operationID string
+	budget      time.Duration
 }
 
 func SQLiteVerification(r SQLiteRequest) (Verification, error) {
-	if _, _, err := requestReference(r); err != nil {
-		return Verification{}, err
+	r = cloneSQLiteRequest(r)
+	id, epoch, err := requestReference(r)
+	if err != nil || !token.MatchString(id) || !token.MatchString(epoch) {
+		return Verification{}, refuse("invalid_source")
 	}
-	return Verification{source: Source{kind: data.EngineSQLite, sqlite: r.Source}, schemaEngine: data.EngineSQLite, sqlite: r, operationID: r.OperationID, budget: r.Budget}, nil
+	return Verification{kind: data.EngineSQLite, sqlite: r}, nil
 }
 func SpacetimeDBVerification(operationID string, s SpacetimeDBSource, o data.SpacetimeDBSchemaObservation, budget time.Duration) (Verification, error) {
-	source, err := SpacetimeDBSourceVariant(s)
-	if err != nil || o.Validate() != nil || !token.MatchString(operationID) || budget <= 0 || budget > 30*time.Minute {
+	if !s.Valid() || o.Validate() != nil || !token.MatchString(operationID) || budget <= 0 || budget > 30*time.Minute {
 		return Verification{}, refuse("invalid_verification")
 	}
-	return Verification{source: source, schemaEngine: data.EngineSpacetimeDB, spacetimeSchema: o, operationID: operationID, budget: budget}, nil
+	return Verification{kind: data.EngineSpacetimeDB, spacetime: spacetimeVerification{source: s, schema: o, operationID: operationID, budget: budget}}, nil
 }
 
 type VerifiedReceipt struct {
@@ -133,31 +141,37 @@ type VerifiedReceipt struct {
 	sqlite SQLiteReceipt
 }
 
-func (r VerifiedReceipt) Engine() data.EngineKind       { return r.kind }
-func (r VerifiedReceipt) SQLite() (SQLiteReceipt, bool) { return r.sqlite, r.kind == data.EngineSQLite }
+func (r VerifiedReceipt) Engine() data.EngineKind { return r.kind }
+func (r VerifiedReceipt) SQLite() (SQLiteReceipt, bool) {
+	return cloneSQLiteReceipt(r.sqlite), r.kind == data.EngineSQLite
+}
 
 type Verifier struct{ SQLite *SQLiteEngine }
 
 func (v Verifier) Test(ctx context.Context, r Verification) (VerifiedReceipt, error) {
-	if ctx.Err() != nil || !r.source.Engine().Valid() || r.source.Engine() != r.schemaEngine || r.budget <= 0 || r.budget > 30*time.Minute {
+	if ctx.Err() != nil || !r.kind.Valid() {
 		return VerifiedReceipt{}, refuse("engine_mismatch")
 	}
-	switch r.source.Engine() {
+	switch r.kind {
 	case data.EngineSQLite:
-		if v.SQLite == nil || !reflect.DeepEqual(r.source.sqlite, r.sqlite.Source) || r.operationID != r.sqlite.OperationID || r.budget != r.sqlite.Budget {
+		if v.SQLite == nil {
 			return VerifiedReceipt{}, refuse("engine_mismatch")
 		}
-		receipt, err := v.SQLite.Test(ctx, r.sqlite)
+		receipt, err := v.SQLite.Test(ctx, cloneSQLiteRequest(r.sqlite))
 		if err != nil {
 			return VerifiedReceipt{}, err
 		}
-		return VerifiedReceipt{kind: data.EngineSQLite, sqlite: receipt}, nil
+		return VerifiedReceipt{kind: data.EngineSQLite, sqlite: cloneSQLiteReceipt(receipt)}, nil
 	case data.EngineSpacetimeDB:
+		if !r.spacetime.source.Valid() || r.spacetime.schema.Validate() != nil || !token.MatchString(r.spacetime.operationID) || r.spacetime.budget <= 0 || r.spacetime.budget > 30*time.Minute {
+			return VerifiedReceipt{}, refuse("invalid_verification")
+		}
 		return VerifiedReceipt{}, data.ErrUnsupportedEngine
 	default:
 		return VerifiedReceipt{}, refuse("engine_mismatch")
 	}
 }
+
 func VerifySQLite(ctx context.Context, engine *SQLiteEngine, r SQLiteRequest) (SQLiteReceipt, error) {
 	request, err := SQLiteVerification(r)
 	if err != nil {

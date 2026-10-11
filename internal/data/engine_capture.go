@@ -106,7 +106,7 @@ func captureSQLiteSnapshot(ctx context.Context, r SQLiteCaptureRequest) (raw []b
 	if err != nil || !os.SameFile(sourceInfo, after) {
 		return nil, ErrInvalid
 	}
-	raw, err = os.ReadFile(output) // #nosec G304 -- Fixed output inside the fresh private capture directory.
+	raw, err = handle.ReadFile(filepath.Join(r.PointID, "snapshot.sqlite"))
 	return raw, err
 }
 func captureSQLiteSource(source string, maxBytes int64) (os.FileInfo, error) {

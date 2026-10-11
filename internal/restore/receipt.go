@@ -1,6 +1,7 @@
 package restore
 
 import (
+	"bytes"
 	"encoding/json"
 	"slices"
 
@@ -57,7 +58,7 @@ func receiptObject(raw []byte, required, optional []string) (map[string]json.Raw
 	}
 	names := make([]string, 0, len(fields))
 	for name, value := range fields {
-		if !slices.Contains(required, name) && !slices.Contains(optional, name) || string(value) == "null" {
+		if !slices.Contains(required, name) && !slices.Contains(optional, name) || bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return nil, strictjson.ErrObject
 		}
 		names = append(names, name)
@@ -70,7 +71,7 @@ func receiptObject(raw []byte, required, optional []string) (map[string]json.Raw
 	return strictjson.Object(raw, names...)
 }
 func receiptBarrier(raw []byte) error {
-	_, err := strictjson.Object(raw, "binding_id", "epoch", "txid", "replica_txid", "observed_at", "succeeded")
+	_, err := receiptObject(raw, []string{"binding_id", "epoch", "txid", "replica_txid", "observed_at", "succeeded"}, nil)
 	return err
 }
 func receiptSource(raw []byte) error {
@@ -98,7 +99,7 @@ func receiptSource(raw []byte) error {
 		if len(f) != 2 || f["sqlite_snapshot"] == nil {
 			return strictjson.ErrObject
 		}
-		_, err := strictjson.Object(f["sqlite_snapshot"], "binding_id", "epoch", "point_id", "object_key", "sha256", "size")
+		_, err := receiptObject(f["sqlite_snapshot"], []string{"binding_id", "epoch", "point_id", "object_key", "sha256", "size"}, nil)
 		return err
 	default:
 		return strictjson.ErrObject

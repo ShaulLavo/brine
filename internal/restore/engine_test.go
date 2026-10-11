@@ -70,8 +70,8 @@ func TestEngineVerificationRefusesBeforeReadersOrWorkspace(t *testing.T) {
 	}
 	for _, request := range []Verification{
 		{},
-		{source: spacetime.source, schemaEngine: data.EngineSQLite, budget: time.Second},
-		{source: Source{kind: "unknown"}, schemaEngine: "unknown", budget: time.Second},
+		{kind: data.EngineSpacetimeDB},
+		{kind: "unknown"},
 	} {
 		if _, err = verifier.Test(context.Background(), request); err == nil {
 			t.Fatal("cross-engine or incomplete verification admitted")

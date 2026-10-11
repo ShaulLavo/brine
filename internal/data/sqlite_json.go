@@ -2,8 +2,6 @@ package data
 
 import (
 	"encoding/json"
-
-	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
 // UnmarshalJSON preserves historical SQLite bytes while refusing another
@@ -22,7 +20,7 @@ func (d *SQLiteDatabase) UnmarshalJSON(raw []byte) error {
 }
 
 func (b *SQLiteDatabaseBinding) UnmarshalJSON(raw []byte) error {
-	if _, err := strictjson.Object(raw, "database_id", "name", "incarnation_id", "root", "relative_directory", "mount_path", "filename", "replica_binding_id"); err != nil {
+	if err := engineRecord(raw, []string{"database_id", "name", "incarnation_id", "root", "relative_directory", "mount_path", "filename", "replica_binding_id"}, nil); err != nil {
 		return err
 	}
 	type record SQLiteDatabaseBinding
