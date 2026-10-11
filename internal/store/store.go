@@ -34,7 +34,7 @@ type Release = ops.Release
 
 const MaxEventBytes = ops.MaxEventBytes
 const MaxPlanBytes = 16 << 20
-const SchemaVersion = 10
+const SchemaVersion = 11
 
 var ErrNotFound = errors.New("control record not found")
 var ErrConflict = errors.New("conflicting control record")
@@ -244,6 +244,11 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 	}
 	if broken {
 		return &IntegrityError{}
+	}
+	if version < 11 {
+		if err = migrateInitializationArtifacts(ctx, tx); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

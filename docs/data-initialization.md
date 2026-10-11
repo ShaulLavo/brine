@@ -6,7 +6,7 @@ Deploy and application startup preserve schema. Creating a new persistent app th
 
 1. Prepare persistent data with `brine data prepare brine.toml --target NAME`, then apply that preparation plan. Preparation registers the declared schema and existing database/replica identities, allocates private directories, and records absence evidence. It does not create SQLite files.
 2. Deliver backup credentials through `brine backup credentials set`.
-3. Have the operator review and install the schema initializer below.
+3. Export the schema initializer below and review the initialization plan.
 4. Plan and apply initialization. Initialization uploads and independently restores an empty snapshot itself. Operators do not fabricate restore receipts.
 5. Make a fresh deployment plan, then deploy the first release accepting the initialized marker with `startup = "preserve"`.
 
@@ -50,7 +50,7 @@ SHA-256, marker and initializer bytes. Handwritten `[[schema_definitions]]` and
 marker with `startup = "preserve"`. An explicit compatibility entry remains
 unchanged. It may accept older schemas but never authorizes a migration.
 
-Export the exact initializer JSON for review and installation:
+Export the exact initializer JSON for review:
 
 ```sh
 brine data schema brine.toml --database main > reviewed-schema.json
@@ -58,57 +58,45 @@ brine data schema brine.toml --database main > reviewed-schema.json
 
 Without a machine flag, export writes canonical JSON bytes with no added newline. With `--json` or `--jsonl`, the normal result envelope contains `data.artifact` metadata and a `data.bytes` string holding those exact bytes. Its SHA-256 matches
 the initializer digest shown in deployment and data-preparation plans, including
-machine output. Plan transport carries only catalog/marker/digest metadata,
-never SQL or initializer bytes. Deployment still changes no schema.
+machine output. Deployment and preparation transport carry only catalog/marker/digest metadata. The separate initialization plan carries the reviewed bytes and catalog. Deployment still changes no schema.
 
-The operator reviews the exported file bytes, verifies their SHA-256, and installs the file as `/etc/ssh/brine/data-init/schemas/<64-hex-digest>.json`. The file and its ancestors must be root-owned, not group/other writable, and symlink-free. A typical operator installation is:
+The client reads a bounded regular initializer file (at most 1 MiB), hashes its exact bytes and sends those bytes with the digest in the initialization planning request. The host independently recompiles the SQL in isolated in-memory SQLite and rejects a catalog mismatch. Human plans show the SQL and resulting catalog; machine plans include `artifact_bytes` (JSON base64), the exact digest and `catalog`. The immutable plan binds all of them. At apply, the host stores the approved artifact by digest in its own private control database, only after claiming the durable fence and one-attempt intent. Planning retains the review payload but does not publish an apply artifact. There is no sudo step, root-owned schema directory or privileged writer.
 
-```sh
-artifact=$(sha256sum reviewed-schema.json | cut -d ' ' -f 1)
-sudo install -d -o root -g root -m 0755 /etc/ssh/brine/data-init/schemas
-sudo install -o root -g root -m 0644 reviewed-schema.json "/etc/ssh/brine/data-init/schemas/$artifact.json"
-printf 'sha256:%s\n' "$artifact"
-```
+The request supplies only app, retained release/preparation plan ID, artifact digest and artifact bytes. Host filesystem paths, approval booleans, requester identity and caller-installed restore receipts are rejected. Apply supplies only app and the retained initialization plan ID.
 
-This is an explicit operator action; enrollment and agent requests cannot install artifacts. The definition must exactly match both the registered definition and the intended release declaration. The artifact is compiled in an isolated in-memory database and its resulting catalog hash checked before live-file creation. The initializer contains canonical single statements without entry terminators. The host recompiles those statements independently and rejects a catalog mismatch before touching the live file. The separately installed artifact must match the retained release definition. Automatic artifact delivery is deferred to P10-03.
+## Authority and policy
 
-The request supplies only app, retained release/preparation plan ID and artifact digest. SQL, arbitrary filesystem paths, approval booleans, operator identity and caller-installed restore receipts are rejected.
+The owner and their agent are one personal deployment identity (D8/D12, owner decision 2026-10-11). Anyone who can apply reviewed plans over the restricted channel can initialize data. There is no separate agent migration permission or local-only initialization command. Protected policy, exact review, independent host compilation, empty-source checks and restore verification still apply.
 
-## Operator policy
-
-Restricted agents cannot initialize data unless policy explicitly enables `allow_agent_migrations = true`. The default is false. The local operator command `brine host data-init APP` uses local operator composition and cannot be selected through restricted dispatch.
-
-Explicit freshness and recovery bounds are also required, including for the operator:
+Explicit freshness and recovery bounds are required:
 
 ```toml
-allow_agent_migrations = false
-
 [data_initialization]
 max_backup_age_seconds = 300
 max_restore_test_age_seconds = 60
 recovery_window_seconds = 86400
 ```
 
-Zero/missing bounds refuse initialization. Maximums are one day for upload age, five minutes for restore-test age, and thirty days for the recovery window. Current nonexpiring retention evidence and exact binding/epoch credential evidence are required. No caller-supplied bounds override operator policy.
+Zero/missing bounds refuse initialization. Maximums are one day for upload age, five minutes for restore-test age, and thirty days for the recovery window. Current nonexpiring retention evidence and exact binding/epoch credential evidence are required. No caller-supplied bounds override protected policy.
 
 ## Commands
 
 ```sh
 brine data init APP --target NAME --plan \
   --first-release-plan sha256:PREPARATION_PLAN_DIGEST \
-  --artifact sha256:REVIEWED_ARTIFACT_DIGEST
+  --artifact reviewed-schema.json
 brine data init APP --target NAME --plan-id sha256:INITIALIZATION_PLAN_DIGEST
 ```
 
 Apply records and launches a detached host job, returning an accepted operation ID promptly. The CLI polls status to a terminal result by default; `--no-wait` returns that ID without polling. Each transport call keeps its short request deadline; losing the observer never cancels accepted host work. Inspect it with `brine status --operation OPERATION_ID --target NAME`. Reapplying the same plan recovers the same accepted job and never launches another initialization.
 
-Local operator execution uses the same flags with `brine host data-init APP`, without `--target`. Apply does not accept planning-only inputs. Initialization plans bind the requester, policy, target identity/generation, desired declaration, exact database binding, replica epoch/prefix, source state, destination definition and generated restore-point ID.
+Apply does not accept planning-only inputs. Initialization plans bind the requester, policy, target identity/generation, desired declaration, exact database binding, replica epoch/prefix, source state, destination definition and generated restore-point ID.
 
 ## Empty restore point and durable boundaries
 
 The minimal operation admits exactly one never-started database and an uncommitted replica. It refuses a committed release, writer history, unresolved writer-start intent, active operation, foreign fence, observed app unit, unknown inventory, nonempty/unknown schema, or missing allocation evidence for an absent file. It consumes preparation's bindings and receipt; it does not reserve identities or create live data directories.
 
-Under the host mutation lock, initialization claims a durable database fence and one-attempt journal record atomically. Both application and replica startup permits honor the fence. Fresh inventory and never-started identity checks establish that no registered writer exists; this path does not stop or initialize a previously running app.
+Under the host mutation lock, initialization claims a durable database fence and one-attempt journal record atomically, then stores the digest-bound reviewed artifact. An interruption between storage and initialization remains an attempted operation and is inspected, never blindly restarted. Both application and replica startup permits honor the fence. Fresh inventory and never-started identity checks establish that no registered writer exists; this path does not stop or initialize a previously running app.
 
 While fenced, Brine:
 
@@ -126,7 +114,7 @@ The journal boundaries are intent, quiesced, restore-point intent, verified rest
 
 The initialization engine’s recovery path only inspects an already-attempted plan. Repeated CLI apply returns the same immutable detached job outcome; it does not rerun or automatically reconcile that job. It never uploads, invokes the initializer, or creates another attempt. A freshly verified matching destination plus the durable independently verified empty point can be adopted as success. A still-empty, zero-byte, missing, changed or unknown destination requires operator recovery and keeps its fence. Timeouts are not permission to retry irreversible work.
 
-For an interrupted job, the supported local recovery command is `brine host reconcile`, run as the enrolled Brine account. Boot reconciliation uses that same path. It first settles abandoned runners, then acquires the host mutation lock and independently proves the initialization runner is dead and has no pending systemd job. Unknown/running manager observations keep the fence held. Reconciliation retains the recorded typed requester; remote work never gains local operator authority.
+For an interrupted job, the supported local recovery command is `brine host reconcile`, run as the enrolled Brine account. Boot reconciliation uses that same path. It first settles abandoned runners, then acquires the host mutation lock and independently proves the initialization runner is dead and has no pending systemd job. Unknown/running manager observations keep the fence held. Reconciliation retains the recorded typed requester; job attribution remains bound to the original restricted-channel identity.
 
 Inspect-only recovery adopts a freshly verified destination only when its exact marker/catalog and durable independently verified empty restore point match. If an allocation receipt proves the file was never created, or fresh catalog inspection proves it is still empty, recovery records terminal `not_initialized` and atomically releases the fence without consuming allocation absence evidence. No upload, schema statement, file deletion or live repair is replayed. A zero-byte, changed, nonempty or unknown file keeps the fence held. The original detached outcome remains immutable; the reconciliation report and initialization journal record the settlement. To initialize after `not_initialized`, review and create a new initialization plan; the old attempt cannot be reused.
 
@@ -134,6 +122,6 @@ Inspection after success is not a migration and does not start code. A new deplo
 
 ## Evidence and limits
 
-Unit tests cover initializer refusal, atomic schema/marker creation, reference-only requests, default-off authority, explicit bounds, conditional-upload capability/collision/unknown failures, independent empty restore, and interruption at each journal boundary. These tests use private local fixtures and fake HTTP storage, not a production restore claim.
+Unit tests cover initializer refusal, atomic schema/marker creation, reviewed-byte planning and reference-only apply requests, single-identity authority, digest idempotence, tamper refusal, explicit bounds, conditional-upload capability/collision/unknown failures, independent empty restore, and interruption at each journal boundary. These tests use private local fixtures and fake HTTP storage, not a production restore claim.
 
 The physical acceptance drill is: prepare a fresh disposable app, deliver limited backup credentials, initialize from an operator-reviewed artifact, verify the remote empty point with an independent restore, deploy a schema-preserving first release, write a sentinel, restart it, and prove the same rows and marker survive. Repeat interrupted initialization boundaries and prove neither the app nor replica starts while its fence remains held. No Pi or live R2 action is performed by this implementation lane; the existing P04 acceptance checkbox remains open until that drill supplies evidence.

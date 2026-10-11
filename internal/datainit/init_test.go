@@ -2,6 +2,8 @@ package datainit
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"os"
@@ -71,9 +73,14 @@ func initFixture(t *testing.T) (Service, *memoryJournal, Request) {
 	definition := data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
 	artifact := data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}
 	hash := "sha256:" + strings.Repeat("a", 64)
-	r := Request{App: "example", FirstReleasePlan: hash, Artifact: hash}
+	raw, err := json.Marshal(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	r := Request{App: "example", FirstReleasePlan: hash, Artifact: "sha256:" + hex.EncodeToString(sum[:]), ArtifactBytes: raw}
 	j := &memoryJournal{}
-	requester, err := AgentRequester("deploy:" + strings.Repeat("a", 64))
+	requester, err := ParseRequester("deploy:" + strings.Repeat("a", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +93,7 @@ func initFixture(t *testing.T) (Service, *memoryJournal, Request) {
 }
 
 func TestInitializationBoundaryInterruptionNeverReplays(t *testing.T) {
-	for _, boundary := range []string{"intent", "quiesce", "quiesced", "restore_point_intent", "prepare_restore_point", "restore_receipt", "restore_point_verified", "mutation_intent", "mutation_completed", "succeeded"} {
+	for _, boundary := range []string{"intent", "artifact_store", "quiesce", "quiesced", "restore_point_intent", "prepare_restore_point", "restore_receipt", "restore_point_verified", "mutation_intent", "mutation_completed", "succeeded"} {
 		t.Run(boundary, func(t *testing.T) {
 			s, j, r := initFixture(t)
 			ctx := context.Background()
@@ -124,12 +131,12 @@ func TestInitializationBoundaryInterruptionNeverReplays(t *testing.T) {
 	}
 }
 func TestInitializationAuthorityAndEvidenceRefusals(t *testing.T) {
-	for _, reason := range []string{"agent-policy", "non-empty", "unknown", "missing-restore", "incompatible-first-release", "stale-policy"} {
+	for _, reason := range []string{"protected-policy", "non-empty", "unknown", "missing-restore", "incompatible-first-release", "stale-policy"} {
 		t.Run(reason, func(t *testing.T) {
 			s, j, r := initFixture(t)
 			facts := s.Facts
 			switch reason {
-			case "agent-policy":
+			case "protected-policy":
 				s.Authorize = func(context.Context) error { return ErrRefused }
 			case "missing-restore", "incompatible-first-release":
 				s.Facts = func(context.Context, Request) (Facts, error) { return Facts{}, ErrRefused }
@@ -249,10 +256,10 @@ func TestInitializationRestoreEvidenceRefusalsBeforeMutation(t *testing.T) {
 	}
 }
 
-func TestInitializationAgentCannotApplyLocalOperatorPlan(t *testing.T) {
+func TestInitializationRequesterCannotApplyForeignPlan(t *testing.T) {
 	local, j, request := initFixture(t)
 	agent := local.Requester
-	local.Requester = LocalOperatorRequester()
+	local.Requester, _ = ParseRequester("deploy:" + strings.Repeat("b", 64))
 	p, err := local.Plan(context.Background(), request)
 	if err != nil {
 		t.Fatal(err)
@@ -260,20 +267,54 @@ func TestInitializationAgentCannotApplyLocalOperatorPlan(t *testing.T) {
 	remote := local
 	remote.Requester = agent
 	if _, err = remote.Apply(context.Background(), request.App, p.ID); !errors.Is(err, ErrRefused) || j.claimed {
-		t.Fatal("remote requester reused local operator plan", err)
+		t.Fatal("requester reused a foreign plan", err)
 	}
 	raw, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var retained Plan
-	if err = json.Unmarshal(raw, &retained); err != nil || !retained.Valid() || !retained.Requester.IsLocalOperator() {
-		t.Fatal("local authority was not retained by immutable plan", err)
+	if err = json.Unmarshal(raw, &retained); err != nil || !retained.Valid() || retained.Requester != local.Requester {
+		t.Fatal("requester was not retained by immutable plan", err)
 	}
 	reconstructed := local
 	reconstructed.Requester = retained.Requester
 	op, err := reconstructed.Apply(context.Background(), request.App, retained.ID)
 	if err != nil || op.State != "succeeded" {
-		t.Fatal("local initialization lost reconstructed authority", err)
+		t.Fatal("initialization lost reconstructed requester", err)
+	}
+}
+
+func (j *memoryJournal) SaveInitArtifact(_ context.Context, p Plan) error {
+	j.events = append(j.events, "artifact_store")
+	if j.fail == "artifact_store" {
+		return ErrRecovery
+	}
+	return nil
+}
+
+func TestInitializationTamperedArtifactRefusesBeforeStoreAndMutation(t *testing.T) {
+	for _, phase := range []string{"plan", "apply"} {
+		t.Run(phase, func(t *testing.T) {
+			s, j, r := initFixture(t)
+			if phase == "plan" {
+				r.ArtifactBytes = []byte("changed")
+				if _, err := s.Plan(t.Context(), r); !errors.Is(err, ErrRefused) {
+					t.Fatal("tampered plan accepted", err)
+				}
+			} else {
+				p, err := s.Plan(t.Context(), r)
+				if err != nil {
+					t.Fatal(err)
+				}
+				j.plan.Request.ArtifactBytes = []byte("changed")
+				if _, err = s.Apply(t.Context(), r.App, p.ID); !errors.Is(err, ErrRefused) {
+					t.Fatal("tampered apply accepted", err)
+				}
+			}
+			if j.claimed || len(j.events) != 0 {
+				t.Fatal("tamper reached publication or mutation")
+			}
+		})
 	}
 }

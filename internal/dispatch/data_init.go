@@ -23,12 +23,15 @@ type DataInitApplyArgs struct {
 }
 
 func decodeDataInitPlan(raw json.RawMessage) (any, error) {
-	fields, err := strictjson.Object(raw, "app", "first_release_plan", "artifact")
+	fields, err := strictjson.Object(raw, "app", "first_release_plan", "artifact", "artifact_bytes")
 	if err != nil {
 		return nil, err
 	}
 	var r DataInitPlanArgs
-	if json.Unmarshal(raw, &r) != nil || !ValidApp(r.App) || !datainit.ValidID(r.FirstReleasePlan) || !datainit.ValidID(r.Artifact) || len(fields) != 3 {
+	if json.Unmarshal(raw, &r) != nil || !ValidApp(r.App) || !datainit.ValidID(r.FirstReleasePlan) || !datainit.ValidID(r.Artifact) || len(fields) != 4 {
+		return nil, strictjson.ErrObject
+	}
+	if _, err := datainit.DecodeArtifact(r.ArtifactBytes, r.Artifact); err != nil {
 		return nil, strictjson.ErrObject
 	}
 	return r, nil

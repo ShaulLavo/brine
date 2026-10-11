@@ -18,8 +18,8 @@ import (
 )
 
 const SchemaVersion = 1
-const RequestLimit = 64 << 10
-const ResponseLimit = 1 << 20
+const RequestLimit = 2 << 20
+const ResponseLimit = 4 << 20
 
 type Request struct {
 	SchemaVersion int             `json:"schema_version"`

@@ -55,7 +55,7 @@ func initializationTaskEngine(ctx context.Context, service Service, stateRoot st
 	// reconstruct authority. Neither a request nor a run-op argument selects it.
 	runService := service
 	runService.Requester = p.Requester.String()
-	return dataInitializationService(runService, stateRoot, p.Requester.IsLocalOperator()), nil
+	return dataInitializationService(runService, stateRoot), nil
 }
 
 func initializationTask(service Service, stateRoot string) func(context.Context, ops.Operation) (json.RawMessage, error) {

@@ -42,7 +42,7 @@ func TestInitializationStandaloneReconcileReleasesUntouchedFenceWithoutReplay(t 
 	for _, status := range []string{"absent", "unknown", "running"} {
 		t.Run(status, func(t *testing.T) {
 			ctx := context.Background()
-			state, engine, p := initializationJobFixture(t, datainit.LocalOperatorRequester())
+			state, engine, p := initializationJobFixture(t, initializationRequester(t))
 			uploads := 0
 			engine.PrepareRestorePoint = func(context.Context, datainit.Plan, datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 				uploads++
@@ -62,7 +62,11 @@ func TestInitializationStandaloneReconcileReleasesUntouchedFenceWithoutReplay(t 
 			if err = state.TransitionOperation(ctx, job.ID, ops.Queued, ops.Preflight); err != nil {
 				t.Fatal(err)
 			}
-			// Simulate a dead process after the durable fence claim, before a task outcome.
+			// The artifact was published after claim; interruption before quiescence
+			// must inspect only, never publish again or initialize.
+			if err = state.SaveInitArtifact(ctx, p); err != nil {
+				t.Fatal("stored artifact not idempotent", err)
+			}
 
 			r := initializationReconciler{Reconciler: reconcile.Reconciler{Store: state, Systemd: initializationDeadRunner{unknown: status == "unknown", running: status == "running"}}, service: Service{Store: state}, engine: func(context.Context, ops.Operation) (datainit.Service, error) { return engine, nil }}
 			report, err := r.Reconcile(ctx)
@@ -137,7 +141,7 @@ func TestDetachedInitializationRecoveryAtEveryBoundary(t *testing.T) {
 	for _, boundary := range []string{"intent", "quiesced", "restore_point_intent", "upload", "restore_point_verified", "mutation_intent", "mutation_completed", "unknown_schema", "missing_schema_receipt"} {
 		t.Run(boundary, func(t *testing.T) {
 			ctx := context.Background()
-			state, engine, p := initializationJobFixture(t, datainit.LocalOperatorRequester())
+			state, engine, p := initializationJobFixture(t, initializationRequester(t))
 			cursor := boundary
 			if boundary == "upload" {
 				cursor = "restore_point_intent"

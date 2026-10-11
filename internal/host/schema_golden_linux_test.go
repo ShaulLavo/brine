@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/datainit"
 )
 
 func TestHostReviewedSchemaGoldens(t *testing.T) {
@@ -35,8 +36,8 @@ func TestHostReviewedSchemaGoldens(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				var decoded data.SchemaInitializer
-				if err := decodeReviewedInitialization(raw, evidence.Digest, &decoded); err != nil {
+				decoded, err := datainit.DecodeArtifact(raw, evidence.Digest)
+				if err != nil {
 					t.Fatal(err)
 				}
 				if err := decoded.Validate(t.Context()); (err != nil) != mismatch {

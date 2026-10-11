@@ -161,9 +161,48 @@ func finishInitializer(ctx context.Context, tx *sql.Tx, marker, hash string) err
 }
 
 func initializerCatalog(ctx context.Context, tx *sql.Tx) (string, error) {
-	rows, err := tx.QueryContext(ctx, "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type COLLATE BINARY,name COLLATE BINARY")
+	catalog, err := initializerCatalogRows(ctx, tx)
 	if err != nil {
 		return "", err
+	}
+	_, hash, err := CatalogFingerprint(catalog)
+	return hash, err
+}
+
+// InitializerCatalog returns the actual application catalog for plan review.
+func InitializerCatalog(ctx context.Context, a SchemaInitializer) ([]CatalogRow, error) {
+	if err := a.Validate(ctx); err != nil {
+		return nil, err
+	}
+	entries, err := initializerEntries(a.Statements)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := compileInitializer(ctx, entries); err != nil {
+		return nil, err
+	}
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = db.Close() }()
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	for _, entry := range entries {
+		if _, err := tx.ExecContext(ctx, entry.statement); err != nil {
+			return nil, err
+		}
+	}
+	return initializerCatalogRows(ctx, tx)
+}
+
+func initializerCatalogRows(ctx context.Context, tx *sql.Tx) ([]CatalogRow, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT type,name,tbl_name,sql FROM sqlite_schema ORDER BY type COLLATE BINARY,name COLLATE BINARY")
+	if err != nil {
+		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	catalog := []CatalogRow{}
@@ -171,7 +210,7 @@ func initializerCatalog(ctx context.Context, tx *sql.Tx) (string, error) {
 		var row CatalogRow
 		var statement sql.NullString
 		if err = rows.Scan(&row.Type, &row.Name, &row.TableName, &statement); err != nil {
-			return "", err
+			return nil, err
 		}
 		if statement.Valid {
 			row.SQL = &statement.String
@@ -185,21 +224,20 @@ func initializerCatalog(ctx context.Context, tx *sql.Tx) (string, error) {
 				expected = "CREATE TABLE _litestream_lock (id INTEGER)"
 			}
 			if row.Type != "table" || row.Name != row.TableName || row.SQL == nil || *row.SQL != expected {
-				return "", ErrInvalid
+				return nil, ErrInvalid
 			}
 			continue
 		}
 		if row.Name == "brine_schema_marker" || row.TableName == "brine_schema_marker" || strings.HasPrefix(row.TableName, "_litestream_") {
-			return "", ErrInvalid
+			return nil, ErrInvalid
 		}
 		catalog = append(catalog, row)
 		if len(catalog) > maxCatalogRows {
-			return "", ErrInvalid
+			return nil, ErrInvalid
 		}
 	}
 	if err = rows.Err(); err != nil {
-		return "", err
+		return nil, err
 	}
-	_, hash, err := CatalogFingerprint(catalog)
-	return hash, err
+	return catalog, nil
 }

@@ -34,13 +34,59 @@ func (s *Store) SaveInitPlan(ctx context.Context, p datainit.Plan) error {
 	if !p.Valid() {
 		return ErrInvalid
 	}
-	raw, err := json.Marshal(p)
+	raw, err := initPlanMetadata(p)
 	if err != nil || len(raw) > 16384 {
 		return ErrInvalid
 	}
-	_, err = s.db.ExecContext(ctx, "INSERT INTO data_init_plans VALUES(?,?) ON CONFLICT(id) DO NOTHING", p.ID, raw)
-	return err
+	catalog, err := json.Marshal(p.Catalog)
+	if err != nil {
+		return ErrInvalid
+	}
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.ExecContext(ctx, "INSERT INTO data_init_plans VALUES(?,?) ON CONFLICT(id) DO NOTHING", p.ID, raw); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO data_init_reviews VALUES(?,?,?) ON CONFLICT(plan_id) DO NOTHING", p.ID, p.Request.ArtifactBytes, catalog); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
+
+func initPlanMetadata(p datainit.Plan) ([]byte, error) {
+	p.Request.ArtifactBytes = nil
+	p.Catalog = nil
+	return json.Marshal(p)
+}
+
+func (s *Store) SaveInitArtifact(ctx context.Context, p datainit.Plan) error {
+	if !p.Valid() {
+		return ErrInvalid
+	}
+	initializer, err := datainit.DecodeArtifact(p.Request.ArtifactBytes, p.Request.Artifact)
+	if err != nil || initializer.Validate(ctx) != nil {
+		return ErrInvalid
+	}
+	if _, exists, err := s.ReadInitOperation(ctx, p.ID); err != nil || !exists {
+		return ErrConflict
+	}
+	if _, err := s.db.ExecContext(ctx, "INSERT INTO data_init_artifacts VALUES(?,?) ON CONFLICT(digest) DO NOTHING", p.Request.Artifact, p.Request.ArtifactBytes); err != nil {
+		return err
+	}
+	var retained []byte
+	if err := s.db.QueryRowContext(ctx, "SELECT bytes FROM data_init_artifacts WHERE digest=?", p.Request.Artifact).Scan(&retained); err != nil {
+		return err
+	}
+	if !bytes.Equal(retained, p.Request.ArtifactBytes) {
+		return &IntegrityError{}
+	}
+	return nil
+}
+
 func (s *Store) LoadInitPlan(ctx context.Context, id string) (datainit.Plan, error) {
 	if !datainit.ValidID(id) {
 		return datainit.Plan{}, ErrInvalid
@@ -50,10 +96,17 @@ func (s *Store) LoadInitPlan(ctx context.Context, id string) (datainit.Plan, err
 		return datainit.Plan{}, err
 	}
 	var p datainit.Plan
-	if len(raw) > 16384 || json.Unmarshal(raw, &p) != nil || p.ID != id || !p.Valid() {
+	if len(raw) > 16384 || json.Unmarshal(raw, &p) != nil || p.ID != id {
 		return p, &IntegrityError{}
 	}
-	canonical, err := json.Marshal(p)
+	var catalog []byte
+	if err := s.db.QueryRowContext(ctx, "SELECT artifact,catalog FROM data_init_reviews WHERE plan_id=?", id).Scan(&p.Request.ArtifactBytes, &catalog); err != nil {
+		return p, &IntegrityError{}
+	}
+	if len(p.Request.ArtifactBytes) > datainit.ArtifactLimit || len(catalog) > 2<<20 || json.Unmarshal(catalog, &p.Catalog) != nil || !p.Valid() {
+		return p, &IntegrityError{}
+	}
+	canonical, err := initPlanMetadata(p)
 	if err != nil || !bytes.Equal(canonical, raw) {
 		return p, &IntegrityError{}
 	}
@@ -150,7 +203,7 @@ func (s *Store) ClaimInitialization(ctx context.Context, p datainit.Plan) (datai
 	if err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_init_plans WHERE id=?", p.ID).Scan(&canonical); err != nil {
 		return datainit.Operation{}, err
 	}
-	raw, marshalErr := json.Marshal(p)
+	raw, marshalErr := initPlanMetadata(p)
 	if marshalErr != nil {
 		return datainit.Operation{}, ErrInvalid
 	}

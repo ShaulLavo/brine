@@ -96,9 +96,6 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	}
 	closers = append(closers, manager.Close)
 	requester := ""
-	if authenticated == "operator" {
-		requester = "local-operator"
-	}
 	if authenticated == "deploy" {
 		raw, e := trustedRead(ctx, RequesterPath, 256)
 		if e != nil {
@@ -140,7 +137,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
-	initEngine := dataInitializationService(service, stateDir, authenticated == "operator")
+	initEngine := dataInitializationService(service, stateDir)
 	initTasks := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
 	initTasks.Requester = initEngine.Requester.String()
 	r.DataInitialization = initializationOperations{engine: initEngine, tasks: initTasks}

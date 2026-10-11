@@ -143,7 +143,7 @@ func TestReplicaRevisionRefusesIdentityPathsAndSkippedStages(t *testing.T) {
 func TestReplicaRevisionMigrationFromInitializationSchemaEight(t *testing.T) {
 	ctx := context.Background()
 	state, revision := pendingRevisionFixture(t)
-	for _, statement := range []string{"DROP TABLE plan_inputs", "DROP TABLE data_replica_revisions", "UPDATE schema_version SET version=8"} {
+	for _, statement := range []string{"DROP TABLE data_init_reviews", "DROP TABLE data_init_artifacts", "DROP TABLE plan_inputs", "DROP TABLE data_replica_revisions", "UPDATE schema_version SET version=8"} {
 		if _, err := state.db.ExecContext(ctx, statement); err != nil {
 			t.Fatal(err)
 		}

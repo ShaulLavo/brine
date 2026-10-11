@@ -137,7 +137,7 @@ func TestOperationDispatchPreservesOperationalAndTypedErrors(t *testing.T) {
 			t.Run(op+"/"+string(tc.code), func(t *testing.T) {
 				args := `{"app":"fixture","database":"main","expires_at":null}`
 				if op == "data_init_plan" {
-					args = `{"app":"fixture","first_release_plan":"` + hash + `","artifact":"` + hash + `"}`
+					args = reviewedInitRequest(t, "fixture")
 				}
 				if op == "data_init_apply" {
 					args = `{"app":"fixture","plan_id":"` + hash + `"}`

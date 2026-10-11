@@ -25,9 +25,11 @@ type Request struct {
 	App              string `json:"app"`
 	FirstReleasePlan string `json:"first_release_plan"`
 	Artifact         string `json:"artifact"`
+	ArtifactBytes    []byte `json:"artifact_bytes"`
 }
 
 type Plan struct {
+	Catalog        []data.CatalogRow         `json:"catalog"`
 	ReplicaEpoch   data.ReplicaEpochID       `json:"replica_epoch"`
 	RemotePrefix   string                    `json:"remote_prefix"`
 	RestorePointID string                    `json:"restore_point_id"`
@@ -50,15 +52,17 @@ func (p Plan) fingerprint() (string, error) {
 		Plan      Plan      `json:"plan"`
 		Requester Requester `json:"requester"`
 	}{p, p.Requester})
-	if err != nil {
-		return "", err
+	if err != nil || len(raw) > PlanLimit {
+		return "", ErrRefused
 	}
 	sum := sha256.Sum256(raw)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
 }
 func (p Plan) Valid() bool {
 	id, err := p.fingerprint()
-	return err == nil && id == p.ID && ValidID(p.ID) && p.Requester.Valid() && appName.MatchString(p.Request.App) && ValidID(p.Request.FirstReleasePlan) && ValidID(p.Request.Artifact) && data.ValidID(p.RestorePointID) && data.ValidID(string(p.ReplicaEpoch)) && data.ValidID(string(p.Database.ReplicaBindingID)) && p.RemotePrefix != "" && p.Bounds.Valid() && ValidID(p.PolicyHash) && ValidID(p.TargetHash) && ValidID(p.DesiredHash) && data.ValidID(string(p.Database.DatabaseID)) && data.ValidID(string(p.Database.IncarnationID)) && p.Definition.Database == p.Database.Name && p.Definition.Marker != data.EmptyMarker && data.ValidMarker(p.Definition.Marker) && data.ValidCatalogHash(p.Definition.CatalogSHA256) && (p.Source == data.AllocatedEmpty || p.Source == data.VerifiedEmpty)
+	initializer, artifactErr := DecodeArtifact(p.Request.ArtifactBytes, p.Request.Artifact)
+	_, catalogHash, catalogErr := data.CatalogFingerprint(p.Catalog)
+	return artifactErr == nil && initializer.Definition == p.Definition && catalogErr == nil && catalogHash == p.Definition.CatalogSHA256 && err == nil && id == p.ID && ValidID(p.ID) && p.Requester.Valid() && appName.MatchString(p.Request.App) && ValidID(p.Request.FirstReleasePlan) && ValidID(p.Request.Artifact) && data.ValidID(p.RestorePointID) && data.ValidID(string(p.ReplicaEpoch)) && data.ValidID(string(p.Database.ReplicaBindingID)) && p.RemotePrefix != "" && p.Bounds.Valid() && ValidID(p.PolicyHash) && ValidID(p.TargetHash) && ValidID(p.DesiredHash) && data.ValidID(string(p.Database.DatabaseID)) && data.ValidID(string(p.Database.IncarnationID)) && p.Definition.Database == p.Database.Name && p.Definition.Marker != data.EmptyMarker && data.ValidMarker(p.Definition.Marker) && data.ValidCatalogHash(p.Definition.CatalogSHA256) && (p.Source == data.AllocatedEmpty || p.Source == data.VerifiedEmpty)
 }
 
 type Facts struct {
@@ -93,6 +97,7 @@ type Operation struct {
 // a reference-only journal entry. Completion releases the fence atomically.
 type Journal interface {
 	SaveInitPlan(context.Context, Plan) error
+	SaveInitArtifact(context.Context, Plan) error
 	LoadInitPlan(context.Context, string) (Plan, error)
 	ReadInitOperation(context.Context, string) (Operation, bool, error)
 	ClaimInitialization(context.Context, Plan) (Operation, error)
@@ -128,6 +133,10 @@ func (s Service) Plan(ctx context.Context, r Request) (Plan, error) {
 		return Plan{}, err
 	}
 	defer release()
+	initializer, err := DecodeArtifact(r.ArtifactBytes, r.Artifact)
+	if err != nil || initializer.Validate(ctx) != nil {
+		return Plan{}, ErrRefused
+	}
 	f, err := s.Facts(ctx, r)
 	if err != nil {
 		return Plan{}, ErrRefused
@@ -143,6 +152,10 @@ func (s Service) Plan(ctx context.Context, r Request) (Plan, error) {
 		return Plan{}, ErrRefused
 	}
 	if err = f.Initializer.Validate(ctx); err != nil {
+		return Plan{}, ErrRefused
+	}
+	p.Catalog, err = data.InitializerCatalog(ctx, initializer)
+	if err != nil || initializer.Definition != p.Definition {
 		return Plan{}, ErrRefused
 	}
 	p.RestorePointID, err = data.NewID()
@@ -167,6 +180,10 @@ func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
 	if err != nil || !p.Valid() || p.Requester != s.Requester || p.Request.App != app {
 		return Operation{}, ErrRefused
 	}
+	initializer, err := DecodeArtifact(p.Request.ArtifactBytes, p.Request.Artifact)
+	if err != nil || initializer.Validate(ctx) != nil {
+		return Operation{}, ErrRefused
+	}
 	old, exists, err := s.Journal.ReadInitOperation(ctx, id)
 	if err != nil {
 		return Operation{}, err
@@ -184,6 +201,7 @@ func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
 	fresh.Requester = p.Requester
 	fresh.Source = p.Source
 	fresh.RestorePointID = p.RestorePointID
+	fresh.Catalog = p.Catalog
 	if !fresh.Valid() {
 		if exists {
 			return old, ErrRecovery
@@ -208,6 +226,10 @@ func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
 	op, err := s.Journal.ClaimInitialization(ctx, p)
 	if err != nil {
 		return Operation{}, err
+	}
+	// The fence and one-attempt intent are durable before artifact publication.
+	if err := s.Journal.SaveInitArtifact(ctx, p); err != nil {
+		return op, ErrRecovery
 	}
 	stopped, err := s.Quiesce(ctx, p)
 	if err != nil {
@@ -244,6 +266,7 @@ func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
 	fresh.Requester = p.Requester
 	fresh.Source = p.Source
 	fresh.RestorePointID = p.RestorePointID
+	fresh.Catalog = p.Catalog
 	if !fresh.Valid() || f.Initializer.Definition != p.Definition || !point.Admits(p, time.Now().UTC()) {
 		return op, ErrRecovery
 	}
@@ -251,7 +274,7 @@ func (s Service) Apply(ctx context.Context, app, id string) (Operation, error) {
 	if err != nil {
 		return op, ErrRecovery
 	}
-	if err = data.InitializeSchema(ctx, p.Database, f.Initializer, f.Allocation); err != nil {
+	if err = data.InitializeSchema(ctx, p.Database, initializer, f.Allocation); err != nil {
 		return op, ErrRecovery
 	}
 	op, err = s.Journal.SetInitState(ctx, op, "mutation_completed")

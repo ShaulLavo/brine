@@ -53,10 +53,11 @@ sha256sum reviewed-schema.json
 The catalog SHA-256 is
 `f7a92d3e7a27c89c3afd455307ec78b2417b6e643aefbcf1c7c33c3c59838341`.
 The artifact-file digest is different and appears in connected and offline
-plans. Follow [the operator review/install flow](../../docs/data-initialization.md).
-The operator still installs those exact bytes under their digest in the protected
-schema location and supplies that digest to `data init`. Automatic artifact
-delivery is P10-03, not part of schema-file support.
+plans. Follow [the reviewed initialization flow](../../docs/data-initialization.md).
+Use `--artifact reviewed-schema.json` when making the initialization plan.
+The client sends the exact bytes; the human plan shows SQL and the resulting
+catalog. Apply stores them by digest in the unprivileged host's private state.
+No manual server installation or sudo step is required.
 
 `data init` creates the fixed `brine_schema_marker` table and row atomically
 with the reviewed statements. Do not add that table to the SQL file or execute
