@@ -81,7 +81,7 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 			if err != nil {
 				return cli.RuntimeServices{}, err
 			}
-			return cli.RuntimeServices{Archives: runtime.Archives, Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
+			return cli.RuntimeServices{Archives: runtime.Archives, ArchiveMaintenance: runtime.ArchiveMaintenance, ArchiveCredentials: runtime.ArchiveCredentials, Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
 		}
 	}
 	return result.ExitCode(cli.ExecuteWithRuntime(deps, args, lifecycle))

@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/ShaulLavo/brine/internal/archive"
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/replication"
@@ -33,6 +34,8 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 		}
 		deps.HostReconciler = lazyReconciler{&runtime}
 		deps.HostArchives = lazyArchives{&runtime}
+		deps.HostArchiveMaintenance = lazyArchiveMaintenance{&runtime}
+		deps.HostArchiveCredentials = lazyArchiveCredentials{&runtime}
 	}
 	if lifecycle.OpenPermits != nil {
 		deps.HostPermits = lazyHostPermits{&runtime}
@@ -133,12 +136,14 @@ func validEnvelopeStream(data []byte, command string) bool {
 }
 
 type RuntimeServices struct {
-	Archives      archive.Service
-	Permits       replication.LaunchReader
-	WriterAttempt func(context.Context, string) error
-	Runner        OperationRunner
-	Reconciler    dispatch.ReconcileOperations
-	Close         func() error
+	Archives           archive.Service
+	ArchiveMaintenance archive.MaintenanceService
+	ArchiveCredentials backupcredentials.ArchiveService
+	Permits            replication.LaunchReader
+	WriterAttempt      func(context.Context, string) error
+	Runner             OperationRunner
+	Reconciler         dispatch.ReconcileOperations
+	Close              func() error
 }
 type RuntimeLifecycle struct {
 	OpenPermits       func(context.Context) (RuntimeServices, error)

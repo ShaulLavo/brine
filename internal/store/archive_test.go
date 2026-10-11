@@ -172,7 +172,7 @@ func TestArchiveManifestCannotReplaceVerifiedCoverage(t *testing.T) {
 
 func dropArchiveMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
-	for _, table := range []string{"data_archive_retirements", "data_archive_dispositions", "data_archive_manifests", "data_archive_events", "data_archive_fences", "data_archive_operations", "data_archive_plans"} {
+	for _, table := range []string{"data_archive_credential_receipts", "data_archive_credential_plans", "data_archive_retention_proofs", "data_archive_deletions", "data_archive_maintenance_plans", "data_archive_retirements", "data_archive_dispositions", "data_archive_manifests", "data_archive_events", "data_archive_fences", "data_archive_operations", "data_archive_plans"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatal(err)
 		}
