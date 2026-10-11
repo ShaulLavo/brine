@@ -56,6 +56,7 @@ type Registry struct {
 	RepositoryPrefixes []string `toml:"repository_prefixes" json:"repository_prefixes"`
 }
 type document struct {
+	SpacetimeDB          *SpacetimePolicy                 `toml:"spacetimedb" json:"spacetimedb,omitempty"`
 	DataInitialization   *persistent.InitializationBounds `toml:"data_initialization" json:"data_initialization,omitempty"`
 	BackupRetention      []persistent.RetentionEvidence   `toml:"backup_retention" json:"backup_retention,omitempty"`
 	Backup               *backupDocument                  `toml:"backup" json:"backup,omitempty"`
@@ -141,6 +142,9 @@ func Parse(data []byte) (Policy, error) {
 	}
 	if _, err := normalizeBackup(raw.Backup); err != nil {
 		return Policy{}, err
+	}
+	if raw.SpacetimeDB != nil && !raw.SpacetimeDB.Valid() {
+		return bad("policy.invalid_spacetimedb", "spacetimedb", "explicit bounded license and backup review facts are required")
 	}
 	seenDestinations := map[persistent.BackupDestinationRef]bool{}
 	for _, d := range raw.BackupDestinations {
@@ -271,10 +275,10 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "data_initialization") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "data_initialization", "spacetimedb") {
 		return false
 	}
-	for key, allowed := range map[string][]string{"data_initialization": {"max_backup_age_seconds", "max_restore_test_age_seconds", "recovery_window_seconds"}, "backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
+	for key, allowed := range map[string][]string{"spacetimedb": {"license_use", "license_authority", "capture_interval_seconds", "verification_interval_seconds", "max_remote_loss_seconds", "max_maintenance_seconds"}, "data_initialization": {"max_backup_age_seconds", "max_restore_test_age_seconds", "recovery_window_seconds"}, "backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
 		if v, ok := keys[key]; ok {
 			m, ok := v.(map[string]any)
 			if !ok || !onlyKeys(m, allowed...) {
