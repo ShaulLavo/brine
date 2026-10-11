@@ -50,6 +50,24 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "deploy_checkpoint":
+			checked, err := decodeDeploymentCheckpoint(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = checked
+		case "deploy_operation":
+			recovered, err := decodeDeploymentOperation(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = recovered
+		case "deploy_state":
+			state, err := decodeDeploymentState(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = state
 		case "data_init_plan":
 			var p datainit.Plan
 			decoder := json.NewDecoder(bytes.NewReader(fields["data"]))

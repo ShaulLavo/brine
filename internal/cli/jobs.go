@@ -42,6 +42,10 @@ func (f operationFlags) call(ctx context.Context, deps Dependencies, op string, 
 	if !f.validSelection() {
 		return result.Envelope{}, result.New(result.InvalidUsage, nil)
 	}
+	target, err := f.loadTarget(deps)
+	if err != nil {
+		return result.Envelope{}, err
+	}
 	dir := f.configDir
 	if dir == "" {
 		base, err := os.UserConfigDir()
@@ -49,14 +53,6 @@ func (f operationFlags) call(ctx context.Context, deps Dependencies, op string, 
 			return result.Envelope{}, err
 		}
 		dir = filepath.Join(base, "brine", "targets")
-	}
-	load := deps.LoadOperationTarget
-	if load == nil {
-		load = loadOperationTarget
-	}
-	target, err := load(dir, f.target)
-	if err != nil {
-		return result.Envelope{}, err
 	}
 	client := deps.OperationClient
 	if client == nil {
@@ -67,6 +63,7 @@ func (f operationFlags) call(ctx context.Context, deps Dependencies, op string, 
 		return result.Envelope{}, err
 	}
 	raw, err := json.Marshal(args)
+	defer clear(raw)
 	if err != nil {
 		return result.Envelope{}, err
 	}
@@ -218,4 +215,24 @@ func newHostRunOpCmd(deps Dependencies) *cobra.Command {
 		defer cancel()
 		return deps.HostOperationRunner.Run(ctx, args[0])
 	}}
+}
+
+func (f operationFlags) loadTarget(deps Dependencies) (transport.Target, error) {
+	dir := f.configDir
+	if dir == "" {
+		base, err := os.UserConfigDir()
+		if err != nil {
+			return transport.Target{}, err
+		}
+		dir = filepath.Join(base, "brine", "targets")
+	}
+	load := deps.LoadOperationTarget
+	if load == nil {
+		load = loadOperationTarget
+	}
+	target, err := load(dir, f.target)
+	if err != nil {
+		return transport.Target{}, err
+	}
+	return target, nil
 }

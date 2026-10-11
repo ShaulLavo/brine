@@ -230,7 +230,7 @@ func (s *Store) EventsAfter(ctx context.Context, id OpID, cursor uint64, limit i
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	events := []Event{}
 	for rows.Next() {
 		var e Event
@@ -251,7 +251,7 @@ func (s *Store) ListUnfinished(ctx context.Context) ([]Operation, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	result := []Operation{}
 	for rows.Next() {
 		op, err := scanOperation(rows)
@@ -293,4 +293,27 @@ func (s *Store) CreateReconcileOperation(ctx context.Context, requester string) 
 	}
 	op, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Reconcile}, requester, "reconcile-"+key)
 	return op, err
+}
+
+// FindDeploymentOperation only reads the caller's durable acceptance. Multiple
+// task attempts for one plan are ambiguous and require explicit inspection.
+func (s *Store) FindDeploymentOperation(ctx context.Context, requester string, kind ops.Kind, reference, key string) (string, error) {
+	if requester == "" || reference == "" || (kind != ops.Deploy && kind != ops.CredentialActivation && kind != ops.DataInitApply) || (kind == ops.Deploy && key == "") || (kind != ops.Deploy && key != "") {
+		return "", ErrInvalid
+	}
+	rows, err := s.db.QueryContext(ctx, `SELECT id FROM operations WHERE requester=? AND kind=? AND ((?='deploy' AND plan_id=? AND idempotency_key=?) OR (?!='deploy' AND secret_ref=?)) LIMIT 2`, requester, kind, kind, reference, key, kind, reference)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rows.Close() }()
+	id := ""
+	for rows.Next() {
+		if id != "" {
+			return "", ErrConflict
+		}
+		if err = rows.Scan(&id); err != nil {
+			return "", err
+		}
+	}
+	return id, rows.Err()
 }

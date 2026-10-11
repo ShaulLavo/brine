@@ -86,7 +86,13 @@ func RequestInput(cmd *cobra.Command, prompt func(context.Context, io.Reader, io
 			return result.New(result.InputRequired, nil)
 		}
 	}
-	if !isTerminal(cmd.InOrStdin()) || !isTerminal(cmd.OutOrStdout()) {
+	output := cmd.OutOrStdout()
+	// Plain rendering must not erase the injected terminal's identity. In
+	// particular NO_COLOR disables styling, not interactive approval.
+	if plain, ok := output.(*plainWriter); ok {
+		output = plain.output
+	}
+	if !isTerminal(cmd.InOrStdin()) || !isTerminal(output) {
 		return result.New(result.InputRequired, nil)
 	}
 	return prompt(cmd.Context(), cmd.InOrStdin(), cmd.ErrOrStderr())

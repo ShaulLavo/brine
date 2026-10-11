@@ -83,13 +83,20 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 		machine = true
 	}
 	err = runtime.finalize(deps, err)
+	var failureData any
+	var deployment *deploymentFailure
+	if errors.As(err, &deployment) {
+		failureData = deployment.machineFailureData()
+	}
 	if err != nil {
 		err = result.Classify(err)
 	}
 	if machine {
 		var writeErr error
 		if err != nil {
-			writeErr = json.NewEncoder(stdout).Encode(result.Failure(name, err))
+			failure := result.Failure(name, err)
+			failure.Data = failureData
+			writeErr = json.NewEncoder(stdout).Encode(failure)
 		} else if json.Valid(output.Bytes()) || (modes.jsonl && validEnvelopeStream(output.Bytes(), name)) {
 			_, writeErr = stdout.Write(output.Bytes())
 		} else {

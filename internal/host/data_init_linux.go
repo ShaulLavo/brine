@@ -64,15 +64,30 @@ func initializationFacts(ctx context.Context, s Service, stateRoot string, r dat
 		return f, datainit.ErrRefused
 	}
 	candidate, err := s.Store.InitializationCandidate(ctx, r.App, r.FirstReleasePlan)
-	if err != nil || len(candidate.Bindings) != 1 {
+	if err != nil || len(candidate.Bindings) == 0 {
 		return f, datainit.ErrRefused
 	}
 	releasePlan, desired, err := s.Store.LoadPlan(ctx, r.FirstReleasePlan)
 	if err != nil || desired.PolicyHash != pol.Hash() {
 		return f, datainit.ErrRefused
 	}
-	binding := candidate.Bindings[0]
-	if binding.Name != desired.Databases[0].Name || binding.Root != desired.Databases[0].PersistentRoot || binding.MountPath != desired.Databases[0].MountPath || binding.Filename != desired.Databases[0].Filename || !slices.Contains(pol.PersistentRoots(), string(binding.Root)) {
+	if f.Initializer, err = datainit.DecodeArtifact(r.ArtifactBytes, r.Artifact); err != nil {
+		return f, err
+	}
+	definition := f.Initializer.Definition
+	var binding data.DatabaseBinding
+	for _, candidateBinding := range candidate.Bindings {
+		if candidateBinding.Name == definition.Database {
+			binding = candidateBinding
+		}
+	}
+	admitted := false
+	for _, declaration := range desired.Databases {
+		if binding.Name == declaration.Name && binding.Root == declaration.PersistentRoot && binding.MountPath == declaration.MountPath && binding.Filename == declaration.Filename && slices.Contains(pol.PersistentRoots(), string(binding.Root)) {
+			admitted = true
+		}
+	}
+	if !admitted {
 		return f, datainit.ErrRefused
 	}
 	permit, err := s.Store.ReadReplicaPermit(ctx, binding.DatabaseID)
@@ -87,10 +102,6 @@ func initializationFacts(ctx context.Context, s Service, stateRoot string, r dat
 	if !ok || !retention.Admits(destination, time.Now().UTC()) {
 		return f, datainit.ErrRefused
 	}
-	if f.Initializer, err = datainit.DecodeArtifact(r.ArtifactBytes, r.Artifact); err != nil {
-		return f, err
-	}
-	definition := f.Initializer.Definition
 	if !slices.Contains(candidate.Definitions, definition) || !slices.Contains(desired.SchemaDefinitions, definition) || !slices.Contains(desired.SchemaArtifacts, data.SchemaArtifact{Definition: definition, Digest: r.Artifact}) {
 		return f, datainit.ErrRefused
 	}
