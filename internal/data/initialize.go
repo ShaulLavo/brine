@@ -16,8 +16,8 @@ import (
 // must authorize that artifact, hold the mutation/fence/lifetime locks, and
 // durably record intent and an independently verified empty restore point first.
 type SchemaInitializer struct {
-	Definition SchemaDefinition `json:"definition"`
-	Statements []string         `json:"statements"`
+	Definition SQLiteSchemaDefinition `json:"definition"`
+	Statements []string               `json:"statements"`
 }
 
 func (a SchemaInitializer) Validate(ctx context.Context) error {
@@ -41,7 +41,7 @@ func (a SchemaInitializer) Validate(ctx context.Context) error {
 // InitializeSchema never retries or repairs a database. A failed create can
 // leave a zero-byte file; a failed/unknown commit must be inspected by the
 // journal owner, never replayed. App schema and marker commit atomically.
-func InitializeSchema(ctx context.Context, b DatabaseBinding, a SchemaInitializer, allocation *AllocationReceipt) error {
+func InitializeSchema(ctx context.Context, b SQLiteDatabaseBinding, a SchemaInitializer, allocation *AllocationReceipt) error {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if a.Definition.Database != b.Name {
@@ -50,7 +50,7 @@ func InitializeSchema(ctx context.Context, b DatabaseBinding, a SchemaInitialize
 	if err := a.Validate(ctx); err != nil {
 		return err
 	}
-	o := ObserveSchemaWithAllocation(ctx, b, nil, allocation)
+	o := ObserveSQLiteSchemaWithAllocation(ctx, b, nil, allocation)
 	if o.State != AllocatedEmpty && o.State != VerifiedEmpty {
 		return ErrInvalid
 	}

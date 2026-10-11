@@ -136,7 +136,7 @@ func (s *Store) InitializationCandidate(ctx context.Context, app, planID string)
 	if err != nil {
 		return WriterSchema{}, err
 	}
-	out := WriterSchema{Desired: desired, Bindings: []data.DatabaseBinding{}, Definitions: definitions, Allocations: map[data.DatabaseID]data.AllocationReceipt{}}
+	out := WriterSchema{Desired: desired, Bindings: []data.SQLiteDatabaseBinding{}, Definitions: definitions, Allocations: map[data.DatabaseID]data.AllocationReceipt{}}
 	for _, declaration := range desired.Databases {
 		var database data.DatabaseID
 		if err = tx.QueryRowContext(ctx, "SELECT id FROM data_databases WHERE incarnation_id=? AND name=?", id, declaration.Name).Scan(&database); err != nil {
@@ -299,7 +299,7 @@ func (s *Store) SaveInitRestorePoint(ctx context.Context, o datainit.Operation, 
 		return ErrInvalid
 	}
 	source := point.Receipt.Source.Snapshot
-	recorded := data.RestorePoint{ID: point.PointID, BindingID: p.Database.ReplicaBindingID, EpochID: p.ReplicaEpoch, Kind: data.RestorePointSnapshot, Schema: data.SchemaObservation{State: data.VerifiedEmpty, DatabaseID: p.Database.DatabaseID, ObservedAt: point.Receipt.ObservedAt, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, Snapshot: &data.RestoreSnapshotPoint{ObjectKey: source.ObjectKey, SHA256: source.SHA256, Size: source.Size}, RecordedAt: point.Receipt.ObservedAt}
+	recorded := data.SQLiteRestorePoint{ID: point.PointID, BindingID: p.Database.ReplicaBindingID, EpochID: p.ReplicaEpoch, Kind: data.RestorePointSnapshot, Schema: data.SQLiteSchemaObservation{State: data.VerifiedEmpty, DatabaseID: p.Database.DatabaseID, ObservedAt: point.Receipt.ObservedAt, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, Snapshot: &data.RestoreSnapshotPoint{ObjectKey: source.ObjectKey, SHA256: source.SHA256, Size: source.Size}, RecordedAt: point.Receipt.ObservedAt}
 	if err = s.SaveEmptyRestorePoint(ctx, recorded, o.ID, o.Fence); err != nil {
 		return err
 	}

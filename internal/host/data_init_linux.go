@@ -75,7 +75,7 @@ func initializationFacts(ctx context.Context, s Service, stateRoot string, r dat
 		return f, err
 	}
 	definition := f.Initializer.Definition
-	var binding data.DatabaseBinding
+	var binding data.SQLiteDatabaseBinding
 	for _, candidateBinding := range candidate.Bindings {
 		if candidateBinding.Name == definition.Database {
 			binding = candidateBinding
@@ -132,7 +132,7 @@ func initializationFacts(ctx context.Context, s Service, stateRoot string, r dat
 	if a, ok := candidate.Allocations[binding.DatabaseID]; ok {
 		f.Allocation = &a
 	}
-	f.Observation = data.ObserveSchemaWithAllocation(ctx, binding, candidate.Definitions, f.Allocation)
+	f.Observation = data.ObserveSQLiteSchemaWithAllocation(ctx, binding, candidate.Definitions, f.Allocation)
 	return f, nil
 }
 
@@ -198,8 +198,8 @@ func prepareEmptyRestorePoint(ctx context.Context, s Service, stateRoot string, 
 	if err != nil {
 		return point, datainit.ErrRecovery
 	}
-	engine := restore.Engine{Root: root, MaxSnapshotBytes: 1 << 20, Observer: restore.EmptySchemaObserver{}, Bindings: restore.BindingReaderFunc(func(context.Context, string, string) (restore.Binding, error) { return binding, nil }), Credentials: restore.CredentialReaderFunc(func(context.Context, string) (restore.Credentials, error) { return credentials, nil })}
-	restored, err := engine.Test(ctx, restore.Request{OperationID: op.ID + "-empty-verify", Source: restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &source}, Budget: time.Minute, ExpectedSchema: restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}})
+	engine := restore.SQLiteEngine{Root: root, MaxSnapshotBytes: 1 << 20, Observer: restore.EmptySchemaObserver{}, Bindings: restore.BindingReaderFunc(func(context.Context, string, string) (restore.Binding, error) { return binding, nil }), Credentials: restore.CredentialReaderFunc(func(context.Context, string) (restore.Credentials, error) { return credentials, nil })}
+	restored, err := restore.VerifySQLite(ctx, &engine, restore.SQLiteRequest{OperationID: op.ID + "-empty-verify", Source: restore.SQLiteSource{Kind: restore.SQLiteSnapshot, Snapshot: &source}, Budget: time.Minute, ExpectedSchema: restore.SQLiteSchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}})
 	if err != nil {
 		return point, datainit.ErrRecovery
 	}

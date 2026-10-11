@@ -51,7 +51,7 @@ func TestRootProbeAndPrivateAllocation(t *testing.T) {
 	incarnation, _ := NewID()
 	database, _ := NewID()
 	relative, _ := RelativeDirectory(AppIncarnationID(incarnation), DatabaseID(database))
-	b := DatabaseBinding{IncarnationID: AppIncarnationID(incarnation), DatabaseID: DatabaseID(database), Root: PersistentRoot(root), RelativeDirectory: relative}
+	b := SQLiteDatabaseBinding{IncarnationID: AppIncarnationID(incarnation), DatabaseID: DatabaseID(database), Root: PersistentRoot(root), RelativeDirectory: relative}
 	allocated, err := PrepareDirectory(b)
 	if err != nil {
 		t.Fatal(err)
@@ -128,7 +128,7 @@ func TestAllocationRejectsSymlinkBeforeCreatingDescendants(t *testing.T) {
 	incarnation := AppIncarnationID("11111111111111111111111111111111")
 	database := DatabaseID("22222222222222222222222222222222")
 	relative, _ := RelativeDirectory(incarnation, database)
-	if _, err := PrepareDirectory(DatabaseBinding{IncarnationID: incarnation, DatabaseID: database, Root: PersistentRoot(root), RelativeDirectory: relative}); err == nil {
+	if _, err := PrepareDirectory(SQLiteDatabaseBinding{IncarnationID: incarnation, DatabaseID: database, Root: PersistentRoot(root), RelativeDirectory: relative}); err == nil {
 		t.Fatal("symlink accepted")
 	}
 	entries, err := os.ReadDir(other)

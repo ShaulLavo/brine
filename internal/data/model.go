@@ -33,7 +33,7 @@ type RuntimeIdentity struct {
 
 const DefaultSyncInterval = time.Minute
 
-type Database struct {
+type SQLiteDatabase struct {
 	SyncInterval      time.Duration        `json:"sync_interval,omitempty"`
 	Name              DatabaseName         `json:"name"`
 	PersistentRoot    PersistentRoot       `json:"persistent_root"`
@@ -41,17 +41,17 @@ type Database struct {
 	Filename          DatabaseFilename     `json:"filename"`
 	BackupDestination BackupDestinationRef `json:"backup_destination"`
 }
-type SchemaCompatibility struct {
+type SQLiteSchemaCompatibility struct {
 	Database DatabaseName `json:"database"`
 	Accepts  []string     `json:"accepts"`
 	Startup  string       `json:"startup"`
 }
-type SchemaDefinition struct {
+type SQLiteSchemaDefinition struct {
 	Database      DatabaseName `json:"database"`
 	Marker        string       `json:"marker"`
 	CatalogSHA256 string       `json:"catalog_sha256"`
 }
-type DatabaseBinding struct {
+type SQLiteDatabaseBinding struct {
 	DatabaseID        DatabaseID         `json:"database_id"`
 	Name              DatabaseName       `json:"name"`
 	IncarnationID     AppIncarnationID   `json:"incarnation_id"`
@@ -103,10 +103,10 @@ type QuiescenceFence struct {
 	State         FenceState       `json:"state"`
 }
 type Mount struct {
-	Database      DatabaseBinding    `json:"database"`
-	HostPath      string             `json:"host_path"`
-	ContainerPath ContainerMountPath `json:"container_path"`
-	BindingID     ReplicaBindingID   `json:"binding_id"`
+	Database      SQLiteDatabaseBinding `json:"database"`
+	HostPath      string                `json:"host_path"`
+	ContainerPath ContainerMountPath    `json:"container_path"`
+	BindingID     ReplicaBindingID      `json:"binding_id"`
 }
 type SchemaState string
 
@@ -119,7 +119,7 @@ const (
 	EmptyCatalogSHA256             = "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
 )
 
-type SchemaObservation struct {
+type SQLiteSchemaObservation struct {
 	State         SchemaState `json:"state"`
 	DatabaseID    DatabaseID  `json:"database_id"`
 	ObservedAt    time.Time   `json:"observed_at"`
@@ -153,7 +153,7 @@ func (r RuntimeIdentity) Validate() error {
 	}
 	return nil
 }
-func (d Database) Validate() error {
+func (d SQLiteDatabase) Validate() error {
 	if !namePattern.MatchString(string(d.Name)) || !namePattern.MatchString(string(d.BackupDestination)) || !ValidRoot(string(d.PersistentRoot)) || !ValidRoot(string(d.MountPath)) || !filenamePattern.MatchString(string(d.Filename)) {
 		return ErrInvalid
 	}

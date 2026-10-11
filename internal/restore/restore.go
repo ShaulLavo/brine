@@ -11,19 +11,19 @@ import (
 	"time"
 )
 
-type Engine struct {
+type SQLiteEngine struct {
 	// Root is a dedicated runner-owned private restore workspace, never a data root.
 	Root             string
 	Bindings         BindingReader
 	Credentials      CredentialReader
-	Observer         SchemaObserver
+	Observer         SQLiteSchemaObserver
 	CLI              CLI
 	MaxSnapshotBytes int64
 	// AllowHTTPForTests admits a local fake only. Production requires HTTPS.
 	AllowHTTPForTests bool
 }
 
-func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
+func (e *SQLiteEngine) Test(ctx context.Context, r SQLiteRequest) (SQLiteReceipt, error) {
 	if source := r.Source.Snapshot; source != nil {
 		copy := *source
 		r.Source.Snapshot = &copy
@@ -38,25 +38,25 @@ func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
 	}
 	id, epoch, err := requestReference(r)
 	if err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	if !token.MatchString(id) || !token.MatchString(epoch) || !token.MatchString(r.OperationID) || r.Budget <= 0 || r.Budget > 30*time.Minute || e.Bindings == nil || e.Credentials == nil || e.Observer == nil {
-		return Receipt{}, refuse("invalid_request")
+		return SQLiteReceipt{}, refuse("invalid_request")
 	}
 	if err := validateChecks(r); err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, r.Budget)
 	defer cancel()
 	binding, err := e.Bindings.ReadBinding(ctx, id, epoch)
 	if err != nil {
-		return Receipt{}, refuse("binding_unavailable")
+		return SQLiteReceipt{}, refuse("binding_unavailable")
 	}
 	if binding.ID != id || binding.Epoch != epoch || !token.MatchString(binding.CredentialRef) {
-		return Receipt{}, refuse("binding_mismatch")
+		return SQLiteReceipt{}, refuse("binding_mismatch")
 	}
 	if err := validateDestination(binding.Destination, e.AllowHTTPForTests); err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	if s := r.Source.Snapshot; s != nil {
 		limit := e.MaxSnapshotBytes
@@ -65,28 +65,28 @@ func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
 		}
 		expected := binding.Destination.Prefix + "/restore-points/" + s.PointID + "/snapshot.sqlite"
 		if limit <= 0 || s.Size > limit || s.ObjectKey != expected {
-			return Receipt{}, refuse("snapshot_scope_or_size")
+			return SQLiteReceipt{}, refuse("snapshot_scope_or_size")
 		}
 	}
 	now := time.Now().UTC()
 	if b := r.Source.LTX; b != nil && b.Barrier != nil && b.Barrier.ObservedAt.After(now) {
-		return Receipt{}, refuse("invalid_barrier")
+		return SQLiteReceipt{}, refuse("invalid_barrier")
 	}
 	if r.Coverage != nil && (!samePoint(r.Coverage.Source, r.Source) || r.Coverage.CoveredThrough.IsZero() || !r.Coverage.CoveredThrough.Before(now)) {
-		return Receipt{}, refuse("invalid_coverage")
+		return SQLiteReceipt{}, refuse("invalid_coverage")
 	}
 	credentials, err := e.Credentials.ReadCredentials(ctx, binding.CredentialRef)
 	if err != nil {
-		return Receipt{}, refuse("credentials_unavailable")
+		return SQLiteReceipt{}, refuse("credentials_unavailable")
 	}
 	// Readers may issue fresh scoped credentials while this call is running.
 	// Compare their timestamps at the credential boundary, not before the read.
 	if err := validateCredentials(credentials, time.Now().UTC(), r.Budget); err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	directory, err := newDirectory(e.Root, r.OperationID)
 	if err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	success := false
 	defer func() {
@@ -104,23 +104,23 @@ func (e *Engine) Test(ctx context.Context, r Request) (Receipt, error) {
 		recovered, err = e.restoreLTX(ctx, binding, credentials, *r.Source.LTX, directory, output)
 	}
 	if err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	if r.Latest {
 		r.Source.LTX.TXID = recovered
 	}
 	if err := validateOutput(output); err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	schema, sentinel, err := verify(ctx, output, e.Observer, r)
 	if err != nil {
-		return Receipt{}, err
+		return SQLiteReceipt{}, err
 	}
 	if ctx.Err() != nil {
-		return Receipt{}, refuse("deadline")
+		return SQLiteReceipt{}, refuse("deadline")
 	}
 	observed := time.Now().UTC()
-	receipt := Receipt{OperationID: r.OperationID, Source: r.Source, ToolVersion: toolVersion, RecoveredTXID: recovered, ObservedAt: observed, Schema: schema, Sentinel: sentinel, DatabasePath: output, LossWindow: LossWindow{State: LossUnknown, Reason: "No independent last-commit coverage proof; asynchronous replication may lose recent writes."}}
+	receipt := SQLiteReceipt{OperationID: r.OperationID, Source: r.Source, ToolVersion: toolVersion, RecoveredTXID: recovered, ObservedAt: observed, Schema: schema, Sentinel: sentinel, DatabasePath: output, LossWindow: LossWindow{State: LossUnknown, Reason: "No independent last-commit coverage proof; asynchronous replication may lose recent writes."}}
 	receipt.IntegrityCheck = "passed"
 	receipt.ForeignKeyCheck = "passed"
 	receipt.InvariantCheck = "unknown"
@@ -217,7 +217,7 @@ func validateOutput(path string) error {
 	}
 	return nil
 }
-func (e *Engine) restoreLTX(ctx context.Context, b Binding, c Credentials, s LTXSource, directory, output string) (recovered uint64, resultErr error) {
+func (e *SQLiteEngine) restoreLTX(ctx context.Context, b Binding, c Credentials, s LTXSource, directory, output string) (recovered uint64, resultErr error) {
 	cli := e.CLI
 	if cli == nil {
 		cli = ExecCLI{}
@@ -290,7 +290,7 @@ func renderConfig(selector string, d Destination) []byte {
 	return []byte(config)
 }
 
-func requestReference(r Request) (string, string, error) {
+func requestReference(r SQLiteRequest) (string, string, error) {
 	if !r.Latest {
 		return r.Source.reference()
 	}

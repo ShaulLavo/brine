@@ -61,21 +61,21 @@ func CatalogFingerprint(rows []CatalogRow) ([]byte, string, error) {
 
 // ObserveSchema never allocates, initializes or repairs a database. An absent
 // file cannot be called empty here; allocated_empty needs a store-owned receipt.
-func ObserveSchema(ctx context.Context, b DatabaseBinding, definitions []SchemaDefinition) SchemaObservation {
+func observeSQLiteSchema(ctx context.Context, b SQLiteDatabaseBinding, definitions []SQLiteSchemaDefinition) SQLiteSchemaObservation {
 	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
 	if err != nil || relative != b.RelativeDirectory {
-		return SchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
+		return SQLiteSchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
 	}
 	return observeSchemaDirectory(ctx, b, definitions, relative)
 }
 
-func observeSchemaDirectory(ctx context.Context, b DatabaseBinding, definitions []SchemaDefinition, relative string) SchemaObservation {
-	o := SchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
+func observeSchemaDirectory(ctx context.Context, b SQLiteDatabaseBinding, definitions []SQLiteSchemaDefinition, relative string) SQLiteSchemaObservation {
+	o := SQLiteSchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
 	if !ValidRoot(string(b.Root)) {
 		return o
 	}
 	var err error
-	declaration := Database{Name: b.Name, PersistentRoot: b.Root, MountPath: b.MountPath, Filename: b.Filename, BackupDestination: "observer"}
+	declaration := SQLiteDatabase{Name: b.Name, PersistentRoot: b.Root, MountPath: b.MountPath, Filename: b.Filename, BackupDestination: "observer"}
 	if declaration.Validate() != nil {
 		return o
 	}
@@ -126,7 +126,7 @@ func observeSchemaDirectory(ctx context.Context, b DatabaseBinding, definitions 
 		return o
 	}
 	defer tx.Rollback()
-	o = ObserveSchemaTransaction(ctx, tx, b.Name, definitions)
+	o = ObserveSQLiteSchemaTransaction(ctx, tx, b.Name, definitions)
 	o.DatabaseID = b.DatabaseID
 	if o.State == Unknown {
 		return o
@@ -161,7 +161,7 @@ func observeSchemaDirectory(ctx context.Context, b DatabaseBinding, definitions 
 }
 
 // CompatibleObservation checks exact markers only, without inferred ordering.
-func CompatibleObservation(database DatabaseName, o SchemaObservation, c SchemaCompatibility) bool {
+func CompatibleSQLiteObservation(database DatabaseName, o SQLiteSchemaObservation, c SQLiteSchemaCompatibility) bool {
 	if c.Database != database || c.Startup != "preserve" || len(c.Accepts) == 0 || (o.State != VerifiedEmpty && o.State != VerifiedSchema && o.State != AllocatedEmpty) || o.Marker == "" || !hashPattern.MatchString(o.CatalogSHA256) {
 		return false
 	}
@@ -173,7 +173,7 @@ func CompatibleObservation(database DatabaseName, o SchemaObservation, c SchemaC
 
 // WriterCompatible observes each database afresh. The caller resolves bindings
 // and declarations from the currently committed release, not a client assertion.
-func WriterCompatible(ctx context.Context, bindings []DatabaseBinding, compatibility []SchemaCompatibility, definitions []SchemaDefinition) bool {
+func WriterCompatible(ctx context.Context, bindings []SQLiteDatabaseBinding, compatibility []SQLiteSchemaCompatibility, definitions []SQLiteSchemaDefinition) bool {
 	if !validWriterDeclarations(bindings, compatibility) {
 		return false
 	}
@@ -181,7 +181,7 @@ func WriterCompatible(ctx context.Context, bindings []DatabaseBinding, compatibi
 		found := false
 		for _, c := range compatibility {
 			if c.Database == b.Name {
-				if found || !CompatibleObservation(b.Name, ObserveSchema(ctx, b, definitions), c) {
+				if found || !CompatibleSQLiteObservation(b.Name, ObserveSQLiteSchema(ctx, b, definitions), c) {
 					return false
 				}
 				found = true
@@ -194,7 +194,7 @@ func WriterCompatible(ctx context.Context, bindings []DatabaseBinding, compatibi
 	return true
 }
 
-func validWriterDeclarations(bindings []DatabaseBinding, compatibility []SchemaCompatibility) bool {
+func validWriterDeclarations(bindings []SQLiteDatabaseBinding, compatibility []SQLiteSchemaCompatibility) bool {
 	if len(bindings) == 0 || len(bindings) != len(compatibility) {
 		return false
 	}

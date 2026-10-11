@@ -26,44 +26,44 @@ func newRestoreTests(dir string) dispatch.RestoreTestOperations {
 
 // Restore tests open only the control store read-only. No live source path is
 // passed to the engine or the fixed transaction observer.
-func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, operationID string) (restore.Receipt, error) {
+func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, operationID string) (restore.SQLiteReceipt, error) {
 	if !a.Valid() {
-		return restore.Receipt{}, result.New(result.InvalidUsage, nil)
+		return restore.SQLiteReceipt{}, result.New(result.InvalidUsage, nil)
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
 	state, err := store.OpenReadOnly(ctx, o.stateDir)
 	if err != nil {
-		return restore.Receipt{}, result.New(result.PolicyRefused, nil)
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
 	defer func() { _ = state.Close() }()
 	scopes, err := state.ReadCredentialScopes(ctx, a.App)
 	if err != nil {
-		return restore.Receipt{}, result.New(result.PolicyRefused, nil)
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
 	scope, err := selectCredentialScope(scopes, a.Database)
 	if err != nil || !scope.Replica.Committed {
-		return restore.Receipt{}, result.New(result.PolicyRefused, nil)
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
 	declarations, err := state.ReadWriterSchema(ctx, scope.Database.IncarnationID)
 	if err != nil {
-		return restore.Receipt{}, result.New(result.PolicyRefused, nil)
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
 	request, err := restoreRequest(scope, declarations, a)
 	if err != nil {
-		return restore.Receipt{}, result.New(result.PolicyRefused, nil)
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
 	if a.Point != "" {
 		point, err := state.ReadRestorePoint(ctx, a.Point, scope.Replica.BindingID, scope.Replica.EpochID)
 		if err != nil {
-			return restore.Receipt{}, result.New(result.PolicyRefused, nil)
+			return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 		}
 		request = requestAtPoint(request, point)
 	}
 	request.OperationID = operationID
 	request.Budget = 9 * time.Minute
 	files := backupcredentials.Files{Root: filepath.Join(o.stateDir, "credentials")}
-	engine := restore.Engine{Root: filepath.Join(o.stateDir, "restores"), Observer: restoreSchemaObserver{database: scope.Database.Name, definitions: declarations.Definitions}, Bindings: restore.BindingReaderFunc(func(ctx context.Context, id, epoch string) (restore.Binding, error) {
+	engine := restore.SQLiteEngine{Root: filepath.Join(o.stateDir, "restores"), Observer: restoreSchemaObserver{database: scope.Database.Name, definitions: declarations.Definitions}, Bindings: restore.BindingReaderFunc(func(ctx context.Context, id, epoch string) (restore.Binding, error) {
 		permit, err := state.ReadReplicaPermitByBinding(ctx, data.ReplicaBindingID(id))
 		if err != nil || !permit.Replica.Committed || permit.Replica != scope.Replica || string(permit.Replica.EpochID) != epoch {
 			return restore.Binding{}, data.ErrInvalid
@@ -101,34 +101,34 @@ func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, ope
 		return credentials, nil
 	})}
 	if err := ensurePrivateChild(o.stateDir, "restores"); err != nil {
-		return restore.Receipt{}, result.New(result.PolicyRefused, nil)
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
-	receipt, err := engine.Test(ctx, request)
+	receipt, err := restore.VerifySQLite(ctx, &engine, request)
 	if err != nil {
-		return restore.Receipt{}, result.New(result.PolicyRefused, nil)
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
 	return receipt, nil
 }
 
 type restoreSchemaObserver struct {
 	database    data.DatabaseName
-	definitions []data.SchemaDefinition
+	definitions []data.SQLiteSchemaDefinition
 }
 
-func (o restoreSchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (restore.SchemaObservation, error) {
-	observed := data.ObserveSchemaTransaction(ctx, tx, o.database, o.definitions)
+func (o restoreSchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (restore.SQLiteSchemaObservation, error) {
+	observed := data.ObserveSQLiteSchemaTransaction(ctx, tx, o.database, o.definitions)
 	if observed.State == data.Unknown {
-		return restore.SchemaObservation{}, data.ErrInvalid
+		return restore.SQLiteSchemaObservation{}, data.ErrInvalid
 	}
-	return restore.SchemaObservation{State: restore.SchemaState(observed.State), Marker: observed.Marker, CatalogSHA256: observed.CatalogSHA256}, nil
+	return restore.SQLiteSchemaObservation{State: restore.SchemaState(observed.State), Marker: observed.Marker, CatalogSHA256: observed.CatalogSHA256}, nil
 }
-func restoreRequest(scope store.CredentialScope, declarations store.WriterSchema, a dispatch.RestoreTestArgs) (restore.Request, error) {
+func restoreRequest(scope store.CredentialScope, declarations store.WriterSchema, a dispatch.RestoreTestArgs) (restore.SQLiteRequest, error) {
 
-	request := restore.Request{Source: restore.RestoreSource{Kind: restore.LitestreamLTX, LTX: &restore.LTXSource{Recoverability: true, BindingID: string(scope.Replica.BindingID), Epoch: string(scope.Replica.EpochID)}}}
+	request := restore.SQLiteRequest{Source: restore.SQLiteSource{Kind: restore.LitestreamLTX, LTX: &restore.LTXSource{Recoverability: true, BindingID: string(scope.Replica.BindingID), Epoch: string(scope.Replica.EpochID)}}}
 	if a.TXID != "" {
 		n, err := strconv.ParseUint(a.TXID, 16, 64)
 		if err != nil || n == 0 {
-			return restore.Request{}, data.ErrInvalid
+			return restore.SQLiteRequest{}, data.ErrInvalid
 		}
 		request.Source.LTX.TXID = n
 	} else {
@@ -140,18 +140,18 @@ func restoreRequest(scope store.CredentialScope, declarations store.WriterSchema
 		}
 		for _, marker := range compat.Accepts {
 			if marker == data.EmptyMarker {
-				request.AcceptedSchemas = append(request.AcceptedSchemas, restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: marker, CatalogSHA256: data.EmptyCatalogSHA256})
+				request.AcceptedSchemas = append(request.AcceptedSchemas, restore.SQLiteSchemaObservation{State: restore.VerifiedEmpty, Marker: marker, CatalogSHA256: data.EmptyCatalogSHA256})
 				continue
 			}
 			for _, definition := range declarations.Definitions {
 				if definition.Database == scope.Database.Name && definition.Marker == marker {
-					request.AcceptedSchemas = append(request.AcceptedSchemas, restore.SchemaObservation{State: restore.VerifiedSchema, Marker: marker, CatalogSHA256: definition.CatalogSHA256})
+					request.AcceptedSchemas = append(request.AcceptedSchemas, restore.SQLiteSchemaObservation{State: restore.VerifiedSchema, Marker: marker, CatalogSHA256: definition.CatalogSHA256})
 				}
 			}
 		}
 	}
 	if len(request.AcceptedSchemas) == 0 {
-		return restore.Request{}, data.ErrInvalid
+		return restore.SQLiteRequest{}, data.ErrInvalid
 	}
 	for _, check := range declarations.Desired.RestoreInvariants {
 		if check.Database == scope.Database.Name {
@@ -161,11 +161,11 @@ func restoreRequest(scope store.CredentialScope, declarations store.WriterSchema
 	return request, nil
 }
 
-func requestAtPoint(request restore.Request, point data.RestorePoint) restore.Request {
+func requestAtPoint(request restore.SQLiteRequest, point data.SQLiteRestorePoint) restore.SQLiteRequest {
 	request.Latest = false
 	request.AcceptedSchemas = nil
-	request.ExpectedSchema = restore.SchemaObservation{State: restore.SchemaState(point.Schema.State), Marker: point.Schema.Marker, CatalogSHA256: point.Schema.CatalogSHA256}
-	request.Source = restore.RestoreSource{}
+	request.ExpectedSchema = restore.SQLiteSchemaObservation{State: restore.SchemaState(point.Schema.State), Marker: point.Schema.Marker, CatalogSHA256: point.Schema.CatalogSHA256}
+	request.Source = restore.SQLiteSource{}
 	if point.Kind == data.RestorePointSnapshot {
 		request.Source.Kind = restore.SQLiteSnapshot
 		request.Source.Snapshot = &restore.SnapshotSource{BindingID: string(point.BindingID), Epoch: string(point.EpochID), PointID: point.ID, ObjectKey: point.Snapshot.ObjectKey, SHA256: point.Snapshot.SHA256, Size: point.Snapshot.Size}

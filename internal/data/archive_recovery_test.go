@@ -18,7 +18,7 @@ func TestArchivedSchemaAndEmptyEvidenceUseExactAllocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := DatabaseBinding{DatabaseID: database, IncarnationID: inc, Root: tree.Root, RelativeDirectory: relative, Name: "main", MountPath: "/data", Filename: "app.sqlite"}
+	binding := SQLiteDatabaseBinding{DatabaseID: database, IncarnationID: inc, Root: tree.Root, RelativeDirectory: relative, Name: "main", MountPath: "/data", Filename: "app.sqlite"}
 	if err = os.MkdirAll(filepath.Join(string(tree.Root), relative), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ func TestArchivedSchemaAndEmptyEvidenceUseExactAllocation(t *testing.T) {
 	if observed = ObserveArchivedSchema(context.Background(), binding, allocation, ArchiveID(strings.Repeat("d", 32)), nil); observed.State != Unknown {
 		t.Fatal("wrong archive admitted", observed)
 	}
-	if observed = ObserveSchema(context.Background(), binding, nil); observed.State != Unknown {
+	if observed = ObserveSQLiteSchema(context.Background(), binding, nil); observed.State != Unknown {
 		t.Fatal("live observer silently changed path", observed)
 	}
 }

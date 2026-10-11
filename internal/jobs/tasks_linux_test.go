@@ -33,7 +33,7 @@ func (taskStore) AcquireHostLock(context.Context) (ops.Lock, error) {
 }
 
 func taskReceipt(id string) json.RawMessage {
-	receipt := restore.Receipt{OperationID: id, Source: restore.RestoreSource{Kind: restore.LitestreamLTX, LTX: &restore.LTXSource{Recoverability: true, BindingID: "b1", Epoch: "e1", TXID: 7}}, ToolVersion: restore.LitestreamVersion, RequestedTXID: 7, RecoveredTXID: 7, ObservedAt: time.Now().UTC(), Schema: restore.SchemaObservation{State: restore.VerifiedSchema, Marker: "v1", CatalogSHA256: strings.Repeat("a", 64)}, LossWindow: restore.LossWindow{State: restore.LossUnknown, Reason: "No independent last-commit coverage proof; asynchronous replication may lose recent writes."}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed", PositionEvidence: "remote_dry_run_and_restore"}
+	receipt := restore.SQLiteReceipt{OperationID: id, Source: restore.SQLiteSource{Kind: restore.LitestreamLTX, LTX: &restore.LTXSource{Recoverability: true, BindingID: "b1", Epoch: "e1", TXID: 7}}, ToolVersion: restore.LitestreamVersion, RequestedTXID: 7, RecoveredTXID: 7, ObservedAt: time.Now().UTC(), Schema: restore.SQLiteSchemaObservation{State: restore.VerifiedSchema, Marker: "v1", CatalogSHA256: strings.Repeat("a", 64)}, LossWindow: restore.LossWindow{State: restore.LossUnknown, Reason: "No independent last-commit coverage proof; asynchronous replication may lose recent writes."}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed", PositionEvidence: "remote_dry_run_and_restore"}
 	raw, _ := json.Marshal(receipt)
 	return raw
 }
@@ -101,7 +101,7 @@ func TestDetachedTaskReceiptBeyondObserverDeadline(t *testing.T) {
 		t.Fatal("typed receipt lost at transport boundary", err)
 	}
 	receipt, err := ops.DecodeTaskReceipt(status.Operation, status.Outcome.Receipt)
-	if err != nil || receipt.(restore.Receipt).OperationID != accepted.OperationID {
+	if err != nil || receipt.(restore.SQLiteReceipt).OperationID != accepted.OperationID {
 		t.Fatal("wrong terminal receipt", err)
 	}
 	if err := runner.Run(context.Background(), accepted.OperationID); err == nil {

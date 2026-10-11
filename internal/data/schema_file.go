@@ -15,8 +15,8 @@ import (
 
 // SchemaArtifact is the non-executable evidence sent with a release declaration.
 type SchemaArtifact struct {
-	Definition SchemaDefinition `json:"definition"`
-	Digest     string           `json:"digest"`
+	Definition SQLiteSchemaDefinition `json:"definition"`
+	Digest     string                 `json:"digest"`
 }
 
 func (a SchemaInitializer) Artifact() (SchemaArtifact, []byte, error) {
@@ -60,7 +60,7 @@ func CompileSchemaFile(ctx context.Context, database DatabaseName, marker string
 	if marker == "" {
 		marker = "sha256:" + hash[:12]
 	}
-	a := SchemaInitializer{Definition: SchemaDefinition{Database: database, Marker: marker, CatalogSHA256: hash}, Statements: statements}
+	a := SchemaInitializer{Definition: SQLiteSchemaDefinition{Database: database, Marker: marker, CatalogSHA256: hash}, Statements: statements}
 	if err := a.Validate(ctx); err != nil {
 		return SchemaInitializer{}, err
 	}

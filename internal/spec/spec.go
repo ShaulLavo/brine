@@ -37,9 +37,9 @@ type PersistentRoot = data.PersistentRoot
 type ContainerMountPath = data.ContainerMountPath
 type DatabaseFilename = data.DatabaseFilename
 type BackupDestinationRef = data.BackupDestinationRef
-type Database = data.Database
-type SchemaCompatibility = data.SchemaCompatibility
-type SchemaDefinition = data.SchemaDefinition
+type Database = data.SQLiteDatabase
+type SchemaCompatibility = data.SQLiteSchemaCompatibility
+type SchemaDefinition = data.SQLiteSchemaDefinition
 
 type App struct {
 	RestoreInvariants   []data.RestoreInvariant
@@ -152,7 +152,7 @@ var schemaFields = map[string][]string{
 	"$":                      {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "restore_invariants"},
 	"$.restore_invariants":   {"database", "kind", "table", "column", "count", "minimum", "maximum"},
 	"$.runtime":              {"uid", "gid"},
-	"$.databases":            {"name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval", "schema", "marker"},
+	"$.databases":            {"engine", "name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval", "schema", "marker"},
 	"$.schema_compatibility": {"database", "accepts", "startup"},
 	"$.health":               {"path", "expected_status", "startup_deadline_seconds", "timeout_seconds"},
 	"$.resources":            {"memory_mb", "pids_limit"},

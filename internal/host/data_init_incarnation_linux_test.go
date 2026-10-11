@@ -64,12 +64,12 @@ no_object_expiration=true
 		t.Fatal(err)
 	}
 	r.service.Requester = initializationRequester(t).String()
-	initializer := data.SchemaInitializer{Definition: data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}, Statements: []string{"CREATE TABLE t(x TEXT)"}}
+	initializer := data.SchemaInitializer{Definition: data.SQLiteSchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}, Statements: []string{"CREATE TABLE t(x TEXT)"}}
 	artifact, bytes, err := initializer.Artifact()
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.SchemaDefinitions = []data.SchemaDefinition{initializer.Definition}
+	app.SchemaDefinitions = []data.SQLiteSchemaDefinition{initializer.Definition}
 	app.SchemaArtifacts = []data.SchemaArtifact{artifact}
 	app.Initializers = []data.SchemaInitializer{initializer}
 	app.SchemaCompatibility[0].Accepts = []string{initializer.Definition.Marker}
@@ -98,7 +98,7 @@ func initializedApp(t *testing.T, r *deployRig, request datainit.Request) spec.A
 	if err != nil {
 		t.Fatal(err)
 	}
-	app.SchemaDefinitions = []data.SchemaDefinition{initializer.Definition}
+	app.SchemaDefinitions = []data.SQLiteSchemaDefinition{initializer.Definition}
 	app.SchemaArtifacts = []data.SchemaArtifact{{Definition: initializer.Definition, Digest: request.Artifact}}
 	app.Initializers = []data.SchemaInitializer{initializer}
 	app.SchemaCompatibility[0].Accepts = []string{initializer.Definition.Marker}
@@ -202,15 +202,15 @@ func retireInitializedIncarnation(t *testing.T, r *deployRig, request datainit.R
 		}
 	}
 	now := time.Now().UTC()
-	observation := data.ObserveSchemaWithAllocation(ctx, db.Binding, db.Definitions, db.Allocation)
+	observation := data.ObserveSQLiteSchemaWithAllocation(ctx, db.Binding, db.Definitions, db.Allocation)
 	epoch := db.Epochs[0]
 	pointID, err := data.NewID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	point := data.RestorePoint{ID: pointID, BindingID: epoch.BindingID, EpochID: epoch.EpochID, Kind: data.RestorePointSnapshot, Schema: observation, RecordedAt: time.Now().UTC(), Snapshot: &data.RestoreSnapshotPoint{ObjectKey: path.Join(epoch.RemotePrefix, "restore-points", pointID, "snapshot.sqlite"), SHA256: strings.Repeat("a", 64), Size: 4096}}
-	source := restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &restore.SnapshotSource{BindingID: string(epoch.BindingID), Epoch: string(epoch.EpochID), PointID: pointID, ObjectKey: point.Snapshot.ObjectKey, SHA256: point.Snapshot.SHA256, Size: point.Snapshot.Size}}
-	receipt := restore.Receipt{OperationID: operation.ID + "-" + string(db.Binding.DatabaseID), Source: source, ToolVersion: restore.SnapshotToolVersion, ObservedAt: time.Now().UTC(), Schema: restore.SchemaObservation{State: restore.VerifiedSchema, Marker: observation.Marker, CatalogSHA256: observation.CatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed", Coverage: &restore.CoverageEvidence{Source: source, CoveredThrough: now}, LossWindow: restore.LossWindow{State: restore.LossBounded, From: now, To: time.Now().UTC(), Reason: "Independent source-bound coverage proof bounds possible loss; later writes may be absent."}}
+	point := data.SQLiteRestorePoint{ID: pointID, BindingID: epoch.BindingID, EpochID: epoch.EpochID, Kind: data.RestorePointSnapshot, Schema: observation, RecordedAt: time.Now().UTC(), Snapshot: &data.RestoreSnapshotPoint{ObjectKey: path.Join(epoch.RemotePrefix, "restore-points", pointID, "snapshot.sqlite"), SHA256: strings.Repeat("a", 64), Size: 4096}}
+	source := restore.SQLiteSource{Kind: restore.SQLiteSnapshot, Snapshot: &restore.SnapshotSource{BindingID: string(epoch.BindingID), Epoch: string(epoch.EpochID), PointID: pointID, ObjectKey: point.Snapshot.ObjectKey, SHA256: point.Snapshot.SHA256, Size: point.Snapshot.Size}}
+	receipt := restore.SQLiteReceipt{OperationID: operation.ID + "-" + string(db.Binding.DatabaseID), Source: source, ToolVersion: restore.SnapshotToolVersion, ObservedAt: time.Now().UTC(), Schema: restore.SQLiteSchemaObservation{State: restore.VerifiedSchema, Marker: observation.Marker, CatalogSHA256: observation.CatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed", Coverage: &restore.CoverageEvidence{Source: source, CoveredThrough: now}, LossWindow: restore.LossWindow{State: restore.LossBounded, From: now, To: time.Now().UTC(), Reason: "Independent source-bound coverage proof bounds possible loss; later writes may be absent."}}
 	receipt.LossWindow.To = receipt.ObservedAt
 	coverage := []archive.Coverage{{DatabaseID: db.Binding.DatabaseID, WritersQuiescedAt: now, Observation: observation, Point: &point, Receipt: &receipt}}
 	operation, err = r.store.SaveArchiveCoverage(ctx, operation, coverage)

@@ -58,7 +58,7 @@ func (r StorePermits) ReadWriterPermits(ctx context.Context, incarnation string)
 	if err != nil || len(schema.Bindings) != len(permits) || !completeWriterDeclarations(schema) {
 		return nil, replication.ErrPermit
 	}
-	bindings := make(map[data.DatabaseID]data.DatabaseBinding, len(schema.Bindings))
+	bindings := make(map[data.DatabaseID]data.SQLiteDatabaseBinding, len(schema.Bindings))
 	for _, binding := range schema.Bindings {
 		if binding.IncarnationID != id {
 			return nil, replication.ErrPermit
@@ -117,7 +117,7 @@ func (r StorePermits) project(ctx context.Context, p store.ReplicaPermit) (repli
 	if err != nil || ctx.Err() != nil || !bytes.Equal(raw, disk) || replication.ConfigHash(disk) != hash {
 		return replication.PermitState{}, replication.ErrPermit
 	}
-	return replication.PermitState{Binding: binding, Config: disk, ConfigHash: hash, ConfigPath: p.ConfigPath, CredentialPath: p.CredentialPath, LifetimeLock: p.LifetimeLockPath, Fence: replication.FenceState(p.FenceState), Ownership: replication.DestinationOwnership(p.DestinationOwnership), SourceSettled: p.SourceSettled}, nil
+	return replication.PermitState{Engine: data.EngineSQLite, Binding: binding, Config: disk, ConfigHash: hash, ConfigPath: p.ConfigPath, CredentialPath: p.CredentialPath, LifetimeLock: p.LifetimeLockPath, Fence: replication.FenceState(p.FenceState), Ownership: replication.DestinationOwnership(p.DestinationOwnership), SourceSettled: p.SourceSettled}, nil
 }
 
 func (r StorePermits) writerSchema(ctx context.Context, id data.AppIncarnationID) (store.WriterSchema, error) {

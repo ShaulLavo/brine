@@ -343,7 +343,7 @@ func (h archiveHost) CheckArchiveRecovery(ctx context.Context, p archive.Plan, o
 			}
 			continue
 		}
-		observed := data.ObserveSchema(ctx, d.Binding, d.Definitions)
+		observed := data.ObserveSQLiteSchema(ctx, d.Binding, d.Definitions)
 		if archived {
 			observed = data.ObserveArchivedSchema(ctx, d.Binding, *d.Allocation, p.ArchiveID, d.Definitions)
 		}
@@ -370,7 +370,7 @@ func (h archiveHost) recheckRecoverySource(ctx context.Context, p archive.Plan, 
 	}
 	defer func() { credentials = restore.Credentials{} }()
 	binding := restore.Binding{ID: string(b.BindingID), Epoch: string(b.EpochID), CredentialRef: b.Destination.CredentialRef, Destination: restore.Destination{Endpoint: b.Destination.Endpoint, Region: b.Destination.Region, Bucket: b.Destination.Bucket, Prefix: strings.TrimSuffix(b.RemotePrefix, "/"), PathStyle: b.Destination.PathStyle}}
-	request := requestAtPoint(restore.Request{OperationID: fmt.Sprintf("%s-recovery-%s-%d", operation, d.Binding.DatabaseID, time.Now().UnixNano()), Budget: 3 * time.Minute}, *coverage.Point)
+	request := requestAtPoint(restore.SQLiteRequest{OperationID: fmt.Sprintf("%s-recovery-%s-%d", operation, d.Binding.DatabaseID, time.Now().UnixNano()), Budget: 3 * time.Minute}, *coverage.Point)
 	request.Coverage = &restore.CoverageEvidence{Source: request.Source, CoveredThrough: coverage.WritersQuiescedAt}
 	for _, invariant := range d.Invariants {
 		request.Invariants = append(request.Invariants, restore.Invariant{Kind: restore.InvariantKind(invariant.Kind), Table: invariant.Table, Column: invariant.Column, Count: invariant.Count, Minimum: invariant.Minimum, Maximum: invariant.Maximum})
@@ -379,7 +379,7 @@ func (h archiveHost) recheckRecoverySource(ctx context.Context, p archive.Plan, 
 		return err
 	}
 	engine := h.archiveRestoreEngine(d, binding, credentials)
-	receipt, err := engine.Test(ctx, request)
+	receipt, err := restore.VerifySQLite(ctx, &engine, request)
 	if err != nil || receipt.OperationID != request.OperationID || !archiveRecoveryReceiptMatches(coverage, receipt, time.Now().UTC()) || len(d.Invariants) > 0 && receipt.InvariantCheck != "passed" {
 		return archive.ErrRefused
 	}
@@ -389,6 +389,6 @@ func (h archiveHost) recheckRecoverySource(ctx context.Context, p archive.Plan, 
 	return nil
 }
 
-func archiveRecoveryReceiptMatches(coverage archive.Coverage, receipt restore.Receipt, now time.Time) bool {
+func archiveRecoveryReceiptMatches(coverage archive.Coverage, receipt restore.SQLiteReceipt, now time.Time) bool {
 	return coverage.Receipt != nil && receipt.Valid() && !now.Before(receipt.ObservedAt) && now.Sub(receipt.ObservedAt) <= archive.MaxEvidenceAge && reflect.DeepEqual(receipt.Source, coverage.Receipt.Source) && receipt.Schema.State == restore.SchemaState(coverage.Observation.State) && receipt.Schema.Marker == coverage.Observation.Marker && receipt.Schema.CatalogSHA256 == coverage.Observation.CatalogSHA256 && receipt.Coverage != nil && receipt.Coverage.CoveredThrough.Equal(coverage.WritersQuiescedAt) && receipt.LossWindow.State == restore.LossBounded
 }

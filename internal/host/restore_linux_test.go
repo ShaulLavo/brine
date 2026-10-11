@@ -32,8 +32,8 @@ func TestRestoreFactoryDoesNotOpenMutationRuntime(t *testing.T) {
 	}
 }
 func TestRestoreDeclarationsUseOnlySelectedCommittedDatabase(t *testing.T) {
-	scope := store.CredentialScope{Database: data.DatabaseBinding{Name: "main", Root: "/never-open-live"}, Replica: data.ReplicaBinding{BindingID: data.ReplicaBindingID(strings.Repeat("a", 32)), EpochID: data.ReplicaEpochID(strings.Repeat("b", 32)), Committed: true}}
-	declarations := store.WriterSchema{Desired: policy.Desired{SchemaCompatibility: []data.SchemaCompatibility{{Database: "main", Accepts: []string{"v1", data.EmptyMarker}}}, RestoreInvariants: []data.RestoreInvariant{{Database: "main", Kind: "row_count", Table: "orders", Count: 7}, {Database: "audit", Kind: "non_null", Table: "events", Column: "message"}}}, Definitions: []data.SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("c", 64)}}}
+	scope := store.CredentialScope{Database: data.SQLiteDatabaseBinding{Name: "main", Root: "/never-open-live"}, Replica: data.ReplicaBinding{BindingID: data.ReplicaBindingID(strings.Repeat("a", 32)), EpochID: data.ReplicaEpochID(strings.Repeat("b", 32)), Committed: true}}
+	declarations := store.WriterSchema{Desired: policy.Desired{SchemaCompatibility: []data.SQLiteSchemaCompatibility{{Database: "main", Accepts: []string{"v1", data.EmptyMarker}}}, RestoreInvariants: []data.RestoreInvariant{{Database: "main", Kind: "row_count", Table: "orders", Count: 7}, {Database: "audit", Kind: "non_null", Table: "events", Column: "message"}}}, Definitions: []data.SQLiteSchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: strings.Repeat("c", 64)}}}
 	request, err := restoreRequest(scope, declarations, dispatch.RestoreTestArgs{App: "hello", Database: "main"})
 	if err != nil || !request.Latest || !request.Source.LTX.Recoverability || len(request.AcceptedSchemas) != 2 || len(request.Invariants) != 1 || request.Invariants[0].Table != "orders" {
 		t.Fatal("committed selected declarations lost", err)

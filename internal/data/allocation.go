@@ -31,7 +31,7 @@ func (r AllocationReceipt) Valid() bool {
 	}
 	return ValidID(string(r.DatabaseID)) && ValidID(string(r.IncarnationID)) && r.RootDevice != 0 && r.RootInode != 0 && r.DirectoryDevice == r.RootDevice && r.DirectoryInode != 0 && !r.AllocatedAt.IsZero()
 }
-func CaptureAllocation(b DatabaseBinding) (AllocationReceipt, error) {
+func CaptureAllocation(b SQLiteDatabaseBinding) (AllocationReceipt, error) {
 	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
 	if err != nil || relative != b.RelativeDirectory {
 		return AllocationReceipt{}, ErrInvalid
@@ -62,8 +62,8 @@ func CaptureAllocation(b DatabaseBinding) (AllocationReceipt, error) {
 	return r, nil
 }
 
-func ObserveSchemaWithAllocation(ctx context.Context, b DatabaseBinding, definitions []SchemaDefinition, receipt *AllocationReceipt) SchemaObservation {
-	o := ObserveSchema(ctx, b, definitions)
+func observeSQLiteSchemaWithAllocation(ctx context.Context, b SQLiteDatabaseBinding, definitions []SQLiteSchemaDefinition, receipt *AllocationReceipt) SQLiteSchemaObservation {
+	o := observeSQLiteSchema(ctx, b, definitions)
 	if o.State != Unknown || o.UnknownReason != "missing" || receipt == nil || !receipt.Valid() || receipt.DatabaseID != b.DatabaseID || receipt.IncarnationID != b.IncarnationID || ctx.Err() != nil {
 		return o
 	}
@@ -78,7 +78,7 @@ func ObserveSchemaWithAllocation(ctx context.Context, b DatabaseBinding, definit
 	return o
 }
 
-func WriterCompatibleWithAllocations(ctx context.Context, bindings []DatabaseBinding, compatibility []SchemaCompatibility, definitions []SchemaDefinition, allocations map[DatabaseID]AllocationReceipt) bool {
+func WriterCompatibleWithAllocations(ctx context.Context, bindings []SQLiteDatabaseBinding, compatibility []SQLiteSchemaCompatibility, definitions []SQLiteSchemaDefinition, allocations map[DatabaseID]AllocationReceipt) bool {
 	if !validWriterDeclarations(bindings, compatibility) {
 		return false
 	}
@@ -101,11 +101,11 @@ func WriterCompatibleWithAllocations(ctx context.Context, bindings []DatabaseBin
 		if r, ok := allocations[b.DatabaseID]; ok {
 			receipt = &r
 		}
-		observation := ObserveSchemaWithAllocation(ctx, b, definitions, receipt)
+		observation := ObserveSQLiteSchemaWithAllocation(ctx, b, definitions, receipt)
 		found := false
 		for _, c := range compatibility {
 			if c.Database == b.Name {
-				if found || !CompatibleObservation(b.Name, observation, c) {
+				if found || !CompatibleSQLiteObservation(b.Name, observation, c) {
 					return false
 				}
 				found = true

@@ -163,7 +163,7 @@ func Encode(s Snapshot) ([]byte, error) {
 	}
 	if canonical.PersistentData != nil && canonical.PersistentData.Value != nil {
 		for i := range *canonical.PersistentData.Value {
-			slices.SortFunc((*canonical.PersistentData.Value)[i].Definitions, func(a, b data.SchemaDefinition) int {
+			slices.SortFunc((*canonical.PersistentData.Value)[i].Definitions, func(a, b data.SQLiteSchemaDefinition) int {
 				if order := strings.Compare(string(a.Database), string(b.Database)); order != 0 {
 					return order
 				}

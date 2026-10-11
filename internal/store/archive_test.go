@@ -80,7 +80,7 @@ func TestArchiveJournalPreparationAndImmutableHistory(t *testing.T) {
 	now := time.Now().UTC()
 	fresh := *d.Allocation
 	fresh.AllocatedAt = now
-	coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: now, Empty: &fresh, Observation: data.SchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}}
+	coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: now, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}}
 	o, err = s.SaveArchiveCoverage(ctx, o, coverage)
 	if err != nil {
 		t.Fatal(err)
@@ -147,7 +147,7 @@ func TestArchiveManifestCannotReplaceVerifiedCoverage(t *testing.T) {
 	now := time.Now().UTC()
 	fresh := *d.Allocation
 	fresh.AllocatedAt = now
-	coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: now, Empty: &fresh, Observation: data.SchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}}
+	coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: now, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now}}}
 	o, err = s.SaveArchiveCoverage(ctx, o, coverage)
 	if err != nil {
 		t.Fatal(err)

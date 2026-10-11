@@ -153,7 +153,7 @@ func (p DataPreparation) expected(ctx context.Context, planned plan.Plan, desire
 			return nil, nil, replication.ErrPermit
 		}
 		binding := permit.Replica
-		var declaration *data.Database
+		var declaration *data.SQLiteDatabase
 		for i := range desired.Databases {
 			if desired.Databases[i].Name == mount.Database.Name {
 				declaration = &desired.Databases[i]

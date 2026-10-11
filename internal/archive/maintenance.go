@@ -62,13 +62,13 @@ func (p MaintenancePlan) Valid() bool {
 }
 
 type RetentionProof struct {
-	PolicyHash  string            `json:"policy_hash"`
-	TargetHash  string            `json:"target_hash"`
-	ArchiveID   data.ArchiveID    `json:"archive_id"`
-	VerifiedAt  time.Time         `json:"verified_at"`
-	ValidUntil  time.Time         `json:"valid_until"`
-	RetainUntil time.Time         `json:"retain_until"`
-	Receipts    []restore.Receipt `json:"receipts,omitempty"`
+	PolicyHash  string                  `json:"policy_hash"`
+	TargetHash  string                  `json:"target_hash"`
+	ArchiveID   data.ArchiveID          `json:"archive_id"`
+	VerifiedAt  time.Time               `json:"verified_at"`
+	ValidUntil  time.Time               `json:"valid_until"`
+	RetainUntil time.Time               `json:"retain_until"`
+	Receipts    []restore.SQLiteReceipt `json:"receipts,omitempty"`
 }
 type DeletionStage string
 

@@ -11,13 +11,13 @@ import (
 
 // ObserveArchivedSchema admits only the ID-derived archived allocation, never a
 // caller-supplied alternate path or a recreated app's live directory.
-func ObserveArchivedSchema(ctx context.Context, b DatabaseBinding, a AllocationReceipt, id ArchiveID, definitions []SchemaDefinition) SchemaObservation {
+func ObserveArchivedSchema(ctx context.Context, b SQLiteDatabaseBinding, a AllocationReceipt, id ArchiveID, definitions []SQLiteSchemaDefinition) SQLiteSchemaObservation {
 	if VerifyArchivedAllocation(b, a, id) != nil {
-		return SchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
+		return SQLiteSchemaObservation{State: Unknown, DatabaseID: b.DatabaseID, ObservedAt: time.Now().UTC(), UnknownReason: "unverified_path"}
 	}
 	return observeSchemaDirectory(ctx, b, definitions, filepath.Join("archives", string(id), "databases", string(b.DatabaseID)))
 }
-func VerifyArchivedEmpty(b DatabaseBinding, a AllocationReceipt, id ArchiveID) (err error) {
+func VerifyArchivedEmpty(b SQLiteDatabaseBinding, a AllocationReceipt, id ArchiveID) (err error) {
 	if err = VerifyArchivedAllocation(b, a, id); err != nil {
 		return err
 	}

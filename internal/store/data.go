@@ -20,29 +20,29 @@ type DataReservation struct {
 	Proposed    *data.AllocationProposal
 	App         string
 	PolicyHash  string
-	Database    data.Database
+	Database    data.SQLiteDatabase
 	Destination data.Destination
 }
 type ReservedDatabase struct {
-	Database data.DatabaseBinding
+	Database data.SQLiteDatabaseBinding
 	Replica  data.ReplicaBinding
 }
 type ReplicaPermit struct {
-	DBPath               string                 `json:"db_path"`
-	SocketPath           string                 `json:"socket_path"`
-	ConfigPath           string                 `json:"config_path"`
-	CredentialPath       string                 `json:"credential_path"`
-	LifetimeLockPath     string                 `json:"lifetime_lock_path"`
-	FenceState           string                 `json:"fence_state"`
-	DestinationOwnership string                 `json:"destination_ownership"`
-	SourceSettled        bool                   `json:"source_settled"`
-	Database             data.DatabaseBinding   `json:"database"`
-	Replica              data.ReplicaBinding    `json:"replica"`
-	Fences               []data.QuiescenceFence `json:"fences"`
+	DBPath               string                     `json:"db_path"`
+	SocketPath           string                     `json:"socket_path"`
+	ConfigPath           string                     `json:"config_path"`
+	CredentialPath       string                     `json:"credential_path"`
+	LifetimeLockPath     string                     `json:"lifetime_lock_path"`
+	FenceState           string                     `json:"fence_state"`
+	DestinationOwnership string                     `json:"destination_ownership"`
+	SourceSettled        bool                       `json:"source_settled"`
+	Database             data.SQLiteDatabaseBinding `json:"database"`
+	Replica              data.ReplicaBinding        `json:"replica"`
+	Fences               []data.QuiescenceFence     `json:"fences"`
 }
 
 func (p ReplicaPermit) AllowsReplica(binding data.ReplicaBindingID, epoch data.ReplicaEpochID, configSHA256 string) bool {
-	if !p.SourceSettled || p.DestinationOwnership != "local" || p.FenceState == "held" || !p.Replica.Committed || p.Replica.BindingID != binding || p.Replica.EpochID != epoch || p.Replica.ConfigSHA256 != configSHA256 || !digestPattern.MatchString("sha256:"+configSHA256) || p.Database.DatabaseID != p.Replica.DatabaseID || p.Database.ReplicaBindingID != binding || p.Fences == nil {
+	if !p.StartupIdentity().Allows(data.EngineSQLite) || !p.Replica.Committed || p.Replica.BindingID != binding || p.Replica.EpochID != epoch || p.Replica.ConfigSHA256 != configSHA256 || !digestPattern.MatchString("sha256:"+configSHA256) || p.Database.DatabaseID != p.Replica.DatabaseID || p.Database.ReplicaBindingID != binding || p.Fences == nil {
 		return false
 	}
 	for _, f := range p.Fences {
@@ -51,6 +51,10 @@ func (p ReplicaPermit) AllowsReplica(binding data.ReplicaBindingID, epoch data.R
 		}
 	}
 	return true
+}
+
+func (p ReplicaPermit) StartupIdentity() data.StartupIdentity {
+	return data.StartupIdentity{Engine: data.EngineSQLite, IncarnationID: p.Database.IncarnationID, DatabaseID: p.Database.DatabaseID, BindingID: p.Replica.BindingID, EpochID: p.Replica.EpochID, Fence: data.StartupFenceState(p.FenceState), Ownership: data.DestinationOwnership(p.DestinationOwnership), SourceSettled: p.SourceSettled}
 }
 
 // ReserveDatabase allocates identities exactly once. The caller holds the host
@@ -353,11 +357,11 @@ func (s *Store) ReleaseDataFence(ctx context.Context, id data.FenceID, operation
 }
 
 type CredentialScope struct {
-	App        string               `json:"app"`
-	PolicyHash string               `json:"policy_hash"`
-	Database   data.DatabaseBinding `json:"database"`
-	Replica    data.ReplicaBinding  `json:"replica"`
-	FenceHeld  bool                 `json:"fence_held"`
+	App        string                     `json:"app"`
+	PolicyHash string                     `json:"policy_hash"`
+	Database   data.SQLiteDatabaseBinding `json:"database"`
+	Replica    data.ReplicaBinding        `json:"replica"`
+	FenceHeld  bool                       `json:"fence_held"`
 }
 
 // ReadCredentialScopes is read-only. Delivery and activation callers retain the
@@ -549,7 +553,7 @@ func (s *Store) validateReplicaPermit(ctx context.Context, q dataQuerier, p Repl
 	if !data.ValidID(string(d.IncarnationID)) || !data.ValidID(string(d.DatabaseID)) || !data.ValidID(string(b.BindingID)) || !data.ValidID(string(b.EpochID)) {
 		return &IntegrityError{}
 	}
-	declaration := data.Database{Name: d.Name, PersistentRoot: d.Root, MountPath: d.MountPath, Filename: d.Filename, BackupDestination: b.Destination.Reference}
+	declaration := data.SQLiteDatabase{Name: d.Name, PersistentRoot: d.Root, MountPath: d.MountPath, Filename: d.Filename, BackupDestination: b.Destination.Reference}
 	if declaration.Validate() != nil || b.Destination.Validate() != nil {
 		return &IntegrityError{}
 	}

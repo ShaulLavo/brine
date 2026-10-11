@@ -9,8 +9,8 @@ import (
 
 // ObserveSchemaTransaction uses the caller's read-only transaction and never
 // opens a live path. The caller owns integrity, source containment and lifetime.
-func ObserveSchemaTransaction(ctx context.Context, tx *sql.Tx, database DatabaseName, definitions []SchemaDefinition) SchemaObservation {
-	o := SchemaObservation{State: Unknown, ObservedAt: time.Now().UTC(), UnknownReason: "unreadable"}
+func ObserveSQLiteSchemaTransaction(ctx context.Context, tx *sql.Tx, database DatabaseName, definitions []SQLiteSchemaDefinition) SQLiteSchemaObservation {
+	o := SQLiteSchemaObservation{State: Unknown, ObservedAt: time.Now().UTC(), UnknownReason: "unreadable"}
 	if tx == nil {
 		return o
 	}

@@ -31,29 +31,29 @@ type Health struct {
 type Desired struct {
 	DatabaseEnvironment []Environment `json:"database_environment,omitempty"`
 
-	RestoreInvariants    []data.RestoreInvariant    `json:"restore_invariants,omitempty"`
-	BackupRetention      []data.RetentionEvidence   `json:"backup_retention,omitempty"`
-	PersistentRoots      []data.PersistentRoot      `json:"persistent_roots,omitempty"`
-	Backup               *data.BackupCadence        `json:"backup,omitempty"`
-	BackupDestinations   []data.Destination         `json:"backup_destinations,omitempty"`
-	Runtime              *data.RuntimeIdentity      `json:"runtime,omitempty"`
-	Databases            []data.Database            `json:"databases,omitempty"`
-	SchemaCompatibility  []data.SchemaCompatibility `json:"schema_compatibility,omitempty"`
-	SchemaArtifacts      []data.SchemaArtifact      `json:"schema_artifacts,omitempty"`
-	SchemaDefinitions    []data.SchemaDefinition    `json:"schema_definitions,omitempty"`
-	SchemaVersion        int                        `json:"schema_version"`
-	Name                 spec.Name                  `json:"name"`
-	Image                spec.ImageReference        `json:"image"`
-	ContainerPort        spec.Port                  `json:"container_port"`
-	Domains              []spec.Domain              `json:"domains"`
-	Health               Health                     `json:"health"`
-	Resources            Resources                  `json:"resources"`
-	Environment          []Environment              `json:"environment"`
-	Secrets              []Secret                   `json:"secrets"`
-	PolicyVersion        string                     `json:"policy_version"`
-	PolicyHash           string                     `json:"policy_hash"`
-	AppPorts             PortRange                  `json:"app_ports"`
-	MinimumFreeDiskBytes uint64                     `json:"minimum_free_disk_bytes"`
+	RestoreInvariants    []data.RestoreInvariant          `json:"restore_invariants,omitempty"`
+	BackupRetention      []data.RetentionEvidence         `json:"backup_retention,omitempty"`
+	PersistentRoots      []data.PersistentRoot            `json:"persistent_roots,omitempty"`
+	Backup               *data.BackupCadence              `json:"backup,omitempty"`
+	BackupDestinations   []data.Destination               `json:"backup_destinations,omitempty"`
+	Runtime              *data.RuntimeIdentity            `json:"runtime,omitempty"`
+	Databases            []data.SQLiteDatabase            `json:"databases,omitempty"`
+	SchemaCompatibility  []data.SQLiteSchemaCompatibility `json:"schema_compatibility,omitempty"`
+	SchemaArtifacts      []data.SchemaArtifact            `json:"schema_artifacts,omitempty"`
+	SchemaDefinitions    []data.SQLiteSchemaDefinition    `json:"schema_definitions,omitempty"`
+	SchemaVersion        int                              `json:"schema_version"`
+	Name                 spec.Name                        `json:"name"`
+	Image                spec.ImageReference              `json:"image"`
+	ContainerPort        spec.Port                        `json:"container_port"`
+	Domains              []spec.Domain                    `json:"domains"`
+	Health               Health                           `json:"health"`
+	Resources            Resources                        `json:"resources"`
+	Environment          []Environment                    `json:"environment"`
+	Secrets              []Secret                         `json:"secrets"`
+	PolicyVersion        string                           `json:"policy_version"`
+	PolicyHash           string                           `json:"policy_hash"`
+	AppPorts             PortRange                        `json:"app_ports"`
+	MinimumFreeDiskBytes uint64                           `json:"minimum_free_disk_bytes"`
 }
 
 func (d Desired) CanonicalBytes() ([]byte, error) {
@@ -76,13 +76,13 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 	d.BackupDestinations = slices.Clone(d.BackupDestinations)
 	slices.SortFunc(d.BackupDestinations, func(a, b data.Destination) int { return strings.Compare(string(a.Reference), string(b.Reference)) })
 	d.Databases = slices.Clone(d.Databases)
-	slices.SortFunc(d.Databases, func(a, b data.Database) int { return strings.Compare(string(a.Name), string(b.Name)) })
+	slices.SortFunc(d.Databases, func(a, b data.SQLiteDatabase) int { return strings.Compare(string(a.Name), string(b.Name)) })
 	d.SchemaCompatibility = slices.Clone(d.SchemaCompatibility)
 	for i := range d.SchemaCompatibility {
 		d.SchemaCompatibility[i].Accepts = slices.Clone(d.SchemaCompatibility[i].Accepts)
 		slices.Sort(d.SchemaCompatibility[i].Accepts)
 	}
-	slices.SortFunc(d.SchemaCompatibility, func(a, b data.SchemaCompatibility) int {
+	slices.SortFunc(d.SchemaCompatibility, func(a, b data.SQLiteSchemaCompatibility) int {
 		return strings.Compare(string(a.Database), string(b.Database))
 	})
 	d.SchemaArtifacts = slices.Clone(d.SchemaArtifacts)
@@ -90,7 +90,7 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 		return strings.Compare(string(a.Definition.Database), string(b.Definition.Database))
 	})
 	d.SchemaDefinitions = slices.Clone(d.SchemaDefinitions)
-	slices.SortFunc(d.SchemaDefinitions, func(a, b data.SchemaDefinition) int {
+	slices.SortFunc(d.SchemaDefinitions, func(a, b data.SQLiteSchemaDefinition) int {
 		if c := strings.Compare(string(a.Database), string(b.Database)); c != 0 {
 			return c
 		}

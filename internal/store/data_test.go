@@ -15,7 +15,7 @@ import (
 )
 
 func dataRequest() DataReservation {
-	return DataReservation{App: "example", PolicyHash: "sha256:" + strings.Repeat("a", 64), Database: data.Database{Name: "main", PersistentRoot: "/srv/brine-data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}, Destination: data.Destination{Reference: "primary", Endpoint: "https://storage.example", Region: "region-1", Bucket: "backups", BasePrefix: "brine", CredentialRef: "primary"}}
+	return DataReservation{App: "example", PolicyHash: "sha256:" + strings.Repeat("a", 64), Database: data.SQLiteDatabase{Name: "main", PersistentRoot: "/srv/brine-data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}, Destination: data.Destination{Reference: "primary", Endpoint: "https://storage.example", Region: "region-1", Bucket: "backups", BasePrefix: "brine", CredentialRef: "primary"}}
 }
 func TestDataReservationAndPermit(t *testing.T) {
 	ctx := context.Background()

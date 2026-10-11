@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/replication"
 )
 
@@ -50,7 +51,7 @@ func TestHostWriterPermitRefusesWithoutFreshSchemaCompatibility(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &hostPermitReader{state: replication.PermitState{Binding: b, Config: raw, ConfigHash: replication.ConfigHash(raw), Fence: replication.Unfenced, Ownership: replication.LocalOwner, SourceSettled: true}}
+	r := &hostPermitReader{state: replication.PermitState{Engine: data.EngineSQLite, Binding: b, Config: raw, ConfigHash: replication.ConfigHash(raw), Fence: replication.Unfenced, Ownership: replication.LocalOwner, SourceSettled: true}}
 	deps := Dependencies{Context: context.Background(), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}, HostPermits: r}
 	root := NewRootCommand(deps)
 	root.SetArgs([]string{"host", "writer-permit", incarnation})

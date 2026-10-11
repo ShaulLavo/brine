@@ -24,8 +24,8 @@ func candidateFixture(t *testing.T, s *Store) (ReservedDatabase, policy.Desired,
 	}
 	in := fixture(t)
 	in.Desired.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	in.Desired.Databases = []data.Database{req.Database}
-	in.Desired.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
+	in.Desired.Databases = []data.SQLiteDatabase{req.Database}
+	in.Desired.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
 	p, err := plan.Build(in)
 	if err != nil {
 		t.Fatal(err)

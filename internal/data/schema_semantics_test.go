@@ -130,7 +130,7 @@ func TestInitializePreservesInferredViewNames(t *testing.T) {
 	if err := InitializeSchema(t.Context(), binding, initializer, &allocation); err != nil {
 		t.Fatal(err)
 	}
-	observed := ObserveSchema(t.Context(), binding, []SchemaDefinition{initializer.Definition})
+	observed := ObserveSQLiteSchema(t.Context(), binding, []SQLiteSchemaDefinition{initializer.Definition})
 	if observed.State != VerifiedSchema || observed.CatalogSHA256 != initializer.Definition.CatalogSHA256 {
 		t.Fatalf("host changed catalog: %+v", observed)
 	}

@@ -30,7 +30,7 @@ func bindPersistent(d policy.Desired, p plan.Plan) (persistentRender, error) {
 	if d.Runtime == nil || p.Runtime == nil || d.Runtime.Validate() != nil || *d.Runtime != *p.Runtime || len(d.Databases) == 0 || len(p.DataMounts) != len(d.Databases) {
 		return persistentRender{}, invalid
 	}
-	declarations := map[data.DatabaseName]data.Database{}
+	declarations := map[data.DatabaseName]data.SQLiteDatabase{}
 	for _, database := range d.Databases {
 		if database.Validate() != nil {
 			return persistentRender{}, invalid

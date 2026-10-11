@@ -48,7 +48,7 @@ func OverlappingPaths(a, b string) bool {
 // PrepareDirectory allocates only the runner-owned directory hierarchy. It
 // never creates a SQLite database or opens a release directory. The caller
 // persists its allocation receipt under the host mutation lock before startup.
-func PrepareDirectory(b DatabaseBinding) (RootEvidence, error) {
+func PrepareDirectory(b SQLiteDatabaseBinding) (RootEvidence, error) {
 	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
 	if err != nil || relative != b.RelativeDirectory || !ValidRoot(string(b.Root)) {
 		return RootEvidence{}, ErrInvalid

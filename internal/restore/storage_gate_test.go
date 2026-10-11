@@ -137,7 +137,7 @@ func TestRealStorageRestore(t *testing.T) {
 	catalog := [][4]any{{"table", "fixture_commits", "fixture_commits", "CREATE TABLE fixture_commits(sequence INTEGER PRIMARY KEY, marker TEXT NOT NULL, committed_at TEXT NOT NULL)"}}
 	encoded, _ := json.Marshal(catalog)
 	digest := sha256.Sum256(encoded)
-	schema := SchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: hex.EncodeToString(digest[:])}
+	schema := SQLiteSchemaObservation{State: VerifiedSchema, Marker: "fixture-v1", CatalogSHA256: hex.EncodeToString(digest[:])}
 	if _, err := db.ExecContext(ctx, `INSERT INTO brine_schema_marker VALUES(1,?,?);`, schema.Marker, schema.CatalogSHA256); err != nil {
 		t.Fatal("fixture commit failed")
 	}
@@ -213,8 +213,8 @@ func TestRealStorageRestore(t *testing.T) {
 		t.Fatal("invalid remote upload barrier")
 	}
 	binding := Binding{ID: "gate-binding", Epoch: "gate-epoch", CredentialRef: "gate-credentials", Destination: ltxDestination}
-	engine := Engine{Root: restoreRoot, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) { return credentials, nil }), Observer: gateSchemaObserver{}, CLI: cli}
-	request := Request{OperationID: "ltx-restore", Source: RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: binding.ID, Epoch: binding.Epoch, TXID: syncReceipt.TXID, Barrier: &BarrierReceipt{BindingID: binding.ID, Epoch: binding.Epoch, TXID: syncReceipt.TXID, ReplicaTXID: syncReceipt.ReplicaTXID, Succeeded: true, ObservedAt: time.Now().UTC()}}}, Budget: 2 * time.Minute, ExpectedSchema: schema, Sentinel: &Sentinel{Table: "fixture_commits", Sequence: 7, Marker: "marker-7", CommittedAt: committed}, Invariants: []Invariant{{Kind: RowCount, Table: "fixture_commits", Count: 1}}}
+	engine := SQLiteEngine{Root: restoreRoot, Bindings: BindingReaderFunc(func(context.Context, string, string) (Binding, error) { return binding, nil }), Credentials: CredentialReaderFunc(func(context.Context, string) (Credentials, error) { return credentials, nil }), Observer: gateSchemaObserver{}, CLI: cli}
+	request := SQLiteRequest{OperationID: "ltx-restore", Source: SQLiteSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: binding.ID, Epoch: binding.Epoch, TXID: syncReceipt.TXID, Barrier: &BarrierReceipt{BindingID: binding.ID, Epoch: binding.Epoch, TXID: syncReceipt.TXID, ReplicaTXID: syncReceipt.ReplicaTXID, Succeeded: true, ObservedAt: time.Now().UTC()}}}, Budget: 2 * time.Minute, ExpectedSchema: schema, Sentinel: &Sentinel{Table: "fixture_commits", Sequence: 7, Marker: "marker-7", CommittedAt: committed}, Invariants: []Invariant{{Kind: RowCount, Table: "fixture_commits", Count: 1}}}
 	restored, err := engine.Test(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -238,7 +238,7 @@ func TestRealStorageRestore(t *testing.T) {
 		t.Fatal("immutable snapshot upload failed")
 	}
 	request.OperationID = "snapshot-restore"
-	request.Source = RestoreSource{Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{BindingID: binding.ID, Epoch: binding.Epoch, PointID: "gate-point", ObjectKey: key, SHA256: hex.EncodeToString(snapshotDigest[:]), Size: int64(len(snapshot))}}
+	request.Source = SQLiteSource{Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{BindingID: binding.ID, Epoch: binding.Epoch, PointID: "gate-point", ObjectKey: key, SHA256: hex.EncodeToString(snapshotDigest[:]), Size: int64(len(snapshot))}}
 	restored, err = engine.Test(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -266,10 +266,10 @@ func TestRealStorageRestore(t *testing.T) {
 		t.Fatal("empty snapshot upload failed")
 	}
 	request.OperationID = "empty-restore"
-	request.ExpectedSchema = SchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
+	request.ExpectedSchema = SQLiteSchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"}
 	request.Sentinel = nil
 	request.Invariants = nil
-	request.Source = RestoreSource{Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{BindingID: binding.ID, Epoch: binding.Epoch, PointID: "empty-point", ObjectKey: emptyKey, SHA256: hex.EncodeToString(emptyDigest[:]), Size: int64(len(emptyBytes))}}
+	request.Source = SQLiteSource{Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{BindingID: binding.ID, Epoch: binding.Epoch, PointID: "empty-point", ObjectKey: emptyKey, SHA256: hex.EncodeToString(emptyDigest[:]), Size: int64(len(emptyBytes))}}
 	restored, err = engine.Test(ctx, request)
 	if err != nil {
 		t.Fatal(err)
@@ -277,7 +277,7 @@ func TestRealStorageRestore(t *testing.T) {
 	printGateReceipt(t, restored)
 }
 
-func printGateReceipt(t *testing.T, r Receipt) {
+func printGateReceipt(t *testing.T, r SQLiteReceipt) {
 	t.Helper()
 	data, err := json.Marshal(r)
 	if err != nil {
@@ -354,10 +354,10 @@ func gateEnvironment(c Credentials, directory string) []string {
 // Only the gate fixture's exact DDL is accepted. Production uses P04-01's observer.
 type gateSchemaObserver struct{}
 
-func (gateSchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (SchemaObservation, error) {
+func (gateSchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (SQLiteSchemaObservation, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT type,name,tbl_name,sql FROM sqlite_schema WHERE name NOT GLOB 'sqlite_*' ORDER BY type COLLATE BINARY, name COLLATE BINARY`)
 	if err != nil {
-		return SchemaObservation{}, refuse("gate_catalog")
+		return SQLiteSchemaObservation{}, refuse("gate_catalog")
 	}
 	catalog := make([][4]any, 0)
 	markerPresent := false
@@ -366,24 +366,24 @@ func (gateSchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (SchemaObserv
 		var ddl sql.NullString
 		if err := rows.Scan(&kind, &name, &table, &ddl); err != nil {
 			_ = rows.Close() // Preserve the catalog verification failure.
-			return SchemaObservation{}, refuse("gate_catalog")
+			return SQLiteSchemaObservation{}, refuse("gate_catalog")
 		}
 		switch name {
 		case "brine_schema_marker":
 			if kind != "table" || table != name || ddl.String != "CREATE TABLE brine_schema_marker(id INTEGER PRIMARY KEY CHECK(id=1), marker TEXT NOT NULL, catalog_sha256 TEXT NOT NULL)" {
 				_ = rows.Close() // Preserve the schema verification failure.
-				return SchemaObservation{}, refuse("gate_marker_structure")
+				return SQLiteSchemaObservation{}, refuse("gate_marker_structure")
 			}
 			markerPresent = true
 		case "_litestream_seq":
 			if kind != "table" || table != name || ddl.String != "CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER)" {
 				_ = rows.Close() // Preserve the schema verification failure.
-				return SchemaObservation{}, refuse("gate_internal_structure")
+				return SQLiteSchemaObservation{}, refuse("gate_internal_structure")
 			}
 		case "_litestream_lock":
 			if kind != "table" || table != name || ddl.String != "CREATE TABLE _litestream_lock (id INTEGER)" {
 				_ = rows.Close() // Preserve the schema verification failure.
-				return SchemaObservation{}, refuse("gate_internal_structure")
+				return SQLiteSchemaObservation{}, refuse("gate_internal_structure")
 			}
 		default:
 			var value any
@@ -396,22 +396,22 @@ func (gateSchemaObserver) Observe(ctx context.Context, tx *sql.Tx) (SchemaObserv
 	err = rows.Err()
 	closeErr := rows.Close()
 	if err != nil || closeErr != nil {
-		return SchemaObservation{}, refuse("gate_catalog")
+		return SQLiteSchemaObservation{}, refuse("gate_catalog")
 	}
 	data, _ := json.Marshal(catalog)
 	digest := sha256.Sum256(data)
 	if !markerPresent && len(catalog) == 0 {
-		return SchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: hex.EncodeToString(digest[:])}, nil
+		return SQLiteSchemaObservation{State: VerifiedEmpty, Marker: "brine-empty-v1", CatalogSHA256: hex.EncodeToString(digest[:])}, nil
 	}
 	var count, id int64
 	var marker, fingerprint string
 	if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM brine_schema_marker`).Scan(&count); err != nil || count != 1 {
-		return SchemaObservation{}, refuse("gate_marker")
+		return SQLiteSchemaObservation{}, refuse("gate_marker")
 	}
 	if err := tx.QueryRowContext(ctx, `SELECT id, marker, catalog_sha256 FROM brine_schema_marker`).Scan(&id, &marker, &fingerprint); err != nil || id != 1 || fingerprint != hex.EncodeToString(digest[:]) {
-		return SchemaObservation{}, refuse("gate_marker")
+		return SQLiteSchemaObservation{}, refuse("gate_marker")
 	}
-	return SchemaObservation{State: VerifiedSchema, Marker: marker, CatalogSHA256: fingerprint}, nil
+	return SQLiteSchemaObservation{State: VerifiedSchema, Marker: marker, CatalogSHA256: fingerprint}, nil
 }
 
 type gateS3 struct {

@@ -52,8 +52,8 @@ no_object_expiration=true
 	s.LoadPolicy = func(context.Context) (policy.Policy, error) { return pol, nil }
 	app := db.desired["current-plan"].App()
 	app.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	app.Databases = []data.Database{{Name: "main", PersistentRoot: "/srv/brine/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}
-	app.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
+	app.Databases = []data.SQLiteDatabase{{Name: "main", PersistentRoot: "/srv/brine/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary", SyncInterval: time.Minute}}
+	app.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
 	desired, err := policy.Normalize(app, pol)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +65,7 @@ no_object_expiration=true
 	database := data.DatabaseID(strings.Repeat("2", 32))
 	bindingID := data.ReplicaBindingID(strings.Repeat("3", 32))
 	relative, _ := data.RelativeDirectory(incarnation, database)
-	binding := data.DatabaseBinding{DatabaseID: database, Name: "main", IncarnationID: incarnation, Root: app.Databases[0].PersistentRoot, RelativeDirectory: relative, MountPath: "/data", Filename: "app.db", ReplicaBindingID: bindingID}
+	binding := data.SQLiteDatabaseBinding{DatabaseID: database, Name: "main", IncarnationID: incarnation, Root: app.Databases[0].PersistentRoot, RelativeDirectory: relative, MountPath: "/data", Filename: "app.db", ReplicaBindingID: bindingID}
 	root := data.RootEvidence{Root: binding.Root, Device: 1, Inode: 2, Filesystem: "ext4", POSIXLocks: true, DurableRename: true, FreeBytes: desired.MinimumFreeDiskBytes * 2, FreeInodes: 10, ObservedAt: now}
 	facts := target.Known([]target.PersistentDatabase{{
 		Database: binding, Root: root,
@@ -73,8 +73,8 @@ no_object_expiration=true
 		Retention:   target.Known(desired.BackupRetention[0]),
 		Credentials: target.Known(data.CredentialEvidence{BindingID: bindingID, EpochID: data.ReplicaEpochID(strings.Repeat("5", 32)), Destination: "primary", Reference: "primary", Version: 1, PolicyHash: desired.PolicyHash, ReceivedAt: now.Add(-time.Hour)}),
 		Usage:       target.Known(data.StorageUsage{}),
-		Definitions: []data.SchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}},
-		Schema:      data.SchemaObservation{DatabaseID: database, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now},
+		Definitions: []data.SQLiteSchemaDefinition{{Database: "main", Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}},
+		Schema:      data.SQLiteSchemaObservation{DatabaseID: database, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: now},
 	}})
 	return s, db, facts
 }

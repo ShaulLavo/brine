@@ -19,7 +19,7 @@ import (
 const catalogHash = "f7a92d3e7a27c89c3afd455307ec78b2417b6e643aefbcf1c7c33c3c59838341"
 
 func verifySchema(ctx context.Context, tx *sql.Tx) error {
-	observation := data.ObserveSchemaTransaction(ctx, tx, "main", []data.SchemaDefinition{{Database: "main", Marker: "fixture-v1", CatalogSHA256: catalogHash}})
+	observation := data.ObserveSQLiteSchemaTransaction(ctx, tx, "main", []data.SQLiteSchemaDefinition{{Database: "main", Marker: "fixture-v1", CatalogSHA256: catalogHash}})
 	if observation.State != data.VerifiedSchema {
 		return errors.New("reviewed fixture-v1 schema required")
 	}

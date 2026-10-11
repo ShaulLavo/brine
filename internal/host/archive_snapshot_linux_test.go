@@ -33,7 +33,7 @@ func TestArchiveSnapshotPreservesCommittedRowsWithoutTouchingLiveDatabase(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	binding := data.DatabaseBinding{DatabaseID: id, IncarnationID: inc, Root: data.PersistentRoot(root), RelativeDirectory: relative, Name: "main", MountPath: "/data", Filename: "app.sqlite", ReplicaBindingID: data.ReplicaBindingID(strings.Repeat("c", 32))}
+	binding := data.SQLiteDatabaseBinding{DatabaseID: id, IncarnationID: inc, Root: data.PersistentRoot(root), RelativeDirectory: relative, Name: "main", MountPath: "/data", Filename: "app.sqlite", ReplicaBindingID: data.ReplicaBindingID(strings.Repeat("c", 32))}
 	directory := filepath.Join(root, relative)
 	if err = os.MkdirAll(directory, 0700); err != nil {
 		t.Fatal(err)

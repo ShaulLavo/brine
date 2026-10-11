@@ -62,7 +62,7 @@ func initFixture(t *testing.T) (Service, *memoryJournal, Request) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	b := data.DatabaseBinding{DatabaseID: id, IncarnationID: inc, Name: "main", Root: data.PersistentRoot(root), RelativeDirectory: relative, MountPath: "/data", Filename: "app.db", ReplicaBindingID: data.ReplicaBindingID(strings.Repeat("3", 32))}
+	b := data.SQLiteDatabaseBinding{DatabaseID: id, IncarnationID: inc, Name: "main", Root: data.PersistentRoot(root), RelativeDirectory: relative, MountPath: "/data", Filename: "app.db", ReplicaBindingID: data.ReplicaBindingID(strings.Repeat("3", 32))}
 	if err = os.MkdirAll(filepath.Join(root, relative), 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func initFixture(t *testing.T) (Service, *memoryJournal, Request) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
+	definition := data.SQLiteSchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
 	artifact := data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}
 	hash := "sha256:" + strings.Repeat("a", 64)
 	raw, err := json.Marshal(artifact)
@@ -87,7 +87,7 @@ func initFixture(t *testing.T) (Service, *memoryJournal, Request) {
 	s := Service{PrepareRestorePoint: func(_ context.Context, p Plan, o Operation) (VerifiedRestorePoint, error) {
 		return fixturePoint(p, o), nil
 	}, Journal: j, Requester: requester, Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, Plan) (func(), error) { return func() {}, nil }, Facts: func(ctx context.Context, _ Request) (Facts, error) {
-		return Facts{Plan: Plan{ReplicaEpoch: data.ReplicaEpochID(strings.Repeat("4", 32)), RemotePrefix: "prefix/epoch", Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: b, Definition: definition}, Initializer: artifact, Allocation: &allocation, Observation: data.ObserveSchemaWithAllocation(ctx, b, []data.SchemaDefinition{definition}, &allocation)}, nil
+		return Facts{Plan: Plan{ReplicaEpoch: data.ReplicaEpochID(strings.Repeat("4", 32)), RemotePrefix: "prefix/epoch", Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: b, Definition: definition}, Initializer: artifact, Allocation: &allocation, Observation: data.ObserveSQLiteSchemaWithAllocation(ctx, b, []data.SQLiteSchemaDefinition{definition}, &allocation)}, nil
 	}}
 	return s, j, r
 }
@@ -191,7 +191,7 @@ func TestInitializationSuccessAndRepeatedInspection(t *testing.T) {
 func fixturePoint(p Plan, o Operation) VerifiedRestorePoint {
 	now := time.Now().UTC()
 	snapshot := restore.SnapshotSource{BindingID: string(p.Database.ReplicaBindingID), Epoch: string(p.ReplicaEpoch), PointID: p.RestorePointID, ObjectKey: p.RemotePrefix + "/restore-points/" + p.RestorePointID + "/snapshot.sqlite", SHA256: strings.Repeat("a", 64), Size: 4096}
-	return VerifiedRestorePoint{PointID: p.RestorePointID, DatabaseID: p.Database.DatabaseID, UploadedAt: now, RetainUntil: now.Add(2 * time.Hour), Receipt: restore.Receipt{ToolVersion: restore.SnapshotToolVersion, OperationID: o.ID + "-empty-verify", Source: restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &snapshot}, ObservedAt: now, Schema: restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed"}}
+	return VerifiedRestorePoint{PointID: p.RestorePointID, DatabaseID: p.Database.DatabaseID, UploadedAt: now, RetainUntil: now.Add(2 * time.Hour), Receipt: restore.SQLiteReceipt{ToolVersion: restore.SnapshotToolVersion, OperationID: o.ID + "-empty-verify", Source: restore.SQLiteSource{Kind: restore.SQLiteSnapshot, Snapshot: &snapshot}, ObservedAt: now, Schema: restore.SQLiteSchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed"}}
 }
 func (j *memoryJournal) SaveInitRestorePoint(_ context.Context, _ Operation, p VerifiedRestorePoint) error {
 	if j.fail == "restore_receipt" {

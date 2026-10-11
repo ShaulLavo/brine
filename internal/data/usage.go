@@ -16,7 +16,7 @@ type StorageUsage struct {
 	Files uint64 `json:"files"`
 }
 
-func ObserveUsage(ctx context.Context, b DatabaseBinding) (StorageUsage, error) {
+func ObserveUsage(ctx context.Context, b SQLiteDatabaseBinding) (StorageUsage, error) {
 	var usage StorageUsage
 	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
 	if err != nil || relative != b.RelativeDirectory {

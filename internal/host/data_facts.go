@@ -93,7 +93,7 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 		}
 		roots[b.Root] = root
 		mappings[b.Root] = *proofReceipt.MappingProof
-		schema := data.ObserveSchemaWithAllocation(ctx, b, definitions, receipt)
+		schema := data.ObserveSQLiteSchemaWithAllocation(ctx, b, definitions, receipt)
 		permit, err := f.Store.ReadReplicaPermit(ctx, b.DatabaseID)
 		if err != nil {
 			return unknown, err
@@ -104,7 +104,7 @@ func (f DataFacts) Collect(ctx context.Context, desired policy.Desired) (target.
 				retention = target.Known(e)
 			}
 		}
-		retained := make([]data.SchemaDefinition, 0)
+		retained := make([]data.SQLiteSchemaDefinition, 0)
 		for _, definition := range definitions {
 			if definition.Database == b.Name {
 				retained = append(retained, definition)

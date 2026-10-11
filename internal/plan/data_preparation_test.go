@@ -56,7 +56,7 @@ func TestDataPreparationFreezesIDsWithoutInventingEmptySchema(t *testing.T) {
 
 func TestDataPreparationRetainsDerivedArtifactDigest(t *testing.T) {
 	in, proposals, roots := preparationInput(t)
-	artifact := data.SchemaArtifact{Definition: data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: data.EmptyCatalogSHA256}, Digest: "sha256:" + data.EmptyCatalogSHA256}
+	artifact := data.SchemaArtifact{Definition: data.SQLiteSchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: data.EmptyCatalogSHA256}, Digest: "sha256:" + data.EmptyCatalogSHA256}
 	in.Desired.SchemaArtifacts = []data.SchemaArtifact{artifact}
 	p, err := BuildDataPreparation(in, proposals, roots)
 	if err != nil || len(p.SchemaArtifacts) != 1 || p.SchemaArtifacts[0] != artifact {

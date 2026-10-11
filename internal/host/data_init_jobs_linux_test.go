@@ -39,7 +39,7 @@ func initializationJobFixture(t *testing.T, requester datainit.Requester) (*stor
 	if err = os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	} // #nosec G302 -- Private fixture root requires owner traversal.
-	reserved, err := state.ReserveDatabase(context.Background(), store.DataReservation{App: "example", PolicyHash: hash, Database: data.Database{Name: "main", PersistentRoot: data.PersistentRoot(root), MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}, Destination: data.Destination{Reference: "primary", Endpoint: "https://storage.example", Region: "region-1", Bucket: "backups", BasePrefix: "brine", CredentialRef: "primary"}})
+	reserved, err := state.ReserveDatabase(context.Background(), store.DataReservation{App: "example", PolicyHash: hash, Database: data.SQLiteDatabase{Name: "main", PersistentRoot: data.PersistentRoot(root), MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}, Destination: data.Destination{Reference: "primary", Endpoint: "https://storage.example", Region: "region-1", Bucket: "backups", BasePrefix: "brine", CredentialRef: "primary"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -50,11 +50,11 @@ func initializationJobFixture(t *testing.T, requester datainit.Requester) (*stor
 	if err != nil {
 		t.Fatal("capture allocation", err)
 	}
-	definition := data.SchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
+	definition := data.SQLiteSchemaDefinition{Database: "main", Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
 	engine := datainit.Service{Journal: state, Requester: requester, Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, datainit.Plan) (func(), error) { return func() {}, nil }, PrepareRestorePoint: func(context.Context, datainit.Plan, datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 		return datainit.VerifiedRestorePoint{}, nil
 	}, Facts: func(ctx context.Context, _ datainit.Request) (datainit.Facts, error) {
-		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: reserved.Replica.EpochID, RemotePrefix: strings.TrimSuffix(reserved.Replica.RemotePrefix, "/"), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: reserved.Database, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Allocation: &allocation, Observation: data.ObserveSchemaWithAllocation(ctx, reserved.Database, []data.SchemaDefinition{definition}, &allocation)}, nil
+		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: reserved.Replica.EpochID, RemotePrefix: strings.TrimSuffix(reserved.Replica.RemotePrefix, "/"), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: reserved.Database, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Allocation: &allocation, Observation: data.ObserveSQLiteSchemaWithAllocation(ctx, reserved.Database, []data.SQLiteSchemaDefinition{definition}, &allocation)}, nil
 	}}
 	rawArtifact, err := json.Marshal(data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}})
 	if err != nil {

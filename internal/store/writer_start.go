@@ -83,7 +83,7 @@ func (s *Store) BindWriterStart(ctx context.Context, operationID string, planID 
 	}
 	return tx.Commit()
 }
-func writerMountsMatch(mounts []data.Mount, bindings []data.DatabaseBinding) bool {
+func writerMountsMatch(mounts []data.Mount, bindings []data.SQLiteDatabaseBinding) bool {
 	if len(mounts) != len(bindings) {
 		return false
 	}

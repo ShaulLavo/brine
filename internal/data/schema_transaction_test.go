@@ -21,8 +21,8 @@ func TestTransactionObserverKeepsCallerTransactionOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	definitions := []SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: fingerprint}}
-	observation := ObserveSchemaTransaction(context.Background(), tx, "main", definitions)
+	definitions := []SQLiteSchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: fingerprint}}
+	observation := ObserveSQLiteSchemaTransaction(context.Background(), tx, "main", definitions)
 	if observation.State != VerifiedSchema || observation.CatalogSHA256 != fingerprint {
 		t.Fatalf("fixed observer lost schema: %+v", observation)
 	}
@@ -30,10 +30,10 @@ func TestTransactionObserverKeepsCallerTransactionOpen(t *testing.T) {
 	if err := tx.QueryRow("SELECT count(*) FROM t").Scan(&count); err != nil {
 		t.Fatal("observer closed caller transaction", err)
 	}
-	if wrong := ObserveSchemaTransaction(context.Background(), tx, "other", definitions); wrong.State != Unknown {
+	if wrong := ObserveSQLiteSchemaTransaction(context.Background(), tx, "other", definitions); wrong.State != Unknown {
 		t.Fatal("foreign database definition accepted")
 	}
-	if missing := ObserveSchemaTransaction(context.Background(), nil, "main", definitions); missing.State != Unknown {
+	if missing := ObserveSQLiteSchemaTransaction(context.Background(), nil, "main", definitions); missing.State != Unknown {
 		t.Fatal("nil transaction accepted")
 	}
 }

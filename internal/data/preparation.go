@@ -7,11 +7,11 @@ const MappingProbeImage = "docker.io/library/python@sha256:2d9aefe2fef018a7eb2c1
 // AllocationProposal freezes identities and credential scope without reserving
 // anything. Only an approved preparation operation may persist this proposal.
 type AllocationProposal struct {
-	Database DatabaseBinding `json:"database"`
-	Replica  ReplicaBinding  `json:"replica"`
+	Database SQLiteDatabaseBinding `json:"database"`
+	Replica  ReplicaBinding        `json:"replica"`
 }
 
-func NewAllocationProposal(declaration Database, destination Destination, incarnation AppIncarnationID) (AllocationProposal, error) {
+func NewAllocationProposal(declaration SQLiteDatabase, destination Destination, incarnation AppIncarnationID) (AllocationProposal, error) {
 	if declaration.Validate() != nil || destination.Validate() != nil || declaration.BackupDestination != destination.Reference || !ValidID(string(incarnation)) {
 		return AllocationProposal{}, ErrInvalid
 	}
@@ -35,10 +35,10 @@ func NewAllocationProposal(declaration Database, destination Destination, incarn
 	if err != nil {
 		return AllocationProposal{}, err
 	}
-	return AllocationProposal{Database: DatabaseBinding{DatabaseID: DatabaseID(database), Name: declaration.Name, IncarnationID: incarnation, Root: declaration.PersistentRoot, RelativeDirectory: relative, MountPath: declaration.MountPath, Filename: declaration.Filename, ReplicaBindingID: ReplicaBindingID(binding)}, Replica: ReplicaBinding{BindingID: ReplicaBindingID(binding), DatabaseID: DatabaseID(database), Destination: destination, EpochID: ReplicaEpochID(epoch), RemotePrefix: prefix}}, nil
+	return AllocationProposal{Database: SQLiteDatabaseBinding{DatabaseID: DatabaseID(database), Name: declaration.Name, IncarnationID: incarnation, Root: declaration.PersistentRoot, RelativeDirectory: relative, MountPath: declaration.MountPath, Filename: declaration.Filename, ReplicaBindingID: ReplicaBindingID(binding)}, Replica: ReplicaBinding{BindingID: ReplicaBindingID(binding), DatabaseID: DatabaseID(database), Destination: destination, EpochID: ReplicaEpochID(epoch), RemotePrefix: prefix}}, nil
 }
 
-func (p AllocationProposal) Valid(declaration Database, destination Destination) bool {
+func (p AllocationProposal) Valid(declaration SQLiteDatabase, destination Destination) bool {
 	b, r := p.Database, p.Replica
 	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
 	prefix, prefixErr := RemotePrefix(destination.BasePrefix, b.IncarnationID, b.DatabaseID, r.EpochID)

@@ -40,7 +40,7 @@ func preparedStoredArchive(t *testing.T, s *Store, supplied ...archive.Plan) (ar
 	d := p.Candidate.Databases[0]
 	fresh := *d.Allocation
 	fresh.AllocatedAt = time.Now().UTC()
-	coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}}}
+	coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}}}
 	o, err = s.SaveArchiveCoverage(ctx, o, coverage)
 	if err != nil {
 		t.Fatal(err)
@@ -203,8 +203,8 @@ func TestArchivePublishedRetirementReleasesHeadAndInventoryForRecreation(t *test
 	in := fixture(t)
 	in.Desired.Name = spec.Name(req.App)
 	in.Desired.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	in.Desired.Databases = []data.Database{req.Database}
-	in.Desired.SchemaCompatibility = []data.SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
+	in.Desired.Databases = []data.SQLiteDatabase{req.Database}
+	in.Desired.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
 	planned, err := plan.Build(in)
 	if err != nil {
 		t.Fatal(err)
@@ -285,7 +285,7 @@ func TestArchiveAbandonEveryStoredPreManifestBoundary(t *testing.T) {
 					d := p.Candidate.Databases[0]
 					fresh := *d.Allocation
 					fresh.AllocatedAt = time.Now().UTC()
-					coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}}}
+					coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}}}
 					o, err = s.SaveArchiveCoverage(ctx, o, coverage)
 				} else {
 					o, err = s.AdvanceArchive(ctx, o, next)

@@ -15,15 +15,15 @@ const (
 
 // RestorePoint is immutable preparation evidence, not a recoverability-test
 // receipt. An exact LTX point always requires a committed upload barrier.
-type RestorePoint struct {
-	ID         string                `json:"id"`
-	BindingID  ReplicaBindingID      `json:"binding_id"`
-	EpochID    ReplicaEpochID        `json:"epoch_id"`
-	Kind       RestorePointKind      `json:"kind"`
-	Schema     SchemaObservation     `json:"schema"`
-	LTX        *RestoreLTXPoint      `json:"litestream_ltx,omitempty"`
-	Snapshot   *RestoreSnapshotPoint `json:"sqlite_snapshot,omitempty"`
-	RecordedAt time.Time             `json:"recorded_at"`
+type SQLiteRestorePoint struct {
+	ID         string                  `json:"id"`
+	BindingID  ReplicaBindingID        `json:"binding_id"`
+	EpochID    ReplicaEpochID          `json:"epoch_id"`
+	Kind       RestorePointKind        `json:"kind"`
+	Schema     SQLiteSchemaObservation `json:"schema"`
+	LTX        *RestoreLTXPoint        `json:"litestream_ltx,omitempty"`
+	Snapshot   *RestoreSnapshotPoint   `json:"sqlite_snapshot,omitempty"`
+	RecordedAt time.Time               `json:"recorded_at"`
 }
 type RestoreLTXPoint struct {
 	TXID    uint64               `json:"txid"`
@@ -42,7 +42,7 @@ type RestoreSnapshotPoint struct {
 	Size      int64  `json:"size"`
 }
 
-func (p RestorePoint) Validate() error {
+func (p SQLiteRestorePoint) Validate() error {
 	if !ValidID(p.ID) || !ValidID(string(p.BindingID)) || !ValidID(string(p.EpochID)) || p.RecordedAt.IsZero() || !ValidID(string(p.Schema.DatabaseID)) || p.Schema.ObservedAt.IsZero() || p.Schema.ObservedAt.After(p.RecordedAt) || p.Schema.UnknownReason != "" || !ValidCatalogHash(p.Schema.CatalogSHA256) {
 		return ErrInvalid
 	}

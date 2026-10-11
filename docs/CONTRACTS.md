@@ -512,7 +512,21 @@ SQLite data, WAL and related files live in durable per-app directories independe
 
 ## Persistent data and replication
 
-**Approved foundation (D11), not implemented.** These names are the shared Phase 04 contract. Existing schema-1 stateless apps remain valid; new persistence fields are strict and unsupported until their implementation lands. No compatibility branch is needed.
+**SQLite foundation with remaining Phase 04 acceptance gates.** D11 governs the implemented identities, observation, preparation, replication and isolated verification below. Phase 04 tracks remaining lifecycle and physical evidence. Existing schema-1 stateless apps remain valid.
+
+### Typed engine boundary (P09-01)
+
+Current database declarations, bindings, schema definitions/observations, restore points and verification requests/receipts are concrete SQLite types. Their canonical JSON fields, field order, plan hashes and receipt bytes remain unchanged. Existing retained records decode as SQLite because their schema is a concrete SQLite record, never because a filename ends in `.db`. No historical plan or immutable evidence is rewritten and no store migration is needed for this extraction.
+
+`data.EngineDeclaration` and `data.EngineObservation`, and `restore.Source`, have closed `sqlite` and `spacetimedb` variants. Their tagged JSON requires `engine` plus exactly that engine's payload. Unknown, duplicate, missing, null, case-aliased and mismatched fields refuse. Concrete SQLite decoders also refuse foreign engine tags. The SpacetimeDB declaration names an owned engine tree and backup reference without a SQLite filename or mount path. Its schema evidence binds native module identity and schema hash without a SQLite catalog. Its restore source names an encrypted repository snapshot and member manifest without LTX positions or SQLite checks. These are structural records, not deployment or mutation admission.
+
+The existing TOML declaration defaults to SQLite at parsing. An explicit `engine = "sqlite"` produces the same normalized input and canonical desired/plan bytes. `engine = "spacetimedb"` and unknown engines remain refused until their runtime, identity, schema, capture and authority gates ship.
+
+Existing observation calls use bounded engine dispatch to the fixed SQLite observer. Archive snapshot capture uses bounded engine dispatch to the SQLite snapshot primitive. The operation owner retains fence, writer-quiescence, journal and source-identity checks. Host initialization, archive and restore checks use engine dispatch for isolated verification. SpacetimeDB observation, capture and verification currently refuse before binding/credential access, staging or runtime effects. Its admitted backup capabilities remain false.
+
+Shared startup proof binds explicit engine, incarnation, database, binding and epoch IDs, local destination ownership, settled source state and an affirmative unfenced/released state. The SQLite runtime then independently verifies the exact Litestream configuration and hash. A common identity proof is not an engine-service permit by itself. Missing/unknown engine, fence or ownership and cross-engine evidence refuse startup. Existing durable-fence, credential, reboot and archive rules remain in force.
+
+Persistent allocated/unknown desired and plan goldens, a historical SQLite restore-receipt golden, engine-tag refusal tests and store/permit tests establish this local boundary. No physical SpacetimeDB behavior is claimed. D13 and Phase 09 require routine online native snapshot/log archival with existing encrypted tooling and separately fenced exact data operations.
 
 ### Definition and typed identities
 

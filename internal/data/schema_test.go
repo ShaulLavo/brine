@@ -34,7 +34,7 @@ func TestCatalogGoldenVectors(t *testing.T) {
 	}
 }
 func str(s string) *string { return &s }
-func schemaFixture(t *testing.T) (DatabaseBinding, string) {
+func schemaFixture(t *testing.T) (SQLiteDatabaseBinding, string) {
 	t.Helper()
 	root := t.TempDir()
 	if err := os.Chmod(root, 0700); err != nil {
@@ -50,7 +50,7 @@ func schemaFixture(t *testing.T) (DatabaseBinding, string) {
 	if err = os.MkdirAll(source, 0700); err != nil {
 		t.Fatal(err)
 	}
-	b := DatabaseBinding{DatabaseID: id, IncarnationID: inc, Name: "main", Root: PersistentRoot(root), RelativeDirectory: relative, Filename: "app.db", MountPath: "/data", ReplicaBindingID: "33333333333333333333333333333333"}
+	b := SQLiteDatabaseBinding{DatabaseID: id, IncarnationID: inc, Name: "main", Root: PersistentRoot(root), RelativeDirectory: relative, Filename: "app.db", MountPath: "/data", ReplicaBindingID: "33333333333333333333333333333333"}
 	return b, filepath.Join(source, "app.db")
 }
 func createSchema(t *testing.T, p string, statements ...string) *sql.DB {
@@ -73,7 +73,7 @@ func createSchema(t *testing.T, p string, statements ...string) *sql.DB {
 func TestObserverEmptyMissingAndUnknown(t *testing.T) {
 	b, p := schemaFixture(t)
 	ctx := context.Background()
-	o := ObserveSchema(ctx, b, nil)
+	o := ObserveSQLiteSchema(ctx, b, nil)
 	if o.State != Unknown || o.UnknownReason != "missing" {
 		t.Fatalf("missing inferred empty: %+v", o)
 	}
@@ -82,14 +82,14 @@ func TestObserverEmptyMissingAndUnknown(t *testing.T) {
 	}
 	db := createSchema(t, p, "PRAGMA user_version=0")
 	db.Close()
-	o = ObserveSchema(ctx, b, nil)
+	o = ObserveSQLiteSchema(ctx, b, nil)
 	if o.State != VerifiedEmpty || o.Marker != EmptyMarker || o.CatalogSHA256 != EmptyCatalogSHA256 {
 		t.Fatalf("empty observation: %+v", o)
 	}
 	if err := os.WriteFile(p, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if o = ObserveSchema(ctx, b, nil); o.State != Unknown {
+	if o = ObserveSQLiteSchema(ctx, b, nil); o.State != Unknown {
 		t.Fatal("zero-byte inferred empty")
 	}
 }
@@ -103,20 +103,20 @@ func TestObserverVerifiedMarkerAndInternalTables(t *testing.T) {
 	if _, err = db.Exec("INSERT INTO brine_schema_marker VALUES(1,?,?)", "v1", hash); err != nil {
 		t.Fatal(err)
 	}
-	definition := []SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: hash}}
-	if o := ObserveSchema(context.Background(), b, definition); o.State != VerifiedSchema || o.Marker != "v1" {
+	definition := []SQLiteSchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: hash}}
+	if o := ObserveSQLiteSchema(context.Background(), b, definition); o.State != VerifiedSchema || o.Marker != "v1" {
 		t.Fatalf("marker: %+v", o)
 	}
 	if _, err = db.Exec("CREATE TABLE _litestream_seq (id INTEGER PRIMARY KEY, seq INTEGER); CREATE TABLE _litestream_lock (id INTEGER)"); err != nil {
 		t.Fatal(err)
 	}
-	if o := ObserveSchema(context.Background(), b, definition); o.State != VerifiedSchema {
+	if o := ObserveSQLiteSchema(context.Background(), b, definition); o.State != VerifiedSchema {
 		t.Fatalf("pinned internal tables: %+v", o)
 	}
 	if _, err = db.Exec("DROP TABLE _litestream_lock; CREATE TABLE _litestream_lock (id INTEGER, injected TEXT)"); err != nil {
 		t.Fatal(err)
 	}
-	if o := ObserveSchema(context.Background(), b, definition); o.State != Unknown {
+	if o := ObserveSQLiteSchema(context.Background(), b, definition); o.State != Unknown {
 		t.Fatalf("malformed internal table excluded: %+v", o)
 	}
 }
@@ -127,7 +127,7 @@ func TestObserverRefusesSymlinkOrBroadPermissions(t *testing.T) {
 	if err := os.Chmod(p, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if o := ObserveSchema(context.Background(), b, nil); o.State != Unknown {
+	if o := ObserveSQLiteSchema(context.Background(), b, nil); o.State != Unknown {
 		t.Fatal("broad file mode accepted")
 	}
 	if err := os.Remove(p); err != nil {
@@ -139,7 +139,7 @@ func TestObserverRefusesSymlinkOrBroadPermissions(t *testing.T) {
 	if err := os.Symlink(target, p); err != nil {
 		t.Fatal(err)
 	}
-	if o := ObserveSchema(context.Background(), b, nil); o.State != Unknown {
+	if o := ObserveSQLiteSchema(context.Background(), b, nil); o.State != Unknown {
 		t.Fatal("symlink accepted")
 	}
 }
@@ -160,7 +160,7 @@ func TestObserverLiveWALUsesCommittedCatalog(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	definitions := []SchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: hash}}
+	definitions := []SQLiteSchemaDefinition{{Database: "main", Marker: "v1", CatalogSHA256: hash}}
 	tx, err := db.Begin()
 	if err != nil {
 		t.Fatal(err)
@@ -168,14 +168,14 @@ func TestObserverLiveWALUsesCommittedCatalog(t *testing.T) {
 	if _, err = tx.Exec("CREATE TABLE not_committed(y INTEGER)"); err != nil {
 		t.Fatal(err)
 	}
-	o := ObserveSchema(context.Background(), b, definitions)
+	o := ObserveSQLiteSchema(context.Background(), b, definitions)
 	if o.State != VerifiedSchema || o.CatalogSHA256 != hash {
 		t.Fatalf("read uncommitted catalog or skipped WAL: %+v", o)
 	}
 	if err = tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	if o = ObserveSchema(context.Background(), b, definitions); o.State != Unknown || o.UnknownReason != "marker_mismatch" {
+	if o = ObserveSQLiteSchema(context.Background(), b, definitions); o.State != Unknown || o.UnknownReason != "marker_mismatch" {
 		t.Fatalf("fresh committed schema change missed: %+v", o)
 	}
 }
@@ -187,7 +187,7 @@ func TestObserverNewSiblingsMustRemainPrivate(t *testing.T) {
 	if err := os.WriteFile(p+"-shm", nil, 0644); err != nil {
 		t.Fatal(err)
 	}
-	if o := ObserveSchema(context.Background(), b, nil); o.State != Unknown || o.UnknownReason != "unverified_sibling" {
+	if o := ObserveSQLiteSchema(context.Background(), b, nil); o.State != Unknown || o.UnknownReason != "unverified_sibling" {
 		t.Fatalf("unsafe sibling admitted: %+v", o)
 	}
 	info, err := os.Stat(p + "-shm")
@@ -199,17 +199,17 @@ func TestObserverNewSiblingsMustRemainPrivate(t *testing.T) {
 func TestFreshWriterCompatibilityRefusesChangedSchema(t *testing.T) {
 	b, p := schemaFixture(t)
 	db := createSchema(t, p, "PRAGMA user_version=0")
-	compatibility := []SchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{EmptyMarker}}}
-	if !WriterCompatible(context.Background(), []DatabaseBinding{b}, compatibility, nil) {
+	compatibility := []SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{EmptyMarker}}}
+	if !WriterCompatible(context.Background(), []SQLiteDatabaseBinding{b}, compatibility, nil) {
 		t.Fatal("fresh empty schema refused")
 	}
 	if _, err := db.Exec("CREATE TABLE t(x INTEGER)"); err != nil {
 		t.Fatal(err)
 	}
-	if WriterCompatible(context.Background(), []DatabaseBinding{b}, compatibility, nil) {
+	if WriterCompatible(context.Background(), []SQLiteDatabaseBinding{b}, compatibility, nil) {
 		t.Fatal("cached empty compatibility accepted changed schema")
 	}
-	if WriterCompatible(context.Background(), []DatabaseBinding{b}, nil, nil) {
+	if WriterCompatible(context.Background(), []SQLiteDatabaseBinding{b}, nil, nil) {
 		t.Fatal("missing compatibility accepted")
 	}
 }
@@ -217,18 +217,18 @@ func TestFreshWriterCompatibilityRefusesChangedSchema(t *testing.T) {
 func TestWriterCompatibilityRequiresExactOneToOneSet(t *testing.T) {
 	b, p := schemaFixture(t)
 	createSchema(t, p, "PRAGMA user_version=0")
-	c := SchemaCompatibility{Database: "main", Startup: "preserve", Accepts: []string{EmptyMarker}}
+	c := SQLiteSchemaCompatibility{Database: "main", Startup: "preserve", Accepts: []string{EmptyMarker}}
 	other := c
 	other.Database = "other"
 	for _, tc := range []struct {
 		name          string
-		bindings      []DatabaseBinding
-		compatibility []SchemaCompatibility
+		bindings      []SQLiteDatabaseBinding
+		compatibility []SQLiteSchemaCompatibility
 	}{
-		{"unmatched compatibility", []DatabaseBinding{b}, []SchemaCompatibility{c, other}},
-		{"duplicate binding", []DatabaseBinding{b, b}, []SchemaCompatibility{c}},
-		{"duplicate and unmatched", []DatabaseBinding{b, b}, []SchemaCompatibility{c, other}},
-		{"duplicate compatibility", []DatabaseBinding{b}, []SchemaCompatibility{c, c}},
+		{"unmatched compatibility", []SQLiteDatabaseBinding{b}, []SQLiteSchemaCompatibility{c, other}},
+		{"duplicate binding", []SQLiteDatabaseBinding{b, b}, []SQLiteSchemaCompatibility{c}},
+		{"duplicate and unmatched", []SQLiteDatabaseBinding{b, b}, []SQLiteSchemaCompatibility{c, other}},
+		{"duplicate compatibility", []SQLiteDatabaseBinding{b}, []SQLiteSchemaCompatibility{c, c}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if WriterCompatible(context.Background(), tc.bindings, tc.compatibility, nil) {

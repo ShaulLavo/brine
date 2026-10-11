@@ -13,6 +13,7 @@ type rawRuntime struct {
 	GID any `toml:"gid"`
 }
 type rawDatabase struct {
+	Engine            any `toml:"engine"`
 	Schema            any `toml:"schema"`
 	Marker            any `toml:"marker"`
 	Name              any `toml:"name"`
@@ -55,6 +56,15 @@ func validatePersistence(raw rawApp, app *App) error {
 		if r == nil {
 			return bad("databases")
 		}
+		if r.Engine != nil {
+			engine, err := text(r.Engine, "databases.engine")
+			if err != nil {
+				return err
+			}
+			if data.EngineKind(engine) != data.EngineSQLite {
+				return bad("databases.engine")
+			}
+		}
 		var d Database
 		for _, f := range []struct {
 			raw   any
@@ -85,9 +95,11 @@ func validatePersistence(raw rawApp, app *App) error {
 			}
 			d.SyncInterval = duration
 		}
-		if d.Validate() != nil || names[d.Name] || environmentNames[data.DatabaseEnvironmentName(d.Name)] {
+		declaration, declarationErr := data.SQLiteDeclaration(d)
+		if declarationErr != nil || names[d.Name] || environmentNames[data.DatabaseEnvironmentName(d.Name)] {
 			return bad("databases")
 		}
+		d, _ = declaration.SQLite()
 		for _, existing := range app.Databases {
 			a, b := string(d.MountPath), string(existing.MountPath)
 			if a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/") {

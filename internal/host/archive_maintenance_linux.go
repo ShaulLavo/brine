@@ -281,7 +281,7 @@ func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan,
 			validUntil = credentialsUntil
 		}
 		remote := restore.Binding{ID: string(binding.BindingID), Epoch: string(binding.EpochID), CredentialRef: binding.Destination.CredentialRef, Destination: restore.Destination{Endpoint: binding.Destination.Endpoint, Region: binding.Destination.Region, Bucket: binding.Destination.Bucket, Prefix: strings.TrimSuffix(binding.RemotePrefix, "/"), PathStyle: binding.Destination.PathStyle}}
-		request := requestAtPoint(restore.Request{OperationID: fmt.Sprintf("archive-retention-%s-%s-%d", p.ArchiveID, database.Binding.DatabaseID, time.Now().UnixNano()), Budget: 3 * time.Minute}, *m.Coverage[i].Point)
+		request := requestAtPoint(restore.SQLiteRequest{OperationID: fmt.Sprintf("archive-retention-%s-%s-%d", p.ArchiveID, database.Binding.DatabaseID, time.Now().UnixNano()), Budget: 3 * time.Minute}, *m.Coverage[i].Point)
 		request.Coverage = &restore.CoverageEvidence{Source: request.Source, CoveredThrough: m.Coverage[i].WritersQuiescedAt}
 		for _, invariant := range database.Invariants {
 			request.Invariants = append(request.Invariants, restore.Invariant{Kind: restore.InvariantKind(invariant.Kind), Table: invariant.Table, Column: invariant.Column, Count: invariant.Count, Minimum: invariant.Minimum, Maximum: invariant.Maximum})
@@ -290,7 +290,7 @@ func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan,
 			return out, err
 		}
 		engine := h.archiveRestoreEngine(database, remote, credentials)
-		receipt, err := engine.Test(ctx, request)
+		receipt, err := restore.VerifySQLite(ctx, &engine, request)
 		if err != nil || receipt.OperationID != request.OperationID || !archiveRecoveryReceiptMatches(m.Coverage[i], receipt, time.Now().UTC()) || len(database.Invariants) > 0 && receipt.InvariantCheck != "passed" {
 			return out, archive.ErrRefused
 		}

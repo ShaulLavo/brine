@@ -14,7 +14,7 @@ func persistentFixture(t testing.TB) (policy.Desired, plan.Plan) {
 	t.Helper()
 	d, _ := fixture(t)
 	d.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
-	d.Databases = []data.Database{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}}
+	d.Databases = []data.SQLiteDatabase{{Name: "main", PersistentRoot: "/srv/data", MountPath: "/data", Filename: "app.db", BackupDestination: "primary"}}
 	p := bind(t, d)
 	p.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
 	incarnation := data.AppIncarnationID(strings.Repeat("1", 32))
@@ -24,7 +24,7 @@ func persistentFixture(t testing.TB) (policy.Desired, plan.Plan) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.DataMounts = []data.Mount{{Database: data.DatabaseBinding{DatabaseID: database, Name: "main", IncarnationID: incarnation, Root: "/srv/data", RelativeDirectory: relative, MountPath: "/data", Filename: "app.db", ReplicaBindingID: binding}, HostPath: path.Join("/srv/data", relative), ContainerPath: "/data", BindingID: binding}}
+	p.DataMounts = []data.Mount{{Database: data.SQLiteDatabaseBinding{DatabaseID: database, Name: "main", IncarnationID: incarnation, Root: "/srv/data", RelativeDirectory: relative, MountPath: "/data", Filename: "app.db", ReplicaBindingID: binding}, HostPath: path.Join("/srv/data", relative), ContainerPath: "/data", BindingID: binding}}
 	return d, p
 }
 

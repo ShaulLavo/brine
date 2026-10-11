@@ -30,7 +30,7 @@ func storeInitPlan(t *testing.T, s *Store) (datainit.Plan, ReservedDatabase) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	definition := data.SchemaDefinition{Database: reserved.Database.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
+	definition := data.SQLiteSchemaDefinition{Database: reserved.Database.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
 	artifact := data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}
 	raw, err := json.Marshal(artifact)
 	if err != nil {
@@ -40,8 +40,8 @@ func storeInitPlan(t *testing.T, s *Store) (datainit.Plan, ReservedDatabase) {
 	service := datainit.Service{PrepareRestorePoint: func(context.Context, datainit.Plan, datainit.Operation) (datainit.VerifiedRestorePoint, error) {
 		return datainit.VerifiedRestorePoint{}, nil
 	}, Journal: s, Requester: requester, Authorize: func(context.Context) error { return nil }, Lock: func(context.Context) (func(), error) { return func() {}, nil }, Quiesce: func(context.Context, datainit.Plan) (func(), error) { return func() {}, nil }, Facts: func(context.Context, datainit.Request) (datainit.Facts, error) {
-		definition := data.SchemaDefinition{Database: reserved.Database.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
-		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: reserved.Replica.EpochID, RemotePrefix: strings.TrimSuffix(reserved.Replica.RemotePrefix, "/"), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: reserved.Database, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Observation: data.SchemaObservation{State: data.AllocatedEmpty}}, nil
+		definition := data.SQLiteSchemaDefinition{Database: reserved.Database.Name, Marker: "v1", CatalogSHA256: "688d95e9133c228079e32bcbdad7325064146b7b1be403a7bbe4a8b83a9c4134"}
+		return datainit.Facts{Plan: datainit.Plan{ReplicaEpoch: reserved.Replica.EpochID, RemotePrefix: strings.TrimSuffix(reserved.Replica.RemotePrefix, "/"), Bounds: data.InitializationBounds{MaxBackupAgeSeconds: 300, MaxRestoreTestAgeSeconds: 300, RecoveryWindowSeconds: 3600}, PolicyHash: hash, TargetHash: hash, DesiredHash: hash, Database: reserved.Database, Definition: definition}, Initializer: data.SchemaInitializer{Definition: definition, Statements: []string{"CREATE TABLE t(x TEXT)"}}, Observation: data.SQLiteSchemaObservation{State: data.AllocatedEmpty}}, nil
 	}}
 	p, err := service.Plan(ctx, datainit.Request{App: "example", FirstReleasePlan: hash, Artifact: "sha256:" + hex.EncodeToString(sum[:]), ArtifactBytes: raw})
 	if err != nil {
@@ -142,7 +142,7 @@ func TestDataInitializationRefusesWriterHistoryAndForeignFence(t *testing.T) {
 func storeInitPoint(p datainit.Plan, o datainit.Operation) datainit.VerifiedRestorePoint {
 	now := time.Now().UTC()
 	snapshot := restore.SnapshotSource{BindingID: string(p.Database.ReplicaBindingID), Epoch: string(p.ReplicaEpoch), PointID: p.RestorePointID, ObjectKey: p.RemotePrefix + "/restore-points/" + p.RestorePointID + "/snapshot.sqlite", SHA256: strings.Repeat("a", 64), Size: 4096}
-	return datainit.VerifiedRestorePoint{PointID: p.RestorePointID, DatabaseID: p.Database.DatabaseID, UploadedAt: now, RetainUntil: now.Add(2 * time.Hour), Receipt: restore.Receipt{ToolVersion: restore.SnapshotToolVersion, OperationID: o.ID + "-empty-verify", Source: restore.RestoreSource{Kind: restore.SQLiteSnapshot, Snapshot: &snapshot}, ObservedAt: now, Schema: restore.SchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed"}}
+	return datainit.VerifiedRestorePoint{PointID: p.RestorePointID, DatabaseID: p.Database.DatabaseID, UploadedAt: now, RetainUntil: now.Add(2 * time.Hour), Receipt: restore.SQLiteReceipt{ToolVersion: restore.SnapshotToolVersion, OperationID: o.ID + "-empty-verify", Source: restore.SQLiteSource{Kind: restore.SQLiteSnapshot, Snapshot: &snapshot}, ObservedAt: now, Schema: restore.SQLiteSchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed"}}
 }
 func TestDataInitializationReceiptRemainsImmutableAndReopens(t *testing.T) {
 	s := openTest(t)

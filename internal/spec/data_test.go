@@ -2,6 +2,7 @@ package spec
 
 import (
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +30,24 @@ accepts=["orders-v2","orders-v1"]
 startup="preserve"
 
 `
+}
+
+func TestEngineSelectionDoesNotChangeSQLiteSpec(t *testing.T) {
+	raw := persistentSpec(t)
+	implicit, err := Parse([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	explicit, err := Parse([]byte(strings.Replace(raw, "[[databases]]", "[[databases]]\nengine=\"sqlite\"", 1)))
+	if err != nil || !reflect.DeepEqual(implicit, explicit) {
+		t.Fatal("explicit SQLite changed normalized input", err)
+	}
+	for _, engine := range []string{"spacetimedb", "unknown", "", "SQLite"} {
+		input := strings.Replace(raw, "[[databases]]", "[[databases]]\nengine=\""+engine+"\"", 1)
+		if _, err = Parse([]byte(input)); err == nil {
+			t.Fatal("unsupported engine spec admitted")
+		}
+	}
 }
 func TestPersistentDeclaration(t *testing.T) {
 	raw := persistentSpec(t)

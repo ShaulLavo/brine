@@ -108,7 +108,7 @@ func (p DataPreparation) prepareAllocation(ctx context.Context, planned plan.Pla
 			if err != nil {
 				return err
 			}
-			if receipt == nil || data.ObserveSchemaWithAllocation(ctx, reserved.Database, nil, receipt).State != data.AllocatedEmpty {
+			if receipt == nil || data.ObserveSQLiteSchemaWithAllocation(ctx, reserved.Database, nil, receipt).State != data.AllocatedEmpty {
 				return data.ErrInvalid
 			}
 			continue
@@ -208,7 +208,7 @@ func (p DataPreparation) allocationPrepared(ctx context.Context, planned plan.Pl
 		if root.Device != proof.Device || root.Inode != proof.Inode || root.Filesystem != proof.Filesystem || proof.Root != root.Root || !rootMatchesPreparation(root, planned.PreparationRoots) || !proof.Admits(root.Root, desired.MinimumFreeDiskBytes) || !receipt.MappingProof.Admits(*desired.Runtime, root) || receipt.MappingProof.Image != data.MappingProbeImage {
 			return false, data.ErrInvalid
 		}
-		if data.ObserveSchemaWithAllocation(ctx, reserved.Database, definitions, receipt).State != data.AllocatedEmpty {
+		if data.ObserveSQLiteSchemaWithAllocation(ctx, reserved.Database, definitions, receipt).State != data.AllocatedEmpty {
 			return false, data.ErrInvalid
 		}
 	}

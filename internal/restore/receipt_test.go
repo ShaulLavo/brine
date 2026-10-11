@@ -10,14 +10,14 @@ import (
 func TestRecoverabilityReceiptCannotBecomeExactPoint(t *testing.T) {
 	engine, request, _ := setup(t, fixture(t, fixtureSQL))
 	engine.CLI = &latestCLI{t: t, data: fixture(t, fixtureSQL)}
-	request.Source = RestoreSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Recoverability: true}}
+	request.Source = SQLiteSource{Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Recoverability: true}}
 	receipt, err := engine.Test(context.Background(), request)
 	if err != nil || receipt.PositionEvidence != "remote_dry_run_and_restore" || receipt.Barrier != nil || !receipt.Valid() {
 		t.Fatal("recoverability receipt mislabeled", err)
 	}
 	exact := *receipt.Source.LTX
 	exact.Recoverability = false
-	source := RestoreSource{Kind: LitestreamLTX, LTX: &exact}
+	source := SQLiteSource{Kind: LitestreamLTX, LTX: &exact}
 	if _, _, err := source.reference(); err == nil {
 		t.Fatal("barrier-less receipt accepted as exact restore-point source")
 	}

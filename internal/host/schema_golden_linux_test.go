@@ -27,7 +27,7 @@ func TestHostReviewedSchemaGoldens(t *testing.T) {
 	}
 	for _, v := range vectors {
 		t.Run(v.Name, func(t *testing.T) {
-			a := data.SchemaInitializer{Definition: data.SchemaDefinition{Database: "main", Marker: "golden-v1", CatalogSHA256: v.CatalogSHA256}, Statements: strings.Split(strings.TrimSuffix(v.SQL, ";"), ";")}
+			a := data.SchemaInitializer{Definition: data.SQLiteSchemaDefinition{Database: "main", Marker: "golden-v1", CatalogSHA256: v.CatalogSHA256}, Statements: strings.Split(strings.TrimSuffix(v.SQL, ";"), ";")}
 			for _, mismatch := range []bool{false, true} {
 				if mismatch {
 					a.Definition.CatalogSHA256 = data.EmptyCatalogSHA256
