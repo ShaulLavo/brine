@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/replication"
@@ -31,6 +32,7 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 			deps.HostOperationRunner = lazyOperationRunner{&runtime}
 		}
 		deps.HostReconciler = lazyReconciler{&runtime}
+		deps.HostArchives = lazyArchives{&runtime}
 	}
 	if lifecycle.OpenPermits != nil {
 		deps.HostPermits = lazyHostPermits{&runtime}
@@ -124,6 +126,7 @@ func validEnvelopeStream(data []byte, command string) bool {
 }
 
 type RuntimeServices struct {
+	Archives      archive.Service
 	Permits       replication.LaunchReader
 	WriterAttempt func(context.Context, string) error
 	Runner        OperationRunner

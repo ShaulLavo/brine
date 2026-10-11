@@ -137,6 +137,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
+	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{})
 	initEngine := dataInitializationService(service, stateDir)
 	initTasks := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
 	initTasks.Requester = initEngine.Requester.String()

@@ -54,6 +54,24 @@ func CreateEmptySnapshot(ctx context.Context, root string, b Binding, c Credenti
 	if err != nil || len(raw) == 0 || len(raw) > 1<<20 {
 		return source, time.Time{}, refuse("empty_snapshot")
 	}
+	return UploadSnapshot(ctx, b, c, pointID, raw, budget, allowHTTPForTests)
+}
+
+// UploadSnapshot conditionally creates one bounded recovery snapshot. It never
+// opens live paths, overwrites an existing object, retries an unknown PUT or deletes objects.
+func UploadSnapshot(ctx context.Context, b Binding, c Credentials, pointID string, raw []byte, budget time.Duration, allowHTTPForTests bool) (SnapshotSource, time.Time, error) {
+	var source SnapshotSource
+	if !token.MatchString(b.ID) || !token.MatchString(b.Epoch) || !token.MatchString(b.CredentialRef) || !token.MatchString(pointID) || budget <= 0 || budget > 30*time.Minute || len(raw) < 16 || len(raw) > 64<<20 || string(raw[:16]) != "SQLite format 3\x00" {
+		return source, time.Time{}, refuse("invalid_snapshot")
+	}
+	ctx, cancel := context.WithTimeout(ctx, budget)
+	defer cancel()
+	if err := validateDestination(b.Destination, allowHTTPForTests); err != nil {
+		return source, time.Time{}, err
+	}
+	if err := validateCredentials(c, time.Now().UTC(), budget); err != nil {
+		return source, time.Time{}, err
+	}
 	sum := sha256.Sum256(raw)
 	source = SnapshotSource{BindingID: b.ID, Epoch: b.Epoch, PointID: pointID, ObjectKey: b.Destination.Prefix + "/restore-points/" + pointID + "/snapshot.sqlite", SHA256: hex.EncodeToString(sum[:]), Size: int64(len(raw))}
 	u, err := url.Parse(b.Destination.Endpoint)
