@@ -151,7 +151,7 @@ func validRecovery(recovery SigningRecovery, members []CheckpointMember) bool {
 		return false
 	}
 	if recovery.Kind == "external_immutable" {
-		return recovery.Member == ""
+		return recovery.Member == "" && !containsSigningMember(members)
 	}
 	if recovery.Kind != "encrypted_member" || recovery.Member != "recovery/signing.key" {
 		return false
@@ -159,6 +159,15 @@ func validRecovery(recovery SigningRecovery, members []CheckpointMember) bool {
 	for _, member := range members {
 		if member.Path == recovery.Member {
 			return member.SHA256 == recovery.SHA256
+		}
+	}
+	return false
+}
+
+func containsSigningMember(members []CheckpointMember) bool {
+	for _, member := range members {
+		if member.Path == "recovery/signing.key" {
+			return true
 		}
 	}
 	return false

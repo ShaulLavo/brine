@@ -387,6 +387,30 @@ Retained purge mount-boundary regressions compare known/missing/zero/different m
 Retained multi-root reconciliation adopts an already missing first tree only under its pre-existing in-flight intent, then refuses a later tree renamed away immediately before its deletion call. The regression asserts recovery-required at the later intent, no deletion receipt/completion, and preserved moved-tree bytes.
 
 
+## Native capture structural prerequisites (P09-05 / T35)
+
+`go test -race -count=1 ./internal/nativecapture` checks immutable inventory,
+checkpoint, and source records. Cases cover the following structural boundaries:
+
+- A snapshot inside one log segment, a directly adjacent retained segment, a
+  snapshot with no log suffix, and rooted log-only history.
+- Offset overflow, a missing manifest, a suffix gap, unsafe member paths, and the
+  pinned two-digit and 62-digit object path format.
+- Content rewrite, removal, and rotation against the whole supplied inventory.
+- Mixed checkpoint generations and source scopes, changed caller or getter
+  slices, combined member and manifest quotas, and configuration hash mismatch.
+- Unknown, missing, duplicate, null, case-aliased, and crossed source fields.
+  Initialized source decoding rejects members the structural selector would drop.
+- Unpublished records contain no invented native database, owner, module,
+  replica, snapshot, or framing facts.
+
+These tests use synthetic member records. They establish no descriptor ownership,
+native framing, object completeness, recoverable point, or exact coverage.
+Contained production-reader replay, immutable source and remote equality,
+managed jobs and credentials, scoped real S3, and physical T35-T41 acceptance
+remain required. Native source hardlinks require a separately qualified host
+copy boundary before the private one-link member contract applies.
+
 ## Typed engine boundary evidence (P09-01 / T34)
 
 Closed engine records reject unknown, missing, null, duplicate and mismatched tags. SpacetimeDB structural declarations and sources have no SQLite filename, catalog, PRAGMA, LTX or Litestream requirement, while current spec/runtime admission stays disabled. Unsupported observation/capture/verification refuses before binding/credential/workspace effects. SQLite writer/replica permits require the matching engine and shared identity/fence/ownership proof before exact Litestream runtime checks.

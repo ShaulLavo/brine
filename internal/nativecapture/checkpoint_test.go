@@ -81,3 +81,29 @@ func TestInventoryCodecClosedAndEmptyDistinct(t *testing.T) {
 		t.Fatal("empty source became initialized")
 	}
 }
+
+func TestCheckpointBindsConfigAndClosedSigningRecovery(t *testing.T) {
+	record := fixtureCheckpoint()
+	record.ConfigurationSHA256 = strings.Repeat("f", 64)
+	if _, err := NewCheckpoint(record, DefaultLimits()); err == nil {
+		t.Fatal("configuration digest disagrees with member")
+	}
+	record = fixtureCheckpoint()
+	record.Members = append(record.Members, CheckpointMember{Path: "recovery/signing.key", Bytes: 32, SHA256: record.SigningRecovery.SHA256})
+	if _, err := NewCheckpoint(record, DefaultLimits()); err == nil {
+		t.Fatal("external recovery admitted unrelated key member")
+	}
+	record.SigningRecovery.Kind = "encrypted_member"
+	record.SigningRecovery.Member = "recovery/signing.key"
+	checkpoint, err := NewCheckpoint(record, DefaultLimits())
+	if err != nil {
+		t.Fatal("matching encrypted recovery member refused", err)
+	}
+	if _, err := DecodeCheckpoint(checkpoint.Bytes(), DefaultLimits()); err != nil {
+		t.Fatal(err)
+	}
+	record.SigningRecovery.SHA256 = strings.Repeat("f", 64)
+	if _, err := NewCheckpoint(record, DefaultLimits()); err == nil {
+		t.Fatal("encrypted recovery hash disagrees with member")
+	}
+}
