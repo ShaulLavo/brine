@@ -60,6 +60,9 @@ func (c *Client) Init(ctx context.Context, repository Repository, workspace stri
 }
 
 func (c *Client) Backup(ctx context.Context, repository Repository, workspace string, bundle Bundle) (TransportPoint, error) {
+	if err := bundle.manifest.admit(c.limits); err != nil {
+		return TransportPoint{}, err
+	}
 	if repository.initializationPlan != "" || repository.scope.BindingID != bundle.manifest.document.Identity.BindingID || repository.scope.EpochID != bundle.manifest.document.Identity.EpochID {
 		return TransportPoint{}, ErrInvalid
 	}
@@ -103,6 +106,9 @@ func (c *Client) InspectExact(ctx context.Context, repository Repository, worksp
 // It refuses duplicates and then checks the exact returned snapshot. It never
 // selects latest or restarts a write.
 func (c *Client) InspectCapture(ctx context.Context, repository Repository, workspace string, bundle Bundle) (TransportPoint, error) {
+	if err := bundle.manifest.admit(c.limits); err != nil {
+		return TransportPoint{}, err
+	}
 	if err := bundle.verify(ctx); err != nil {
 		return TransportPoint{}, err
 	}
@@ -126,6 +132,9 @@ func sameRepository(repository Repository, point TransportPoint) bool {
 }
 
 func (c *Client) RestoreExact(ctx context.Context, repository Repository, workspace, directory string, point TransportPoint, manifest Manifest) error {
+	if err := manifest.admit(c.limits); err != nil {
+		return err
+	}
 	if !point.valid(c.limits) || manifest.SHA256() != point.ManifestSHA256 || manifest.document.Identity != point.Identity || point.ArchiveBytes != envelopeSize(manifest) || !sameRepository(repository, point) {
 		return ErrInvalid
 	}

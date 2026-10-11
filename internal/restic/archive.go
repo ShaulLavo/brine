@@ -10,6 +10,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 	"time"
 )
 
@@ -39,6 +41,9 @@ func Seal(ctx context.Context, source, workspace string, identity Identity, limi
 		return Bundle{}, err
 	}
 	if err := privateDirectory(workspace); err != nil {
+		return Bundle{}, err
+	}
+	if err := separateWorkspace(source, workspace); err != nil {
 		return Bundle{}, err
 	}
 	root, err := os.OpenRoot(source)
@@ -71,6 +76,9 @@ func Seal(ctx context.Context, source, workspace string, identity Identity, limi
 	if err = writeEnvelope(ctx, file, root, rootInfo, manifest, limits); err != nil {
 		return Bundle{}, err
 	}
+	if err = verifyMemberSet(ctx, root, rootInfo, manifest, limits); err != nil {
+		return Bundle{}, err
+	}
 	if err = file.Sync(); err != nil {
 		return Bundle{}, ErrFailed
 	}
@@ -86,6 +94,34 @@ func Seal(ctx context.Context, source, workspace string, identity Identity, limi
 		return Bundle{}, err
 	}
 	return Bundle{path: file.Name(), manifest: manifest, sha256: hash, size: info.Size(), info: info}, nil
+}
+
+func separateWorkspace(source, workspace string) error {
+	relative, err := filepath.Rel(source, workspace)
+	if err != nil || relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return ErrInvalid
+	}
+	sourceInfo, err := os.Lstat(source)
+	if err != nil {
+		return ErrInvalid
+	}
+	workInfo, err := os.Lstat(workspace)
+	if err != nil || os.SameFile(sourceInfo, workInfo) {
+		return ErrInvalid
+	}
+	return nil
+}
+
+func verifyMemberSet(ctx context.Context, root *os.Root, rootInfo os.FileInfo, expected Manifest, limits Limits) error {
+	members, err := readMembers(ctx, root, rootInfo, limits)
+	if err != nil {
+		return err
+	}
+	fresh, err := newManifest(expected.document.Identity, members, limits)
+	if err != nil || !slices.Equal(fresh.document.Members, expected.document.Members) {
+		return ErrIntegrity
+	}
+	return nil
 }
 
 func readMembers(ctx context.Context, root *os.Root, rootInfo os.FileInfo, limits Limits) ([]Member, error) {

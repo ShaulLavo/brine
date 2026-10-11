@@ -3,7 +3,9 @@
 package restic
 
 import (
+	"encoding/json"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/strictjson"
 	"regexp"
 	"time"
 )
@@ -79,4 +81,27 @@ type TransportPoint struct {
 
 func (p TransportPoint) valid(l Limits) bool {
 	return p.Identity.valid() && p.Scope.valid() && p.Identity.BindingID == p.Scope.BindingID && p.Identity.EpochID == p.Scope.EpochID && hashPattern.MatchString(p.SnapshotID) && hashPattern.MatchString(p.ManifestSHA256) && hashPattern.MatchString(p.ArchiveSHA256) && p.ArchiveBytes > 0 && p.ArchiveBytes <= l.ArchiveBytes
+}
+
+func (p *TransportPoint) UnmarshalJSON(raw []byte) error {
+	if len(raw) > jsonLimit {
+		return ErrLimit
+	}
+	fields, err := strictjson.Object(raw, "identity", "scope", "snapshot_id", "manifest_sha256", "archive_sha256", "archive_bytes")
+	if err != nil {
+		return ErrInvalid
+	}
+	if _, err := strictjson.Object(fields["identity"], "binding_id", "epoch_id", "capture_id", "module_sha256", "checkpoint_sha256"); err != nil {
+		return ErrInvalid
+	}
+	if _, err := strictjson.Object(fields["scope"], "binding_id", "epoch_id", "destination_sha256", "credential_version", "recovery_version", "expires_at"); err != nil {
+		return ErrInvalid
+	}
+	type pointValue TransportPoint
+	value, err := strictjson.Value[pointValue](json.RawMessage(raw))
+	if err != nil || !TransportPoint(value).valid(Limits{Bytes: 8 << 30, FileBytes: 8 << 30, ArchiveBytes: 9 << 30, Members: 32768}) {
+		return ErrInvalid
+	}
+	*p = TransportPoint(value)
+	return nil
 }

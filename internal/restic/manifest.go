@@ -37,8 +37,11 @@ func (m Manifest) SHA256() string    { return digest(m.raw) }
 func digest(raw []byte) string       { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
 
 func newManifest(identity Identity, members []Member, limits Limits) (Manifest, error) {
-	if !limits.valid() || !identity.valid() || len(members) > limits.Members {
+	if !limits.valid() || !identity.valid() {
 		return Manifest{}, ErrInvalid
+	}
+	if len(members) > limits.Members {
+		return Manifest{}, ErrLimit
 	}
 	members = slices.Clone(members)
 	if members == nil {
@@ -49,6 +52,9 @@ func newManifest(identity Identity, members []Member, limits Limits) (Manifest, 
 	var total int64
 	previous := ""
 	for _, member := range members {
+		if member.Size > limits.FileBytes {
+			return Manifest{}, ErrLimit
+		}
 		if !validMember(member, limits) || member.Path == previous || !parents[path.Dir(member.Path)] {
 			return Manifest{}, ErrInvalid
 		}
@@ -121,8 +127,11 @@ func DecodeManifest(raw []byte, limits Limits) (Manifest, error) {
 
 func decodeMembers(raw []byte, limits Limits) ([]Member, error) {
 	values, err := strictjson.Value[[]json.RawMessage](raw)
-	if err != nil || len(values) > limits.Members {
+	if err != nil {
 		return nil, ErrInvalid
+	}
+	if len(values) > limits.Members {
+		return nil, ErrLimit
 	}
 	members := make([]Member, 0, len(values))
 	for _, value := range values {
@@ -137,6 +146,19 @@ func decodeMembers(raw []byte, limits Limits) ([]Member, error) {
 		members = append(members, member)
 	}
 	return members, nil
+}
+
+func (m Manifest) admit(limits Limits) error {
+	if len(m.raw) == 0 {
+		return ErrInvalid
+	}
+	if _, err := newManifest(m.document.Identity, m.document.Members, limits); err != nil {
+		return err
+	}
+	if envelopeSize(m) > limits.ArchiveBytes {
+		return ErrLimit
+	}
+	return nil
 }
 
 func hasNull(fields map[string]json.RawMessage) bool {
