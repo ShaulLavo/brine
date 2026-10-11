@@ -95,7 +95,7 @@ Brine needs only:
   is covered, so P10-05 is checked. Rust/better-sqlite3 execution remains
   unverified and is not an additional documentation acceptance requirement.
 
-- [ ] **P10-06 Pi drill.** Under D3: create a new app from a repo schema file with one `brine deploy`; verify env variables in the container, initialization, replication and a restore test. Interrupt P10-04 at each step and rerun to completion.
+- [x] **P10-06 Pi drill.** Under D3: create a new app from a repo schema file with one `brine deploy`; verify env variables in the container, initialization, replication and a restore test. Interrupt P10-04 at each step and rerun to completion.
 
   **Owner decision (2026-10-11):** Drop the alternate-version/compile-options check: SQLite's stable file format makes it a SQLite test, not a Brine test; file-format-changing builds remain unsupported.
 
@@ -106,10 +106,16 @@ Brine needs only:
   jobs; the final release completed on `b0a7de7`. The coordinator ledger's
   "mandatory pass" does not supply the final-release interruption receipt.
 
-  **Remaining:**
-  - Record interruption and resume during the final release step. The captured
-    scripts killed the client at three completed-stage checkpoints, leaving the
-    release step uncovered by the stated "at each step" requirement.
+  Final-release interruption passed on `d94f6ad` (#111) twice: each fresh app
+  had one combined SQL approval, the client was SIGKILLed after durable release
+  acceptance while the release was still running (proved by clock-bounded
+  terminal events at least 17.7 s and 19.6 s after the kill), and the first
+  immediate rerun of the same deploy completed without reconciliation, kept
+  every accepted ID, and ran exactly one preparation, credential activation,
+  initialization and release. A kill after initialization and before release
+  submission also resumed with exactly one release. #111 fixed the earlier
+  2/2 `transport_failure` on that first rerun (checkpoint validation waited on
+  the host lock held by the running release).
 
   Additional full archive recreation now passes on `1692095` (#110): preparation
   and credentials were reused, initialization/release succeeded with fresh
