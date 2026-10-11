@@ -37,7 +37,7 @@ func copyEngineSource(ctx context.Context, binding data.SpacetimeDBBinding, stag
 	if err != nil {
 		return nil, err
 	}
-	parent, err := os.OpenRoot(staging)
+	parent, err := engineOpenRoot(staging)
 	if err != nil {
 		return nil, errors.Join(errEngineSource, source.Close())
 	}
@@ -49,7 +49,7 @@ func copyEngineSource(ctx context.Context, binding data.SpacetimeDBBinding, stag
 			copy = nil
 		}
 	}()
-	copy.original, err = sealEngineRoot(ctx, source, limits)
+	copy.original, err = sealOwnedEngineSource(ctx, source, limits)
 	if err != nil {
 		return copy, err
 	}
@@ -97,16 +97,16 @@ func (c *engineSourceCopy) members(ctx context.Context) error {
 }
 
 func copyEngineFile(ctx context.Context, source, destination *os.Root, member engineTreeMember) (err error) {
-	in, err := source.Open(member.Name)
+	in, err := engineOpenMember(source, member.Name, unix.O_RDONLY, 0)
 	if err != nil {
 		return errEngineSource
 	}
 	defer func() { err = errors.Join(err, in.Close()) }()
-	actual, err := engineMember(in, member.Name)
-	if err != nil || actual != (engineTreeMember{Name: member.Name, Mode: member.Mode, UID: member.UID, Device: member.Device, Inode: member.Inode, MountID: member.MountID, Size: member.Size}) {
+	actual, err := engineSourceMember(in, member.Name)
+	if err != nil || actual != (engineTreeMember{Name: member.Name, Mode: member.Mode, UID: member.UID, Device: member.Device, Inode: member.Inode, Links: member.Links, MountID: member.MountID, Size: member.Size}) {
 		return errEngineSource
 	}
-	out, err := destination.OpenFile(member.Name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	out, err := engineOpenMember(destination, member.Name, unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY, 0600)
 	if err != nil {
 		return errEngineSource
 	}
@@ -148,7 +148,7 @@ func sameEngineContents(source, copied engineTreeSeal) bool {
 }
 
 func (c *engineSourceCopy) sourceUnchanged(ctx context.Context) error {
-	current, err := sealEngineRoot(ctx, c.source, c.limits)
+	current, err := sealOwnedEngineSource(ctx, c.source, c.limits)
 	if err != nil || current.hash != c.original.hash {
 		return errEngineSource
 	}
@@ -156,7 +156,7 @@ func (c *engineSourceCopy) sourceUnchanged(ctx context.Context) error {
 	if err != nil {
 		return errEngineSource
 	}
-	current, err = sealEngineRoot(ctx, actual, c.limits)
+	current, err = sealOwnedEngineSource(ctx, actual, c.limits)
 	closeErr := actual.Close()
 	if err != nil || closeErr != nil || current.hash != c.original.hash {
 		return errEngineSource
@@ -165,14 +165,22 @@ func (c *engineSourceCopy) sourceUnchanged(ctx context.Context) error {
 }
 
 func (c *engineSourceCopy) discard() error {
+	return errors.Join(c.disposeStage(), c.source.Close())
+}
+
+func (c *engineSourceCopy) disposeStage() error {
 	var err error
 	if c.root != nil {
 		err = c.root.Close()
+		c.root = nil
 	}
-	if c.name != "" {
+	if c.parent != nil && c.name != "" {
 		err = errors.Join(err, c.parent.RemoveAll(c.name))
 	}
-	err = errors.Join(err, c.source.Close(), c.parent.Close())
+	if c.parent != nil {
+		err = errors.Join(err, c.parent.Close())
+		c.parent = nil
+	}
 	return err
 }
 

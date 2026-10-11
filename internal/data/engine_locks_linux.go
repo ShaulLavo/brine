@@ -27,7 +27,7 @@ func PrepareEngineLocks(ctx context.Context, stateRoot string, binding ReplicaBi
 	if err != nil {
 		return err
 	}
-	defer unix.Close(root)
+	defer func() { _ = unix.Close(root) }()
 	if err = unix.Mkdirat(root, "engine-locks", 0700); err != nil && !errors.Is(err, unix.EEXIST) {
 		return err
 	}
@@ -35,7 +35,7 @@ func PrepareEngineLocks(ctx context.Context, stateRoot string, binding ReplicaBi
 	if err != nil {
 		return err
 	}
-	defer unix.Close(parent)
+	defer func() { _ = unix.Close(parent) }()
 	for _, suffix := range []string{".launch", ".lifetime"} {
 		file, err := openEngineLock(parent, string(binding)+suffix, true)
 		if err != nil {
@@ -67,7 +67,7 @@ func acquireEngineLock(ctx context.Context, root string, binding ReplicaBindingI
 	if err != nil {
 		return nil, err
 	}
-	defer unix.Close(parent)
+	defer func() { _ = unix.Close(parent) }()
 	file, err := openEngineLock(parent, string(binding)+suffix, false)
 	if err != nil {
 		return nil, err
@@ -75,7 +75,24 @@ func acquireEngineLock(ctx context.Context, root string, binding ReplicaBindingI
 	if err = takeEngineLock(ctx, file, wait); err != nil {
 		return nil, errors.Join(err, file.Close())
 	}
-	return &EngineLock{file: file}, nil
+	path := filepath.Join(root, "engine-locks", string(binding)+suffix)
+	if err = ctx.Err(); err != nil || !engineLockCurrent(file, path) {
+		return nil, errors.Join(ErrInvalid, err, file.Close())
+	}
+	return &EngineLock{file: file, binding: binding, role: suffix, path: path}, nil
+}
+
+func engineLockCurrent(file *os.File, path string) bool {
+	parent, err := openEngineDirectory(filepath.Dir(path))
+	if err != nil {
+		return false
+	}
+	defer func() { _ = unix.Close(parent) }()
+	var held, current unix.Stat_t
+	if unix.Fstat(int(file.Fd()), &held) != nil || unix.Fstatat(parent, filepath.Base(path), &current, unix.AT_SYMLINK_NOFOLLOW) != nil {
+		return false
+	}
+	return held.Dev == current.Dev && held.Ino == current.Ino && current.Mode&unix.S_IFMT == unix.S_IFREG && current.Mode&0777 == 0600 && int64(current.Uid) == int64(os.Geteuid()) && current.Nlink == 1
 }
 
 func takeEngineLock(ctx context.Context, file *os.File, wait bool) error {
@@ -114,7 +131,7 @@ func openEngineLock(parent int, name string, create bool) (*os.File, error) {
 	}
 	file := os.NewFile(uintptr(fd), name)
 	var stat unix.Stat_t
-	if unix.Fstat(fd, &stat) != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Mode&0777 != 0600 || stat.Uid != uint32(os.Geteuid()) || stat.Nlink != 1 {
+	if unix.Fstat(fd, &stat) != nil || stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Mode&0777 != 0600 || int64(stat.Uid) != int64(os.Geteuid()) || stat.Nlink != 1 {
 		return nil, errors.Join(ErrInvalid, file.Close())
 	}
 	return file, nil
@@ -130,15 +147,15 @@ func openEngineDirectory(path string) (int, error) {
 	}
 	for _, part := range strings.Split(strings.TrimPrefix(path, "/"), "/") {
 		next, err := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
-		unix.Close(fd)
+		_ = unix.Close(fd)
 		if err != nil {
 			return -1, err
 		}
 		fd = next
 	}
 	var stat unix.Stat_t
-	if unix.Fstat(fd, &stat) != nil || stat.Mode&0777 != 0700 || stat.Uid != uint32(os.Geteuid()) {
-		unix.Close(fd)
+	if unix.Fstat(fd, &stat) != nil || stat.Mode&0777 != 0700 || int64(stat.Uid) != int64(os.Geteuid()) {
+		_ = unix.Close(fd)
 		return -1, ErrInvalid
 	}
 	return fd, nil

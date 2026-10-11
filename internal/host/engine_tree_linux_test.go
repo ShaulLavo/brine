@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"golang.org/x/sys/unix"
 )
 
 func engineSourceFixture(t *testing.T) (data.SpacetimeDBBinding, string) {
@@ -17,7 +18,7 @@ func engineSourceFixture(t *testing.T) (data.SpacetimeDBBinding, string) {
 	root := t.TempDir()
 	staging := t.TempDir()
 	for _, directory := range []string{root, staging} {
-		if err := os.Chmod(directory, 0700); err != nil {
+		if err := os.Chmod(directory, 0700); err != nil { //nolint:gosec // Private directory or deliberately unsafe-mode refusal fixture.
 			t.Fatal(err)
 		}
 	}
@@ -99,9 +100,9 @@ func testEngineSealAttack(t *testing.T, attack string) {
 	case "symlink":
 		err = os.Symlink("control-db/state", filepath.Join(binding.SourcePath(), "alias"))
 	case "hardlink":
-		err = os.Link(source, filepath.Join(binding.SourcePath(), "alias"))
+		err = os.Link(source, filepath.Join(staging, "outside-alias"))
 	case "permissions":
-		err = os.Chmod(source, 0644)
+		err = os.Chmod(source, 0644) //nolint:gosec // Private directory or deliberately unsafe-mode refusal fixture.
 	case "bytes":
 		limits.Bytes = 1
 	case "files":
@@ -134,4 +135,127 @@ func TestEngineSourceDriftRefusesBeforeLaunch(t *testing.T) {
 	if copy.sourceUnchanged(ctx) == nil {
 		t.Fatal("changed source retained startup authority")
 	}
+}
+
+func TestEngineCopyDisposalKeepsOnlyOriginalSeal(t *testing.T) {
+	binding, staging := engineSourceFixture(t)
+	ctx := context.Background()
+	copy, err := copyEngineSource(ctx, binding, staging, strings.Repeat("d", 32), engineCopyLimits{Bytes: 1 << 20, Files: 128, Depth: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = copy.discard() }()
+	if err = copy.disposeStage(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = os.Stat(copy.path); !os.IsNotExist(err) {
+		t.Fatal("private copy retained before live handoff", err)
+	}
+	if err = copy.sourceUnchanged(ctx); err != nil {
+		t.Fatal("disposing private copy lost stopped source binding", err)
+	}
+}
+
+func TestEngineCopyNeverFollowsReplacedMemberSymlink(t *testing.T) {
+	binding, staging := engineSourceFixture(t)
+	source, err := openEngineSource(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = source.Close() }()
+	destination, err := os.OpenRoot(staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = destination.Close() }()
+	if err = destination.Mkdir("control-db", 0700); err != nil {
+		t.Fatal(err)
+	}
+	seal, err := sealEngineRoot(context.Background(), source, engineCopyLimits{Bytes: 1 << 20, Files: 128, Depth: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var member engineTreeMember
+	for _, candidate := range seal.members {
+		if candidate.Name == "control-db/state" {
+			member = candidate
+		}
+	}
+	file := filepath.Join(binding.SourcePath(), "control-db/state")
+	if err = os.Rename(file, file+"-preserved"); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Symlink("state-preserved", file); err != nil {
+		t.Fatal(err)
+	}
+	if copyEngineFile(context.Background(), source, destination, member) == nil {
+		t.Fatal("member copy followed symlink to the sealed inode")
+	}
+}
+
+func TestEngineOwnedAliasesBecomeIndependentPrivateFiles(t *testing.T) {
+	binding, staging := engineSourceFixture(t)
+	left := filepath.Join(binding.SourcePath(), "control-db/state")
+	right := filepath.Join(binding.SourcePath(), "second-object")
+	if err := os.Link(left, right); err != nil {
+		t.Fatal(err)
+	}
+	copy, err := copyEngineSource(context.Background(), binding, staging, strings.Repeat("d", 32), engineCopyLimits{Bytes: 1 << 20, Files: 128, Depth: 16})
+	if err != nil {
+		t.Fatal("fully rooted owned aliases refused", err)
+	}
+	defer func() { _ = copy.discard() }()
+	first, err := copy.root.Stat("control-db/state")
+	second, otherErr := copy.root.Stat("second-object")
+	if err != nil || otherErr != nil || os.SameFile(first, second) {
+		t.Fatal("private copy retained source hardlinks", err, otherErr)
+	}
+	if _, err = sealEngineRoot(context.Background(), copy.root, copy.limits); err != nil {
+		t.Fatal("private copy was not strictly single-linked", err)
+	}
+	if err = os.Remove(right); err != nil {
+		t.Fatal(err)
+	}
+	if copy.sourceUnchanged(context.Background()) == nil {
+		t.Fatal("alias membership drift retained source proof")
+	}
+}
+
+func TestEngineNativeSnapshotAliasesPhysical(t *testing.T) {
+	path := os.Getenv("BRINE_ENGINE_NATIVE_ROOT")
+	if path == "" {
+		t.Skip("physical native corpus not supplied")
+	}
+	binding := data.SpacetimeDBBinding{DatabaseID: data.DatabaseID(strings.Repeat("a", 32)), IncarnationID: data.AppIncarnationID(strings.Repeat("b", 32)), BindingID: data.ReplicaBindingID(strings.Repeat("c", 32)), Root: data.PersistentRoot(path), Name: "physical"}
+	relative, err := data.RelativeDirectory(binding.IncarnationID, binding.DatabaseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding.RelativeDirectory = relative
+	stage := t.TempDir()
+	if err = os.Chmod(stage, 0700); err != nil { //nolint:gosec // Private directory or deliberately unsafe-mode refusal fixture.
+		t.Fatal(err)
+	}
+	copy, err := copyEngineSource(context.Background(), binding, stage, strings.Repeat("d", 32), engineCopyLimits{Bytes: 32 << 20, Files: 2048, Depth: 64})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = copy.discard() }()
+	linked := 0
+	for _, member := range copy.original.members {
+		if member.Mode&unix.S_IFMT == unix.S_IFREG && member.Links > 1 && strings.Contains(member.Name, ".snapshot_dir/objects/") {
+			linked++
+		}
+	}
+	if linked == 0 {
+		t.Fatal("fixture did not retain actual native snapshot object links")
+	}
+	private, err := sealEngineRoot(context.Background(), copy.root, copy.limits)
+	if err != nil || !sameEngineContents(copy.original, private) {
+		t.Fatal("native source did not flatten into complete private files", err)
+	}
+	if err = copy.sourceUnchanged(context.Background()); err != nil {
+		t.Fatal("native source changed during private copy", err)
+	}
+	t.Logf("native linked snapshot paths=%d source paths=%d copied bytes=%d; private regular files Nlink1", linked, len(copy.original.members), copy.original.bytes)
 }

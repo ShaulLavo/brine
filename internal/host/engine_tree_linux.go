@@ -12,14 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"golang.org/x/sys/unix"
 )
-
-var errEngineSource = errors.New("engine source verification refused")
 
 type engineCopyLimits struct {
 	Bytes int64
@@ -37,6 +36,7 @@ type engineTreeMember struct {
 	UID     uint32 `json:"uid"`
 	Device  uint64 `json:"device"`
 	Inode   uint64 `json:"inode"`
+	Links   uint32 `json:"links"`
 	MountID uint64 `json:"mount_id"`
 	Size    int64  `json:"size"`
 	SHA256  string `json:"sha256"`
@@ -50,12 +50,21 @@ type engineTreeSeal struct {
 }
 
 type engineTreeWalker struct {
-	root   *os.Root
-	limits engineCopyLimits
-	seal   engineTreeSeal
+	root        *os.Root
+	limits      engineCopyLimits
+	seal        engineTreeSeal
+	ownedSource bool
 }
 
 func sealEngineRoot(ctx context.Context, root *os.Root, limits engineCopyLimits) (engineTreeSeal, error) {
+	return sealEngineTree(ctx, root, limits, false)
+}
+
+func sealOwnedEngineSource(ctx context.Context, root *os.Root, limits engineCopyLimits) (engineTreeSeal, error) {
+	return sealEngineTree(ctx, root, limits, true)
+}
+
+func sealEngineTree(ctx context.Context, root *os.Root, limits engineCopyLimits, ownedSource bool) (engineTreeSeal, error) {
 	if !limits.valid() || ctx.Err() != nil {
 		return engineTreeSeal{}, errEngineSource
 	}
@@ -68,16 +77,19 @@ func sealEngineRoot(ctx context.Context, root *os.Root, limits engineCopyLimits)
 	if err != nil || info.Mode&unix.S_IFMT != unix.S_IFDIR {
 		return engineTreeSeal{}, errEngineSource
 	}
-	w := engineTreeWalker{root: root, limits: limits, seal: engineTreeSeal{root: info, members: []engineTreeMember{}}}
+	w := engineTreeWalker{root: root, limits: limits, ownedSource: ownedSource, seal: engineTreeSeal{root: info, members: []engineTreeMember{}}}
 	if err = w.directory(ctx, file, "", 0); err != nil {
 		return engineTreeSeal{}, err
+	}
+	if ownedSource && !engineOwnedAliasCensus(w.seal.members) {
+		return engineTreeSeal{}, errEngineSource
 	}
 	slices.SortFunc(w.seal.members, func(a, b engineTreeMember) int { return strings.Compare(a.Name, b.Name) })
 	raw, err := json.Marshal(struct {
 		Version string             `json:"version"`
 		Root    engineTreeMember   `json:"root"`
 		Members []engineTreeMember `json:"members"`
-	}{"brine-engine-tree-v1", info, w.seal.members})
+	}{"brine-engine-tree-v2", info, w.seal.members})
 	if err != nil || ctx.Err() != nil {
 		return engineTreeSeal{}, errEngineSource
 	}
@@ -122,12 +134,15 @@ func (w *engineTreeWalker) member(ctx context.Context, name string, depth int) e
 	if err != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() && !info.Mode().IsRegular() {
 		return errEngineSource
 	}
-	file, err := w.root.Open(name)
+	file, err := engineOpenMember(w.root, name, unix.O_RDONLY, 0)
 	if err != nil {
 		return errEngineSource
 	}
 	defer func() { _ = file.Close() }()
 	member, err := engineMember(file, name)
+	if w.ownedSource {
+		member, err = engineSourceMember(file, name)
+	}
 	if err != nil || member.MountID != w.seal.root.MountID || member.Device != w.seal.root.Device {
 		return errEngineSource
 	}
@@ -138,7 +153,7 @@ func (w *engineTreeWalker) member(ctx context.Context, name string, depth int) e
 	if member.Size < 0 || member.Size > w.limits.Bytes-w.seal.bytes {
 		return errEngineSource
 	}
-	member.SHA256, err = hashEngineFile(ctx, file, member.Size)
+	member.SHA256, err = hashEngineFile(ctx, file, member)
 	if err != nil {
 		return err
 	}
@@ -148,23 +163,57 @@ func (w *engineTreeWalker) member(ctx context.Context, name string, depth int) e
 }
 
 func engineMember(file *os.File, name string) (engineTreeMember, error) {
+	member, err := engineSourceMember(file, name)
+	if err != nil || member.Mode&unix.S_IFMT == unix.S_IFREG && member.Links != 1 {
+		return engineTreeMember{}, errEngineSource
+	}
+	return member, nil
+}
+
+func engineSourceMember(file *os.File, name string) (engineTreeMember, error) {
 	var stat unix.Statx_t
 	mask := unix.STATX_BASIC_STATS | unix.STATX_MNT_ID
-	if unix.Statx(int(file.Fd()), "", unix.AT_EMPTY_PATH|unix.AT_SYMLINK_NOFOLLOW, mask, &stat) != nil || stat.Mask&unix.STATX_MNT_ID == 0 || stat.Mnt_id == 0 || stat.Uid != uint32(os.Geteuid()) {
+	if unix.Statx(int(file.Fd()), "", unix.AT_EMPTY_PATH|unix.AT_SYMLINK_NOFOLLOW, mask, &stat) != nil || stat.Mask&unix.STATX_MNT_ID == 0 || stat.Mnt_id == 0 || int64(stat.Uid) != int64(os.Geteuid()) {
 		return engineTreeMember{}, errEngineSource
 	}
 	mode := stat.Mode
 	validDirectory := mode&unix.S_IFMT == unix.S_IFDIR && mode&07777 == 0700
-	validFile := mode&unix.S_IFMT == unix.S_IFREG && mode&07777 == 0600 && stat.Nlink == 1
+	validFile := mode&unix.S_IFMT == unix.S_IFREG && mode&07777 == 0600 && stat.Nlink >= 1
 	if !validDirectory && !validFile || stat.Size > 1<<30 {
 		return engineTreeMember{}, errEngineSource
 	}
-	return engineTreeMember{Name: name, Mode: mode, UID: stat.Uid, Device: unix.Mkdev(stat.Dev_major, stat.Dev_minor), Inode: stat.Ino, MountID: stat.Mnt_id, Size: int64(stat.Size)}, nil
+	return engineTreeMember{Name: name, Mode: mode, UID: stat.Uid, Device: unix.Mkdev(stat.Dev_major, stat.Dev_minor), Inode: stat.Ino, Links: stat.Nlink, MountID: stat.Mnt_id, Size: int64(stat.Size)}, nil
 }
 
-func hashEngineFile(ctx context.Context, file *os.File, size int64) (string, error) {
-	before, err := engineMember(file, "")
-	if err != nil || before.Size != size {
+func engineOwnedAliasCensus(members []engineTreeMember) bool {
+	type identity struct{ device, inode, mount uint64 }
+	counts := map[identity]uint32{}
+	values := map[identity]engineTreeMember{}
+	for _, member := range members {
+		if member.Mode&unix.S_IFMT != unix.S_IFREG {
+			continue
+		}
+		id := identity{member.Device, member.Inode, member.MountID}
+		member.Name = ""
+		previous, found := values[id]
+		if found && member != previous {
+			return false
+		}
+		values[id] = member
+		counts[id]++
+	}
+	for id, member := range values {
+		if counts[id] != member.Links {
+			return false
+		}
+	}
+	return true
+}
+
+func hashEngineFile(ctx context.Context, file *os.File, expected engineTreeMember) (string, error) {
+	before, err := engineSourceMember(file, "")
+	expected.Name = ""
+	if err != nil || before != expected {
 		return "", errEngineSource
 	}
 	hash := sha256.New()
@@ -176,7 +225,7 @@ func hashEngineFile(ctx context.Context, file *os.File, size int64) (string, err
 		}
 		n, err := file.Read(buffer)
 		read += int64(n)
-		if read > size {
+		if read > expected.Size {
 			return "", errEngineSource
 		}
 		_, _ = hash.Write(buffer[:n])
@@ -187,8 +236,8 @@ func hashEngineFile(ctx context.Context, file *os.File, size int64) (string, err
 			return "", errEngineSource
 		}
 	}
-	after, err := engineMember(file, "")
-	if err != nil || before != after || read != size || ctx.Err() != nil {
+	after, err := engineSourceMember(file, "")
+	if err != nil || before != after || read != expected.Size || ctx.Err() != nil {
 		return "", errEngineSource
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
@@ -201,7 +250,7 @@ func openEngineSource(binding data.SpacetimeDBBinding) (*os.Root, error) {
 	if _, err := data.InspectRoot(string(binding.Root)); err != nil {
 		return nil, errEngineSource
 	}
-	root, err := os.OpenRoot(string(binding.Root))
+	root, err := engineOpenRoot(string(binding.Root))
 	if err != nil {
 		return nil, errEngineSource
 	}
@@ -209,7 +258,12 @@ func openEngineSource(binding data.SpacetimeDBBinding) (*os.Root, error) {
 	if err = engineDirectoryChain(root, binding.RelativeDirectory); err != nil {
 		return nil, err
 	}
-	return root.OpenRoot(binding.RelativeDirectory)
+	file, err := engineOpenMember(root, binding.RelativeDirectory, unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return nil, errEngineSource
+	}
+	defer func() { _ = file.Close() }()
+	return os.OpenRoot("/proc/self/fd/" + strconv.FormatUint(uint64(file.Fd()), 10))
 }
 
 func engineDirectoryChain(root *os.Root, relative string) error {
@@ -237,7 +291,7 @@ func engineDirectoryChain(root *os.Root, relative string) error {
 }
 
 func sameEngineMount(root *os.Root, relative string, identity engineTreeMember) error {
-	file, err := root.Open(relative)
+	file, err := engineOpenMember(root, relative, unix.O_RDONLY, 0)
 	if err != nil {
 		return errEngineSource
 	}

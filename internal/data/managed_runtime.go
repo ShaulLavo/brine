@@ -5,6 +5,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
@@ -26,7 +27,7 @@ type EngineModuleDefinition struct {
 }
 
 func (s EngineSchemaDefinition) Validate() error {
-	if !ValidMarker(s.Marker) || s.Marker == EmptyMarker || s.Canonicalizer != "spacetimedb-v10-expanded-v2" || !ValidCatalogHash(s.SHA256) {
+	if !ValidMarker(s.Marker) || s.Marker == EmptyMarker || s.Canonicalizer != spacetimedb.CanonicalizerVersion || !ValidCatalogHash(s.SHA256) {
 		return ErrInvalid
 	}
 	return nil

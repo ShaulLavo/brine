@@ -18,7 +18,7 @@ func engineStarterProcess() (systemd.StarterProcess, error) {
 		return systemd.StarterProcess{}, errEngineSource
 	}
 	pid, ticks, err := parseEngineProcessStat(string(stat))
-	if err != nil || uint64(os.Getpid()) != uint64(pid) {
+	if err != nil || int64(os.Getpid()) != int64(pid) {
 		return systemd.StarterProcess{}, errEngineSource
 	}
 	cgroup, err := os.ReadFile("/proc/self/cgroup")

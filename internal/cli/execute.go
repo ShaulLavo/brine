@@ -43,6 +43,9 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 	if lifecycle.OpenWriterAttempt != nil {
 		deps.HostWriterAttempt = lazyWriterAttempt{&runtime}.WriterAttempt
 	}
+	if lifecycle.OpenEngineStartup != nil {
+		deps.HostEngineExec = lazyEngineStartup{&runtime}.EngineExec
+	}
 	// Forced-command requests cannot select presentation or options through argv.
 	if HostServeRequested(args) {
 		return executeHostServeFinalized(deps, func(err error) error { return runtime.finalize(deps, err) })
@@ -141,6 +144,7 @@ type RuntimeServices struct {
 	ArchiveCredentials backupcredentials.ArchiveService
 	Permits            replication.LaunchReader
 	WriterAttempt      func(context.Context, string) error
+	EngineExec         func(context.Context, string) error
 	Runner             OperationRunner
 	Reconciler         dispatch.ReconcileOperations
 	Close              func() error
@@ -148,6 +152,7 @@ type RuntimeServices struct {
 type RuntimeLifecycle struct {
 	OpenPermits       func(context.Context) (RuntimeServices, error)
 	OpenWriterAttempt func(context.Context) (RuntimeServices, error)
+	OpenEngineStartup func(context.Context) (RuntimeServices, error)
 	Open              func(context.Context, bool) (RuntimeServices, error)
 	Close             func() error
 }
@@ -241,6 +246,18 @@ func (a lazyWriterAttempt) WriterAttempt(ctx context.Context, id string) error {
 }
 
 type lazyHostPermits struct{ runtime *invocationRuntime }
+
+type lazyEngineStartup struct{ runtime *invocationRuntime }
+
+func (e lazyEngineStartup) EngineExec(ctx context.Context, binding string) error {
+	if err := e.runtime.initializeStartup(ctx, e.runtime.lifecycle.OpenEngineStartup); err != nil {
+		return err
+	}
+	if e.runtime.services.EngineExec == nil {
+		return replication.ErrPermit
+	}
+	return e.runtime.services.EngineExec(ctx, binding)
+}
 
 func (p lazyHostPermits) reader(ctx context.Context) (replication.LaunchReader, error) {
 	if err := p.runtime.initializeStartup(ctx, p.runtime.lifecycle.OpenPermits); err != nil {
