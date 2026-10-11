@@ -76,7 +76,11 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 				if err != nil {
 					return result.New(result.InvalidUsage, err)
 				}
-				response, err := connected.call(cmd.Context(), deps, "plan", dispatch.PlanArgs{Spec: string(raw), SchemaArtifacts: app.SchemaArtifacts})
+				request, err := dispatch.NewPlanArgs(string(raw), app)
+				if err != nil {
+					return result.New(result.InvalidUsage, err)
+				}
+				response, err := connected.call(cmd.Context(), deps, "plan", request)
 				if err != nil {
 					return err
 				}

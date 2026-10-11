@@ -14,6 +14,7 @@ import (
 type PlanArgs struct {
 	Spec            string                `json:"spec"`
 	SchemaArtifacts []data.SchemaArtifact `json:"schema_artifacts"`
+	ManagedModule   *ManagedModuleInput   `json:"managed_module,omitempty"`
 }
 type Planned struct {
 	PlanID          string                  `json:"plan_id"`
@@ -27,7 +28,7 @@ type Planner interface {
 }
 
 func decodePlan(raw json.RawMessage) (any, error) {
-	f, err := strictjson.Object(raw, "spec", "schema_artifacts")
+	f, err := planFields(raw)
 	if err != nil {
 		return nil, err
 	}
@@ -39,11 +40,19 @@ func decodePlan(raw json.RawMessage) (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if app.SpacetimeDB != nil {
+		if _, err := strictjson.Value[[]json.RawMessage](f["schema_artifacts"]); err != nil {
+			return nil, err
+		}
+	}
 	artifacts, err := decodeSchemaArtifacts(f["schema_artifacts"])
 	if err != nil {
 		return nil, err
 	}
 	if err := app.ResolveSchemas(artifacts); err != nil {
+		return nil, err
+	}
+	if err := attachManagedModule(&app, f["managed_module"]); err != nil {
 		return nil, err
 	}
 	return app, nil
