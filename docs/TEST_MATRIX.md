@@ -4,7 +4,8 @@
 
 P09-04B pure preview checks cover shared managed database syntax, paired optional
 frontend, normalized ENGINE/URL/NAME/ACCEPTS, module SHA-256 versus executed native
-Keccak/API-wire witness, explicit license/cadence/loss facts, resource ceilings,
+Keccak/API-wire pilot witness, bounded confined client module/schema resolution,
+production v2 schema hashing without marker authority, explicit license/cadence/loss facts, resource ceilings,
 secret-purpose separation, independent ports and typed client-route denies.
 Managed plans must remain conflict-only with zero executable changes. Renderer
 checks cover the typed Podman supervisor service and optional frontend Quadlet;

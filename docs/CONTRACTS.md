@@ -86,8 +86,13 @@ P09-04 integration acceptance.
 
 Wasm artifact SHA-256 and native runtime identity are distinct. The pinned
 runtime hashes program bytes with Keccak-256; API JSON encodes a little-endian
-u256, unlike its display digest. Schema sidecars/fingerprints are untrusted
-desired input. Reviewed private staging must prove actual module/schema and
+u256, unlike its display digest. Client `ParseFile` reads confined regular files
+relative to the app declaration, refuses symlink components, and bounds Wasm to
+64 MiB and schema-v10 JSON to 1 MiB. It uses the production v2 canonicalizer and
+retains both program identities and the canonical schema hash as untrusted
+desired input. The explicit app marker and shared accepted markers stay intact;
+the sidecar creates no schema registration or initializer. Host dispatch never
+opens the client paths. Reviewed private staging must prove actual module/schema and
 register its marker before startup authority exists. A sidecar cannot grant it.
 
 ~~~text

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 )
 
 type WasmSHA256 string
@@ -215,7 +216,7 @@ func (d SpacetimeDB) Validate() error {
 		seenRefs[ref] = true
 	}
 	if m := d.Module.Metadata; m != nil {
-		if !data.ValidCatalogHash(string(m.WasmSHA256)) || !data.ValidCatalogHash(string(m.RuntimeModuleHash)) || !data.ValidCatalogHash(m.SchemaSHA256) || m.Canonicalizer != "spacetimedb-v10-expanded-v2" {
+		if !data.ValidCatalogHash(string(m.WasmSHA256)) || !data.ValidCatalogHash(string(m.RuntimeModuleHash)) || !data.ValidCatalogHash(m.SchemaSHA256) || m.Canonicalizer != spacetimedb.CanonicalizerVersion {
 			return data.ErrInvalid
 		}
 	}

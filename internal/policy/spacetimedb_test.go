@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
 
@@ -53,7 +54,7 @@ func TestManagedNormalizedEnvironmentAndHash(t *testing.T) {
 	if err != nil || !bytes.Equal(before, regenerated) {
 		t.Fatal("generated environment override accepted", err)
 	}
-	for _, change := range []string{"database", "alias", "accepts", "module", "license", "cadence", "domain"} {
+	for _, change := range []string{"database", "alias", "accepts", "module", "metadata", "license", "cadence", "domain"} {
 		t.Run(change, func(t *testing.T) {
 			next, err := Normalize(a, p)
 			if err != nil {
@@ -70,6 +71,8 @@ func TestManagedNormalizedEnvironmentAndHash(t *testing.T) {
 				next.SchemaCompatibility[0].Accepts = []string{"game-v1"}
 			case "module":
 				next.SpacetimeDB.Module.File = "module/other.wasm"
+			case "metadata":
+				next.SpacetimeDB.Module.Metadata = &spec.ModuleMetadata{WasmSHA256: spec.WasmSHA256(strings.Repeat("a", 64)), RuntimeModuleHash: spec.RuntimeModuleHash(strings.Repeat("b", 64)), Canonicalizer: spacetimedb.CanonicalizerVersion, SchemaSHA256: strings.Repeat("c", 64)}
 			case "license":
 				next.SpacetimePolicy.LicenseAuthority = "another-grant"
 			case "cadence":
