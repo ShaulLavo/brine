@@ -9,6 +9,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/planfile"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func managedValidateSpec(t *testing.T, frontend bool) string {
@@ -84,6 +85,13 @@ func checkManagedOfflinePlan(t *testing.T, frontend bool) {
 	}
 	if err := json.Unmarshal([]byte(out), &envelope); err != nil {
 		t.Fatal(err)
+	}
+	wantDigest := "sha256:" + strings.Repeat("b", 64)
+	if frontend {
+		wantDigest = "sha256:" + strings.Repeat("a", 64)
+	}
+	if envelope.Data.Image.Digest != wantDigest || envelope.Data.Image.ManifestDigest.Status != target.Unknown {
+		t.Fatal("preview lost the primary image or inferred a verified platform manifest")
 	}
 	p := envelope.Data.ManagedPreview
 	if p == nil || p.EngineHostPort != 20000 || p.EngineResources.MemoryMB != 128 || !frontend && (p.AppHostPort != 0 || p.AppResources != nil) {

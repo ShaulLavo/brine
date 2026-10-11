@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -87,7 +88,11 @@ func buildManagedPreview(in Input, desired []byte) (Plan, error) {
 		return Plan{}, err
 	}
 	d := in.Desired
-	p := Plan{SchemaVersion: SchemaVersion, Kind: Conflict, App: string(d.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: d.PolicyVersion, PolicyHash: d.PolicyHash, DesiredHash: hash(desired), DatabaseEnvironment: d.DatabaseEnvironmentValues(), Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{{Code: ManagedEngineUnsupported, Field: "databases.spacetimedb"}}}
+	image := in.Image
+	if !d.App().HasAppContainer() {
+		image = Image{Digest: strings.SplitN(string(d.SpacetimeDB.Image), "@", 2)[1], Platform: target.Platform{OS: "linux", Arch: in.Snapshot.Arch}, ManifestDigest: target.Observation[string]{Status: target.Unknown}}
+	}
+	p := Plan{SchemaVersion: SchemaVersion, Kind: Conflict, App: string(d.Name), Image: image, Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: d.PolicyVersion, PolicyHash: d.PolicyHash, DesiredHash: hash(desired), DatabaseEnvironment: d.DatabaseEnvironmentValues(), Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{{Code: ManagedEngineUnsupported, Field: "databases.spacetimedb"}}}
 	ports, known := previewPorts(in)
 	needed := 1
 	if d.App().HasAppContainer() {
