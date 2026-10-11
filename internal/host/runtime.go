@@ -2,6 +2,7 @@ package host
 
 import (
 	"github.com/ShaulLavo/brine/internal/archive"
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/store"
@@ -9,6 +10,8 @@ import (
 
 type Runtime struct {
 	Archives           archive.Service
+	ArchiveMaintenance archive.MaintenanceService
+	ArchiveCredentials backupcredentials.ArchiveService
 	DataInitialization dispatch.DataInitializationOperations
 	previewStore       *store.Store
 	Reconciler         dispatch.ReconcileOperations

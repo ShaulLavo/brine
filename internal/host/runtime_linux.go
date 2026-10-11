@@ -14,6 +14,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/diagnose"
@@ -138,6 +139,9 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
 	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{}, engine.Routes.(apply.RemovalRoutes), units)
+	archiveAdapter := r.Archives.Host.(archiveHost)
+	r.ArchiveMaintenance = archive.MaintenanceService{Journal: state, Host: archiveAdapter, Requester: requester, Authorize: r.Archives.Authorize, Lock: r.Archives.Lock}
+	r.ArchiveCredentials = backupcredentials.ArchiveService{Requester: requester, Journal: state, Files: backupcredentials.Files{Root: filepath.Join(stateDir, "credentials")}, Scope: archiveAdapter.archiveCredentialScope, Lock: r.Archives.Lock}
 	initEngine := dataInitializationService(service, stateDir)
 	initTasks := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
 	initTasks.Requester = initEngine.Requester.String()

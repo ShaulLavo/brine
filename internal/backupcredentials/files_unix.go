@@ -193,65 +193,72 @@ func immutable(root *os.Root, path string, data []byte) error {
 	return syncDir(root, parent)
 }
 func (f Files) install(r Receipt, env []byte) error {
-	root, err := f.open()
-	if err != nil {
-		return err
-	}
-	defer root.Close()
-	if err := ensure(root, r.Scope.CredentialRef); err != nil {
-		return err
-	}
 	metadata, err := json.Marshal(r)
 	if err != nil {
 		return err
 	}
-	if err := immutable(root, r.File, env); err != nil {
+	return f.installMetadata(r.Scope.CredentialRef, r.Version, metadata, env)
+}
+func (f Files) installMetadata(ref string, version uint64, metadata, env []byte) (err error) {
+	root, err := f.open()
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	if err := ensure(root, ref); err != nil {
+		return err
+	}
+	if err := immutable(root, fileName(ref, version, "env"), env); err != nil {
 		return err
 	}
 	// An env without its receipt is reserved but unusable, never adopted on retry.
-	return immutable(root, fileName(r.Scope.CredentialRef, r.Version, "json"), metadata)
+	return immutable(root, fileName(ref, version, "json"), metadata)
 }
 func (f Files) Receipt(ref string, n uint64) (Receipt, error) {
-	var receipt Receipt
-	root, err := f.open()
+	b, err := f.receiptBytes(ref, n)
 	if err != nil {
-		return receipt, err
+		return Receipt{}, err
 	}
-	defer root.Close()
-	if err := ensure(root, ref); err != nil {
-		return receipt, err
-	}
-	path := fileName(ref, n, "json")
-	info, err := root.Lstat(path)
-	if err != nil || !protected(info, false, 0600) {
-		return receipt, ErrStorage
-	}
-	fd, err := root.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
-	if err != nil {
-		return receipt, ErrStorage
-	}
-	defer fd.Close()
-	actual, err := fd.Stat()
-	if err != nil || !os.SameFile(info, actual) || !protected(actual, false, 0600) || actual.Size() > 8192 {
-		return receipt, ErrStorage
-	}
-	b, err := io.ReadAll(io.LimitReader(fd, 8193))
-	if err != nil || len(b) > 8192 {
-		return receipt, ErrStorage
-	}
-	receipt, err = DecodeReceipt(b)
-	if err != nil {
-		return Receipt{}, ErrStorage
-	}
-	if !receipt.Valid() || receipt.Scope.CredentialRef != ref || receipt.Version != n {
-		return Receipt{}, ErrStorage
-	}
-	info, err = root.Lstat(receipt.File)
-	if err != nil || !protected(info, false, 0600) {
+	receipt, err := DecodeReceipt(b)
+	if err != nil || !receipt.Valid() || receipt.Scope.CredentialRef != ref || receipt.Version != n {
 		return Receipt{}, ErrStorage
 	}
 	return receipt, nil
 }
+func (f Files) receiptBytes(ref string, n uint64) (out []byte, err error) {
+	root, err := f.open()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	if err := ensure(root, ref); err != nil {
+		return nil, err
+	}
+	path := fileName(ref, n, "json")
+	info, err := root.Lstat(path)
+	if err != nil || !protected(info, false, 0600) {
+		return nil, ErrStorage
+	}
+	fd, err := root.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, ErrStorage
+	}
+	defer func() { err = errors.Join(err, fd.Close()) }()
+	actual, err := fd.Stat()
+	if err != nil || !os.SameFile(info, actual) || !protected(actual, false, 0600) || actual.Size() > 8192 {
+		return nil, ErrStorage
+	}
+	b, err := io.ReadAll(io.LimitReader(fd, 8193))
+	if err != nil || len(b) > 8192 {
+		return nil, ErrStorage
+	}
+	info, err = root.Lstat(fileName(ref, n, "env"))
+	if err != nil || !protected(info, false, 0600) {
+		return nil, ErrStorage
+	}
+	return b, nil
+}
+
 func (f Files) locked(ctx context.Context, fn func() error) error {
 	root, err := f.open()
 	if err != nil {

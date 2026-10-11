@@ -77,7 +77,7 @@ func (l lazyArchives) Prepare(ctx context.Context, app, id string) (archive.Mani
 func HostArchiveRequested(ctx context.Context, args []string) bool {
 	root := NewRootCommand(Dependencies{Context: ctx}) //nolint:contextcheck // Metadata-only command lookup does not execute a handler.
 	command, _, err := root.Find(args)
-	return err == nil && command != nil && (command.CommandPath() == "brine host archive-prepare" || command.CommandPath() == "brine host archive-retire" || command.CommandPath() == "brine host archive-abandon" || command.CommandPath() == "brine host archive-reconcile")
+	return err == nil && command != nil && archiveCommandPath(command.CommandPath())
 }
 
 func (l lazyArchives) Retire(ctx context.Context, id data.ArchiveID) (archive.Disposition, error) {

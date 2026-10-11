@@ -301,12 +301,15 @@ func (s *Store) SaveArchiveManifest(ctx context.Context, o archive.Operation, m 
 	return updated, tx.Commit()
 }
 func (s *Store) ReadArchiveManifest(ctx context.Context, id data.ArchiveID) (archive.Manifest, error) {
+	return readArchiveManifest(ctx, s.db, id)
+}
+func readArchiveManifest(ctx context.Context, q dataQuerier, id data.ArchiveID) (archive.Manifest, error) {
 	var m archive.Manifest
 	var raw []byte
 	if !data.ValidID(string(id)) {
 		return m, ErrInvalid
 	}
-	if err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_archive_manifests WHERE archive_id=?", id).Scan(&raw); err != nil {
+	if err := q.QueryRowContext(ctx, "SELECT canonical FROM data_archive_manifests WHERE archive_id=?", id).Scan(&raw); err != nil {
 		return m, err
 	}
 	if len(raw) > archive.MaxManifestBytes || json.Unmarshal(raw, &m) != nil || !m.Valid() || m.Plan.ArchiveID != id {
