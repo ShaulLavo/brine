@@ -2,6 +2,7 @@ package restic
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,6 +21,32 @@ func TestSealRefusesWorkspaceInsideSourceWithoutCreatingArchive(t *testing.T) {
 	entries, err := os.ReadDir(workspace)
 	if err != nil || len(entries) != 0 {
 		t.Fatal("overlap refusal changed source")
+	}
+}
+
+func TestVerifiedUploadDescriptorIgnoresReplacedPath(t *testing.T) {
+	source, work := testTree(t)
+	bundle, err := Seal(context.Background(), source, work, testIdentity(), DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := bundle.openVerified(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	if err := os.Rename(bundle.path, bundle.path+".original"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(source, "state"), bundle.path); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := io.ReadAll(file)
+	if err != nil || digest(raw) != bundle.sha256 {
+		t.Fatal("upload descriptor followed replaced source path")
+	}
+	if err := bundle.verify(context.Background()); err != ErrIntegrity {
+		t.Fatal("replaced path remained valid", err)
 	}
 }
 
