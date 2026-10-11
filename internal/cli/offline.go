@@ -43,12 +43,28 @@ func newValidateCmd(machine *bool) *cobra.Command {
 				}{desired, keys}
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), projection))
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Valid app %s\nImage: %s\nDomains: %s\nContainer port: %d\nPolicy: %s\nEnvironment: %d keys (values hidden), secrets: %d references\n", desired.Name, desired.Image, joinDomains(desired), desired.ContainerPort, desired.PolicyVersion, len(desired.Environment), len(desired.Secrets))
-			return err
+			return printValidatedApp(cmd.OutOrStdout(), desired)
 		},
 	}
 	cmd.Flags().StringVar(&policyPath, "policy", "", "Explicit operator policy TOML file")
 	return cmd
+}
+
+func printValidatedApp(output io.Writer, desired policy.Desired) error {
+	if desired.SpacetimeDB == nil {
+		_, err := fmt.Fprintf(output, "Valid app %s\nImage: %s\nDomains: %s\nContainer port: %d\nPolicy: %s\nEnvironment: %d keys (values hidden), secrets: %d references\n", desired.Name, desired.Image, joinDomains(desired), desired.ContainerPort, desired.PolicyVersion, len(desired.Environment), len(desired.Secrets))
+		return err
+	}
+	db := desired.SpacetimeDB
+	if _, err := fmt.Fprintf(output, "Valid app %s\nManaged engine: SpacetimeDB %s\nEngine image: %s\nDatabase: %s\n", desired.Name, db.Version, db.Image, db.Database); err != nil {
+		return err
+	}
+	frontend := "Frontend: none\n"
+	if desired.App().HasAppContainer() {
+		frontend = fmt.Sprintf("Frontend image: %s\nFrontend container port: %d\n", desired.Image, desired.ContainerPort)
+	}
+	_, err := fmt.Fprintf(output, "%sDomains: %s\nPolicy: %s\nEnvironment: %d keys (values hidden), secrets: %d references\n", frontend, joinDomains(desired), desired.PolicyVersion, len(desired.Environment), len(desired.Secrets))
+	return err
 }
 
 func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command {
