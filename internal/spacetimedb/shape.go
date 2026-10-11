@@ -157,7 +157,7 @@ func validateTableEntry(kind string, value any) error {
 		return validateSequence(value)
 	case "default_values":
 		row, err := exactObject(value, "col_id", "value")
-		if err != nil || integerList(row["value"], 255) != nil {
+		if err != nil || hexByteString(row["value"]) != nil {
 			return ErrSchema
 		}
 		_, err = integer(row["col_id"])
@@ -165,6 +165,20 @@ func validateTableEntry(kind string, value any) error {
 	default:
 		return ErrSchema
 	}
+}
+
+func hexByteString(value any) error {
+	text, ok := value.(string)
+	if !ok || len(text)%2 != 0 {
+		return ErrSchema
+	}
+	for _, digit := range text {
+		if digit >= '0' && digit <= '9' || digit >= 'a' && digit <= 'f' {
+			continue
+		}
+		return ErrSchema
+	}
+	return nil
 }
 
 func validateIndex(value any) error {

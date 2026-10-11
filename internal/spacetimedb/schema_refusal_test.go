@@ -67,7 +67,7 @@ func TestImpossibleTableColumnReferencesRefuse(t *testing.T) {
 		{"constraint_empty", func(table map[string]any) { setConstraintColumns(table) }},
 		{"sequence_range", setInvalidSequenceColumn},
 		{"default_range", func(table map[string]any) {
-			table["default_values"] = []any{map[string]any{"col_id": json.Number("2147483647"), "value": columnNumbers("1")}}
+			table["default_values"] = []any{map[string]any{"col_id": json.Number("2147483647"), "value": "01"}}
 		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
