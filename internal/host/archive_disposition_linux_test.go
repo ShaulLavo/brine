@@ -10,11 +10,11 @@ import (
 )
 
 func TestArchiveAbandonAllowsChangedContextButNeverChangedOwnership(t *testing.T) {
-	planned := archive.Plan{TargetHash: "same", PolicyHash: "old", Generation: 1, Candidate: archive.Candidate{App: "hello", Incarnation: "original", ReleaseID: "release", Databases: []archive.Database{{Binding: data.SQLiteDatabaseBinding{DatabaseID: "database"}, Retention: []data.RetentionEvidence{{VerificationID: "old"}}}}}}
+	planned := archive.Plan{TargetHash: "same", PolicyHash: "old", Generation: 1, Candidate: archive.Candidate{App: "hello", Incarnation: "original", ReleaseID: "release", Databases: []archive.Database{archive.SQLiteDatabaseVariant(archive.SQLiteDatabase{Binding: data.SQLiteDatabaseBinding{DatabaseID: "database"}, Retention: []data.RetentionEvidence{{VerificationID: "old"}}})}}}
 	observed := planned
 	observed.PolicyHash = "new"
 	observed.Generation = 2
-	observed.Candidate.Databases = []archive.Database{{Binding: planned.Candidate.Databases[0].Binding, Retention: nil}}
+	observed.Candidate.Databases = []archive.Database{archive.SQLiteDatabaseVariant(archive.SQLiteDatabase{Binding: planned.Candidate.Databases[0].Binding, Retention: nil})}
 	if !archiveDispositionFactsMatch(planned, observed, true) {
 		t.Fatal("unrelated changes stranded abandonment")
 	}

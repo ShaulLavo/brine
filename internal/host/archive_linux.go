@@ -168,7 +168,7 @@ func (h archiveHost) archiveCredentials(ctx context.Context, b data.ReplicaBindi
 }
 
 func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Database, operation string, writersAt time.Time) (archive.Coverage, error) {
-	coverage := archive.Coverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: writersAt}
+	coverage := archive.SQLiteCoverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: writersAt}
 	if d.Allocation == nil || data.VerifyArchiveAllocation(d.Binding, *d.Allocation) != nil {
 		return coverage, archive.ErrRefused
 	}

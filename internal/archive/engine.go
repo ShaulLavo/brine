@@ -155,6 +155,17 @@ func cloneAllocationRoot(root *data.RootEvidence) *data.RootEvidence {
 	return &value
 }
 
+func verifyDatabaseAllocation(d Database, id data.ArchiveID, archived bool) error {
+	concrete, sqlite := d.SQLite()
+	if !sqlite || concrete.Allocation == nil {
+		return ErrRefused
+	}
+	if archived {
+		return data.VerifyArchivedAllocation(concrete.Binding, *concrete.Allocation, id)
+	}
+	return data.VerifyArchiveAllocation(concrete.Binding, *concrete.Allocation)
+}
+
 func (d Database) MarshalJSON() ([]byte, error) {
 	if d.engine == data.EngineSQLite {
 		return json.Marshal(d.sqlite)

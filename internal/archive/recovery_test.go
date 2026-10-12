@@ -116,44 +116,44 @@ func TestArchiveReconcilePartialMultiRootMovement(t *testing.T) {
 		t.Run(map[bool]string{false: "partial", true: "unjournaled next tree"}[outOfOrder], func(t *testing.T) {
 			s, r := preparationFixture(t)
 			d := r.p.Candidate.Databases[0]
-			d.Binding.DatabaseID = data.DatabaseID("99999999999999999999999999999999")
-			d.Binding.ReplicaBindingID = data.ReplicaBindingID("88888888888888888888888888888888")
-			d.Binding.Name = "second"
-			d.Binding.MountPath = "/second"
-			d.Binding.Root = data.PersistentRoot(t.TempDir())
+			d.sqlite.Binding.DatabaseID = data.DatabaseID("99999999999999999999999999999999")
+			d.sqlite.Binding.ReplicaBindingID = data.ReplicaBindingID("88888888888888888888888888888888")
+			d.sqlite.Binding.Name = "second"
+			d.sqlite.Binding.MountPath = "/second"
+			d.sqlite.Binding.Root = data.PersistentRoot(t.TempDir())
 			// #nosec G302 -- Private fixture root requires owner traversal.
-			if err := os.Chmod(string(d.Binding.Root), 0700); err != nil {
+			if err := os.Chmod(string(d.sqlite.Binding.Root), 0700); err != nil {
 				t.Fatal(err)
 			}
 			var err error
-			d.Binding.RelativeDirectory, err = data.RelativeDirectory(d.Binding.IncarnationID, d.Binding.DatabaseID)
+			d.sqlite.Binding.RelativeDirectory, err = data.RelativeDirectory(d.sqlite.Binding.IncarnationID, d.sqlite.Binding.DatabaseID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			d.Epochs = append([]data.ReplicaBinding(nil), d.Epochs...)
-			d.Epochs[0].DatabaseID = d.Binding.DatabaseID
-			d.Epochs[0].BindingID = d.Binding.ReplicaBindingID
-			d.Epochs[0].EpochID = data.ReplicaEpochID("77777777777777777777777777777777")
-			d.Epochs[0].RemotePrefix, err = data.RemotePrefix(d.Epochs[0].Destination.BasePrefix, d.Binding.IncarnationID, d.Binding.DatabaseID, d.Epochs[0].EpochID)
+			d.sqlite.Epochs = append([]data.ReplicaBinding(nil), d.sqlite.Epochs...)
+			d.sqlite.Epochs[0].DatabaseID = d.sqlite.Binding.DatabaseID
+			d.sqlite.Epochs[0].BindingID = d.sqlite.Binding.ReplicaBindingID
+			d.sqlite.Epochs[0].EpochID = data.ReplicaEpochID("77777777777777777777777777777777")
+			d.sqlite.Epochs[0].RemotePrefix, err = data.RemotePrefix(d.sqlite.Epochs[0].Destination.BasePrefix, d.sqlite.Binding.IncarnationID, d.sqlite.Binding.DatabaseID, d.sqlite.Epochs[0].EpochID)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err = os.MkdirAll(filepath.Join(string(d.Binding.Root), d.Binding.RelativeDirectory), 0700); err != nil {
+			if err = os.MkdirAll(filepath.Join(string(d.sqlite.Binding.Root), d.sqlite.Binding.RelativeDirectory), 0700); err != nil {
 				t.Fatal(err)
 			}
-			allocation, err := data.CaptureAllocation(d.Binding)
+			allocation, err := data.CaptureAllocation(d.sqlite.Binding)
 			if err != nil {
 				t.Fatal(err)
 			}
-			d.Allocation = &allocation
-			tree, err := data.CaptureArchiveTree(d.Binding.Root, r.p.Candidate.Incarnation, r.p.ArchiveID)
+			d.sqlite.Allocation = &allocation
+			tree, err := data.CaptureArchiveTree(d.sqlite.Binding.Root, r.p.Candidate.Incarnation, r.p.ArchiveID)
 			if err != nil {
 				t.Fatal(err)
 			}
 			r.p.Candidate.Databases = append(r.p.Candidate.Databases, d)
 			r.p.Trees = append(r.p.Trees, tree)
 			slices.SortFunc(r.p.Candidate.Databases, func(a, b Database) int {
-				return strings.Compare(string(a.Binding.DatabaseID), string(b.Binding.DatabaseID))
+				return strings.Compare(string(a.sqlite.Binding.DatabaseID), string(b.sqlite.Binding.DatabaseID))
 			})
 			slices.SortFunc(r.p.Trees, func(a, b data.ArchiveTree) int { return strings.Compare(string(a.Root), string(b.Root)) })
 			r.p.ID, err = r.p.Fingerprint()
