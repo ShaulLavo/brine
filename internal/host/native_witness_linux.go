@@ -38,11 +38,3 @@ func readNativeStoppedWitness(ctx context.Context, session localexec.Session, pi
 	}
 	return nativeLocalWitness{evidence: evidence, disposal: disposal, checkpointSHA: checkpoint.SHA256(), scope: scope}, nil
 }
-
-func (w nativeLocalWitness) matches(source engineSealedCheckpoint) bool {
-	if source.stopped == nil || w.checkpointSHA == "" || w.checkpointSHA != source.checkpoint.SHA256() || w.disposal.at.IsZero() || w.scope.CaptureID != source.stopped.PointID() {
-		return false
-	}
-	c := source.checkpoint.Record()
-	return w.scope.BindingID == c.Scope.BindingID && w.scope.EpochID == c.Scope.EpochID && w.scope.ReplicaID == c.Scope.ReplicaID && w.evidence.DatabaseIdentity() == c.DatabaseIdentity && w.evidence.OwnerIdentity() == c.PublisherIdentity && w.evidence.Program().Wire == c.RuntimeModuleHash && w.evidence.Program().SHA256 == c.ArtifactSHA256
-}

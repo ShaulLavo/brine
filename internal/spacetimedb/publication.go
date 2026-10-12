@@ -18,7 +18,25 @@ var ErrNativePublicationUnknown = errors.New("private native publication require
 
 // NativePublicationPreflight owns an actual bounded private API response. It
 // establishes native token provenance only, not Brine review or host authority.
-type NativePublicationPreflight struct {
+type NativePublicationPreflight func() *nativePublicationPreflight
+
+func newNativePublicationPreflight(value *nativePublicationPreflight) *NativePublicationPreflight {
+	opaque := NativePublicationPreflight(func() *nativePublicationPreflight { return value })
+	return &opaque
+}
+
+func (p *NativePublicationPreflight) value() *nativePublicationPreflight {
+	if p == nil || *p == nil {
+		return &nativePublicationPreflight{}
+	}
+	value := (*p)()
+	if value == nil {
+		return &nativePublicationPreflight{}
+	}
+	return value
+}
+
+type nativePublicationPreflight struct {
 	endpoint     PrivateEndpoint
 	wasm         WasmSHA256
 	program      RuntimeModuleHash
@@ -31,22 +49,17 @@ type NativePublicationPreflight struct {
 	used         *atomic.Bool
 }
 
-func (p *NativePublicationPreflight) ResponseBytes() []byte { return slices.Clone(p.response) }
-func (p *NativePublicationPreflight) TokenBytes() []byte    { return []byte(p.token) }
+func (p *NativePublicationPreflight) ResponseBytes() []byte { return slices.Clone(p.value().response) }
+func (p *NativePublicationPreflight) TokenBytes() []byte    { return []byte(p.value().token) }
 func (p *NativePublicationPreflight) ResponseSHA256() string {
-	return publicationBytesSHA256(p.response)
+	return publicationBytesSHA256(p.value().response)
 }
 func (p *NativePublicationPreflight) TokenSHA256() string {
-	return publicationBytesSHA256([]byte(p.token))
+	return publicationBytesSHA256([]byte(p.value().token))
 }
-func (p *NativePublicationPreflight) Automatic() bool     { return p.class == "AutoMigrate" }
-func (p *NativePublicationPreflight) BreaksClients() bool { return p.breaks }
-func (p *NativePublicationPreflight) MajorUpgrade() bool  { return p.major }
-func (NativePublicationPreflight) String() string         { return "[private native publication preflight]" }
-func (NativePublicationPreflight) GoString() string       { return "[private native publication preflight]" }
-func (NativePublicationPreflight) MarshalJSON() ([]byte, error) {
-	return nil, ErrPrivateCredential
-}
+func (p *NativePublicationPreflight) Automatic() bool     { return p.value().class == "AutoMigrate" }
+func (p *NativePublicationPreflight) BreaksClients() bool { return p.value().breaks }
+func (p *NativePublicationPreflight) MajorUpgrade() bool  { return p.value().major }
 
 // PreflightNativePublication uses only the private loopback endpoint and fixed
 // Wasm/NoColor purpose. Host ownership and exact source checks precede this call.
@@ -67,9 +80,9 @@ func PreflightNativePublication(ctx context.Context, endpoint PrivateEndpoint, c
 		clear(raw)
 		return nil, ErrNativePreflight
 	}
-	preview.endpoint, preview.wasm, preview.program, preview.response = endpoint, sha, program, raw
-	preview.publisherSHA = publicationBytesSHA256([]byte(credential.bearer))
-	preview.used = &atomic.Bool{}
+	preview.value().endpoint, preview.value().wasm, preview.value().program, preview.value().response = endpoint, sha, program, raw
+	preview.value().publisherSHA = publicationBytesSHA256([]byte(credential.bearer))
+	preview.value().used = &atomic.Bool{}
 	return preview, nil
 }
 
@@ -84,7 +97,7 @@ func decodeNativePublicationPreflight(raw []byte) (*NativePublicationPreflight, 
 	if err != nil {
 		return nil, ErrNativePreflight
 	}
-	preview := &NativePublicationPreflight{class: class}
+	preview := newNativePublicationPreflight(&nativePublicationPreflight{class: class})
 	if class == "ManualMigrate" {
 		row, err := exactObject(contents, "reason", "major_version_upgrade")
 		if err != nil {
@@ -95,7 +108,7 @@ func decodeNativePublicationPreflight(raw []byte) (*NativePublicationPreflight, 
 		if !valid || reason == "" || !majorValid {
 			return nil, ErrNativePreflight
 		}
-		preview.major = major
+		preview.value().major = major
 		return preview, nil
 	}
 	if class != "AutoMigrate" {
@@ -112,11 +125,20 @@ func decodeNativePublicationPreflight(raw []byte) (*NativePublicationPreflight, 
 	if _, err = runtimeHash(token); err != nil || !planValid || plan == "" || !tokenValid || !breaksValid || !majorValid {
 		return nil, ErrNativePreflight
 	}
-	preview.token, preview.breaks, preview.major = token, breaks, major
+	preview.value().token, preview.value().breaks, preview.value().major = token, breaks, major
 	return preview, nil
 }
 
-type NativePublicationReceipt struct {
+type NativePublicationReceipt func() nativePublicationReceipt
+
+func (value NativePublicationReceipt) value() nativePublicationReceipt {
+	if value == nil {
+		return nativePublicationReceipt{}
+	}
+	return value()
+}
+
+type nativePublicationReceipt struct {
 	endpoint     PrivateEndpoint
 	database     DatabaseIdentity
 	wasm         WasmSHA256
@@ -126,18 +148,15 @@ type NativePublicationReceipt struct {
 	response     []byte
 }
 
-func (r NativePublicationReceipt) Database() DatabaseIdentity         { return r.database }
-func (r NativePublicationReceipt) ResponseBytes() []byte              { return slices.Clone(r.response) }
-func (r NativePublicationReceipt) SHA256() string                     { return publicationBytesSHA256(r.response) }
-func (r NativePublicationReceipt) WasmSHA256() WasmSHA256             { return r.wasm }
-func (r NativePublicationReceipt) ProgramWireHash() RuntimeModuleHash { return r.program }
-func (r NativePublicationReceipt) PreflightResponseSHA256() string    { return r.preflightSHA }
-func (r NativePublicationReceipt) PublisherCredentialSHA256() string  { return r.publisherSHA }
+func (r NativePublicationReceipt) ResponseBytes() []byte              { return slices.Clone(r.value().response) }
+func (r NativePublicationReceipt) SHA256() string                     { return publicationBytesSHA256(r.value().response) }
+func (r NativePublicationReceipt) WasmSHA256() WasmSHA256             { return r.value().wasm }
+func (r NativePublicationReceipt) ProgramWireHash() RuntimeModuleHash { return r.value().program }
 
 // BindingSHA256 binds the actual request as well as its response. Native success
 // bodies for different candidates can have identical bytes.
 func (r NativePublicationReceipt) BindingSHA256() string {
-	if r.endpoint.base == "" || r.database != r.endpoint.database || !validHexIdentity(string(r.wasm)) || !validHexIdentity(string(r.program)) || !validHexIdentity(r.preflightSHA) || !validHexIdentity(r.publisherSHA) || len(r.response) == 0 {
+	if r.value().endpoint.base == "" || r.value().database != r.value().endpoint.database || !validHexIdentity(string(r.value().wasm)) || !validHexIdentity(string(r.value().program)) || !validHexIdentity(r.value().preflightSHA) || !validHexIdentity(r.value().publisherSHA) || len(r.value().response) == 0 {
 		return ""
 	}
 	raw, err := json.Marshal(struct {
@@ -148,7 +167,7 @@ func (r NativePublicationReceipt) BindingSHA256() string {
 		PreflightSHA string            `json:"preflight_response_sha256"`
 		PublisherSHA string            `json:"publisher_credential_sha256"`
 		ResponseSHA  string            `json:"response_sha256"`
-	}{"native_module_update", r.database, r.wasm, r.program, r.preflightSHA, r.publisherSHA, r.SHA256()})
+	}{"native_module_update", r.value().database, r.value().wasm, r.value().program, r.value().preflightSHA, r.value().publisherSHA, r.SHA256()})
 	if err != nil {
 		return ""
 	}
@@ -156,11 +175,8 @@ func (r NativePublicationReceipt) BindingSHA256() string {
 }
 
 func (r NativePublicationReceipt) At(endpoint PrivateEndpoint) bool {
-	return r.BindingSHA256() != "" && r.endpoint == endpoint
+	return r.BindingSHA256() != "" && r.value().endpoint == endpoint
 }
-func (NativePublicationReceipt) String() string               { return "[private native publication receipt]" }
-func (NativePublicationReceipt) GoString() string             { return "[private native publication receipt]" }
-func (NativePublicationReceipt) MarshalJSON() ([]byte, error) { return nil, ErrPrivateCredential }
 
 // PublishNativeUpdate consumes one actual preflight response. BreakClients is
 // fixed because the pinned Compatible policy ignores its token. Brine's owned
@@ -169,47 +185,46 @@ func PublishNativeUpdate(ctx context.Context, endpoint PrivateEndpoint, credenti
 	owned := slices.Clone(wasm)
 	defer clear(owned)
 	sha, program, err := ModuleIdentities(owned)
-	if err != nil || endpoint.base == "" || credential.bearer == "" || ctx.Err() != nil || preflight == nil || !preflight.Automatic() || preflight.major || preflight.endpoint != endpoint || preflight.wasm != sha || preflight.program != program || preflight.publisherSHA != publicationBytesSHA256([]byte(credential.bearer)) || preflight.used == nil {
-		return NativePublicationReceipt{}, ErrNativePublicationRefused
+	if err != nil || endpoint.base == "" || credential.bearer == "" || ctx.Err() != nil || preflight == nil || !preflight.Automatic() || preflight.value().major || preflight.value().endpoint != endpoint || preflight.value().wasm != sha || preflight.value().program != program || preflight.value().publisherSHA != publicationBytesSHA256([]byte(credential.bearer)) || preflight.value().used == nil {
+		return nil, ErrNativePublicationRefused
 	}
-	if !preflight.used.CompareAndSwap(false, true) {
-		return NativePublicationReceipt{}, ErrNativePublicationUnknown
+	if !preflight.value().used.CompareAndSwap(false, true) {
+		return nil, ErrNativePublicationUnknown
 	}
-	query := url.Values{"host_type": {"Wasm"}, "policy": {"BreakClients"}, "token": {preflight.token}, "update_confirmation_timeout": {"5s"}}
+	query := url.Values{"host_type": {"Wasm"}, "policy": {"BreakClients"}, "token": {preflight.value().token}, "update_confirmation_timeout": {"5s"}}
 	raw, err := nativePublicationRequest(ctx, endpoint, credential, http.MethodPut, "", query, owned)
 	if err != nil {
-		return NativePublicationReceipt{}, ErrNativePublicationUnknown
+		return nil, ErrNativePublicationUnknown
 	}
-	receipt, err := decodeNativePublicationReceipt(raw, endpoint.database)
+	database, err := decodeNativePublicationReceipt(raw, endpoint.database)
 	if err != nil {
 		clear(raw)
-		return NativePublicationReceipt{}, ErrNativePublicationUnknown
+		return nil, ErrNativePublicationUnknown
 	}
-	receipt.endpoint, receipt.wasm, receipt.program = endpoint, sha, program
-	receipt.preflightSHA, receipt.publisherSHA, receipt.response = preflight.ResponseSHA256(), preflight.publisherSHA, raw
-	return receipt, nil
+	value := nativePublicationReceipt{endpoint: endpoint, database: database, wasm: sha, program: program, preflightSHA: preflight.ResponseSHA256(), publisherSHA: preflight.value().publisherSHA, response: raw}
+	return NativePublicationReceipt(func() nativePublicationReceipt { return value }), nil
 }
 
-func decodeNativePublicationReceipt(raw []byte, expected DatabaseIdentity) (NativePublicationReceipt, error) {
+func decodeNativePublicationReceipt(raw []byte, expected DatabaseIdentity) (DatabaseIdentity, error) {
 	limits := DefaultSchemaLimits()
 	limits.MaxBytes = NativePublicationResponseLimit
 	value, err := decodeDocument(raw, limits)
 	if err != nil {
-		return NativePublicationReceipt{}, ErrNativePublicationUnknown
+		return "", ErrNativePublicationUnknown
 	}
 	result, contents, err := variant(value)
 	if err != nil || result != "Success" {
-		return NativePublicationReceipt{}, ErrNativePublicationUnknown
+		return "", ErrNativePublicationUnknown
 	}
 	row, err := exactObject(contents, "domain", "database_identity", "op")
 	if err != nil || row["domain"] != nil || row["op"] != "updated" {
-		return NativePublicationReceipt{}, ErrNativePublicationUnknown
+		return "", ErrNativePublicationUnknown
 	}
 	database, valid := row["database_identity"].(string)
 	if !valid || !validHexIdentity(database) || DatabaseIdentity(database) != expected {
-		return NativePublicationReceipt{}, ErrNativePublicationUnknown
+		return "", ErrNativePublicationUnknown
 	}
-	return NativePublicationReceipt{database: expected}, nil
+	return expected, nil
 }
 
 func nativePublicationRequest(ctx context.Context, endpoint PrivateEndpoint, credential PublisherCredential, method, suffix string, query url.Values, wasm []byte) ([]byte, error) {

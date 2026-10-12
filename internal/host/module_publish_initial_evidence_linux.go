@@ -49,10 +49,6 @@ func (e initialPublisherEvidence) provenanceBytes(ctx context.Context) ([]byte, 
 		PublisherProofSHA256: managedServiceHash(e.publisherProof), PublisherProof: slices.Clone(e.publisherProof), StartedAt: lease.startedAt, FinishedAt: lease.finishedAt})
 }
 
-func (initialPublisherEvidence) String() string               { return "[private initial publisher evidence]" }
-func (initialPublisherEvidence) GoString() string             { return "[private initial publisher evidence]" }
-func (initialPublisherEvidence) MarshalJSON() ([]byte, error) { return nil, datapublish.ErrRecord }
-
 func retainNativeInitialOwner(ctx context.Context, evidence initialPublisherEvidence) error {
 	raw, err := evidence.provenanceBytes(ctx)
 	if err != nil {

@@ -54,21 +54,21 @@ func TestNativeCreateRetainsActualFixedRequestAndResponse(t *testing.T) {
 	copyOfProof := proof
 	receipt, err := PublishNativeCreate(context.Background(), endpoint, credential, proof, nativeCreationName, wasm)
 	sha, program, _ := ModuleIdentities(wasm)
-	if err != nil || receipt.Database() != DatabaseIdentity(databaseHex) || receipt.Publisher() != proof.Publisher() || receipt.Name() != nativeCreationName || receipt.WasmSHA256() != sha || receipt.ProgramWireHash() != program || receipt.PublisherCredentialSHA256() != proof.CredentialSHA256() || receipt.VerificationSHA256() != proof.SHA256() || receipt.SHA256() != publicationBytesSHA256([]byte(nativeCreateResponse())) || receipt.BindingSHA256() == "" || !receipt.At(endpoint) {
+	if err != nil || receipt.Database() != DatabaseIdentity(databaseHex) || receipt.Publisher() != proof.Publisher() || receipt.Name() != nativeCreationName || receipt.WasmSHA256() != sha || receipt.ProgramWireHash() != program || receipt.value().publisherSHA != proof.CredentialSHA256() || receipt.value().verificationSHA != proof.SHA256() || receipt.SHA256() != publicationBytesSHA256([]byte(nativeCreateResponse())) || receipt.BindingSHA256() == "" || !receipt.At(endpoint) {
 		t.Fatal("initial native receipt lost actual request or response binding", err)
 	}
 	receipt.ResponseBytes()[0] = 'x'
 	proof.StorageBytes()[0] = 'x'
-	if receipt.SHA256() != publicationBytesSHA256(receipt.ResponseBytes()) || receipt.VerificationSHA256() != proof.SHA256() {
+	if receipt.SHA256() != publicationBytesSHA256(receipt.ResponseBytes()) || receipt.value().verificationSHA != proof.SHA256() {
 		t.Fatal("returned bytes mutated owned native create evidence")
 	}
 	if _, err = PublishNativeCreate(context.Background(), endpoint, credential, copyOfProof, nativeCreationName, wasm); !errors.Is(err, ErrNativePublicationUnknown) || puts.Load() != 1 {
 		t.Fatal("copied verification replayed initial publication", err)
 	}
-	if _, err = json.Marshal(receipt); err == nil || strings.Contains(fmt.Sprintf("%s %#v", receipt, receipt), credential.bearer) {
+	if _, err = json.Marshal(receipt); err == nil || strings.Contains(fmt.Sprintf("%v %+v %#v", receipt, receipt, receipt), credential.bearer) {
 		t.Fatal("private initial publication acquired a public representation")
 	}
-	if (NativeCreateReceipt{}).BindingSHA256() != "" || (NativeCreateReceipt{}).At(endpoint) || (NativeCreateReceipt{}).SHA256() != "" {
+	if (NativeCreateReceipt(nil)).BindingSHA256() != "" || (NativeCreateReceipt(nil)).At(endpoint) || (NativeCreateReceipt(nil)).SHA256() != "" {
 		t.Fatal("zero receipt manufactured initial publication provenance")
 	}
 }
