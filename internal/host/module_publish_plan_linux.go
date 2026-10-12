@@ -56,6 +56,12 @@ func (o modulePublications) Plan(ctx context.Context, request ModuleReviewReques
 	var stage *publicationStageLease
 	defer func() {
 		if publicationReviewProcessesKnown(descriptor, stage) {
+			if stage != nil {
+				stage.material.clear()
+			}
+			if descriptor != nil && descriptor.artifact != nil {
+				err = errors.Join(err, descriptor.artifact.discard())
+			}
 			err = errors.Join(err, opened.close())
 		}
 	}()
