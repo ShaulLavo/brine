@@ -9,7 +9,7 @@ import (
 )
 
 func publicationTaskReceiptFixture() datapublish.TaskReceipt {
-	return datapublish.TaskReceipt{Format: "brine-module-publication-task-v1", Kind: string(ModulePublishApply), OperationID: "apply-module", ApplyOperationID: "apply-module", PlanID: "sha256:" + strings.Repeat("a", 64), PointID: strings.Repeat("b", 32), BindingID: strings.Repeat("c", 32), OldEpochID: strings.Repeat("d", 32), NewEpochID: strings.Repeat("e", 32), TransitionID: strings.Repeat("f", 32), TransitionSHA256: strings.Repeat("1", 64), CompletionSHA256: strings.Repeat("2", 64), Outcome: "published", NativeDatabase: strings.Repeat("3", 64), NativePublisher: strings.Repeat("4", 64), ProgramWireHash: strings.Repeat("5", 64), WasmSHA256: strings.Repeat("6", 64), SchemaSHA256: strings.Repeat("7", 64)}
+	return datapublish.TaskReceipt{Format: "brine-module-publication-task-v1", Kind: string(ModulePublishApply), OperationID: "apply-module", ApplyOperationID: "apply-module", PlanID: "sha256:" + strings.Repeat("a", 64), PointID: strings.Repeat("b", 32), BindingID: strings.Repeat("c", 32), OldEpochID: strings.Repeat("d", 32), NewEpochID: strings.Repeat("e", 32), TransitionID: strings.Repeat("f", 32), TransitionSHA256: strings.Repeat("1", 64), TransitionState: "completed", CompletionSHA256: strings.Repeat("2", 64), Outcome: "published", NativeDatabase: strings.Repeat("3", 64), NativePublisher: strings.Repeat("4", 64), ProgramWireHash: strings.Repeat("5", 64), WasmSHA256: strings.Repeat("6", 64), SchemaSHA256: strings.Repeat("7", 64)}
 }
 
 func TestModulePublicationTasksUseOnlyRecordedPlanAndOriginalReferences(t *testing.T) {
