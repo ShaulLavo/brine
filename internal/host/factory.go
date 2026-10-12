@@ -97,6 +97,7 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	server.NativeMaterial = runtime.NativeMaterial
 	server.NativeLiveRestore = runtime.NativeLiveRestore
 	server.NativeRetire = runtime.NativeRetire
+	server.ArchiveMaintenance = runtime.PublicArchiveMaintenance
 	server.BackupCredentials = runtime.BackupCredentials
 	server.DataInitialization = runtime.DataInitialization
 	server.Logs = runtime.Logs

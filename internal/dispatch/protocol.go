@@ -54,6 +54,12 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"archive_maintenance_plan":              {Mutating, decodeArchiveMaintenancePlan},
+	"archive_maintenance_apply":             {Mutating, decodeArchiveMaintenanceApply},
+	"archive_maintenance_resolve":           {Mutating, decodeArchiveMaintenanceResolve},
+	"archive_status":                        {ReadOnly, decodeArchiveMaintenanceStatus},
+	"archive_credentials_plan":              {Mutating, decodeArchiveCredentialPlan},
+	"archive_credentials_set":               {Mutating, decodeArchiveCredentialSet},
 	"module_publish_plan":                   {Mutating, decodeModulePlan},
 	"module_publish_apply":                  {Mutating, decodeModuleApply},
 	"module_publish_inspect":                {ReadOnly, decodeModuleInspect},
@@ -210,6 +216,7 @@ type Server struct {
 	NativeLiveRestore      NativeLiveRestoreOperations
 	NativeRetire           NativeRetireOperations
 	NativeBackupResolution NativeBackupResolutionOperations
+	ArchiveMaintenance     ArchiveMaintenanceOperations
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -268,6 +275,12 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case ArchiveMaintenancePlanArgs, ArchiveMaintenanceApplyArgs, ArchiveMaintenanceResolveArgs, ArchiveMaintenanceStatusArgs, ArchiveCredentialPlanArgs, ArchiveCredentialSetArgs:
+		checked, err := s.archiveMaintenance(ctx, args)
+		if err != nil {
+			return fail(archiveMaintenanceError(err))
+		}
+		value = checked
 	case ModulePlanArgs, ModuleApplyArgs, ModuleInspectArgs, ModuleResolveArgs:
 		publication, err := s.plannedNativeDataOperation(ctx, args)
 		if err != nil {

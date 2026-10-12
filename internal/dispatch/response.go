@@ -56,6 +56,37 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "archive_maintenance_plan":
+			p, err := decodeArchiveMaintenancePlanResponse(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "archive_status":
+			p, err := decodeArchiveStatusResponse(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "archive_credentials_plan":
+			p, err := decodeArchiveCredentialPlanResponse(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "archive_credentials_set":
+			p, err := decodeArchiveCredentialReceiptResponse(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "archive_maintenance_apply", "archive_maintenance_resolve":
+			accepted, err := decodeAccepted(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = accepted
+
 		case "module_publish_plan":
 			view, err := datapublish.DecodeReviewView(fields["data"])
 			if err != nil {
