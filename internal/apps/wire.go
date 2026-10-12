@@ -25,7 +25,10 @@ func DecodeReport(raw []byte) (Report, error) {
 	}
 	seen := map[string]bool{}
 	for _, a := range report.Apps {
-		if !appPattern.MatchString(a.App) || seen[a.App] || !validRelease(a.Current) || a.Previous != nil && !validRelease(*a.Previous) {
+		if !appPattern.MatchString(a.App) || seen[a.App] || (a.Current == nil && a.Managed == nil || a.Current != nil && !validRelease(*a.Current)) || a.Previous != nil && !validRelease(*a.Previous) {
+			return Report{}, strictjson.ErrObject
+		}
+		if a.Managed != nil && !a.Managed.Valid() {
 			return Report{}, strictjson.ErrObject
 		}
 		seen[a.App] = true
@@ -63,7 +66,7 @@ func validRelease(r Release) bool {
 }
 func DecodeRollback(raw []byte) (RollbackPlan, error) {
 	var p RollbackPlan
-	if exact(raw, reflect.TypeFor[RollbackPlan]()) != nil || json.Unmarshal(raw, &p) != nil || !digestPattern.MatchString(p.PlanID) || !idPattern.MatchString(p.ReleaseID) || p.Compatibility != "stateless_compatible" || p.Kind != plan.Update && p.Kind != plan.Conflict {
+	if exact(raw, reflect.TypeFor[RollbackPlan]()) != nil || json.Unmarshal(raw, &p) != nil || !digestPattern.MatchString(p.PlanID) || !idPattern.MatchString(p.ReleaseID) || p.Compatibility != "stateless_compatible" && p.Compatibility != "managed_current_compatible" || p.Kind != plan.Update && p.Kind != plan.Conflict {
 		return RollbackPlan{}, strictjson.ErrObject
 	}
 	if p.Kind == plan.Update && len(p.Conflicts) != 0 || p.Kind == plan.Conflict && len(p.Conflicts) == 0 {

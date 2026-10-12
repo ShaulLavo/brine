@@ -30,6 +30,13 @@ func boundSites(state State, files map[string][]byte) (map[string]Site, error) {
 }
 
 func expectedRoute(site Site) map[string]any {
+	if site.managed != nil {
+		return expectedManagedRoute(site)
+	}
+	return expectedPlainRoute(site)
+}
+
+func expectedPlainRoute(site Site) map[string]any {
 	hosts := make([]any, len(site.domains))
 	for i, domain := range site.domains {
 		hosts[i] = string(domain)
@@ -71,6 +78,9 @@ type adaptedRoute struct {
 // This checks the pinned adapter's complete host routes, including handlers and
 // upstreams, rather than merely finding host names somewhere in a JSON tree.
 func checkAdapted(data []byte, next, previous map[string]Site) error {
+	if err := verifyManagedSitesLogging(data, next); err != nil {
+		return err
+	}
 	refused := errors.New("caddy: adapted routes differ from expected Brine sites")
 	if len(data) == 0 || len(data) > maxSetBytes || (len(bytes.TrimSpace(data)) == 0 || bytes.TrimSpace(data)[0] != '{') {
 		return refused
@@ -151,7 +161,11 @@ func checkAdapted(data []byte, next, previous map[string]Site) error {
 
 		if file != "" {
 			var actual map[string]any
-			if err := json.Unmarshal(raw, &actual); err != nil || seen[file] || !reflect.DeepEqual(actual, expected[file]) {
+			if err := json.Unmarshal(raw, &actual); err != nil || seen[file] {
+				return refused
+			}
+			canonicalRouteGroups(actual)
+			if !reflect.DeepEqual(actual, expected[file]) {
 				return refused
 			}
 			seen[file] = true

@@ -7,6 +7,7 @@ engine = "spacetimedb"
 name = "main"
 persistent_root = "/srv/brine-data"
 backup_destination = "primary"
+recovery_password_ref = "recovery-password"
 
 [databases.spacetimedb]
 image = "registry.example.com:5000/team/engine@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
