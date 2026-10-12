@@ -86,6 +86,9 @@ func nativePreparationFixture(t *testing.T) (*Store, *NativePreparation, *data.E
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := s.RecordNativeStopIntent(ctx, preparation, NativeStopIntent{Mode: "unpublished_absent", ObservedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
 	lifetime, err := data.AcquireEngineLifetimeLock(ctx, s.dir, reserved.Database.BindingID)
 	if err != nil {
 		t.Fatal(err)

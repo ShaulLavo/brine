@@ -132,8 +132,77 @@ type NativeStoppedPreparation struct {
 	stopSHA256  string
 }
 
+type NativeStopIntent struct {
+	Mode        string    `json:"mode"`
+	ContainerID string    `json:"container_id"`
+	PID         uint32    `json:"pid"`
+	StartTicks  uint64    `json:"start_ticks"`
+	ObservedAt  time.Time `json:"observed_at"`
+}
+
+func validNativeStopIntent(intent NativeStopIntent, sourceKind string) bool {
+	if intent.ObservedAt.IsZero() || intent.ObservedAt.Location() != time.UTC || intent.ObservedAt.After(time.Now().UTC()) {
+		return false
+	}
+	if intent.Mode == "managed_clean_stop" {
+		return data.ValidCatalogHash(intent.ContainerID) && intent.PID > 0 && intent.StartTicks > 0
+	}
+	return intent.Mode == "unpublished_absent" && sourceKind == "unpublished" && intent.ContainerID == "" && intent.PID == 0 && intent.StartTicks == 0
+}
+
+// RecordNativeStopIntent precedes any managed stop. The durable fence stays
+// owned by this operation while its launch guard is released for stop-post.
+func (s *Store) RecordNativeStopIntent(ctx context.Context, preparation *NativePreparation, observed NativeStopIntent) error {
+	if !preparation.active(s) || !validNativeStopIntent(observed, preparation.intent.SourceKind) || observed.ObservedAt.Before(preparation.intent.CreatedAt) {
+		return ErrConflict
+	}
+	raw, err := json.Marshal(observed)
+	if err != nil {
+		return ErrInvalid
+	}
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := checkNativePreparationCapability(ctx, tx, preparation); err != nil {
+		return err
+	}
+	if err := appendNativePreparationProof(ctx, tx, preparation.intent, preparation.raw, "stop_intent", raw); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (p *NativeStoppedPreparation) active(s *Store) bool {
 	return p != nil && p.preparation.active(s) && p.lifetime.HoldsLifetime(p.preparation.intent.BindingID)
+}
+
+// ReadNativeStoppedPermit rereads protected identities under the real retained
+// locks. The return is expectation data; the opaque stopped capability supplies
+// the host operation's provenance and must remain active around its observations.
+func (s *Store) ReadNativeStoppedPermit(ctx context.Context, capability *NativeStoppedPreparation) (EnginePermit, error) {
+	if !capability.active(s) {
+		return EnginePermit{}, ErrConflict
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return EnginePermit{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := checkNativePreparationCapability(ctx, tx, capability.preparation); err != nil {
+		return EnginePermit{}, err
+	}
+	events, err := readNativePreparationEvents(ctx, tx, capability.preparation.intent, capability.preparation.raw)
+	if err != nil || len(events) < 2 || events[1].Stage != "stopped" || nativePointHash(events[1].Proof) != capability.stopSHA256 {
+		return EnginePermit{}, errors.Join(ErrConflict, err)
+	}
+	permit, err := readEnginePermit(ctx, tx, capability.preparation.intent.BindingID)
+	if err != nil || !capability.active(s) {
+		return EnginePermit{}, errors.Join(ErrConflict, err)
+	}
+	return permit, tx.Commit()
 }
 
 func (s *Store) RecordNativeStoppedPreparation(ctx context.Context, preparation *NativePreparation, lifetime *data.EngineLock, observed NativeStopObservation) (*NativeStoppedPreparation, error) {
@@ -153,10 +222,28 @@ func (s *Store) RecordNativeStoppedPreparation(ctx context.Context, preparation 
 	if err := checkNativePreparationCapability(ctx, tx, preparation); err != nil {
 		return nil, err
 	}
+	if err := checkNativeStoppedIntent(ctx, tx, preparation, observed); err != nil {
+		return nil, err
+	}
 	if err := appendNativePreparationProof(ctx, tx, preparation.intent, preparation.raw, "stopped", raw); err != nil {
 		return nil, err
 	}
 	return &NativeStoppedPreparation{preparation: preparation, lifetime: lifetime, stopSHA256: nativePointHash(raw)}, tx.Commit()
+}
+
+func checkNativeStoppedIntent(ctx context.Context, tx *sql.Tx, preparation *NativePreparation, stopped NativeStopObservation) error {
+	events, err := readNativePreparationEvents(ctx, tx, preparation.intent, preparation.raw)
+	if err != nil || len(events) == 0 || events[0].Stage != "stop_intent" {
+		return errors.Join(ErrConflict, err)
+	}
+	var intent NativeStopIntent
+	if json.Unmarshal(events[0].Proof, &intent) != nil || !validNativeStopIntent(intent, preparation.intent.SourceKind) || intent.ContainerID != stopped.ContainerID || stopped.FinishedAt.Before(intent.ObservedAt) || stopped.FinishedAt.After(time.Now().UTC()) {
+		return ErrConflict
+	}
+	if intent.Mode == "unpublished_absent" && stopped.Mode != "unpublished_absent" || intent.Mode == "managed_clean_stop" && stopped.Mode != "clean_exit" {
+		return ErrConflict
+	}
+	return nil
 }
 
 func validNativeStop(observed NativeStopObservation, sourceKind string) bool {
@@ -195,7 +282,7 @@ func appendNativePreparationProof(ctx context.Context, tx *sql.Tx, intent native
 	if err != nil || len(proof) == 0 || len(proof) > 4<<20 || !json.Valid(proof) {
 		return errors.Join(ErrInvalid, err)
 	}
-	stages := []string{"stopped", "source", "remote", "verified", "completed"}
+	stages := []string{"stop_intent", "stopped", "source", "remote", "verified", "completed"}
 	for _, event := range events {
 		if event.Stage != stage {
 			continue

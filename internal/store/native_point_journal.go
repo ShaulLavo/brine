@@ -81,8 +81,8 @@ func readNativePreparationEvents(ctx context.Context, q dataQuerier, intent nati
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	stages := []string{"stopped", "source", "remote", "verified", "completed"}
-	events := make([]nativePreparationEvent, 0, 5)
+	stages := []string{"stop_intent", "stopped", "source", "remote", "verified", "completed"}
+	events := make([]nativePreparationEvent, 0, len(stages))
 	previous := nativePointHash(intentRaw)
 	for rows.Next() {
 		event, raw, err := scanNativePreparationEvent(rows)
@@ -122,7 +122,7 @@ func checkNativePointCompletion(ctx context.Context, tx *sql.Tx, point nativePre
 		return errors.Join(&IntegrityError{}, err)
 	}
 	events, err := readNativePreparationEvents(ctx, tx, i, raw)
-	if err != nil || len(events) != 5 || !bytes.Equal(events[4].Proof, point.raw) || nativePointHash(events[0].Proof) != point.view.StopProofSHA256 || nativePointHash(events[3].Proof) != point.view.RestoreReceiptSHA256 {
+	if err != nil || len(events) != 6 || !bytes.Equal(events[5].Proof, point.raw) || nativePointHash(events[1].Proof) != point.view.StopProofSHA256 || nativePointHash(events[4].Proof) != point.view.RestoreReceiptSHA256 {
 		return errors.Join(&IntegrityError{}, err)
 	}
 	var kind ops.Kind
