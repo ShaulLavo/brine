@@ -54,17 +54,23 @@ func RunModuleDescriptor(ctx context.Context, input io.Reader, output io.Writer)
 	}
 	artifact, err := readModuleDescriptorArtifact()
 	if err != nil || string(artifact.WasmSHA256()) != request.WasmSHA256 || string(artifact.ProgramWireHash()) != request.ProgramWireHash {
+		_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal=artifact_identity")
 		return datapublish.ErrRecord
 	}
 	raw, err := extractModuleDescriptor(ctx, localexec.ExecRunner{})
 	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal=native_extract")
 		return err
 	}
 	current, err := readModuleDescriptorArtifact()
 	if err != nil || current.WasmSHA256() != artifact.WasmSHA256() || current.ProgramWireHash() != artifact.ProgramWireHash() {
+		_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal=artifact_recheck")
 		return datapublish.ErrRecord
 	}
 	written, err := output.Write(raw)
+	if err != nil || written != len(raw) {
+		_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal=output_write")
+	}
 	if err == nil && written != len(raw) {
 		return io.ErrShortWrite
 	}
