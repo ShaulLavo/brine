@@ -51,7 +51,12 @@ func managedLoggingProbe(t *testing.T, binary string, config []byte, address str
 	if err := os.WriteFile(file, config, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	output, err := os.OpenFile(filepath.Join(directory, "process.jsonl"), os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	output, err := root.OpenFile("process.jsonl", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {
 		t.Fatal(err)
 	}
