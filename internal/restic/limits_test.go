@@ -55,7 +55,7 @@ func checkClientQuota(t *testing.T, quota string, bundle Bundle, point Transport
 	repository := Repository{scope: testScope(), private: func() []string { t.Fatal("quota refusal accessed private material"); return nil }}
 	_, backupErr := client.Backup(context.Background(), repository, work, bundle)
 	_, inspectErr := client.InspectCapture(context.Background(), repository, work, bundle)
-	restoreErr := client.RestoreExact(context.Background(), repository, work, filepath.Join(work, "refused"), point, bundle.Manifest())
+	_, restoreErr := client.RestoreExact(context.Background(), repository, work, nil, "refused", point, bundle.Manifest())
 	for _, err := range []error{backupErr, inspectErr, restoreErr} {
 		if !errors.Is(err, ErrLimit) {
 			t.Fatalf("%s quota not refused: %v", quota, err)
