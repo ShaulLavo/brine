@@ -19,9 +19,6 @@ import (
 func publicationCheckpointFixture(t *testing.T) (*os.Root, nativecapture.Checkpoint) {
 	t.Helper()
 	directory := t.TempDir()
-	if err := os.Chmod(directory, 0700); err != nil {
-		t.Fatal(err)
-	}
 	config := []byte("fixed-private-configuration")
 	if err := os.WriteFile(filepath.Join(directory, "config.toml"), config, 0600); err != nil {
 		t.Fatal(err)
