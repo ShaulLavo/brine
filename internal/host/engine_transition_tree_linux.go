@@ -34,7 +34,7 @@ func (t *engineTransitionTree) active() bool {
 		return false
 	}
 	c := t.input.Common()
-	return t.preparation != nil && t.preparation.Active(t.binding.BindingID) && t.lifetime.HoldsLifetime(t.binding.BindingID) &&
+	return t.preparation != nil && t.preparation.Active(t.binding.BindingID) && t.lifetime.HoldsLifetime(t.preparation.StateRoot(), t.binding.BindingID) &&
 		c.Scope.BindingID == t.binding.BindingID && c.Scope.DatabaseID == t.binding.DatabaseID && c.Scope.IncarnationID == t.binding.IncarnationID
 }
 

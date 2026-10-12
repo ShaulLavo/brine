@@ -86,3 +86,26 @@ func TestNativeInitialRuntimeCommitCannotRewindActivatedEpoch(t *testing.T) {
 		t.Fatal("refused rewind changed active epoch/allocation", err)
 	}
 }
+
+func TestNativeHeadRejectsInvalidCanonicalRuntime(t *testing.T) {
+	f := newNativeTransitionFixture(t)
+	ctx := context.Background()
+	head, runtime, err := f.store.ReadEngineHead(ctx, f.runtime.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.MemoryMB = 0
+	if runtime.Validate() == nil {
+		t.Fatal("fixture did not invalidate runtime")
+	}
+	raw, err := json.Marshal(runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.db.ExecContext(ctx, "INSERT INTO data_engine_runtime_commits VALUES(?,?,?)", runtime.BindingID, head.Version+1, raw); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = f.store.ReadEngineHead(ctx, runtime.BindingID); err == nil {
+		t.Fatal("canonical invalid runtime admitted as current head")
+	}
+}

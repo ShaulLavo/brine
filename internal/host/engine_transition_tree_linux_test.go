@@ -34,6 +34,30 @@ func engineTreeTransitionFixture(t *testing.T) *engineTransitionTree {
 	return finishEngineTreeTransitionFixture(t, binding, id, oldEpoch, newEpoch)
 }
 
+func TestEngineTransitionRejectsLifetimeFromAnotherStateRoot(t *testing.T) {
+	tree := engineTreeTransitionFixture(t)
+	other := t.TempDir()
+	if err := os.Chmod(other, 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if err := data.PrepareEngineLocks(ctx, other, tree.binding.BindingID); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := data.AcquireEngineLifetimeLock(ctx, other, tree.binding.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = foreign.Release() }()
+	tree.lifetime = foreign
+	if tree.active() {
+		t.Fatal("foreign lifetime namespace admitted transition while original lock remained held")
+	}
+	if _, err = tree.inspect(ctx); err == nil {
+		t.Fatal("foreign lifetime namespace admitted source inspection")
+	}
+}
+
 func finishEngineTreeTransitionFixture(t *testing.T, binding data.SpacetimeDBBinding, id string, oldEpoch, newEpoch data.ReplicaEpochID) *engineTransitionTree {
 	t.Helper()
 	// A real store preparation is required; create its separate private state here.

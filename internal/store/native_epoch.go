@@ -29,7 +29,7 @@ func readEngineHead(ctx context.Context, q dataQuerier, binding data.ReplicaBind
 	if err != nil {
 		return head, runtime, err
 	}
-	if len(raw) > 65536 || json.Unmarshal(raw, &runtime) != nil || runtime.BindingID != binding {
+	if len(raw) > 65536 || json.Unmarshal(raw, &runtime) != nil || runtime.Validate() != nil || runtime.BindingID != binding {
 		return head, runtime, &IntegrityError{}
 	}
 	canonical, _ := json.Marshal(runtime)
