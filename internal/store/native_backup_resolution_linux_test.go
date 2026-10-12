@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/restic"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -199,5 +200,59 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	}
 	if len(fences) != 1 || fences[0].State != data.FenceHeld {
 		t.Fatal("original fence released by inspection")
+	}
+}
+
+func TestNativeBackupResolutionUploadExclusionPreservesExistingPermitAndOtherBindings(t *testing.T) {
+	state, plan, _ := managedControlStateFixture(t, false, true)
+	ctx := context.Background()
+	requester, err := datainit.ParseRequester("deploy:" + strings.Repeat("c", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	binding := plan.Managed.Database.BindingID
+	reference, err := state.SaveNativeTaskInput(ctx, NativeTaskInput{Requester: requester, Kind: ops.NativeCapture, BindingID: binding})
+	if err != nil {
+		t.Fatal(err)
+	}
+	original, _, err := state.CreateOperation(ctx, ops.Intent{Kind: ops.NativeCapture, App: plan.App, SecretRef: reference}, requester.String(), "capture-exclusion")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = state.SetOperationState(ctx, original.ID, ops.Preflight); err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadEnginePermit(ctx, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeRaw, _ := json.Marshal(before)
+	if err = refusePendingNativeCaptureMutation(ctx, state.db, binding, "planned-mutation"); err != nil {
+		t.Fatal("empty upload journal excluded mutation", err)
+	}
+	// This deliberately incomplete descriptor is refusal metadata, not evidence
+	// of a captured/uploaded archive. It must never admit a point or resolver.
+	descriptor := nativeUploadDescriptor{Format: "brine-native-upload-descriptor-v1", OperationID: original.ID, PointID: strings.Repeat("1", 32), Scope: restic.Scope{BindingID: string(binding), EpochID: string(before.Runtime.EpochID)}}
+	raw, _ := json.Marshal(descriptor)
+	if _, err = state.db.ExecContext(ctx, "INSERT INTO data_native_upload_descriptors VALUES(?,?,?,?,?)", original.ID, descriptor.PointID, raw, []byte{}, []byte{}); err != nil {
+		t.Fatal(err)
+	}
+	if err = refusePendingNativeCaptureMutation(ctx, state.db, binding, "planned-mutation"); err == nil {
+		t.Fatal("unfinished upload admitted planned mutation")
+	}
+	if err = refusePendingNativeCaptureMutation(ctx, state.db, binding, original.ID); err != nil {
+		t.Fatal("actual original producer excluded from finishing own work", err)
+	}
+	other := data.ReplicaBindingID(strings.Repeat("9", 32))
+	if err = refusePendingNativeCaptureMutation(ctx, state.db, other, "planned-mutation"); err != nil {
+		t.Fatal("upload excluded unrelated binding", err)
+	}
+	after, err := state.ReadEnginePermit(ctx, binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterRaw, _ := json.Marshal(after)
+	if !bytes.Equal(beforeRaw, afterRaw) {
+		t.Fatal("upload exclusion changed runtime/fences or asserted quiescence")
 	}
 }

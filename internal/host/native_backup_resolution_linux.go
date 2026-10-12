@@ -102,7 +102,7 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 	if err != nil {
 		return nil, err
 	}
-	if i.OriginalKind() != ops.NativeBackupActivate {
+	if inspection.OriginalKind() != ops.NativeBackupActivate {
 		if err = o.cleanupOriginalUpload(ctx, observed); err != nil {
 			return nil, err
 		}
