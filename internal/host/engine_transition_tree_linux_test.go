@@ -119,8 +119,12 @@ func TestEngineTransitionRenamePreservesOriginalAndPromotesTarget(t *testing.T) 
 	tree := engineTreeTransitionFixture(t)
 	ctx := context.Background()
 	intent := preserveIntentFixture(t, tree)
+	beforeSeal := transitionActualSeal(t, tree, tree.binding.RelativeDirectory)
 	if err := tree.move(ctx, intent, enginePreserveOriginal); err != nil {
 		transitionFailureDetails(t, tree)
+		_, _, original := tree.relativeNames()
+		afterSeal := transitionActualSeal(t, tree, original)
+		t.Logf("synthetic before-root=%+v after-root=%+v before-members=%+v after-members=%+v", beforeSeal.root, afterSeal.root, beforeSeal.members, afterSeal.members)
 		t.Fatal(err)
 	}
 	observed, err := tree.inspect(ctx)
@@ -147,6 +151,25 @@ func TestEngineTransitionRenamePreservesOriginalAndPromotesTarget(t *testing.T) 
 	if content, err := root.ReadFile(filepath.Join(original, "control-db/state")); err != nil || string(content) != "synthetic-persisted-state" {
 		t.Fatal("original data changed", err)
 	}
+}
+
+func transitionActualSeal(t *testing.T, tree *engineTransitionTree, relative string) engineTreeSeal {
+	t.Helper()
+	root, err := engineOpenRoot(string(tree.binding.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	leaf, err := root.OpenRoot(relative)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = leaf.Close() }()
+	seal, err := sealOwnedEngineSource(context.Background(), leaf, tree.limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return seal
 }
 
 func TestEngineTransitionUnknownRenameSettlesWithoutRepeatingEffect(t *testing.T) {
