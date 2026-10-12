@@ -28,6 +28,9 @@ func TestModuleStageRequiresActualEmptySourceAndBlocksOrdinaryHost(t *testing.T)
 	if err := RunModuleStage(context.Background(), strings.NewReader("{}"), &bytes.Buffer{}); !errors.Is(err, datapublish.ErrRecord) {
 		t.Fatal("ordinary host could run private publication purpose", err)
 	}
+	if handle, err := bindModuleStageNativeChild(nil, data.EngineRuntime{}); !errors.Is(err, datapublish.ErrRecord) || handle != nil {
+		t.Fatal("missing actual native child granted effect authority", err)
+	}
 }
 
 func TestModuleStagePublisherInputCannotSelectDatabaseOrMutation(t *testing.T) {

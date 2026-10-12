@@ -86,9 +86,15 @@ func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) erro
 		return datapublish.ErrRecord
 	}
 	exited := child.Done()
-	observation, observeErr := executeModuleStage(wait, request, credential)
+	handle, bindErr := bindModuleStageNativeChild(child, request.Runtime)
+	var observation moduleStageObservation
+	observeErr := bindErr
+	if bindErr == nil {
+		defer handle.close()
+		observation, observeErr = executeModuleStage(wait, request, credential)
+	}
 	stopErr := stopEngineChild(wait, child, exited, time.Duration(request.Runtime.StopSeconds)*time.Second)
-	if observeErr != nil || stopErr != nil || wait.Err() != nil || !engineReplayAlone(request.Runtime.PIDsLimit) {
+	if observeErr != nil || stopErr != nil || wait.Err() != nil || handle == nil || !handle.exited() || !engineReplayAlone(request.Runtime.PIDsLimit) {
 		return datapublish.ErrRecord
 	}
 	observation.ChildStopped = true
