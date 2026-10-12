@@ -58,7 +58,7 @@ func (s *Store) RecordPublicationRestore(ctx context.Context, attempt *Publicati
 	if err != nil {
 		return next, err
 	}
-	attempt.restored = &publicationReviewRestore{root: restored.Root(), parent: parent, identity: identity, verifiedAt: restored.VerifiedAt(), sourceEvidenceSHA: evidence.SHA256()}
+	attempt.restored = &publicationReviewRestore{root: restored.Root(), parent: parent, identity: identity, verifiedAt: restored.VerifiedAt(), sourceEvidenceSHA: evidence.SHA256(), download: restored}
 	return next, nil
 }
 

@@ -25,6 +25,20 @@ func (r AuthenticatedRestore) Point() TransportPoint { return r.point }
 func (r AuthenticatedRestore) Manifest() Manifest    { return r.manifest }
 func (r AuthenticatedRestore) VerifiedAt() time.Time { return r.verifiedAt }
 
+// MatchesWorkingCopy verifies a separate private copy against the complete
+// authenticated envelope while preserving the original download.
+func (r AuthenticatedRestore) MatchesWorkingCopy(ctx context.Context, parent *os.Root, name string, root *os.Root) bool {
+	if parent == nil || root == nil || name != "working" || !r.Matches(ctx, r.parent, r.name, r.point, r.manifest) {
+		return false
+	}
+	current, err := parent.Lstat(name)
+	held, heldErr := root.Stat(".")
+	if err != nil || heldErr != nil || !current.IsDir() || !os.SameFile(current, held) || os.SameFile(held, r.identity) {
+		return false
+	}
+	return verifyMemberSet(ctx, root, held, r.manifest, r.limits) == nil
+}
+
 func (AuthenticatedRestore) MarshalJSON() ([]byte, error) {
 	return nil, errors.New("authenticated restore proof cannot be serialized")
 }

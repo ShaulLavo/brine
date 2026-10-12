@@ -9,6 +9,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/store"
@@ -17,17 +18,18 @@ import (
 type modulePublications struct {
 	service Service
 	runtime nativeBackupRuntime
+	jobs    jobs.Service
 }
 
-type ModuleReviewRequest struct {
-	App                    string
-	PreparedPointID        string
-	TargetDeploymentPlanID string
-	Wasm                   []byte
-	RecoveryReleaseIDs     []string
+func (o modulePublications) Plan(ctx context.Context, request dispatch.ModulePlanArgs) (datapublish.ReviewView, error) {
+	if !request.Valid() {
+		return datapublish.ReviewView{}, datapublish.ErrRecord
+	}
+	planned, err := o.plan(ctx, request)
+	return planned.ReviewView(), err
 }
 
-func (o modulePublications) Plan(ctx context.Context, request ModuleReviewRequest) (_ datapublish.Plan, err error) {
+func (o modulePublications) plan(ctx context.Context, request dispatch.ModulePlanArgs) (_ datapublish.Plan, err error) {
 	if o.service.Authorize(ctx, dispatch.Mutating) != nil || o.runtime.state != o.service.Store || o.runtime.routes == nil {
 		return datapublish.Plan{}, datapublish.ErrRecord
 	}

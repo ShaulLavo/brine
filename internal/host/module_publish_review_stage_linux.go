@@ -34,6 +34,12 @@ func beginPublicationReviewWork(ctx context.Context, source *nativeRestoredSourc
 	if err := source.state.BindPublicationReviewRestore(ctx, preparation, source.extracted, source.parent, source.evidence); err != nil {
 		return nil, err
 	}
+	if err := preparePublicationWorkingCopy(ctx, source); err != nil {
+		return nil, err
+	}
+	if err := source.state.BindPublicationReviewWorkingRoot(ctx, preparation, source.root); err != nil {
+		return nil, err
+	}
 	return &publicationReviewWork{source: source, extraction: extraction, preparation: preparation}, nil
 }
 
