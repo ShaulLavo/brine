@@ -6,6 +6,9 @@ import (
 )
 
 func migrateArchiveMaintenanceTasks(ctx context.Context, tx *sql.Tx) error {
+	if err := migrateWorkspaceRetirementJournal(ctx, tx); err != nil {
+		return err
+	}
 	_, err := tx.ExecContext(ctx, `
 CREATE TABLE operations_v25 (
  id TEXT PRIMARY KEY, plan_id TEXT REFERENCES plans(id), requester TEXT NOT NULL, idempotency_key TEXT NOT NULL,

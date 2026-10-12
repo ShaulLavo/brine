@@ -20,6 +20,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/workspaceobserve"
 )
 
 type nativeBackupResolutionOperations struct {
@@ -28,7 +29,7 @@ type nativeBackupResolutionOperations struct {
 	runtime nativeBackupRuntime
 }
 
-func (o nativeBackupResolutionOperations) InspectBackup(ctx context.Context, args dispatch.NativeBackupInspectArgs) (dispatch.NativeBackupInspectionView, error) {
+func (o nativeBackupResolutionOperations) InspectBackup(ctx context.Context, args dispatch.NativeBackupInspectArgs) (view dispatch.NativeBackupInspectionView, inspectErr error) {
 	lock, lockErr := o.lock(ctx)
 	if lockErr != nil {
 		return dispatch.NativeBackupInspectionView{}, lockErr
@@ -38,12 +39,12 @@ func (o nativeBackupResolutionOperations) InspectBackup(ctx context.Context, arg
 	if err != nil {
 		return dispatch.NativeBackupInspectionView{}, err
 	}
-	defer func() { _ = inspection.Close() }()
+	defer func() { inspectErr = errors.Join(inspectErr, inspection.Close()) }()
 	observed, err := o.inspect(ctx, inspection)
 	if err != nil {
 		return dispatch.NativeBackupInspectionView{}, err
 	}
-	defer func() { _ = observed.close(ctx) }()
+	defer func() { inspectErr = errors.Join(inspectErr, observed.close(ctx)) }()
 	return observed.view(inspection), nil
 }
 func (o nativeBackupResolutionOperations) ReviewBackup(ctx context.Context, args dispatch.NativeBackupReviewArgs) (review nativecapture.BackupResolutionReview, reviewErr error) {
@@ -163,9 +164,12 @@ func (v *nativeBackupObserved) close(ctx context.Context) error {
 	}
 	if v.parent != nil {
 		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jobs.JournalTimeout)
-		cleanupErr := nativeUploadProcessesAbsent(ctx, v.path)
+		cleanupErr := (nativeBackupResolutionOperations{runtime: v.runtime}).disposeOriginalUploadReaders(ctx, v.path)
 		if cleanupErr == nil {
-			cleanupErr = (nativeBackupResolutionOperations{runtime: v.runtime}).disposeOriginalUploadReaders(ctx, v.path)
+			cleanupErr = observeNativeWorkspaceAbsent(ctx, v.parent)
+		}
+		if cleanupErr == nil && v.workspaceID != "" {
+			cleanupErr = v.inspection.BeginWorkspaceRetirement(ctx, v.workspaceID, v.parent)
 		}
 		if cleanupErr == nil {
 			cleanupErr = discardNativeWorkspace(v.parent, v.path)
@@ -470,4 +474,16 @@ func (o nativeBackupResolutionOperations) adoptActivation(ctx context.Context, i
 		return nil, err
 	}
 	return json.Marshal(receipt)
+}
+
+func observeNativeWorkspaceAbsent(ctx context.Context, parent *os.Root) error {
+	if parent == nil {
+		return errEngineSource
+	}
+	directory, err := parent.Open(".")
+	if err != nil {
+		return errEngineSource
+	}
+	defer func() { _ = directory.Close() }()
+	return workspaceobserve.CheckAbsent(ctx, directory)
 }

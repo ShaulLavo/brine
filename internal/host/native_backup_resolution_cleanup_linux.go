@@ -4,29 +4,33 @@ package host
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/store"
-	"golang.org/x/sys/unix"
 )
 
 func (o nativeBackupResolutionOperations) cleanupOriginalUpload(ctx context.Context, v *nativeBackupObserved) error {
 	if err := o.disposeOriginalUploadReaders(ctx, v.retained.Workspace); err != nil {
 		return err
 	}
-	if err := nativeUploadProcessesAbsent(ctx, v.retained.Workspace); err != nil {
-		return err
-	}
 	if v.originalParent == nil {
 		if _, err := os.Lstat(v.retained.Workspace); !os.IsNotExist(err) {
 			return errEngineSource
 		}
+		issued, err := v.inspection.UploadRetirementIssued(ctx)
+		if err != nil || !issued {
+			return errEngineSource
+		}
 		return nil
+	}
+	if err := observeNativeWorkspaceAbsent(ctx, v.originalParent); err != nil {
+		return err
+	}
+	if err := v.inspection.BeginUploadRetirement(ctx, v.originalParent); err != nil {
+		return err
 	}
 	err := discardNativeWorkspace(v.originalParent, v.retained.Workspace)
 	if err == nil {
@@ -105,92 +109,6 @@ func nativeUploadContains(workspace, path string) bool {
 	return clean == workspace || strings.HasPrefix(clean, workspace+string(filepath.Separator))
 }
 
-func nativeUploadProcessesAbsent(ctx context.Context, workspace string) error {
-	proc, err := os.Open("/proc")
-	if err != nil {
-		return errEngineSource
-	}
-	defer func() { _ = proc.Close() }()
-	entries, err := proc.ReadDir(4097)
-	if err != nil && !errors.Is(err, os.ErrNotExist) && len(entries) == 0 {
-		return errEngineSource
-	}
-	if len(entries) > 4096 {
-		return errEngineSource
-	}
-	for _, entry := range entries {
-		pid, err := strconv.ParseUint(entry.Name(), 10, 32)
-		if err != nil || pid == 0 || entry.Name() == strconv.Itoa(os.Getpid()) {
-			continue
-		}
-		if err = nativeUploadProcessAbsent(ctx, filepath.Join("/proc", strconv.FormatUint(pid, 10)), workspace); err != nil {
-			return err
-		}
-	}
-	return ctx.Err()
-}
-func nativeUploadProcessAbsent(ctx context.Context, process, workspace string) error {
-	pid, parseErr := strconv.ParseUint(filepath.Base(process), 10, 32)
-	if parseErr != nil || pid == 0 || process != filepath.Join("/proc", strconv.FormatUint(pid, 10)) {
-		return errEngineSource
-	}
-	if ctx.Err() != nil {
-		return ctx.Err()
-	}
-	var stat unix.Statx_t
-	if err := unix.Statx(unix.AT_FDCWD, process, unix.AT_SYMLINK_NOFOLLOW, unix.STATX_BASIC_STATS, &stat); err != nil {
-		if errors.Is(err, unix.ENOENT) {
-			return nil
-		}
-		return errEngineSource
-	}
-	if int64(stat.Uid) != int64(os.Geteuid()) {
-		return nil
-	}
-	cwd, err := os.Readlink(filepath.Join(process, "cwd"))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return errEngineSource
-	}
-	if nativeUploadContains(workspace, cwd) {
-		return errEngineSource
-	}
-	fd, err := os.Open(filepath.Join(process, "fd")) // #nosec G304 -- The boundary accepts only the fixed /proc/<canonical uint32 PID>/fd directory; it observes consumers and never opens caller files.
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return errEngineSource
-	}
-	defer func() { _ = fd.Close() }()
-	entries, err := fd.ReadDir(4097)
-	if err != nil && len(entries) == 0 {
-		return errEngineSource
-	}
-	if len(entries) > 4096 {
-		return errEngineSource
-	}
-	for _, entry := range entries {
-		number, parseErr := strconv.ParseUint(entry.Name(), 10, 32)
-		if parseErr != nil {
-			return errEngineSource
-		}
-		target, readErr := os.Readlink(filepath.Join(process, "fd", strconv.FormatUint(number, 10)))
-		if readErr != nil {
-			if os.IsNotExist(readErr) {
-				continue
-			}
-			return errEngineSource
-		}
-		if nativeUploadContains(workspace, target) {
-			return errEngineSource
-		}
-	}
-	return nil
-}
-
 func (o nativeBackupResolutionOperations) cleanupInspectionWorkspaces(ctx context.Context, i *store.NativeBackupInspection, permit store.EnginePermit) error {
 	workspaces, err := i.Workspaces(ctx)
 	if err != nil {
@@ -204,10 +122,11 @@ func (o nativeBackupResolutionOperations) cleanupInspectionWorkspaces(ctx contex
 		if err = o.disposeOriginalUploadReaders(ctx, path); err != nil {
 			return err
 		}
-		if err = nativeUploadProcessesAbsent(ctx, path); err != nil {
-			return err
-		}
 		if _, err = os.Lstat(path); os.IsNotExist(err) {
+			issued, err := i.WorkspaceRetirementIssued(ctx, workspace.ID)
+			if err != nil || !issued {
+				return errEngineSource
+			}
 			if err = i.DisposeWorkspace(ctx, workspace.ID); err != nil {
 				return err
 			}
@@ -224,7 +143,13 @@ func (o nativeBackupResolutionOperations) cleanupInspectionWorkspaces(ctx contex
 			_ = parent.Close()
 			return errEngineSource
 		}
-		err = discardNativeWorkspace(parent, path)
+		err = observeNativeWorkspaceAbsent(ctx, parent)
+		if err == nil {
+			err = i.BeginWorkspaceRetirement(ctx, workspace.ID, parent)
+		}
+		if err == nil {
+			err = discardNativeWorkspace(parent, path)
+		}
 		if err != nil {
 			_ = parent.Close()
 			return err
