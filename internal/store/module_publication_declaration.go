@@ -48,8 +48,8 @@ func readPublicationReviewDeclarationTx(ctx context.Context, tx *sql.Tx, cap *Pu
 		return declaration, errors.Join(ErrConflict, err)
 	}
 	material, err := readNativeRepositoryMaterial(ctx, tx, bundle.transport)
-	if err != nil {
-		return declaration, err
+	if err != nil || !publicationDeclarationRuntimeMatches(desired, permit.Runtime, material) {
+		return declaration, errors.Join(ErrConflict, err)
 	}
 	runtime := permit.Runtime
 	targetRaw, err := json.Marshal(planned.Target)
@@ -66,6 +66,15 @@ func readPublicationReviewDeclarationTx(ctx context.Context, tx *sql.Tx, cap *Pu
 	}
 	request.RecoveryReleaseIDs = slices.Clone(request.RecoveryReleaseIDs)
 	return publicationReviewDeclaration{request: request, plan: planned, desired: desired, facts: facts, recovery: recovery, bundle: bundle}, nil
+}
+
+func publicationDeclarationRuntimeMatches(desired policy.Desired, runtime data.EngineRuntime, material NativeRepositoryMaterial) bool {
+	engine := desired.SpacetimeDB
+	if engine == nil {
+		return false
+	}
+	return string(engine.Image) == runtime.Image && engine.Version == runtime.Version && engine.Runtime == runtime.Runtime && engine.Resources.MemoryMB == runtime.MemoryMB && engine.Resources.PIDsLimit == runtime.PIDsLimit && engine.Resources.PagePoolMB == runtime.PagePoolMB && engine.Resources.StopTimeoutSeconds == runtime.StopSeconds &&
+		string(engine.Publisher) == runtime.Secrets.Publisher.Reference && string(engine.SigningPrivate) == runtime.Secrets.SigningPrivate.Reference && string(engine.SigningPublic) == runtime.Secrets.SigningPublic.Reference && string(engine.Auth) == runtime.Secrets.AuthPolicy.Reference && string(engine.RecoveryPasswordRef) == material.RecoveryReference
 }
 
 func publicationDeclarationMatches(planned plan.Plan, desired policy.Desired, point nativePreparedPoint, cap *PublicationReviewPreparation) bool {
