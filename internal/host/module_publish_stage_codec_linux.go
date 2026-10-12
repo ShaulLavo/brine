@@ -32,13 +32,13 @@ func decodeModuleStageObservation(raw []byte, startedAt, finishedAt time.Time) (
 		}
 		return observation, nil
 	}
-	if observation.Action != moduleStagePreflight && observation.Action != moduleStagePublish && observation.Action != moduleStageObserve || !data.ValidCatalogHash(observation.Database) || !data.ValidCatalogHash(observation.ProgramWireHash) || !data.ValidCatalogHash(observation.SchemaSHA256) {
+	if observation.Action != moduleStagePreflight && observation.Action != moduleStagePublish && observation.Action != moduleStageCreate && observation.Action != moduleStageObserve || !data.ValidCatalogHash(observation.Database) || !data.ValidCatalogHash(observation.ProgramWireHash) || !data.ValidCatalogHash(observation.SchemaSHA256) {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	if observation.PublicationKnown && (len(observation.Receipt) == 0 || !data.ValidCatalogHash(observation.ReceiptBindingSHA)) {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
-	if observation.Action != moduleStagePublish && (observation.PublicationKnown || len(observation.Receipt) != 0 || observation.ReceiptBindingSHA != "") {
+	if observation.Action != moduleStagePublish && observation.Action != moduleStageCreate && (observation.PublicationKnown || len(observation.Receipt) != 0 || observation.ReceiptBindingSHA != "") {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	return observation, nil

@@ -68,6 +68,32 @@ func TestModuleStagePublisherInputCannotSelectDatabaseOrMutation(t *testing.T) {
 	}
 }
 
+func TestModuleStageCreateInputBindsExplicitVerifiedPublisherAndOwnedCandidate(t *testing.T) {
+	permit, _ := engineStartupFixture(t)
+	runtime := permit.Runtime
+	runtime.State, runtime.Database, runtime.Publisher, runtime.Names = data.EngineUnpublished, "", "", []string{}
+	request := moduleStageInput{Action: moduleStageCreate, Runtime: runtime, Token: "header.payload.signature", CreationName: "game", ExpectedPublisher: strings.Repeat("a", 64), WasmSHA256: strings.Repeat("b", 64), ProgramWireHash: strings.Repeat("c", 64), SchemaSHA256: strings.Repeat("d", 64)}
+	raw, _ := json.Marshal(request)
+	if _, err := readModuleStageInput(bytes.NewReader(raw)); err != nil {
+		t.Fatal("bounded initial stage request refused", err)
+	}
+	request.ExpectedPublisher = ""
+	raw, _ = json.Marshal(request)
+	if _, err := readModuleStageInput(bytes.NewReader(raw)); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("initial stage could infer an owner instead of verifying the protected expectation", err)
+	}
+	request.ExpectedPublisher, request.PreflightSHA256 = strings.Repeat("a", 64), strings.Repeat("e", 64)
+	raw, _ = json.Marshal(request)
+	if _, err := readModuleStageInput(bytes.NewReader(raw)); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("initial create accepted initialized preflight authority", err)
+	}
+	request.PreflightSHA256, request.Runtime = "", permit.Runtime
+	raw, _ = json.Marshal(request)
+	if _, err := readModuleStageInput(bytes.NewReader(raw)); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("existing native database entered initial creation", err)
+	}
+}
+
 func TestModuleStageMountsPermitOnlyPrivateCopyAndReadonlyKeys(t *testing.T) {
 	valid := strings.Replace(descriptorMountFixture(), "2 1 0:2 / /input/module.wasm ro - ext4 artifact ro\n", "", 1) +
 		"8 1 0:8 / /data rw - ext4 copy rw\n9 1 0:9 / /keys/private.pem ro - ext4 key ro\n10 1 0:10 / /keys/public.pem ro - ext4 key ro\n"

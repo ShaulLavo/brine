@@ -25,6 +25,7 @@ const (
 	moduleStagePublisher moduleStageAction = "publisher_verify"
 	moduleStagePreflight moduleStageAction = "preflight"
 	moduleStagePublish   moduleStageAction = "publish"
+	moduleStageCreate    moduleStageAction = "create"
 	moduleStageObserve   moduleStageAction = "observe"
 )
 
@@ -37,6 +38,8 @@ type moduleStageInput struct {
 	SchemaSHA256      string             `json:"schema_sha256"`
 	PreflightSHA256   string             `json:"preflight_sha256"`
 	PreflightTokenSHA string             `json:"preflight_token_sha256"`
+	CreationName      string             `json:"creation_name"`
+	ExpectedPublisher string             `json:"expected_publisher"`
 }
 
 type moduleStageObservation struct {
@@ -117,10 +120,41 @@ func executeModuleStage(ctx context.Context, request moduleStageInput, credentia
 	if request.Action == moduleStagePublisher {
 		return observation, nil
 	}
+	if request.Action == moduleStageCreate {
+		return executeInitialModuleStage(ctx, request, server, credential, verified, observation)
+	}
 	if observation.Publisher != string(request.Runtime.Publisher) {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	return executeInitializedModuleStage(ctx, request, credential, observation)
+}
+
+func executeInitialModuleStage(ctx context.Context, request moduleStageInput, server spacetimedb.PrivateServerEndpoint, credential spacetimedb.PublisherCredential, verified spacetimedb.NativePublisherVerification, observation moduleStageObservation) (moduleStageObservation, error) {
+	if string(verified.Publisher()) != request.ExpectedPublisher {
+		return moduleStageObservation{}, datapublish.ErrRecord
+	}
+	artifact, err := readModuleDescriptorArtifact()
+	if err != nil || string(artifact.WasmSHA256()) != request.WasmSHA256 || string(artifact.ProgramWireHash()) != request.ProgramWireHash {
+		return moduleStageObservation{}, datapublish.ErrRecord
+	}
+	receipt, err := spacetimedb.PublishNativeCreate(ctx, server, credential, verified, request.CreationName, artifact.Bytes())
+	if err != nil || !receipt.At(server) || string(receipt.Publisher()) != request.ExpectedPublisher || receipt.Name() != request.CreationName || receipt.WasmSHA256() != artifact.WasmSHA256() || receipt.ProgramWireHash() != artifact.ProgramWireHash() {
+		return moduleStageObservation{}, datapublish.ErrInspection
+	}
+	endpoint, err := spacetimedb.NewPrivateEndpoint("127.0.0.1", privateEnginePort, string(receipt.Database()))
+	if err != nil {
+		return moduleStageObservation{}, datapublish.ErrInspection
+	}
+	expected, err := spacetimedb.NewExpectedDatabase(string(receipt.Database()), request.ExpectedPublisher, []string{request.CreationName})
+	if err != nil {
+		return moduleStageObservation{}, datapublish.ErrInspection
+	}
+	current, err := spacetimedb.ObserveCurrent(ctx, endpoint, credential, expected, spacetimedb.DefaultObserverLimits())
+	if err != nil || string(current.CurrentModule()) != request.ProgramWireHash || current.Schema().SHA256() != request.SchemaSHA256 {
+		return moduleStageObservation{}, datapublish.ErrInspection
+	}
+	observation.Receipt, observation.ReceiptBindingSHA, observation.PublicationKnown = receipt.ResponseBytes(), receipt.BindingSHA256(), true
+	return moduleStageMetadata(observation, current), nil
 }
 
 func executeInitializedModuleStage(ctx context.Context, request moduleStageInput, credential spacetimedb.PublisherCredential, observation moduleStageObservation) (moduleStageObservation, error) {
@@ -197,7 +231,7 @@ func readModuleStageInput(input io.Reader) (moduleStageInput, error) {
 		return moduleStageInput{}, datapublish.ErrRecord
 	}
 	defer clear(raw)
-	if _, err = strictjson.Object(raw, "action", "runtime", "publisher_token", "wasm_sha256", "program_wire_hash", "schema_sha256", "preflight_sha256", "preflight_token_sha256"); err != nil {
+	if _, err = strictjson.Object(raw, "action", "runtime", "publisher_token", "wasm_sha256", "program_wire_hash", "schema_sha256", "preflight_sha256", "preflight_token_sha256", "creation_name", "expected_publisher"); err != nil {
 		return moduleStageInput{}, datapublish.ErrRecord
 	}
 	var request moduleStageInput
@@ -205,12 +239,18 @@ func readModuleStageInput(input io.Reader) (moduleStageInput, error) {
 		return moduleStageInput{}, datapublish.ErrRecord
 	}
 	if request.Action == moduleStagePublisher {
-		if request.Runtime.State != data.EngineUnpublished || request.WasmSHA256 != "" || request.ProgramWireHash != "" || request.SchemaSHA256 != "" || request.PreflightSHA256 != "" || request.PreflightTokenSHA != "" {
+		if request.Runtime.State != data.EngineUnpublished || request.WasmSHA256 != "" || request.ProgramWireHash != "" || request.SchemaSHA256 != "" || request.PreflightSHA256 != "" || request.PreflightTokenSHA != "" || request.CreationName != "" || request.ExpectedPublisher != "" {
 			return moduleStageInput{}, datapublish.ErrRecord
 		}
 		return request, nil
 	}
-	if request.Runtime.State != data.EngineInitialized || request.Action != moduleStagePreflight && request.Action != moduleStagePublish && request.Action != moduleStageObserve || !data.ValidCatalogHash(request.WasmSHA256) || !data.ValidCatalogHash(request.ProgramWireHash) || !data.ValidCatalogHash(request.SchemaSHA256) {
+	if request.Action == moduleStageCreate {
+		if request.Runtime.State != data.EngineUnpublished || !data.ValidCatalogHash(request.ExpectedPublisher) || len(request.CreationName) == 0 || len(request.CreationName) > 63 || !data.ValidCatalogHash(request.WasmSHA256) || !data.ValidCatalogHash(request.ProgramWireHash) || !data.ValidCatalogHash(request.SchemaSHA256) || request.PreflightSHA256 != "" || request.PreflightTokenSHA != "" {
+			return moduleStageInput{}, datapublish.ErrRecord
+		}
+		return request, nil
+	}
+	if request.Runtime.State != data.EngineInitialized || request.Action != moduleStagePreflight && request.Action != moduleStagePublish && request.Action != moduleStageObserve || !data.ValidCatalogHash(request.WasmSHA256) || !data.ValidCatalogHash(request.ProgramWireHash) || !data.ValidCatalogHash(request.SchemaSHA256) || request.CreationName != "" || request.ExpectedPublisher != "" {
 		return moduleStageInput{}, datapublish.ErrRecord
 	}
 	if request.Action == moduleStagePublish && (!data.ValidCatalogHash(request.PreflightSHA256) || !data.ValidCatalogHash(request.PreflightTokenSHA)) {

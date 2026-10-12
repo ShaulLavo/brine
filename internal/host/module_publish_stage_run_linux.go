@@ -56,7 +56,13 @@ func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLea
 
 func moduleStageResultMatches(observation moduleStageObservation, request moduleStageInput, reviewedPreflight []byte) bool {
 	runtime := request.Runtime
-	if observation.Action != request.Action || observation.Database != string(runtime.Database) || observation.Publisher != string(runtime.Publisher) || observation.CredentialSHA256 != runtime.Secrets.Publisher.SHA256 || !observation.ChildStopped {
+	if observation.Action != request.Action || observation.CredentialSHA256 != runtime.Secrets.Publisher.SHA256 || !observation.ChildStopped {
+		return false
+	}
+	if request.Action == moduleStageCreate {
+		return runtime.State == data.EngineUnpublished && data.ValidCatalogHash(observation.Database) && observation.Publisher == request.ExpectedPublisher && observation.PublicationKnown && len(observation.Receipt) != 0 && data.ValidCatalogHash(observation.ReceiptBindingSHA) && observation.ProgramWireHash == request.ProgramWireHash && observation.SchemaSHA256 == request.SchemaSHA256 && len(observation.Preflight) == 0 && len(reviewedPreflight) == 0
+	}
+	if observation.Database != string(runtime.Database) || observation.Publisher != string(runtime.Publisher) {
 		return false
 	}
 	if request.Action == moduleStagePreflight {
