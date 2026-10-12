@@ -919,7 +919,7 @@ Rollback planning compares the selected immutable release's declaration with eac
 
 Apply revalidates that comparison under the host lock before effects. Automatic deployment compensation, reconcile and resolve also need fresh schema proof before restoring an old unit or starting its writer, even if the candidate never reached healthy or schema mutation occurred outside deployment. The proof must cover the destination writer and every database it uses. `stateless_compatible` applies only to affirmatively stateless desired and observed data state. `compatibility_verified` requires current schema evidence and the destination release's declaration. It is not a reusable approval for any later schema. Unproven compensation becomes `recovery_required` rather than `rolled_back`.
 
-A down migration is itself a new reviewed migration. Live restore is a different planned operation under D8's `allow_agent_live_restore`, default false, and P04-09. Until that operation ships, P04-06's separately approved operator runbook governs live restore. The recovery decision records possible lost writes and establishes the restored schema before any app start. Neither an app rollback request nor a schema initialization/migration plan authorizes data restoration.
+A down migration is itself a new reviewed migration. Live restore is a different planned operation under D8's operator-owned `allow_live_restore`, default false. Until that operation ships, P04-06's separately approved operator runbook governs live restore. The recovery decision records possible lost writes and establishes the restored schema before any app start. Neither an app rollback request nor a schema initialization/migration plan authorizes data restoration.
 
 ### Delivery and acceptance gates
 
