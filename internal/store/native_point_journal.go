@@ -125,6 +125,9 @@ func checkNativePointCompletion(ctx context.Context, tx *sql.Tx, point nativePre
 	if err != nil || len(events) != 6 || !bytes.Equal(events[5].Proof, point.raw) || nativePointHash(events[1].Proof) != point.view.StopProofSHA256 || nativePointHash(events[4].Proof) != point.view.RestoreReceiptSHA256 {
 		return errors.Join(&IntegrityError{}, err)
 	}
+	if _, err := decodeNativePreparedVerification(point.view, events[4].Proof); err != nil {
+		return err
+	}
 	if err := checkNativePreparedDependencyFacts(point.view, events[2].Proof, events[3].Proof); err != nil {
 		return err
 	}
