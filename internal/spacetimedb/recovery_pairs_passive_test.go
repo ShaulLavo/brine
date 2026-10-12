@@ -65,10 +65,12 @@ func passiveRecoveryFixture(t testing.TB, variant string) (map[string]any, Canon
 		}
 	}
 	projection := nativeevidence.ConfirmedPairsProjection{
-		Format: nativeevidence.ProjectionFormat,
-		Left:   nativeevidence.PairTable{ID: 10, Name: "recovery_left", Layout: layout, Rows: rows},
-		Right:  nativeevidence.PairTable{ID: 11, Name: "recovery_right", Layout: layout, Rows: slices.Clone(rows)},
-		Marker: nativeevidence.MarkerTable{ID: 12, Name: "schema_marker", Rows: []nativeevidence.MarkerRow{{ID: 1, Revision: RecoverySchemaMarker}}},
+		Format:    nativeevidence.ProjectionFormat,
+		Left:      nativeevidence.PairTable{ID: 10, Name: "recovery_left", Layout: layout, Rows: rows},
+		Right:     nativeevidence.PairTable{ID: 11, Name: "recovery_right", Layout: layout, Rows: slices.Clone(rows)},
+		Marker:    nativeevidence.MarkerTable{ID: 12, Name: "schema_marker", Rows: []nativeevidence.MarkerRow{{ID: 1, Revision: RecoverySchemaMarker}}},
+		Publisher: nativeevidence.PublisherTable{ID: 13, Name: "publisher", Rows: []nativeevidence.PublisherRow{{ID: 1, Identity: publisherHex}}},
+		Sequence:  nativeevidence.SequenceTable{ID: 14, Name: "sequence_state", Rows: []nativeevidence.SequenceRow{{ID: 1, Sequence: 3}}},
 	}
 	tables := []nativeevidence.Table{
 		{ID: 1, Name: "st_table", Rows: 2, BSATNBytes: 100, Blake3: strings.Repeat("01", 32)},
@@ -136,11 +138,15 @@ func TestPassiveRecoveryPairsProveFiniteValuesAndOwnBytes(t *testing.T) {
 
 func TestPassivePairsRefuseMismatchesAndUnqualifiedShapes(t *testing.T) {
 	cases := map[string]func(*nativeevidence.ConfirmedPairsProjection){
-		"right timestamp":    func(p *nativeevidence.ConfirmedPairsProjection) { p.Right.Rows[0].CommitTimeMicros++ },
-		"right scheduled":    func(p *nativeevidence.ConfirmedPairsProjection) { p.Right.Rows[0].Scheduled = true },
-		"pair duplicate":     func(p *nativeevidence.ConfirmedPairsProjection) { p.Left.Rows[1] = p.Left.Rows[0] },
-		"negative timestamp": func(p *nativeevidence.ConfirmedPairsProjection) { p.Left.Rows[0].CommitTimeMicros = -1 },
-		"wrong marker":       func(p *nativeevidence.ConfirmedPairsProjection) { p.Marker.Rows[0].Revision = "other" },
+		"right timestamp":         func(p *nativeevidence.ConfirmedPairsProjection) { p.Right.Rows[0].CommitTimeMicros++ },
+		"right scheduled":         func(p *nativeevidence.ConfirmedPairsProjection) { p.Right.Rows[0].Scheduled = true },
+		"pair duplicate":          func(p *nativeevidence.ConfirmedPairsProjection) { p.Left.Rows[1] = p.Left.Rows[0] },
+		"negative timestamp":      func(p *nativeevidence.ConfirmedPairsProjection) { p.Left.Rows[0].CommitTimeMicros = -1 },
+		"wrong marker":            func(p *nativeevidence.ConfirmedPairsProjection) { p.Marker.Rows[0].Revision = "other" },
+		"wrong publisher":         func(p *nativeevidence.ConfirmedPairsProjection) { p.Publisher.Rows[0].Identity = databaseHex },
+		"wrong publisher id":      func(p *nativeevidence.ConfirmedPairsProjection) { p.Publisher.Rows[0].ID = 2 },
+		"sequence ahead of pairs": func(p *nativeevidence.ConfirmedPairsProjection) { p.Sequence.Rows[0].Sequence++ },
+		"wrong sequence id":       func(p *nativeevidence.ConfirmedPairsProjection) { p.Sequence.Rows[0].ID = 2 },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) { checkPassivePairRefusal(t, mutate) })

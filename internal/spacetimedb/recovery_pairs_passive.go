@@ -55,7 +55,8 @@ func RecoveryPairsFromPassive(evidence nativeevidence.Evidence, registered Canon
 	program := evidence.Program()
 	projection, present := evidence.ConfirmedPairsProjection()
 	if !present || !validHexIdentity(evidence.SHA256()) || program.Kind != "wasm" || registered.Version() != CanonicalizerVersion ||
-		!SupportsConfirmedRecoveryPairs(program.SHA256, registered.SHA256()) || validatePassivePairs(projection, registered) != nil {
+		!SupportsConfirmedRecoveryPairs(program.SHA256, registered.SHA256()) || validatePassivePairs(projection, registered) != nil ||
+		validatePassiveControls(projection, evidence.OwnerIdentity()) != nil {
 		return RecoveredPairs{}, ErrRecoveryPairs
 	}
 	rows := slices.Clone(projection.Left.Rows)
@@ -71,6 +72,14 @@ func RecoveryPairsFromPassive(evidence nativeevidence.Evidence, registered Canon
 	}
 	sum := sha256.Sum256(raw)
 	return RecoveredPairs{value: value, native: evidence, schema: registered, raw: raw, hash: hex.EncodeToString(sum[:])}, nil
+}
+
+func validatePassiveControls(value nativeevidence.ConfirmedPairsProjection, owner string) error {
+	if len(value.Publisher.Rows) != 1 || value.Publisher.Rows[0].ID != 1 || value.Publisher.Rows[0].Identity != owner ||
+		len(value.Sequence.Rows) != 1 || value.Sequence.Rows[0].ID != 1 || value.Sequence.Rows[0].Sequence != uint64(len(value.Left.Rows)) {
+		return ErrRecoveryPairs
+	}
+	return nil
 }
 
 func validatePassivePairs(value nativeevidence.ConfirmedPairsProjection, schema CanonicalSchema) error {
