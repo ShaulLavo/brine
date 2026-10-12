@@ -1,11 +1,9 @@
 package spacetimedb
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -215,33 +213,6 @@ func decodeNativePublicationReceipt(raw []byte, expected DatabaseIdentity) (Nati
 }
 
 func nativePublicationRequest(ctx context.Context, endpoint PrivateEndpoint, credential PublisherCredential, method, suffix string, query url.Values, wasm []byte) ([]byte, error) {
-	wait, cancel := context.WithTimeout(ctx, nativePublicationWait)
-	defer cancel()
-	transport := &http.Transport{Proxy: nil, DisableKeepAlives: true, MaxResponseHeaderBytes: 64 << 10, ResponseHeaderTimeout: nativePublicationWait}
-	defer transport.CloseIdleConnections()
-	client := &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrNativePreflight }}
-	address := endpoint.base + "/v1/database/" + url.PathEscape(string(endpoint.database)) + suffix + "?" + query.Encode()
-	request, err := http.NewRequestWithContext(wait, method, address, bytes.NewReader(wasm))
-	if err != nil {
-		return nil, ErrNativePreflight
-	}
-	request.GetBody = nil
-	request.Close = true
-	request.Header.Set("Authorization", "Bearer "+credential.bearer)
-	request.Header.Set("Content-Type", "application/octet-stream")
-	request.Header.Set("Accept", "application/json")
-	response, err := client.Do(request)
-	if err != nil {
-		return nil, ErrNativePreflight
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return nil, ErrNativePreflight
-	}
-	raw, err := io.ReadAll(io.LimitReader(response.Body, NativePublicationResponseLimit+1))
-	if err != nil || len(raw) > NativePublicationResponseLimit || wait.Err() != nil {
-		clear(raw)
-		return nil, ErrNativePreflight
-	}
-	return raw, nil
+	path := "/v1/database/" + url.PathEscape(string(endpoint.database)) + suffix
+	return nativeModuleRequest(ctx, PrivateServerEndpoint{base: endpoint.base}, credential, method, path, query, wasm)
 }
