@@ -29,6 +29,7 @@ type descriptorLease struct {
 	imageRef    string
 	process     *engineNativeHandle
 	containerID string
+	attempted   bool
 }
 
 func acquireDescriptorLease(ctx context.Context, state *store.Store, preparation *store.EnginePreparation, binding data.ReplicaBindingID, deploymentPlanID string, artifact datapublish.Artifact, images *podman.Client) (*descriptorLease, error) {
@@ -84,7 +85,7 @@ func descriptorImage(ctx context.Context, images *podman.Client, platform target
 }
 
 func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, runner localexec.InputRunner, session localexec.Session) (datapublish.Candidate, []byte, error) {
-	if lease == nil || lease.artifact == nil || lease.artifact.unchanged(ctx) != nil {
+	if lease == nil || lease.artifact == nil || lease.attempted || lease.artifact.unchanged(ctx) != nil {
 		return datapublish.Candidate{}, nil, datapublish.ErrRecord
 	}
 	input, err := json.Marshal(moduleDescriptorInput{WasmSHA256: string(lease.artifact.artifact.WasmSHA256()), ProgramWireHash: string(lease.artifact.artifact.ProgramWireHash())})
@@ -92,6 +93,7 @@ func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, ru
 		return datapublish.Candidate{}, nil, datapublish.ErrRecord
 	}
 	wait, cancel := context.WithTimeout(ctx, descriptorTotalWait)
+	lease.attempted = true
 	id, handle, runErr := startDescriptorProcess(wait, lease, session)
 	lease.containerID, lease.process = id, handle
 	var result localexec.Output
