@@ -87,6 +87,19 @@ func buildManagedPreview(in Input, desired []byte) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	if in.Managed != nil {
+		managed, err := in.Managed.CanonicalBytes()
+		if err != nil {
+			return Plan{}, err
+		}
+		snapshot, err = json.Marshal(struct {
+			Snapshot json.RawMessage `json:"snapshot"`
+			Managed  json.RawMessage `json:"managed"`
+		}{snapshot, managed})
+		if err != nil {
+			return Plan{}, err
+		}
+	}
 	d := in.Desired
 	image := in.Image
 	if d.App().HasAppContainer() && (!image.validManifest() || !validHash(image.Digest) || !strings.HasSuffix(string(d.Image), "@"+image.Digest)) {
@@ -147,6 +160,10 @@ func previewPorts(in Input) ([]target.Port, bool) {
 	}
 	for _, release := range in.State.Releases {
 		busy[release.HostPort] = true
+	}
+	for _, reservation := range in.State.ManagedReservations {
+		busy[reservation.EnginePort] = true
+		busy[reservation.FrontendPort] = true
 	}
 	available := []target.Port{}
 	for port := uint32(in.Desired.AppPorts.Min); port <= uint32(in.Desired.AppPorts.Max); port++ {

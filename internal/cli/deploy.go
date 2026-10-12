@@ -58,7 +58,13 @@ func newDeployCmd(deps Dependencies, modes *machineModes, noInput *bool) *cobra.
 		if err != nil {
 			return result.New(result.InvalidUsage, err)
 		}
-		request := dispatch.PlanArgs{Spec: string(raw), SchemaArtifacts: app.SchemaArtifacts}
+		request, err := dispatch.NewPlanArgs(string(raw), app)
+		if err != nil {
+			return result.New(result.InvalidUsage, err)
+		}
+		if app.SpacetimeDB != nil {
+			return deployManaged(cmd, deps, flags, *modes, request, yes)
+		}
 		target, err := flags.loadTarget(deps)
 		if err != nil {
 			return err
@@ -800,7 +806,7 @@ func deploymentFenced(s dispatch.DeploymentState) bool {
 }
 
 func (f operationFlags) deploymentCheckpoint(ctx context.Context, deps Dependencies, request dispatch.PlanArgs, step deploymentStep) (dispatch.DeploymentCheckpoint, error) {
-	response, err := f.call(ctx, deps, "deploy_checkpoint", dispatch.DeploymentCheckpointArgs{Spec: request.Spec, SchemaArtifacts: request.SchemaArtifacts, PlanID: step.PlanID, Step: step.Name, Database: step.Database})
+	response, err := f.call(ctx, deps, "deploy_checkpoint", dispatch.DeploymentCheckpointArgs{Spec: request.Spec, SchemaArtifacts: request.SchemaArtifacts, ManagedModule: request.ManagedModule, PlanID: step.PlanID, Step: step.Name, Database: step.Database})
 	if err != nil {
 		return dispatch.DeploymentCheckpoint{}, err
 	}

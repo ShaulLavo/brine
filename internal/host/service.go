@@ -8,6 +8,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/caddy"
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -25,12 +26,16 @@ type ImageResolver interface {
 	Resolve(context.Context, spec.ImageReference, target.Platform) (plan.Image, error)
 }
 type Service struct {
-	Data      PersistentFacts
-	Store     *store.Store
-	Inventory dispatch.Inventory
-	Policy    PolicyLoader
-	Images    ImageResolver
-	Requester string
+	managedObserver     *managedEngineObserver
+	managedPreparation  apply.ManagedPreparation
+	managedLoggingFacts func(context.Context) ([]byte, string, string, error)
+	managedAuthority    caddy.ManagedIngressAuthority
+	Data                PersistentFacts
+	Store               *store.Store
+	Inventory           dispatch.Inventory
+	Policy              PolicyLoader
+	Images              ImageResolver
+	Requester           string
 }
 
 func (s Service) Authorize(ctx context.Context, class dispatch.Class) error {
@@ -71,12 +76,21 @@ func (s Service) Plan(ctx context.Context, app spec.App) (dispatch.Planned, erro
 	if err != nil {
 		return dispatch.Planned{}, err
 	}
-	p, err := plan.Build(facts.Input)
+	var p plan.Plan
+	if facts.Input.Desired.SpacetimeDB != nil && facts.Input.Managed != nil && facts.Input.Managed.Runtime == nil {
+		p, err = s.managedPreparationPlan(ctx, facts)
+	} else {
+		p, err = plan.Build(facts.Input)
+	}
 	if err != nil {
 		return dispatch.Planned{}, err
 	}
 	id, err := s.Store.SavePlan(ctx, p, facts.Input.Desired)
-	return dispatch.Planned{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts, SchemaArtifacts: p.SchemaArtifacts}, err
+	summary := dispatch.Planned{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts, SchemaArtifacts: p.SchemaArtifacts}
+	if p.Managed != nil {
+		summary.Managed = &dispatch.ManagedPlanSummary{State: p.Managed.State, Frontend: p.Managed.Frontend != nil}
+	}
+	return summary, err
 }
 
 func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
@@ -107,6 +121,9 @@ func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
 	if err != nil {
 		return out, err
 	}
+	if d.SpacetimeDB != nil {
+		return s.managedFacts(ctx, d, pol, snap, state)
+	}
 	image, err := s.Images.Resolve(ctx, d.Image, target.Platform{OS: "linux", Arch: snap.Arch})
 	if err != nil {
 		return out, err
@@ -122,19 +139,9 @@ func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
 		snap.PersistentData = &observation
 	}
 	out.Input = plan.Input{Desired: d, Snapshot: snap, State: state, Image: image}
-	out.Routing = caddy.State{Files: map[string]string{}, Sites: map[string]caddy.Site{}}
-	for _, release := range state.Releases {
-		site, err := caddy.NewSite(App(release.Desired), pol, spec.Port(release.HostPort))
-		if err != nil {
-			return out, err
-		}
-		out.Routing.Files[release.CaddyFile.Name] = release.CaddyFile.Hash
-		out.Routing.Sites[release.CaddyFile.Name] = site
-	}
-	if snap.CaddyConfig.Status == target.KnownStatus && snap.CaddyConfig.Value != nil {
-		out.Routing.Generation = snap.CaddyConfig.Value.Generation
-	} else if snap.CaddyConfig.Status != target.Absent {
-		return out, errors.New("host: unknown routing generation")
+	out.Routing, err = managedRoutingFacts(ctx, state, pol, snap, s.managedAuthority, s.Store)
+	if err != nil {
+		return out, err
 	}
 	return out, nil
 }
@@ -145,6 +152,9 @@ type Executor struct {
 }
 
 func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
+	if p.Managed != nil && p.Managed.State == data.EngineUnpublished {
+		return e.runManagedPreparation(ctx, id, p, d)
+	}
 	if p.Lifecycle == plan.PrepareData {
 		return e.runDataPreparation(ctx, id, p, d)
 	}

@@ -53,10 +53,14 @@ func PrepareDirectory(b SQLiteDatabaseBinding) (RootEvidence, error) {
 	if err != nil || relative != b.RelativeDirectory || !ValidRoot(string(b.Root)) {
 		return RootEvidence{}, ErrInvalid
 	}
-	if _, err = InspectRoot(string(b.Root)); err != nil {
+	return prepareOwnedDirectory(b.Root, relative)
+}
+
+func prepareOwnedDirectory(rootPath PersistentRoot, relative string) (RootEvidence, error) {
+	if _, err := InspectRoot(string(rootPath)); err != nil {
 		return RootEvidence{}, err
 	}
-	root, err := os.OpenRoot(string(b.Root))
+	root, err := os.OpenRoot(string(rootPath))
 	if err != nil {
 		return RootEvidence{}, err
 	}
@@ -68,7 +72,7 @@ func PrepareDirectory(b SQLiteDatabaseBinding) (RootEvidence, error) {
 		if err != nil && !os.IsExist(err) {
 			return RootEvidence{}, err
 		}
-		if err = verifyPrivateTree(string(b.Root), filepath.Join(string(b.Root), current)); err != nil {
+		if err = verifyPrivateTree(string(rootPath), filepath.Join(string(rootPath), current)); err != nil {
 			return RootEvidence{}, err
 		}
 		parent, err := root.Open(filepath.Dir(current))
@@ -84,7 +88,7 @@ func PrepareDirectory(b SQLiteDatabaseBinding) (RootEvidence, error) {
 			return RootEvidence{}, closeErr
 		}
 	}
-	return InspectRoot(string(b.Root))
+	return InspectRoot(string(rootPath))
 }
 
 // VerifyRunnerFile refuses foreign ownership, symlinks and modes other than

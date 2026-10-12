@@ -44,6 +44,12 @@ func verifyRelease(app string, r Release, p plan.Plan, d policy.Desired) error {
 	if !reflect.DeepEqual(r.Secrets, secrets) {
 		return ErrInvalid
 	}
+	if p.Managed != nil {
+		return verifyManagedRelease(app, r, p)
+	}
+	if r.Managed != nil {
+		return ErrInvalid
+	}
 	found := false
 	for i, u := range r.Units {
 		if u.Name == app+".container" {
@@ -160,6 +166,11 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	if p.Managed != nil {
+		if err := admitManagedRelease(ctx, tx, p, r); err != nil {
+			return err
+		}
+	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO releases VALUES(?,?,?,?,?,?)", app, r.ID, r.PlanID, raw, digest(raw), timestamp()); err != nil {
 		return err
 	}
@@ -212,6 +223,10 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 	if err != nil {
 		return result, err
 	}
+	result.ManagedReservations, err = readManagedReservations(ctx, tx)
+	if err != nil {
+		return result, err
+	}
 	for _, h := range heads {
 		r, err := readRelease(ctx, tx, h.app, h.id)
 		if err != nil {
@@ -224,7 +239,12 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 		if p.Target != identity {
 			return result, &IntegrityError{}
 		}
-		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration})
+		var managed *plan.ManagedServicePlan
+		if p.Managed != nil {
+			copy := p.Managed.Clone()
+			managed = &copy
+		}
+		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration, Managed: managed})
 	}
 	return result, tx.Commit()
 }
@@ -238,6 +258,6 @@ func (s *Store) ReleaseByID(ctx context.Context, app, id string) (Release, error
 // Replaying a commit does not advance it; plans and queued jobs do not affect it.
 func (s *Store) Generation(ctx context.Context) (uint64, error) {
 	var n uint64
-	err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)").Scan(&n)
+	err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)+(SELECT COUNT(*) FROM data_engine_preparations)+(SELECT COUNT(*) FROM data_engine_desired_states)+(SELECT COUNT(*) FROM data_engine_route_states)").Scan(&n)
 	return n, err
 }

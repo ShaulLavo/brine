@@ -13,13 +13,17 @@ import (
 )
 
 type persistentRender struct {
-	runtime     *data.RuntimeIdentity
-	incarnation data.AppIncarnationID
-	mounts      []data.Mount
-	services    []string
+	managedBinding data.ReplicaBindingID
+	runtime        *data.RuntimeIdentity
+	incarnation    data.AppIncarnationID
+	mounts         []data.Mount
+	services       []string
 }
 
 func bindPersistent(d policy.Desired, p plan.Plan) (persistentRender, error) {
+	if d.SpacetimeDB != nil {
+		return bindManagedFrontend(d, p)
+	}
 	invalid := fmt.Errorf("quadlet: persistent runtime or mounts differ from admitted input")
 	if d.Stateless() {
 		if p.Runtime != nil || len(p.DataMounts) != 0 {
