@@ -35,7 +35,7 @@ func checkPublicationTransitionObservation(target publicationTarget, input data.
 
 func (s *Store) AdvancePublicationTransition(ctx context.Context, capability *PublicationTransition, next data.EngineTransitionStage, observed data.EngineLayoutObservation) (data.EngineTransitionCursor, error) {
 	var zero data.EngineTransitionCursor
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return zero, ErrConflict
 	}
 	switch next {
@@ -60,7 +60,7 @@ func (s *Store) AdvancePublicationTransition(ctx context.Context, capability *Pu
 	if err = appendEngineTransitionEvent(ctx, tx, input, cursor, event); err != nil {
 		return zero, err
 	}
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return zero, ErrConflict
 	}
 	return event.Cursor(), tx.Commit()
@@ -68,7 +68,7 @@ func (s *Store) AdvancePublicationTransition(ctx context.Context, capability *Pu
 
 func (s *Store) ActivatePublicationTransition(ctx context.Context, capability *PublicationTransition, observed PublicationTransitionObservation) (data.EngineTransitionCursor, error) {
 	var zero data.EngineTransitionCursor
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return zero, ErrConflict
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -91,7 +91,7 @@ func (s *Store) ActivatePublicationTransition(ctx context.Context, capability *P
 	if err = recordPublicationStoppedDesiredTx(ctx, tx, current, target); err != nil {
 		return zero, err
 	}
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return zero, ErrConflict
 	}
 	return activated, tx.Commit()
@@ -131,7 +131,7 @@ func recordPublicationStoppedDesiredTx(ctx context.Context, tx *sql.Tx, current 
 
 func (s *Store) BeginPublicationTransitionCompletion(ctx context.Context, capability *PublicationTransition, observed PublicationTransitionObservation) (data.EngineTransitionCursor, error) {
 	var zero data.EngineTransitionCursor
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return zero, ErrConflict
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -151,7 +151,7 @@ func (s *Store) BeginPublicationTransitionCompletion(ctx context.Context, capabi
 	if err = appendEngineTransitionEvent(ctx, tx, input, cursor, event); err != nil {
 		return zero, err
 	}
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return zero, ErrConflict
 	}
 	return event.Cursor(), tx.Commit()
@@ -171,7 +171,7 @@ type publicationCompletionRecord struct {
 }
 
 func (s *Store) CompletePublicationTransition(ctx context.Context, capability *PublicationTransition, observed PublicationTransitionObservation) (datapublish.Cursor, error) {
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return datapublish.Cursor{}, ErrConflict
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -210,7 +210,7 @@ func (s *Store) CompletePublicationTransition(ctx context.Context, capability *P
 	if err = appendPublicationCursorTx(ctx, tx, current.review.Plan(), current.cursor, next); err != nil {
 		return current.cursor, err
 	}
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return current.cursor, ErrConflict
 	}
 	return next, tx.Commit()

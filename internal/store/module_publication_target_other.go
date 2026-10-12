@@ -14,3 +14,7 @@ func checkPublicationTargetAnchors(context.Context, *PublicationTargetPreparatio
 func checkPublicationTransitionAnchors(context.Context, *PublicationTransition, data.EngineLayoutObservation) error {
 	return ErrConflict
 }
+
+func checkPublicationSourcePreservationAnchors(context.Context, EnginePermit, []PublicationEffect, PublicationSourcePreservationObservation) error {
+	return ErrConflict
+}

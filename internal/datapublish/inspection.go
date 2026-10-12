@@ -28,12 +28,15 @@ func (v Inspection) Valid() bool {
 		return false
 	}
 	switch v.State {
-	case Ready, IntentRecorded, InspectRequired, Finished, AttemptFailed:
+	case Ready, IntentRecorded, InspectRequired, Finished, AttemptFailed, SourcePreserved:
 	default:
 		return false
 	}
 	if v.State == Finished {
 		return v.Step == "" && v.TransitionState == "completed" && !v.NeedsInspection
+	}
+	if v.State == SourcePreserved {
+		return v.Step == "" && v.TransitionState == "not_admitted" && !v.NeedsInspection
 	}
 	if v.NeedsInspection != (v.State == InspectRequired || v.State == IntentRecorded) {
 		return false

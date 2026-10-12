@@ -24,8 +24,8 @@ func (PublicationTransition) MarshalJSON() ([]byte, error) { return nil, ErrInva
 func (PublicationTransition) String() string               { return "[private publication transition]" }
 func (PublicationTransition) GoString() string             { return "[private publication transition]" }
 
-func (p *PublicationTransition) active(s *Store) bool {
-	return p != nil && p.preparation.active(s) && data.ValidCatalogHash(p.inputSHA256) && (p.retainedResolver && p.preparation.attempt.resolverID != "" || p.preparation.attempt.restored.unchanged(context.Background()) == nil)
+func (p *PublicationTransition) active(ctx context.Context, s *Store) bool {
+	return p != nil && p.preparation.active(s) && data.ValidCatalogHash(p.inputSHA256) && (p.retainedResolver && p.preparation.attempt.resolverID != "" || p.preparation.attempt.restored.unchanged(ctx) == nil)
 }
 
 type PublicationTransitionView struct {
@@ -82,7 +82,7 @@ func (s *Store) ClaimPublicationTransition(ctx context.Context, capability *Publ
 		return nil, err
 	}
 	transition := &PublicationTransition{preparation: capability, inputSHA256: input.SHA256()}
-	if !transition.active(s) {
+	if !transition.active(ctx, s) {
 		return nil, ErrConflict
 	}
 	return transition, tx.Commit()
@@ -123,7 +123,7 @@ func publicationTransitionInput(ctx context.Context, tx *sql.Tx, current publica
 }
 
 func (s *Store) ReadPublicationTransition(ctx context.Context, capability *PublicationTransition) (PublicationTransitionView, error) {
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return PublicationTransitionView{}, ErrConflict
 	}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
@@ -143,7 +143,7 @@ func (s *Store) readPublicationTransitionTx(ctx context.Context, tx *sql.Tx, cap
 	var target publicationTarget
 	var input data.EngineTransition
 	var cursor data.EngineTransitionCursor
-	if !capability.active(s) {
+	if !capability.active(ctx, s) {
 		return publicationAttemptState{}, target, input, cursor, ErrConflict
 	}
 	current, err := s.readPublicationAttemptTx(ctx, tx, capability.preparation.attempt)

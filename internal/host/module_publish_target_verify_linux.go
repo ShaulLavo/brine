@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -21,7 +22,7 @@ type publicationTargetVerification struct {
 	preservation *spacetimedb.RecoveryPreservationProof
 }
 
-func verifyPublicationTarget(ctx context.Context, target publicationTargetCheckpoint, session localexec.Session) (publicationTargetVerification, error) {
+func verifyPublicationTarget(ctx context.Context, target publicationTargetCheckpoint, session localexec.Session) (_ publicationTargetVerification, err error) {
 	if target.unchanged(ctx) != nil {
 		return publicationTargetVerification{}, datapublish.ErrRecord
 	}
@@ -41,6 +42,7 @@ func verifyPublicationTarget(ctx context.Context, target publicationTargetCheckp
 	if err != nil {
 		return publicationTargetVerification{}, err
 	}
+	defer func() { err = errors.Join(err, view.close()) }()
 	evidence, disposal, err := readNativeView(ctx, session, pin, view, target.checkpoint)
 	if err != nil || disposal.nonce != view.nonce || disposal.viewHash != view.seal.hash || disposal.imageID != pin.ImageID || disposal.at.IsZero() || target.unchanged(ctx) != nil {
 		return publicationTargetVerification{}, datapublish.ErrInspection

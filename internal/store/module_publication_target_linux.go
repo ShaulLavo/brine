@@ -53,7 +53,7 @@ func checkPublicationTargetAnchors(ctx context.Context, capability *PublicationT
 }
 
 func checkPublicationTransitionAnchors(ctx context.Context, capability *PublicationTransition, observed data.EngineLayoutObservation) error {
-	if !capability.active(capability.preparation.state) || ctx.Err() != nil {
+	if capability == nil || capability.preparation == nil || !capability.active(ctx, capability.preparation.state) || ctx.Err() != nil {
 		return ErrConflict
 	}
 	binding := capability.preparation.intent.Binding
@@ -105,4 +105,54 @@ func publicationHeldRootIdentity(root *os.Root) (data.EngineDirectoryIdentity, e
 	}
 	stat, err := nativeRestoreStatDirectory(int(file.Fd()))
 	return nativeRestoreDirectoryID(stat), err
+}
+
+func checkPublicationSourcePreservationAnchors(ctx context.Context, permit EnginePermit, effects []PublicationEffect, observed PublicationSourcePreservationObservation) error {
+	if observed.OriginalRoot == nil || permit.Allocation == nil || ctx.Err() != nil {
+		return ErrConflict
+	}
+	binding := permit.Reserved.Database
+	base, err := unix.Openat2(unix.AT_FDCWD, string(binding.Root), &unix.OpenHow{Flags: unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW, Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS})
+	if err != nil {
+		return ErrConflict
+	}
+	defer func() { _ = unix.Close(base) }()
+	root, err := nativeRestoreStatDirectory(base)
+	if err != nil {
+		return err
+	}
+	a := permit.Allocation
+	if nativeRestoreDirectoryID(root) != (data.EngineDirectoryIdentity{Device: a.RootDevice, Inode: a.RootInode}) {
+		return ErrConflict
+	}
+	fd, err := nativeRestoreOpenDirectory(base, binding.RelativeDirectory)
+	if err != nil {
+		return ErrConflict
+	}
+	defer func() { _ = unix.Close(fd) }()
+	physical, err := nativeRestoreStatDirectory(fd)
+	held, heldErr := publicationHeldRootIdentity(observed.OriginalRoot)
+	if err != nil || heldErr != nil || nativeRestoreDirectoryID(physical) != held || held != (data.EngineDirectoryIdentity{Device: a.DirectoryDevice, Inode: a.DirectoryInode}) || physical.Mnt_id != root.Mnt_id {
+		return ErrConflict
+	}
+	if len(effects) == 0 {
+		if observed.WorkingRoot != nil {
+			return ErrConflict
+		}
+		return ctx.Err()
+	}
+	workingID, err := publicationHeldRootIdentity(observed.WorkingRoot)
+	if err != nil || workingID != effects[0].RootIdentity || workingID == held {
+		return ErrConflict
+	}
+	work, err := unix.Openat2(unix.AT_FDCWD, effects[0].RootPath, &unix.OpenHow{Flags: unix.O_RDONLY | unix.O_DIRECTORY | unix.O_CLOEXEC | unix.O_NOFOLLOW, Resolve: unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS})
+	if err != nil {
+		return ErrConflict
+	}
+	defer func() { _ = unix.Close(work) }()
+	stat, err := nativeRestoreStatDirectory(work)
+	if err != nil || nativeRestoreDirectoryID(stat) != workingID || stat.Mnt_id != root.Mnt_id {
+		return ErrConflict
+	}
+	return ctx.Err()
 }

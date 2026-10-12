@@ -38,6 +38,24 @@ func modulePublicationResolveTask(operations modulePublications) func(context.Co
 			return nil, err
 		}
 		defer func() { err = errors.Join(err, lock.Release()) }()
+		terminal, completed, err := operations.service.Store.PublicationTerminalResolution(ctx, op.SecretRef, op.RecoveryOf, op.ID)
+		if err != nil {
+			return nil, err
+		}
+		if completed {
+			return json.Marshal(terminal)
+		}
+		inspection, err := operations.service.Store.PublicationInspection(ctx, op.SecretRef, op.Requester)
+		if err != nil {
+			return nil, err
+		}
+		if inspection.TransitionState == "" {
+			receipt, err := resolvePublicationPrivateSource(ctx, operations, op)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(receipt)
+		}
 		work := &publicationResolveWork{operations: operations, op: op}
 		defer func() { err = errors.Join(err, work.close()) }()
 		if err = work.open(ctx); err != nil {
