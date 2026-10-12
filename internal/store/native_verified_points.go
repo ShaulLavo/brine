@@ -27,6 +27,7 @@ type NativeVerifiedPointView struct {
 	DatabaseID            data.DatabaseID       `json:"database_id"`
 	IncarnationID         data.AppIncarnationID `json:"incarnation_id"`
 	GenerationID          string                `json:"generation_id"`
+	RepositoryID          string                `json:"repository_id"`
 	SourceSHA256          string                `json:"source_sha256"`
 	CheckpointSHA256      string                `json:"checkpoint_sha256"`
 	ManifestSHA256        string                `json:"manifest_sha256"`
@@ -58,7 +59,7 @@ func decodeNativeVerifiedPoint(raw []byte) (nativeVerifiedPoint, error) {
 	if len(raw) == 0 || len(raw) > 65536 {
 		return nativeVerifiedPoint{}, &IntegrityError{}
 	}
-	fields := []string{"format", "point_id", "operation_id", "binding_id", "epoch_id", "database_id", "incarnation_id", "generation_id", "source_sha256", "checkpoint_sha256", "manifest_sha256", "transport_sha256", "source_evidence_sha256", "restore_evidence_sha256", "confirmed_bound_sha256", "final_pairs_sha256", "policy_sha256", "destination_sha256", "credential_reference", "credential_version", "recovery_reference", "recovery_version", "committed_offset", "captured_at", "verified_at", "retain_until", "later_loss"}
+	fields := []string{"format", "point_id", "operation_id", "binding_id", "epoch_id", "database_id", "incarnation_id", "generation_id", "repository_id", "source_sha256", "checkpoint_sha256", "manifest_sha256", "transport_sha256", "source_evidence_sha256", "restore_evidence_sha256", "confirmed_bound_sha256", "final_pairs_sha256", "policy_sha256", "destination_sha256", "credential_reference", "credential_version", "recovery_reference", "recovery_version", "committed_offset", "captured_at", "verified_at", "retain_until", "later_loss"}
 	if _, err := strictjson.Object(raw, fields...); err != nil {
 		return nativeVerifiedPoint{}, &IntegrityError{}
 	}
@@ -74,7 +75,7 @@ func validNativeVerifiedPoint(v NativeVerifiedPointView) bool {
 	if v.Format != "brine-native-verified-point-v1" || v.PointSHA256 != "" || !data.ValidID(v.PointID) || !nativePointOperationID.MatchString(v.OperationID) || !data.ValidID(string(v.BindingID)) || !data.ValidID(string(v.EpochID)) || !data.ValidID(string(v.DatabaseID)) || !data.ValidID(string(v.IncarnationID)) || !data.ValidID(v.GenerationID) || v.CredentialVersion == 0 || v.RecoveryVersion == 0 || !nativePointLogicalName.MatchString(v.CredentialReference) || !nativePointLogicalName.MatchString(v.RecoveryReference) || v.LaterLoss != "unknown" {
 		return false
 	}
-	for _, digest := range []string{v.SourceSHA256, v.CheckpointSHA256, v.ManifestSHA256, v.TransportSHA256, v.SourceEvidenceSHA256, v.RestoreEvidenceSHA256, v.ConfirmedBoundSHA256, v.FinalPairsSHA256, v.PolicySHA256, v.DestinationSHA256} {
+	for _, digest := range []string{v.RepositoryID, v.SourceSHA256, v.CheckpointSHA256, v.ManifestSHA256, v.TransportSHA256, v.SourceEvidenceSHA256, v.RestoreEvidenceSHA256, v.ConfirmedBoundSHA256, v.FinalPairsSHA256, v.PolicySHA256, v.DestinationSHA256} {
 		if !data.ValidCatalogHash(digest) {
 			return false
 		}
@@ -159,11 +160,12 @@ func checkNativeVerifiedBundleRecords(v NativeVerifiedPointView, sourceRaw, mani
 	}
 	manifest, err := restic.DecodeManifest(manifestRaw, restic.DefaultLimits())
 	var transport restic.TransportPoint
-	if err != nil || manifest.SHA256() != v.ManifestSHA256 || json.Unmarshal(transportRaw, &transport) != nil {
+	if err != nil || manifest.SHA256() != v.ManifestSHA256 || !bytes.Equal(manifest.Bytes(), manifestRaw) || json.Unmarshal(transportRaw, &transport) != nil {
 		return &IntegrityError{}
 	}
 	i, scope := transport.Identity, transport.Scope
-	if i.CaptureID != v.PointID || i.BindingID != string(v.BindingID) || i.EpochID != string(v.EpochID) || i.CheckpointSHA256 != v.CheckpointSHA256 || i.ModuleSHA256 != checkpoint.Record().ArtifactSHA256 || scope.BindingID != i.BindingID || scope.EpochID != i.EpochID || scope.DestinationSHA256 != v.DestinationSHA256 || scope.CredentialVersion != v.CredentialVersion || scope.RecoveryVersion != v.RecoveryVersion || transport.ManifestSHA256 != v.ManifestSHA256 {
+	canonical, err := json.Marshal(transport)
+	if err != nil || !bytes.Equal(canonical, transportRaw) || manifest.Identity() != i || scope.RepositoryID != v.RepositoryID || i.CaptureID != v.PointID || i.BindingID != string(v.BindingID) || i.EpochID != string(v.EpochID) || i.CheckpointSHA256 != v.CheckpointSHA256 || i.ModuleSHA256 != checkpoint.Record().ArtifactSHA256 || scope.BindingID != i.BindingID || scope.EpochID != i.EpochID || scope.DestinationSHA256 != v.DestinationSHA256 || scope.CredentialVersion != v.CredentialVersion || scope.RecoveryVersion != v.RecoveryVersion || transport.ManifestSHA256 != v.ManifestSHA256 {
 		return &IntegrityError{}
 	}
 	return nil

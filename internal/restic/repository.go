@@ -65,6 +65,9 @@ func NewS3Repository(scope Scope, location S3Location, password []byte, packet b
 	if initializationPlan != "" && !hashPattern.MatchString(initializationPlan) {
 		return Repository{}, ErrInvalid
 	}
+	if initializationPlan == "" && !hashPattern.MatchString(scope.RepositoryID) || initializationPlan != "" && scope.RepositoryID != "" {
+		return Repository{}, ErrInvalid
+	}
 	environment := packet.Environment()
 	if len(environment) < 2 || len(password) < 16 || len(password) > 4096 || strings.ContainsRune(string(password), 0) {
 		return Repository{}, ErrInvalid

@@ -16,7 +16,7 @@ import (
 func nativeVerifiedPointFixture(preparation *NativePreparation) NativeVerifiedPointView {
 	i, now := preparation.intent, time.Now().UTC()
 	hash := strings.Repeat("a", 64)
-	return NativeVerifiedPointView{Format: "brine-native-verified-point-v1", PointID: i.PointID, OperationID: i.OperationID, BindingID: i.BindingID, EpochID: i.EpochID, DatabaseID: i.DatabaseID, IncarnationID: i.IncarnationID, GenerationID: strings.Repeat("b", 32), SourceSHA256: hash, CheckpointSHA256: hash, ManifestSHA256: hash, TransportSHA256: hash, SourceEvidenceSHA256: hash, RestoreEvidenceSHA256: hash, ConfirmedBoundSHA256: hash, FinalPairsSHA256: hash, PolicySHA256: i.PolicySHA256, DestinationSHA256: hash, CredentialReference: "backup", CredentialVersion: 1, RecoveryReference: "recovery", RecoveryVersion: 1, CapturedAt: now, VerifiedAt: now, RetainUntil: now.Add(30 * 24 * time.Hour), LaterLoss: "unknown"}
+	return NativeVerifiedPointView{Format: "brine-native-verified-point-v1", PointID: i.PointID, OperationID: i.OperationID, BindingID: i.BindingID, EpochID: i.EpochID, DatabaseID: i.DatabaseID, IncarnationID: i.IncarnationID, GenerationID: strings.Repeat("b", 32), RepositoryID: hash, SourceSHA256: hash, CheckpointSHA256: hash, ManifestSHA256: hash, TransportSHA256: hash, SourceEvidenceSHA256: hash, RestoreEvidenceSHA256: hash, ConfirmedBoundSHA256: hash, FinalPairsSHA256: hash, PolicySHA256: i.PolicySHA256, DestinationSHA256: hash, CredentialReference: "backup", CredentialVersion: 1, RecoveryReference: "recovery", RecoveryVersion: 1, CapturedAt: now, VerifiedAt: now, RetainUntil: now.Add(30 * 24 * time.Hour), LaterLoss: "unknown"}
 }
 
 func TestNativeVerifiedPointCodecNeverClaimsLaterLossOrExactPreparation(t *testing.T) {
