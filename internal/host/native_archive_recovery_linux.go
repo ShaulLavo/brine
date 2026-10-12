@@ -36,7 +36,7 @@ func (h archiveHost) nativeArchiveRecoveryRuntime(ctx context.Context, p archive
 		return zero, err
 	}
 	if facts.frontend != nil {
-		stopped, err := h.nativeArchiveServiceStopped(ctx, p.Candidate.App+".service")
+		stopped, err := h.stoppedOrAbsentService(ctx, p.Candidate.App+".service")
 		if err != nil || !stopped {
 			return zero, archive.ErrRefused
 		}

@@ -20,7 +20,7 @@ func (h archiveHost) nativeArchiveStopped(ctx context.Context, p archive.Plan) (
 	if !ok {
 		return false, archive.ErrRefused
 	}
-	stopped, err := h.nativeArchiveServiceStopped(ctx, engineContainerName(d.Binding.BindingID)+".service")
+	stopped, err := h.stoppedOrAbsentService(ctx, engineContainerName(d.Binding.BindingID)+".service")
 	if err != nil || !stopped {
 		return false, archive.ErrRefused
 	}
@@ -29,20 +29,12 @@ func (h archiveHost) nativeArchiveStopped(ctx context.Context, p archive.Plan) (
 		return false, archive.ErrRefused
 	}
 	if d.State == data.EngineUnpublished {
-		stopped, err = h.nativeArchiveServiceStopped(ctx, p.Candidate.App+".service")
+		stopped, err = h.stoppedOrAbsentService(ctx, p.Candidate.App+".service")
 		if err != nil || !stopped {
 			return false, archive.ErrRefused
 		}
 	}
 	return true, ctx.Err()
-}
-
-func (h archiveHost) nativeArchiveServiceStopped(ctx context.Context, name string) (bool, error) {
-	stopped, err := h.serviceStopped(ctx, name, false)
-	if err != nil || stopped {
-		return stopped, err
-	}
-	return h.serviceStopped(ctx, name, true)
 }
 
 func (h archiveHost) nativeArchiveLifetimeLocks(ctx context.Context, p archive.Plan) (func() error, error) {
