@@ -81,7 +81,9 @@ def damaged_snapshot_only(root, request, action):
 
 
 def main():
-    image, fixture, output = sys.argv[1:]
+    if len(sys.argv) not in [4, 5]:
+        raise SystemExit("usage: verify_cli.py IMAGE FIXTURE OUTPUT [NEGATIVE_FIXTURES]")
+    image, fixture, output = sys.argv[1:4]
     fixture = pathlib.Path(fixture)
     output = pathlib.Path(output)
     output.mkdir()
