@@ -4,7 +4,16 @@ import "slices"
 
 // NativePreflightDescription is decoded review syntax. It cannot be consumed by
 // PublishNativeUpdate and grants no native token or host effect authority.
-type NativePreflightDescription struct {
+type NativePreflightDescription func() nativePreflightDescription
+
+func (value NativePreflightDescription) value() nativePreflightDescription {
+	if value == nil {
+		return nativePreflightDescription{}
+	}
+	return value()
+}
+
+type nativePreflightDescription struct {
 	automatic   bool
 	breaks      bool
 	major       bool
@@ -16,18 +25,15 @@ type NativePreflightDescription struct {
 func DescribeNativePreflight(raw []byte) (NativePreflightDescription, error) {
 	parsed, err := decodeNativePublicationPreflight(raw)
 	if err != nil {
-		return NativePreflightDescription{}, err
+		return nil, err
 	}
 	token := parsed.TokenBytes()
-	return NativePreflightDescription{automatic: parsed.Automatic(), breaks: parsed.BreaksClients(), major: parsed.MajorUpgrade(), responseSHA: publicationBytesSHA256(raw), tokenSHA: publicationBytesSHA256(token), token: token}, nil
+	value := nativePreflightDescription{automatic: parsed.Automatic(), breaks: parsed.BreaksClients(), major: parsed.MajorUpgrade(), responseSHA: publicationBytesSHA256(raw), tokenSHA: publicationBytesSHA256(token), token: token}
+	return NativePreflightDescription(func() nativePreflightDescription { return value }), nil
 }
 
-func (d NativePreflightDescription) Automatic() bool            { return d.automatic }
-func (d NativePreflightDescription) BreaksClients() bool        { return d.breaks }
-func (d NativePreflightDescription) MajorUpgrade() bool         { return d.major }
-func (d NativePreflightDescription) ResponseSHA256() string     { return d.responseSHA }
-func (d NativePreflightDescription) TokenSHA256() string        { return d.tokenSHA }
-func (d NativePreflightDescription) TokenBytes() []byte         { return slices.Clone(d.token) }
-func (NativePreflightDescription) String() string               { return "[private native preflight description]" }
-func (NativePreflightDescription) GoString() string             { return "[private native preflight description]" }
-func (NativePreflightDescription) MarshalJSON() ([]byte, error) { return nil, ErrPrivateCredential }
+func (d NativePreflightDescription) Automatic() bool        { return d.value().automatic }
+func (d NativePreflightDescription) MajorUpgrade() bool     { return d.value().major }
+func (d NativePreflightDescription) ResponseSHA256() string { return d.value().responseSHA }
+func (d NativePreflightDescription) TokenSHA256() string    { return d.value().tokenSHA }
+func (d NativePreflightDescription) TokenBytes() []byte     { return slices.Clone(d.value().token) }

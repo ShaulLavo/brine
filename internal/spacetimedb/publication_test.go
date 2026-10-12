@@ -85,7 +85,7 @@ func TestNativePublicationUsesOneFixedPrivateTokenBoundUpdate(t *testing.T) {
 	copyOfPreflight := *preflight
 	receipt, err := PublishNativeUpdate(context.Background(), endpoint, credential, wasm, preflight)
 	wasmSHA, programWire, _ := ModuleIdentities(wasm)
-	if err != nil || receipt.Database() != DatabaseIdentity(databaseHex) || receipt.SHA256() != publicationBytesSHA256([]byte(nativeUpdateReceipt())) || receipt.WasmSHA256() != wasmSHA || receipt.ProgramWireHash() != programWire || receipt.PreflightResponseSHA256() != preflight.ResponseSHA256() || receipt.PublisherCredentialSHA256() != publicationBytesSHA256([]byte(privateTestToken)) || !receipt.At(endpoint) || receipt.BindingSHA256() == "" {
+	if err != nil || receipt.value().database != DatabaseIdentity(databaseHex) || receipt.SHA256() != publicationBytesSHA256([]byte(nativeUpdateReceipt())) || receipt.WasmSHA256() != wasmSHA || receipt.ProgramWireHash() != programWire || receipt.value().preflightSHA != preflight.ResponseSHA256() || receipt.value().publisherSHA != publicationBytesSHA256([]byte(privateTestToken)) || !receipt.At(endpoint) || receipt.BindingSHA256() == "" {
 		t.Fatal("fixed native update receipt did not match", err)
 	}
 	if _, err = PublishNativeUpdate(context.Background(), endpoint, credential, wasm, &copyOfPreflight); !errors.Is(err, ErrNativePublicationUnknown) || puts.Load() != 1 {
@@ -97,7 +97,7 @@ func TestNativePublicationUsesOneFixedPrivateTokenBoundUpdate(t *testing.T) {
 	if _, err = json.Marshal(receipt); err == nil {
 		t.Fatal("private native receipt acquired a public JSON representation")
 	}
-	if strings.Contains(fmt.Sprintf("%s %#v %#v", preflight, preflight, copyOfPreflight), nativeTestMigrationToken) {
+	if strings.Contains(fmt.Sprintf("%v %+v %#v", preflight, preflight, copyOfPreflight), nativeTestMigrationToken) {
 		t.Fatal("native token entered formatting")
 	}
 }
@@ -120,7 +120,7 @@ func TestNativePublicationReceiptBindsCandidateDespiteIdenticalSuccessBody(t *te
 	if first.SHA256() != second.SHA256() || first.BindingSHA256() == second.BindingSHA256() || first.WasmSHA256() == second.WasmSHA256() || first.ProgramWireHash() == second.ProgramWireHash() {
 		t.Fatal("identical native success bodies erased candidate provenance")
 	}
-	if (NativePublicationReceipt{}).BindingSHA256() != "" || (NativePublicationReceipt{}).At(endpoint) {
+	if (NativePublicationReceipt(nil)).BindingSHA256() != "" || (NativePublicationReceipt(nil)).At(endpoint) {
 		t.Fatal("zero receipt manufactured native request provenance")
 	}
 }
@@ -271,7 +271,7 @@ func nativePublicationBeforeEffect(t *testing.T, attack string) {
 	case "publisher":
 		credential.bearer = "different-header.different-payload.different-signature"
 	case "empty-preview":
-		preflight = &NativePublicationPreflight{}
+		preflight = nil
 	}
 	if _, err = PublishNativeUpdate(context.Background(), endpoint, credential, wasm, preflight); !errors.Is(err, ErrNativePublicationRefused) || puts.Load() != 0 {
 		t.Fatal("unsupported or unbound preflight issued native publication", err)
