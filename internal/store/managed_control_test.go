@@ -48,6 +48,7 @@ func managedControlFixture(t *testing.T) (*Store, plan.Plan, ops.Operation) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	raw = append(raw, []byte("\n[[allowed_registries]]\nhost=\"docker.io\"\nrepository_prefixes=[\"clockworklabs\"]\n")...)
 	pol, err := policy.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
