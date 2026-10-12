@@ -9,7 +9,11 @@ First obtain a connected managed preparation plan and apply its reported ID:
 ```sh
 brine plan brine.toml --target "$target" --json
 brine apply "$preparation_plan" --target "$target" --json
+brine status --operation "$preparation_operation" --target "$target" --json
 ```
+
+Apply returns an accepted operation ID. Poll that ID until its state is
+`succeeded` before delivering material.
 
 The plan reports an unpublished allocation with no native start, frontend or
 ingress effects. Its apply operation owns the empty allocation and held data
