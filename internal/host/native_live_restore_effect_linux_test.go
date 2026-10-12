@@ -6,6 +6,7 @@ import (
 	"context"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/store"
+	"strings"
 	"testing"
 )
 
@@ -34,6 +35,20 @@ func TestNativeRestoreContainerAbsenceRejectsFrontendAndPrivateReaders(t *testin
 		if got := nativeRestoreContainersAbsent([]engineContainer{c}, binding, "game"); got != tc.want {
 			t.Fatalf("%s absence=%v want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestNativeHistoricalRestoreFrontendAcceptsStoppedLoadedUnit(t *testing.T) {
+	for _, show := range []string{archiveStopped, strings.ReplaceAll(archiveStopped, "LoadState=loaded", "LoadState=not-found")} {
+		host := archiveHostForTest(t, &archiveExecutor{show: show})
+		stopped, err := host.stoppedOrAbsentService(context.Background(), "game.service")
+		if err != nil || !stopped {
+			t.Fatal("stopped loaded frontend or known absence refused", err)
+		}
+	}
+	host := archiveHostForTest(t, &archiveExecutor{show: strings.ReplaceAll(archiveStopped, "Job=", "Job=queued")})
+	if stopped, err := host.stoppedOrAbsentService(context.Background(), "game.service"); err == nil && stopped {
+		t.Fatal("pending frontend job became quiescence")
 	}
 }
 

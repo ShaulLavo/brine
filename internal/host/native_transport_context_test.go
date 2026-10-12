@@ -37,3 +37,18 @@ func TestNativeTransportContextAlwaysEndsBeforeAdmissionExpiry(t *testing.T) {
 		t.Fatal("expired material admitted transport")
 	}
 }
+
+func TestNativeArchiveTransportNarrowsMaintenanceBudget(t *testing.T) {
+	parent, stop := context.WithTimeout(context.Background(), 15*time.Minute)
+	defer stop()
+	scope := restic.Scope{ExpiresAt: time.Now().UTC().Add(10 * time.Minute)}
+	bounded, cancel, err := nativeTransportContext(parent, scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cancel()
+	deadline, exists := bounded.Deadline()
+	if !exists || !deadline.Before(scope.ExpiresAt) {
+		t.Fatal("archive maintenance outlived admitted repository credentials")
+	}
+}
