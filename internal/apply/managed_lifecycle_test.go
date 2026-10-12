@@ -38,6 +38,22 @@ func managedLifecycleRig(t *testing.T, frontend bool, action plan.ChangeKind) (*
 	r.committed, r.events, r.effects = false, nil, nil
 	r.state, r.intent = Queued, ""
 	runtime.calls = nil
+	adapter := r.executor.Systemd.(*systemd.Fake)
+	stop, start := adapter.StopFunc, adapter.StartFunc
+	adapter.StopFunc = func(ctx context.Context, unit systemd.Unit) error {
+		if unit.String() == "brine-engine-"+string(m.Database.BindingID)+".service" {
+			runtime.engineStopped = true
+			return r.hit(r.intent)
+		}
+		return stop(ctx, unit)
+	}
+	adapter.StartFunc = func(ctx context.Context, unit systemd.Unit) error {
+		if unit.String() == "brine-engine-"+string(m.Database.BindingID)+".service" {
+			runtime.engineStopped = false
+			return r.hit(r.intent)
+		}
+		return start(ctx, unit)
+	}
 	r.executor.Systemd.(*systemd.Fake).JobPendingFunc = func(context.Context, systemd.Unit) (bool, error) { return false, nil }
 	return r, runtime
 }

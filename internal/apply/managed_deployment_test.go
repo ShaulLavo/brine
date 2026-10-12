@@ -17,9 +17,10 @@ import (
 )
 
 type managedRuntimeFake struct {
-	rig     *rig
-	calls   []string
-	failure string
+	rig           *rig
+	calls         []string
+	failure       string
+	engineStopped bool
 }
 
 func (f *managedRuntimeFake) call(name string) error {
@@ -48,10 +49,22 @@ func (f *managedRuntimeFake) VerifyEngineUnit(context.Context, plan.Plan) error 
 	return f.call("engine_verify")
 }
 func (f *managedRuntimeFake) EngineStopped(context.Context, plan.Plan) error {
-	return f.call("engine_stopped")
+	if err := f.call("engine_stopped"); err != nil {
+		return err
+	}
+	if !f.engineStopped {
+		return injected
+	}
+	return nil
 }
 func (f *managedRuntimeFake) EngineReady(context.Context, plan.Plan) error {
-	return f.call("engine_ready")
+	if err := f.call("engine_ready"); err != nil {
+		return err
+	}
+	if f.engineStopped {
+		return injected
+	}
+	return nil
 }
 func (f *managedRuntimeFake) BeforeEngineStart(context.Context, plan.Plan) error {
 	return f.call("engine_start_permit")

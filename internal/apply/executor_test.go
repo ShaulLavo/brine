@@ -244,7 +244,7 @@ func (r *rig) hit(step string) error {
 }
 
 func managedRigEffectIntent(intent string) string {
-	aliases := map[string]string{"frontend_pull": "pull_image", "frontend_verify": "verify_image", "frontend_secrets": "ensure_secrets", "frontend_stage": "stage_unit", "frontend_install": "install_unit", "frontend_reload": "reload_units", "frontend_start": "start_unit", "frontend_stop": "quiesce_old", "managed_route": "publish_route", "managed_commit": "commit"}
+	aliases := map[string]string{"managed_withdraw": "withdraw_route", "managed_frontend_stop": "stop_unit", "managed_frontend_start": "start_unit", "managed_frontend_check": "check_direct", "frontend_pull": "pull_image", "frontend_verify": "verify_image", "frontend_secrets": "ensure_secrets", "frontend_stage": "stage_unit", "frontend_install": "install_unit", "frontend_reload": "reload_units", "frontend_start": "start_unit", "frontend_stop": "quiesce_old", "managed_route": "publish_route", "managed_commit": "commit"}
 	if actual, present := aliases[intent]; present {
 		return actual
 	}
