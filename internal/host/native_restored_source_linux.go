@@ -15,26 +15,35 @@ import (
 // nativeRestoredSource is filled only after exact remote extraction and native
 // verification. A path, manifest or decoded replay cannot create the capability.
 type nativeRestoredSource struct {
-	state       *store.Store
-	preparation *store.EnginePreparation
-	permit      store.EnginePermit
-	root        *os.Root
-	path        string
-	seal        engineTreeSeal
-	limits      engineCopyLimits
-	pointID     string
-	pointSHA256 string
-	source      nativecapture.Source
-	checkpoint  nativecapture.Checkpoint
-	manifest    restic.Manifest
-	transport   restic.TransportPoint
-	evidence    nativeevidence.Evidence
-	original    *engineSealedCheckpoint
-	empty       *engineEmptySource
+	state             *store.Store
+	preparation       *store.EnginePreparation
+	permit            store.EnginePermit
+	root              *os.Root
+	path              string
+	seal              engineTreeSeal
+	limits            engineCopyLimits
+	pointID           string
+	pointSHA256       string
+	initialPublisher  string
+	publisherProofSHA string
+	source            nativecapture.Source
+	checkpoint        nativecapture.Checkpoint
+	checkpointSHA256  string
+	manifest          restic.Manifest
+	transport         restic.TransportPoint
+	extracted         restic.AuthenticatedRestore
+	parent            *os.Root
+	ownsParent        bool
+	evidence          nativeevidence.Evidence
+	original          *engineSealedCheckpoint
+	empty             *engineEmptySource
 }
 
 func (s *nativeRestoredSource) unchanged(ctx context.Context) error {
 	if s == nil || s.state == nil || s.preparation == nil || !s.preparation.Active(s.permit.Runtime.BindingID) || s.root == nil || !s.limits.valid() || s.seal.hash == "" || s.pointID == "" || s.pointSHA256 == "" || s.source.SHA256() == "" || s.transport.Identity.CaptureID != s.pointID || s.transport.ManifestSHA256 != s.manifest.SHA256() {
+		return errEngineSource
+	}
+	if !s.extracted.Matches(ctx, s.parent, "download", s.transport, s.manifest) {
 		return errEngineSource
 	}
 	if err := s.originalUnchanged(ctx); err != nil {

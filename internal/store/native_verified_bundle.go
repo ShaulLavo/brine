@@ -242,11 +242,16 @@ const nativeSourceMember = "native-source.json"
 
 func checkNativeBundleMembers(source nativecapture.Source, manifest restic.Manifest, sourceRaw []byte) error {
 	checkpoint, selection, initialized := source.Initialized()
-	if !initialized {
+	var members []nativecapture.CheckpointMember
+	if initialized {
+		members = checkpoint.Record().Members
+	} else if empty, valid := source.Empty(); valid {
+		members = empty.Members
+	} else {
 		return &IntegrityError{}
 	}
 	expected := map[string]restic.Member{nativeSourceMember: {Path: nativeSourceMember, Type: "file", Mode: 0600, Size: int64(len(sourceRaw)), SHA256: source.SHA256()}}
-	for _, member := range checkpoint.Record().Members {
+	for _, member := range members {
 		if member.Bytes > math.MaxInt64 {
 			return &IntegrityError{}
 		}
