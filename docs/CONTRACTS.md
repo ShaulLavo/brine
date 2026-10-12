@@ -596,6 +596,59 @@ Shared startup proof binds explicit engine, incarnation, database, binding and e
 
 Persistent allocated/unknown desired and plan goldens, a historical SQLite restore-receipt golden, engine-tag refusal tests and store/permit tests establish this local boundary. No physical SpacetimeDB behavior is claimed. D13 and Phase 09 require routine online native snapshot/log archival with existing encrypted tooling and separately fenced exact data operations.
 
+### Native capture structural prerequisites (P09-05)
+
+`internal/nativecapture` owns bounded records under `brine-native-capture-v1` for
+SpacetimeDB `2.11.0`, upstream commit
+`6b6e0ab19e4f8f52472aa4379552e9593c8f53bb`. Constructors validate supplied
+records. They do not establish source ownership, replay success, or operation
+authority.
+
+`Inventory` owns private member records and rejects duplicate or unsafe paths.
+Native log names contain a 20-digit offset. Finalized snapshot paths contain the
+same offset in their directory and manifest names. Object paths use exactly two
+lowercase hexadecimal digits followed by 62 lowercase hexadecimal digits.
+`CheckUnchanged` compares every supplied member's content and filesystem facts.
+Detection of a removed complete tail requires an independently sealed whole-source
+inventory, not just the selected backup members.
+
+`Selection` has closed `snapshot` and `logs` variants. The snapshot choice uses
+the latest finalized manifest with a containing or immediately adjacent log
+suffix. A snapshot can lie inside the only segment or have an empty suffix.
+The log-only choice requires a segment starting at offset zero. `TailMember`
+describes the last selected filename, not a committed high-water. Qualified
+native framing and replay must still prove snapshot eligibility, suffix
+continuity, object completeness, and recovered state.
+
+`Checkpoint` owns canonical control, module, schema, configuration, and signing
+recovery records. Its binding, epoch, and replica scope allows ordinary captures
+to reuse one unchanged control generation. `Source` has closed unpublished and
+initialized variants. Unpublished records omit database, publisher owner,
+module, replica, and snapshot facts. Initialized records bind the checkpoint to
+the selected member records and reject crossed scopes or unselected members.
+All constructors and getters own mutable data. Codecs reject unknown, missing,
+duplicate, null, and crossed fields. Combined source limits count the encoded
+manifest, checkpoint members, and native members.
+
+Signing recovery records contain only immutable references, versions, and
+hashes. Recovery uses either an encrypted archive member or a tested external
+secret version. Tokens and the archive recovery password are not members.
+This unit supplies no filesystem bridge, uploader, native reader, receipt,
+fence, startup permission, or public dispatch. Real contained replay, managed
+ownership, credentials, jobs, and remote storage acceptance remain required.
+
+### Candidate schema and publication records (P09-06 core)
+
+`spacetimedb.DecodeDescriptorV10` requires exactly one `V10` envelope and delegates body validation to `CanonicalSchemaV10`. It accepts metadata, not proof that a Wasm artifact produced it. Pinned native `extract-schema` executes guest initialization and description code; protected extraction must contain those effects and establish the artifact/schema binding. The six captured native descriptors and their content pins are retained with [the core evidence](evidence/p09-schema-publication.md).
+
+`CompareSchemas` returns immutable changes and required checks. Every update, including equal schemas with changed code, requires guest review and preserved-data verification. New tables require independent new-table data evidence. Appended U8 defaults require old-column projection and default-value evidence. Removal, rename, reordering, type/access changes and changes to existing keys, indexes, constraints, sequences or defaults require a separate operator procedure. Unqualified appended defaults refuse. Callable, lifecycle and scheduler changes add explicit effects qualification. No result says an update is safe to apply.
+
+`datapublish.Plan` binds requester, current target/policy/desired/generation, app/incarnation/database/binding/epoch, source point/fence/preparation owner, candidate Wasm/native-program/schema, review and recovery releases, native preflight references and a bounded UTC expiry. Its closed source arms distinguish a recovered empty owned server bundle from initialized captured history. The empty arm has no native database, module, replica or history placeholders. Captured history is restricted to the fixed supported artifact/schema pairs under `brine-recovery-pairs-confirmed-v1`; a supplied contract label cannot widen it. Requirements derive from opaque canonical schemas during construction and private decoding. Secret references must belong to the app and be distinct across roles. Operator-selected key names and equal numeric versions across different roles are valid. Protected host lookups must independently bind those exact references to their required roles before effects.
+
+The private cursor separates immutable preparation ownership from the apply operation and consumer claim. It sequences restore, preflight, publication, data verification, disposal and an external final-transition receipt. Unknown outcomes permit inspection and matching observation only. A proven unperformed publication still consumes that attempt. `DecodeCursor` requires an exact record hash loaded independently from protected retained state. Computing the expected hash from supplied cursor bytes does not prevent rewinding history. Store composition must atomically retain each record/hash and compare-and-swap its head, authenticate proof references and enforce one consumer per point/plan.
+
+These records grant no mutation, swap, epoch activation or fence-release authority. Protected extraction, exact-point consumption, staged data/projection/effects evidence, store/jobs/host wiring and physical acceptance remain required. P09-06 and T39 remain unchecked.
+
 ### Definition and typed identities
 
 ~~~toml

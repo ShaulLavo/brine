@@ -118,6 +118,8 @@ Publish on a private restored staging copy with no external egress, validate mod
 
 **Evidence.** T39 covers this task. Add TEST_MATRIX reviewed-data cases for new database creation, logic-only update reducers, defaulted columns, nonempty table removal, constraint/access changes, no-init deployment, failed publish, staged verification, stale review, source drift and crashes before/after swap/epoch commit. Keep SQLite initialization and rollback tests green. Document the actual noninteractive CLI/API boundary and demonstrate that no token enters argv, logs or public state.
 
+**Delivered pure core.** [Schema/publication core evidence](../evidence/p09-schema-publication.md) retains six final native descriptor fixtures and conservative comparison tests, plus private immutable create/update records and a retained-attempt cursor. Existing-name remapping requires an operator procedure; staged additions/defaults still need independent data proofs. Cursor decoding requires an independently retained exact-record hash to prevent coherent history rewinds. This unit performs no host/store/jobs effects and grants no mutation authority. Protected extraction, role/claim lookup, exact remote preparation, staged publication/projection, atomic swap/epoch transition and physical acceptance remain required; P09-06 stays unchecked. Temporary exact-symbol reachability allowances must be removed when real composition links the core, and unused symbols must be deleted before full phase exit.
+
 ### P09-07. Complete restore, archive and interrupted-operation recovery
 
 - [ ] **P09-07**
