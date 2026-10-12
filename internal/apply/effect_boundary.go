@@ -66,6 +66,8 @@ func (x *execution) verifyEffectBoundary(ctx context.Context, step string) error
 		} else if x.plan.Lifecycle != "" {
 			hashes = []string{previous}
 		}
+	case "frontend_remove_reload", "managed_restore_removed_frontend":
+		hashes = []string{""}
 	case "remove_unit":
 		hashes = []string{previous, ""}
 	default:

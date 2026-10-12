@@ -15,6 +15,8 @@ func managedFrontendStep(step string) string {
 		return "ensure_secrets"
 	case "frontend_stage":
 		return "stage_unit"
+	case "frontend_remove":
+		return "remove_unit"
 	case "managed_withdraw":
 		return "withdraw_route"
 	case "managed_frontend_check":

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -81,6 +82,59 @@ func testManagedLifecycle(t *testing.T, frontend bool, action plan.ChangeKind) {
 	for _, effect := range r.effects {
 		if effect == "install_unit" || effect == "remove_unit" || effect == "commit" || effect == "pull_image" {
 			t.Fatal("lifecycle changed artifacts", effect)
+		}
+	}
+}
+
+func (r *rig) RemoveRetained(ctx context.Context, name, hash string) error {
+	return r.Remove(ctx, name, hash)
+}
+func (r *rig) RestoreRemoved(_ context.Context, name, hash string) error {
+	if err := r.hit("managed_restore_removed_frontend"); err != nil {
+		return err
+	}
+	if r.release.Managed == nil || r.release.Managed.Frontend == nil || name != r.release.Managed.Frontend.Unit.Name || hash != r.release.Managed.Frontend.Unit.Hash {
+		return injected
+	}
+	r.setLiveUnits([]target.Unit{r.release.Managed.Frontend.Unit})
+	return nil
+}
+func managedFrontendRemovalRig(t *testing.T) (*rig, *managedRuntimeFake) {
+	t.Helper()
+	r, runtime := managedLifecycleRig(t, true, plan.StartApp)
+	desired := r.oldDesired
+	desired.Image, desired.ContainerPort = "", 0
+	desired.Resources = policy.Resources{}
+	desired.Environment, desired.Secrets = []policy.Environment{}, []policy.Secret{}
+	r.desired, r.facts.Input.Desired = desired, desired
+	p, err := plan.Build(r.facts.Input)
+	if err != nil || p.Kind == plan.Conflict {
+		t.Fatal("frontend removal plan", p.Conflicts, err)
+	}
+	r.plan = p
+	return r, runtime
+}
+func TestManagedFrontendRemovalPreservesNativeAndRetainsClientForFailure(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		testManagedFrontendRemoval(t, fail)
+	}
+}
+func testManagedFrontendRemoval(t *testing.T, fail bool) {
+	t.Helper()
+	r, runtime := managedFrontendRemovalRig(t)
+	if fail {
+		runtime.failure = "route_permit"
+	}
+	err := r.executor.Run(context.Background(), "remove-frontend", r.plan, r.desired)
+	if !fail && (err != nil || r.state != Succeeded || r.release.Managed.Frontend != nil || r.active) {
+		t.Fatal("frontend not removed", err, r.state)
+	}
+	if fail && (err == nil || r.state != RolledBack || !r.active || r.committed) {
+		t.Fatal("frontend not restored", err, r.state)
+	}
+	for _, call := range runtime.calls {
+		if call == "engine_install" || call == "engine_stop_permit" || call == "engine_start_permit" {
+			t.Fatal("frontend removal changed native runtime", call)
 		}
 	}
 }

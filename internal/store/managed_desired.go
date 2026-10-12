@@ -104,6 +104,9 @@ func (s *Store) CommitManagedDesired(ctx context.Context, operation string, expe
 	if p.Managed == nil || !p.Managed.Valid() || len(p.Conflicts) != 0 || p.Managed.Database.BindingID != wanted.BindingID || p.Managed.Archive.EpochID != wanted.EpochID || p.Managed.RuntimeSHA256 != wanted.RuntimeSHA256 {
 		return ManagedDesiredState{}, ErrConflict
 	}
+	if !managedAppOwns(ctx, tx, p.App, p.Managed.Database.IncarnationID) {
+		return ManagedDesiredState{}, ErrConflict
+	}
 	if !managedDesiredAllowed(p, wanted) {
 		return ManagedDesiredState{}, ErrConflict
 	}
@@ -274,4 +277,9 @@ func readManagedDesiredRevision(ctx context.Context, q dataQuerier, binding data
 		return ManagedDesiredState{}, err
 	}
 	return decodeManagedDesired(binding, revision, plan, operation, raw)
+}
+
+func managedAppOwns(ctx context.Context, q dataQuerier, app string, incarnation data.AppIncarnationID) bool {
+	var count int
+	return q.QueryRowContext(ctx, "SELECT count(*) FROM data_active_incarnations WHERE app=? AND incarnation_id=?", app, incarnation).Scan(&count) == nil && count == 1
 }

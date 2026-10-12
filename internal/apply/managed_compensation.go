@@ -39,6 +39,20 @@ func (r *managedExecution) compensate(ctx context.Context, cause error) error {
 			return x.terminal(ctx, RecoveryRequired, errors.Join(cause, err))
 		}
 	}
+	if r.frontendRemoved {
+		units, ok := e.Units.(ManagedFrontendUnits)
+		if !ok {
+			return x.terminal(ctx, RecoveryRequired, cause)
+		}
+		if err := step("managed_restore_removed_frontend", func(ctx context.Context) error {
+			return units.RestoreRemoved(ctx, x.plan.App+".container", x.previousUnitHash())
+		}); err != nil {
+			return x.terminal(ctx, RecoveryRequired, errors.Join(cause, err))
+		}
+		if err := step("rollback_reload", e.Systemd.DaemonReload); err != nil {
+			return x.terminal(ctx, RecoveryRequired, errors.Join(cause, err))
+		}
+	}
 	if x.installed {
 		if err := step("rollback_unit", func(ctx context.Context) error {
 			if e.Managed.EngineReady(ctx, x.plan) != nil {

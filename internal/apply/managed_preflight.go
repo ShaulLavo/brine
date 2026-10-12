@@ -14,9 +14,6 @@ func (run *managedExecution) preflight(ctx context.Context) error {
 	x := run.x
 	e, p, d := x.executor, x.plan, x.desired
 
-	if managedChange(p, plan.RemoveManagedFrontend) {
-		return errors.New("managed frontend removal not yet admitted")
-	}
 	if e.Managed == nil || e.Facts == nil || e.Releases == nil || e.Systemd == nil || e.Routes == nil || p.Managed == nil || !p.Managed.Valid() || p.Managed.State != data.EngineInitialized || !desiredMatches(p, d) || p.Kind != plan.Create && p.Kind != plan.Update && p.Kind != plan.NoOp || len(p.Conflicts) != 0 {
 		return errors.New("managed deployment input required")
 	}
@@ -57,7 +54,7 @@ func (run *managedExecution) preflight(ctx context.Context) error {
 		}
 		x.hasPrevious = x.previous.Managed.Frontend != nil
 	}
-	if p.Managed.Frontend != nil {
+	if p.Managed.Frontend != nil || x.hasPrevious {
 		run.previousFrontendPermit, err = e.Managed.FrontendPermitOwner(ctx, p.App)
 		if err != nil {
 			return err
@@ -73,6 +70,14 @@ func (run *managedExecution) preflight(ctx context.Context) error {
 	}
 	if p.Managed.Frontend != nil && (e.Podman == nil || e.Units == nil || e.Health == nil) {
 		return errors.New("managed frontend adapters required")
+	}
+	if x.hasPrevious && p.Managed.Frontend == nil {
+		if e.Units == nil || e.Podman == nil {
+			return errors.New("managed old frontend adapters required")
+		}
+		if _, ok := e.Units.(ManagedFrontendUnits); !ok {
+			return errors.New("retained frontend removal required")
+		}
 	}
 	return nil
 }

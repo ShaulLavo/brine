@@ -300,3 +300,10 @@ func (u lazyUnits) RemoveArchived(ctx context.Context, name, hash string) error 
 func (u lazyUnits) InspectArchiveRemove(ctx context.Context, name, hash string) (bool, error) {
 	return quadlet.InspectArchiveRemove(ctx, u.home, name, hash)
 }
+
+func (u lazyUnits) RemoveRetained(ctx context.Context, name, hash string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.RemoveRetained(ctx, name, hash) })
+}
+func (u lazyUnits) RestoreRemoved(ctx context.Context, name, hash string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.RestoreRemoved(ctx, name, hash) })
+}

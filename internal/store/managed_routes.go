@@ -94,6 +94,9 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 	if p.Managed == nil || !p.Managed.Valid() || p.App != wanted.App || p.Managed.Database.BindingID != wanted.BindingID || p.Managed.Archive.EpochID != wanted.EpochID || p.Managed.RuntimeSHA256 != wanted.RuntimeSHA256 || len(p.Conflicts) != 0 {
 		return ManagedRouteState{}, ErrConflict
 	}
+	if !managedAppOwns(ctx, tx, p.App, p.Managed.Database.IncarnationID) {
+		return ManagedRouteState{}, ErrConflict
+	}
 	var opPlan, opApp string
 	var state ops.State
 	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", wanted.OperationID).Scan(&opPlan, &opApp, &state); err != nil {
@@ -103,7 +106,7 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 		return ManagedRouteState{}, ErrConflict
 	}
 	desired, current, err := readEffectiveManagedDesired(ctx, tx, wanted.BindingID, wanted.EpochID, wanted.RuntimeSHA256)
-	if err != nil || !current || desired.Revision != wanted.DesiredRevision || desired.IngressServing != wanted.Present {
+	if err != nil || !current || desired.Revision != wanted.DesiredRevision || desired.PlanID != wanted.PlanID || desired.OperationID != wanted.OperationID || desired.IngressServing != wanted.Present {
 		return ManagedRouteState{}, ErrConflict
 	}
 	previous, err := readManagedRouteState(ctx, tx, wanted.App)

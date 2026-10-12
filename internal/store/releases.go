@@ -166,6 +166,11 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 	if !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
+	if p.Managed != nil {
+		if err := admitManagedRelease(ctx, tx, p, r); err != nil {
+			return err
+		}
+	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO releases VALUES(?,?,?,?,?,?)", app, r.ID, r.PlanID, raw, digest(raw), timestamp()); err != nil {
 		return err
 	}

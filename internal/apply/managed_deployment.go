@@ -24,6 +24,7 @@ type managedExecution struct {
 	frontendBound          bool
 	intentWritten          bool
 	routeRecorded          bool
+	frontendRemoved        bool
 	engineService          systemd.Unit
 }
 
@@ -92,7 +93,9 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 		}
 	}
 	if managedChange(p, plan.RemoveManagedFrontend) {
-		return x.terminal(ctx, RecoveryRequired, errors.New("managed frontend removal not yet admitted"))
+		if err := run.removeFrontend(ctx); err != nil {
+			return run.fail(ctx, err)
+		}
 	}
 	if err := x.step(ctx, "managed_route", Checking, "route_invalid", func(ctx context.Context) error {
 		if err := e.Managed.BeforeIngress(ctx, id, p, d); err != nil {

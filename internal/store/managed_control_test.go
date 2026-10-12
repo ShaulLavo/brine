@@ -35,6 +35,9 @@ func managedControlFixture(t *testing.T) (*Store, plan.Plan, ops.Operation) {
 	if err = migrateManagedRoutes(ctx, tx); err != nil {
 		t.Fatal(err)
 	}
+	if err = migrateManagedFrontendPermits(ctx, tx); err != nil {
+		t.Fatal(err)
+	}
 	if err = tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
@@ -214,5 +217,29 @@ func TestManagedFailedCreateRestoresClientIntentWithoutStoppingNative(t *testing
 	original, err := readManagedDesiredRevision(ctx, s.db, wanted.BindingID, 1)
 	if err != nil || original != wanted {
 		t.Fatal("compensation mutated immutable intent", err)
+	}
+}
+
+func TestManagedServingReleaseRequiresActualDesiredAndRouteReceipts(t *testing.T) {
+	s, p, op := managedControlFixture(t)
+	ctx := context.Background()
+	unit := target.Unit{Name: "brine-engine-" + string(p.Managed.Database.BindingID) + ".service", Hash: "sha256:" + p.Managed.EngineUnitHash}
+	release := Release{ID: op.ID, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: []plan.SecretBinding{}, Units: []target.Unit{unit}, CaddyFile: target.CaddyFile{Name: p.App + ".caddy", Hash: "sha256:" + strings.Repeat("a", 64)}, CaddyGeneration: 1, Managed: &ops.ManagedRelease{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, EngineUnit: unit, EnginePort: p.Managed.EnginePort}}
+	if err := s.CommitRelease(ctx, p.App, release); err == nil {
+		t.Fatal("release without actual component intent granted")
+	}
+	desired := ManagedDesiredState{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, Revision: 1, PlanID: p.Hash, OperationID: op.ID, EngineRunning: true, IngressServing: true}
+	if _, err := s.CommitManagedDesired(ctx, op.ID, 0, desired); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CommitRelease(ctx, p.App, release); err == nil {
+		t.Fatal("release without route receipt granted")
+	}
+	route := ManagedRouteState{App: p.App, BindingID: desired.BindingID, EpochID: desired.EpochID, RuntimeSHA256: desired.RuntimeSHA256, DesiredRevision: 1, PlanID: p.Hash, OperationID: op.ID, Revision: 1, Generation: 1, Present: true, FileHash: release.CaddyFile.Hash, RootSHA256: strings.Repeat("b", 64), LoadedSHA256: strings.Repeat("c", 64)}
+	if _, err := s.CommitManagedRouteState(ctx, 0, route); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CommitRelease(ctx, p.App, release); err != nil {
+		t.Fatal("actual joined control receipts refused", err)
 	}
 }
