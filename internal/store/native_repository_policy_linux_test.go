@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/policy"
@@ -19,6 +20,46 @@ func TestNativeMaterialRequiresSuccessfulTypedTaskOutcome(t *testing.T) {
 		t.Run(outcome, func(t *testing.T) {
 			checkNativeMaterialTaskOutcome(t, outcome)
 		})
+	}
+}
+
+func TestNativePolicyMaterialRequiresReceiptForExactCanonicalPolicy(t *testing.T) {
+	state, ctx := openTest(t), context.Background()
+	planID, hash := strings.Repeat("a", 32), strings.Repeat("b", 64)
+	op, _, err := state.CreateOperation(ctx, ops.Intent{Kind: ops.NativeBackupActivate, App: "example", SecretRef: planID}, "operator", "policy-receipt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.SetOperationState(ctx, op.ID, ops.Preflight); err != nil {
+		t.Fatal(err)
+	}
+	policy := NativeBackupPolicy{BindingID: data.ReplicaBindingID(strings.Repeat("c", 32)), EpochID: data.ReplicaEpochID(strings.Repeat("d", 32)), OperationID: op.ID, RevisionPlanID: planID, Revision: 1, RepositoryID: hash}
+	canonical, _ := json.Marshal(policy)
+	receipt := nativecapture.BackupPolicyReceipt{Kind: string(ops.NativeBackupActivate), OperationID: op.ID, BindingID: string(policy.BindingID), EpochID: string(policy.EpochID), PlanID: planID, Revision: 1, RepositoryID: hash, PolicySHA256: nativePointHash(canonical), Outcome: "active"}
+	raw, _ := json.Marshal(receipt)
+	if err := state.CompleteTask(ctx, op.ID, ops.Succeeded, ops.TaskOutcome{Receipt: raw}); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkNativeBackupPolicyOperation(ctx, state.db, policy); err != nil {
+		t.Fatal("exact active policy receipt refused", err)
+	}
+	for _, field := range []string{"binding", "epoch", "revision", "repository", "canonical"} {
+		changed := policy
+		switch field {
+		case "binding":
+			changed.BindingID = data.ReplicaBindingID(strings.Repeat("e", 32))
+		case "epoch":
+			changed.EpochID = data.ReplicaEpochID(strings.Repeat("e", 32))
+		case "revision":
+			changed.Revision++
+		case "repository":
+			changed.RepositoryID = strings.Repeat("e", 64)
+		case "canonical":
+			changed.UnitSHA256 = strings.Repeat("e", 64)
+		}
+		if err := checkNativeBackupPolicyOperation(ctx, state.db, changed); err == nil {
+			t.Fatalf("unrelated %s admitted by syntax-valid active policy receipt", field)
+		}
 	}
 }
 
