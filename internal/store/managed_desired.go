@@ -105,12 +105,12 @@ func (s *Store) CommitManagedDesired(ctx context.Context, operation string, expe
 	if wanted.FrontendRunning && p.Managed.Frontend == nil {
 		return ManagedDesiredState{}, ErrConflict
 	}
-	var plan, app string
+	var operationPlan, app string
 	var state ops.State
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", operation).Scan(&plan, &app, &state); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", operation).Scan(&operationPlan, &app, &state); err != nil {
 		return ManagedDesiredState{}, err
 	}
-	if plan != wanted.PlanID || app != p.App || state != ops.Preparing && state != ops.Quiescing && state != ops.Starting {
+	if operationPlan != wanted.PlanID || app != p.App || state != ops.Preparing && state != ops.Quiescing && state != ops.Starting {
 		return ManagedDesiredState{}, ErrConflict
 	}
 	previous, err := readManagedDesired(ctx, tx, wanted.BindingID)
