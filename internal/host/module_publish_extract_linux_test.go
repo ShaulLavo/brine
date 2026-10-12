@@ -96,7 +96,7 @@ func (r *descriptorContainerExecutor) Execute(_ context.Context, command localex
 
 func descriptorSession(t *testing.T, executor *descriptorContainerExecutor) localexec.Session {
 	t.Helper()
-	session, err := localexec.NewSession(executor, uint32(os.Geteuid()), t.TempDir(), 5*time.Second)
+	session, err := localexec.NewSession(executor, uint32(os.Geteuid()), t.TempDir(), 5*time.Second) //nolint:gosec // Linux geteuid returns the unsigned 32-bit syscall identity.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,7 +133,7 @@ func TestDescriptorContainerInspectionCannotReplaceLiveProcBinding(t *testing.T)
 	if handle, err := bindDescriptorProcess(lease, container); !errors.Is(err, datapublish.ErrRecord) || handle != nil {
 		t.Fatal("caller-selected PID replaced independently owned cgroup", err)
 	}
-	if descriptorProcessDisposed(context.Background(), nil) != datapublish.ErrRecord {
+	if !errors.Is(descriptorProcessDisposed(context.Background(), nil), datapublish.ErrRecord) {
 		t.Fatal("missing pidfd granted process disappearance")
 	}
 }

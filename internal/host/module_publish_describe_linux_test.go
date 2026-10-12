@@ -81,7 +81,7 @@ func TestDescriptorPurposeRefusesRawDiagnosticsAndUnqualifiedOutput(t *testing.T
 		}
 	}
 	for _, failure := range []error{context.DeadlineExceeded, localexec.ErrOutputLimit, errors.New("private diagnostic")} {
-		if _, err := extractModuleDescriptor(context.Background(), &descriptorTestRunner{err: failure}); err != datapublish.ErrRecord {
+		if _, err := extractModuleDescriptor(context.Background(), &descriptorTestRunner{err: failure}); !errors.Is(err, datapublish.ErrRecord) {
 			t.Fatal("native failure leaked diagnostics", err)
 		}
 	}

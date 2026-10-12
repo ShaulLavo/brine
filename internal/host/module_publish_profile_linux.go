@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net"
 	"os"
 	"slices"
@@ -79,6 +80,9 @@ func RunModuleDescriptorProfile(ctx context.Context, input io.Reader, output io.
 func inspectDescriptorMask(path string, mounts []byte) descriptorMaskInspection {
 	inspection := descriptorMaskInspection{Path: path}
 	var status unix.Stat_t
+	if file.Fd() > math.MaxInt32 {
+		return "unavailable", false
+	}
 	if unix.Lstat(path, &status) != nil {
 		return inspection
 	}
