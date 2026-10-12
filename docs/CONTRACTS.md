@@ -709,6 +709,26 @@ Versioned runner-owned 0600 environment files contain `AWS_ACCESS_KEY_ID`, `AWS_
 
 ### State transitions and restore evidence
 
+The native replacement prerequisite adds append-only epoch reservations and an
+intent-first bundle transition journal. Its latest immutable runtime commit is
+the sole active head. Activation compares the expected old version and commits
+the new runtime, per-epoch allocation/checkpoint references and activation event
+in one transaction while the original preparation fence stays held. Native
+permits resolve that committed epoch and incoming inode; original binding and
+allocation bytes remain historical. Every retained prefix enters destination
+ownership checks, and a new epoch cannot reuse an earlier prefix even for the
+same binding. Generic fence release refuses a nonterminal transition.
+
+The protected point/publication callers still own exact preparation, the
+immutable one-consumer join, target verification and fresh completion authority.
+Structural transition records and private storage helpers do not provide those
+proofs or admit public publish/live-restore operations. Normal managed start is
+separate from data completion. The rooted movement helper preserves the old
+binding leaf and promotes only the recorded staged leaf with pinned no-follow
+parents, same-device identity, no-replace rename and parent fsync. An uncertain
+rename is inspected; an already moved recorded inode permits sync and adoption
+only, never a second rename or an automatic data rewind.
+
 Deploy/update/rollback preserve incarnation/data/binding and may leave replication running. Removal/live restore require independent app-writer and replica-process/lock quiescence, not `systemctl stop` exit alone. Before freeze, verify a fresh remote restore point covering the recorded marker/TXID. Unknown upload/stop/swap outcomes enter reconciliation. No retry starts a competing writer. Archive retention begins at committed removal, lasts 30 days and is keyed only by archive ID. Recreation never reuses its incarnation or replica prefix. Purge/expiry recheck all live path and destination references immediately before deleting local archived data. They never delete remote backup objects or prefixes; Brine has no provider-delete authority. Local metadata and all recorded remote epochs stay bound to that archive.
 
 An archive must distinguish `never_written` from initialized data. The former requires exact allocation device/inode evidence, a fresh affirmative empty observation, no application writer history and settled initialization attempts. It retains that evidence rather than claiming a remote restore receipt. Its local data retention also lasts 30 days from committed retirement; ID-only early purge still requires its own explicit reviewed plan and apply under the single enrolled identity, not an operator/agent role flag. Initialized or unknown data cannot use this exception. Initialized data needs the independently verified fresh remote restore point and restorable backup retention described above; unknown data refuses. These archive and expiry rules are execution requirements for P04-08, not completed removal behavior.

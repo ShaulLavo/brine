@@ -168,3 +168,89 @@ func TestEngineTransitionUnknownRenameSettlesWithoutRepeatingEffect(t *testing.T
 		t.Fatal("known original not adopted by sync only", err, renamed)
 	}
 }
+
+func TestEngineTransitionRefusesOccupiedDestinationAndReleasedGuard(t *testing.T) {
+	tree := engineTreeTransitionFixture(t)
+	intent := preserveIntentFixture(t, tree)
+	_, _, original := tree.relativeNames()
+	root, err := os.OpenRoot(string(tree.binding.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if err = root.Mkdir(original, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = tree.move(context.Background(), intent, enginePreserveOriginal); err == nil {
+		t.Fatal("empty occupied original destination was replaced")
+	}
+	if err = root.Remove(original); err != nil {
+		t.Fatal(err)
+	}
+	if err = tree.preparation.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = tree.move(context.Background(), intent, enginePreserveOriginal); err == nil {
+		t.Fatal("closed launch guard permitted tree movement")
+	}
+	content, err := root.ReadFile(filepath.Join(tree.binding.RelativeDirectory, "control-db/state"))
+	if err != nil || string(content) != "synthetic-persisted-state" {
+		t.Fatal("refusal changed original data", err)
+	}
+}
+
+func TestEngineTransitionPostRenameSyncFailureKeepsOriginalRecoverable(t *testing.T) {
+	tree := engineTreeTransitionFixture(t)
+	intent := preserveIntentFixture(t, tree)
+	syncs := 0
+	injected := func(file *os.File) error {
+		syncs++
+		if syncs == 1 {
+			return errors.New("injected parent fsync failure")
+		}
+		return file.Sync()
+	}
+	if err := tree.moveWith(context.Background(), intent, enginePreserveOriginal, unix.Renameat2, injected); err == nil {
+		t.Fatal("parent fsync failure reported durable success")
+	}
+	observed, err := tree.inspect(context.Background())
+	if err != nil || data.ClassifyEngineTransitionLayout(tree.input, observed) != data.EngineLayoutPreserved {
+		t.Fatal("unknown sync lost original or staging", err)
+	}
+	if err = tree.settle(context.Background(), intent, enginePreserveOriginal); err != nil {
+		t.Fatal("observable moved original could not settle", err)
+	}
+}
+
+func TestEngineTransitionChangedParentAndSymlinkCannotRedirectMovement(t *testing.T) {
+	tree := engineTreeTransitionFixture(t)
+	intent := preserveIntentFixture(t, tree)
+	_, staged, _ := tree.relativeNames()
+	root, err := os.OpenRoot(string(tree.binding.Root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	parent := filepath.Dir(staged)
+	if err = root.Rename(parent, parent+"-held"); err != nil {
+		t.Fatal(err)
+	}
+	if err = root.Mkdir(parent, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = tree.move(context.Background(), intent, enginePreserveOriginal); err == nil {
+		t.Fatal("rebound stage parent permitted movement")
+	}
+	if err = root.Remove(parent); err != nil {
+		t.Fatal(err)
+	}
+	if err = root.Symlink(filepath.Base(parent)+"-held", parent); err != nil {
+		t.Fatal(err)
+	}
+	if err = tree.move(context.Background(), intent, enginePreserveOriginal); err == nil {
+		t.Fatal("symlink stage parent redirected movement")
+	}
+	if _, err = root.Stat(tree.binding.RelativeDirectory); err != nil {
+		t.Fatal("refusal removed original source", err)
+	}
+}
