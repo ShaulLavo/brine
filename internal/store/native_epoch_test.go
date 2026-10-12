@@ -12,6 +12,7 @@ import (
 
 func dropNativeTransitionMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
+	dropNativeCaptureMigrationFixture(t, ctx, s)
 	for _, table := range []string{"data_native_epoch_materials", "data_engine_transition_events", "data_native_epochs", "data_engine_transition_inputs"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatal(err)

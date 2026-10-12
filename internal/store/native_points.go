@@ -197,7 +197,7 @@ func (c nativePointConsumer) canonical() ([]byte, error) {
 // This private join independently checks operation, head, point and owner. No
 // exported entry point accepts a consumer, owner override or evidence body.
 func (s *Store) claimNativePreparedPointTx(ctx context.Context, tx *sql.Tx, guard *data.EngineLock, c nativePointConsumer) (nativePreparedPoint, error) {
-	if !guard.HoldsLaunch(c.binding) {
+	if !guard.HoldsLaunch(s.dir, c.binding) {
 		return nativePreparedPoint{}, ErrConflict
 	}
 	point, err := readNativePreparedPointTx(ctx, tx, c.pointID)
@@ -238,6 +238,15 @@ func readNativePointConsumer(ctx context.Context, tx *sql.Tx, pointID string) ([
 		return nil, &IntegrityError{}
 	}
 	return raw, nil
+}
+
+func refuseConsumedNativeFence(ctx context.Context, q dataQuerier, fence data.FenceID) error {
+	var consumed int
+	err := q.QueryRowContext(ctx, "SELECT count(*) FROM data_native_preparations p JOIN data_native_point_consumers c ON c.point_id=p.id WHERE p.fence_id=?", fence).Scan(&consumed)
+	if err != nil || consumed != 0 {
+		return errors.Join(ErrConflict, err)
+	}
+	return nil
 }
 
 func checkNativePointConsumer(ctx context.Context, tx *sql.Tx, point nativePreparedPoint, c nativePointConsumer) error {

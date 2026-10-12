@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -19,21 +21,28 @@ import (
 func migrateNativePointFixture(t *testing.T, s *Store) {
 	t.Helper()
 	ctx := context.Background()
-	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+	if err := s.migrate(ctx); err != nil {
 		t.Fatal(err)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+}
+
+func nativeForeignRoot(t *testing.T) string {
+	t.Helper()
+	root := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := migrateNativeCapture(ctx, tx); err != nil {
-		_ = tx.Rollback()
-		t.Fatal(err)
+	return root
+}
+
+func dropNativeCaptureMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
+	t.Helper()
+	for _, table := range []string{"data_native_verified_point_bundles", "data_native_verified_points", "data_native_point_consumers", "data_native_prepared_points", "data_native_preparation_events", "data_native_preparations", "data_native_task_inputs"} {
+		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.db.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+	if _, err := s.db.ExecContext(ctx, "DELETE FROM transitions WHERE kind IN ('native_capture','native_restore_test','native_prepare')"); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -132,6 +141,18 @@ func TestNativePreparationRequiresActualRetainedLocksAndKnownStop(t *testing.T) 
 	}
 	if _, err := s.RecordNativeStoppedPreparation(ctx, preparation, &data.EngineLock{}, stop); err == nil {
 		t.Fatal("zero lifetime capability admitted")
+	}
+	foreignRoot := nativeForeignRoot(t)
+	if err := data.PrepareEngineLocks(ctx, foreignRoot, preparation.intent.BindingID); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := data.AcquireEngineLifetimeLock(ctx, foreignRoot, preparation.intent.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = foreign.Release() }()
+	if _, err := s.RecordNativeStoppedPreparation(ctx, preparation, foreign, stop); !errors.Is(err, ErrConflict) {
+		t.Fatal("lifetime from another control root admitted", err)
 	}
 	stopped, err := s.RecordNativeStoppedPreparation(ctx, preparation, lifetime, stop)
 	if err != nil || !stopped.active(s) {
@@ -264,6 +285,26 @@ func TestNativePointConsumerLedgerIsAtomicAndOneUse(t *testing.T) {
 	if err := claim(false, c); err != nil {
 		t.Fatal(err)
 	}
+	foreignRoot := nativeForeignRoot(t)
+	if err := data.PrepareEngineLocks(ctx, foreignRoot, v.BindingID); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := data.AcquireEngineLaunchGuard(ctx, foreignRoot, v.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = foreign.Release() }()
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, foreignErr := s.claimNativePreparedPointTx(ctx, tx, foreign, c)
+	if err := tx.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(foreignErr, ErrConflict) {
+		t.Fatal("launch guard from another control root consumed point", foreignErr)
+	}
 	var n int
 	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM data_native_point_consumers").Scan(&n); err != nil || n != 0 {
 		t.Fatal("point claim escaped rolled-back publication transaction", err)
@@ -285,6 +326,15 @@ func TestNativePointConsumerLedgerIsAtomicAndOneUse(t *testing.T) {
 	}
 	if err := preparation.preparation.Close(); err != nil {
 		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, "DROP TRIGGER data_native_prepared_points_no_update"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE data_native_prepared_points SET canonical=json_set(canonical,'$.expires_at',?) WHERE id=?", time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano), v.PointID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ReleaseDataFence(ctx, v.FenceID, v.FenceOwnerOpID); !errors.Is(err, ErrConflict) {
+		t.Fatal("generic release cleared a consumed point before transition admission", err)
 	}
 	if err := claim(true, c); !errors.Is(err, ErrConflict) {
 		t.Fatal("released launch lock retained claim authority", err)

@@ -176,7 +176,7 @@ func (s *Store) RecordNativeStopIntent(ctx context.Context, preparation *NativeP
 }
 
 func (p *NativeStoppedPreparation) active(s *Store) bool {
-	return p != nil && p.preparation.active(s) && p.lifetime.HoldsLifetime(p.preparation.intent.BindingID)
+	return p != nil && p.preparation.active(s) && p.lifetime.HoldsLifetime(s.dir, p.preparation.intent.BindingID)
 }
 
 // ReadNativeStoppedPermit rereads protected identities under the real retained
@@ -206,7 +206,7 @@ func (s *Store) ReadNativeStoppedPermit(ctx context.Context, capability *NativeS
 }
 
 func (s *Store) RecordNativeStoppedPreparation(ctx context.Context, preparation *NativePreparation, lifetime *data.EngineLock, observed NativeStopObservation) (*NativeStoppedPreparation, error) {
-	if !preparation.active(s) || !lifetime.HoldsLifetime(preparation.intent.BindingID) || !validNativeStop(observed, preparation.intent.SourceKind) {
+	if !preparation.active(s) || !lifetime.HoldsLifetime(s.dir, preparation.intent.BindingID) || !validNativeStop(observed, preparation.intent.SourceKind) {
 		return nil, ErrConflict
 	}
 	raw, err := json.Marshal(observed)
