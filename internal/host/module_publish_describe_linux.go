@@ -162,6 +162,9 @@ func moduleDescriptorNativeFailure(err error, stderr []byte) string {
 	if errors.Is(err, localexec.ErrOutputLimit) {
 		return "native_output_limit"
 	}
+	if errors.Is(err, os.ErrNotExist) {
+		return "native_missing"
+	}
 	var boundary *localexec.Error
 	if errors.As(err, &boundary) && boundary.Kind == localexec.NotFound {
 		return "native_missing"
