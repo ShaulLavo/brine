@@ -157,7 +157,7 @@ var schemaFields = map[string][]string{
 	"$.databases.spacetimedb.resources": {"memory_mb", "pids_limit", "page_pool_mb", "stop_timeout_seconds"},
 	"$.restore_invariants":              {"database", "kind", "table", "column", "count", "minimum", "maximum"},
 	"$.runtime":                         {"uid", "gid"},
-	"$.databases":                       {"engine", "name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval", "schema", "marker", "spacetimedb"},
+	"$.databases":                       {"engine", "name", "persistent_root", "mount_path", "filename", "backup_destination", "recovery_password_ref", "sync_interval", "schema", "marker", "spacetimedb"},
 	"$.schema_compatibility":            {"database", "accepts", "startup"},
 	"$.health":                          {"path", "expected_status", "startup_deadline_seconds", "timeout_seconds"},
 	"$.resources":                       {"memory_mb", "pids_limit"},

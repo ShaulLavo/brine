@@ -51,6 +51,9 @@ func normalizeManaged(a spec.App, p Policy) (Desired, error) {
 	if !ok {
 		return Desired{}, refuse("policy.backup_destination_unknown", "databases.backup_destination", "backup destination is not allowed")
 	}
+	if string(engine.RecoveryPasswordRef) == destination.CredentialRef {
+		return Desired{}, refuse("policy.recovery_dependency_invalid", "databases.recovery_password_ref", "recovery and S3 references must be distinct")
+	}
 	for _, ref := range engine.References() {
 		if err := p.CheckSecret(a.Name, ref); err != nil {
 			return Desired{}, err

@@ -1,6 +1,7 @@
 package spec
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 
@@ -25,6 +26,9 @@ type SpacetimeModule struct {
 	Accepts  []string        `json:"accepts" toml:"accepts"`
 	Metadata *ModuleMetadata `json:"metadata,omitempty" toml:"-"`
 }
+
+var recoveryReference = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+
 type SpacetimeResources struct {
 	MemoryMB           int `json:"memory_mb" toml:"memory_mb"`
 	PIDsLimit          int `json:"pids_limit" toml:"pids_limit"`
@@ -32,19 +36,20 @@ type SpacetimeResources struct {
 	StopTimeoutSeconds int `json:"stop_timeout_seconds" toml:"stop_timeout_seconds"`
 }
 type SpacetimeDB struct {
-	Name              data.DatabaseName         `json:"name" toml:"name"`
-	PersistentRoot    data.PersistentRoot       `json:"persistent_root" toml:"persistent_root"`
-	BackupDestination data.BackupDestinationRef `json:"backup_destination" toml:"backup_destination"`
-	Image             ImageReference            `json:"image" toml:"image"`
-	Version           string                    `json:"version" toml:"version"`
-	Database          string                    `json:"database" toml:"database"`
-	Module            SpacetimeModule           `json:"module" toml:"module"`
-	Runtime           data.RuntimeIdentity      `json:"runtime" toml:"runtime"`
-	Resources         SpacetimeResources        `json:"resources" toml:"resources"`
-	Publisher         SecretReference           `json:"publisher" toml:"publisher"`
-	SigningPrivate    SecretReference           `json:"signing_private" toml:"signing_private"`
-	SigningPublic     SecretReference           `json:"signing_public" toml:"signing_public"`
-	Auth              SecretReference           `json:"auth" toml:"auth"`
+	Name                data.DatabaseName         `json:"name" toml:"name"`
+	PersistentRoot      data.PersistentRoot       `json:"persistent_root" toml:"persistent_root"`
+	BackupDestination   data.BackupDestinationRef `json:"backup_destination" toml:"backup_destination"`
+	RecoveryPasswordRef SecretReference           `json:"recovery_password_ref" toml:"recovery_password_ref"`
+	Image               ImageReference            `json:"image" toml:"image"`
+	Version             string                    `json:"version" toml:"version"`
+	Database            string                    `json:"database" toml:"database"`
+	Module              SpacetimeModule           `json:"module" toml:"module"`
+	Runtime             data.RuntimeIdentity      `json:"runtime" toml:"runtime"`
+	Resources           SpacetimeResources        `json:"resources" toml:"resources"`
+	Publisher           SecretReference           `json:"publisher" toml:"publisher"`
+	SigningPrivate      SecretReference           `json:"signing_private" toml:"signing_private"`
+	SigningPublic       SecretReference           `json:"signing_public" toml:"signing_public"`
+	Auth                SecretReference           `json:"auth" toml:"auth"`
 }
 
 type rawSpacetimeDB struct {
@@ -116,6 +121,7 @@ func validateManaged(raw rawApp, db *rawDatabase, app *App) error {
 		{db.Name, func(v string) { d.Name = data.DatabaseName(v) }},
 		{db.PersistentRoot, func(v string) { d.PersistentRoot = data.PersistentRoot(v) }},
 		{db.BackupDestination, func(v string) { d.BackupDestination = data.BackupDestinationRef(v) }},
+		{db.RecoveryPasswordRef, func(v string) { d.RecoveryPasswordRef = SecretReference(v) }},
 		{r.Image, func(v string) { d.Image = ImageReference(v) }},
 		{r.Version, func(v string) { d.Version = v }},
 		{r.Database, func(v string) { d.Database = v }},
@@ -222,7 +228,10 @@ func (d SpacetimeDB) Validate() error {
 	if !seen[d.Module.Marker] {
 		return data.ErrInvalid
 	}
-	refs := []SecretReference{d.Publisher, d.SigningPrivate, d.SigningPublic, d.Auth}
+	if !recoveryReference.MatchString(string(d.RecoveryPasswordRef)) {
+		return data.ErrInvalid
+	}
+	refs := d.References()
 	seenRefs := map[SecretReference]bool{}
 	for _, ref := range refs {
 		if !secretName.MatchString(string(ref)) || seenRefs[ref] {
@@ -254,7 +263,7 @@ func (d SpacetimeDB) EnvironmentPrefix() string {
 }
 func (app App) HasAppContainer() bool { return app.Image != "" && app.ContainerPort != 0 }
 func (d SpacetimeDB) References() []SecretReference {
-	return []SecretReference{d.Publisher, d.SigningPrivate, d.SigningPublic, d.Auth}
+	return []SecretReference{d.Publisher, d.SigningPrivate, d.SigningPublic, d.Auth, d.RecoveryPasswordRef}
 }
 func (d SpacetimeDB) SortedAccepts() string {
 	values := slices.Clone(d.Module.Accepts)
