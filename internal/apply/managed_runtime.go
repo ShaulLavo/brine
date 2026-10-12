@@ -12,6 +12,7 @@ import (
 // ManagedRuntime owns the binding service and separate frontend/route permits.
 // It cannot initialize/publish Wasm or restore engine state from an app release.
 type ManagedRuntime interface {
+	CompletedManaged(context.Context, string, plan.Plan, policy.Desired) error
 	RestoreDesired(context.Context, string, plan.Plan) error
 	RecordRoutes(context.Context, string, plan.Plan, uint64, caddy.State, caddy.State) error
 	SetDesired(context.Context, string, plan.Plan, uint64, plan.ManagedLifecyclePlan) error

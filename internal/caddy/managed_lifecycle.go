@@ -40,9 +40,17 @@ func CommittedManagedSite(desired policy.Desired, managed plan.ManagedServicePla
 	if !managed.Valid() || managed.State != data.EngineInitialized || policy.ValidateManagedDesired(desired) != nil || desired.SpacetimeDB.Name != managed.Database.Name || desired.SpacetimeDB.PersistentRoot != managed.Database.Root || desired.SpacetimeDB.BackupDestination != managed.Archive.Destination.Reference {
 		return Site{}, errors.New("managed routing ownership required")
 	}
+	enginePort := managed.EnginePort
+	if enginePort > 65535 {
+		return Site{}, errors.New("managed engine port invalid")
+	}
 	appPort := spec.Port(0)
 	if managed.Frontend != nil {
-		appPort = spec.Port(managed.Frontend.Port)
+		port := managed.Frontend.Port
+		if port > 65535 {
+			return Site{}, errors.New("managed frontend port invalid")
+		}
+		appPort = spec.Port(port)
 	}
 	if desired.App().HasAppContainer() != (managed.Frontend != nil) || len(desired.Domains) == 0 {
 		return Site{}, errors.New("managed routing components differ")
@@ -55,7 +63,7 @@ func CommittedManagedSite(desired policy.Desired, managed plan.ManagedServicePla
 	if json.Unmarshal(raw, &owned) != nil {
 		return Site{}, errors.New("managed routing desired input invalid")
 	}
-	client := &managedSite{desired: owned, enginePort: spec.Port(managed.EnginePort), appPort: appPort, ingress: ClientIngress{prefix: owned.SpacetimeDB.ClientPrefix(), database: owned.SpacetimeDB.Database}}
+	client := &managedSite{desired: owned, enginePort: spec.Port(enginePort), appPort: appPort, ingress: ClientIngress{prefix: owned.SpacetimeDB.ClientPrefix(), database: owned.SpacetimeDB.Database}}
 	client.binding, client.epoch, client.runtimeHash = managed.Database.BindingID, managed.Archive.EpochID, managed.RuntimeSHA256
 	return Site{name: owned.Name, domains: slices.Clone(owned.Domains), port: client.enginePort, managed: client}, nil
 }

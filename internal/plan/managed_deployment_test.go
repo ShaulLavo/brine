@@ -22,7 +22,12 @@ func managedInitializedFixture(t *testing.T, frontend bool) Input {
 	secret := func(reference string) data.EngineSecretVersion {
 		return data.EngineSecretVersion{Reference: reference, Version: 1, SHA256: strings.Repeat("d", 64), ExpiresAt: time.Now().UTC().Add(time.Hour)}
 	}
-	runtime := data.EngineRuntime{BindingID: reserved.Database.BindingID, EpochID: reserved.Archive.EpochID, State: data.EngineInitialized, Image: data.SpacetimeDBImage, ManifestDigest: data.SpacetimeDBARM64Manifest, ImageID: strings.Repeat("e", 64), Version: "2.11.0", Runtime: engine.Runtime, HostPort: uint16(reserved.EnginePort), Database: data.NativeDatabaseIdentity(strings.Repeat("e", 64)), Publisher: data.NativePublisherIdentity(strings.Repeat("f", 64)), Names: []string{engine.Database}, Module: data.EngineModuleDefinition{Program: data.NativeProgramWireHash(metadata.RuntimeModuleHash), Wasm: data.WasmSHA256(metadata.WasmSHA256), Schema: data.EngineSchemaDefinition{Marker: engine.Module.Marker, Canonicalizer: metadata.Canonicalizer, SHA256: metadata.SchemaSHA256}}, Secrets: data.EngineSecrets{Publisher: secret(string(engine.Publisher)), SigningPrivate: secret(string(engine.SigningPrivate)), SigningPublic: secret(string(engine.SigningPublic)), AuthPolicy: secret(string(engine.Auth))}, MemoryMB: engine.Resources.MemoryMB, PIDsLimit: engine.Resources.PIDsLimit, PagePoolMB: engine.Resources.PagePoolMB, StopSeconds: engine.Resources.StopTimeoutSeconds, StartupSeconds: 60, CopyBytes: 1 << 20, CopyFiles: 128, UnitSHA256: strings.Repeat("f", 64)}
+	enginePort := reserved.EnginePort
+	if enginePort > 65535 {
+		t.Fatal("engine fixture port invalid")
+		return in
+	}
+	runtime := data.EngineRuntime{BindingID: reserved.Database.BindingID, EpochID: reserved.Archive.EpochID, State: data.EngineInitialized, Image: data.SpacetimeDBImage, ManifestDigest: data.SpacetimeDBARM64Manifest, ImageID: strings.Repeat("e", 64), Version: "2.11.0", Runtime: engine.Runtime, HostPort: uint16(enginePort), Database: data.NativeDatabaseIdentity(strings.Repeat("e", 64)), Publisher: data.NativePublisherIdentity(strings.Repeat("f", 64)), Names: []string{engine.Database}, Module: data.EngineModuleDefinition{Program: data.NativeProgramWireHash(metadata.RuntimeModuleHash), Wasm: data.WasmSHA256(metadata.WasmSHA256), Schema: data.EngineSchemaDefinition{Marker: engine.Module.Marker, Canonicalizer: metadata.Canonicalizer, SHA256: metadata.SchemaSHA256}}, Secrets: data.EngineSecrets{Publisher: secret(string(engine.Publisher)), SigningPrivate: secret(string(engine.SigningPrivate)), SigningPublic: secret(string(engine.SigningPublic)), AuthPolicy: secret(string(engine.Auth))}, MemoryMB: engine.Resources.MemoryMB, PIDsLimit: engine.Resources.PIDsLimit, PagePoolMB: engine.Resources.PagePoolMB, StopSeconds: engine.Resources.StopTimeoutSeconds, StartupSeconds: 60, CopyBytes: 1 << 20, CopyFiles: 128, UnitSHA256: strings.Repeat("f", 64)}
 	if err := runtime.Validate(); err != nil {
 		t.Fatal("invalid orchestration runtime", err)
 	}
@@ -151,5 +156,23 @@ func TestManagedStopUsesOwnedStateWithoutRegrantingSourceAuthority(t *testing.T)
 	refused, err := BuildLifecycle(in, StopApp)
 	if err != nil || refused.Kind != Conflict {
 		t.Fatal("unknown ownership permitted stop", err)
+	}
+}
+
+func TestManagedPortsRefuseValuesThatWouldWrapTheRuntimePort(t *testing.T) {
+	in := managedInitializedFixture(t, true)
+	p, err := Build(in)
+	if err != nil || p.Managed == nil {
+		t.Fatal(err)
+	}
+	m := p.Managed.Clone()
+	m.EnginePort = 65536
+	if m.Valid() {
+		t.Fatal("out-of-range engine port accepted")
+	}
+	m = p.Managed.Clone()
+	m.Frontend.Port = 65536
+	if m.Valid() {
+		t.Fatal("out-of-range frontend port accepted")
 	}
 }

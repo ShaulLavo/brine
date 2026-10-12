@@ -30,6 +30,9 @@ func (f *managedRuntimeFake) call(name string) error {
 	}
 	return nil
 }
+func (f *managedRuntimeFake) CompletedManaged(context.Context, string, plan.Plan, policy.Desired) error {
+	return f.call("managed_completed")
+}
 func (f *managedRuntimeFake) RecordRoutes(context.Context, string, plan.Plan, uint64, caddy.State, caddy.State) error {
 	return f.call("managed_route_receipt")
 }
@@ -99,7 +102,12 @@ func managedInitializedRig(t *testing.T, frontend bool) *rig {
 	secret := func(reference string) data.EngineSecretVersion {
 		return data.EngineSecretVersion{Reference: reference, Version: 1, SHA256: strings.Repeat("d", 64), ExpiresAt: time.Now().UTC().Add(time.Hour)}
 	}
-	runtime := data.EngineRuntime{BindingID: reserved.Database.BindingID, EpochID: reserved.Archive.EpochID, State: data.EngineInitialized, Image: data.SpacetimeDBImage, ManifestDigest: data.SpacetimeDBARM64Manifest, ImageID: strings.Repeat("e", 64), Version: "2.11.0", Runtime: engine.Runtime, HostPort: uint16(reserved.EnginePort), Database: data.NativeDatabaseIdentity(strings.Repeat("e", 64)), Publisher: data.NativePublisherIdentity(strings.Repeat("f", 64)), Names: []string{engine.Database}, Module: data.EngineModuleDefinition{Program: data.NativeProgramWireHash(metadata.RuntimeModuleHash), Wasm: data.WasmSHA256(metadata.WasmSHA256), Schema: data.EngineSchemaDefinition{Marker: engine.Module.Marker, Canonicalizer: metadata.Canonicalizer, SHA256: metadata.SchemaSHA256}}, Secrets: data.EngineSecrets{Publisher: secret(string(engine.Publisher)), SigningPrivate: secret(string(engine.SigningPrivate)), SigningPublic: secret(string(engine.SigningPublic)), AuthPolicy: secret(string(engine.Auth))}, MemoryMB: engine.Resources.MemoryMB, PIDsLimit: engine.Resources.PIDsLimit, PagePoolMB: engine.Resources.PagePoolMB, StopSeconds: engine.Resources.StopTimeoutSeconds, StartupSeconds: 60, CopyBytes: 1 << 20, CopyFiles: 128, UnitSHA256: strings.Repeat("f", 64)}
+	enginePort := reserved.EnginePort
+	if enginePort > 65535 {
+		t.Fatal("engine fixture port invalid")
+		return r
+	}
+	runtime := data.EngineRuntime{BindingID: reserved.Database.BindingID, EpochID: reserved.Archive.EpochID, State: data.EngineInitialized, Image: data.SpacetimeDBImage, ManifestDigest: data.SpacetimeDBARM64Manifest, ImageID: strings.Repeat("e", 64), Version: "2.11.0", Runtime: engine.Runtime, HostPort: uint16(enginePort), Database: data.NativeDatabaseIdentity(strings.Repeat("e", 64)), Publisher: data.NativePublisherIdentity(strings.Repeat("f", 64)), Names: []string{engine.Database}, Module: data.EngineModuleDefinition{Program: data.NativeProgramWireHash(metadata.RuntimeModuleHash), Wasm: data.WasmSHA256(metadata.WasmSHA256), Schema: data.EngineSchemaDefinition{Marker: engine.Module.Marker, Canonicalizer: metadata.Canonicalizer, SHA256: metadata.SchemaSHA256}}, Secrets: data.EngineSecrets{Publisher: secret(string(engine.Publisher)), SigningPrivate: secret(string(engine.SigningPrivate)), SigningPublic: secret(string(engine.SigningPublic)), AuthPolicy: secret(string(engine.Auth))}, MemoryMB: engine.Resources.MemoryMB, PIDsLimit: engine.Resources.PIDsLimit, PagePoolMB: engine.Resources.PagePoolMB, StopSeconds: engine.Resources.StopTimeoutSeconds, StartupSeconds: 60, CopyBytes: 1 << 20, CopyFiles: 128, UnitSHA256: strings.Repeat("f", 64)}
 	in.Managed.Database = &reserved.Database
 	in.Managed.Archive = &reserved.Archive
 	in.Managed.Runtime = &runtime
@@ -182,5 +190,58 @@ func TestManagedOptionalFrontendFailureCompensatesOnlyClientArtifacts(t *testing
 	}
 	if !restored {
 		t.Fatal("frontend permit head was not restored")
+	}
+}
+
+func (r *rig) InspectManagedLoaded(ctx context.Context, expected caddy.State, p plan.Plan, d policy.Desired) error {
+	if p.Lifecycle != "" {
+		_, present := expected.Files[p.App+".caddy"]
+		if present != p.ManagedLifecycle.IngressServing {
+			return injected
+		}
+		return ctx.Err()
+	}
+	if expected.Generation != r.release.CaddyGeneration || expected.Files[r.release.CaddyFile.Name] != r.release.CaddyFile.Hash {
+		return injected
+	}
+	return ctx.Err()
+}
+func TestManagedInitializedCommittedRecoveryUsesActualAssessment(t *testing.T) {
+	for _, frontend := range []bool{false, true} {
+		testManagedCommittedRecovery(t, frontend, false)
+		testManagedCommittedRecovery(t, frontend, true)
+	}
+}
+func testManagedCommittedRecovery(t *testing.T, frontend, resolve bool) {
+	t.Helper()
+	r := managedInitializedRig(t, frontend)
+	runtime := &managedRuntimeFake{rig: r}
+	r.executor.Managed = runtime
+	r.failOutcome = "managed_commit"
+	if err := r.executor.Run(context.Background(), "op", r.plan, r.desired); err == nil || !r.committed || r.state != RecoveryRequired {
+		t.Fatal("fixture commit interruption missing")
+	}
+	r.facts.Routing = caddy.State{Generation: r.release.CaddyGeneration, Files: map[string]string{r.release.CaddyFile.Name: r.release.CaddyFile.Hash}}
+	if frontend {
+		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: r.plan.App, Image: target.Known(target.Image{Digest: r.plan.Managed.Frontend.Image.Digest, Platform: r.plan.Managed.Frontend.Image.Platform}), AllocatedHostPort: target.Known(r.plan.Managed.Frontend.Port)}})
+	}
+	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
+	r.failOutcome = ""
+	r.state = Committing
+	source := Operation{ID: "op", PlanID: r.plan.Hash, Kind: ops.Deploy, App: r.plan.App, State: RecoveryRequired}
+	successor := Operation{ID: "resolve", PlanID: r.plan.Hash, Kind: ops.Resolve, App: r.plan.App, RecoveryOf: source.ID, State: Queued}
+	var recovery Recovery
+	var err error
+	if resolve {
+		r.state = Queued
+		recovery, err = r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, r.events)
+	} else {
+		recovery, err = r.executor.InspectRecovery(context.Background(), Operation{ID: "op", PlanID: r.plan.Hash, Kind: ops.Deploy, App: r.plan.App, State: Committing}, r.plan, r.desired, r.events)
+	}
+	if err != nil || recovery.Action != FinishSucceeded {
+		t.Fatal("initialized assessment unreachable", err, recovery.Action, recovery.Step)
+	}
+	if err := r.executor.Recover(context.Background(), recovery); err != nil || r.state != Succeeded {
+		t.Fatal("initialized completion failed", err, r.state)
 	}
 }
