@@ -169,3 +169,52 @@ func readManagedFrontendPermit(ctx context.Context, tx *sql.Tx, app string) (Man
 	}
 	return resolution, nil
 }
+
+// RestoreManagedFrontendPermit is a conditional compensation of a known head.
+// An invalid old permit is never restored over a changed module/epoch/runtime.
+func (s *Store) RestoreManagedFrontendPermit(ctx context.Context, operation, previous string) error {
+	if s.readOnly || operation == "" {
+		return ErrInvalid
+	}
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var app, binding string
+	if err := tx.QueryRowContext(ctx, "SELECT app,binding_id FROM data_engine_frontend_permits WHERE operation_id=?", operation).Scan(&app, &binding); err != nil {
+		return err
+	}
+	var current string
+	if err := tx.QueryRowContext(ctx, "SELECT operation_id FROM data_engine_frontend_heads WHERE app=?", app).Scan(&current); err != nil {
+		return err
+	}
+	if current != operation {
+		return ErrConflict
+	}
+	if previous == "" {
+		_, err = tx.ExecContext(ctx, "DELETE FROM data_engine_frontend_heads WHERE app=? AND operation_id=?", app, operation)
+		if err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+	var oldApp, oldBinding string
+	var oldRaw, newRaw []byte
+	if err := tx.QueryRowContext(ctx, "SELECT app,binding_id,canonical FROM data_engine_frontend_permits WHERE operation_id=?", previous).Scan(&oldApp, &oldBinding, &oldRaw); err != nil {
+		return err
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_engine_frontend_permits WHERE operation_id=?", operation).Scan(&newRaw); err != nil {
+		return err
+	}
+	var old, newPermit ManagedFrontendPermit
+	if len(oldRaw) > 4096 || len(newRaw) > 4096 || json.Unmarshal(oldRaw, &old) != nil || json.Unmarshal(newRaw, &newPermit) != nil || !old.Valid() || !newPermit.Valid() || oldApp != app || oldBinding != binding || old.EpochID != newPermit.EpochID || old.RuntimeSHA256 != newPermit.RuntimeSHA256 {
+		return ErrConflict
+	}
+	_, err = tx.ExecContext(ctx, "UPDATE data_engine_frontend_heads SET operation_id=? WHERE app=? AND operation_id=?", previous, app, operation)
+	if err != nil {
+		return err
+	}
+	return tx.Commit()
+}

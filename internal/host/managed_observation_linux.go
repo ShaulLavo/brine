@@ -177,7 +177,7 @@ func observeManagedMetadata(ctx context.Context, permit store.EnginePermit, mate
 }
 
 func (o managedEngineObserver) stopped(ctx context.Context, permit store.EnginePermit) error {
-	if o.state == nil || o.units == nil || !permit.AllowsVerification(time.Now().UTC()) || verifyEngineService(ctx, o.home, permit) != nil {
+	if o.state == nil || o.units == nil || !permit.AllowsVerification(time.Now().UTC()) {
 		return errEngineSource
 	}
 	unit, err := systemd.ParseUnit(engineContainerName(permit.Runtime.BindingID) + ".service")
@@ -189,7 +189,10 @@ func (o managedEngineObserver) stopped(ctx context.Context, permit store.EngineP
 		return errEngineSource
 	}
 	properties, err := o.units.Show(ctx, unit)
-	if err != nil || properties.ActiveState != "inactive" && properties.ActiveState != "failed" || properties.SubState != "dead" && properties.SubState != "failed" {
+	if err != nil && !managedUnitAbsent(err) {
+		return errEngineSource
+	}
+	if err == nil && (properties.ActiveState != "inactive" && properties.ActiveState != "failed" || properties.SubState != "dead" && properties.SubState != "failed") {
 		return errEngineSource
 	}
 	containers, err := listEngineContainers(ctx, o.session)
