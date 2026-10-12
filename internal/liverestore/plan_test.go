@@ -60,20 +60,23 @@ func TestPlanKeepsCurrentSafetySeparateFromSelectedHistoricalLoss(t *testing.T) 
 
 func TestDifferentNativeHistoryMakesLossUnknown(t *testing.T) {
 	for _, field := range []string{"epoch", "generation"} {
-		t.Run(field, func(t *testing.T) {
-			spec := planFixture(t)
-			if field == "epoch" {
-				spec.Selected.EpochID = data.ReplicaEpochID(strings.Repeat("d", 32))
-			}
-			if field == "generation" {
-				spec.Selected.GenerationID = strings.Repeat("d", 32)
-			}
-			spec.Selected.CommittedOffset = 100
-			p, err := NewPlan(spec)
-			if err != nil || p.Loss().Kind != "unknown" || p.Loss().UnknownReason == "" || p.Loss().CommittedOffsetsLost != 0 {
-				t.Fatal("unrelated offset histories were compared", err)
-			}
-		})
+		t.Run(field, func(t *testing.T) { checkDifferentNativeHistory(t, field) })
+	}
+}
+
+func checkDifferentNativeHistory(t *testing.T, field string) {
+	t.Helper()
+	spec := planFixture(t)
+	if field == "epoch" {
+		spec.Selected.EpochID = data.ReplicaEpochID(strings.Repeat("d", 32))
+	}
+	if field == "generation" {
+		spec.Selected.GenerationID = strings.Repeat("d", 32)
+	}
+	spec.Selected.CommittedOffset = 100
+	p, err := NewPlan(spec)
+	if err != nil || p.Loss().Kind != "unknown" || p.Loss().UnknownReason == "" || p.Loss().CommittedOffsetsLost != 0 {
+		t.Fatal("unrelated offset histories were compared", err)
 	}
 }
 
@@ -91,13 +94,16 @@ func TestPlanRejectsWrongScopeAndIncompatibleRecovery(t *testing.T) {
 		"future-source":       func(s *PlanSpec) { s.Selected.RecordedAt = s.IssuedAt },
 	}
 	for name, mutate := range cases {
-		t.Run(name, func(t *testing.T) {
-			spec := planFixture(t)
-			mutate(&spec)
-			if _, err := NewPlan(spec); err == nil {
-				t.Fatal("invalid review admitted")
-			}
-		})
+		t.Run(name, func(t *testing.T) { checkInvalidReview(t, mutate) })
+	}
+}
+
+func checkInvalidReview(t *testing.T, mutate func(*PlanSpec)) {
+	t.Helper()
+	spec := planFixture(t)
+	mutate(&spec)
+	if _, err := NewPlan(spec); err == nil {
+		t.Fatal("invalid review admitted")
 	}
 }
 
