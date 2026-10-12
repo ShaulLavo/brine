@@ -97,9 +97,10 @@ func NewCursor(plan Plan, applyOpID, consumerClaimSHA256, newEpochID string) (Cu
 	return cursor, nil
 }
 
-func (c Cursor) Scope() ProofScope      { return c.scope }
-func (c Cursor) State() CursorState     { return c.state }
-func (c Cursor) NativeDatabase() string { return c.nativeDatabase }
+func (c Cursor) Scope() ProofScope       { return c.scope }
+func (c Cursor) State() CursorState      { return c.state }
+func (c Cursor) NativeDatabase() string  { return c.nativeDatabase }
+func (c Cursor) NativePublisher() string { return c.nativePublisher }
 func (c Cursor) IntendedStep() Step {
 	if c.state != IntentRecorded && c.state != InspectRequired {
 		return ""

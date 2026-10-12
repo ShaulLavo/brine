@@ -41,13 +41,13 @@ type Plan struct {
 }
 
 func NewPlan(spec PlanSpec) (Plan, error) {
-	if !spec.Requester.Valid() || !spec.Facts.valid() || !validLifetime(spec.IssuedAt, spec.ExpiresAt) || !validReview(spec.Review) ||
+	if !spec.Requester.Valid() || !spec.Facts.valid() || !validLifetime(spec.IssuedAt, spec.ExpiresAt) || !validReview(spec.Review, spec.Source.Kind(), spec.Candidate) ||
 		!digest(spec.Candidate.wasm) || !digest(spec.Candidate.program) || spec.Candidate.schema.Version() != spacetimedb.CanonicalizerVersion {
 		return Plan{}, ErrRecord
 	}
 	p := Plan{requester: spec.Requester, facts: spec.Facts, source: spec.Source, candidate: spec.Candidate,
 		review: spec.Review, preflight: spec.Preflight, creationName: spec.CreationName, issuedAt: spec.IssuedAt, expiresAt: spec.ExpiresAt}
-	p.review.RecoveryReleases = slices.Clone(spec.Review.RecoveryReleases)
+	p.review.Recovery = spec.Review.Recovery.clone()
 	if err := p.deriveRequirements(); err != nil {
 		return Plan{}, err
 	}
@@ -76,16 +76,8 @@ func validLifetime(issued, expires time.Time) bool {
 	return utc(issued) && utc(expires) && expires.After(issued) && expires.Sub(issued) <= MaxReviewLifetime
 }
 
-func validReview(review ReviewReferences) bool {
-	if !digest(review.GuestCodeSHA256) || len(review.RecoveryReleases) == 0 || len(review.RecoveryReleases) > 16 || !slices.IsSorted(review.RecoveryReleases) {
-		return false
-	}
-	for i, release := range review.RecoveryReleases {
-		if !digest(release) || i > 0 && review.RecoveryReleases[i-1] == release {
-			return false
-		}
-	}
-	return true
+func validReview(review ReviewReferences, source SourceKind, candidate Candidate) bool {
+	return review.GuestCodeSHA256 == candidate.WasmSHA256() && digest(review.GuestCodeSHA256) && review.Recovery.valid(source, candidate.Schema().SHA256())
 }
 
 func (p *Plan) deriveRequirements() error {
@@ -119,7 +111,7 @@ func (p Plan) Source() Source                { return p.source }
 func (p Plan) Candidate() Candidate          { return p.candidate }
 func (p Plan) Review() ReviewReferences {
 	value := p.review
-	value.RecoveryReleases = slices.Clone(value.RecoveryReleases)
+	value.Recovery = value.Recovery.clone()
 	return value
 }
 func (p Plan) Preflight() NativePreflight                    { return p.preflight }

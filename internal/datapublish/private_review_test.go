@@ -29,6 +29,7 @@ func privateReviewFixture(t *testing.T, create bool) PrivateReview {
 	if err != nil {
 		t.Fatal(err)
 	}
+	spec.Review = reviewFixture(t, spec.Candidate, create)
 	var source, response, token []byte
 	if !create {
 		var envelope map[string]json.RawMessage

@@ -18,29 +18,30 @@ import (
 )
 
 type publicationStageLease struct {
-	empty         engineEmptySource
-	restored      *nativeRestoredSource
-	working       *publicationWorkingStage
-	review        *publicationReviewWork
-	artifact      *publicationArtifact
-	stagePath     string
-	preparation   *store.EnginePreparation
-	permit        store.EnginePermit
-	material      engineMaterial
-	image         podman.ImageInfo
-	nonce         string
-	rootMember    engineTreeMember
-	process       *engineNativeHandle
-	containerID   string
-	attempted     bool
-	stopAttempted bool
-	disposed      bool
-	startedAt     time.Time
-	finishedAt    time.Time
-	helperPID     uint32
-	helperTicks   uint64
-	helperCgroup  string
-	observation   moduleStageObservation
+	empty          engineEmptySource
+	restored       *nativeRestoredSource
+	working        *publicationWorkingStage
+	review         *publicationReviewWork
+	artifact       *publicationArtifact
+	stagePath      string
+	preparation    *store.EnginePreparation
+	permit         store.EnginePermit
+	material       engineMaterial
+	image          podman.ImageInfo
+	nonce          string
+	rootMember     engineTreeMember
+	process        *engineNativeHandle
+	containerID    string
+	attempted      bool
+	stopAttempted  bool
+	disposed       bool
+	startedAt      time.Time
+	finishedAt     time.Time
+	helperPID      uint32
+	helperTicks    uint64
+	helperCgroup   string
+	observation    moduleStageObservation
+	effectRecorded bool
 }
 
 func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource, images *podman.Client) (*publicationStageLease, error) {
@@ -96,7 +97,7 @@ func acquireRestoredStage(ctx context.Context, source *nativeRestoredSource, art
 		return nil, datapublish.ErrRecord
 	}
 	point, err := source.state.ReadNativePreparedPoint(ctx, source.pointID)
-	if err != nil || point.PointSHA256 != source.pointSHA256 || point.BindingID != source.permit.Runtime.BindingID || point.EpochID != source.permit.Runtime.EpochID || point.SourceSHA256 != source.source.SHA256() || point.CheckpointSHA256 != source.checkpoint.SHA256() || point.BundleManifestSHA256 != source.manifest.SHA256() {
+	if err != nil || point.PointSHA256 != source.pointSHA256 || point.BindingID != source.permit.Runtime.BindingID || point.EpochID != source.permit.Runtime.EpochID || point.SourceSHA256 != source.source.SHA256() || point.CheckpointSHA256 != source.checkpointSHA256 || source.manifest.Identity().CheckpointSHA256 != source.checkpointSHA256 || point.BundleManifestSHA256 != source.manifest.SHA256() {
 		return nil, datapublish.ErrRecord
 	}
 	platform, err := descriptorRuntimePlatform(source.permit.Runtime)
@@ -203,5 +204,5 @@ func publicationStageMountedRoot(process string, lease *publicationStageLease) b
 	}
 	member, ok := actual.Sys().(*syscall.Stat_t)
 	expected := lease.rootMember
-	return ok && uint64(member.Dev) == expected.Device && member.Ino == expected.Inode && member.Uid == expected.UID && uint16(member.Mode) == expected.Mode
+	return ok && uint64(member.Dev) == expected.Device && member.Ino == expected.Inode && member.Uid == expected.UID && member.Mode == uint32(expected.Mode)
 }

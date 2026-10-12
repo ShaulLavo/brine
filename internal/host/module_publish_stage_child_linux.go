@@ -22,7 +22,7 @@ func bindModuleStageNativeChild(child *localexec.ForegroundProcess, runtime data
 	process := "/proc/" + strconv.Itoa(child.PID())
 	raw, err := engineProcessFile(process, "stat")
 	pid, ticks, parseErr := parseEngineProcessStat(string(raw))
-	if err != nil || parseErr != nil || uint64(pid) != uint64(child.PID()) {
+	if err != nil || parseErr != nil || strconv.FormatUint(uint64(pid), 10) != strconv.Itoa(child.PID()) {
 		return nil, datapublish.ErrRecord
 	}
 	group, err := moduleStageChildGroup(process)

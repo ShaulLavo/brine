@@ -13,6 +13,7 @@ import (
 )
 
 type publicationStageEvidence struct {
+	lease       *publicationStageLease
 	source      *nativeRestoredSource
 	scope       datapublish.ProofScope
 	observation moduleStageObservation
@@ -43,6 +44,12 @@ func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLea
 		return publicationStageEvidence{}, datapublish.ErrRecord
 	}
 	request := moduleStageInput{Action: action, Runtime: lease.permit.Runtime.Clone(), Token: string(lease.material.publisher), WasmSHA256: string(artifact.WasmSHA256()), ProgramWireHash: string(artifact.ProgramWireHash()), SchemaSHA256: plan.Candidate().Schema().SHA256()}
+	if action == moduleStageCreate {
+		if plan.Source().Kind() != datapublish.CreateSource || !data.ValidCatalogHash(lease.restored.initialPublisher) || !data.ValidCatalogHash(lease.restored.publisherProofSHA) {
+			return publicationStageEvidence{}, datapublish.ErrRecord
+		}
+		request.CreationName, request.ExpectedPublisher = plan.CreationName(), lease.restored.initialPublisher
+	}
 	if action == moduleStagePublish {
 		request.PreflightSHA256, request.PreflightTokenSHA = plan.Preflight().ResponseSHA256, plan.Preflight().TokenSHA256
 	}
@@ -51,7 +58,20 @@ func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLea
 		_, _ = state.RecordPublicationUnknown(context.WithoutCancel(ctx), attempt)
 		return publicationStageEvidence{}, datapublish.ErrInspection
 	}
-	return publicationStageEvidence{source: lease.restored, scope: cursor.Scope(), observation: observation, stageRoot: lease.rootMember}, nil
+	if action == moduleStagePreflight {
+		if _, err = state.RecordPublicationPreflight(ctx, attempt, moduleStageProtectedObservation(lease, observation)); err != nil {
+			_, _ = state.RecordPublicationUnknown(context.WithoutCancel(ctx), attempt)
+			return publicationStageEvidence{}, datapublish.ErrInspection
+		}
+	}
+	if action == moduleStagePublish || action == moduleStageCreate {
+		observed := store.PublicationStageObservation{Process: moduleStageProtectedObservation(lease, observation), NativeDatabase: observation.Database, NativePublisher: observation.Publisher, ProgramWireHash: observation.ProgramWireHash, SchemaSHA256: observation.SchemaSHA256, Receipt: slices.Clone(observation.Receipt), ReceiptBindingSHA256: observation.ReceiptBindingSHA}
+		if _, err = state.RecordPublicationPublished(ctx, attempt, observed); err != nil {
+			_, _ = state.RecordPublicationUnknown(context.WithoutCancel(ctx), attempt)
+			return publicationStageEvidence{}, datapublish.ErrInspection
+		}
+	}
+	return publicationStageEvidence{lease: lease, source: lease.restored, scope: cursor.Scope(), observation: observation, stageRoot: lease.rootMember}, nil
 }
 
 func moduleStageResultMatches(observation moduleStageObservation, request moduleStageInput, reviewedPreflight []byte) bool {
@@ -77,7 +97,14 @@ func moduleStageCursorStep(action moduleStageAction) (datapublish.Step, error) {
 		return datapublish.CheckPreflight, nil
 	case moduleStagePublish:
 		return datapublish.PublishStage, nil
+	case moduleStageCreate:
+		return datapublish.PublishStage, nil
 	default:
 		return "", datapublish.ErrRecord
 	}
+}
+
+func moduleStageProtectedObservation(lease *publicationStageLease, observation moduleStageObservation) store.PublicationReviewObservation {
+	return store.PublicationReviewObservation{Preflight: slices.Clone(observation.Preflight), PublisherProof: slices.Clone(observation.PublisherProof), Runtime: lease.permit.Runtime.Clone(), Publisher: observation.Publisher,
+		HelperPID: lease.helperPID, HelperStartTicks: lease.helperTicks, HelperCgroup: lease.helperCgroup, ChildPID: observation.ChildPID, ChildStartTicks: observation.ChildStartTicks, StartedAt: lease.startedAt, FinishedAt: lease.finishedAt, Disposed: lease.disposed && observation.ChildStopped && observation.ChildBound}
 }
