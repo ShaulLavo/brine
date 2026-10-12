@@ -89,3 +89,22 @@ func TestNativeMaterialRejectsAuthorizationWithoutPrivateOutput(t *testing.T) {
 		t.Fatal("private material leaked in refusal")
 	}
 }
+
+func TestNativeMaterialInspectionRequiresOneExactSelector(t *testing.T) {
+	key, planID := strings.Repeat("b", 32), "sha256:"+strings.Repeat("a", 64)
+	raw := []byte(`{"app":"game","preparation_plan_id":"` + planID + `","idempotency_key":"` + key + `"}`)
+	decoded, err := decodeNativeMaterialInspect(raw)
+	if err != nil || !decoded.(NativeMaterialInspectArgs).Valid() {
+		t.Fatal("valid lost-response lookup refused", err)
+	}
+	for _, bad := range []string{
+		strings.Replace(string(raw), `"app":"game"`, `"operation_id":"material-operation","app":"game"`, 1),
+		strings.Replace(string(raw), `"app":"game"`, `"app":"game","app":"other"`, 1),
+		strings.Replace(string(raw), `"idempotency_key":"`+key+`"`, `"idempotency_key":null`, 1),
+		strings.Replace(string(raw), `"app":"game",`, "", 1),
+	} {
+		if _, err := decodeNativeMaterialInspect([]byte(bad)); err == nil {
+			t.Fatal("mixed or incomplete metadata selector accepted")
+		}
+	}
+}
