@@ -12,6 +12,7 @@ CREATE TABLE data_engine_transition_inputs(
  apply_operation_id TEXT NOT NULL UNIQUE REFERENCES operations(id),
  prepared_point_id TEXT NOT NULL UNIQUE,
  binding_id TEXT NOT NULL REFERENCES data_replica_bindings(id),
+ fence_id TEXT NOT NULL REFERENCES data_fences(id),
  canonical BLOB NOT NULL CHECK(length(canonical)<=65536)
 );
 CREATE TABLE data_native_epochs(
@@ -29,6 +30,7 @@ CREATE TABLE data_native_epochs(
 CREATE TABLE data_engine_transition_events(
  transition_id TEXT NOT NULL REFERENCES data_engine_transition_inputs(id),
  sequence INTEGER NOT NULL CHECK(sequence>0),
+ stage TEXT NOT NULL CHECK(stage IN ('prepared','preserve_intent','original_preserved','promote_intent','target_promoted','activation_intent','activated','finish_intent','completed','abandon_intent','abandoned_current')),
  canonical BLOB NOT NULL CHECK(length(canonical)<=65536),
  PRIMARY KEY(transition_id,sequence)
 );
