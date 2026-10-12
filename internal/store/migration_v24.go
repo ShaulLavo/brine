@@ -14,6 +14,18 @@ func migratePublicationReviewAcknowledgements(ctx context.Context, tx *sql.Tx) e
  canonical BLOB NOT NULL CHECK(length(canonical)<=4194304));
  CREATE TRIGGER data_module_publication_approvals_no_update BEFORE UPDATE ON data_module_publication_approvals BEGIN SELECT RAISE(ABORT,'immutable publication approval'); END;
  CREATE TRIGGER data_module_publication_approvals_no_delete BEFORE DELETE ON data_module_publication_approvals BEGIN SELECT RAISE(ABORT,'retained publication approval'); END;
+ CREATE TABLE data_module_publication_effects(
+ nonce TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES data_module_publication_claims(plan_id),
+ operation_id TEXT NOT NULL REFERENCES operations(id), step TEXT NOT NULL,
+ canonical BLOB NOT NULL CHECK(length(canonical)<=65536));
+ CREATE TRIGGER data_module_publication_effects_no_update BEFORE UPDATE ON data_module_publication_effects BEGIN SELECT RAISE(ABORT,'immutable publication effect'); END;
+ CREATE TRIGGER data_module_publication_effects_no_delete BEFORE DELETE ON data_module_publication_effects BEGIN SELECT RAISE(ABORT,'retained publication effect'); END;
+ CREATE TABLE data_module_publication_effect_events(
+ nonce TEXT NOT NULL REFERENCES data_module_publication_effects(nonce), sequence INTEGER NOT NULL CHECK(sequence>0),
+ stage TEXT NOT NULL CHECK(stage IN ('started','stop_intent','disposed','unknown')),
+ canonical BLOB NOT NULL CHECK(length(canonical)<=65536), PRIMARY KEY(nonce,sequence), UNIQUE(nonce,stage));
+ CREATE TRIGGER data_module_publication_effect_events_no_update BEFORE UPDATE ON data_module_publication_effect_events BEGIN SELECT RAISE(ABORT,'immutable publication effect event'); END;
+ CREATE TRIGGER data_module_publication_effect_events_no_delete BEFORE DELETE ON data_module_publication_effect_events BEGIN SELECT RAISE(ABORT,'retained publication effect event'); END;
  UPDATE schema_version SET version=24;`)
 	return err
 }

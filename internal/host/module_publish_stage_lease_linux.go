@@ -18,29 +18,30 @@ import (
 )
 
 type publicationStageLease struct {
-	empty         engineEmptySource
-	restored      *nativeRestoredSource
-	working       *publicationWorkingStage
-	review        *publicationReviewWork
-	artifact      *publicationArtifact
-	stagePath     string
-	preparation   *store.EnginePreparation
-	permit        store.EnginePermit
-	material      engineMaterial
-	image         podman.ImageInfo
-	nonce         string
-	rootMember    engineTreeMember
-	process       *engineNativeHandle
-	containerID   string
-	attempted     bool
-	stopAttempted bool
-	disposed      bool
-	startedAt     time.Time
-	finishedAt    time.Time
-	helperPID     uint32
-	helperTicks   uint64
-	helperCgroup  string
-	observation   moduleStageObservation
+	empty          engineEmptySource
+	restored       *nativeRestoredSource
+	working        *publicationWorkingStage
+	review         *publicationReviewWork
+	artifact       *publicationArtifact
+	stagePath      string
+	preparation    *store.EnginePreparation
+	permit         store.EnginePermit
+	material       engineMaterial
+	image          podman.ImageInfo
+	nonce          string
+	rootMember     engineTreeMember
+	process        *engineNativeHandle
+	containerID    string
+	attempted      bool
+	stopAttempted  bool
+	disposed       bool
+	startedAt      time.Time
+	finishedAt     time.Time
+	helperPID      uint32
+	helperTicks    uint64
+	helperCgroup   string
+	observation    moduleStageObservation
+	effectRecorded bool
 }
 
 func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource, images *podman.Client) (*publicationStageLease, error) {

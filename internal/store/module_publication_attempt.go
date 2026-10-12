@@ -19,6 +19,7 @@ type PublicationAttempt struct {
 	planID      string
 	operationID string
 	binding     data.ReplicaBindingID
+	restored    *publicationReviewRestore
 }
 
 type publicationAttemptState struct {

@@ -51,7 +51,15 @@ func (s *Store) RecordPublicationRestore(ctx context.Context, attempt *Publicati
 	if err = appendPublicationCursorTx(ctx, tx, current.review.Plan(), current.cursor, next); err != nil {
 		return current.cursor, err
 	}
-	return next, tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return current.cursor, err
+	}
+	identity, err := restored.Root().Stat(".")
+	if err != nil {
+		return next, err
+	}
+	attempt.restored = &publicationReviewRestore{root: restored.Root(), parent: parent, identity: identity, verifiedAt: restored.VerifiedAt(), sourceEvidenceSHA: evidence.SHA256()}
+	return next, nil
 }
 
 func publicationOriginalObservation(cursor datapublish.Cursor, point NativePreparedPointView, step datapublish.Step, proofSHA string) datapublish.Observation {
