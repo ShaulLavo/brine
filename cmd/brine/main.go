@@ -61,7 +61,14 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 			return cli.RuntimeServices{}, err
 		}
 		return cli.RuntimeServices{WriterAttempt: runtime.WriterAttempt, Close: runtime.Close}, nil
+	}, OpenEngineStartup: func(ctx context.Context) (cli.RuntimeServices, error) {
+		runtime, err := host.OpenEngineStartup(ctx)
+		if err != nil {
+			return cli.RuntimeServices{}, err
+		}
+		return cli.RuntimeServices{EngineExec: runtime.EngineExec, Close: runtime.Close}, nil
 	}}
+	deps.HostEngineCopyObserve = host.RunEngineCopyObserver
 	if cli.HostServeRequested(args) {
 		factory := host.NewServerFactory(deps.Version, authenticated)
 		deps.HostServerFactory = factory.Build
