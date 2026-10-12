@@ -44,6 +44,12 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 			return apply.Facts{}, result.New(result.Conflict, nil)
 		}
 		managed.Database, managed.Archive = &database, &archive
+		route, routeErr := s.Store.ReadManagedRouteState(ctx, string(desired.Name))
+		if routeErr == nil {
+			managed.RouteRevision = route.Revision
+		} else if !errors.Is(routeErr, store.ErrNotFound) {
+			return apply.Facts{}, routeErr
+		}
 		wanted, readErr := s.Store.ReadManagedDesired(ctx, database.BindingID)
 		if readErr == nil {
 			managed.Intent = &plan.ManagedIntentFacts{Revision: wanted.Revision, EpochID: wanted.EpochID, RuntimeSHA256: wanted.RuntimeSHA256}
@@ -93,19 +99,34 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return apply.Facts{}, err
 	}
-	routing, err := managedRoutingFacts(state, pol, snapshot, s.managedAuthority)
+	routing, err := managedRoutingFacts(ctx, state, pol, snapshot, s.managedAuthority, s.Store)
 	if err != nil {
 		return apply.Facts{}, err
 	}
 	return apply.Facts{Input: plan.Input{Desired: desired, Snapshot: snapshot, State: state, Image: primary, Managed: managed}, Routing: routing}, nil
 }
 
-func managedRoutingFacts(state plan.BrineState, pol policy.Policy, snapshot target.Snapshot, authority caddy.ManagedIngressAuthority) (caddy.State, error) {
+type managedRouteReader interface {
+	ReadManagedRouteState(context.Context, string) (store.ManagedRouteState, error)
+}
+
+func managedRoutingFacts(ctx context.Context, state plan.BrineState, pol policy.Policy, snapshot target.Snapshot, authority caddy.ManagedIngressAuthority, routes managedRouteReader) (caddy.State, error) {
 	routing := caddy.State{Files: map[string]string{}, Sites: map[string]caddy.Site{}}
 	for _, release := range state.Releases {
 		var site caddy.Site
 		var err error
 		if release.Managed != nil {
+			if routes == nil {
+				return caddy.State{}, result.New(result.Conflict, nil)
+			}
+			current, readErr := routes.ReadManagedRouteState(ctx, release.App)
+			if readErr != nil || current.BindingID != release.Managed.Database.BindingID || !current.Valid() {
+				return caddy.State{}, errors.Join(result.New(result.Conflict, nil), readErr)
+			}
+			if !current.Present {
+				continue
+			}
+			release.CaddyFile.Hash = current.FileHash
 			site, err = caddy.CommittedManagedSite(release.Desired, *release.Managed)
 			if err == nil {
 				site, err = caddy.WithManagedAuthority(site, authority)

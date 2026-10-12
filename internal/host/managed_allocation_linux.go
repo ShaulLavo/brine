@@ -35,6 +35,9 @@ func (p DataPreparation) PrepareManaged(ctx context.Context, operation string, p
 	if err = data.PrepareEngineLocks(ctx, p.StateRoot, m.Database.BindingID); err != nil {
 		return err
 	}
+	if _, err = p.State.CommitManagedDesired(ctx, operation, 0, managedDesiredRecord(operation, planned, 1, plan.ManagedLifecyclePlan{})); err != nil {
+		return err
+	}
 	fence, err := p.State.HoldDataFence(ctx, m.Database.DatabaseID, operation)
 	if err != nil {
 		return err
@@ -140,6 +143,10 @@ func (p DataPreparation) ManagedPrepared(ctx context.Context, operation string, 
 		return false, data.ErrInvalid
 	}
 	m := planned.Managed
+	wanted, err := p.State.ReadManagedDesired(ctx, m.Database.BindingID)
+	if err != nil || wanted != managedDesiredRecord(operation, planned, 1, plan.ManagedLifecyclePlan{}) {
+		return false, errors.Join(data.ErrInvalid, err)
+	}
 	recorded, err := p.State.ReadManagedPreparation(ctx, m.Database.BindingID)
 	if err != nil {
 		return false, err

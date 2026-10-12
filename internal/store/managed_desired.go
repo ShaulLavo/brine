@@ -11,6 +11,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/plan"
 )
 
 // ManagedDesiredState grants independent live component intent for one exact
@@ -98,6 +99,9 @@ func (s *Store) CommitManagedDesired(ctx context.Context, operation string, expe
 	if p.Managed == nil || !p.Managed.Valid() || len(p.Conflicts) != 0 || p.Managed.Database.BindingID != wanted.BindingID || p.Managed.Archive.EpochID != wanted.EpochID || p.Managed.RuntimeSHA256 != wanted.RuntimeSHA256 {
 		return ManagedDesiredState{}, ErrConflict
 	}
+	if !managedDesiredAllowed(p, wanted) {
+		return ManagedDesiredState{}, ErrConflict
+	}
 	if wanted.FrontendRunning && p.Managed.Frontend == nil {
 		return ManagedDesiredState{}, ErrConflict
 	}
@@ -117,6 +121,9 @@ func (s *Store) CommitManagedDesired(ctx context.Context, operation string, expe
 		return ManagedDesiredState{}, err
 	}
 	if errors.Is(err, ErrNotFound) && expected != 0 || err == nil && previous.Revision != expected {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	if expected != p.ManagedIntentRevision && (err != nil || previous.OperationID != operation || previous.PlanID != wanted.PlanID || expected != p.ManagedIntentRevision+1 || p.Lifecycle != plan.RestartApp) {
 		return ManagedDesiredState{}, ErrConflict
 	}
 	if wanted.RuntimeSHA256 != "" {
@@ -155,4 +162,24 @@ func readEffectiveManagedDesired(ctx context.Context, q dataQuerier, binding dat
 		return ManagedDesiredState{}, false, err
 	}
 	return state, state.Current(binding, epoch, runtimeSHA256), nil
+}
+
+func managedDesiredAllowed(p plan.Plan, wanted ManagedDesiredState) bool {
+	if p.Managed == nil {
+		return false
+	}
+	flags := plan.DesiredComponentsForDeployment(*p.Managed)
+	if p.Managed.State == data.EngineUnpublished {
+		flags = plan.ManagedLifecyclePlan{}
+	}
+	if p.ManagedLifecycle != nil {
+		flags = *p.ManagedLifecycle
+	}
+	matches := func(engine, frontend, ingress bool) bool {
+		return wanted.EngineRunning == engine && wanted.FrontendRunning == frontend && wanted.IngressServing == ingress
+	}
+	if matches(flags.EngineRunning, flags.FrontendRunning, flags.IngressServing) {
+		return true
+	}
+	return p.Lifecycle == plan.RestartApp && matches(!flags.Engine && flags.EngineRunning, false, false)
 }

@@ -139,7 +139,7 @@ func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
 		snap.PersistentData = &observation
 	}
 	out.Input = plan.Input{Desired: d, Snapshot: snap, State: state, Image: image}
-	out.Routing, err = managedRoutingFacts(state, pol, snap, s.managedAuthority)
+	out.Routing, err = managedRoutingFacts(ctx, state, pol, snap, s.managedAuthority, s.Store)
 	if err != nil {
 		return out, err
 	}

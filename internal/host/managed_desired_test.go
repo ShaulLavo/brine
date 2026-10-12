@@ -20,7 +20,7 @@ func TestManagedIntentProjectionDoesNotResumeAcrossEpochs(t *testing.T) {
 	for _, different := range []bool{false, true} {
 		current := runtime
 		if different {
-			current.EpochID = data.ReplicaEpochID(strings.Repeat("d", 32))
+			current.EpochID = data.ReplicaEpochID(strings.Repeat("9", 32))
 		}
 		intent := &plan.ManagedIntentFacts{Revision: wanted.Revision}
 		projectManagedIntent(intent, wanted, current)
