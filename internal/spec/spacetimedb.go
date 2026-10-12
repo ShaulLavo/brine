@@ -27,7 +27,7 @@ type SpacetimeModule struct {
 	Metadata *ModuleMetadata `json:"metadata,omitempty" toml:"-"`
 }
 
-var recoveryReference = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+var engineSecretReference = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
 
 type SpacetimeResources struct {
 	MemoryMB           int `json:"memory_mb" toml:"memory_mb"`
@@ -228,13 +228,13 @@ func (d SpacetimeDB) Validate() error {
 	if !seen[d.Module.Marker] {
 		return data.ErrInvalid
 	}
-	if !recoveryReference.MatchString(string(d.RecoveryPasswordRef)) {
+	if !engineSecretReference.MatchString(string(d.RecoveryPasswordRef)) {
 		return data.ErrInvalid
 	}
 	refs := d.References()
 	seenRefs := map[SecretReference]bool{}
 	for _, ref := range refs {
-		if !secretName.MatchString(string(ref)) || seenRefs[ref] {
+		if !engineSecretReference.MatchString(string(ref)) || seenRefs[ref] {
 			return data.ErrInvalid
 		}
 		seenRefs[ref] = true
