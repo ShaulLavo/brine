@@ -6,6 +6,7 @@ import (
 	"context"
 	"slices"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/store"
@@ -46,17 +47,22 @@ func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLea
 		request.PreflightSHA256, request.PreflightTokenSHA = plan.Preflight().ResponseSHA256, plan.Preflight().TokenSHA256
 	}
 	observation, err := runPublicationStage(ctx, lease, request, runner, session)
-	if err != nil {
+	if err != nil || !moduleStageResultMatches(observation, request, review.NativePreflightResponse()) {
 		_, _ = state.RecordPublicationUnknown(context.WithoutCancel(ctx), attempt)
 		return publicationStageEvidence{}, datapublish.ErrInspection
 	}
-	if observation.Action != action || observation.Database != string(lease.permit.Runtime.Database) || observation.Publisher != string(lease.permit.Runtime.Publisher) || observation.CredentialSHA256 != lease.permit.Runtime.Secrets.Publisher.SHA256 || !observation.ChildStopped {
-		return publicationStageEvidence{}, datapublish.ErrInspection
-	}
-	if action == moduleStagePreflight && !slices.Equal(observation.Preflight, review.NativePreflightResponse()) {
-		return publicationStageEvidence{}, datapublish.ErrStale
-	}
 	return publicationStageEvidence{source: lease.restored, scope: cursor.Scope(), observation: observation, stageRoot: lease.rootMember}, nil
+}
+
+func moduleStageResultMatches(observation moduleStageObservation, request moduleStageInput, reviewedPreflight []byte) bool {
+	runtime := request.Runtime
+	if observation.Action != request.Action || observation.Database != string(runtime.Database) || observation.Publisher != string(runtime.Publisher) || observation.CredentialSHA256 != runtime.Secrets.Publisher.SHA256 || !observation.ChildStopped {
+		return false
+	}
+	if request.Action == moduleStagePreflight {
+		return !observation.PublicationKnown && len(observation.Receipt) == 0 && observation.ReceiptBindingSHA == "" && observation.ProgramWireHash == string(runtime.Module.Program) && observation.SchemaSHA256 == runtime.Module.Schema.SHA256 && slices.Equal(observation.Preflight, reviewedPreflight)
+	}
+	return request.Action == moduleStagePublish && observation.PublicationKnown && len(observation.Receipt) != 0 && data.ValidCatalogHash(observation.ReceiptBindingSHA) && observation.ProgramWireHash == request.ProgramWireHash && observation.SchemaSHA256 == request.SchemaSHA256 && slices.Equal(observation.Preflight, reviewedPreflight)
 }
 
 func moduleStageCursorStep(action moduleStageAction) (datapublish.Step, error) {

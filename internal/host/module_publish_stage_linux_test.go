@@ -131,3 +131,33 @@ func TestModuleStageIndependentlyRequiresNoSwap(t *testing.T) {
 		}
 	}
 }
+
+func TestModuleStageResultRequiresExactReviewedPreflightAndPublishedTarget(t *testing.T) {
+	permit, _ := engineStartupFixture(t)
+	request := moduleStageInput{Action: moduleStagePreflight, Runtime: permit.Runtime, ProgramWireHash: strings.Repeat("1", 64), SchemaSHA256: strings.Repeat("2", 64)}
+	reviewed := []byte("actual retained preflight")
+	observation := moduleStageObservation{Action: moduleStagePreflight, Database: string(permit.Runtime.Database), Publisher: string(permit.Runtime.Publisher), CredentialSHA256: permit.Runtime.Secrets.Publisher.SHA256, ChildStopped: true, ProgramWireHash: string(permit.Runtime.Module.Program), SchemaSHA256: permit.Runtime.Module.Schema.SHA256, Preflight: reviewed}
+	if !moduleStageResultMatches(observation, request, reviewed) {
+		t.Fatal("matching reviewed preflight refused")
+	}
+	if moduleStageResultMatches(observation, request, []byte("different native preflight")) {
+		t.Fatal("changed native plan/token admitted")
+	}
+	request.Action, observation.Action = moduleStagePublish, moduleStagePublish
+	observation.ProgramWireHash, observation.SchemaSHA256 = request.ProgramWireHash, request.SchemaSHA256
+	if moduleStageResultMatches(observation, request, reviewed) {
+		t.Fatal("target metadata alone resolved an unknown publication")
+	}
+	observation.PublicationKnown, observation.Receipt, observation.ReceiptBindingSHA = true, []byte("actual native receipt"), strings.Repeat("3", 64)
+	if !moduleStageResultMatches(observation, request, reviewed) {
+		t.Fatal("known publication with exact target refused")
+	}
+	observation.SchemaSHA256 = permit.Runtime.Module.Schema.SHA256
+	if moduleStageResultMatches(observation, request, reviewed) {
+		t.Fatal("old/foreign target schema admitted after publication")
+	}
+	observation.SchemaSHA256, observation.ProgramWireHash = request.SchemaSHA256, string(permit.Runtime.Module.Program)
+	if moduleStageResultMatches(observation, request, reviewed) {
+		t.Fatal("old/foreign native module admitted after publication")
+	}
+}
