@@ -37,7 +37,7 @@ func (run *managedExecution) preflight(ctx context.Context) error {
 	}
 	rebuilt, err := fresh.CanonicalBytes()
 	if err != nil || !bytes.Equal(approved, rebuilt) {
-		return errors.Join(err, errors.New("managed plan drift"), ops.RecordPlanDrift(ctx, e.Journal, id, p, fresh))
+		return errors.Join(err, errors.New("managed plan drift"), ops.RecordPlanDrift(ctx, e.Journal, x.id, p, fresh))
 	}
 	x.facts = facts
 	x.previous, run.hadRelease, err = e.Releases.CurrentRelease(ctx, p.App)

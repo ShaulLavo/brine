@@ -7,7 +7,6 @@ import (
 	"slices"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
-	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
