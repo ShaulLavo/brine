@@ -50,7 +50,7 @@ func (r *ManagedFrontendRuntime) Permit(ctx context.Context, binding, app string
 		return errEngineSource
 	}
 	defer func() { resultErr = errors.Join(resultErr, guard.Release()) }()
-	if quadlet.VerifyCurrent(ctx, runtime.home, app+".container", resolution.Permit.UnitHash) != nil {
+	if quadlet.VerifyCurrent(ctx, runtime.home, app+".container", resolution.Permit.UnitHash) != nil || verifyManagedFrontendLoaded(ctx, runtime.session, runtime.home, app) != nil {
 		return errEngineSource
 	}
 	observer := managedEngineObserver{state: runtime.state, stateRoot: runtime.stateRoot, home: runtime.home, session: runtime.session, units: systemd.New(runtime.session)}
@@ -74,7 +74,7 @@ func (r *ManagedFrontendRuntime) Permit(ctx context.Context, binding, app string
 		return errEngineSource
 	}
 	final, err := runtime.state.ReadManagedFrontendPermit(ctx, app)
-	if err != nil || final.Permit != resolution.Permit || quadlet.VerifyCurrent(ctx, runtime.home, app+".container", resolution.Permit.UnitHash) != nil {
+	if err != nil || final.Permit != resolution.Permit || quadlet.VerifyCurrent(ctx, runtime.home, app+".container", resolution.Permit.UnitHash) != nil || verifyManagedFrontendLoaded(ctx, runtime.session, runtime.home, app) != nil {
 		return errEngineSource
 	}
 	finalDesired, err := currentManagedDesired(ctx, runtime.state, proof.permit.Runtime)

@@ -98,6 +98,9 @@ func (r managedRuntime) completedFrontend(ctx context.Context, operation string,
 	if err != nil || record.Resolution.Permit.BindingID != p.Managed.Database.BindingID || !r.completedFrontendOwner(ctx, record, operation, p) || quadlet.VerifyCurrent(ctx, r.home, p.App+".container", record.Resolution.Permit.UnitHash) != nil {
 		return errEngineSource
 	}
+	if verifyManagedFrontendLoaded(ctx, r.observer.session, r.home, p.App) != nil {
+		return errEngineSource
+	}
 	unit := mustManagedFrontendUnit(p.App)
 	pending, err := r.observer.units.JobPending(ctx, unit)
 	if err != nil || pending {
@@ -117,6 +120,9 @@ func (r managedRuntime) completedFrontend(ctx context.Context, operation string,
 	}
 	final, err := r.state.ReadManagedFrontendRecord(ctx, p.App)
 	if err != nil || final.Resolution.Permit != record.Resolution.Permit || quadlet.VerifyCurrent(ctx, r.home, p.App+".container", record.Resolution.Permit.UnitHash) != nil {
+		return errEngineSource
+	}
+	if verifyManagedFrontendLoaded(ctx, r.observer.session, r.home, p.App) != nil {
 		return errEngineSource
 	}
 	pending, err = r.observer.units.JobPending(ctx, unit)

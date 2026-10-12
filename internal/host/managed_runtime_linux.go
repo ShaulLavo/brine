@@ -127,7 +127,7 @@ func (r managedRuntime) BeforeFrontendStart(ctx context.Context, operation strin
 	if err != nil || permit.Permit.BindingID != p.Managed.Database.BindingID || permit.Permit.OperationID != operation || permit.Permit.PlanID != p.Hash || permit.Permit.UnitHash != unitHash || quadlet.VerifyCurrent(ctx, r.home, p.App+".container", unitHash) != nil {
 		return errEngineSource
 	}
-	return ctx.Err()
+	return verifyManagedFrontendLoaded(ctx, r.observer.session, r.home, p.App)
 }
 func (r managedRuntime) BeforeIngress(ctx context.Context, operation string, p plan.Plan, d policy.Desired) error {
 	if r.EngineReady(ctx, p) != nil {
@@ -140,7 +140,7 @@ func (r managedRuntime) BeforeIngress(ctx context.Context, operation string, p p
 	if err != nil || permit.Permit.BindingID != p.Managed.Database.BindingID || permit.Permit.OperationID != operation || permit.Permit.PlanID != p.Hash {
 		return errors.Join(errEngineSource, err)
 	}
-	return ctx.Err()
+	return verifyManagedFrontendLoaded(ctx, r.observer.session, r.home, p.App)
 }
 
 func (r managedRuntime) FrontendPermitOwner(ctx context.Context, app string) (string, error) {
@@ -189,6 +189,9 @@ func (r managedRuntime) CheckManagedIngress(ctx context.Context, claim caddy.Man
 			return errEngineSource
 		}
 		if quadlet.VerifyCurrent(ctx, r.home, claim.App+".container", frontend.Permit.UnitHash) != nil {
+			return errEngineSource
+		}
+		if verifyManagedFrontendLoaded(ctx, r.observer.session, r.home, claim.App) != nil {
 			return errEngineSource
 		}
 		active, err := r.observer.units.IsActive(ctx, mustManagedFrontendUnit(claim.App))
