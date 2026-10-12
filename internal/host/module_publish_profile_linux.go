@@ -56,7 +56,7 @@ func RunModuleDescriptorProfile(ctx context.Context, input io.Reader, output io.
 	}
 	status, err := engineProcessStatus("/proc/self")
 	inspection.Process = err == nil && engineProcessOwned(status) && slices.Equal(strings.Fields(status["NSpid"]), []string{"1"})
-	raw, err := engineProcessFile("/proc/self", "mountinfo")
+	raw, err := readModuleGuestMountInfo()
 	inspection.MountProfile = err == nil && moduleDescriptorMounts(raw)
 	for _, path := range []string{"/proc/kcore", "/proc/acpi", "/proc/scsi", "/proc/sched_debug", "/proc/timer_stats", "/sys/devices/virtual/powercap", "/sys/fs/selinux"} {
 		inspection.MaskInspections = append(inspection.MaskInspections, inspectDescriptorMask(path, raw))
