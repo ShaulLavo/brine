@@ -30,10 +30,12 @@ func SelectedRecoveryReleases(releases []RecoveryReleaseReference) (RecoveryRevi
 	if len(releases) == 0 || len(releases) > 16 || !slices.IsSortedFunc(releases, compareRecoveryRelease) {
 		return RecoveryReview{}, ErrRecord
 	}
-	for i, release := range releases {
-		if !operationReference.MatchString(release.ReleaseID) || !digest(release.CodeSHA256) || !digest(release.CompatibilitySHA256) || !data.ValidMarker(release.AcceptedMarker) || release.AcceptedMarker == data.EmptyMarker || !digest(release.AcceptedSchemaSHA256) || i > 0 && releases[i-1].ReleaseID == release.ReleaseID {
+	previous := ""
+	for _, release := range releases {
+		if !operationReference.MatchString(release.ReleaseID) || !digest(release.CodeSHA256) || !digest(release.CompatibilitySHA256) || !data.ValidMarker(release.AcceptedMarker) || release.AcceptedMarker == data.EmptyMarker || !digest(release.AcceptedSchemaSHA256) || release.ReleaseID == previous {
 			return RecoveryReview{}, ErrRecord
 		}
+		previous = release.ReleaseID
 	}
 	return RecoveryReview{kind: "selected_releases", releases: slices.Clone(releases)}, nil
 }
