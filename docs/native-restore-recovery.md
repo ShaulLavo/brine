@@ -73,10 +73,22 @@ original task outcome. Native retirement preserves the original fence owner and
 journals each whole transition-tree move before renaming. Preserve current data,
 prior original trees, downloaded bundles and all recovery versions.
 
-Native archive cleanup recovery, archived repository replay, credential renewal,
-retention verification, local expiry and purge are not yet implemented by their
-native adapters. Those paths currently refuse native inputs. Do not bypass that
-refusal by presenting native data as SQLite or by reopening an expired preparation
-permit. The original thirty-day deadline starts after retirement completes;
-early purge also requires the separate default-false `allow_archive_purge` grant.
-Remote epochs and keys remain retained.
+Run `brine archive native resolve OPERATION_ID --target TARGET --json` for an
+interrupted cleanup with an existing archive manifest. The resolve task keeps the
+original failed task outcome, verifies its exact remote source again and adopts
+only known unit and tree movements. Uncertain preparation without a manifest
+still requires manual inspection with the original fence held.
+
+Retained archives have their own read authority for credential renewal, replay
+and retention verification. It binds the original manifest, consumer, fence and
+encrypted bundle. It does not reopen an expired preparation permit. Unpublished
+archives use the recorded empty source and publisher identity without creating a
+database or inventing data replay evidence.
+
+The original thirty-day deadline starts after all retirement moves complete.
+Early purge requires the separate default-false `allow_archive_purge` grant and a
+fresh protected retention proof. Its deletion intent preserves that proof hash;
+recovery rechecks the current grant, policy and retention before further effects.
+Local expiry remains bound to the same deadline. Remote epochs and keys remain
+retained. Physical archive and post-archive recovery drills are still required
+acceptance evidence.

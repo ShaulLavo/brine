@@ -1302,9 +1302,9 @@ in the same transaction. Existing-transition resolution holds fresh real guards
 and validates the immutable original claim, consumer, fence and current16
 layout; it never reopens an expired stopped-source mutation permit.
 
-These are internal guarded effect contracts. Public native restore commands
-remain pending integration with the qualified backup runtime and operation
-adapter; storage/helper tests alone are not physical restore acceptance.
+The native restore commands below expose these guarded effects through the
+qualified backup runtime and existing operation adapter. Storage/helper tests
+alone are not physical restore acceptance.
 
 
 ## Native backup command execution
@@ -1381,7 +1381,7 @@ unexplained layout refuses resolution and retains the fence for manual inspectio
 ### Native archive retirement
 
 `archive native plan APP` reads an existing exact prepared point protecting the
-current initialized native engine, every retained backup epoch and every terminal
+current initialized or positively unpublished native engine, every retained backup epoch and every terminal
 engine transition. Nonterminal transitions and unreserved incoming repositories
 refuse planning. The plan binds complete local transition-tree identities and
 retention evidence. `apply` submits `native_retire` through the existing task
@@ -1402,15 +1402,36 @@ move is not blindly retried. Final retirement requires every transition move and
 sets the original thirty-day deadline only after all moves complete. SQLite
 archive records retain their original canonical encoding.
 
-The current command handles initialized native engines with existing owned runtime
-and a fresh exact prepared point. Native interrupted cleanup, archived repository
-read/replay, archive credential renewal, retention and purge still require their
-qualified native adapters; the existing SQLite-only adapters refuse native inputs.
+`resolve OPERATION_ID` uses a separate `native_retire_resolve` task and preserves
+the original recovery-required outcome. With the original manifest and real host
+guards, it checks current unit ownership, loaded frontend jobs/processes, private
+reader absence and original source bytes. A new authenticated read and passive
+replay verifies the original bundle. Known completed unit/tree moves are synced
+and adopted; uncertain preparation without a manifest remains fenced.
+
+Archived repository reads have a separate capability joining the immutable
+manifest, canonical point dependency, original consumer/fence and exact retained
+bundle. Retired maintenance does not require an active incarnation or reuse an
+expired preparation permission. Eligible archived credentials and the original
+recovery version bound every read. The transport deadline ends before the
+credential authority. Retention receipts come only from authenticated extraction
+and, for initialized data, fixed passive replay with known reader disposal.
+Store receipt writes and reads independently join their protected replay row.
+
+Positively unpublished retirement retains the actual owner/config/metadata and
+signing-recovery source under authenticated extraction. It requires absent
+frontend artifacts, processes and loaded routes. It neither creates a database
+nor substitutes initialized schema, marker or offset evidence.
+
 No physical native retirement, successful R2 restore, post-archive recovery or
-purge acceptance is claimed by these command and local filesystem tests.
+purge acceptance is claimed by command, structural and local filesystem tests.
 
 Early archive purge requires the separate `allow_archive_purge=true` operator
 policy grant. Omission and explicit false preserve the previous canonical policy
 bytes and deny purge. Live restore does not grant purge. Plan and execution both
 recheck the grant; revocation prevents new deletion effects. Expiry remains bound
-to the original thirty-day deadline. Neither purpose deletes remote objects.
+to the original thirty-day deadline. Written/native early purge also requires a
+fresh protected retention proof, whose canonical hash is retained in the original
+deletion intent. Recovery preserves that intent and proof and checks the current
+grant, policy and retention before each further destructive step. Neither purpose
+deletes remote objects.
