@@ -14,6 +14,8 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/podman"
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 )
 
 func TestModuleStageRequiresActualEmptySourceAndBlocksOrdinaryHost(t *testing.T) {
@@ -63,6 +65,66 @@ func TestModuleStageMountsPermitOnlyPrivateCopyAndReadonlyKeys(t *testing.T) {
 	for _, attack := range []string{strings.Replace(valid, "/keys/private.pem ro", "/keys/private.pem rw", 1), strings.Replace(valid, "/data rw", "/data ro", 1), valid + "11 1 0:11 / /input/module.wasm rw - ext4 artifact rw\n", valid + "11 1 0:11 / /work ro - ext4 original ro\n", valid + "11 1 0:11 / /credentials ro - ext4 credentials ro\n"} {
 		if moduleStageMounts([]byte(attack)) {
 			t.Fatal("wrong private copy/key/artifact/credential mount admitted")
+		}
+	}
+}
+
+func TestModuleStagePublisherProofBindsExactEndpointAndAttemptInterval(t *testing.T) {
+	started := time.Date(2026, 10, 12, 10, 0, 0, 0, time.UTC)
+	finished := started.Add(time.Minute)
+	server, _ := spacetimedb.NewPrivateServerEndpoint("127.0.0.1", privateEnginePort)
+	publisher, credential := strings.Repeat("a", 64), strings.Repeat("b", 64)
+	proof := map[string]any{"purpose": "native_supplied_key_publisher_verification", "endpoint_sha256": server.SHA256(), "method": "GET", "path": "/v1/identity/" + publisher + "/verify", "status": 204, "publisher": publisher, "credential_sha256": credential, "verified_at": started.Add(time.Second)}
+	observation := moduleStageObservation{Action: moduleStagePublisher, Publisher: publisher, CredentialSHA256: credential, ChildStopped: true}
+	observation.PublisherProof, _ = json.Marshal(proof)
+	raw, _ := json.Marshal(observation)
+	if _, err := decodeModuleStageObservation(raw, started, finished); err != nil {
+		t.Fatal("exact fresh publisher transcript refused", err)
+	}
+	attacks := map[string]any{"endpoint_sha256": strings.Repeat("c", 64), "publisher": strings.Repeat("d", 64), "credential_sha256": strings.Repeat("e", 64), "status": 200, "method": "POST", "path": "/v1/identity", "verified_at": started.Add(-time.Nanosecond)}
+	for field, value := range attacks {
+		t.Run(field, func(t *testing.T) {
+			testModuleStagePublisherProofAttack(t, observation, proof, field, value, started, finished)
+		})
+	}
+	testModuleStagePublisherProofAttack(t, observation, proof, "verified_at", finished.Add(time.Nanosecond), started, finished)
+	if _, err := decodeModuleStageObservation(raw, time.Time{}, finished); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("missing actual start time accepted", err)
+	}
+}
+
+func testModuleStagePublisherProofAttack(t *testing.T, observation moduleStageObservation, proof map[string]any, field string, value any, started, finished time.Time) {
+	t.Helper()
+	original := proof[field]
+	proof[field] = value
+	observation.PublisherProof, _ = json.Marshal(proof)
+	proof[field] = original
+	raw, _ := json.Marshal(observation)
+	if _, err := decodeModuleStageObservation(raw, started, finished); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("wrong/stale publisher transcript admitted", field, err)
+	}
+}
+
+func TestModuleStageIndependentlyRequiresNoSwap(t *testing.T) {
+	container, permit, material := ownedEngineFixture(t)
+	lease := &publicationStageLease{permit: permit, material: material, image: podman.ImageInfo{ImageID: permit.Runtime.ImageID}, nonce: strings.Repeat("a", 32), stagePath: "/private/stage"}
+	container.Name, container.Path, container.Args = "brine-module-stage-"+lease.nonce, "/brine", []string{"host", "module-stage"}
+	container.Config.Labels = map[string]string{"BRINE_PRIVATE_VERIFY": lease.nonce, "BRINE_MODULE_STAGE": lease.nonce}
+	container.HostConfig.NetworkMode = "none"
+	container.Mounts[0].Source = lease.stagePath
+	container.Mounts = append(container.Mounts, engineMount{Source: "/usr/local/bin/brine", Destination: "/brine", Type: "bind", RW: engineBool(false)})
+	if ownedPublicationStage(lease, container) {
+		t.Fatal("missing MemorySwap observation admitted")
+	}
+	memory := int64(permit.Runtime.MemoryMB) << 20
+	container.HostConfig.MemorySwap = &memory
+	if !ownedPublicationStage(lease, container) {
+		t.Fatal("exact no-swap private stage refused")
+	}
+	for _, swap := range []int64{-1, 0, memory + 1} {
+		container.HostConfig.MemorySwap = &swap
+		if ownedPublicationStage(lease, container) {
+			t.Fatal("wrong swap budget admitted", swap)
 		}
 	}
 }

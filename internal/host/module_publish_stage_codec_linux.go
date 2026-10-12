@@ -10,10 +10,11 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
-func decodeModuleStageObservation(raw []byte) (moduleStageObservation, error) {
+func decodeModuleStageObservation(raw []byte, startedAt, finishedAt time.Time) (moduleStageObservation, error) {
 	var observation moduleStageObservation
 	if len(raw) == 0 || len(raw) > 1<<20 {
 		return observation, datapublish.ErrRecord
@@ -22,7 +23,7 @@ func decodeModuleStageObservation(raw []byte) (moduleStageObservation, error) {
 	if _, err := strictjson.Object(raw, fields...); err != nil || json.Unmarshal(raw, &observation) != nil || !observation.ChildStopped || !data.ValidCatalogHash(observation.CredentialSHA256) || !data.ValidCatalogHash(observation.Publisher) || len(observation.PublisherProof) == 0 || len(observation.PublisherProof) > 8192 || len(observation.Preflight) > datapublish.NativePreflightResponseLimit || len(observation.Receipt) > datapublish.NativePreflightResponseLimit {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
-	if checkModuleStagePublisherProof(observation) != nil {
+	if checkModuleStagePublisherProof(observation, startedAt, finishedAt) != nil {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	if observation.Action == moduleStagePublisher {
@@ -43,7 +44,11 @@ func decodeModuleStageObservation(raw []byte) (moduleStageObservation, error) {
 	return observation, nil
 }
 
-func checkModuleStagePublisherProof(observation moduleStageObservation) error {
+func checkModuleStagePublisherProof(observation moduleStageObservation, startedAt, finishedAt time.Time) error {
+	server, err := spacetimedb.NewPrivateServerEndpoint("127.0.0.1", privateEnginePort)
+	if err != nil || startedAt.IsZero() || finishedAt.IsZero() || finishedAt.Before(startedAt) {
+		return datapublish.ErrRecord
+	}
 	fields, err := strictjson.Object(observation.PublisherProof, "purpose", "endpoint_sha256", "method", "path", "status", "publisher", "credential_sha256", "verified_at")
 	if err != nil {
 		return datapublish.ErrRecord
@@ -60,7 +65,7 @@ func checkModuleStagePublisherProof(observation moduleStageObservation) error {
 		return datapublish.ErrRecord
 	}
 	endpoint, err := strictjson.Value[string](fields["endpoint_sha256"])
-	if err != nil || !data.ValidCatalogHash(endpoint) {
+	if err != nil || endpoint != server.SHA256() {
 		return datapublish.ErrRecord
 	}
 	stamp, err := strictjson.Value[string](fields["verified_at"])
@@ -68,7 +73,7 @@ func checkModuleStagePublisherProof(observation moduleStageObservation) error {
 		return datapublish.ErrRecord
 	}
 	verifiedAt, err := time.Parse(time.RFC3339Nano, stamp)
-	if err != nil || verifiedAt.IsZero() || verifiedAt.After(time.Now().UTC()) {
+	if err != nil || verifiedAt.IsZero() || verifiedAt.Before(startedAt) || verifiedAt.After(finishedAt) {
 		return datapublish.ErrRecord
 	}
 	return nil

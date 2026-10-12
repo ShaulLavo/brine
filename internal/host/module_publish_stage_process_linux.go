@@ -54,6 +54,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	}
 	defer clear(input)
 	lease.attempted = true
+	startedAt := time.Now().UTC()
 	wait, cancel := context.WithTimeout(ctx, time.Duration(request.Runtime.StartupSeconds+request.Runtime.StopSeconds+45)*time.Second)
 	id, handle, runErr := startPublicationStageProcess(wait, lease, session)
 	lease.containerID, lease.process = id, handle
@@ -77,7 +78,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	if runErr != nil || disposeErr != nil || lease.sourceUnchanged(ctx) != nil {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
-	return decodeModuleStageObservation(result.Stdout)
+	return decodeModuleStageObservation(result.Stdout, startedAt, time.Now().UTC())
 }
 
 func startPublicationStageProcess(ctx context.Context, lease *publicationStageLease, session localexec.Session) (string, *engineNativeHandle, error) {
@@ -157,7 +158,7 @@ func publicationStageProcessBindings(process string, lease *publicationStageLeas
 
 func ownedPublicationStage(lease *publicationStageLease, container engineContainer) bool {
 	runtime := lease.permit.Runtime
-	if container.Name != "brine-module-stage-"+lease.nonce || container.Image != lease.image.ImageID || container.Path != "/brine" || !slices.Equal(container.Args, []string{"host", "module-stage"}) || container.Config.Labels["BRINE_PRIVATE_VERIFY"] != lease.nonce || container.Config.Labels["BRINE_MODULE_STAGE"] != lease.nonce || !engineContainerSecurity(container, runtime, "none") {
+	if container.Name != "brine-module-stage-"+lease.nonce || container.Image != lease.image.ImageID || container.Path != "/brine" || !slices.Equal(container.Args, []string{"host", "module-stage"}) || container.Config.Labels["BRINE_PRIVATE_VERIFY"] != lease.nonce || container.Config.Labels["BRINE_MODULE_STAGE"] != lease.nonce || !engineContainerSecurity(container, runtime, "none") || container.HostConfig.MemorySwap == nil || *container.HostConfig.MemorySwap != int64(runtime.MemoryMB)<<20 {
 		return false
 	}
 	expected := map[string]engineMount{"/data": {Source: lease.stagePath, Type: "bind", RW: engineBool(true)},

@@ -82,7 +82,7 @@ func VerifyNativePublisher(ctx context.Context, endpoint PrivateServerEndpoint, 
 		Publisher     PublisherIdentity `json:"publisher"`
 		CredentialSHA string            `json:"credential_sha256"`
 		VerifiedAt    time.Time         `json:"verified_at"`
-	}{"native_supplied_key_publisher_verification", publicationBytesSHA256([]byte(endpoint.base)), http.MethodGet, request.URL.EscapedPath(), http.StatusNoContent, publisher, verified.credentialSHA, verified.verifiedAt})
+	}{"native_supplied_key_publisher_verification", endpoint.SHA256(), http.MethodGet, request.URL.EscapedPath(), http.StatusNoContent, publisher, verified.credentialSHA, verified.verifiedAt})
 	if err != nil {
 		return NativePublisherVerification{}, ErrNativePublisherVerification
 	}
