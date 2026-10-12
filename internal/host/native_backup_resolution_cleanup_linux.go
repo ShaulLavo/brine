@@ -120,7 +120,7 @@ func nativeUploadProcessesAbsent(ctx context.Context, workspace string) error {
 	}
 	for _, entry := range entries {
 		pid, err := strconv.ParseUint(entry.Name(), 10, 32)
-		if err != nil || pid == 0 || pid == uint64(os.Getpid()) {
+		if err != nil || pid == 0 || entry.Name() == strconv.Itoa(os.Getpid()) {
 			continue
 		}
 		if err = nativeUploadProcessAbsent(ctx, filepath.Join("/proc", strconv.FormatUint(pid, 10)), workspace); err != nil {
@@ -130,6 +130,10 @@ func nativeUploadProcessesAbsent(ctx context.Context, workspace string) error {
 	return ctx.Err()
 }
 func nativeUploadProcessAbsent(ctx context.Context, process, workspace string) error {
+	pid, parseErr := strconv.ParseUint(filepath.Base(process), 10, 32)
+	if parseErr != nil || pid == 0 || process != filepath.Join("/proc", strconv.FormatUint(pid, 10)) {
+		return errEngineSource
+	}
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -140,7 +144,7 @@ func nativeUploadProcessAbsent(ctx context.Context, process, workspace string) e
 		}
 		return errEngineSource
 	}
-	if uint64(stat.Uid) != uint64(os.Geteuid()) {
+	if int64(stat.Uid) != int64(os.Geteuid()) {
 		return nil
 	}
 	cwd, err := os.Readlink(filepath.Join(process, "cwd"))
@@ -153,7 +157,7 @@ func nativeUploadProcessAbsent(ctx context.Context, process, workspace string) e
 	if nativeUploadContains(workspace, cwd) {
 		return errEngineSource
 	}
-	fd, err := os.Open(filepath.Join(process, "fd"))
+	fd, err := os.Open(filepath.Join(process, "fd")) // #nosec G304 -- The boundary accepts only the fixed /proc/<canonical uint32 PID>/fd directory; it observes consumers and never opens caller files.
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil

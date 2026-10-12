@@ -13,7 +13,7 @@ import (
 func TestNativeBackupResolutionDetectsActualOpenAndDeletedConsumerFD(t *testing.T) {
 	workspace := t.TempDir()
 	name := filepath.Join(workspace, "owned-source")
-	file, err := os.OpenFile(name, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0600)
+	file, err := os.OpenFile(name, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0600) // #nosec G304 -- A fixed child name under this test-owned t.TempDir is the actual consumer-FD fixture.
 	if err != nil {
 		t.Fatal(err)
 	}

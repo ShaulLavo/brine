@@ -43,7 +43,7 @@ func (o nativeBackupResolutionOperations) InspectBackup(ctx context.Context, arg
 	if err != nil {
 		return dispatch.NativeBackupInspectionView{}, err
 	}
-	defer func() { _ = observed.close() }()
+	defer func() { _ = observed.close(ctx) }()
 	return observed.view(inspection), nil
 }
 func (o nativeBackupResolutionOperations) ReviewBackup(ctx context.Context, args dispatch.NativeBackupReviewArgs) (review nativecapture.BackupResolutionReview, reviewErr error) {
@@ -61,7 +61,7 @@ func (o nativeBackupResolutionOperations) ReviewBackup(ctx context.Context, args
 	if err != nil {
 		return review, err
 	}
-	defer func() { reviewErr = errors.Join(reviewErr, observed.close()) }()
+	defer func() { reviewErr = errors.Join(reviewErr, observed.close(ctx)) }()
 	return inspection.Review(ctx, observed.hash())
 }
 func (o nativeBackupResolutionOperations) ResolveBackup(ctx context.Context, args dispatch.NativeBackupResolveArgs) (jobs.Accepted, error) {
@@ -90,7 +90,7 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 	if err != nil {
 		return nil, err
 	}
-	defer func() { taskErr = errors.Join(taskErr, observed.close()) }()
+	defer func() { taskErr = errors.Join(taskErr, observed.close(ctx)) }()
 	if err = inspection.CheckReviewedObservation(ctx, observed.hash()); err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (v *nativeBackupObserved) hash() string {
 func (v *nativeBackupObserved) view(i *store.NativeBackupInspection) dispatch.NativeBackupInspectionView {
 	return dispatch.NativeBackupInspectionView{OperationID: i.OriginalOperationID(), Kind: string(i.OriginalKind()), BindingID: string(i.BindingID()), EpochID: v.material.Scope.EpochID, ObservationSHA256: v.hash(), State: "verified_remote"}
 }
-func (v *nativeBackupObserved) close() error {
+func (v *nativeBackupObserved) close(ctx context.Context) error {
 	var err error
 	if v.lifetime != nil {
 		err = v.lifetime.Release()
@@ -162,7 +162,7 @@ func (v *nativeBackupObserved) close() error {
 		v.originalParent = nil
 	}
 	if v.parent != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), jobs.JournalTimeout)
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), jobs.JournalTimeout)
 		cleanupErr := nativeUploadProcessesAbsent(ctx, v.path)
 		if cleanupErr == nil {
 			cleanupErr = (nativeBackupResolutionOperations{runtime: v.runtime}).disposeOriginalUploadReaders(ctx, v.path)
@@ -187,7 +187,7 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 	complete := false
 	defer func() {
 		if !complete {
-			inspectErr = errors.Join(inspectErr, v.close())
+			inspectErr = errors.Join(inspectErr, v.close(ctx))
 		}
 	}()
 	material, err := i.Material(ctx)
