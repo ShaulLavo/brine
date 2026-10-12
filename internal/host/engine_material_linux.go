@@ -129,12 +129,12 @@ func engineModuleHTTPDisabled(root *os.Root) bool {
 }
 
 func verifyEngineService(ctx context.Context, home string, permit store.EnginePermit) error {
-	root, err := engineOpenRoot(home)
+	root, err := engineOpenRoot(filepath.Join(home, ".config", "systemd", "user"))
 	if err != nil {
 		return errEngineSource
 	}
 	defer func() { _ = root.Close() }()
-	name := filepath.Join(".config", "systemd", "user", "brine-engine-"+string(permit.Runtime.BindingID)+".service")
+	name := "brine-engine-" + string(permit.Runtime.BindingID) + ".service"
 	raw, err := readEnginePrivateFile(ctx, root, name, permit.Runtime.UnitSHA256, 64<<10)
 	if err != nil {
 		return err
