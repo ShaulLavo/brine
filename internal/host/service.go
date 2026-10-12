@@ -26,13 +26,14 @@ type ImageResolver interface {
 	Resolve(context.Context, spec.ImageReference, target.Platform) (plan.Image, error)
 }
 type Service struct {
-	managedObserver *managedEngineObserver
-	Data            PersistentFacts
-	Store           *store.Store
-	Inventory       dispatch.Inventory
-	Policy          PolicyLoader
-	Images          ImageResolver
-	Requester       string
+	managedObserver    *managedEngineObserver
+	managedPreparation apply.ManagedPreparation
+	Data               PersistentFacts
+	Store              *store.Store
+	Inventory          dispatch.Inventory
+	Policy             PolicyLoader
+	Images             ImageResolver
+	Requester          string
 }
 
 func (s Service) Authorize(ctx context.Context, class dispatch.Class) error {

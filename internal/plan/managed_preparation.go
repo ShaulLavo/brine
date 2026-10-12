@@ -76,7 +76,7 @@ func BuildManagedPreparation(in Input, proposed ManagedServicePlan, root data.Ro
 	ports, known := previewPorts(in)
 	if !known {
 		add(UnknownFacts, "ports")
-	} else if !slices.Contains(ports, proposed.EnginePort) || proposed.Frontend != nil && !slices.Contains(ports, proposed.Frontend.Port) {
+	} else if !preparedPortsOwned(in, proposed) && (!slices.Contains(ports, proposed.EnginePort) || proposed.Frontend != nil && !slices.Contains(ports, proposed.Frontend.Port)) {
 		add(PortOwned, "managed.ports")
 	}
 	for _, release := range in.State.Releases {
@@ -100,5 +100,29 @@ func BuildManagedPreparation(in Input, proposed ManagedServicePlan, root data.Ro
 	root.FreeInodes = 0
 	root.OperatorQuota = nil
 	p.PreparationRoots = []data.RootEvidence{root}
+	if in.Managed.Prepared.Status == target.KnownStatus && in.Managed.Prepared.Value != nil && *in.Managed.Prepared.Value && in.Managed.Preparation != nil && reflect.DeepEqual(*in.Managed.Preparation, proposed) {
+		p.Kind = NoOp
+		p.Changes = []Change{}
+	}
 	return finish(p, desired, snapshot, state)
+}
+
+func preparedPortsOwned(in Input, proposed ManagedServicePlan) bool {
+	if in.Managed == nil || in.Managed.Preparation == nil || !reflect.DeepEqual(*in.Managed.Preparation, proposed) || in.Managed.Prepared.Status != target.KnownStatus || in.Managed.Prepared.Value == nil || !*in.Managed.Prepared.Value {
+		return false
+	}
+	if in.Snapshot.UsedPorts.Value == nil || in.Snapshot.PortOwners.Value == nil {
+		return false
+	}
+	for _, port := range *in.Snapshot.UsedPorts.Value {
+		if port == proposed.EnginePort || proposed.Frontend != nil && port == proposed.Frontend.Port {
+			return false
+		}
+	}
+	for _, owner := range *in.Snapshot.PortOwners.Value {
+		if owner.Port == proposed.EnginePort || proposed.Frontend != nil && owner.Port == proposed.Frontend.Port {
+			return false
+		}
+	}
+	return true
 }

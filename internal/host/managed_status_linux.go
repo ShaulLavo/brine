@@ -55,6 +55,21 @@ func (r managedStatusReader) Read(ctx context.Context, app string) (apps.Managed
 		runtime := projection.Permit.Runtime
 		status.State = string(runtime.State)
 		status.EnginePort = target.Known(target.Port(runtime.HostPort))
+		status.Frontend = false
+		status.FrontendPort = nil
+		current, releaseErr := r.state.CurrentRelease(ctx, app)
+		if releaseErr == nil {
+			if current.Managed == nil || current.Managed.BindingID != database.BindingID {
+				return status, store.ErrInvalid
+			}
+			if current.Managed.Frontend != nil {
+				status.Frontend = true
+				port := current.Managed.Frontend.Port
+				status.FrontendPort = &port
+			}
+		} else if !errors.Is(releaseErr, store.ErrNotFound) {
+			return status, releaseErr
+		}
 		if runtime.State == data.EngineInitialized {
 			fingerprint, err := managedRuntimeHash(runtime)
 			if err != nil {

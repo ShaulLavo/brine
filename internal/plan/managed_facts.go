@@ -18,6 +18,8 @@ type ManagedFacts struct {
 	Fences           []data.QuiescenceFence     `json:"fences"`
 	NativeState      target.Observation[string] `json:"native_state"`
 	IngressProtected target.Observation[bool]   `json:"ingress_protected"`
+	Preparation      *ManagedServicePlan        `json:"preparation,omitempty"`
+	Prepared         target.Observation[bool]   `json:"prepared"`
 }
 
 func (f ManagedFacts) Clone() ManagedFacts {
@@ -42,6 +44,14 @@ func (f ManagedFacts) Clone() ManagedFacts {
 	if f.IngressProtected.Value != nil {
 		value := *f.IngressProtected.Value
 		f.IngressProtected.Value = &value
+	}
+	if f.Preparation != nil {
+		value := f.Preparation.Clone()
+		f.Preparation = &value
+	}
+	if f.Prepared.Value != nil {
+		value := *f.Prepared.Value
+		f.Prepared.Value = &value
 	}
 	return f
 }

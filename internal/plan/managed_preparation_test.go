@@ -104,3 +104,28 @@ func TestManagedPreparationRequiresCurrentFactsAndDistinctReservations(t *testin
 		t.Fatal("unmeasured root admitted")
 	}
 }
+
+func TestManagedPreparedReplanIsNoOpAtItsOwnedFrozenPorts(t *testing.T) {
+	in, proposed, root := managedPreparationFixture(t, true)
+	in.Managed.Database = &proposed.Database
+	in.Managed.Archive = &proposed.Archive
+	in.Managed.Preparation = &proposed
+	in.Managed.Prepared = target.Known(true)
+	in.State.DataIncarnations = []DataIncarnation{{App: string(in.Desired.Name), ID: string(proposed.Database.IncarnationID)}}
+	in.State.ManagedReservations = []target.ManagedPortReservation{{App: string(in.Desired.Name), BindingID: proposed.Database.BindingID, EnginePort: proposed.EnginePort, FrontendPort: proposed.Frontend.Port}}
+	planned, err := BuildManagedPreparation(in, proposed, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned.Kind != NoOp || len(planned.Changes) != 0 || planned.Managed.EnginePort != proposed.EnginePort || planned.Managed.Frontend.Port != proposed.Frontend.Port {
+		t.Fatal("prepared replan allocated new ports or effects", planned.Kind, planned.Conflicts)
+	}
+	in.Snapshot.UsedPorts = target.Known([]target.Port{proposed.EnginePort})
+	refused, err := BuildManagedPreparation(in, proposed, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refused.Kind != Conflict || len(refused.Changes) != 0 {
+		t.Fatal("unexpected listener admitted at prepared port")
+	}
+}

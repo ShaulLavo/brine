@@ -19,7 +19,7 @@ func (s Service) managedPreparationPlan(ctx context.Context, facts apply.Facts) 
 	if err != nil {
 		return plan.Plan{}, err
 	}
-	if preview.ManagedPreview == nil || preview.ManagedPreview.EngineHostPort == 0 || input.Desired.App().HasAppContainer() && preview.ManagedPreview.AppHostPort == 0 {
+	if input.Managed.Preparation == nil && (preview.ManagedPreview == nil || preview.ManagedPreview.EngineHostPort == 0 || input.Desired.App().HasAppContainer() && preview.ManagedPreview.AppHostPort == 0) {
 		return preview, nil
 	}
 	inspector, ok := s.Data.(preparationInspector)
@@ -32,6 +32,9 @@ func (s Service) managedPreparationPlan(ctx context.Context, facts apply.Facts) 
 	}
 	if len(roots) != 1 {
 		return plan.Plan{}, result.New(result.Conflict, nil)
+	}
+	if input.Managed.Preparation != nil {
+		return plan.BuildManagedPreparation(input, *input.Managed.Preparation, roots[0])
 	}
 	proposed, err := managedProposal(input)
 	if err != nil {

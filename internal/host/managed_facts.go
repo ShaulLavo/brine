@@ -36,6 +36,26 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 			return apply.Facts{}, result.New(result.Conflict, nil)
 		}
 		managed.Database, managed.Archive = &database, &archive
+		if projection.Permit == nil {
+			preparation, readErr := s.Store.ReadManagedPreparation(ctx, database.BindingID)
+			if readErr == nil {
+				preparedPlan, preparedDesired, loadErr := s.Store.LoadPlan(ctx, preparation.PlanID)
+				if loadErr != nil || preparedPlan.Managed == nil {
+					return apply.Facts{}, errors.Join(store.ErrInvalid, loadErr)
+				}
+				frozen := preparedPlan.Managed.Clone()
+				managed.Preparation = &frozen
+				managed.Prepared = target.Observation[bool]{Status: target.Unknown}
+				if s.managedPreparation != nil {
+					complete, inspectErr := s.managedPreparation.ManagedPrepared(ctx, preparation.OperationID, preparedPlan, preparedDesired)
+					if inspectErr == nil {
+						managed.Prepared = target.Known(complete)
+					}
+				}
+			} else if !errors.Is(readErr, store.ErrNotFound) {
+				return apply.Facts{}, readErr
+			}
+		}
 		if projection.Permit != nil {
 			runtime := projection.Permit.Runtime.Clone()
 			managed.Runtime = &runtime
