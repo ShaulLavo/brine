@@ -32,6 +32,11 @@ type descriptorLease struct {
 	attempted     bool
 	stopAttempted bool
 	disposed      bool
+	helperPID     uint32
+	helperTicks   uint64
+	helperCgroup  string
+	startedAt     time.Time
+	finishedAt    time.Time
 }
 
 func acquireDescriptorLease(ctx context.Context, state *store.Store, preparation *store.EnginePreparation, binding data.ReplicaBindingID, deploymentPlanID string, artifact datapublish.Artifact, images *podman.Client) (*descriptorLease, error) {
@@ -96,10 +101,12 @@ func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, ru
 	}
 	wait, cancel := context.WithTimeout(ctx, descriptorTotalWait)
 	lease.attempted = true
+	lease.startedAt = time.Now().UTC()
 	id, handle, runErr := startDescriptorProcess(wait, lease, session)
 	lease.containerID, lease.process = id, handle
 	var result localexec.Output
 	if runErr == nil && handle.alive() == nil && lease.artifact.unchanged(wait) == nil {
+		lease.helperPID, lease.helperTicks, lease.helperCgroup = handle.pid, handle.ticks, handle.cgroup
 		result, runErr = runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: []string{"attach", "--sig-proxy=false", id}, Stdin: input, Mutation: true, OutputLimit: moduleDescriptorOutputLimit})
 	} else {
 		runErr = datapublish.ErrRecord
@@ -117,6 +124,7 @@ func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, ru
 		lease.disposed = true
 	}
 	stop()
+	lease.finishedAt = time.Now().UTC()
 	if disposeErr != nil || runErr != nil || lease.artifact.unchanged(ctx) != nil {
 		return extractedPublicationCandidate{}, datapublish.ErrRecord
 	}

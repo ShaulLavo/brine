@@ -27,6 +27,12 @@ func beginPublicationWorkingStage(ctx context.Context, source *nativeRestoredSou
 	if err != nil || cursor.Scope().PointID != source.pointID || cursor.Scope().BindingID != string(source.permit.Runtime.BindingID) || cursor.Scope().OldEpochID != string(source.permit.Runtime.EpochID) || cursor.Scope().CandidateWasmSHA256 != string(artifact.artifact.WasmSHA256()) || cursor.Scope().CandidateProgramWireHash != string(artifact.artifact.ProgramWireHash()) {
 		return nil, datapublish.ErrRecord
 	}
+	if cursor.State() != datapublish.IntentRecorded || cursor.IntendedStep() != datapublish.RestoreStage {
+		return nil, datapublish.ErrRecord
+	}
+	if _, err = source.state.RecordPublicationRestore(ctx, attempt, source.extracted, source.parent, source.evidence); err != nil {
+		return nil, err
+	}
 	return &publicationWorkingStage{source: source, attempt: attempt, artifact: artifact, scope: cursor.Scope()}, nil
 }
 

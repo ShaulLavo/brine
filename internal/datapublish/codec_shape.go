@@ -30,8 +30,14 @@ func validatePlanObjects(fields map[string]json.RawMessage, kind SourceKind) err
 	if err != nil {
 		return err
 	}
-	if _, err = objectValues(facts["secret_versions"], "publisher", "signing_public", "signing_private", "recovery_password"); err != nil {
+	secrets, err := objectValues(facts["secret_versions"], "publisher", "signing_public", "signing_private", "auth_policy", "recovery_password")
+	if err != nil {
 		return err
+	}
+	for _, raw := range secrets {
+		if _, err = objectValues(raw, "reference", "version", "sha256", "expires_at"); err != nil {
+			return err
+		}
 	}
 	candidate, err := objectValues(fields["candidate"], "wasm_sha256", "program_wire_hash", "schema")
 	if err != nil {
@@ -40,7 +46,7 @@ func validatePlanObjects(fields map[string]json.RawMessage, kind SourceKind) err
 	if _, err = objectValues(candidate["schema"], "version", "sha256"); err != nil {
 		return err
 	}
-	if _, err = objectValues(fields["review"], "guest_code_sha256", "recovery_releases"); err != nil {
+	if _, err = objectValues(fields["review"], "guest_code_sha256", "recovery"); err != nil {
 		return err
 	}
 	if kind == CapturedSource {

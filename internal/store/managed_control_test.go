@@ -27,6 +27,10 @@ func managedControlFixture(t *testing.T) (*Store, plan.Plan, ops.Operation) {
 }
 
 func managedControlFrontendFixture(t *testing.T, frontend bool) (*Store, plan.Plan, ops.Operation) {
+	return managedControlStateFixture(t, frontend, false)
+}
+
+func managedControlStateFixture(t *testing.T, frontend, unpublished bool) (*Store, plan.Plan, ops.Operation) {
 	t.Helper()
 	ctx := context.Background()
 	s := openTest(t)
@@ -56,6 +60,10 @@ func managedControlFrontendFixture(t *testing.T, frontend bool) (*Store, plan.Pl
 	if err != nil {
 		t.Fatal(err)
 	}
+	if unpublished {
+		destination := desired.BackupDestinations[0]
+		desired.BackupRetention = []data.RetentionEvidence{{Destination: destination.Reference, Endpoint: destination.Endpoint, Bucket: destination.Bucket, BasePrefix: destination.BasePrefix, VerificationID: strings.Repeat("f", 32), VerifiedAt: time.Now().UTC().Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}}
+	}
 	request := engineReservation(t)
 	request.App, request.PolicyHash = string(desired.Name), desired.PolicyHash
 	request.Database.Name = desired.SpacetimeDB.Name
@@ -72,6 +80,9 @@ func managedControlFrontendFixture(t *testing.T, frontend bool) (*Store, plan.Pl
 		t.Fatal(err)
 	}
 	runtime := engineRuntimeFixture(reserved)
+	if unpublished {
+		runtime.State, runtime.Database, runtime.Publisher, runtime.Names = data.EngineUnpublished, "", "", []string{}
+	}
 	runtime.ManifestDigest = data.SpacetimeDBARM64Manifest
 	engine := desired.SpacetimeDB
 	runtime.Runtime, runtime.MemoryMB, runtime.PIDsLimit = engine.Runtime, engine.Resources.MemoryMB, engine.Resources.PIDsLimit
@@ -89,7 +100,10 @@ func managedControlFrontendFixture(t *testing.T, frontend bool) (*Store, plan.Pl
 	if err = s.CommitEngineRuntime(ctx, runtime, fence.ID, "control-fixture"); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.ReleaseDataFence(ctx, fence.ID, "control-fixture"); err != nil {
+	if !unpublished {
+		err = s.ReleaseDataFence(ctx, fence.ID, "control-fixture")
+	}
+	if err != nil {
 		t.Fatal(err)
 	}
 	in := fixture(t)
@@ -101,6 +115,12 @@ func managedControlFrontendFixture(t *testing.T, frontend bool) (*Store, plan.Pl
 	}
 	in.Managed = &plan.ManagedFacts{Database: &reserved.Database, Archive: &reserved.Archive, Runtime: &runtime, EngineImage: image, Fences: []data.QuiescenceFence{}, NativeState: target.Known("running"), LoggingPrerequisite: target.Known(true), LoggingRootSHA256: strings.Repeat("a", 64), LoggingConfigSHA256: strings.Repeat("b", 64)}
 	p, err := plan.Build(in)
+	if unpublished {
+		in.Managed.Runtime = nil
+		proposal := plan.ManagedServicePlan{State: data.EngineUnpublished, EngineImage: image, EnginePort: target.Port(desired.AppPorts.Min), Database: reserved.Database, Archive: reserved.Archive}
+		root := data.RootEvidence{Root: reserved.Database.Root, Device: 7, Inode: 9, Filesystem: "ext4", FreeBytes: desired.MinimumFreeDiskBytes + 10000, FreeInodes: 100, ObservedAt: time.Now().UTC()}
+		p, err = plan.BuildManagedPreparation(in, proposal, root)
+	}
 	if err != nil || p.Kind != plan.Create {
 		t.Fatal("control plan", p.Conflicts, err)
 	}

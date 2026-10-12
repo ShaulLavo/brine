@@ -7,10 +7,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/enroll"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -26,6 +29,7 @@ type nativeBackupRuntime struct {
 	stateRoot string
 	home      string
 	session   localexec.Session
+	routes    *caddy.Manager
 }
 
 func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.NativeRepositoryRead) (*restic.Client, restic.Repository, error) {
@@ -33,12 +37,12 @@ func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.Na
 	if err != nil {
 		return nil, restic.Repository{}, errEngineSource
 	}
+	return r.repositoryMaterial(ctx, material, admission, "")
+}
+
+func (r nativeBackupRuntime) repositoryMaterial(ctx context.Context, material store.NativeRepositoryMaterial, admission restic.RepositoryAdmission, grant string) (*restic.Client, restic.Repository, error) {
 	files := backupcredentials.Files{Root: filepath.Join(r.stateRoot, "credentials")}
-	receipt, err := files.Receipt(material.CredentialReference, material.Scope.CredentialVersion)
-	if err != nil || !nativeCredentialReceiptMatches(material, receipt) {
-		return nil, restic.Repository{}, errEngineSource
-	}
-	packet, err := files.Read(material.CredentialReference, material.Scope.CredentialVersion)
+	packet, err := nativeRepositoryCredentialPacket(files, material)
 	if err != nil {
 		return nil, restic.Repository{}, errEngineSource
 	}
@@ -53,7 +57,7 @@ func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.Na
 		return nil, restic.Repository{}, errEngineSource
 	}
 	defer clear(password)
-	repository, err := restic.NewS3Repository(material.Scope, material.Location, password, packet, "")
+	repository, err := restic.NewS3Repository(material.Scope, material.Location, password, packet, grant)
 	if err != nil {
 		return nil, restic.Repository{}, errEngineSource
 	}
@@ -63,6 +67,24 @@ func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.Na
 	}
 	client, err := restic.NewClient(asset.BinarySHA256, restic.DefaultLimits(), admission)
 	return client, repository, err
+}
+
+func nativeRepositoryCredentialPacket(files backupcredentials.Files, material store.NativeRepositoryMaterial) (backupcredentials.Packet, error) {
+	ref := material.CredentialReference
+	if material.ArchiveCredential != nil {
+		expected := *material.ArchiveCredential
+		ref = expected.Plan.Scope.FileReference()
+		actual, err := files.ArchiveReceipt(ref, material.Scope.CredentialVersion)
+		if err != nil || !reflect.DeepEqual(actual, expected) || actual.Plan.Scope.Binding != material.Scope.BindingID || actual.Plan.Scope.Epoch != material.Scope.EpochID || actual.Plan.Scope.CredentialRef != material.CredentialReference || actual.Admit(time.Now().UTC(), time.Minute) != nil {
+			return backupcredentials.Packet{}, errEngineSource
+		}
+	} else {
+		receipt, err := files.Receipt(ref, material.Scope.CredentialVersion)
+		if err != nil || !nativeCredentialReceiptMatches(material, receipt) {
+			return backupcredentials.Packet{}, errEngineSource
+		}
+	}
+	return files.Read(ref, material.Scope.CredentialVersion)
 }
 
 func (r nativeBackupRuntime) restorePreparedSource(ctx context.Context, stopped *store.NativeStoppedPreparation, original engineSealedCheckpoint) (*nativeRestoredSource, error) {
@@ -125,6 +147,15 @@ func (r nativeBackupRuntime) restorePrepared(ctx context.Context, stopped *store
 	if err != nil {
 		return nil, errEngineSource
 	}
+	metadata, err := admission.Material(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel, err := nativeTransportContext(ctx, metadata.Scope)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
 	client, repository, err := r.repository(ctx, admission)
 	if err != nil {
 		return nil, err
@@ -261,6 +292,15 @@ func (r nativeBackupRuntime) restoreVerifiedPoint(ctx context.Context, pointID s
 	if err != nil {
 		return nativeVerifiedRestore{}, errEngineSource
 	}
+	metadata, err := admission.Material(ctx)
+	if err != nil {
+		return nativeVerifiedRestore{}, err
+	}
+	ctx, cancel, err := nativeTransportContext(ctx, metadata.Scope)
+	if err != nil {
+		return nativeVerifiedRestore{}, err
+	}
+	defer cancel()
 	client, repository, err := r.repository(ctx, admission)
 	if err != nil {
 		return nativeVerifiedRestore{}, err

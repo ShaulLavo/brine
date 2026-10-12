@@ -15,5 +15,5 @@ func InspectExit(err error) (ExitStatus, bool) {
 	if !errors.As(err, &exited) || exited.ProcessState == nil {
 		return ExitStatus{}, false
 	}
-	return ExitStatus{Code: exited.ExitCode(), Signaled: !exited.ProcessState.Exited()}, true
+	return ExitStatus{Code: exited.ExitCode(), Signaled: !exited.Exited()}, true
 }

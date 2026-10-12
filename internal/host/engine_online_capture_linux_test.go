@@ -44,6 +44,7 @@ func TestEngineCapturedPrefixAllowsAppendAndRejectsRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	original.SHA256 = hash
 	appendFile, err := root.OpenFile("head", os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		t.Fatal(err)

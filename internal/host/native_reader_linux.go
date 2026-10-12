@@ -140,7 +140,17 @@ func readNativeView(ctx context.Context, session localexec.Session, pin nativeRe
 	if err != nil {
 		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
 	}
-	image, err := podman.New(session).InspectStored(ctx, index, manifest)
+	images := podman.New(session)
+	exists, err := images.ImageExists(ctx, index)
+	if err != nil {
+		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
+	}
+	if !exists {
+		if err := images.Pull(ctx, index); err != nil {
+			return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
+		}
+	}
+	image, err := images.InspectStored(ctx, index, manifest)
 	if err != nil || image.ImageID != pin.ImageID || image.Platform.OS != "linux" || image.Platform.Architecture != pin.Architecture {
 		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
 	}

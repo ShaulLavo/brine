@@ -42,6 +42,23 @@ CREATE TABLE data_native_initial_owners(
  point_id TEXT PRIMARY KEY REFERENCES data_native_preparations(id), canonical BLOB NOT NULL CHECK(length(canonical)<=65536));
 CREATE TRIGGER data_native_initial_owners_no_update BEFORE UPDATE ON data_native_initial_owners BEGIN SELECT RAISE(ABORT,'immutable initial owner provenance'); END;
 CREATE TRIGGER data_native_initial_owners_no_delete BEFORE DELETE ON data_native_initial_owners BEGIN SELECT RAISE(ABORT,'retained initial owner provenance'); END;
+CREATE TABLE data_native_backup_initialization_events(
+ operation_id TEXT NOT NULL REFERENCES data_native_backup_revision_claims(operation_id), sequence INTEGER NOT NULL CHECK(sequence>0),
+ stage TEXT NOT NULL CHECK(stage IN ('issued','unknown','initialized')), canonical BLOB NOT NULL CHECK(length(canonical)<=8192), PRIMARY KEY(operation_id,sequence));
+CREATE TRIGGER data_native_backup_initialization_events_no_update BEFORE UPDATE ON data_native_backup_initialization_events BEGIN SELECT RAISE(ABORT,'immutable backup initialization'); END;
+CREATE TRIGGER data_native_backup_initialization_events_no_delete BEFORE DELETE ON data_native_backup_initialization_events BEGIN SELECT RAISE(ABORT,'retained backup initialization'); END;
+CREATE TABLE data_native_prepared_upload_intents(
+ point_id TEXT PRIMARY KEY REFERENCES data_native_preparations(id),source_sha256 TEXT NOT NULL,manifest_sha256 TEXT NOT NULL,canonical BLOB NOT NULL CHECK(length(canonical)<=8192));
+CREATE TRIGGER data_native_prepared_upload_intents_no_update BEFORE UPDATE ON data_native_prepared_upload_intents BEGIN SELECT RAISE(ABORT,'one prepared upload attempt'); END;
+CREATE TRIGGER data_native_prepared_upload_intents_no_delete BEFORE DELETE ON data_native_prepared_upload_intents BEGIN SELECT RAISE(ABORT,'retained prepared upload intent'); END;
+CREATE TABLE data_native_prepared_routes(
+ point_id TEXT NOT NULL REFERENCES data_native_preparations(id),stage TEXT NOT NULL CHECK(stage IN ('intent','withdrawn')),canonical BLOB NOT NULL CHECK(length(canonical)<=65536),PRIMARY KEY(point_id,stage));
+CREATE TRIGGER data_native_prepared_routes_no_update BEFORE UPDATE ON data_native_prepared_routes BEGIN SELECT RAISE(ABORT,'immutable prepared route facts'); END;
+CREATE TRIGGER data_native_prepared_routes_no_delete BEFORE DELETE ON data_native_prepared_routes BEGIN SELECT RAISE(ABORT,'retained prepared route facts'); END;
+CREATE TABLE data_native_prepared_frontend_stops(
+ point_id TEXT NOT NULL REFERENCES data_native_preparations(id),stage TEXT NOT NULL CHECK(stage IN ('intent','stopped')),canonical BLOB NOT NULL CHECK(length(canonical)<=8192),PRIMARY KEY(point_id,stage));
+CREATE TRIGGER data_native_prepared_frontend_stops_no_update BEFORE UPDATE ON data_native_prepared_frontend_stops BEGIN SELECT RAISE(ABORT,'immutable prepared frontend stop'); END;
+CREATE TRIGGER data_native_prepared_frontend_stops_no_delete BEFORE DELETE ON data_native_prepared_frontend_stops BEGIN SELECT RAISE(ABORT,'retained prepared frontend stop'); END;
 UPDATE schema_version SET version=22;
 `)
 	return err

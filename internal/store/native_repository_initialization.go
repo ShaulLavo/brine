@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -75,14 +76,14 @@ func nativeIncomingRepositoryMetadata(ctx context.Context, q dataQuerier, intent
 		}
 	}
 	d := archive.Destination
-	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: archive.RemotePrefix, Region: d.Region, PathStyle: d.PathStyle}
+	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
 	point := restic.TransportPoint{Scope: restic.Scope{BindingID: string(policy.BindingID), EpochID: string(policy.EpochID), RepositoryID: policy.RepositoryID, DestinationSHA256: location.SHA256(), CredentialVersion: policy.CredentialVersion, RecoveryVersion: policy.RecoveryVersion}}
 	material, err := readNativeRepositoryMaterial(ctx, q, point)
 	if err != nil {
 		return NativeIncomingRepositoryMetadata{}, err
 	}
 	incoming := intent.archive.Destination
-	material.Location = restic.S3Location{Endpoint: incoming.Endpoint, Bucket: incoming.Bucket, Prefix: intent.archive.RemotePrefix, Region: incoming.Region, PathStyle: incoming.PathStyle}
+	material.Location = restic.S3Location{Endpoint: incoming.Endpoint, Bucket: incoming.Bucket, Prefix: strings.TrimSuffix(intent.archive.RemotePrefix, "/"), Region: incoming.Region, PathStyle: incoming.PathStyle}
 	material.Scope.EpochID = string(intent.epochID)
 	material.Scope.RepositoryID = ""
 	material.Scope.DestinationSHA256 = material.Location.SHA256()

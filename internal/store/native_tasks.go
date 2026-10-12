@@ -84,3 +84,24 @@ func (s *Store) ReadNativeTaskInput(ctx context.Context, operationID string) (Na
 	}
 	return readNativeTaskInput(ctx, s.db, operation)
 }
+
+func (s *Store) SelectNativeTaskBinding(ctx context.Context, app, database string) (data.ReplicaBindingID, error) {
+	if !nativePointLogicalName.MatchString(app) || !nativePointLogicalName.MatchString(database) {
+		return "", ErrInvalid
+	}
+	var binding data.ReplicaBindingID
+	err := s.db.QueryRowContext(ctx, "SELECT b.id FROM data_active_incarnations h JOIN data_databases d ON d.incarnation_id=h.incarnation_id JOIN data_replica_bindings b ON b.database_id=d.id JOIN data_engine_kinds k ON k.database_id=d.id WHERE h.app=? AND d.name=? AND k.engine='spacetimedb'", app, database).Scan(&binding)
+	if err != nil {
+		return "", err
+	}
+	if _, err := s.ReadReservedEngine(ctx, binding); err != nil {
+		return "", err
+	}
+	return binding, nil
+}
+
+func (s *Store) ActiveNativeBindingApp(ctx context.Context, binding data.ReplicaBindingID) (string, error) {
+	var app string
+	err := s.db.QueryRowContext(ctx, "SELECT h.app FROM data_active_incarnations h JOIN data_databases d ON d.incarnation_id=h.incarnation_id JOIN data_replica_bindings b ON b.database_id=d.id WHERE b.id=?", binding).Scan(&app)
+	return app, err
+}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/ops"
 )
@@ -25,6 +26,8 @@ type PublicationReviewPreparation struct {
 	requester   string
 	policySHA   string
 	artifact    datapublish.Artifact
+	declaration *publicationReviewDeclaration
+	restore     *publicationReviewRestore
 }
 
 func (PublicationReviewPreparation) String() string {
@@ -35,7 +38,7 @@ func (PublicationReviewPreparation) GoString() string {
 }
 func (PublicationReviewPreparation) MarshalJSON() ([]byte, error) { return nil, ErrInvalid }
 
-func (s *Store) BeginPublicationReview(ctx context.Context, preparation *EnginePreparation, pointID string, artifact datapublish.Artifact) (*PublicationReviewPreparation, error) {
+func (s *Store) beginPublicationReview(ctx context.Context, preparation *EnginePreparation, pointID string, artifact datapublish.Artifact) (*PublicationReviewPreparation, error) {
 	if s.readOnly || preparation == nil || preparation.StateRoot() != s.dir || !data.ValidID(pointID) || !data.ValidCatalogHash(string(artifact.WasmSHA256())) {
 		return nil, ErrInvalid
 	}
@@ -73,6 +76,34 @@ func (s *Store) BeginPublicationReview(ctx context.Context, preparation *EngineP
 	if !capability.active(s) {
 		return nil, ErrConflict
 	}
+	return capability, tx.Commit()
+}
+
+func (p *PublicationReviewPreparation) PointID() string                { return p.pointID }
+func (p *PublicationReviewPreparation) Artifact() datapublish.Artifact { return p.artifact }
+
+func (s *Store) PreparePublicationReview(ctx context.Context, preparation *EnginePreparation, requester datainit.Requester, request PublicationReviewRequest) (*PublicationReviewPreparation, error) {
+	if !requester.Valid() || !validAppName(request.App) || !digestPattern.MatchString(request.TargetDeploymentPlanID) {
+		return nil, ErrInvalid
+	}
+	capability, err := s.beginPublicationReview(ctx, preparation, request.PreparedPointID, request.Artifact)
+	if err != nil || capability.requester != requester.String() || capability.app != request.App {
+		return nil, errors.Join(ErrConflict, err)
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	point, err := s.readPublicationReviewPreparationTx(ctx, tx, capability)
+	if err != nil {
+		return nil, err
+	}
+	declaration, err := readPublicationReviewDeclarationTx(ctx, tx, capability, point, request)
+	if err != nil {
+		return nil, err
+	}
+	capability.declaration = &declaration
 	return capability, tx.Commit()
 }
 

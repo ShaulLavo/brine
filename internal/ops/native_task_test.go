@@ -15,7 +15,7 @@ func TestNativeTaskReceiptUsesExistingReferenceOnlyOperation(t *testing.T) {
 			t.Fatal("native work bypasses task operation contract")
 		}
 		op := Operation{ID: "native-operation", Kind: kind, App: intent.App, SecretRef: intent.SecretRef, State: Succeeded}
-		receipt := nativecapture.TaskReceipt{Kind: string(kind), OperationID: op.ID, BindingID: strings.Repeat("1", 32), EpochID: strings.Repeat("2", 32), PointID: strings.Repeat("3", 32), PointSHA256: strings.Repeat("4", 64), Outcome: "verified"}
+		receipt := nativecapture.TaskReceipt{Kind: string(kind), OperationID: op.ID, BindingID: strings.Repeat("1", 32), EpochID: strings.Repeat("2", 32), PointID: strings.Repeat("3", 32), PointSHA256: strings.Repeat("4", 64), Outcome: "verified", Engine: "spacetimedb", ModuleSHA256: strings.Repeat("a", 64), SchemaSHA256: strings.Repeat("b", 64), CaptureIntervalSeconds: 30, Loss: "unknown"}
 		raw, err := json.Marshal(receipt)
 		if err != nil {
 			t.Fatal(err)

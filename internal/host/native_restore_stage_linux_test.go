@@ -20,6 +20,9 @@ func TestNativeRestoreStageRefusesMissingExecutionBeforeCreatingDirectories(t *t
 
 func TestNativeRestoreStagePinsDirectoryIdentityAndRefusesSymlink(t *testing.T) {
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0700); err != nil { //nolint:gosec // Private directories require traversal permission.
+		t.Fatal(err)
+	}
 	root, err := engineOpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)

@@ -75,6 +75,11 @@ func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *Native
 	if _, err := readNativeRepositoryMaterial(ctx, tx, observed.Transport); err != nil {
 		return NativePreparedPointView{}, err
 	}
+	var issuedSource, issuedManifest string
+	err = tx.QueryRowContext(ctx, "SELECT source_sha256,manifest_sha256 FROM data_native_prepared_upload_intents WHERE point_id=?", stopped.PointID()).Scan(&issuedSource, &issuedManifest)
+	if err != nil || issuedSource != observed.Source.SHA256() || issuedManifest != observed.Manifest.SHA256() {
+		return NativePreparedPointView{}, ErrConflict
+	}
 	if observed.Source.Kind() != stopped.preparation.intent.SourceKind || !data.ValidCatalogHash(observed.SourceSealSHA256) || !extracted.Matches(ctx, observed.Parent, "download", observed.Transport, observed.Manifest) {
 		return NativePreparedPointView{}, ErrConflict
 	}

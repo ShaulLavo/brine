@@ -203,7 +203,7 @@ func TestModuleDescriptorNativeExitHelper(t *testing.T) {
 		_, _ = fmt.Fprintln(os.Stderr, "error: unexpected argument private diagnostic")
 	}
 	if mode == "signal" {
-		_ = unix.Kill(os.Getpid(), unix.SIGTERM)
+		_ = unix.Kill(os.Getpid(), unix.SIGKILL)
 	}
 	os.Exit(3)
 }

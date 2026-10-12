@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/replication"
@@ -14,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.13-dev"
+const Version = "0.1.15-dev"
 
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
@@ -59,6 +60,9 @@ type Dependencies struct {
 	HostDataInitialization    dispatch.DataInitializationOperations
 	HostPermits               replication.LaunchReader
 	HostRestoreTests          dispatch.RestoreTestOperations
+	HostNativeCapture         func(context.Context, string) (jobs.Accepted, error)
+	HostNativeBackupStatus    dispatch.NativeBackupStatusOperations
+	HostNativeBackupPolicy    dispatch.NativeBackupPolicyOperations
 	HostNativeRecovery        dispatch.NativeRecoveryOperations
 	HostNativeBackups         dispatch.NativeBackupOperations
 }

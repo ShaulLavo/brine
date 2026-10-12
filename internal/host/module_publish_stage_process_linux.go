@@ -16,6 +16,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/store"
 	"golang.org/x/sys/unix"
 )
 
@@ -55,6 +56,13 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	}
 	defer clear(input)
 	lease.attempted = true
+	if lease.working != nil {
+		step, err := moduleStageCursorStep(request.Action)
+		if err != nil || lease.restored.state.RecordPublicationEffect(ctx, lease.working.attempt, lease.nonce, step) != nil {
+			return moduleStageObservation{}, datapublish.ErrRecord
+		}
+		lease.effectRecorded = true
+	}
 	startedAt := time.Now().UTC()
 	lease.startedAt = startedAt
 	wait, cancel := context.WithTimeout(ctx, time.Duration(request.Runtime.StartupSeconds+request.Runtime.StopSeconds+45)*time.Second)
@@ -63,7 +71,10 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	var result localexec.Output
 	if runErr == nil && handle.alive() == nil && lease.sourceUnchanged(wait) == nil {
 		lease.helperPID, lease.helperTicks, lease.helperCgroup = handle.pid, handle.ticks, handle.cgroup
-		result, runErr = runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: []string{"attach", "--sig-proxy=false", id}, Stdin: input, Mutation: true, OutputLimit: 1 << 20})
+		runErr = recordPublicationStageEvent(wait, lease, "started")
+		if runErr == nil {
+			result, runErr = runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: []string{"attach", "--sig-proxy=false", id}, Stdin: input, Mutation: true, OutputLimit: 1 << 20})
+		}
 	} else {
 		runErr = datapublish.ErrRecord
 	}
@@ -73,6 +84,9 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	if disposeErr == nil {
 		disposeErr = descriptorProcessDisposed(cleanup, handle)
 	}
+	if disposeErr == nil && handle != nil {
+		disposeErr = recordPublicationStageEvent(cleanup, lease, "disposed")
+	}
 	stop()
 	if disposeErr == nil && handle != nil {
 		handle.close()
@@ -80,6 +94,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		lease.disposed = true
 	}
 	if runErr != nil || disposeErr != nil || lease.sourceUnchanged(ctx) != nil {
+		_ = recordPublicationStageEvent(context.WithoutCancel(ctx), lease, "unknown")
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	lease.finishedAt = time.Now().UTC()
@@ -200,6 +215,9 @@ func disposePublicationStage(ctx context.Context, lease *publicationStageLease, 
 			return datapublish.ErrRecord
 		}
 		lease.stopAttempted = true
+		if err = recordPublicationStageEvent(ctx, lease, "stop_intent"); err != nil {
+			return err
+		}
 		if _, err = session.Execute(ctx, "/usr/bin/podman", []string{"stop", "--time", strconv.Itoa(lease.permit.Runtime.StopSeconds), container.ID}, nil, true); err != nil {
 			return datapublish.ErrRecord
 		}
@@ -217,4 +235,14 @@ func disposePublicationStage(ctx context.Context, lease *publicationStageLease, 
 		}
 	}
 	return nil
+}
+
+func recordPublicationStageEvent(ctx context.Context, lease *publicationStageLease, stage string) error {
+	if !lease.effectRecorded {
+		return nil
+	}
+	if lease.working == nil || lease.restored == nil {
+		return datapublish.ErrRecord
+	}
+	return lease.restored.state.RecordPublicationEffectEvent(ctx, lease.working.attempt, store.PublicationEffectEvent{Nonce: lease.nonce, Stage: stage, ContainerID: lease.containerID, PID: lease.helperPID, StartTicks: lease.helperTicks, Cgroup: lease.helperCgroup})
 }

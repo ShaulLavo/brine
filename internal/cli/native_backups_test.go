@@ -28,7 +28,7 @@ func nativeCommandArgs(kind ops.Kind) []string {
 }
 
 func nativeCommandReceipt(kind ops.Kind) nativecapture.TaskReceipt {
-	return nativecapture.TaskReceipt{Kind: string(kind), OperationID: "native-operation", BindingID: strings.Repeat("c", 32), EpochID: strings.Repeat("d", 32), PointID: strings.Repeat("b", 32), PointSHA256: strings.Repeat("e", 64), Outcome: "verified"}
+	return nativecapture.TaskReceipt{Kind: string(kind), OperationID: "native-operation", BindingID: strings.Repeat("c", 32), EpochID: strings.Repeat("d", 32), PointID: strings.Repeat("b", 32), PointSHA256: strings.Repeat("e", 64), Outcome: "verified", Engine: "spacetimedb", ModuleSHA256: strings.Repeat("a", 64), SchemaSHA256: strings.Repeat("b", 64), CaptureIntervalSeconds: 30, Loss: "unknown"}
 }
 
 func nativeCommandStatus(kind ops.Kind, raw json.RawMessage) result.Envelope {

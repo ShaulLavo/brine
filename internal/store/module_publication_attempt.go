@@ -14,11 +14,14 @@ import (
 // point consumer. Its constructor rereads protected state; a decoded cursor or
 // caller-supplied owner, root or proof cannot manufacture this capability.
 type PublicationAttempt struct {
-	store       *Store
-	preparation *EnginePreparation
-	planID      string
-	operationID string
-	binding     data.ReplicaBindingID
+	store              *Store
+	preparation        *EnginePreparation
+	planID             string
+	operationID        string
+	binding            data.ReplicaBindingID
+	restored           *publicationReviewRestore
+	resolverID         string
+	originalOutcomeSHA string
 }
 
 type publicationAttemptState struct {
@@ -100,6 +103,11 @@ func (s *Store) readPublicationAttemptTx(ctx context.Context, tx *sql.Tx, attemp
 	var current publicationAttemptState
 	if !attempt.active(s) {
 		return current, ErrConflict
+	}
+	if attempt.resolverID != "" {
+		if err := s.checkPublicationResolverTx(ctx, tx, attempt); err != nil {
+			return current, err
+		}
 	}
 	raw, index, err := readPublicationReviewTx(ctx, tx, attempt.planID)
 	if err != nil || index.binding != attempt.binding {

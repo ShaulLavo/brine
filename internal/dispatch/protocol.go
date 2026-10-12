@@ -54,16 +54,11 @@ type operation struct {
 }
 
 var operations = map[string]operation{
-	"native_retire_plan":                    {Mutating, decodeNativeRetirePlan},
-	"native_retire":                         {Mutating, decodeNativeRetireApply},
-	"native_retire_inspect":                 {ReadOnly, decodeNativeRetireInspect},
-	"native_live_restore_review_resolution": {Mutating, decodeNativeRestoreResolutionReview},
-	"native_live_restore_resolve":           {Mutating, decodeNativeRestoreResolve},
-	"native_live_restore_plan":              {Mutating, decodeNativeLiveRestorePlan},
-	"native_live_restore":                   {Mutating, decodeNativeLiveRestoreApply},
-	"native_live_restore_inspect":           {ReadOnly, decodeNativeLiveRestoreInspect},
 	"deploy_checkpoint":                     {ReadOnly, decodeDeploymentCheckpointArgs},
 	"native_point":                          {ReadOnly, decodeNativePoint},
+	"native_backup_status":                  {ReadOnly, decodeNativeBackupStatus},
+	"native_backup_policy_plan":             {Mutating, decodeNativeBackupPolicyPlan},
+	"native_backup_activate":                {Mutating, decodeNativeBackupPolicyActivate},
 	"native_recovery_set":                   {Mutating, decodeNativeRecovery},
 	"native_capture":                        {Mutating, decodeNativeCapture},
 	"native_prepare":                        {Mutating, decodeNativePrepare},
@@ -90,6 +85,14 @@ var operations = map[string]operation{
 	"plan":                                  {Mutating, decodePlan},
 	"data_prepare_plan":                     {Mutating, decodePreparation},
 	"operation":                             {ReadOnly, decodeOperation},
+	"native_retire_plan":                    {Mutating, decodeNativeRetirePlan},
+	"native_retire":                         {Mutating, decodeNativeRetireApply},
+	"native_retire_inspect":                 {ReadOnly, decodeNativeRetireInspect},
+	"native_live_restore_review_resolution": {Mutating, decodeNativeRestoreResolutionReview},
+	"native_live_restore_resolve":           {Mutating, decodeNativeRestoreResolve},
+	"native_live_restore_plan":              {Mutating, decodeNativeLiveRestorePlan},
+	"native_live_restore":                   {Mutating, decodeNativeLiveRestoreApply},
+	"native_live_restore_inspect":           {ReadOnly, decodeNativeLiveRestoreInspect},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
@@ -181,6 +184,8 @@ type Server struct {
 	authorize          Authorization
 	RestoreTests       RestoreTestOperations
 	NativePoints       NativePointInspector
+	NativeBackupStatus NativeBackupStatusOperations
+	NativeBackupPolicy NativeBackupPolicyOperations
 	NativeRecovery     NativeRecoveryOperations
 	NativeBackups      NativeBackupOperations
 	NativeLiveRestore  NativeLiveRestoreOperations
@@ -240,6 +245,33 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case NativeBackupStatusArgs:
+		if s.NativeBackupStatus == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		status, err := s.NativeBackupStatus.BackupStatus(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = status
+	case NativeBackupPolicyPlanArgs:
+		if s.NativeBackupPolicy == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		view, err := s.NativeBackupPolicy.PlanPolicy(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = view
+	case NativeBackupPolicyActivateArgs:
+		if s.NativeBackupPolicy == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		accepted, err := s.NativeBackupPolicy.ActivatePolicy(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
 	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs:
 		value, err = s.nativeRetire(ctx, args)
 		if err != nil {

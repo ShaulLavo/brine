@@ -24,7 +24,7 @@ type PointInspection struct {
 }
 
 func (v PointInspection) Valid() bool {
-	if !idPattern.MatchString(v.PointID) || !hashPattern.MatchString(v.PointSHA256) || !taskOperationID.MatchString(v.OperationID) || !idPattern.MatchString(v.BindingID) || !idPattern.MatchString(v.EpochID) || !hashPattern.MatchString(v.CheckpointSHA256) || !hashPattern.MatchString(v.SourceSHA256) || v.ObservedAt.IsZero() || v.ObservedAt.Location() != time.UTC || v.RetainUntil.Location() != time.UTC || v.RetainUntil.Before(v.ObservedAt) || v.Admission != "unavailable" {
+	if !idPattern.MatchString(v.PointID) || !hashPattern.MatchString(v.PointSHA256) || !taskOperationID.MatchString(v.OperationID) || !idPattern.MatchString(v.BindingID) || !idPattern.MatchString(v.EpochID) || !hashPattern.MatchString(v.CheckpointSHA256) || !hashPattern.MatchString(v.SourceSHA256) || v.ObservedAt.IsZero() || v.ObservedAt.Location() != time.UTC || v.RetainUntil.Location() != time.UTC || v.RetainUntil.Before(v.ObservedAt) || v.Admission != "reference_only" {
 		return false
 	}
 	if v.Kind == "verified" {

@@ -15,6 +15,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 )
@@ -47,6 +48,10 @@ func (j credentialJournal) save(ctx context.Context, r store.CredentialRecord) e
 			return nil
 		}
 		return store.ErrConflict
+	}
+	engine, err := j.state.AppDatabaseEngine(ctx, r.App, "")
+	if err == nil && engine == data.EngineSpacetimeDB {
+		return j.state.SaveNativeCredentialRecord(ctx, r)
 	}
 	return j.state.SaveCredentialRecord(ctx, r)
 }
@@ -84,6 +89,13 @@ func backupCredentialService(service Service, stateRoot, database string) backup
 		pol, err := service.Policy.Load(ctx)
 		if err != nil {
 			return backupcredentials.Scope{}, err
+		}
+		engine, err := service.Store.AppDatabaseEngine(ctx, app, database)
+		if err != nil {
+			return backupcredentials.Scope{}, err
+		}
+		if engine == data.EngineSpacetimeDB {
+			return nativeBackupCredentialScope(ctx, service, pol, app, database)
 		}
 		scopes, err := service.Store.ReadCredentialScopes(ctx, app)
 		if err != nil {
@@ -181,6 +193,11 @@ func credentialTaskHandler(service Service, dir string, rotator backupcredential
 		if err != nil || receipt.PlanID != plan.ID || receipt.Requester != op.Requester {
 			return nil, result.New(result.PolicyRefused, nil)
 		}
+		engine, err := service.Store.AppDatabaseEngine(ctx, op.App, "")
+		if err == nil && engine == data.EngineSpacetimeDB {
+			receipt.ActivationStatus = "stored"
+			return json.Marshal(receipt)
+		}
 		activated, err := rotator.Activate(ctx, receipt)
 		if err != nil {
 			if errors.Is(err, backupcredentials.ErrExpired) || errors.Is(err, backupcredentials.ErrStale) || errors.Is(err, backupcredentials.ErrInvalid) {
@@ -192,4 +209,25 @@ func credentialTaskHandler(service Service, dir string, rotator backupcredential
 		activated.CredentialHealth = &health
 		return json.Marshal(activated)
 	}
+}
+
+func nativeBackupCredentialScope(ctx context.Context, service Service, pol policy.Policy, app, database string) (backupcredentials.Scope, error) {
+	scope, err := service.Store.NativeCredentialScope(ctx, app, database)
+	if err != nil || !scope.DeliveryAllowed || scope.PolicyHash != pol.Hash() {
+		return backupcredentials.Scope{}, backupcredentials.ErrAdmissionRefresh
+	}
+	destination, allowed := pol.BackupDestination(scope.Archive.Destination.Reference)
+	if !allowed || destination != scope.Archive.Destination {
+		return backupcredentials.Scope{}, backupcredentials.ErrStale
+	}
+	snapshot, err := service.Inventory.Collect(ctx)
+	if err != nil {
+		return backupcredentials.Scope{}, err
+	}
+	raw, err := json.Marshal(snapshot.Identity)
+	if err != nil {
+		return backupcredentials.Scope{}, err
+	}
+	sum := sha256.Sum256(raw)
+	return backupcredentials.Scope{TargetHash: "sha256:" + hex.EncodeToString(sum[:]), App: app, CredentialRef: destination.CredentialRef, Destination: string(destination.Reference), Binding: string(scope.Database.BindingID), Epoch: string(scope.Archive.EpochID), PolicyHash: pol.Hash()}, nil
 }

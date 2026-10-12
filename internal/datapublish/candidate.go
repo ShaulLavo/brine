@@ -21,8 +21,8 @@ func (c Candidate) ProgramWireHash() string             { return c.program }
 func (c Candidate) Schema() spacetimedb.CanonicalSchema { return c.schema }
 
 type ReviewReferences struct {
-	GuestCodeSHA256  string   `json:"guest_code_sha256"`
-	RecoveryReleases []string `json:"recovery_releases"`
+	GuestCodeSHA256 string         `json:"guest_code_sha256"`
+	Recovery        RecoveryReview `json:"recovery"`
 }
 
 type NativePreflight struct {

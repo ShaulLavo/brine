@@ -1,6 +1,7 @@
 package host
 
 import (
+	"context"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/dispatch"
@@ -19,6 +20,10 @@ type Runtime struct {
 	Planner            dispatch.Planner
 	Jobs               dispatch.JobOperations
 	Runner             jobs.Runner
+	NativeCapture      func(context.Context, string) (jobs.Accepted, error)
+	NativeBackups      dispatch.NativeBackupOperations
+	NativeBackupStatus dispatch.NativeBackupStatusOperations
+	NativeBackupPolicy dispatch.NativeBackupPolicyOperations
 	NativeRecovery     dispatch.NativeRecoveryOperations
 	NativeLiveRestore  dispatch.NativeLiveRestoreOperations
 	NativeRetire       dispatch.NativeRetireOperations
