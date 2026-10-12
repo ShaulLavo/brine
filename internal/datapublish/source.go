@@ -56,7 +56,7 @@ func NewEmptySource(value EmptySource) (Source, error) {
 func NewCapturedSource(point CapturedPoint, schema spacetimedb.CanonicalSchema) (Source, error) {
 	if !identity(point.PointID) || !identity(point.FenceID) || !operationReference.MatchString(point.PreparationOpID) || !digest(point.RestoreReceiptSHA256) || !digest(point.BundleManifestSHA256) ||
 		!digest(point.SourceSealSHA256) || !digest(point.StateWitnessSHA256) || !digest(point.StopProofSHA256) || !digest(point.CheckpointSHA256) ||
-		!digest(point.NativeDatabase) || !digest(point.NativePublisher) || !digest(point.ProgramWireHash) || !confirmedSourceProfile(point.WasmSHA256, schema) {
+		!digest(point.NativeDatabase) || !digest(point.NativePublisher) || !digest(point.ProgramWireHash) || schema.Version() != spacetimedb.CanonicalizerVersion || !SupportsConfirmedRecoveryPairs(point.WasmSHA256, schema.SHA256()) {
 		return Source{}, ErrRecord
 	}
 	if !validNames(point.Names) {
@@ -111,12 +111,11 @@ func validNames(names []string) bool {
 	return true
 }
 
-func confirmedSourceProfile(wasm string, schema spacetimedb.CanonicalSchema) bool {
-	if schema.Version() != spacetimedb.CanonicalizerVersion {
-		return false
-	}
+// SupportsConfirmedRecoveryPairs identifies the finite fixture profiles whose
+// fixed confirmed-state contract is supported. It grants no source authority.
+func SupportsConfirmedRecoveryPairs(artifactWasmSHA256, canonicalSchemaSHA256 string) bool {
 	var expected string
-	switch wasm {
+	switch artifactWasmSHA256 {
 	case "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc":
 		expected = "f10d1efcbbdcec34434fa257946ca8a562ba1ad5f6b1b22b17fca14ca7eacc45"
 	case "5f1de728e240ff189fdb47fae0af5f18cfa3c772b86a198220115a6869215ffb":
@@ -126,5 +125,5 @@ func confirmedSourceProfile(wasm string, schema spacetimedb.CanonicalSchema) boo
 	default:
 		return false
 	}
-	return schema.SHA256() == expected
+	return canonicalSchemaSHA256 == expected
 }

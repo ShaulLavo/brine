@@ -6,6 +6,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
@@ -25,6 +26,12 @@ type TaskOutcome struct {
 
 func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 	switch op.Kind {
+	case NativeCapture, NativeRestoreTest, NativePrepare:
+		receipt, err := nativecapture.DecodeTaskReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID || receipt.Kind != string(op.Kind) {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
 	case DataInitApply:
 		if _, err := strictjson.Object(raw, "id", "plan_id", "state", "fence_id"); err != nil {
 			return nil, strictjson.ErrObject
