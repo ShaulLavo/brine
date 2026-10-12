@@ -60,6 +60,9 @@ CREATE TRIGGER data_native_live_restore_completion_proofs_no_update BEFORE UPDAT
 CREATE TRIGGER data_native_live_restore_completion_proofs_no_delete BEFORE DELETE ON data_native_live_restore_completion_proofs BEGIN SELECT RAISE(ABORT,'immutable live restore completion'); END;
 CREATE TRIGGER data_native_live_restore_targets_no_update BEFORE UPDATE ON data_native_live_restore_targets BEGIN SELECT RAISE(ABORT,'immutable live restore target material'); END;
 CREATE TRIGGER data_native_live_restore_targets_no_delete BEFORE DELETE ON data_native_live_restore_targets BEGIN SELECT RAISE(ABORT,'retained live restore target material'); END;
+CREATE TABLE data_native_live_restore_resolutions(id TEXT PRIMARY KEY,operation_id TEXT NOT NULL REFERENCES data_native_live_restore_claims(operation_id),canonical BLOB NOT NULL CHECK(length(canonical)<=4096));
+CREATE TRIGGER data_native_live_restore_resolutions_no_update BEFORE UPDATE ON data_native_live_restore_resolutions BEGIN SELECT RAISE(ABORT,'immutable restore resolution'); END;
+CREATE TRIGGER data_native_live_restore_resolutions_no_delete BEFORE DELETE ON data_native_live_restore_resolutions BEGIN SELECT RAISE(ABORT,'retained restore resolution'); END;
 UPDATE schema_version SET version=20;
 `)
 	return err

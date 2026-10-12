@@ -44,6 +44,17 @@ func (s *Store) ResumeNativeLiveRestoreTransition(ctx context.Context, preparati
 	if err != nil {
 		return nil, err
 	}
+	resolve, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", resolveID))
+	if err != nil {
+		return nil, err
+	}
+	review, err := readNativeRestoreResolution(ctx, tx, resolve.SecretRef)
+	if err != nil || review.EventSHA256 != retained.current.SHA256() || review.InputSHA256 != input.SHA256() || review.ObservationSHA256 != nativeRestoreResolutionObservationHash(observed) || !time.Now().UTC().Before(review.ExpiresAt) {
+		return nil, ErrConflict
+	}
+	if err = checkNativeRestoreResumeObservation(ctx, capability, retained, target, input, observed); err != nil {
+		return nil, err
+	}
 	layout := data.ClassifyEngineTransitionLayout(input, observed.Layout)
 	if layout == data.EngineLayoutConflict || !observed.EngineAbsent || !observed.ApplicationAbsent || !observed.IngressClosed || !observed.PrivateReadersAbsent || observed.UnitSHA256 != target.runtime.UnitSHA256 || observed.MaterialSHA256 != target.record.MaterialSHA256 || observed.RecoveryCodeSHA256 != retained.plan.Spec().Recovery.CodeSHA256 || observed.RecoveryCompatibilitySHA256 != retained.plan.Spec().Recovery.CompatibilitySHA256 || observed.ObservedAt.IsZero() || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(target.record.ObservedAt) || observed.ObservedAt.After(time.Now().UTC()) {
 		return nil, ErrConflict

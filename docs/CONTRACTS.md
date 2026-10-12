@@ -1305,3 +1305,32 @@ layout; it never reopens an expired stopped-source mutation permit.
 These are internal guarded effect contracts. Public native restore commands
 remain pending integration with the qualified backup runtime and operation
 adapter; storage/helper tests alone are not physical restore acceptance.
+
+### Native live restore execution
+
+`restore native-live plan APP` selects one immutable verified remote point, one
+fresh exact prepared current point and one compatible installed recovery release.
+The default-false live restore policy applies to both plan and execution. Apply
+submits `native_live_restore` through the existing detached task runner. Requests
+contain references only. The host reopens the completed original stop under actual
+launch and lifetime locks, copies and checks its retained checkpoint, records one
+download intent and verifies the authenticated extraction with the pinned passive
+reader. Any uncertain download retains its stage and fence and cannot be retried.
+
+Target preparation preserves the download, exact signing versions and original
+owner. The shared incoming repository lease records one initialization attempt,
+then authenticated config readback. Rooted no-replace moves journal preservation
+and promotion before epoch activation. Fresh loaded-route absence, service jobs,
+container/process absence, owned units, secret files and installed compatible code
+are checked before activation and completion. Completion retains the original
+whole tree, releases its original fence and leaves the new epoch stopped. The
+current installed release must equal the selected recovery release; installing a
+different historical code release is not yet supported by this path.
+
+`inspect` reads retained progress. `review-resolution` binds a fresh immutable
+review to the original operation, journal head, transition input and actual layout,
+material and code observations. `resolve` uses its own task operation and guards,
+keeps the original recovery-required outcome unchanged and completes known moves
+through observed layout and fsync adoption. It never repeats extraction or
+repository creation. Missing target preparation, uncertain extraction or an
+unexplained layout refuses resolution and retains the fence for manual inspection.
