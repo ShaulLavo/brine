@@ -1302,9 +1302,9 @@ in the same transaction. Existing-transition resolution holds fresh real guards
 and validates the immutable original claim, consumer, fence and current16
 layout; it never reopens an expired stopped-source mutation permit.
 
-These are internal guarded effect contracts. Public native restore commands
-remain pending integration with the qualified backup runtime and operation
-adapter; storage/helper tests alone are not physical restore acceptance.
+The native restore commands below expose these guarded effects through the
+qualified backup runtime and existing operation adapter. Storage/helper tests
+alone are not physical restore acceptance.
 
 
 ## Native backup command execution
@@ -1384,7 +1384,7 @@ the reader; there is no old-request fallback.
 ### Native live restore execution
 
 `restore native-live plan APP` selects one immutable verified remote point, one
-fresh exact prepared current point and one compatible installed recovery release.
+fresh exact prepared current point and one compatible retained recovery release.
 The default-false live restore policy applies to both plan and execution. Apply
 submits `native_live_restore` through the existing detached task runner. Requests
 contain references only. The host reopens the completed original stop under actual
@@ -1399,8 +1399,14 @@ and promotion before epoch activation. Fresh loaded-route absence, service jobs,
 container/process absence, owned units, secret files and installed compatible code
 are checked before activation and completion. Completion retains the original
 whole tree, releases its original fence and leaves the new epoch stopped. The
-current installed release must equal the selected recovery release; installing a
-different historical code release is not yet supported by this path.
+restore retains an immutable code intent naming both the original current release
+and the reviewed recovery release. With the original fence and both host guards
+held, it verifies the recovery image and retained secret versions, then uses the
+existing Quadlet staging and replacement to install the reviewed frontend while
+preserving its predecessor. Engine-only recovery removes and retains the prior
+frontend. No service starts or route publication occur. Epoch activation selects
+the reviewed release head in the same transaction. An interrupted replacement
+can settle only an observed original or reviewed artifact under that same intent.
 
 `inspect` reads retained progress. `review-resolution` binds a fresh immutable
 review to the original operation, journal head, transition input and actual layout,
@@ -1413,7 +1419,7 @@ unexplained layout refuses resolution and retains the fence for manual inspectio
 ### Native archive retirement
 
 `archive native plan APP` reads an existing exact prepared point protecting the
-current initialized native engine, every retained backup epoch and every terminal
+current initialized or positively unpublished native engine, every retained backup epoch and every terminal
 engine transition. Nonterminal transitions and unreserved incoming repositories
 refuse planning. The plan binds complete local transition-tree identities and
 retention evidence. `apply` submits `native_retire` through the existing task
@@ -1434,15 +1440,36 @@ move is not blindly retried. Final retirement requires every transition move and
 sets the original thirty-day deadline only after all moves complete. SQLite
 archive records retain their original canonical encoding.
 
-The current command handles initialized native engines with existing owned runtime
-and a fresh exact prepared point. Native interrupted cleanup, archived repository
-read/replay, archive credential renewal, retention and purge still require their
-qualified native adapters; the existing SQLite-only adapters refuse native inputs.
+`resolve OPERATION_ID` uses a separate `native_retire_resolve` task and preserves
+the original recovery-required outcome. With the original manifest and real host
+guards, it checks current unit ownership, loaded frontend jobs/processes, private
+reader absence and original source bytes. A new authenticated read and passive
+replay verifies the original bundle. Known completed unit/tree moves are synced
+and adopted; uncertain preparation without a manifest remains fenced.
+
+Archived repository reads have a separate capability joining the immutable
+manifest, canonical point dependency, original consumer/fence and exact retained
+bundle. Retired maintenance does not require an active incarnation or reuse an
+expired preparation permission. Eligible archived credentials and the original
+recovery version bound every read. The transport deadline ends before the
+credential authority. Retention receipts come only from authenticated extraction
+and, for initialized data, fixed passive replay with known reader disposal.
+Store receipt writes and reads independently join their protected replay row.
+
+Positively unpublished retirement retains the actual owner/config/metadata and
+signing-recovery source under authenticated extraction. It requires absent
+frontend artifacts, processes and loaded routes. It neither creates a database
+nor substitutes initialized schema, marker or offset evidence.
+
 No physical native retirement, successful R2 restore, post-archive recovery or
-purge acceptance is claimed by these command and local filesystem tests.
+purge acceptance is claimed by command, structural and local filesystem tests.
 
 Early archive purge requires the separate `allow_archive_purge=true` operator
 policy grant. Omission and explicit false preserve the previous canonical policy
 bytes and deny purge. Live restore does not grant purge. Plan and execution both
 recheck the grant; revocation prevents new deletion effects. Expiry remains bound
-to the original thirty-day deadline. Neither purpose deletes remote objects.
+to the original thirty-day deadline. Written/native early purge also requires a
+fresh protected retention proof, whose canonical hash is retained in the original
+deletion intent. Recovery preserves that intent and proof and checks the current
+grant, policy and retention before each further destructive step. Neither purpose
+deletes remote objects.

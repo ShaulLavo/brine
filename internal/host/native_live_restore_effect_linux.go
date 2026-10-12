@@ -113,6 +113,9 @@ func (r nativeBackupRuntime) finishNativeLiveRestore(ctx context.Context, capabi
 		return liverestore.Event{}, err
 	}
 	tree := &engineTransitionTree{preparation: preparation, lifetime: lifetime, binding: binding, input: view.Input, limits: engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16}}
+	if err = r.installNativeRestoreRecoveryCode(ctx, capability, view, tree); err != nil {
+		return liverestore.Event{}, err
+	}
 	// Fresh absence precedes every move, including resuming a recorded move.
 	if _, err = r.observeNativeRestoreTransition(ctx, view, tree, routes); err != nil {
 		return liverestore.Event{}, err
@@ -215,6 +218,12 @@ func verifyNativeRestoreRecoveryUnits(ctx context.Context, home string, recovery
 		if err := quadlet.VerifyCurrent(ctx, home, front.Unit.Name, front.Unit.Hash); err != nil {
 			return errEngineSource
 		}
+	} else if recovery.SourceRelease.Managed != nil && recovery.SourceRelease.Managed.Frontend != nil {
+		unit := recovery.SourceRelease.Managed.Frontend.Unit
+		present, err := quadlet.InspectArchiveRemove(ctx, home, unit.Name, unit.Hash)
+		if err != nil || present {
+			return errEngineSource
+		}
 	}
 	return ctx.Err()
 }
@@ -230,8 +239,8 @@ func (r nativeBackupRuntime) nativeRestoreQuiescent(ctx context.Context, app str
 	if err != nil {
 		return errEngineSource
 	}
-	if recovery.Release.Managed.Frontend != nil {
-		stopped, err = host.serviceStopped(ctx, app+".service", false)
+	if recovery.Release.Managed.Frontend != nil || recovery.SourceRelease.Managed.Frontend != nil {
+		stopped, err = host.stoppedOrAbsentService(ctx, app+".service")
 		if err != nil || !stopped {
 			return errEngineSource
 		}

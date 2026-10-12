@@ -69,6 +69,9 @@ func (s *Store) BeginNativeLiveRestore(ctx context.Context, stopped *NativeStopp
 	if err != nil || !stopped.active(s) {
 		return liverestore.Event{}, errors.Join(ErrConflict, err)
 	}
+	if err = recordNativeRestoreCodeIntentTx(ctx, tx, p, operationID); err != nil {
+		return liverestore.Event{}, err
+	}
 	return event, tx.Commit()
 }
 

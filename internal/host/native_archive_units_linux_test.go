@@ -55,13 +55,13 @@ func TestUnpublishedArchiveFrontendAbsencePreservesForeignArtifacts(t *testing.T
 func TestNativeArchiveServiceQuiescenceAcceptsLoadedStopAndAffirmativeAbsence(t *testing.T) {
 	for _, show := range []string{archiveStopped, strings.ReplaceAll(archiveStopped, "LoadState=loaded", "LoadState=not-found")} {
 		host := archiveHostForTest(t, &archiveExecutor{show: show})
-		stopped, err := host.nativeArchiveServiceStopped(context.Background(), "brine-engine-owned.service")
+		stopped, err := host.stoppedOrAbsentService(context.Background(), "brine-engine-owned.service")
 		if err != nil || !stopped {
 			t.Fatal("known loaded stop or absence refused", err)
 		}
 	}
 	host := archiveHostForTest(t, &archiveExecutor{show: strings.ReplaceAll(archiveStopped, "Job=", "Job=queued")})
-	if stopped, err := host.nativeArchiveServiceStopped(context.Background(), "brine-engine-owned.service"); err == nil && stopped {
+	if stopped, err := host.stoppedOrAbsentService(context.Background(), "brine-engine-owned.service"); err == nil && stopped {
 		t.Fatal("pending service job became quiescence")
 	}
 }
