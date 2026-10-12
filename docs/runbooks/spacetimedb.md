@@ -28,8 +28,10 @@ outcome requires the inspection flow below.
 1. Obtain operator authorization for the target, disposable app and destination.
    Enroll through the [existing enrollment flow](../CONTRACTS.md#operator-enrollment).
    Keep the target configuration and private input files outside the repository.
-2. Select the pinned engine and reader from
-   [runtime pins](../../tools/spacetime-runtime/pins.json). Select the immutable
+2. Select the pinned engine from
+   [runtime pins](../../tools/spacetime-runtime/pins.json). Enrollment installs the
+   passive reader's [architecture-specific artifact pins](../../internal/enroll/native_reader.go).
+   Select the immutable
    frontend image and matching Wasm/client artifacts from the
    [fixture publication](../../fixtures/spacetimedb-app/README.md#pinned-build-and-publication).
    Admit only the licensed single-instance topology.
@@ -37,6 +39,9 @@ outcome requires the inspection flow below.
    root, nested service, module artifacts, schema compatibility, resource bounds,
    backup destination and separate secret references. Use the
    [managed declaration contract](../CONTRACTS.md#managed-spacetimedb-deployment-and-lifecycle-p09-04).
+   Keep declared Wasm and schema sidecars inside the spec directory without
+   symlink components. Sidecars describe input; protected staging still verifies
+   the actual module and schema before publication.
 4. Have the operator review the protected app, root, destination, secret and
    SpacetimeDB policy scopes. Review capture cadence, verification age, retention,
    possible-loss budget and exact-operation maintenance allowance. Live restore
