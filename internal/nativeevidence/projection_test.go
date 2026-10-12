@@ -152,3 +152,11 @@ func TestProjectionDecoderDoesNotClaimPairDomainAuthority(t *testing.T) {
 		t.Fatal("full comparison ignored projection")
 	}
 }
+
+func TestNativeTableNamesAreUniqueBeforeConsumersMapThem(t *testing.T) {
+	value := projectionRecord(false, false)
+	value.Tables = append(value.Tables, Table{13, "recovery_left", 0, 0, strings.Repeat("0b", 32)})
+	if _, err := Decode(encoded(t, value), value.Limits); err == nil {
+		t.Fatal("accepted duplicate table name with another table ID")
+	}
+}

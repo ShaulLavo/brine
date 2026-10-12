@@ -289,10 +289,15 @@ func validTables(tables []Table, limits Limits) error {
 	var previous uint32
 	var rows, count uint64
 	module := false
+	names := make(map[string]struct{}, len(tables))
 	for _, table := range tables {
 		if table.ID <= previous || len(table.Name) == 0 || len(table.Name) > 1024 || !hash(table.Blake3) {
 			return ErrEvidence
 		}
+		if _, present := names[table.Name]; present {
+			return ErrEvidence
+		}
+		names[table.Name] = struct{}{}
 		if table.Rows > limits.Rows-rows || table.BSATNBytes > limits.StateBytes-count {
 			return ErrEvidence
 		}
