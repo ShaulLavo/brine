@@ -42,7 +42,7 @@ func sealPublicationTarget(ctx context.Context, stage publicationStageEvidence) 
 	if err != nil {
 		return publicationTargetCheckpoint{}, err
 	}
-	inventory, err := nativeOwnedInventory(ctx, stage.source.root, sealed, stage.scope.BindingID, stage.scope.OldEpochID, generation)
+	inventory, err := nativeOwnedInventory(ctx, stage.source.root, sealed, stage.scope.BindingID, stage.scope.NewEpochID, generation)
 	if err != nil {
 		return publicationTargetCheckpoint{}, err
 	}
@@ -59,7 +59,7 @@ func sealPublicationTarget(ctx context.Context, stage publicationStageEvidence) 
 		names = []string{review.Plan().CreationName()}
 	}
 	runtime := lease.permit.Runtime
-	checkpoint, err := nativecapture.NewCheckpoint(nativecapture.CheckpointRecord{Format: nativecapture.Format, Scope: nativecapture.CheckpointScope{BindingID: stage.scope.BindingID, EpochID: stage.scope.OldEpochID, ReplicaID: selection.Scope().ReplicaID}, GenerationID: generation,
+	checkpoint, err := nativecapture.NewCheckpoint(nativecapture.CheckpointRecord{Format: nativecapture.Format, Scope: nativecapture.CheckpointScope{BindingID: stage.scope.BindingID, EpochID: stage.scope.NewEpochID, ReplicaID: selection.Scope().ReplicaID}, GenerationID: generation,
 		DatabaseIdentity: stage.observation.Database, PublisherIdentity: stage.observation.Publisher, Names: names, RuntimeModuleHash: stage.scope.CandidateProgramWireHash, ArtifactSHA256: stage.scope.CandidateWasmSHA256, SchemaVersion: review.Plan().Candidate().Schema().Version(), SchemaSHA256: stage.scope.CandidateSchemaSHA256, ConfigurationSHA256: configuration,
 		SigningRecovery: nativecapture.SigningRecovery{Kind: "external_immutable", Reference: runtime.Secrets.SigningPrivate.Reference, Version: runtime.Secrets.SigningPrivate.Version, SHA256: runtime.Secrets.SigningPrivate.SHA256}, Members: members}, nativecapture.DefaultLimits())
 	if err != nil || lease.working.unchanged(ctx) != nil {
