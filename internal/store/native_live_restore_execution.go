@@ -104,6 +104,18 @@ func checkNativeLiveRestoreExecutionTx(ctx context.Context, tx *sql.Tx, stopped 
 	if err = checkNativePointCurrent(ctx, tx, point.view); err != nil {
 		return err
 	}
+	facts, safety, err := readNativeLiveRestoreCurrentTx(ctx, tx, point)
+	if err != nil || facts != spec.Facts || safety != spec.Safety {
+		return errors.Join(ErrConflict, err)
+	}
+	bundle, err := readNativeVerifiedPointBundleTx(ctx, tx, a.SelectedPointID)
+	if err != nil || nativeLiveRestoreSelected(bundle) != spec.Selected {
+		return errors.Join(ErrConflict, err)
+	}
+	recovery, err := readNativeLiveRestoreRecoveryTx(ctx, tx, facts.App, spec.Recovery.ReleaseID, spec.Selected)
+	if err != nil || recovery != spec.Recovery {
+		return errors.Join(ErrConflict, err)
+	}
 	c := nativePointConsumer{kind: nativePointLiveRestore, pointID: a.PreparedPointID, planID: a.PlanID, applyOperationID: a.OperationID, requester: spec.Requester.String(), binding: a.BindingID, epoch: a.SourceEpochID, generation: spec.Facts.Generation, generationID: spec.Facts.GenerationID, policySHA256: spec.Facts.PolicySHA256}
 	wanted, err := c.canonical()
 	if err != nil {

@@ -16,8 +16,6 @@ type Stage string
 const (
 	Claimed          Stage = "claimed"
 	RestoreIntent    Stage = "restore_intent"
-	Restored         Stage = "restored"
-	VerifyIntent     Stage = "verify_intent"
 	Verified         Stage = "verified"
 	TransitionIntent Stage = "transition_intent"
 	Transitioned     Stage = "transitioned"
@@ -30,6 +28,7 @@ const (
 type Attempt struct {
 	PlanID          string                `json:"plan_id"`
 	OperationID     string                `json:"operation_id"`
+	TransitionID    string                `json:"transition_id"`
 	ConsumerSHA256  string                `json:"consumer_sha256"`
 	PreparedPointID string                `json:"prepared_point_id"`
 	SelectedPointID string                `json:"selected_point_id"`
@@ -42,7 +41,7 @@ type Attempt struct {
 
 func (a Attempt) matches(p Plan) bool {
 	s := p.spec
-	return planID(p.id) && a.PlanID == p.id && operationID.MatchString(a.OperationID) && a.OperationID != s.Safety.FenceOwnerOpID &&
+	return planID(p.id) && a.PlanID == p.id && operationID.MatchString(a.OperationID) && data.ValidID(a.TransitionID) && a.OperationID != s.Safety.FenceOwnerOpID &&
 		digest(a.ConsumerSHA256) && a.PreparedPointID == s.Safety.PointID && a.SelectedPointID == s.Selected.PointID &&
 		a.FenceID == s.Safety.FenceID && a.FenceOwnerOpID == s.Safety.FenceOwnerOpID && a.BindingID == s.Facts.Head.BindingID &&
 		a.SourceEpochID == s.Facts.Head.EpochID && data.ValidID(string(a.IncomingEpochID)) && a.IncomingEpochID != a.SourceEpochID && a.IncomingEpochID != s.Selected.EpochID
@@ -79,7 +78,7 @@ func (e Event) Sequence() uint64 { return e.record.Sequence }
 func (e Event) SHA256() string   { return e.hash }
 func (e Event) Bytes() []byte    { return bytes.Clone(e.raw) }
 func (e Event) Pending() bool {
-	return e.record.Stage == RestoreIntent || e.record.Stage == VerifyIntent || e.record.Stage == TransitionIntent || e.record.Stage == FinishIntent || e.record.Stage == AbandonIntent
+	return e.record.Stage == RestoreIntent || e.record.Stage == TransitionIntent || e.record.Stage == FinishIntent || e.record.Stage == AbandonIntent
 }
 func (e Event) Terminal() bool {
 	return e.record.Stage == Completed || e.record.Stage == AbandonedCurrent
@@ -105,14 +104,13 @@ func Settle(p Plan, old Event, completed Stage, proofSHA256 string) (Event, erro
 
 func nextIntent(old, next Stage) bool {
 	if next == AbandonIntent {
-		return old == Claimed || old == Restored || old == Verified
+		return old == Claimed || old == Verified
 	}
-	return old == Claimed && next == RestoreIntent || old == Restored && next == VerifyIntent ||
-		old == Verified && next == TransitionIntent || old == Transitioned && next == FinishIntent
+	return old == Claimed && next == RestoreIntent || old == Verified && next == TransitionIntent || old == Transitioned && next == FinishIntent
 }
 
 func settles(intent, completed Stage) bool {
-	return intent == RestoreIntent && completed == Restored || intent == VerifyIntent && completed == Verified ||
+	return intent == RestoreIntent && completed == Verified ||
 		intent == TransitionIntent && completed == Transitioned || intent == FinishIntent && completed == Completed ||
 		intent == AbandonIntent && completed == AbandonedCurrent
 }
@@ -145,7 +143,7 @@ func DecodeEvent(p Plan, previous *Event, raw []byte) (Event, error) {
 	if err != nil {
 		return Event{}, ErrRecord
 	}
-	if _, err = strictjson.Object(fields["attempt"], "plan_id", "operation_id", "consumer_sha256", "prepared_point_id", "selected_point_id", "fence_id", "fence_owner_op_id", "binding_id", "source_epoch_id", "incoming_epoch_id"); err != nil {
+	if _, err = strictjson.Object(fields["attempt"], "plan_id", "operation_id", "transition_id", "consumer_sha256", "prepared_point_id", "selected_point_id", "fence_id", "fence_owner_op_id", "binding_id", "source_epoch_id", "incoming_epoch_id"); err != nil {
 		return Event{}, ErrRecord
 	}
 	var r eventRecord
