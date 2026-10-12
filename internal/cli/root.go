@@ -46,6 +46,7 @@ type Dependencies struct {
 	HostSecrets            dispatch.SecretOperations
 	HostWriterAttempt      func(context.Context, string) error
 	HostEngineExec         func(context.Context, string) error
+	HostEngineStop         func(context.Context, string) error
 	HostEngineCopyObserve  func(context.Context, io.Reader, io.Writer) error
 	HostBackupCredentials  dispatch.BackupCredentialOperations
 	HostArchives           ArchiveOperations

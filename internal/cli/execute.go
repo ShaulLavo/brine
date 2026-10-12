@@ -45,6 +45,7 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 	}
 	if lifecycle.OpenEngineStartup != nil {
 		deps.HostEngineExec = lazyEngineStartup{&runtime}.EngineExec
+		deps.HostEngineStop = lazyEngineStartup{&runtime}.EngineStop
 	}
 	foregroundCompleted := false
 	if deps.HostEngineExec != nil {
@@ -154,6 +155,7 @@ type RuntimeServices struct {
 	Permits            replication.LaunchReader
 	WriterAttempt      func(context.Context, string) error
 	EngineExec         func(context.Context, string) error
+	EngineStop         func(context.Context, string) error
 	Runner             OperationRunner
 	Reconciler         dispatch.ReconcileOperations
 	Close              func() error
@@ -266,6 +268,16 @@ func (e lazyEngineStartup) EngineExec(ctx context.Context, binding string) error
 		return replication.ErrPermit
 	}
 	return e.runtime.services.EngineExec(ctx, binding)
+}
+
+func (e lazyEngineStartup) EngineStop(ctx context.Context, binding string) error {
+	if err := e.runtime.initializeStartup(ctx, e.runtime.lifecycle.OpenEngineStartup); err != nil {
+		return err
+	}
+	if e.runtime.services.EngineStop == nil {
+		return replication.ErrPermit
+	}
+	return e.runtime.services.EngineStop(ctx, binding)
 }
 
 func (p lazyHostPermits) reader(ctx context.Context) (replication.LaunchReader, error) {

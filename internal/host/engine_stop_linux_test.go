@@ -26,6 +26,9 @@ func TestEngineServiceSignalsOnlySupervisorBeforeForcedCleanup(t *testing.T) {
 	if strings.Contains(string(unit), "SendSIGKILL=no") {
 		t.Fatal("service lost bounded forced cgroup cleanup")
 	}
+	if !strings.Contains(string(unit), "ExecStopPost=/usr/local/bin/brine host engine-stop "+string(permit.Runtime.BindingID)+"\n") {
+		t.Fatal("failed or killed startup lost manager-owned native cleanup")
+	}
 }
 
 func TestEngineStopChildHelper(t *testing.T) {
