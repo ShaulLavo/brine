@@ -197,6 +197,12 @@ func verifyDeletionLocations(p Plan, reviewed MaintenancePlan, d Deletion, adopt
 }
 func verifyArchiveAllocations(p Plan) error {
 	for _, d := range p.Candidate.Databases {
+		if native, ok := d.Native(); ok {
+			if native.Allocation == nil || data.VerifyNativeArchivedAllocation(native.Binding, *native.Allocation, p.ArchiveID) != nil {
+				return ErrRefused
+			}
+			continue
+		}
 		sqlDatabase, sqlite := d.SQLite()
 		if !sqlite || sqlDatabase.Allocation == nil || data.VerifyArchivedAllocation(sqlDatabase.Binding, *sqlDatabase.Allocation, p.ArchiveID) != nil {
 			return ErrRefused
