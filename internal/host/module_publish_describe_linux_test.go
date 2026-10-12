@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -163,6 +164,13 @@ func TestModuleDescriptorNativeFailuresHaveClosedCodes(t *testing.T) {
 	}
 	for _, mode := range []string{"exit", "arguments", "signal"} {
 		t.Run(mode, func(t *testing.T) { testModuleDescriptorNativeExit(t, mode) })
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	_, err := (localexec.ExecRunner{}).RunInput(ctx, localexec.Command{Path: filepath.Join(root, "missing-native"), Dir: root, OutputLimit: 1024})
+	if !errors.Is(err, os.ErrNotExist) || moduleDescriptorNativeFailure(err, nil) != "native_missing" {
+		t.Fatal("actual missing absolute executable lost its fixed code", err)
 	}
 }
 
