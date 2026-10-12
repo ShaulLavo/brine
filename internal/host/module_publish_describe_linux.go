@@ -5,11 +5,14 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net"
 	"os"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -33,10 +36,20 @@ type moduleDescriptorInput struct {
 // on the ordinary host or a sandbox exposing source data or credentials.
 func RunModuleDescriptor(ctx context.Context, input io.Reader, output io.Writer) error {
 	if err := moduleDescriptorContained(); err != nil {
+		var failure *moduleDescriptorFailure
+		if errors.As(err, &failure) {
+			_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal="+failure.stage)
+		}
 		return err
 	}
 	request, err := readModuleDescriptorInput(input)
 	if err != nil {
+		stage := "input_shape"
+		var failure *moduleDescriptorFailure
+		if errors.As(err, &failure) {
+			stage = failure.stage
+		}
+		_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal="+stage)
 		return err
 	}
 	artifact, err := readModuleDescriptorArtifact()
@@ -58,9 +71,23 @@ func RunModuleDescriptor(ctx context.Context, input io.Reader, output io.Writer)
 	return err
 }
 
+type moduleDescriptorFailure struct{ stage string }
+
+func (f *moduleDescriptorFailure) Error() string { return "module descriptor refused at " + f.stage }
+func (*moduleDescriptorFailure) Unwrap() error   { return datapublish.ErrRecord }
+
 func readModuleDescriptorInput(input io.Reader) (moduleDescriptorInput, error) {
 	raw, err := io.ReadAll(io.LimitReader(input, 1025))
-	if err != nil || len(raw) == 0 || len(raw) > 1024 {
+	if errors.Is(err, syscall.EAGAIN) {
+		return moduleDescriptorInput{}, &moduleDescriptorFailure{stage: "input_would_block"}
+	}
+	if err != nil {
+		return moduleDescriptorInput{}, &moduleDescriptorFailure{stage: "input_read"}
+	}
+	if len(raw) == 0 {
+		return moduleDescriptorInput{}, &moduleDescriptorFailure{stage: "input_empty"}
+	}
+	if len(raw) > 1024 {
 		return moduleDescriptorInput{}, datapublish.ErrRecord
 	}
 	if _, err := strictjson.Object(raw, "wasm_sha256", "program_wire_hash"); err != nil {
@@ -108,24 +135,24 @@ func extractModuleDescriptor(ctx context.Context, runner localexec.InputRunner) 
 
 func moduleDescriptorContained() error {
 	if os.Getpid() != 1 || os.Geteuid() != 1000 || os.Getegid() != 1000 {
-		return datapublish.ErrRecord
+		return &moduleDescriptorFailure{stage: "containment_namespace"}
 	}
 	interfaces, err := net.Interfaces()
 	if err != nil || len(interfaces) != 1 || interfaces[0].Flags&net.FlagLoopback == 0 {
-		return datapublish.ErrRecord
+		return &moduleDescriptorFailure{stage: "containment_network"}
 	}
 	for _, path := range []string{"/data", "/keys", "/home/brine", "/work", "/run/podman/podman.sock", "/var/run/docker.sock"} {
 		if _, err = os.Lstat(path); !os.IsNotExist(err) {
-			return datapublish.ErrRecord
+			return &moduleDescriptorFailure{stage: "containment_forbidden_path"}
 		}
 	}
 	raw, err := readModuleGuestMountInfo()
 	if err != nil || !moduleDescriptorMounts(raw) {
-		return datapublish.ErrRecord
+		return &moduleDescriptorFailure{stage: "containment_mounts"}
 	}
 	status, err := engineProcessStatus("/proc/self")
 	if err != nil || !engineProcessOwned(status) || !slices.Equal(strings.Fields(status["NSpid"]), []string{"1"}) {
-		return datapublish.ErrRecord
+		return &moduleDescriptorFailure{stage: "containment_process"}
 	}
 	return nil
 }
