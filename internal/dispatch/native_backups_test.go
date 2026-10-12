@@ -136,7 +136,7 @@ func checkNativeBackupDispatch(t *testing.T, operation string) {
 		}
 	}
 	authorized := false
-	server.WithJobs(nil, func(_ context.Context, observed Class) error {
+	server = server.WithJobs(nil, func(_ context.Context, observed Class) error {
 		if observed != class {
 			t.Fatal("native authority class changed")
 		}
