@@ -81,6 +81,18 @@ func (p Plan) Valid() bool {
 	bindings := map[data.ReplicaBindingID]bool{}
 	epochs := map[data.ReplicaEpochID]bool{}
 	for i, variant := range p.Candidate.Databases {
+		if native, initialized := variant.Native(); initialized {
+			ref := variant.Reference()
+			if !native.valid(p, rootIdentity[ref.Root]) || databases[ref.DatabaseID] || bindings[ref.BindingID] ||
+				i > 0 && p.Candidate.Databases[i-1].Reference().DatabaseID >= ref.DatabaseID {
+				return false
+			}
+			if !recordNativeEpochs(native, epochs) {
+				return false
+			}
+			databases[ref.DatabaseID], bindings[ref.BindingID], usedRoots[ref.Root] = true, true, true
+			continue
+		}
 		database, sqlite := variant.SQLite()
 		if !sqlite {
 			return false

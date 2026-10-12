@@ -242,7 +242,7 @@ func (c Coverage) Admits(p Plan, d Database, operation string, now time.Time) bo
 	if c.engine == data.EngineSQLite {
 		return c.sqlite.Admits(p, d.sqlite, operation, now)
 	}
-	return false
+	return c.engine == data.EngineSpacetimeDB && c.native.admits(p, d.native, now)
 }
 
 func (c Coverage) MarshalJSON() ([]byte, error) {

@@ -154,6 +154,9 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 	}
 	databases := make([]data.DatabaseID, len(p.Candidate.Databases))
 	for i, database := range p.Candidate.Databases {
+		if database.Engine() != data.EngineSQLite {
+			return o, data.ErrUnsupportedEngine
+		}
 		databases[i] = database.Reference().DatabaseID
 	}
 	guards, err := s.guardEngineDatabases(ctx, databases)
