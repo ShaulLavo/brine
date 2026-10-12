@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 )
@@ -32,31 +33,35 @@ func nativeSchema(t *testing.T, variant string) spacetimedb.CanonicalSchema {
 }
 
 func testFacts() BindingFacts {
+	secret := func(reference string) data.EngineSecretVersion {
+		return data.EngineSecretVersion{Reference: reference, Version: 1, SHA256: strings.Repeat("e", 64)}
+	}
 	return BindingFacts{App: "example", IncarnationID: strings.Repeat("1", 32), DatabaseID: strings.Repeat("2", 32), BindingID: strings.Repeat("3", 32), EpochID: strings.Repeat("4", 32), Generation: 1,
 		TargetSHA256: strings.Repeat("a", 64), PolicySHA256: strings.Repeat("b", 64), DesiredSHA256: strings.Repeat("c", 64), ConfigSHA256: strings.Repeat("d", 64),
-		SecretVersions: SecretReferences{Publisher: "brine.example.publisher.v1", SigningPublic: "brine.example.public.v1", SigningPrivate: "brine.example.private.v1", RecoveryPassword: "brine.example.recovery.v1"}} // #nosec G101 -- Immutable version names checked by secretReference, never credential values.
+		SecretVersions: SecretReferences{Publisher: secret("publisher"), SigningPublic: secret("signing-public"), SigningPrivate: secret("signing-private"), AuthPolicy: secret("auth-policy"), RecoveryPassword: secret("recovery-password")}}
 }
 
-func TestSecretVersionsStayInTheirAppAndSeparateRoles(t *testing.T) {
+func TestSecretVersionsRequireActualVersionMetadataAndSeparateRoles(t *testing.T) {
 	for _, mutate := range []func(*SecretReferences){
 		func(refs *SecretReferences) {
-			refs.Publisher = strings.Replace(refs.Publisher, ".example.", ".other.", 1)
+			refs.Publisher.Version = 0
 		},
 		func(refs *SecretReferences) {
-			refs.SigningPublic = strings.Replace(refs.SigningPublic, ".example.", ".other.", 1)
+			refs.SigningPublic.SHA256 = "not-a-hash"
 		},
 		func(refs *SecretReferences) {
-			refs.SigningPrivate = strings.Replace(refs.SigningPrivate, ".example.", ".other.", 1)
+			refs.SigningPrivate.Reference = "foreign.reference"
 		},
 		func(refs *SecretReferences) {
-			refs.RecoveryPassword = strings.Replace(refs.RecoveryPassword, ".example.", ".other.", 1)
+			refs.RecoveryPassword = data.EngineSecretVersion{}
 		},
+		func(refs *SecretReferences) { refs.AuthPolicy = data.EngineSecretVersion{} },
 		func(refs *SecretReferences) { refs.SigningPrivate = refs.SigningPublic },
 	} {
 		spec := planFixture(t, false)
 		mutate(&spec.Facts.SecretVersions)
 		if _, err := NewPlan(spec); !errors.Is(err, ErrRecord) {
-			t.Fatal("foreign app or identical role reference accepted", err)
+			t.Fatal("invalid version metadata or identical role reference accepted", err)
 		}
 	}
 	if _, err := NewPlan(planFixture(t, false)); err != nil {
@@ -64,12 +69,12 @@ func TestSecretVersionsStayInTheirAppAndSeparateRoles(t *testing.T) {
 	}
 	spec := planFixture(t, false)
 	refs := &spec.Facts.SecretVersions
-	refs.Publisher = strings.Replace(refs.Publisher, "publisher", "owner-token", 1)
-	refs.SigningPublic = strings.Replace(refs.SigningPublic, "public", "verification-key", 1)
-	refs.SigningPrivate = strings.Replace(refs.SigningPrivate, "private", "issuer-key", 1)
-	refs.RecoveryPassword = strings.Replace(refs.RecoveryPassword, "recovery", "archive-pass", 1)
+	refs.Publisher.Reference = "owner-token"
+	refs.SigningPublic.Reference = "verification-key"
+	refs.SigningPrivate.Reference = "issuer-key"
+	refs.RecoveryPassword.Reference = "archive-pass"
 	if _, err := NewPlan(spec); err != nil {
-		t.Fatal("operator-selected app-bound names refused", err)
+		t.Fatal("operator-selected logical references refused", err)
 	}
 }
 
@@ -106,7 +111,7 @@ func planFixture(t *testing.T, create bool) PlanSpec {
 		t.Fatal(err)
 	}
 	issued := time.Unix(1_700_000_000, 0).UTC()
-	spec := PlanSpec{Requester: requester, Facts: testFacts(), Candidate: candidate, Review: ReviewReferences{GuestCodeSHA256: strings.Repeat("f", 64), RecoveryReleases: []string{strings.Repeat("1", 64)}}, IssuedAt: issued, ExpiresAt: issued.Add(5 * time.Minute)}
+	spec := PlanSpec{Requester: requester, Facts: testFacts(), Candidate: candidate, Review: reviewFixture(t, candidate, create), IssuedAt: issued, ExpiresAt: issued.Add(5 * time.Minute)}
 	if create {
 		spec.Source = emptyFixture(t)
 		spec.CreationName = "fixture"
@@ -115,6 +120,19 @@ func planFixture(t *testing.T, create bool) PlanSpec {
 	spec.Source = capturedFixture(t)
 	spec.Preflight = NativePreflight{ResponseSHA256: strings.Repeat("7", 64), TokenSHA256: strings.Repeat("8", 64), PrivateTokenRef: strings.Repeat("9", 32)}
 	return spec
+}
+
+func reviewFixture(t *testing.T, candidate Candidate, create bool) ReviewReferences {
+	t.Helper()
+	recovery := NoPriorReleaseReview()
+	if !create {
+		var err error
+		recovery, err = SelectedRecoveryReleases([]RecoveryReleaseReference{{ReleaseID: "recovery-release", CodeSHA256: strings.Repeat("1", 64), CompatibilitySHA256: strings.Repeat("2", 64), AcceptedMarker: "fixture-v2", AcceptedSchemaSHA256: candidate.Schema().SHA256()}})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ReviewReferences{GuestCodeSHA256: candidate.WasmSHA256(), Recovery: recovery}
 }
 
 func TestPublicationPlansKeepFreshCreationDisjoint(t *testing.T) {
@@ -151,15 +169,15 @@ func TestPublicationMetadataCannotDowngradeRequiredDataChecks(t *testing.T) {
 	if !slices.Contains(p.Requirements(), spacetimedb.VerifyDefaultProjection) || !slices.Contains(p.Requirements(), spacetimedb.ReviewGuestCode) {
 		t.Fatal("actual default/effect requirements lost")
 	}
-	spec.Review.RecoveryReleases[0] = strings.Repeat("2", 64)
+	spec.Review.Recovery.releases[0].CodeSHA256 = strings.Repeat("2", 64)
 	refs := p.Review()
-	refs.RecoveryReleases[0] = strings.Repeat("3", 64)
+	refs.Recovery.releases[0].CodeSHA256 = strings.Repeat("3", 64)
 	requirements := p.Requirements()
 	requirements[0] = "reviewed"
 	point, _ := p.Source().Captured()
 	point.Names[0] = "changed"
 	kept, _ := p.Source().Captured()
-	if p.Review().RecoveryReleases[0] != strings.Repeat("1", 64) || !slices.Contains(p.Requirements(), spacetimedb.ReviewGuestCode) || kept.Names[0] != "fixture" {
+	if p.Review().Recovery.Releases()[0].CodeSHA256 != strings.Repeat("1", 64) || !slices.Contains(p.Requirements(), spacetimedb.ReviewGuestCode) || kept.Names[0] != "fixture" {
 		t.Fatal("mutable caller evidence changed retained plan")
 	}
 }

@@ -174,6 +174,7 @@ func TestDestructiveCandidateCannotBecomeRecordByReviewLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec.Candidate = candidate
+	spec.Review = reviewFixture(t, candidate, false)
 	if _, err = NewPlan(spec); !errors.Is(err, ErrRecord) {
 		t.Fatal("review reference downgraded destructive schema", err)
 	}
