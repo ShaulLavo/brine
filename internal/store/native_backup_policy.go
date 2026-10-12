@@ -236,3 +236,23 @@ func readNativeBackupRevisionPlan(ctx context.Context, q dataQuerier, id string)
 	}
 	return value, nil
 }
+
+// ReadNativeBackupRevisionPlanForPolicy selects the immutable activated plan.
+// Its original expiry does not govern an already active fixed scheduler.
+func (s *Store) ReadNativeBackupRevisionPlanForPolicy(ctx context.Context, policy NativeBackupPolicy) (NativeBackupRevisionPlan, error) {
+	current, _, err := readNativeBackupPolicy(ctx, s.db, policy.BindingID)
+	if err != nil || current.Revision != policy.Revision || current.OperationID != policy.OperationID {
+		return NativeBackupRevisionPlan{}, ErrConflict
+	}
+	var raw []byte
+	err = s.db.QueryRowContext(ctx, "SELECT canonical FROM data_native_backup_revision_plans WHERE id=? AND binding_id=? AND epoch_id=?", policy.RevisionPlanID, policy.BindingID, policy.EpochID).Scan(&raw)
+	var plan NativeBackupRevisionPlan
+	if err != nil || len(raw) > 65536 || json.Unmarshal(raw, &plan) != nil {
+		return plan, errors.Join(&IntegrityError{}, err)
+	}
+	canonical, _ := json.Marshal(plan)
+	if !bytes.Equal(raw, canonical) || plan.ID != policy.RevisionPlanID || plan.DeploymentPlanID != policy.DeploymentPlanID || plan.Backup != policy.Backup || plan.BindingID != policy.BindingID || plan.EpochID != policy.EpochID {
+		return plan, &IntegrityError{}
+	}
+	return plan, nil
+}

@@ -59,18 +59,29 @@ func VerifyArchivedTree(t ArchiveTree, inc AppIncarnationID, id ArchiveID) (err 
 	return nil
 }
 func VerifyArchivedAllocation(b SQLiteDatabaseBinding, a AllocationReceipt, id ArchiveID) error {
-	if !ValidID(string(id)) || !a.Valid() || a.DatabaseID != b.DatabaseID || a.IncarnationID != b.IncarnationID {
+	return verifyArchivedAllocationIdentity(b.Root, b.IncarnationID, b.DatabaseID, b.RelativeDirectory, a, id)
+}
+
+func VerifyNativeArchivedAllocation(b SpacetimeDBBinding, a AllocationReceipt, id ArchiveID) error {
+	if b.Validate() != nil {
 		return ErrInvalid
 	}
-	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
-	if err != nil || relative != b.RelativeDirectory {
+	return verifyArchivedAllocationIdentity(b.Root, b.IncarnationID, b.DatabaseID, b.RelativeDirectory, a, id)
+}
+
+func verifyArchivedAllocationIdentity(root PersistentRoot, incarnation AppIncarnationID, database DatabaseID, directoryName string, a AllocationReceipt, id ArchiveID) error {
+	if !ValidID(string(id)) || !a.Valid() || a.DatabaseID != database || a.IncarnationID != incarnation {
 		return ErrInvalid
 	}
-	archived := filepath.Join(string(b.Root), "archives", string(id), "databases", string(b.DatabaseID))
-	if err = verifyPrivateTree(string(b.Root), archived); err != nil {
+	relative, err := RelativeDirectory(incarnation, database)
+	if err != nil || relative != directoryName {
+		return ErrInvalid
+	}
+	archived := filepath.Join(string(root), "archives", string(id), "databases", string(database))
+	if err = verifyPrivateTree(string(root), archived); err != nil {
 		return err
 	}
-	dev, inode, err := directoryIdentity(string(b.Root))
+	dev, inode, err := directoryIdentity(string(root))
 	if err != nil || dev != a.RootDevice || inode != a.RootInode {
 		return ErrInvalid
 	}

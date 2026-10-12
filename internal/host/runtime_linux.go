@@ -163,6 +163,18 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
+	nativeRuntime := nativeBackupRuntime{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session, routes: manager}
+	r.Runner.TaskHandlers[ops.NativeCapture] = nativeOnlineCaptureTask(service, nativeRuntime)
+	r.Runner.TaskHandlers[ops.NativeRestoreTest] = nativeHistoricalRestoreTask(service, nativeRuntime)
+	r.Runner.TaskHandlers[ops.NativePrepare] = nativePrepareTask(service, stateDir, identity.HomeDir, nativeRuntime)
+	backupOperations := nativeBackupOperations{service: service, jobs: taskJobs}
+	r.NativeCapture = nativeCaptureScheduler(backupOperations, nativeRuntime)
+	r.NativeBackups = backupOperations
+	r.NativeBackupStatus = nativeBackupPolicyOperations{service: service, jobs: taskJobs}
+	r.NativeBackupPolicy = nativeBackupPolicyOperations{service: service, jobs: taskJobs}
+	r.Runner.TaskHandlers[ops.NativeBackupActivate] = nativeBackupActivationTask(service, stateDir, identity.HomeDir, session)
+	r.NativeRecovery = nativeRecoveryOperations{service: service, jobs: taskJobs}
+	r.Runner.TaskHandlers[ops.NativeRecoverySet] = nativeRecoveryTask(service)
 	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{}, engine.Routes.(apply.RemovalRoutes), units)
 	archiveAdapter := r.Archives.Host.(archiveHost)
 	r.ArchiveMaintenance = archive.MaintenanceService{Journal: state, Host: archiveAdapter, Requester: requester, Authorize: r.Archives.Authorize, Lock: r.Archives.Lock}

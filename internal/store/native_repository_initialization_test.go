@@ -35,11 +35,11 @@ func TestNativeIncomingInitializationJournalNeverReissuesCreation(t *testing.T) 
 	if validNativeRepositoryInitStage(issued, "init_issued") || !validNativeRepositoryInitStage(issued, "init_unknown") || !validNativeRepositoryInitStage(issued, "initialized") {
 		t.Fatal("issued initialization admitted a repeat or lost readback")
 	}
-	unknown := append(issued, nativeRepositoryInitEvent{Stage: "init_unknown"})
+	unknown := []nativeRepositoryInitEvent{{Stage: "init_issued"}, {Stage: "init_unknown"}}
 	if validNativeRepositoryInitStage(unknown, "init_issued") || validNativeRepositoryInitStage(unknown, "init_unknown") || !validNativeRepositoryInitStage(unknown, "initialized") {
 		t.Fatal("unknown initialization admitted retry instead of readback")
 	}
-	settled := append(unknown, nativeRepositoryInitEvent{Stage: "initialized"})
+	settled := []nativeRepositoryInitEvent{{Stage: "init_issued"}, {Stage: "init_unknown"}, {Stage: "initialized"}}
 	if validNativeRepositoryInitStage(settled, "init_issued") || validNativeRepositoryInitStage(settled, "init_unknown") || validNativeRepositoryInitStage(settled, "initialized") {
 		t.Fatal("immutable initialized result reopened effects")
 	}

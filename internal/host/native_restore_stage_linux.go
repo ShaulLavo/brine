@@ -107,7 +107,7 @@ func (s *nativeRestoreStage) writeOwner(ctx context.Context) error {
 }
 
 func (s *nativeRestoreStage) unchanged(ctx context.Context) error {
-	if s == nil || s.base == nil || s.root == nil || s.state == nil || s.state.CheckNativeLiveRestoreExecution(ctx, s.claim) != nil || s.source.unchanged(ctx) != nil {
+	if s == nil || s.base == nil || s.root == nil || s.state == nil || s.state.CheckNativeLiveRestoreRetainedSource(ctx, s.claim) != nil || s.source.unchanged(ctx) != nil {
 		return errEngineSource
 	}
 	opened, err := engineOpenRoot(string(s.claim.Binding().Root))
