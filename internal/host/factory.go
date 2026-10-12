@@ -47,6 +47,11 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 		server.RestoreTests = newRestoreTests(f.diagnosticStateDir)
 		return server, nil
 	}
+	if op == "native_material_status" {
+		server := dispatch.NewServer(f.version, nil)
+		server.NativeMaterial = nativeMaterialStatusReader{stateDir: f.diagnosticStateDir}
+		return server, nil
+	}
 	if op == "native_backup_status" {
 		server := dispatch.NewServer(f.version, nil)
 		server.NativeBackupStatus = nativeBackupStatusReader{stateDir: f.diagnosticStateDir}
@@ -87,6 +92,7 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	server.NativeBackupStatus = runtime.NativeBackupStatus
 	server.NativeBackupPolicy = runtime.NativeBackupPolicy
 	server.NativeRecovery = runtime.NativeRecovery
+	server.NativeMaterial = runtime.NativeMaterial
 	server.BackupCredentials = runtime.BackupCredentials
 	server.DataInitialization = runtime.DataInitialization
 	server.Logs = runtime.Logs

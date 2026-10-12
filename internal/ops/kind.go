@@ -13,6 +13,7 @@ const (
 	Deploy                   Kind = "deploy"
 	Resolve                  Kind = "resolve"
 	SecretSet                Kind = "secret_set"
+	NativeMaterialSet        Kind = "native_material_set"
 	Reconcile                Kind = "reconcile"
 	RestoreTest              Kind = "restore_test"
 	CredentialActivation     Kind = "credential_activation" // #nosec G101 -- A closed operation name, not credential material.
@@ -62,6 +63,8 @@ func ValidIntent(i Intent) bool {
 		return i.PlanID == "" && appName.MatchString(i.App) && (operationID.MatchString(i.SecretRef) || planID.MatchString(i.SecretRef))
 	case Reconcile:
 		return i.PlanID == "" && i.App == "" && i.SecretRef == ""
+	case NativeMaterialSet:
+		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef)
 	case SecretSet:
 		return i.PlanID == "" && appName.MatchString(i.App) && secretRef.MatchString(i.SecretRef) && len("brine."+i.App+"."+i.SecretRef+".v18446744073709551615") <= 253
 	default:
@@ -95,7 +98,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 		return Transitions()
 	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
-	case SecretSet:
+	case SecretSet, NativeMaterialSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
 	default:
 		return map[State][]State{}
@@ -153,6 +156,12 @@ func ValidateOperationEvent(op Operation, e Event) error {
 	}
 	if op.Kind == Reconcile || op.Kind.IsTask() {
 		if e.Kind != "launch" && e.Kind != "state" && e.Kind != "failure" {
+			return ErrInvalidEvent
+		}
+		return nil
+	}
+	if op.Kind == NativeMaterialSet {
+		if e.Kind != "state" && e.Kind != "failure" {
 			return ErrInvalidEvent
 		}
 		return nil
