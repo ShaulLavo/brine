@@ -1,0 +1,30 @@
+[package]
+name = "brine-native-reader"
+version = "0.0.1"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+blake3.workspace = true
+libc = "=0.2.177"
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+sha2 = "=0.10.9"
+spacetimedb-commitlog.workspace = true
+spacetimedb-datastore.workspace = true
+spacetimedb-durability.workspace = true
+spacetimedb-engine.workspace = true
+spacetimedb-fs-utils.workspace = true
+spacetimedb-lib.workspace = true
+spacetimedb-paths.workspace = true
+spacetimedb-runtime.workspace = true
+spacetimedb-sats.workspace = true
+spacetimedb-schema.workspace = true
+spacetimedb-snapshot.workspace = true
+spacetimedb-table.workspace = true
+tokio.workspace = true
+zstd = "=0.13.3"
+
+[dev-dependencies]
+spacetimedb-schema = { workspace = true, features = ["test"] }
+tempfile.workspace = true
