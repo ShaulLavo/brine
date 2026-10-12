@@ -6,10 +6,16 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 )
 
 func admitManagedRelease(ctx context.Context, tx *sql.Tx, p plan.Plan, r Release) error {
+	var operationPlan, app string
+	var state ops.State
+	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", r.ID).Scan(&operationPlan, &app, &state); err != nil || operationPlan != p.Hash || app != p.App || state != ops.Committing {
+		return ErrConflict
+	}
 	m := p.Managed
 	if !managedAppOwns(ctx, tx, p.App, m.Database.IncarnationID) {
 		return ErrConflict

@@ -239,6 +239,14 @@ func TestManagedServingReleaseRequiresActualDesiredAndRouteReceipts(t *testing.T
 	if _, err := s.CommitManagedRouteState(ctx, 0, route); err != nil {
 		t.Fatal(err)
 	}
+	if err := s.CommitRelease(ctx, p.App, release); err == nil {
+		t.Fatal("release committed before operation commit phase")
+	}
+	for _, state := range []ops.State{ops.Starting, ops.Checking, ops.Committing} {
+		if err := s.SetOperationState(ctx, op.ID, state); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := s.CommitRelease(ctx, p.App, release); err != nil {
 		t.Fatal("actual joined control receipts refused", err)
 	}
