@@ -13,7 +13,10 @@ import (
 )
 
 func TestNativeRestoreOwnerMarkerBindsIntentAndRejectsAliases(t *testing.T) {
-	directory := t.TempDir()
+	directory := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
 	marker := filepath.Join(directory, ".brine-restore-owner")
 	nonce := strings.Repeat("a", 64)
 	if err := os.WriteFile(marker, []byte(nonce), 0600); err != nil {
