@@ -144,7 +144,7 @@ func publicationIncarnationHasRelease(ctx context.Context, tx *sql.Tx, app strin
 		if err != nil {
 			return err
 		}
-		if release.Managed != nil && release.Managed.BindingID == point.BindingID {
+		if release.Managed == nil || release.Managed.BindingID == point.BindingID {
 			return ErrConflict
 		}
 	}
