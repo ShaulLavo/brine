@@ -119,7 +119,7 @@ func moduleDescriptorContained() error {
 			return datapublish.ErrRecord
 		}
 	}
-	raw, err := os.ReadFile("/proc/self/mountinfo")
+	raw, err := readModuleGuestMountInfo()
 	if err != nil || !moduleDescriptorMounts(raw) {
 		return datapublish.ErrRecord
 	}
