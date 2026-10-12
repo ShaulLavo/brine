@@ -15,6 +15,7 @@ type EngineStartupRuntime struct{}
 func OpenEngineStartup(context.Context) (*EngineStartupRuntime, error)  { return nil, data.ErrInvalid }
 func (*EngineStartupRuntime) Close() error                              { return nil }
 func (*EngineStartupRuntime) EngineExec(context.Context, string) error  { return data.ErrInvalid }
+func (*EngineStartupRuntime) EngineStop(context.Context, string) error  { return data.ErrInvalid }
 func RunEngineCopyObserver(context.Context, io.Reader, io.Writer) error { return data.ErrInvalid }
 
 func WriteEngineMaterial(context.Context, *store.EnginePreparation, data.EngineRuntime, *EngineSecretMaterial) error {
