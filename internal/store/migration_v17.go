@@ -45,6 +45,12 @@ CREATE TRIGGER data_native_verified_point_bundles_no_delete BEFORE DELETE ON dat
 CREATE TABLE data_native_point_consumers(point_id TEXT PRIMARY KEY REFERENCES data_native_prepared_points(id),kind TEXT NOT NULL CHECK(kind IN ('module_publish','live_restore','retire')),plan_id TEXT NOT NULL,apply_operation_id TEXT NOT NULL UNIQUE REFERENCES operations(id),requester TEXT NOT NULL,binding_id TEXT NOT NULL REFERENCES data_replica_bindings(id),epoch_id TEXT NOT NULL,generation INTEGER NOT NULL CHECK(generation>=0),generation_id TEXT NOT NULL,policy_sha256 TEXT NOT NULL,canonical BLOB NOT NULL CHECK(length(canonical)<=4096));
 CREATE TRIGGER data_native_point_consumers_no_update BEFORE UPDATE ON data_native_point_consumers BEGIN SELECT RAISE(ABORT,'immutable native point consumer'); END;
 CREATE TRIGGER data_native_point_consumers_no_delete BEFORE DELETE ON data_native_point_consumers BEGIN SELECT RAISE(ABORT,'durable native point consumer'); END;
+CREATE TABLE data_native_repository_intents(id TEXT PRIMARY KEY,operation_id TEXT NOT NULL UNIQUE REFERENCES operations(id),binding_id TEXT NOT NULL REFERENCES data_replica_bindings(id),epoch_id TEXT NOT NULL UNIQUE,endpoint TEXT NOT NULL,bucket TEXT NOT NULL,prefix TEXT NOT NULL,canonical BLOB NOT NULL CHECK(length(canonical)<=32768),UNIQUE(endpoint,bucket,prefix));
+CREATE TRIGGER data_native_repository_intents_no_update BEFORE UPDATE ON data_native_repository_intents BEGIN SELECT RAISE(ABORT,'immutable native repository intent'); END;
+CREATE TRIGGER data_native_repository_intents_no_delete BEFORE DELETE ON data_native_repository_intents BEGIN SELECT RAISE(ABORT,'retained native repository ownership'); END;
+CREATE TABLE data_native_repository_results(intent_id TEXT PRIMARY KEY REFERENCES data_native_repository_intents(id),repository_id TEXT NOT NULL,canonical BLOB NOT NULL CHECK(length(canonical)<=4096));
+CREATE TRIGGER data_native_repository_results_no_update BEFORE UPDATE ON data_native_repository_results BEGIN SELECT RAISE(ABORT,'immutable native repository identity'); END;
+CREATE TRIGGER data_native_repository_results_no_delete BEFORE DELETE ON data_native_repository_results BEGIN SELECT RAISE(ABORT,'retained native repository identity'); END;
 UPDATE schema_version SET version=17;
 `
 	if _, err := tx.ExecContext(ctx, migration); err != nil {

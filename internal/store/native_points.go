@@ -225,11 +225,11 @@ func (s *Store) claimNativePreparedPointTx(ctx context.Context, tx *sql.Tx, guar
 	return point, err
 }
 
-func readNativePointConsumer(ctx context.Context, tx *sql.Tx, pointID string) ([]byte, error) {
+func readNativePointConsumer(ctx context.Context, q dataQuerier, pointID string) ([]byte, error) {
 	var consumer nativePointConsumer
 	var raw []byte
 	consumer.pointID = pointID
-	err := tx.QueryRowContext(ctx, "SELECT kind,plan_id,apply_operation_id,requester,binding_id,epoch_id,generation,generation_id,policy_sha256,canonical FROM data_native_point_consumers WHERE point_id=?", pointID).Scan(&consumer.kind, &consumer.planID, &consumer.applyOperationID, &consumer.requester, &consumer.binding, &consumer.epoch, &consumer.generation, &consumer.generationID, &consumer.policySHA256, &raw)
+	err := q.QueryRowContext(ctx, "SELECT kind,plan_id,apply_operation_id,requester,binding_id,epoch_id,generation,generation_id,policy_sha256,canonical FROM data_native_point_consumers WHERE point_id=?", pointID).Scan(&consumer.kind, &consumer.planID, &consumer.applyOperationID, &consumer.requester, &consumer.binding, &consumer.epoch, &consumer.generation, &consumer.generationID, &consumer.policySHA256, &raw)
 	if err != nil {
 		return nil, err
 	}

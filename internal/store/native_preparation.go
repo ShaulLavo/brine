@@ -132,6 +132,20 @@ type NativeStoppedPreparation struct {
 	stopSHA256  string
 }
 
+func (p *NativeStoppedPreparation) PointID() string {
+	if p == nil || p.preparation == nil {
+		return ""
+	}
+	return p.preparation.intent.PointID
+}
+
+func (p *NativeStoppedPreparation) OperationID() string {
+	if p == nil || p.preparation == nil {
+		return ""
+	}
+	return p.preparation.intent.OperationID
+}
+
 type NativeStopIntent struct {
 	Mode        string    `json:"mode"`
 	ContainerID string    `json:"container_id"`
@@ -202,7 +216,24 @@ func (s *Store) ReadNativeStoppedPermit(ctx context.Context, capability *NativeS
 	if err != nil || !capability.active(s) {
 		return EnginePermit{}, errors.Join(ErrConflict, err)
 	}
+	if permit.Runtime.State == data.EngineUnpublished {
+		if err := checkNativeUntouchedHistory(ctx, tx, permit.Runtime); err != nil {
+			return EnginePermit{}, err
+		}
+	}
 	return permit, tx.Commit()
+}
+
+// ReadNativeStoppedDescriptorPreparation reuses the actual held guard after
+// revalidation. A descriptor purpose does not acquire a second binding lock.
+func (s *Store) ReadNativeStoppedDescriptorPreparation(ctx context.Context, capability *NativeStoppedPreparation) (*EnginePreparation, error) {
+	if _, err := s.ReadNativeStoppedPermit(ctx, capability); err != nil {
+		return nil, err
+	}
+	if !capability.active(s) {
+		return nil, ErrConflict
+	}
+	return capability.preparation.preparation, nil
 }
 
 func (s *Store) RecordNativeStoppedPreparation(ctx context.Context, preparation *NativePreparation, lifetime *data.EngineLock, observed NativeStopObservation) (*NativeStoppedPreparation, error) {

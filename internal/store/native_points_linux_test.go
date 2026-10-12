@@ -37,7 +37,7 @@ func nativeForeignRoot(t *testing.T) string {
 
 func dropNativeCaptureMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
-	for _, table := range []string{"data_native_verified_point_bundles", "data_native_verified_points", "data_native_point_consumers", "data_native_prepared_points", "data_native_preparation_events", "data_native_preparations", "data_native_task_inputs"} {
+	for _, table := range []string{"data_native_repository_results", "data_native_repository_intents", "data_native_verified_point_bundles", "data_native_verified_points", "data_native_point_consumers", "data_native_prepared_points", "data_native_preparation_events", "data_native_preparations", "data_native_task_inputs"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatal(err)
 		}
