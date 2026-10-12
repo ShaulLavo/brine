@@ -719,6 +719,15 @@ allocation bytes remain historical. Every retained prefix enters destination
 ownership checks, and a new epoch cannot reuse an earlier prefix even for the
 same binding. Generic fence release refuses a nonterminal transition.
 
+First publication binds an affirmative unpublished runtime head and its protected
+allocation record. That head contains owned configuration and resource limits;
+it does not establish an initialized database. The store requires its exact
+version/hash, unpublished state, empty database/publisher identities and matching
+allocation identity/hash. Initialized replacement requires an initialized head.
+Both arms activate the next version of their recorded head. Missing runtime
+history never implies an unpublished source. Launch and lifetime capabilities
+must match the protected state directory, binding, role and current lock inode.
+
 The protected point/publication callers still own exact preparation, the
 immutable one-consumer join, target verification and fresh completion authority.
 Structural transition records and private storage helpers do not provide those
