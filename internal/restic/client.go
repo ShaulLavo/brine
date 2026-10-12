@@ -183,44 +183,53 @@ func sameRepository(repository Repository, point TransportPoint) bool {
 	return repository.initializationPlan == "" && repository.scope.BindingID == point.Scope.BindingID && repository.scope.EpochID == point.Scope.EpochID && repository.scope.RepositoryID == point.Scope.RepositoryID && repository.scope.DestinationSHA256 == point.Scope.DestinationSHA256 && repository.scope.RecoveryVersion == point.Scope.RecoveryVersion
 }
 
-func (c *Client) RestoreExact(ctx context.Context, repository Repository, workspace, directory string, point TransportPoint, manifest Manifest) error {
+func (c *Client) RestoreExact(ctx context.Context, repository Repository, workspace string, parent *os.Root, name string, point TransportPoint, manifest Manifest) (AuthenticatedRestore, error) {
 	if err := manifest.admit(c.limits); err != nil {
-		return err
+		return AuthenticatedRestore{}, err
 	}
 	if !point.valid(c.limits) || manifest.SHA256() != point.ManifestSHA256 || manifest.document.Identity != point.Identity || point.ArchiveBytes != envelopeSize(manifest) || !sameRepository(repository, point) {
-		return ErrInvalid
+		return AuthenticatedRestore{}, ErrInvalid
 	}
 	if err := privateDirectory(workspace); err != nil {
-		return err
+		return AuthenticatedRestore{}, err
 	}
 	if err := c.InspectExact(ctx, repository, workspace, point); err != nil {
-		return err
+		return AuthenticatedRestore{}, err
 	}
 	file, err := os.CreateTemp(workspace, "downloaded-*.tar")
 	if err != nil {
-		return ErrFailed
+		return AuthenticatedRestore{}, ErrFailed
 	}
 	defer func() { _ = os.Remove(file.Name()) }()
 	defer func() { _ = file.Close() }()
 	output := &quotaWriter{writer: file, remaining: point.ArchiveBytes}
 	if err := c.command(ctx, repository, workspace, false, nil, output, []string{"dump", point.SnapshotID, "/" + archiveName}, false); err != nil {
-		return err
+		return AuthenticatedRestore{}, err
 	}
 	info, err := file.Stat()
 	if err != nil || info.Size() != point.ArchiveBytes {
-		return ErrIntegrity
+		return AuthenticatedRestore{}, ErrIntegrity
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return ErrFailed
+		return AuthenticatedRestore{}, ErrFailed
 	}
 	hash, err := hashFile(ctx, file, info.Size())
 	if err != nil || hash != point.ArchiveSHA256 {
-		return ErrIntegrity
+		return AuthenticatedRestore{}, ErrIntegrity
 	}
 	if err := file.Sync(); err != nil {
-		return ErrFailed
+		return AuthenticatedRestore{}, ErrFailed
 	}
-	return extractEnvelope(ctx, file.Name(), directory, manifest, c.limits)
+	root, err := extractEnvelope(ctx, file.Name(), parent, name, manifest, c.limits)
+	if err != nil {
+		return AuthenticatedRestore{}, err
+	}
+	identity, err := root.Stat(".")
+	if err != nil {
+		_ = root.Close()
+		return AuthenticatedRestore{}, ErrIntegrity
+	}
+	return AuthenticatedRestore{root: root, parent: parent, name: name, identity: identity, point: point, manifest: manifest, limits: c.limits, verifiedAt: time.Now().UTC()}, nil
 }
 
 func (c *Client) Check(ctx context.Context, repository Repository, workspace string) error {

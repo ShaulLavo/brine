@@ -18,7 +18,7 @@ func storedNativeRestoreJournalFixture(t *testing.T) (nativeTransitionFixture, l
 		t.Fatal(err)
 	}
 	s := p.Spec()
-	attempt := liverestore.Attempt{PlanID: p.ID(), OperationID: f.input.Common().Scope.ApplyOperationID, ConsumerSHA256: strings.Repeat("c", 64),
+	attempt := liverestore.Attempt{PlanID: p.ID(), OperationID: f.input.Common().Scope.ApplyOperationID, TransitionID: f.input.Common().Scope.ID, ConsumerSHA256: strings.Repeat("c", 64),
 		PreparedPointID: s.Safety.PointID, SelectedPointID: s.Selected.PointID, FenceID: s.Safety.FenceID, FenceOwnerOpID: s.Safety.FenceOwnerOpID,
 		BindingID: s.Facts.Head.BindingID, SourceEpochID: s.Facts.Head.EpochID, IncomingEpochID: f.runtime.EpochID}
 	claim, err := liverestore.BeginAttempt(p, attempt)
@@ -27,8 +27,8 @@ func storedNativeRestoreJournalFixture(t *testing.T) (nativeTransitionFixture, l
 	}
 	// Seed the private journal half only. This fixture does not claim an actual17
 	// point, create protected20 proofs, or admit a host effect.
-	_, err = f.store.db.ExecContext(ctx, "INSERT INTO data_native_live_restore_claims VALUES(?,?,?,?,?,?)", attempt.OperationID,
-		attempt.PlanID, attempt.PreparedPointID, attempt.BindingID, attempt.IncomingEpochID, claim.Bytes())
+	_, err = f.store.db.ExecContext(ctx, "INSERT INTO data_native_live_restore_claims VALUES(?,?,?,?,?,?,?)", attempt.OperationID,
+		attempt.PlanID, attempt.PreparedPointID, attempt.BindingID, attempt.IncomingEpochID, attempt.TransitionID, claim.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
