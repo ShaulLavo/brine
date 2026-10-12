@@ -66,3 +66,31 @@ func TestNativeOnlineCopyRemovesOwnedScratch(t *testing.T) {
 		t.Fatal("routine capture close retains plaintext source tree; every scheduled capture accumulates another nonce without expiry or cleanup owner")
 	}
 }
+
+func TestNativeOnlineCopyPreUploadFailureRemovesOwnedScratch(t *testing.T) {
+	binding, staging := engineSourceFixture(t)
+	parent, err := engineOpenRoot(staging)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = parent.Close() }()
+	source, err := openEngineSource(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, err := nativeRestoreDirectoryIdentity(source, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.WriteFile("control-db/empty", nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	_ = source.Close()
+	permit := store.EnginePermit{Reserved: store.ReservedEngine{Database: binding}, Allocation: &data.AllocationReceipt{DirectoryDevice: identity.Device, DirectoryInode: identity.Inode}}
+	if _, err := captureNativeOnlineCopy(context.Background(), permit, parent, staging); err == nil {
+		t.Fatal("empty control metadata unexpectedly admitted")
+	}
+	if _, err := parent.Lstat("source"); !os.IsNotExist(err) {
+		t.Fatal("pre-upload failure retained source scratch", err)
+	}
+}

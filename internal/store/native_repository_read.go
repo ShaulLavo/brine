@@ -134,6 +134,9 @@ func (r *NativeRepositoryRead) material(ctx context.Context, tx *sql.Tx) (Native
 		return NativeRepositoryMaterial{}, err
 	}
 	receipt, err := readArchiveCredentialReceipt(ctx, tx, r.archived.archiveID, r.archived.binding, data.ReplicaEpochID(r.point.Scope.EpochID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return limitNativeRepositoryMaterial(material, material.CredentialRecord.ExpiresAt)
+	}
 	if err != nil || receipt.Admit(time.Now().UTC(), time.Minute) != nil || receipt.Plan.Scope.CredentialRef != material.CredentialReference {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
