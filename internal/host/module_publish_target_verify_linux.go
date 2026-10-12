@@ -9,6 +9,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/nativeevidence"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
+	"github.com/ShaulLavo/brine/internal/store"
 )
 
 type publicationTargetVerification struct {
@@ -22,6 +23,10 @@ type publicationTargetVerification struct {
 
 func verifyPublicationTarget(ctx context.Context, target publicationTargetCheckpoint, session localexec.Session) (publicationTargetVerification, error) {
 	if target.unchanged(ctx) != nil {
+		return publicationTargetVerification{}, datapublish.ErrRecord
+	}
+	cursor, err := target.stage.source.state.ReadPublicationAttemptCursor(ctx, target.stage.lease.working.attempt)
+	if err != nil || cursor.State() != datapublish.IntentRecorded || cursor.IntendedStep() != datapublish.VerifyStage {
 		return publicationTargetVerification{}, datapublish.ErrRecord
 	}
 	review, err := target.stage.source.state.ReadPublicationAttemptReview(ctx, target.stage.lease.working.attempt)
@@ -58,7 +63,7 @@ func verifyPublicationTarget(ctx context.Context, target publicationTargetCheckp
 			return publicationTargetVerification{}, err
 		}
 		verified.initial = &initial
-		return verified, nil
+		return recordPublicationTargetVerification(ctx, verified)
 	}
 	source, err := spacetimedb.RecoveryPairsFromPassive(target.stage.source.evidence, review.Plan().Source().Schema())
 	if err != nil {
@@ -69,5 +74,17 @@ func verifyPublicationTarget(ctx context.Context, target publicationTargetCheckp
 		return publicationTargetVerification{}, err
 	}
 	verified.preservation = &preserved
+	return recordPublicationTargetVerification(ctx, verified)
+}
+
+func recordPublicationTargetVerification(ctx context.Context, verified publicationTargetVerification) (publicationTargetVerification, error) {
+	if verified.target.unchanged(ctx) != nil {
+		return publicationTargetVerification{}, datapublish.ErrRecord
+	}
+	stage := verified.target.stage
+	_, err := stage.source.state.RecordPublicationVerified(ctx, stage.lease.working.attempt, store.PublicationVerificationObservation{Checkpoint: verified.target.checkpoint, Evidence: verified.evidence, ReaderNonce: verified.disposal.nonce, ReaderViewSHA256: verified.disposal.viewHash, ReaderImageID: verified.disposal.imageID, ReaderDisposedAt: verified.disposal.at})
+	if err != nil {
+		return publicationTargetVerification{}, err
+	}
 	return verified, nil
 }
