@@ -28,7 +28,7 @@ type publicationReviewPreflight struct {
 }
 
 func beginPublicationReviewWork(ctx context.Context, source *nativeRestoredSource, preparation *store.PublicationReviewPreparation, extraction extractedPublicationCandidate) (*publicationReviewWork, error) {
-	if source == nil || source.unchanged(ctx) != nil || source.permit.Runtime.State != data.EngineInitialized || preparation == nil || source.state.CheckPublicationReviewPreparation(ctx, preparation) != nil || preparation.PointID() != source.pointID || extraction.unchanged(ctx) != nil || extraction.lease.artifact.preparation != source.preparation || preparation.Artifact().WasmSHA256() != extraction.lease.artifact.artifact.WasmSHA256() {
+	if source == nil || source.unchanged(ctx) != nil || preparation == nil || source.state.CheckPublicationReviewPreparation(ctx, preparation) != nil || preparation.PointID() != source.pointID || extraction.unchanged(ctx) != nil || extraction.lease.artifact.preparation != source.preparation || preparation.Artifact().WasmSHA256() != extraction.lease.artifact.artifact.WasmSHA256() {
 		return nil, datapublish.ErrRecord
 	}
 	if err := source.state.BindPublicationReviewRestore(ctx, preparation, source.extracted, source.parent, source.evidence); err != nil {
@@ -45,7 +45,7 @@ func (w *publicationReviewWork) unchanged(ctx context.Context) error {
 }
 
 func acquirePublicationReviewStage(ctx context.Context, work *publicationReviewWork, images *podman.Client) (*publicationStageLease, error) {
-	if work.unchanged(ctx) != nil {
+	if work.unchanged(ctx) != nil || work.source.permit.Runtime.State != data.EngineInitialized {
 		return nil, datapublish.ErrRecord
 	}
 	lease, err := acquireRestoredStage(ctx, work.source, work.extraction.lease.artifact, images)
@@ -58,6 +58,30 @@ func acquirePublicationReviewStage(ctx context.Context, work *publicationReviewW
 		return nil, datapublish.ErrRecord
 	}
 	return lease, nil
+}
+
+func completeInitialPublicationReview(ctx context.Context, work *publicationReviewWork) (datapublish.Plan, error) {
+	if work.unchanged(ctx) != nil || work.source.permit.Runtime.State != data.EngineUnpublished || work.source.empty == nil || !data.ValidCatalogHash(work.source.initialPublisher) || !data.ValidCatalogHash(work.source.publisherProofSHA) {
+		return datapublish.Plan{}, datapublish.ErrRecord
+	}
+	owner, err := work.source.state.ReadNativeInitialOwner(ctx, work.source.empty.stopped)
+	if err != nil || owner.Publisher != work.source.initialPublisher || owner.PublisherProofSHA256 != work.source.publisherProofSHA {
+		return datapublish.Plan{}, datapublish.ErrRecord
+	}
+	extraction, err := work.extraction.provenance(ctx)
+	if err != nil {
+		return datapublish.Plan{}, err
+	}
+	observed := store.PublicationReviewObservation{Descriptor: slices.Clone(work.extraction.descriptor), Extraction: extraction, Runtime: work.source.permit.Runtime.Clone(), Publisher: owner.Publisher, PublisherProof: slices.Clone(owner.PublisherProof)}
+	return work.source.state.CompletePublicationReview(ctx, work.preparation, observed)
+}
+
+func (p publicationReviewPreflight) complete(ctx context.Context) (datapublish.Plan, error) {
+	observed, err := p.observationRecord(ctx)
+	if err != nil {
+		return datapublish.Plan{}, err
+	}
+	return p.work.source.state.CompletePublicationReview(ctx, p.work.preparation, observed)
 }
 
 func runPublicationReviewPreflight(ctx context.Context, lease *publicationStageLease, runner localexec.InputRunner, session localexec.Session) (publicationReviewPreflight, error) {
