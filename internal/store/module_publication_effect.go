@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -13,12 +14,13 @@ import (
 )
 
 type PublicationEffect struct {
-	Scope      datapublish.ProofScope `json:"scope"`
-	Nonce      string                 `json:"nonce"`
-	Step       datapublish.Step       `json:"step"`
-	RootPath   string                 `json:"root_path"`
-	Runtime    data.EngineRuntime     `json:"runtime"`
-	RecordedAt time.Time              `json:"recorded_at"`
+	Scope        datapublish.ProofScope       `json:"scope"`
+	Nonce        string                       `json:"nonce"`
+	Step         datapublish.Step             `json:"step"`
+	RootPath     string                       `json:"root_path"`
+	RootIdentity data.EngineDirectoryIdentity `json:"root_identity"`
+	Runtime      data.EngineRuntime           `json:"runtime"`
+	RecordedAt   time.Time                    `json:"recorded_at"`
 }
 
 type PublicationEffectEvent struct {
@@ -57,6 +59,12 @@ func (s *Store) RecordPublicationEffect(ctx context.Context, attempt *Publicatio
 	if !data.ValidRoot(effect.RootPath) || attempt.restored.unchanged(ctx) != nil {
 		return ErrConflict
 	}
+	actual, err := os.Lstat(effect.RootPath)
+	rootProof, proofErr := data.InspectRoot(effect.RootPath)
+	if err != nil || proofErr != nil || !os.SameFile(actual, attempt.restored.identity) {
+		return errors.Join(ErrConflict, err, proofErr)
+	}
+	effect.RootIdentity = data.EngineDirectoryIdentity{Device: rootProof.Device, Inode: rootProof.Inode}
 	raw, err := json.Marshal(effect)
 	if err != nil {
 		return ErrInvalid
