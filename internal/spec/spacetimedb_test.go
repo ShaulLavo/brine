@@ -121,15 +121,19 @@ func TestManagedStartupReferencesMatchProtectedRoleNames(t *testing.T) {
 	}
 	for _, role := range []string{"publisher", "signing_private", "signing_public", "auth"} {
 		for _, ref := range []string{"Uppercase", "with_underscore", strings.Repeat("a", 64)} {
-			lines := strings.Split(string(raw), "\n")
-			for i, line := range lines {
-				if strings.HasPrefix(line, role+" = ") {
-					lines[i] = role + " = \"" + ref + "\""
-				}
-			}
-			if _, err := Parse([]byte(strings.Join(lines, "\n"))); err == nil {
-				t.Fatal("unusable protected role reference admitted", role, ref)
-			}
+			testManagedRoleReference(t, raw, role, ref)
 		}
+	}
+}
+func testManagedRoleReference(t *testing.T, raw []byte, role, ref string) {
+	t.Helper()
+	lines := strings.Split(string(raw), "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, role+" = ") {
+			lines[i] = role + " = \"" + ref + "\""
+		}
+	}
+	if _, err := Parse([]byte(strings.Join(lines, "\n"))); err == nil {
+		t.Fatal("unusable protected role reference admitted", role, ref)
 	}
 }
