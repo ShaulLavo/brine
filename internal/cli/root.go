@@ -49,6 +49,8 @@ type Dependencies struct {
 	HostEngineStop            func(context.Context, string) error
 	HostManagedFrontendPermit func(context.Context, string, string) error
 	HostEngineCopyObserve     func(context.Context, io.Reader, io.Writer) error
+	HostModuleDescribe        func(context.Context, io.Reader, io.Writer) error
+	HostModuleDescribeProfile func(context.Context, io.Reader, io.Writer) error
 	HostBackupCredentials     dispatch.BackupCredentialOperations
 	HostArchives              ArchiveOperations
 	HostArchiveMaintenance    ArchiveMaintenanceOperations
