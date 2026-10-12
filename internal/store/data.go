@@ -178,7 +178,13 @@ func checkDestinationOwner(ctx context.Context, q dataQuerier, endpoint, bucket,
 			return ErrConflict
 		}
 	}
-	return rows.Err()
+	if err = rows.Err(); err != nil {
+		return err
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	return checkNativeDestinationOwner(ctx, q, endpoint, bucket, prefix, owner)
 }
 func (s *Store) CheckReplicaDestinationOwner(ctx context.Context, endpoint, bucket, prefix string, owner data.ReplicaBindingID) error {
 	if !data.ValidID(string(owner)) || prefix == "" {
@@ -368,6 +374,9 @@ func (s *Store) ReleaseDataFence(ctx context.Context, id data.FenceID, operation
 		return err
 	}
 	defer tx.Rollback()
+	if err = refuseNonterminalEngineFence(ctx, tx, id); err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND operation_id=? AND state='held'", id, operation)
 	if err != nil {
 		return err

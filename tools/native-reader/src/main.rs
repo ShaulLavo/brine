@@ -256,7 +256,10 @@ fn contained() -> Result<()> {
             return Err(Refusal::Containment);
         }
         let point = fields[4];
-        if !allowed_mount(point) && !readonly_empty_runtime_mask(point, fields[5], &fields) {
+        if !allowed_mount(point)
+            && !readonly_empty_runtime_mask(point, fields[5], &fields)
+            && !readonly_empty_runtime_marker(point, fields[5], &fields)
+        {
             return Err(Refusal::Containment);
         }
         if point == "/" {
@@ -340,6 +343,31 @@ fn readonly_empty_runtime_mask(point: &str, options: &str, fields: &[&str]) -> b
         return false;
     };
     entries.next().is_none()
+}
+
+fn readonly_empty_runtime_marker(point: &str, options: &str, fields: &[&str]) -> bool {
+    if point != "/run/.containerenv"
+        || !["ro", "nosuid", "nodev", "noexec"]
+            .iter()
+            .all(|required| options.split(',').any(|option| option == *required))
+        || fields.get(3).is_none_or(|root| *root == "/")
+    {
+        return false;
+    }
+    runtime_marker_file(Path::new(point))
+}
+
+fn runtime_marker_file(point: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+
+    let Ok(metadata) = std::fs::symlink_metadata(point) else {
+        return false;
+    };
+    metadata.is_file()
+        && metadata.len() == 0
+        && metadata.mode() & 0o7777 == 0o644
+        && metadata.uid() == 0
+        && metadata.nlink() == 1
 }
 
 fn bounded_text(path: &str, maximum: u64) -> Result<String> {

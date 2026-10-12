@@ -10,6 +10,8 @@ The executable accepts no arguments. It reads one JSON request, at most 8 KiB, f
 
 Standard OCI runtime masks at `/sys/firmware`, `/sys/devices/virtual/powercap` and numbered CPU `thermal_throttle` directories are accepted only as read-only, empty tmpfs mounts. Writable, populated, non-tmpfs and other extra mounts still refuse.
 
+Podman's `/run/.containerenv` marker is accepted only as a file bind with `ro,nosuid,nodev,noexec`, an empty regular file, mode `0644`, container UID zero and one link. Visible symlinks, other file types, populated or writable markers and other `/run` mounts refuse. The launcher suppresses Podman's additional writable tmpfs and passwd/group mounts.
+
 `format` must equal `brine-native-reader-v1`. `expected_database_identity` and `expected_owner_identity` are equality constraints, not observed evidence. Unknown, repeated, absent or mistyped request fields refuse. `history` is either `{"kind":"logs"}` or `{"kind":"snapshot","offset":N,"replica_id":N}`. Snapshot mode requires exactly the selected complete snapshot, its verified native identity and a connected log suffix. The suffix may be empty when the selected snapshot itself supplies the recovered head. The required `clog` directory must then contain no entries. Log mode requires nonempty history beginning at zero.
 
 On success, exit status is zero and `outcome` is `observed`. On refusal, exit status is 70 and a bounded object identifies the refusal code when the output pipe permits it. A killed process, partial output, unexpected status, invalid JSON or missing evidence must refuse. A refusal is never a restore receipt.
