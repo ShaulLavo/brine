@@ -63,6 +63,13 @@ func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLea
 			return publicationStageEvidence{}, datapublish.ErrInspection
 		}
 	}
+	if action == moduleStagePublish || action == moduleStageCreate {
+		observed := store.PublicationStageObservation{Process: moduleStageProtectedObservation(lease, observation), NativeDatabase: observation.Database, NativePublisher: observation.Publisher, ProgramWireHash: observation.ProgramWireHash, SchemaSHA256: observation.SchemaSHA256, Receipt: slices.Clone(observation.Receipt), ReceiptBindingSHA256: observation.ReceiptBindingSHA}
+		if _, err = state.RecordPublicationPublished(ctx, attempt, observed); err != nil {
+			_, _ = state.RecordPublicationUnknown(context.WithoutCancel(ctx), attempt)
+			return publicationStageEvidence{}, datapublish.ErrInspection
+		}
+	}
 	return publicationStageEvidence{source: lease.restored, scope: cursor.Scope(), observation: observation, stageRoot: lease.rootMember}, nil
 }
 

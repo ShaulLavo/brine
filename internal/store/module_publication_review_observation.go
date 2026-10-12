@@ -37,3 +37,13 @@ type PublicationReviewObservation struct {
 	FinishedAt       time.Time
 	Disposed         bool
 }
+
+type PublicationStageObservation struct {
+	Process              PublicationReviewObservation `json:"process"`
+	NativeDatabase       string                       `json:"native_database"`
+	NativePublisher      string                       `json:"native_publisher"`
+	ProgramWireHash      string                       `json:"program_wire_hash"`
+	SchemaSHA256         string                       `json:"schema_sha256"`
+	Receipt              []byte                       `json:"receipt"`
+	ReceiptBindingSHA256 string                       `json:"receipt_binding_sha256"`
+}
