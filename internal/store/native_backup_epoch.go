@@ -97,8 +97,11 @@ func checkNativeInitializedCredential(ctx context.Context, q dataQuerier, intent
 		return errors.Join(ErrConflict, err)
 	}
 	canonical, err := json.Marshal(record)
-	if err != nil || !bytes.Equal(raw, canonical) || record.BindingID != intent.record.BindingID || record.CredentialRef != intent.archive.Destination.CredentialRef || record.Version != result.Scope.CredentialVersion || record.Kind != "receipt" || record.ReceivedAt.IsZero() || record.ReceivedAt.Location() != time.UTC || record.ReceivedAt.After(result.VerifiedAt) || record.PolicyHash != "sha256:"+intent.record.PolicySHA256 {
+	if err != nil || !bytes.Equal(raw, canonical) || record.BindingID != intent.record.BindingID || record.CredentialRef != intent.archive.Destination.CredentialRef || record.Destination != intent.archive.Destination.Reference || record.Version != result.Scope.CredentialVersion || record.Kind != "receipt" || record.ReceivedAt.IsZero() || record.ReceivedAt.Location() != time.UTC || record.ReceivedAt.After(result.VerifiedAt) || record.PolicyHash != "sha256:"+intent.record.PolicySHA256 {
 		return errors.Join(&IntegrityError{}, err)
+	}
+	if record.ExpiresAt != nil && (!result.VerifiedAt.Before(*record.ExpiresAt) || result.Scope.ExpiresAt.After(*record.ExpiresAt)) {
+		return ErrConflict
 	}
 	policy, _, err := readNativeBackupPolicyScope(ctx, q, record.BindingID, record.EpochID, "", record.Version, result.Scope.RecoveryVersion)
 	if err != nil || policy.CredentialReceiptID != record.ID || checkNativeBackupPolicyOperation(ctx, q, policy) != nil {
