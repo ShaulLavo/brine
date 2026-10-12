@@ -170,6 +170,9 @@ func ValidateManagedDesired(d Desired) error {
 	if len(d.Databases) != 0 || d.Runtime != nil || d.Backup != nil || len(d.RestoreInvariants) != 0 || len(d.SchemaDefinitions) != 0 || len(d.SchemaArtifacts) != 0 || !slices.Contains(d.PersistentRoots, d.SpacetimeDB.PersistentRoot) || len(d.BackupDestinations) != 1 || d.BackupDestinations[0].Reference != d.SpacetimeDB.BackupDestination || d.BackupDestinations[0].Validate() != nil {
 		return data.ErrInvalid
 	}
+	if string(d.SpacetimeDB.RecoveryPasswordRef) == d.BackupDestinations[0].CredentialRef {
+		return data.ErrInvalid
+	}
 	if len(d.Environment) != len(managedApp(d).Environment) || len(d.Secrets) != len(managedApp(d).Secrets) {
 		return data.ErrInvalid
 	}
