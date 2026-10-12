@@ -19,6 +19,7 @@ import (
 type publicationStageLease struct {
 	empty         engineEmptySource
 	restored      *nativeRestoredSource
+	working       *publicationWorkingStage
 	artifact      *publicationArtifact
 	stagePath     string
 	preparation   *store.EnginePreparation
@@ -65,8 +66,12 @@ func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource,
 	return &publicationStageLease{empty: source, stagePath: source.copy.path, preparation: preparation, permit: source.permit, material: material, image: image, nonce: nonce, rootMember: sealed.root}, nil
 }
 
-func acquireRestoredPublicationStage(ctx context.Context, source *nativeRestoredSource, artifact *publicationArtifact, images *podman.Client) (*publicationStageLease, error) {
-	if source == nil || source.unchanged(ctx) != nil || source.permit.Runtime.State != data.EngineInitialized || artifact == nil || artifact.preparation != source.preparation || artifact.unchanged(ctx) != nil {
+func acquireRestoredPublicationStage(ctx context.Context, working *publicationWorkingStage, images *podman.Client) (*publicationStageLease, error) {
+	if working.unchanged(ctx) != nil {
+		return nil, datapublish.ErrRecord
+	}
+	source, artifact := working.source, working.artifact
+	if source.permit.Runtime.State != data.EngineInitialized {
 		return nil, datapublish.ErrRecord
 	}
 	point, err := source.state.ReadNativePreparedPoint(ctx, source.pointID)
@@ -86,11 +91,11 @@ func acquireRestoredPublicationStage(ctx context.Context, source *nativeRestored
 		return nil, datapublish.ErrRecord
 	}
 	nonce, err := data.NewID()
-	if err != nil || source.unchanged(ctx) != nil || artifact.unchanged(ctx) != nil {
+	if err != nil || working.unchanged(ctx) != nil {
 		material.clear()
 		return nil, datapublish.ErrRecord
 	}
-	return &publicationStageLease{restored: source, artifact: artifact, stagePath: source.path, preparation: source.preparation, permit: source.permit, material: material, image: image, nonce: nonce, rootMember: source.seal.root}, nil
+	return &publicationStageLease{restored: source, working: working, artifact: artifact, stagePath: source.path, preparation: source.preparation, permit: source.permit, material: material, image: image, nonce: nonce, rootMember: source.seal.root}, nil
 }
 
 func (l *publicationStageLease) sourceUnchanged(ctx context.Context) error {
@@ -114,7 +119,7 @@ func (l *publicationStageLease) sourceUnchanged(ctx context.Context) error {
 
 func (l *publicationStageLease) currentPermit(ctx context.Context) (store.EnginePermit, error) {
 	if l.restored != nil && l.empty.state == nil {
-		if l.restored.originalUnchanged(ctx) != nil || l.artifact == nil || l.artifact.unchanged(ctx) != nil {
+		if l.working == nil || l.working.unchanged(ctx) != nil || l.working.source != l.restored {
 			return store.EnginePermit{}, datapublish.ErrRecord
 		}
 		if !publicationStageRootUnchanged(l.restored.root, l.stagePath, l.rootMember) {

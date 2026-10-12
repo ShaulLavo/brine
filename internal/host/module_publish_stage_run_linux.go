@@ -19,7 +19,7 @@ type publicationStageEvidence struct {
 }
 
 func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLease, state *store.Store, attempt *store.PublicationAttempt, action moduleStageAction, runner localexec.InputRunner, session localexec.Session) (publicationStageEvidence, error) {
-	if lease == nil || lease.restored == nil || lease.restored.state != state || lease.restored.unchanged(ctx) != nil || lease.attempted {
+	if lease == nil || lease.restored == nil || lease.restored.state != state || lease.working == nil || lease.working.attempt != attempt || lease.working.unchanged(ctx) != nil || lease.attempted {
 		return publicationStageEvidence{}, datapublish.ErrRecord
 	}
 	review, err := state.ReadPublicationAttemptReview(ctx, attempt)
