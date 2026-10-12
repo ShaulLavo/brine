@@ -7,7 +7,8 @@ frontend, normalized ENGINE/URL/NAME/ACCEPTS, module SHA-256 versus executed nat
 Keccak/API-wire pilot witness, bounded confined client module/schema resolution,
 production v2 schema hashing without marker authority, explicit license/cadence/loss facts, resource ceilings,
 secret-purpose separation, independent ports and typed client-route denies.
-Managed plans must remain conflict-only with zero executable changes. Renderer
+At this pure-preview prerequisite stage, managed plans are conflict-only with
+zero executable changes. Renderer
 checks cover the typed Podman supervisor service and optional frontend Quadlet;
 an explicit pinned local Caddy CLI can independently adapt both route previews.
 Optional actual Caddy routing probes compare the pure checker with forwarding
@@ -93,7 +94,30 @@ WebSocket subscription, physical-host logging or managed deployment admission.
 
 Detailed setup, task dependencies and acceptance requirements for T25-T33 live in the [Phase 08 plan](plans/08-webtransport.md). Initial direct-UDP full-app support and shared-port/preview support have separate exit gates.
 
-T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequisite slice below; its complete acceptance and T36-T42 remain **required acceptance, not shipped admission**. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
+T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequisite slice below; complete T35-T42 acceptance remains required. Implemented command admission does not establish physical acceptance. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
+
+## Phase 09 operator command and evidence matrix
+
+The [operator runbook](runbooks/spacetimedb.md) describes current public commands.
+This matrix maps execution to evidence still required for phase acceptance.
+Retain scrubbed commands, exact pins and matching operation receipts. Do not
+convert source checks or accepted tasks into physical success claims.
+
+| Task and tests | Public execution | Required acceptance evidence |
+| --- | --- | --- |
+| P09-04, T37 | Original `plan`/`apply`, `data material set`, post-publication fresh `plan`/`apply`, `status` | Actual rootless service and frontend, app/server permits, HTTPS/WS subscriptions, supplied-key user auth and denied management/publisher routes; startup/reboot fence refusals |
+| P09-05, T38 | `backup recovery set`, `backup credentials plan`/`set`, `backup policy plan`/`activate`, `backup capture`, `backup status`, `restore native-test` | Real scoped S3 authenticated repository and complete extraction; signing-key recovery; isolated passive replay equal to confirmed source evidence while writers continue; missed cadence/expiry/outage and interrupted capture/activation resolution |
+| P09-06, T39 | `backup prepare`, `data module plan`/`apply`/`inspect`/`resolve`, fresh deployment | Genuine empty first publication with original preparation plan; additive/default preservation and matched clients; destructive/access-change refusals; stale artifact/source/review/role refusals; unknown publish and transition recovery without repeating effects |
+| P09-07, T40 | `restore native-live plan`/`apply`/`inspect`/`review-resolution`/`resolve`, `archive native plan`/`apply`/`inspect`/`resolve` | Historical data in a new epoch with compatible code, original-tree retention, default-denied live restore, interrupted swaps/reboot fences, full-binding archive/recreate safety and thirty-day retention; public archive maintenance/renewal commands remain a boundary blocker until delivered |
+| P09-08, T41 | The complete runbook on authorized disposable targets | Actual arm64 Pi and amd64 execution, browser and confirmed markers, real S3 online capture/replay, code/module changes, reboot, exact stop/competitor/FDSTORE observer refusals, interruption and archive drills; actual resource measurements and host teardown |
+| P09-09, T42 | Runbook and command guides against actual CLI/API | Fresh-agent execution, machine envelope/receipt fields, authority refusals, archive maintenance boundary, cadence/maintenance/unknown-loss limits, current artifact pins and shared SQLite regression/physical recovery evidence |
+
+Exact-preparation and workspace cleanup also require an independently qualified
+protected-peer observation boundary. A manager or role exemption cannot prove
+workspace absence because systemd can retain descriptors through FDSTORE.
+Physical acceptance remains blocked until that boundary and its default-denied
+operator grant are implemented, reviewed and exercised. Keep all related phase
+checkboxes unchanged.
 
 ## T35 qualified runtime prerequisites, admission pending
 
@@ -105,7 +129,11 @@ T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequi
 - The earlier physical arm64 cases cover torn tails, missing logs/snapshot objects, twelve rotation/finalization captures, mutable completed segments, low-rate tail exposure, metadata-generation drift, ACK-only loss on exit 0, confirmed-read survival, active WS, scheduled writes, SIGTERM/kill/timeout/OOM and rootless UID/entrypoint SIGINT forwarding.
 - Supplied-key JWT ingress denies missing/forged/signed-expired credentials and reserved management paths; valid ordinary user WS/exchange passes. External OIDC is unexecuted. Native preflight binding/default backfill passed; AutoMigrate's destructive/access-changing results are not authority.
 
-Remaining T35 predicates are production startup ownership/quiescence/fence composition and independent exact native framing/high-water coverage qualification. The public spec and engine dispatch remain unsupported. Full protected Brine/S3 capture, restore and interruption admission belongs to T37-T41 and the physical exit drill.
+These prerequisite results do not complete production startup ownership,
+quiescence/fence composition or independent exact framing/high-water coverage.
+The current managed spec and native dispatcher have implementations; their full
+protected Brine/S3 and interruption acceptance belongs to T37-T41 and the
+physical exit drill above.
 
 ## T39 schema/publication core, admission pending
 
@@ -113,7 +141,11 @@ Remaining T35 predicates are production startup ownership/quiescence/fence compo
 
 Pure publication tests cover disjoint recovered-empty versus captured-history records, supported source artifact/schema pairs, derived projection requirements, requester/source/expiry freshness, app-bound distinct secret roles with custom key names, private codec refusal of extra/null/duplicate/mixed fields and immutable review/proof slices. Cursor tests cover unknown-effect inspection, no repeat after matching observation or known nonperformance, delayed creation identity adoption, every required verification proof, verifier disposal and an external transition receipt. Coherent journal truncation cannot reopen publication when decoded against the independently retained record hash. Malformed-record tests supply matching hashes to exercise shape/state refusal separately from the retention check.
 
-These are metadata/domain regressions. Actual protected extraction, independently authenticated journal/claim and role lookups, exact remote point, staged publication/data projections, bundle swap/new epoch/fence release, jobs/dispatch and physical T41 remain open. Neither P09-06 nor T39 is completed by this source unit.
+These historical core tests are metadata/domain regressions. Subsequent
+implementation connects protected extraction, journal/claim and role lookups,
+exact remote preparation, staged publication/data projections, bundle swap,
+new epoch and jobs/dispatch. Their physical T41 acceptance remains open.
+Neither P09-06 nor T39 is completed by this source unit.
 
 ## T16 schema policy acceptance, physical completion pending
 
