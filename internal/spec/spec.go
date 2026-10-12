@@ -42,6 +42,7 @@ type SchemaCompatibility = data.SQLiteSchemaCompatibility
 type SchemaDefinition = data.SQLiteSchemaDefinition
 
 type App struct {
+	SpacetimeDB         *SpacetimeDB
 	RestoreInvariants   []data.RestoreInvariant
 	Runtime             *RuntimeIdentity
 	Databases           []Database
@@ -149,13 +150,17 @@ func Parse(data []byte) (App, error) {
 }
 
 var schemaFields = map[string][]string{
-	"$":                      {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "restore_invariants"},
-	"$.restore_invariants":   {"database", "kind", "table", "column", "count", "minimum", "maximum"},
-	"$.runtime":              {"uid", "gid"},
-	"$.databases":            {"engine", "name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval", "schema", "marker"},
-	"$.schema_compatibility": {"database", "accepts", "startup"},
-	"$.health":               {"path", "expected_status", "startup_deadline_seconds", "timeout_seconds"},
-	"$.resources":            {"memory_mb", "pids_limit"},
+	"$":                                 {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "restore_invariants"},
+	"$.databases.spacetimedb":           {"image", "version", "database", "module", "runtime", "resources", "publisher", "signing_private", "signing_public", "auth"},
+	"$.databases.spacetimedb.module":    {"file", "schema", "marker"},
+	"$.databases.spacetimedb.runtime":   {"uid", "gid"},
+	"$.databases.spacetimedb.resources": {"memory_mb", "pids_limit", "page_pool_mb", "stop_timeout_seconds"},
+	"$.restore_invariants":              {"database", "kind", "table", "column", "count", "minimum", "maximum"},
+	"$.runtime":                         {"uid", "gid"},
+	"$.databases":                       {"engine", "name", "persistent_root", "mount_path", "filename", "backup_destination", "sync_interval", "schema", "marker", "spacetimedb"},
+	"$.schema_compatibility":            {"database", "accepts", "startup"},
+	"$.health":                          {"path", "expected_status", "startup_deadline_seconds", "timeout_seconds"},
+	"$.resources":                       {"memory_mb", "pids_limit"},
 }
 
 func exactFields(fields map[string]any, prefix string) error {
@@ -237,23 +242,9 @@ func validate(raw rawApp) (App, error) {
 		return app, refusal("spec.invalid_name", "name", "expected a lowercase DNS label of 1 to 63 bytes")
 	}
 	app.Name = Name(name)
-	image, err := text(raw.Image, "image")
-	if err != nil {
+	if err := validateAppContainer(raw, &app); err != nil {
 		return app, err
 	}
-	normalized, ok := imageReference(image)
-	if !ok {
-		return app, refusal("spec.invalid_image", "image", "expected an explicit OCI registry and repository pinned to a sha256 digest")
-	}
-	app.Image = ImageReference(normalized)
-	port, err := integer(raw.ContainerPort, "container_port")
-	if err != nil {
-		return app, err
-	}
-	if port < 1024 || port > 65535 {
-		return app, refusal("spec.invalid_port", "container_port", "port must be between 1024 and 65535")
-	}
-	app.ContainerPort = Port(port)
 	if raw.Domains == nil {
 		return app, refusal("spec.required", "domains", "required field is missing")
 	}

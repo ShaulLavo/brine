@@ -1,0 +1,26 @@
+{
+  "rust": "1.96.1",
+  "spacetimedb": "2.11.0",
+  "modules": {
+    "v1": "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc",
+    "additive": "5f1de728e240ff189fdb47fae0af5f18cfa3c772b86a198220115a6869215ffb",
+    "destructive": "2002870aaf07f3381defb11a0ecd975264f4bb348d06e7bd39cca0f69d66d3b6",
+    "observer-hooks": "884d158694eeb0dfe9e973e357aca18d24998b14fb26dc33223ca928550dbd83",
+    "default-column": "40960700aea4b6dd4d201539e91ff6fc27fcd96c050c92e182bf4c0240a03269",
+    "access-change": "7647ef3ff8f90bb7f1839a9ebd8ea17e493b6a3803acf6462009262701d3a516"
+  },
+  "clients": {
+    "v1": {
+      "browser_sha256": "af3bb9da1fb28fa807d3fee9b12b85ed564c66915bdc8d79a79d48dc312b1217",
+      "module_sha256": "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc"
+    },
+    "additive": {
+      "browser_sha256": "84b65b4cc2f43e4f6f1d66188fb4e61157716fb342c2168e611fd4dc6911fe24",
+      "module_sha256": "5f1de728e240ff189fdb47fae0af5f18cfa3c772b86a198220115a6869215ffb"
+    },
+    "default-column": {
+      "browser_sha256": "b644f35a6f0092bb42ed467f90251be5d4c673228e2ea0efb8658e53d5b3682d",
+      "module_sha256": "40960700aea4b6dd4d201539e91ff6fc27fcd96c050c92e182bf4c0240a03269"
+    }
+  }
+}

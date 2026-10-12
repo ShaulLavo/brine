@@ -55,6 +55,8 @@ The prototype `spacetimedb-v10-expanded-v1` omitted reducer-set sorting. Its his
 
 The schema marker derives from canonicalizer version and schema SHA-256. It does not trust an application's marker assertion. The fixture's confirmed sequence/marker/time invariant remains independent data evidence.
 
+Native v10 default values encode their BSATN bytes as lowercase hex strings, such as `"07"` for the Rust fixture's default rating. The canonicalizer validates complete byte pairs and preserves their order; integer arrays and malformed hex refuse. The original prerequisite tests incorrectly synthesized byte arrays. A retained actual default-column descriptor payload and observer regression replace that assumption. The pinned runtime's `extract-schema MODULE --host-type wasm` and schema-v10 GET both serialize `RawModuleDefV10::from(ModuleDef)`, so this qualification covers their shared wire shape. Descriptor extraction executes guest preinit/description code inside a separate bounded sandbox; it grants no publication or live-state authority.
+
 ## Initialized history and production startup boundary
 
 Native healthy metadata cannot distinguish a fresh allocation from lost historical replicas when external bootstrap program bytes remain available. Initialized private replay withholds `program-bytes` from accessible mounts and requires recovery of current persisted `st_module`, expected names, owner, database, program, and schema. Fresh empty allocation and reviewed first publication are separate typed states.

@@ -254,7 +254,7 @@ var safeErrorField = regexp.MustCompile(`^(?:\$(?:\.(?:health|resources))?(?:\.\
 
 func assertAppInvariants(t *testing.T, app App) {
 	t.Helper()
-	if app.SchemaVersion != 1 || app.ContainerPort < 1024 {
+	if app.SchemaVersion != 1 || app.SpacetimeDB == nil && app.ContainerPort < 1024 || app.HasAppContainer() && app.ContainerPort < 1024 {
 		t.Fatal("invalid schema or port")
 	}
 	name := string(app.Name)
@@ -285,6 +285,9 @@ func assertAppInvariants(t *testing.T, app App) {
 		seen[domain] = true
 	}
 	image := string(app.Image)
+	if !app.HasAppContainer() && app.SpacetimeDB != nil {
+		image = string(app.SpacetimeDB.Image)
+	}
 	parts := strings.Split(image, "@sha256:")
 	if len(parts) != 2 || len(parts[1]) != 64 || strings.Trim(parts[1], "0123456789abcdef") != "" || !strings.Contains(parts[0], "/") {
 		t.Fatal("image is not digest-pinned and canonical")
