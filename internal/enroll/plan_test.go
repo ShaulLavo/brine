@@ -49,6 +49,24 @@ func TestPlanFixedChanges(t *testing.T) {
 		}
 	}
 }
+
+func TestEnrollmentKeepsSQLiteBaselineAndAdmitsQualifiedInstalledNativeCaddy(t *testing.T) {
+	for _, version := range []string{"2.6.2", "2.10.2", "v2.10.2 h1:fixture"} {
+		f := supported()
+		f.Snapshot.Versions.Caddy = target.Known(version)
+		p, err := MakePlan(f)
+		if err != nil || len(p.MissingPackages) != 0 || p.Restic.BinarySHA256 == "" {
+			t.Fatalf("installed qualified Caddy %q cannot enroll backup tools: %v", version, err)
+		}
+	}
+	for _, version := range []string{"2.10.0", "2.10.3", "2.10.20", "2.11.0"} {
+		f := supported()
+		f.Snapshot.Versions.Caddy = target.Known(version)
+		if _, err := MakePlan(f); err == nil {
+			t.Fatalf("unqualified Caddy %q admitted", version)
+		}
+	}
+}
 func TestConfirmation(t *testing.T) {
 	for _, tc := range []struct {
 		terminal, noInput bool
