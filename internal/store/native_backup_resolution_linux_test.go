@@ -57,7 +57,7 @@ func TestNativeBackupResolutionWorkspaceRejectsReplacementAndSymlinks(t *testing
 func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(t *testing.T) {
 	// The original first-activation fixture performs real Store reservations and
 	// delivery completion, but never supplies a fabricated restic proof.
-	state, plan, _ := managedControlStateFixture(t, false, true)
+	state, plan, _ := managedControlStateFixtureAtRoot(t, false, true, t.TempDir())
 	ctx := context.Background()
 	requester := "deploy:" + strings.Repeat("c", 64)
 	scope, err := state.NativeCredentialScope(ctx, plan.App, "")

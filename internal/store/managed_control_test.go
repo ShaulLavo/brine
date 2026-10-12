@@ -32,11 +32,18 @@ func managedControlFrontendFixture(t *testing.T, frontend bool) (*Store, plan.Pl
 
 func managedControlStateFixture(t *testing.T, frontend, unpublished bool) (*Store, plan.Plan, ops.Operation) {
 	t.Helper()
+	return managedControlStateFixtureAtRoot(t, frontend, unpublished, "")
+}
+func managedControlStateFixtureAtRoot(t *testing.T, frontend, unpublished bool, ownedRoot string) (*Store, plan.Plan, ops.Operation) {
+	t.Helper()
 	ctx := context.Background()
 	s := openTest(t)
 	raw, err := os.ReadFile("../spec/testdata/managed.toml")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if ownedRoot != "" {
+		raw = []byte(strings.ReplaceAll(string(raw), "/srv/brine-data", ownedRoot))
 	}
 	if frontend {
 		raw = append([]byte("image=\"registry.example.com:5000/team/frontend@sha256:"+strings.Repeat("a", 64)+"\"\ncontainer_port=8080\nresources={memory_mb=128,pids_limit=128}\n"), raw...)
@@ -48,6 +55,9 @@ func managedControlStateFixture(t *testing.T, frontend, unpublished bool) (*Stor
 	raw, err = os.ReadFile("../policy/testdata/managed-operator.toml")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if ownedRoot != "" {
+		raw = []byte(strings.ReplaceAll(string(raw), "/srv/brine-data", ownedRoot))
 	}
 	raw = append(raw, []byte("\n[[allowed_registries]]\nhost=\"docker.io\"\nrepository_prefixes=[\"clockworklabs\"]\n")...)
 	pol, err := policy.Parse(raw)
@@ -65,6 +75,9 @@ func managedControlStateFixture(t *testing.T, frontend, unpublished bool) (*Stor
 		desired.BackupRetention = []data.RetentionEvidence{{Destination: destination.Reference, Endpoint: destination.Endpoint, Bucket: destination.Bucket, BasePrefix: destination.BasePrefix, VerificationID: strings.Repeat("f", 32), VerifiedAt: time.Now().UTC().Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}}
 	}
 	request := engineReservation(t)
+	if ownedRoot != "" {
+		request.Database.Root = data.PersistentRoot(ownedRoot)
+	}
 	request.App, request.PolicyHash = string(desired.Name), desired.PolicyHash
 	request.Database.Name = desired.SpacetimeDB.Name
 	request.Archive.Destination = desired.BackupDestinations[0]
