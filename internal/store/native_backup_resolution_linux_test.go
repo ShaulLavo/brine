@@ -192,6 +192,9 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 		_ = parent.Close()
 		t.Fatal("existing inspection directory declared removed")
 	}
+	if err = inspection.BeginWorkspaceRetirement(ctx, workspaceID, parent); err != nil {
+		t.Fatal("actual held-inode retirement intent", err)
+	}
 	if err = parent.Close(); err != nil {
 		t.Fatal(err)
 	}

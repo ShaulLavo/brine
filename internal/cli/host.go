@@ -21,7 +21,7 @@ import (
 func newHostCmd(deps Dependencies) *cobra.Command {
 	host := &cobra.Command{Use: "host", Hidden: true}
 	serve := &cobra.Command{Use: "serve", Hidden: true, DisableFlagParsing: true, RunE: func(_ *cobra.Command, _ []string) error { return executeHostServe(deps) }}
-	host.AddCommand(newHostNativeCaptureCmd(deps), serve, newHostEnrollmentCmd(deps), newHostRunOpCmd(deps), newHostReconcileCmd(deps))
+	host.AddCommand(newHostWorkspaceObserverCmd(deps), newHostNativeCaptureCmd(deps), serve, newHostEnrollmentCmd(deps), newHostRunOpCmd(deps), newHostReconcileCmd(deps))
 	host.AddCommand(newHostPermitCommands(deps)...)
 	host.AddCommand(newHostManagedFrontendPermit(deps))
 	host.AddCommand(newHostEngineCommands(deps)...)
