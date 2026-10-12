@@ -22,3 +22,12 @@ func newHostModuleDescribeProfile(deps Dependencies) *cobra.Command {
 		return deps.HostModuleDescribeProfile(cmd.Context(), deps.Stdin, deps.Stdout)
 	}}
 }
+
+func newHostModuleStage(deps Dependencies) *cobra.Command {
+	return &cobra.Command{Use: "module-stage", Hidden: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if deps.HostModuleStage == nil {
+			return datapublish.ErrRecord
+		}
+		return deps.HostModuleStage(cmd.Context(), deps.Stdin, deps.Stdout)
+	}}
+}

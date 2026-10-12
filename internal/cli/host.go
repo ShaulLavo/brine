@@ -27,6 +27,7 @@ func newHostCmd(deps Dependencies) *cobra.Command {
 	host.AddCommand(newHostEngineCommands(deps)...)
 	host.AddCommand(newHostModuleDescribe(deps))
 	host.AddCommand(newHostModuleDescribeProfile(deps))
+	host.AddCommand(newHostModuleStage(deps))
 	host.AddCommand(newArchivePrepareCmd(deps), newArchiveDispositionCmd(deps, false), newArchiveDispositionCmd(deps, true), newArchiveReconcileCmd(deps))
 	host.AddCommand(newArchiveMaintainCmd(deps), newArchiveMaintenanceReadCmd(deps, false), newArchiveMaintenanceReadCmd(deps, true), newArchiveCredentialsCmd(deps))
 	return host
