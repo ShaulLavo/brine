@@ -8,11 +8,11 @@ import (
 
 func (app *App) resolveManagedFiles(directory string) error {
 	d := app.SpacetimeDB
-	wasm, err := readRelativeFile(directory, filepath.FromSlash(d.Module.File), MaxWasmBytes)
+	wasm, err := readRelativeFile(directory, filepath.FromSlash(d.Module.File), spacetimedb.MaxWasmBytes)
 	if err != nil {
 		return refusal("spec.module_file", "databases.spacetimedb.module.file", "cannot read a bounded regular Wasm file")
 	}
-	artifact, native, err := moduleIdentities(wasm)
+	artifact, native, err := spacetimedb.ModuleIdentities(wasm)
 	if err != nil {
 		return refusal("spec.module_file", "databases.spacetimedb.module.file", "expected a supported Wasm module")
 	}
