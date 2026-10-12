@@ -21,7 +21,7 @@ export SOURCE_DATE_EPOCH=0
 cargo_home=${CARGO_HOME:-$HOME/.cargo}
 rustup_home=${RUSTUP_HOME:-$HOME/.rustup}
 export CARGO_ENCODED_RUSTFLAGS="--remap-path-prefix=$cargo_home=/brine-cargo"$'\x1f'"--remap-path-prefix=$rustup_home=/brine-rustup"$'\x1f'"--remap-path-prefix=$fixture_dir/module=/brine-module"
-for variant in v1 additive destructive observer-hooks default-column access-change; do
+for variant in v1 logic-only additive destructive observer-hooks default-column access-change; do
   args=()
   if [[ $variant != v1 ]]; then args=(--features "$variant"); fi
   export CARGO_TARGET_DIR="$build_root/cargo-$variant"
@@ -32,7 +32,7 @@ export CARGO_TARGET_DIR="$build_root/cargo-repro-v1"
 cargo +1.96.1 build --locked --manifest-path "$fixture_dir/module/Cargo.toml" --target wasm32-unknown-unknown --release
 cmp "$build_root/artifacts/module-v1.wasm" "$CARGO_TARGET_DIR/wasm32-unknown-unknown/release/brine_recovery_fixture.wasm"
 
-for variant in v1 additive default-column; do
+for variant in v1 logic-only additive default-column; do
   client="$build_root/clients/$variant"
   mkdir -p "$client"
   cp "$fixture_dir"/client/*.ts "$fixture_dir/client/package.json" "$fixture_dir/client/bun.lock" "$fixture_dir/client/tsconfig.json" "$client/"
@@ -44,7 +44,7 @@ for path in pathlib.Path(sys.argv[1]).rglob('*.ts'):
     path.write_text(path.read_text().rstrip() + '\n')
 PYBIND
   bun install --cwd "$client" --frozen-lockfile
-  if [[ $variant == v1 ]]; then diff -ru "$fixture_dir/client/module_bindings" "$client/module_bindings"; fi
+  if [[ $variant == v1 || $variant == logic-only ]]; then diff -ru "$fixture_dir/client/module_bindings" "$client/module_bindings"; fi
   "$client/node_modules/.bin/tsc" -p "$client"
   bun build "$client/browser.ts" --target browser --minify --outfile "$build_root/artifacts/browser-$variant.js"
 done

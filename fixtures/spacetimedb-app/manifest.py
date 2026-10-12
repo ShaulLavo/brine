@@ -10,10 +10,11 @@ fixture = pathlib.Path(sys.argv[2])
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
-variants = ['v1', 'additive', 'destructive', 'observer-hooks', 'default-column', 'access-change']
+variants = ['v1', 'logic-only', 'additive', 'destructive', 'observer-hooks', 'default-column', 'access-change']
 modules = {name: digest(root / 'artifacts' / ('module-' + name + '.wasm')) for name in variants}
 assert len(set(modules.values())) == len(variants), 'fixture variants are not distinct'
-clients = {name: {'browser_sha256': digest(root / 'artifacts' / ('browser-' + name + '.js')), 'module_sha256': modules[name]} for name in ['v1', 'additive', 'default-column']}
+clients = {name: {'browser_sha256': digest(root / 'artifacts' / ('browser-' + name + '.js')), 'module_sha256': modules[name]} for name in ['v1', 'logic-only', 'additive', 'default-column']}
+assert clients['logic-only']['browser_sha256'] == clients['v1']['browser_sha256'], 'logic-only update changed the v1 client'
 inputs = ['module/Cargo.toml', 'module/Cargo.lock', 'module/rust-toolchain.toml', 'module/src/lib.rs', 'client/package.json', 'client/bun.lock', 'client/session.ts', 'client/browser.ts', 'main.go', 'browser-test/package.json', 'browser-test/bun.lock', 'browser-test/browser.mjs', 'checks/default-column.ts', 'smoke.py']
 pinned = json.loads((fixture / 'module/artifact-pins.json').read_text())
 if modules != pinned['modules'] or clients != pinned['clients']:
@@ -31,7 +32,7 @@ manifest = {
     'modules': modules,
     'clients': clients,
     'serving_variant': 'v1',
-    'base_client_compatible_modules': ['v1', 'additive'],
+    'base_client_compatible_modules': ['v1', 'logic-only', 'additive'],
     'rejection_inputs': ['destructive', 'observer-hooks', 'access-change'],
     'input_sha256': {name: digest(fixture / name) for name in inputs},
     'app_binaries': {arch: digest(fixture / 'bin' / arch / 'spacetimedb-app') for arch in ['amd64', 'arm64']},

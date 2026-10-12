@@ -222,7 +222,7 @@ class Probe:
     def preflight_checks(self):
         results = {}
         before = self.client('v1', 'read', self.writer_token)
-        for variant in ['additive', 'destructive', 'default-column', 'access-change', 'observer-hooks']:
+        for variant in ['logic-only', 'additive', 'destructive', 'default-column', 'access-change', 'observer-hooks']:
             result = self.preflight(variant)
             results[variant] = scrub_preflight(result)
         assert results['additive']['AutoMigrate']['break_clients'] is False
@@ -243,6 +243,9 @@ class Probe:
             self.result[variant + '_shutdown'] = {'exit': code, 'clean_exit_observed': code == 0, 'exact_capture_receipt': False}
 
     def variant_running(self, variant):
+        if variant == 'logic-only':
+            self.logic_only_update()
+            return
         if variant == 'destructive':
             self.reject_destructive()
             return
@@ -265,6 +268,59 @@ class Probe:
         matched = self.client('additive', 'read', self.writer_token)
         assert base == self.expected and matched == base
         self.result[variant] = {'base_and_matched_clients_preserved_markers': True}
+
+    def logic_only_update(self):
+        before = self.client('v1', 'read', self.writer_token)
+        sequence = len(before['rows'])
+        assert sequence > 0
+        previous_error = self.client('v1', 'write', self.writer_token, sequence, 'expected next sequence within row limit')
+        original = self.observe()
+        preflight = self.preflight('logic-only')
+        assert preflight['AutoMigrate']['break_clients'] is False
+        self.publish('logic-only')
+        changed = self.observe()
+        assert changed['runtime_module_hash'] != original['runtime_module_hash']
+        assert changed['schema_sha256'] == original['schema_sha256']
+        assert changed['schema_marker'] == original['schema_marker']
+        assert changed['canonicalizer'] == original['canonicalizer']
+        assert self.client('v1', 'read', self.writer_token) == before
+        new_error = self.client('v1', 'write', self.writer_token, sequence, 'sequence already committed')
+        assert self.client('v1', 'read', self.writer_token) == before
+        appended = self.client('v1', 'write', self.writer_token, sequence + 1)
+        assert appended['rows'][:-1] == before['rows']
+        assert appended['schemaMarker'] == 'brine-recovery-v1'
+        assert self.client('v1', 'verify', self.writer_token, sequence + 1) == appended
+        denied = self.client('v1', 'denied', self.outsider_token)
+        self.result['logic-only'] = {
+            'before_program_hash': original['runtime_module_hash'],
+            'after_program_hash': changed['runtime_module_hash'],
+            'canonical_schema_sha256': original['schema_sha256'],
+            'preflight': scrub_preflight(preflight),
+            'before_rejection': previous_error, 'after_rejection': new_error,
+            'preserved_confirmed_rows': sequence, 'next_confirmed_write': appended,
+            'denied_writer': denied, 'client_variant': 'v1',
+        }
+
+    def run_logic_only(self):
+        source = self.state / 'source'
+        source.mkdir(mode=0o700)
+        process = self.start(source, 'logic-only-local')
+        try:
+            self.owner = self.request('identity', b'', 'POST')
+            writer = self.request('identity', b'', 'POST')
+            outsider = self.request('identity', b'', 'POST')
+            self.owner_token = self.token('publisher', self.owner)
+            self.writer_token = self.token('writer', writer)
+            self.outsider_token = self.token('outsider', outsider)
+            self.publish('v1')
+            self.admin('authorize', writer['identity'])
+            self.client('v1', 'write', self.writer_token, 1)
+            self.logic_only_update()
+        finally:
+            code = self.stop(process)
+            self.result['shutdown'] = {'exit': code, 'exact_capture_receipt': False}
+        (self.root / 'artifacts/logic-only-evidence.json').write_text(json.dumps(self.result, indent=2) + '\n')
+        print('Changed logic-only program preserves canonical schema and confirmed v1 writes.')
 
     def reject_destructive(self):
         before = self.observe()
@@ -299,7 +355,7 @@ class Probe:
             self.stop(process, strict=True)
         self.restored(source)
         self.unconfirmed(source)
-        for variant in ['additive', 'default-column', 'destructive', 'observer-hooks']:
+        for variant in ['logic-only', 'additive', 'default-column', 'destructive', 'observer-hooks']:
             self.variant(source, variant)
         (self.root / 'artifacts/smoke-evidence.json').write_text(json.dumps(self.result, indent=2) + '\n')
         print('Pinned fixture SDK/browser/scheduler/replay and reviewed candidate evidence passed.')
@@ -317,13 +373,17 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('build_root', type=pathlib.Path)
     parser.add_argument('--observer', type=pathlib.Path)
+    parser.add_argument('--logic-only', action='store_true')
     args = parser.parse_args()
     observer = args.observer or args.build_root / 'runtime/spacetime-runtime'
     if not observer.is_file():
         raise RuntimeError('merged production observer helper is required')
     probe = Probe(args.build_root, observer)
     try:
-        probe.run()
+        if args.logic_only:
+            probe.run_logic_only()
+        else:
+            probe.run()
     finally:
         shutil.rmtree(probe.state)
 

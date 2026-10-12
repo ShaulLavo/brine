@@ -69,6 +69,7 @@ Rust features are mutually exclusive and are built as distinct Wasm artifacts. T
 | Variant | Change and client pairing |
 | --- | --- |
 | `v1` | Four evidence columns and no lifecycle hook; the published app serves this client |
+| `logic-only` | Keeps the exact v1 schema, reducer API, accepted writes and recovery profile; a repeated sequence now reports `sequence already committed` |
 | `additive` | Adds public `fixture_note`; subscribed row layouts stay unchanged; both base and regenerated clients preserve markers |
 | `default-column` | Appends `rating: u8` with default seven to both tables; existing column and default order stays intact; requires its regenerated client and browser assets |
 | `destructive` | Removes the nonempty `recovery_right` table; independent Brine review must reject it before effects |
@@ -77,6 +78,8 @@ Rust features are mutually exclusive and are built as distinct Wasm artifacts. T
 
 Native preflight labels nonempty table removal **AutoMigrate** with `break_clients=true`, and public-to-private access change **AutoMigrate** with `break_clients=false`. Those flags do not establish safe data or access changes. The defaulted-column candidate uses its own freshly generated SDK; no parser accepts both row layouts. It is not compatible with the published v1 client image. Negative candidates are not serving or rollback releases.
 
-`smoke.py` runs the actual SDK and headless browser against the pinned local runtime. It proves denied writes, explicit confirmed WebSocket events and browser writes, bounded scheduling without clients, stopped-tree marker replay through the shared observer, unconfirmed-acknowledgement refusal, additive preservation and regenerated default-column decoding. Private keys and tokens stay outside its retained evidence and are removed after the run.
+`smoke.py` runs the actual SDK and headless browser against the pinned local runtime. It proves denied writes, explicit confirmed WebSocket events and browser writes, bounded scheduling without clients, stopped-tree marker replay through the shared observer, unconfirmed-acknowledgement refusal, logic-only and additive preservation, and regenerated default-column decoding. The logic-only case updates populated v1 state, requires a changed native program hash with identical observed canonical schema, checks the changed rejection without data effects, and appends the next confirmed row with the unchanged v1 client. The build also compares its generated bindings and browser bytes with v1. Private keys and tokens stay outside its retained evidence and are removed after the run.
+
+Run `python3 fixtures/spacetimedb-app/smoke.py "$BRINE_FIXTURE_BUILD_ROOT" --logic-only` for the bounded SDK-only update gate. It needs the pinned runtime, shared observer, v1 client and both module artifacts; it does not run a browser or build the passive recovery reader. Its local private publisher is fixture setup, not a Brine reviewed publication receipt or a physical acceptance claim.
 
 Immediate SIGINT after some module updates can exit nonzero in the pinned runtime. The smoke test records those exits without an exact capture receipt. A clean exit alone also does not create a receipt. This local fixture test proves neither zero loss, production capacity nor remote S3 recovery; those are separate runtime and physical gates.

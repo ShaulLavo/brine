@@ -11,6 +11,7 @@ crate-type = ["cdylib"]
 spacetimedb = { version = "=2.11.0", default-features = false }
 
 [features]
+logic-only = []
 additive = []
 destructive = []
 observer-hooks = []
