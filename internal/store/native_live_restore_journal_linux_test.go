@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/liverestore"
 )
 
@@ -21,7 +20,7 @@ func storedNativeRestoreJournalFixture(t *testing.T) (nativeTransitionFixture, l
 	s := p.Spec()
 	attempt := liverestore.Attempt{PlanID: p.ID(), OperationID: f.input.Common().Scope.ApplyOperationID, ConsumerSHA256: strings.Repeat("c", 64),
 		PreparedPointID: s.Safety.PointID, SelectedPointID: s.Selected.PointID, FenceID: s.Safety.FenceID, FenceOwnerOpID: s.Safety.FenceOwnerOpID,
-		BindingID: s.Facts.Head.BindingID, SourceEpochID: s.Facts.Head.EpochID, IncomingEpochID: data.ReplicaEpochID(strings.Repeat("d", 32))}
+		BindingID: s.Facts.Head.BindingID, SourceEpochID: s.Facts.Head.EpochID, IncomingEpochID: f.runtime.EpochID}
 	claim, err := liverestore.BeginAttempt(p, attempt)
 	if err != nil {
 		t.Fatal(err)
