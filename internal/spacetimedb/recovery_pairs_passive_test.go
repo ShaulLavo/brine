@@ -13,7 +13,12 @@ import (
 
 func registeredRecoverySchema(t testing.TB, variant string) (CanonicalSchema, string) {
 	t.Helper()
-	raw, err := os.ReadFile("testdata/descriptor-" + variant + ".json")
+	root, err := os.OpenRoot("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	raw, err := root.ReadFile("descriptor-" + variant + ".json")
 	if err != nil {
 		t.Fatal(err)
 	}
