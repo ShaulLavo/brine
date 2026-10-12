@@ -36,11 +36,11 @@ func TestManagedMetadataCodecRefusesUnknownDuplicateNullAndLimits(t *testing.T) 
 		strings.Replace(string(raw), `"runtime_module_hash":"`+strings.Repeat("b", 64)+`"`, `"runtime_module_hash":"0x`+strings.Repeat("b", 64)+`"`, 1),
 		strings.Replace(string(raw), `"schema_sha256":"`+strings.Repeat("c", 64)+`"`, `"schema_sha256":"`+strings.Repeat("C", 64)+`"`, 1),
 		strings.Replace(string(raw), `"canonicalizer":"`+spacetimedb.CanonicalizerVersion+`"`, `"canonicalizer":"foreign"`, 1),
-		string(raw) + `{}`, strings.Repeat(" ", managedMetadataLimit) + string(raw),
+		string(raw) + `{}`, strings.Replace(string(raw), `"metadata":{`, `"metadata":{`+strings.Repeat(" ", managedMetadataLimit), 1),
 	}
-	for _, attack := range attacks {
+	for index, attack := range attacks {
 		if json.Unmarshal([]byte(attack), &decoded) == nil {
-			t.Fatal("invalid metadata admitted")
+			t.Fatalf("invalid metadata attack %d admitted", index)
 		}
 		if decoded != want {
 			t.Fatal("failed decoding changed prior metadata")
