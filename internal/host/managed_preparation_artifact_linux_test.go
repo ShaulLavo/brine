@@ -116,6 +116,7 @@ func TestManagedPreparationActualStoreAndPrivateFilesRemainUnpublished(t *testin
 	uidValue, gidValue := int64(os.Geteuid()), int64(os.Getegid())
 	if uidValue < 0 || uidValue > math.MaxUint32 || gidValue < 0 || gidValue > math.MaxUint32 {
 		t.Fatal("fixture identity invalid")
+		return
 	}
 	uid, gid := uint32(uidValue), uint32(gidValue)
 	session, err := localexec.NewSession(emptyManagedContainers{}, uid, home, time.Second)

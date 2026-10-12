@@ -105,6 +105,7 @@ func managedInitializedRig(t *testing.T, frontend bool) *rig {
 	enginePort := reserved.EnginePort
 	if enginePort > 65535 {
 		t.Fatal("engine fixture port invalid")
+		return r
 	}
 	runtime := data.EngineRuntime{BindingID: reserved.Database.BindingID, EpochID: reserved.Archive.EpochID, State: data.EngineInitialized, Image: data.SpacetimeDBImage, ManifestDigest: data.SpacetimeDBARM64Manifest, ImageID: strings.Repeat("e", 64), Version: "2.11.0", Runtime: engine.Runtime, HostPort: uint16(enginePort), Database: data.NativeDatabaseIdentity(strings.Repeat("e", 64)), Publisher: data.NativePublisherIdentity(strings.Repeat("f", 64)), Names: []string{engine.Database}, Module: data.EngineModuleDefinition{Program: data.NativeProgramWireHash(metadata.RuntimeModuleHash), Wasm: data.WasmSHA256(metadata.WasmSHA256), Schema: data.EngineSchemaDefinition{Marker: engine.Module.Marker, Canonicalizer: metadata.Canonicalizer, SHA256: metadata.SchemaSHA256}}, Secrets: data.EngineSecrets{Publisher: secret(string(engine.Publisher)), SigningPrivate: secret(string(engine.SigningPrivate)), SigningPublic: secret(string(engine.SigningPublic)), AuthPolicy: secret(string(engine.Auth))}, MemoryMB: engine.Resources.MemoryMB, PIDsLimit: engine.Resources.PIDsLimit, PagePoolMB: engine.Resources.PagePoolMB, StopSeconds: engine.Resources.StopTimeoutSeconds, StartupSeconds: 60, CopyBytes: 1 << 20, CopyFiles: 128, UnitSHA256: strings.Repeat("f", 64)}
 	in.Managed.Database = &reserved.Database
