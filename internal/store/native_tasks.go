@@ -69,6 +69,11 @@ func readNativeTaskInput(ctx context.Context, q dataQuerier, operation ops.Opera
 	if !bytes.Equal(raw, canonical) || nativePointHash(raw) != operation.SecretRef || input.Requester.String() != requester || input.Kind != kind || input.BindingID != binding || requester != operation.Requester || kind != operation.Kind {
 		return input, ErrConflict
 	}
+	var app string
+	err = q.QueryRowContext(ctx, "SELECT i.app FROM data_incarnations i JOIN data_databases d ON d.incarnation_id=i.id JOIN data_replica_bindings b ON b.database_id=d.id WHERE b.id=?", binding).Scan(&app)
+	if err != nil || operation.App != app {
+		return input, errors.Join(ErrConflict, err)
+	}
 	return input, nil
 }
 

@@ -252,7 +252,7 @@ func TestNativePointConsumerLedgerIsAtomicAndOneUse(t *testing.T) {
 			return err
 		}
 		defer func() { _ = tx.Rollback() }()
-		_, err = claimNativePreparedPointTx(ctx, tx, preparation.preparation.guard, consumer)
+		_, err = s.claimNativePreparedPointTx(ctx, tx, preparation.preparation.guard, consumer)
 		if err != nil || !commit {
 			return err
 		}

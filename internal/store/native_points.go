@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
-	"github.com/ShaulLavo/brine/internal/datapublish"
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
@@ -91,7 +91,7 @@ func validNativePreparedPoint(v NativePreparedPointView) bool {
 	if v.SourceKind == "unpublished" {
 		return v.NativeDatabase == "" && v.NativePublisher == "" && v.ProgramWireHash == "" && v.ArtifactWasmSHA256 == "" && v.SchemaSHA256 == "" && len(v.Names) == 0
 	}
-	if v.SourceKind != "initialized" || !data.ValidCatalogHash(v.NativeDatabase) || !data.ValidCatalogHash(v.NativePublisher) || !data.ValidCatalogHash(v.ProgramWireHash) || !datapublish.SupportsConfirmedRecoveryPairs(v.ArtifactWasmSHA256, v.SchemaSHA256) || len(v.Names) == 0 || len(v.Names) > 16 || !slices.IsSorted(v.Names) {
+	if v.SourceKind != "initialized" || !data.ValidCatalogHash(v.NativeDatabase) || !data.ValidCatalogHash(v.NativePublisher) || !data.ValidCatalogHash(v.ProgramWireHash) || !spacetimedb.SupportsConfirmedRecoveryPairs(v.ArtifactWasmSHA256, v.SchemaSHA256) || len(v.Names) == 0 || len(v.Names) > 16 || !slices.IsSorted(v.Names) {
 		return false
 	}
 	for i, name := range v.Names {
@@ -196,7 +196,7 @@ func (c nativePointConsumer) canonical() ([]byte, error) {
 // The caller derives c through its protected canonical plan reader in this tx.
 // This private join independently checks operation, head, point and owner. No
 // exported entry point accepts a consumer, owner override or evidence body.
-func claimNativePreparedPointTx(ctx context.Context, tx *sql.Tx, guard *data.EngineLock, c nativePointConsumer) (nativePreparedPoint, error) {
+func (s *Store) claimNativePreparedPointTx(ctx context.Context, tx *sql.Tx, guard *data.EngineLock, c nativePointConsumer) (nativePreparedPoint, error) {
 	if !guard.HoldsLaunch(c.binding) {
 		return nativePreparedPoint{}, ErrConflict
 	}
