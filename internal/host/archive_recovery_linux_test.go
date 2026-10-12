@@ -17,7 +17,7 @@ func TestArchiveRecoveryReceiptRequiresFreshExactRemoteCoverage(t *testing.T) {
 	cutoff := now.Add(-time.Hour)
 	source := restore.SQLiteSource{Kind: restore.SQLiteSnapshot, Snapshot: &restore.SnapshotSource{BindingID: strings.Repeat("a", 32), Epoch: strings.Repeat("b", 32), PointID: strings.Repeat("c", 32), ObjectKey: "brine/restore-points/point/snapshot.sqlite", SHA256: strings.Repeat("a", 64), Size: 4096}}
 	original := restore.SQLiteReceipt{OperationID: strings.Repeat("a", 32), Source: source, ToolVersion: restore.SnapshotToolVersion, ObservedAt: cutoff.Add(time.Second), Schema: restore.SQLiteSchemaObservation{State: restore.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, IntegrityCheck: "passed", ForeignKeyCheck: "passed", InvariantCheck: "passed", Coverage: &restore.CoverageEvidence{Source: source, CoveredThrough: cutoff}, LossWindow: restore.LossWindow{State: restore.LossBounded, From: cutoff, To: cutoff.Add(time.Second), Reason: "Independent source-bound coverage proof bounds possible loss; later writes may be absent."}}
-	coverage := archive.Coverage{Receipt: &original, WritersQuiescedAt: cutoff, Observation: data.SQLiteSchemaObservation{State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}}
+	coverage := archive.SQLiteCoverageVariant(archive.SQLiteCoverage{Receipt: &original, WritersQuiescedAt: cutoff, Observation: data.SQLiteSchemaObservation{State: data.VerifiedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}})
 	fresh := original
 	fresh.OperationID = strings.Repeat("d", 32)
 	fresh.ObservedAt = now

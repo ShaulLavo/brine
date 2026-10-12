@@ -195,7 +195,7 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 			return old, ErrConflict
 		}
 		for i := range candidate.Databases {
-			candidate.Databases[i].Retention = p.Candidate.Databases[i].Retention
+			candidate.Databases[i] = candidate.Databases[i].WithRetention(p.Candidate.Databases[i].Retention())
 		}
 		if !reflect.DeepEqual(candidate, p.Candidate) {
 			return old, ErrConflict
