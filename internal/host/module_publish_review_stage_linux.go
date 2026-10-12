@@ -27,13 +27,9 @@ type publicationReviewPreflight struct {
 	parsed      spacetimedb.NativePreflightDescription
 }
 
-func beginPublicationReviewWork(ctx context.Context, source *nativeRestoredSource, extraction extractedPublicationCandidate) (*publicationReviewWork, error) {
-	if source == nil || source.unchanged(ctx) != nil || source.permit.Runtime.State != data.EngineInitialized || extraction.unchanged(ctx) != nil || extraction.lease.artifact.preparation != source.preparation {
+func beginPublicationReviewWork(ctx context.Context, source *nativeRestoredSource, preparation *store.PublicationReviewPreparation, extraction extractedPublicationCandidate) (*publicationReviewWork, error) {
+	if source == nil || source.unchanged(ctx) != nil || source.permit.Runtime.State != data.EngineInitialized || preparation == nil || source.state.CheckPublicationReviewPreparation(ctx, preparation) != nil || preparation.PointID() != source.pointID || extraction.unchanged(ctx) != nil || extraction.lease.artifact.preparation != source.preparation || preparation.Artifact().WasmSHA256() != extraction.lease.artifact.artifact.WasmSHA256() {
 		return nil, datapublish.ErrRecord
-	}
-	preparation, err := source.state.BeginPublicationReview(ctx, source.preparation, source.pointID, extraction.lease.artifact.artifact)
-	if err != nil {
-		return nil, err
 	}
 	return &publicationReviewWork{source: source, extraction: extraction, preparation: preparation}, nil
 }

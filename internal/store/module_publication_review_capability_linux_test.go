@@ -21,7 +21,7 @@ func TestModulePublicationReviewCapabilityRequiresActualCompletedPointAndRetaine
 	if err != nil {
 		t.Fatal(err)
 	}
-	review, err := state.BeginPublicationReview(ctx, preparation.preparation, point.PointID, artifact)
+	review, err := state.beginPublicationReview(ctx, preparation.preparation, point.PointID, artifact)
 	if err != nil || state.CheckPublicationReviewPreparation(ctx, review) != nil {
 		t.Fatal("actual protected completed point and held guard could not begin review", err)
 	}
