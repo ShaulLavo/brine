@@ -1339,7 +1339,7 @@ requires opaque authenticated configuration readback. A pending activation
 blocks another creation attempt for the binding. Fixed unit and timer ownership
 and actual loaded timer properties precede active policy. Transport deadlines
 stay within both the caller budget and admitted material expiry. Enrollment
-installs the independently published main native-reader0.0.4 platform pin;
+installs the independently published main native-reader0.0.5 platform pin;
 reader execution pulls its fixed digest only after affirmative local absence.
 Unknown effects preserve their intents and partial files. Automatic backup
 resolution and physical phase acceptance remain pending.
