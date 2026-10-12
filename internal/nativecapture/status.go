@@ -24,6 +24,28 @@ type BackupStatus struct {
 	VerifiedAt                  *time.Time `json:"verified_at"`
 	Fenced                      bool       `json:"fenced"`
 	CredentialExpired           bool       `json:"credential_expired"`
+	MissedCaptureIntervals      uint64     `json:"missed_capture_intervals"`
+	VerifiedCaptureAgeSeconds   *uint64    `json:"verified_capture_age_seconds"`
+}
+
+func (s *BackupStatus) ObserveCadence(now, activatedAt time.Time) error {
+	if s == nil || s.CaptureIntervalSeconds <= 0 || now.IsZero() || activatedAt.IsZero() || now.Before(activatedAt) {
+		return ErrInvalid
+	}
+	baseline := activatedAt
+	s.VerifiedCaptureAgeSeconds = nil
+	if s.CapturedAt != nil {
+		if now.Before(*s.CapturedAt) {
+			return ErrInvalid
+		}
+		age := uint64(now.Sub(*s.CapturedAt) / time.Second)
+		s.VerifiedCaptureAgeSeconds = &age
+		if baseline.Before(*s.CapturedAt) {
+			baseline = *s.CapturedAt
+		}
+	}
+	s.MissedCaptureIntervals = uint64(now.Sub(baseline) / (time.Duration(s.CaptureIntervalSeconds) * time.Second))
+	return nil
 }
 
 func (s BackupStatus) Valid() bool {
@@ -37,16 +59,16 @@ func (s BackupStatus) Valid() bool {
 		return false
 	}
 	if s.PointID == "" {
-		return s.PointSHA256 == "" && s.CapturedAt == nil && s.VerifiedAt == nil && s.State != "verified"
+		return s.PointSHA256 == "" && s.CapturedAt == nil && s.VerifiedAt == nil && s.VerifiedCaptureAgeSeconds == nil && s.State != "verified"
 	}
-	return idPattern.MatchString(s.PointID) && hashPattern.MatchString(s.PointSHA256) && s.CapturedAt != nil && s.VerifiedAt != nil && s.CapturedAt.Location() == time.UTC && s.VerifiedAt.Location() == time.UTC && !s.VerifiedAt.Before(*s.CapturedAt)
+	return idPattern.MatchString(s.PointID) && hashPattern.MatchString(s.PointSHA256) && s.CapturedAt != nil && s.VerifiedAt != nil && s.VerifiedCaptureAgeSeconds != nil && s.CapturedAt.Location() == time.UTC && s.VerifiedAt.Location() == time.UTC && !s.VerifiedAt.Before(*s.CapturedAt)
 }
 func DecodeBackupStatus(raw []byte) (BackupStatus, error) {
 	var value BackupStatus
 	if len(raw) > 8192 {
 		return value, ErrLimit
 	}
-	fields := []string{"engine", "binding_id", "epoch_id", "state", "module_sha256", "schema_sha256", "capture_interval_seconds", "verification_interval_seconds", "maintenance_budget_seconds", "loss", "point_id", "point_sha256", "captured_at", "verified_at", "fenced", "credential_expired"}
+	fields := []string{"engine", "binding_id", "epoch_id", "state", "module_sha256", "schema_sha256", "capture_interval_seconds", "verification_interval_seconds", "maintenance_budget_seconds", "loss", "point_id", "point_sha256", "captured_at", "verified_at", "fenced", "credential_expired", "missed_capture_intervals", "verified_capture_age_seconds"}
 	if _, err := strictjson.Object(raw, fields...); err != nil || json.Unmarshal(raw, &value) != nil || !value.Valid() {
 		return value, ErrInvalid
 	}

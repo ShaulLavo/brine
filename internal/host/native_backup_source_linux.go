@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 
@@ -19,6 +20,17 @@ type nativeCurrentModule struct {
 	artifact   datapublish.Artifact
 	descriptor []byte
 	candidate  extractedPublicationCandidate
+}
+
+func (m nativeCurrentModule) close() error {
+	lease := m.candidate.lease
+	if lease == nil {
+		return nil
+	}
+	if lease.process != nil || lease.containerID != "" || lease.attempted && !lease.disposed {
+		return errEngineSource
+	}
+	return lease.artifact.discard()
 }
 
 func readNativeProgramArtifact(ctx context.Context, root *os.Root, permit store.EnginePermit) (datapublish.Artifact, error) {
@@ -67,7 +79,7 @@ func readNativeProgramMember(ctx context.Context, root *os.Root, member engineTr
 	return readEnginePrivateFile(ctx, root, member.Name, hash, datapublish.ModuleArtifactLimit)
 }
 
-func (r nativeBackupRuntime) extractCurrentModule(ctx context.Context, preparation *store.EnginePreparation, permit store.EnginePermit, artifact datapublish.Artifact) (nativeCurrentModule, error) {
+func (r nativeBackupRuntime) extractCurrentModule(ctx context.Context, preparation *store.EnginePreparation, permit store.EnginePermit, artifact datapublish.Artifact) (module nativeCurrentModule, err error) {
 	backup, err := r.state.ReadNativeBackupPolicy(ctx, permit.Runtime.BindingID)
 	if err != nil {
 		return nativeCurrentModule{}, err
@@ -76,10 +88,17 @@ func (r nativeBackupRuntime) extractCurrentModule(ctx context.Context, preparati
 	if err != nil {
 		return nativeCurrentModule{}, err
 	}
+	complete := false
+	defer func() {
+		if !complete && (!lease.attempted || lease.disposed) {
+			err = errors.Join(err, lease.artifact.discard())
+		}
+	}()
 	extracted, err := extractPublicationCandidate(ctx, lease, localexec.ExecRunner{}, r.session)
 	if err != nil || extracted.unchanged(ctx) != nil || extracted.candidate.Schema().SHA256() != permit.Runtime.Module.Schema.SHA256 {
 		return nativeCurrentModule{}, errEngineSource
 	}
+	complete = true
 	return nativeCurrentModule{artifact: artifact, descriptor: extracted.descriptor, candidate: extracted}, nil
 }
 
