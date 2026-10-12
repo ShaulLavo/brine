@@ -11,15 +11,16 @@ import (
 // ManagedFacts is a measured control-state projection, not source proof or
 // native launch authority. Its canonical content belongs in plan fingerprints.
 type ManagedFacts struct {
-	EngineImage      Image                      `json:"engine_image"`
-	Database         *data.SpacetimeDBBinding   `json:"database,omitempty"`
-	Archive          *data.ArchiveBinding       `json:"archive,omitempty"`
-	Runtime          *data.EngineRuntime        `json:"runtime,omitempty"`
-	Fences           []data.QuiescenceFence     `json:"fences"`
-	NativeState      target.Observation[string] `json:"native_state"`
-	IngressProtected target.Observation[bool]   `json:"ingress_protected"`
-	Preparation      *ManagedServicePlan        `json:"preparation,omitempty"`
-	Prepared         target.Observation[bool]   `json:"prepared"`
+	EngineImage         Image                      `json:"engine_image"`
+	Database            *data.SpacetimeDBBinding   `json:"database,omitempty"`
+	Archive             *data.ArchiveBinding       `json:"archive,omitempty"`
+	Runtime             *data.EngineRuntime        `json:"runtime,omitempty"`
+	Fences              []data.QuiescenceFence     `json:"fences"`
+	NativeState         target.Observation[string] `json:"native_state"`
+	LoggingPrerequisite target.Observation[bool]   `json:"logging_prerequisite"`
+	Preparation         *ManagedServicePlan        `json:"preparation,omitempty"`
+	Prepared            target.Observation[bool]   `json:"prepared"`
+	LoggingConfigSHA256 string                     `json:"logging_config_sha256"`
 }
 
 func (f ManagedFacts) Clone() ManagedFacts {
@@ -41,9 +42,9 @@ func (f ManagedFacts) Clone() ManagedFacts {
 		value := *f.NativeState.Value
 		f.NativeState.Value = &value
 	}
-	if f.IngressProtected.Value != nil {
-		value := *f.IngressProtected.Value
-		f.IngressProtected.Value = &value
+	if f.LoggingPrerequisite.Value != nil {
+		value := *f.LoggingPrerequisite.Value
+		f.LoggingPrerequisite.Value = &value
 	}
 	if f.Preparation != nil {
 		value := f.Preparation.Clone()

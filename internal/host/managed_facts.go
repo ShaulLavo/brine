@@ -28,7 +28,14 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 			return apply.Facts{}, err
 		}
 	}
-	managed := &plan.ManagedFacts{EngineImage: engineImage, Fences: []data.QuiescenceFence{}, NativeState: target.Observation[string]{Status: target.Unknown}, IngressProtected: target.Observation[bool]{Status: target.Unknown}}
+	managed := &plan.ManagedFacts{EngineImage: engineImage, Fences: []data.QuiescenceFence{}, NativeState: target.Observation[string]{Status: target.Unknown}, LoggingPrerequisite: target.Observation[bool]{Status: target.Unknown}}
+	if s.managedLoadedConfig != nil {
+		loaded, readErr := s.managedLoadedConfig(ctx)
+		if readErr == nil {
+			managed.LoggingConfigSHA256 = managedServiceHash(loaded)
+			managed.LoggingPrerequisite = target.Known(caddy.VerifyProspectiveManagedLogging(loaded, desired.Domains) == nil)
+		}
+	}
 	projection, err := s.Store.ReadManagedApp(ctx, string(desired.Name))
 	if err == nil {
 		database, archive := projection.Reserved.Database, projection.Reserved.Archive

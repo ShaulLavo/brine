@@ -3,6 +3,7 @@ package caddy
 import (
 	"errors"
 	"fmt"
+	"github.com/ShaulLavo/brine/internal/data"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -16,10 +17,14 @@ import (
 type ClientIngress struct{ prefix, database string }
 
 type managedSite struct {
-	desired    policy.Desired
-	enginePort spec.Port
-	appPort    spec.Port
-	ingress    ClientIngress
+	desired     policy.Desired
+	enginePort  spec.Port
+	appPort     spec.Port
+	ingress     ClientIngress
+	binding     data.ReplicaBindingID
+	epoch       data.ReplicaEpochID
+	runtimeHash string
+	authority   ManagedIngressAuthority
 }
 
 const subscriptionQueryNamePattern = "(t|%74)(o|%6[fF])(k|%6[bB])(e|%65)(n|%6[eE])"

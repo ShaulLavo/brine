@@ -42,7 +42,9 @@ func (e *Executor) InspectResolution(ctx context.Context, successor, source Oper
 		if refusedEffect && slices.Contains([]string{"rollback_quiesce", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "check_compatibility", "rollback_route"}, step.Step) {
 			continue
 		}
-		if p.Lifecycle == plan.RemoveApp {
+		if p.Managed != nil {
+			projected.State = managedRecoveryState(step.Step)
+		} else if p.Lifecycle == plan.RemoveApp {
 			projected.State = map[string]State{"preflight": Preflight, "withdraw_route": Preparing, "stop_unit": Quiescing, "remove_unit": Starting, "reload_units": Checking, "retire_app": Committing}[step.Step]
 		} else {
 			projected.State = map[string]State{"preflight": Preflight, "pull_image": Preparing, "verify_image": Preparing, "ensure_secrets": Preparing, "prepare_data": Preparing, "stage_unit": Preparing, "quiesce_old": Quiescing, "install_unit": Starting, "reload_units": Starting, "start_unit": Starting, "check_direct": Checking, "publish_route": Checking, "check_routed": Checking, "commit": Committing}[step.Step]

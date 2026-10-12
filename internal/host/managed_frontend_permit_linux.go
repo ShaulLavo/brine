@@ -54,8 +54,19 @@ func (r *ManagedFrontendRuntime) Permit(ctx context.Context, binding, app string
 		return errEngineSource
 	}
 	observer := managedEngineObserver{state: runtime.state, stateRoot: runtime.stateRoot, home: runtime.home, session: runtime.session, units: systemd.New(runtime.session)}
-	proof, err := observer.current(ctx, resolution.Permit.BindingID, resolution.Permit.RuntimeSHA256)
-	if err != nil || proof.permit.Runtime.EpochID != resolution.Permit.EpochID || resolution.Desired.SpacetimeDB == nil || !slices.Contains(resolution.Desired.SpacetimeDB.Module.Accepts, proof.permit.Runtime.Module.Schema.Marker) {
+	expected := resolution.Permit.RuntimeSHA256
+	if !resolution.Pending {
+		current, readErr := runtime.state.ReadEnginePermit(ctx, resolution.Permit.BindingID)
+		if readErr != nil {
+			return errEngineSource
+		}
+		expected, readErr = managedRuntimeHash(current.Runtime)
+		if readErr != nil {
+			return errEngineSource
+		}
+	}
+	proof, err := observer.current(ctx, resolution.Permit.BindingID, expected)
+	if err != nil || resolution.Pending && proof.permit.Runtime.EpochID != resolution.Permit.EpochID || resolution.Desired.SpacetimeDB == nil || !slices.Contains(resolution.Desired.SpacetimeDB.Module.Accepts, proof.permit.Runtime.Module.Schema.Marker) {
 		return errEngineSource
 	}
 	final, err := runtime.state.ReadManagedFrontendPermit(ctx, app)

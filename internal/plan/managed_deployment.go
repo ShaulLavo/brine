@@ -53,7 +53,7 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 	if facts.NativeState.Status != target.KnownStatus || facts.NativeState.Value == nil || *facts.NativeState.Value != "running" && *facts.NativeState.Value != "stopped" {
 		add(UnknownFacts, "managed.native_state")
 	}
-	if facts.IngressProtected.Status != target.KnownStatus || facts.IngressProtected.Value == nil || !*facts.IngressProtected.Value {
+	if facts.LoggingPrerequisite.Status != target.KnownStatus || facts.LoggingPrerequisite.Value == nil || !*facts.LoggingPrerequisite.Value {
 		add(UnknownFacts, "managed.ingress_logging")
 	}
 	engine := in.Desired.SpacetimeDB

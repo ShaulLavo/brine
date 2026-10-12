@@ -51,5 +51,6 @@ func CommittedManagedSite(desired policy.Desired, managed plan.ManagedServicePla
 		return Site{}, errors.New("managed routing desired input invalid")
 	}
 	client := &managedSite{desired: owned, enginePort: spec.Port(managed.EnginePort), appPort: appPort, ingress: ClientIngress{prefix: owned.SpacetimeDB.ClientPrefix(), database: owned.SpacetimeDB.Database}}
+	client.binding, client.epoch, client.runtimeHash = managed.Database.BindingID, managed.Archive.EpochID, managed.RuntimeSHA256
 	return Site{name: owned.Name, domains: slices.Clone(owned.Domains), port: client.enginePort, managed: client}, nil
 }

@@ -29,7 +29,7 @@ func managedInitializedFixture(t *testing.T, frontend bool) Input {
 	in.Managed.Archive = &reserved.Archive
 	in.Managed.Runtime = &runtime
 	in.Managed.NativeState = target.Known("running")
-	in.Managed.IngressProtected = target.Known(true)
+	in.Managed.LoggingPrerequisite = target.Known(true)
 	in.State.ManagedReservations = []target.ManagedPortReservation{{App: string(in.Desired.Name), BindingID: reserved.Database.BindingID, EnginePort: reserved.EnginePort}}
 	if frontend {
 		in.State.ManagedReservations[0].FrontendPort = reserved.Frontend.Port
@@ -73,7 +73,7 @@ func testManagedInitializedPlan(t *testing.T, frontend bool) {
 func TestManagedInitializedRefusesUnknownStateLoggingFenceAndServiceChanges(t *testing.T) {
 	checks := []func(*Input){
 		func(in *Input) { in.Managed.NativeState = target.Observation[string]{Status: target.Unknown} },
-		func(in *Input) { in.Managed.IngressProtected = target.Known(false) },
+		func(in *Input) { in.Managed.LoggingPrerequisite = target.Known(false) },
 		func(in *Input) { in.Managed.Fences = []data.QuiescenceFence{{State: data.FenceHeld}} },
 		func(in *Input) { in.Desired.SpacetimeDB.Resources.MemoryMB++ },
 	}
