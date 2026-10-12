@@ -266,6 +266,27 @@ func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan,
 	}
 	validUntil := d.RetainUntil
 	for i, variant := range p.Candidate.Databases {
+		if native, ok := variant.Native(); ok {
+			if native.Allocation == nil || data.VerifyNativeArchivedAllocation(native.Binding, *native.Allocation, p.ArchiveID) != nil {
+				return out, archive.ErrRefused
+			}
+			if err = h.verifyNativeArchiveDataSeal(ctx, p, native); err != nil {
+				return out, err
+			}
+			receipt, expires, err := h.replayNativeArchivedSource(ctx, p, native)
+			if err != nil {
+				return out, err
+			}
+			out.NativeReceipts = append(out.NativeReceipts, receipt)
+			validUntil, err = nativeArchiveRetentionDeadline(pol, native, validUntil)
+			if err != nil {
+				return out, err
+			}
+			if expires.Before(validUntil) {
+				validUntil = expires
+			}
+			continue
+		}
 		database, sqlite := variant.SQLite()
 		if !sqlite {
 			return out, archive.ErrRefused
@@ -349,6 +370,14 @@ func (h archiveHost) ArchiveCredentialHealth(ctx context.Context, p archive.Plan
 	files := backupcredentials.Files{Root: filepath.Join(h.stateRoot, "credentials")}
 	now := time.Now().UTC()
 	for _, variant := range p.Candidate.Databases {
+		if native, ok := variant.Native(); ok {
+			health, err := h.nativeArchiveCredentialHealth(ctx, p, native)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, health...)
+			continue
+		}
 		database, sqlite := variant.SQLite()
 		if !sqlite {
 			return nil, archive.ErrRefused

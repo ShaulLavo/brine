@@ -61,6 +61,45 @@ func (c *NativeArchivedSource) active() bool {
 	return c != nil && c.state != nil && !c.state.readOnly && c.preparation != nil && c.preparation.StateRoot() == c.state.dir && c.preparation.Active(c.binding) && c.lifetime.HoldsLifetime(c.state.dir, c.binding)
 }
 
+// ReadNativeArchiveFence describes the original retained fence without a live
+// startup permit. Retired maintenance must not require an active incarnation.
+func (s *Store) ReadNativeArchiveFence(ctx context.Context, id data.ArchiveID, binding data.ReplicaBindingID) (data.QuiescenceFence, error) {
+	var zero data.QuiescenceFence
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return zero, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	p, err := loadArchivePlanByArchive(ctx, tx, id)
+	if err != nil || len(p.Candidate.Databases) != 1 {
+		return zero, errors.Join(ErrConflict, err)
+	}
+	d, ok := p.Candidate.Databases[0].Native()
+	if !ok || d.Binding.BindingID != binding {
+		return zero, ErrConflict
+	}
+	m, err := readArchiveManifest(ctx, tx, id)
+	if err != nil || !reflect.DeepEqual(m.Plan, p) || len(m.Coverage) != 1 {
+		return zero, errors.Join(ErrConflict, err)
+	}
+	o, exists, err := readArchiveOperation(ctx, tx, p.ID)
+	if err != nil || !exists || o.ID != m.OperationID || o.Stage != archive.Prepared {
+		return zero, errors.Join(ErrConflict, err)
+	}
+	pointID, err := checkNativeArchivedClaimTx(ctx, tx, p, o, d)
+	if err != nil {
+		return zero, err
+	}
+	if err = checkNativeArchivedVerificationTx(ctx, tx, id, pointID, m.Coverage[0]); err != nil {
+		return zero, err
+	}
+	point, err := readNativePreparedPointTx(ctx, tx, pointID)
+	if err != nil {
+		return zero, err
+	}
+	return data.QuiescenceFence{ID: point.view.FenceID, IncarnationID: d.Binding.IncarnationID, DatabaseID: d.Binding.DatabaseID, OperationID: point.view.FenceOwnerOpID, State: data.FenceHeld}, tx.Commit()
+}
+
 func checkNativeArchivedSourceTx(ctx context.Context, tx *sql.Tx, c *NativeArchivedSource) (string, error) {
 	if tx == nil || !c.active() {
 		return "", ErrConflict
@@ -144,6 +183,15 @@ func checkNativeArchivedClaimTx(ctx context.Context, tx *sql.Tx, p archive.Plan,
 	point, err := readNativePreparedPointTx(ctx, tx, pointID)
 	if err != nil || point.view.FenceOwnerOpID != owner || point.view.BindingID != d.Binding.BindingID || point.view.EpochID != d.Head.EpochID || point.view.RuntimeVersion != d.Head.Version || point.view.RuntimeSHA256 != d.Head.RuntimeSHA256 {
 		return "", errors.Join(ErrConflict, err)
+	}
+	matched := false
+	for _, ref := range d.Dependencies {
+		if ref.Kind == data.EnginePreparedPointEvidence && ref.ID == pointID && ref.EpochID == point.view.EpochID {
+			matched = ref.SHA256 == point.hash
+		}
+	}
+	if !matched {
+		return "", ErrConflict
 	}
 	consumer := nativePointConsumer{kind: nativePointRetire, pointID: pointID, planID: p.ID, applyOperationID: task, requester: p.Requester, binding: d.Binding.BindingID, epoch: d.Head.EpochID, generation: p.Generation, generationID: point.view.GenerationID, policySHA256: strings.TrimPrefix(p.PolicyHash, "sha256:")}
 	expected, err := consumer.canonical()

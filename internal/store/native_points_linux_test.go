@@ -37,7 +37,7 @@ func nativeForeignRoot(t *testing.T) string {
 
 func dropNativeCaptureMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
-	for _, table := range []string{"data_native_prepared_frontend_stops", "data_native_prepared_routes", "data_native_prepared_upload_intents", "data_native_backup_initialization_events", "data_native_initial_owners", "data_native_prepared_point_bundles", "data_native_recovery_inputs", "data_native_archive_tree_events", "data_native_archive_dependencies", "data_native_archive_trees", "data_native_live_restore_targets", "data_native_live_restore_completion_proofs", "data_native_live_restore_target_proofs", "data_native_live_restore_events", "data_native_live_restore_claims", "data_native_live_restore_plans", "data_native_live_restore_resolutions", "data_native_archive_claims", "data_native_archive_verifications"} {
+	for _, table := range []string{"data_native_archive_replays", "data_native_live_restore_resolutions", "data_native_initial_owners", "data_native_prepared_point_bundles", "data_native_recovery_inputs", "data_native_archive_tree_events", "data_native_archive_claims", "data_native_archive_verifications", "data_native_archive_dependencies", "data_native_archive_trees", "data_native_live_restore_targets", "data_native_live_restore_completion_proofs", "data_native_live_restore_target_proofs", "data_native_live_restore_events", "data_native_live_restore_claims", "data_native_live_restore_plans", "data_native_prepared_frontend_stops", "data_native_prepared_routes", "data_native_prepared_upload_intents", "data_native_backup_initialization_events"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
 			t.Fatal(err)
 		}

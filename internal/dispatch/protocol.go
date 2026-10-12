@@ -88,6 +88,7 @@ var operations = map[string]operation{
 	"native_retire_plan":                    {Mutating, decodeNativeRetirePlan},
 	"native_retire":                         {Mutating, decodeNativeRetireApply},
 	"native_retire_inspect":                 {ReadOnly, decodeNativeRetireInspect},
+	"native_retire_resolve":                 {Mutating, decodeNativeRetireResolve},
 	"native_live_restore_review_resolution": {Mutating, decodeNativeRestoreResolutionReview},
 	"native_live_restore_resolve":           {Mutating, decodeNativeRestoreResolve},
 	"native_live_restore_plan":              {Mutating, decodeNativeLiveRestorePlan},
@@ -272,7 +273,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = accepted
-	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs:
+	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs, NativeRetireResolveArgs:
 		value, err = s.nativeRetire(ctx, args)
 		if err != nil {
 			return fail(result.Classify(err))
