@@ -2,16 +2,18 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 )
 
-// NativeRestoreRecoveryCode describes the retained current code that the host
+// NativeRestoreRecoveryCode describes the reviewed historical code that the host
 // must independently read back. It supplies no data or start permission.
 type NativeRestoreRecoveryCode struct {
 	App                 string
 	Release             Release
+	SourceRelease       Release
 	Plan                plan.Plan
 	Desired             policy.Desired
 	CodeSHA256          string
@@ -25,11 +27,24 @@ func (s *Store) ReadNativeRestoreRecoveryCode(ctx context.Context, planID string
 		return zero, err
 	}
 	spec := reviewed.Spec()
-	current, err := s.CurrentRelease(ctx, spec.Facts.App)
-	if err != nil || current.ID != spec.Recovery.ReleaseID || current.Managed == nil {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return zero, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	intent, err := readNativeRestoreCodeIntent(ctx, tx, reviewed)
+	if err != nil {
+		return zero, err
+	}
+	current, err := readRelease(ctx, tx, spec.Facts.App, spec.Recovery.ReleaseID)
+	if err != nil || current.Managed == nil {
 		return zero, ErrConflict
 	}
-	p, desired, err := s.LoadPlan(ctx, current.PlanID)
+	source, err := readRelease(ctx, tx, spec.Facts.App, intent.SourceReleaseID)
+	if err != nil || source.Managed == nil {
+		return zero, ErrConflict
+	}
+	p, desired, err := loadPlan(ctx, tx, current.PlanID)
 	if err != nil || p.Managed == nil || desired.SpacetimeDB == nil || desired.SpacetimeDB.Module.Metadata == nil {
 		return zero, ErrConflict
 	}
@@ -41,5 +56,5 @@ func (s *Store) ReadNativeRestoreRecoveryCode(ctx context.Context, planID string
 	if err != nil || nativePointHash(compatibility) != spec.Recovery.CompatibilitySHA256 {
 		return zero, ErrConflict
 	}
-	return NativeRestoreRecoveryCode{App: spec.Facts.App, Release: current, Plan: p, Desired: desired, CodeSHA256: nativePointHash(raw), CompatibilitySHA256: nativePointHash(compatibility)}, nil
+	return NativeRestoreRecoveryCode{App: spec.Facts.App, Release: current, SourceRelease: source, Plan: p, Desired: desired, CodeSHA256: nativePointHash(raw), CompatibilitySHA256: nativePointHash(compatibility)}, tx.Commit()
 }

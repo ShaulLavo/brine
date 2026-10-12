@@ -91,6 +91,9 @@ func (s *Store) ActivateNativeLiveRestore(ctx context.Context, capability *Nativ
 	if err = checkNativeRestoreTransitionObservation(retained, target, input, observed); err != nil {
 		return zero, err
 	}
+	if err = settleNativeRestoreCodeTx(ctx, tx, retained); err != nil {
+		return zero, err
+	}
 	desired, effective, err := readEffectiveManagedDesired(ctx, tx, capability.attempt.BindingID, target.runtime.EpochID, target.record.RuntimeSHA256)
 	if err != nil || effective && (desired.EngineRunning || desired.FrontendRunning || desired.IngressServing) {
 		return zero, errors.Join(ErrConflict, err)
