@@ -89,11 +89,11 @@ func (w *nativePrepareWork) acquire(ctx context.Context) error {
 	if err != nil || permit.Allocation == nil {
 		return errEngineSource
 	}
-	w.fence, err = w.runtime.state.HoldDataFence(ctx, permit.Reserved.Database.DatabaseID, w.operation.ID)
+	w.fence, err = w.runtime.state.HoldNativePreparationFence(ctx, w.input.BindingID, w.operation.ID)
 	if err != nil {
 		return err
 	}
-	w.preparation, err = w.runtime.state.AcquireEnginePreparation(ctx, w.input.BindingID, w.fence.ID, w.operation.ID)
+	w.preparation, err = w.runtime.state.AcquireEnginePreparation(ctx, w.input.BindingID, w.fence.ID, w.fence.OperationID)
 	if err != nil {
 		return err
 	}
@@ -190,7 +190,7 @@ func (w *nativePrepareWork) stopEmpty(ctx context.Context, service Service) erro
 
 func (w *nativePrepareWork) reacquire(ctx context.Context) error {
 	var err error
-	w.preparation, err = w.runtime.state.AcquireEnginePreparation(ctx, w.input.BindingID, w.fence.ID, w.operation.ID)
+	w.preparation, err = w.runtime.state.AcquireEnginePreparation(ctx, w.input.BindingID, w.fence.ID, w.fence.OperationID)
 	if err != nil {
 		return err
 	}

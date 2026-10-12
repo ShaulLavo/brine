@@ -55,6 +55,9 @@ func (s *Store) BeginNativePreparation(ctx context.Context, preparation *EngineP
 	if err := refusePendingNativeCaptureMutation(ctx, tx, input.BindingID, op.ID); err != nil {
 		return nil, err
 	}
+	if err := refusePendingNativePreparation(ctx, tx, input.BindingID, op.ID); err != nil {
+		return nil, err
+	}
 	intent, err := buildNativePreparationIntent(ctx, tx, op, input.BindingID)
 	if err != nil {
 		return nil, err
@@ -105,12 +108,16 @@ func buildNativePreparationIntent(ctx context.Context, tx *sql.Tx, op ops.Operat
 	intent.PolicySHA256 = strings.TrimPrefix(intent.PolicySHA256, "sha256:")
 	var held int
 	for _, fence := range permit.Fences {
-		if fence.OperationID == op.ID && fence.State == data.FenceHeld {
+		if fence.State == data.FenceHeld {
 			intent.FenceID, held = fence.ID, held+1
 		}
 	}
 	if held != 1 || !data.ValidCatalogHash(intent.PolicySHA256) {
 		return intent, ErrConflict
+	}
+	intent.FenceOwnerOpID, err = nativePreparationFenceOwner(ctx, tx, intent)
+	if err != nil {
+		return intent, err
 	}
 	err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)").Scan(&intent.Generation)
 	return intent, err
@@ -149,6 +156,13 @@ func (p *NativeStoppedPreparation) OperationID() string {
 		return ""
 	}
 	return p.preparation.intent.OperationID
+}
+
+func (p *NativeStoppedPreparation) FenceOwnerOperationID() string {
+	if p == nil || p.preparation == nil {
+		return ""
+	}
+	return p.preparation.intent.FenceOwnerOpID
 }
 
 type NativeStopIntent struct {
@@ -367,7 +381,7 @@ func checkNativePreparationCapability(ctx context.Context, tx *sql.Tx, capabilit
 	if err := tx.QueryRowContext(ctx, "SELECT state FROM operations WHERE id=?", i.OperationID).Scan(&state); err != nil || capability.inspection == nil && state != ops.Preflight || capability.inspection != nil && state != ops.RecoveryRequired {
 		return errors.Join(ErrConflict, err)
 	}
-	view := NativePreparedPointView{PointID: i.PointID, PreparationOperationID: i.OperationID, FenceOwnerOpID: i.OperationID, FenceID: i.FenceID, BindingID: i.BindingID, EpochID: i.EpochID, DatabaseID: i.DatabaseID, IncarnationID: i.IncarnationID, Generation: i.Generation, PolicySHA256: i.PolicySHA256, RuntimeVersion: i.RuntimeVersion, RuntimeSHA256: i.RuntimeSHA256, AllocationID: string(i.DatabaseID), AllocationSHA256: i.AllocationSHA256, SourceKind: i.SourceKind}
+	view := NativePreparedPointView{PointID: i.PointID, PreparationOperationID: i.OperationID, FenceOwnerOpID: i.FenceOwnerOpID, FenceID: i.FenceID, BindingID: i.BindingID, EpochID: i.EpochID, DatabaseID: i.DatabaseID, IncarnationID: i.IncarnationID, Generation: i.Generation, PolicySHA256: i.PolicySHA256, RuntimeVersion: i.RuntimeVersion, RuntimeSHA256: i.RuntimeSHA256, AllocationID: string(i.DatabaseID), AllocationSHA256: i.AllocationSHA256, SourceKind: i.SourceKind}
 	if err := checkNativePointCurrent(ctx, tx, view); err != nil {
 		return err
 	}

@@ -15,6 +15,7 @@ import (
 )
 
 type nativePreparationIntent struct {
+	FenceOwnerOpID   string                `json:"-"`
 	PointID          string                `json:"point_id"`
 	OperationID      string                `json:"operation_id"`
 	FenceID          data.FenceID          `json:"fence_id"`
@@ -65,6 +66,10 @@ func readNativePreparationIntent(ctx context.Context, q dataQuerier, pointID str
 	if !bytes.Equal(canonical, raw) || intent.PointID != pointID || intent.OperationID != operation || intent.BindingID != binding || intent.EpochID != epoch || intent.FenceID != fence || !validNativePreparationIntent(intent) {
 		return intent, nil, &IntegrityError{}
 	}
+	intent.FenceOwnerOpID, err = nativePreparationFenceOwner(ctx, q, intent)
+	if err != nil {
+		return intent, nil, err
+	}
 	return intent, bytes.Clone(raw), nil
 }
 
@@ -73,7 +78,7 @@ func validNativePreparationIntent(i nativePreparationIntent) bool {
 }
 
 func nativeIntentMatchesPoint(i nativePreparationIntent, v NativePreparedPointView) bool {
-	return i.PointID == v.PointID && i.OperationID == v.PreparationOperationID && i.OperationID == v.FenceOwnerOpID && i.FenceID == v.FenceID && i.BindingID == v.BindingID && i.EpochID == v.EpochID && i.DatabaseID == v.DatabaseID && i.IncarnationID == v.IncarnationID && i.Generation == v.Generation && i.PolicySHA256 == v.PolicySHA256 && i.RuntimeVersion == v.RuntimeVersion && i.RuntimeSHA256 == v.RuntimeSHA256 && i.AllocationSHA256 == v.AllocationSHA256 && i.SourceKind == v.SourceKind && !v.PreparedAt.Before(i.CreatedAt)
+	return i.PointID == v.PointID && i.OperationID == v.PreparationOperationID && i.FenceOwnerOpID == v.FenceOwnerOpID && i.FenceID == v.FenceID && i.BindingID == v.BindingID && i.EpochID == v.EpochID && i.DatabaseID == v.DatabaseID && i.IncarnationID == v.IncarnationID && i.Generation == v.Generation && i.PolicySHA256 == v.PolicySHA256 && i.RuntimeVersion == v.RuntimeVersion && i.RuntimeSHA256 == v.RuntimeSHA256 && i.AllocationSHA256 == v.AllocationSHA256 && i.SourceKind == v.SourceKind && !v.PreparedAt.Before(i.CreatedAt)
 }
 
 func readNativePreparationEvents(ctx context.Context, q dataQuerier, intent nativePreparationIntent, intentRaw []byte) ([]nativePreparationEvent, error) {
