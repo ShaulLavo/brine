@@ -180,6 +180,11 @@ func TestNativePreparationRequiresActualRetainedLocksAndKnownStop(t *testing.T) 
 // This fixture writes synthetic phase bytes directly into a private test store.
 // It proves protected joins and immutability, never a native or remote restore.
 func nativeCompletedPointFixture(t *testing.T) (*Store, *NativePreparation, NativePreparedPointView) {
+	s, preparation, _, point := nativeCompletedPointLocksFixture(t)
+	return s, preparation, point
+}
+
+func nativeCompletedPointLocksFixture(t *testing.T) (*Store, *NativePreparation, *data.EngineLock, NativePreparedPointView) {
 	t.Helper()
 	s, preparation, lifetime, _ := nativePreparationFixture(t)
 	ctx, stop := context.Background(), nativeAbsentStopFixture()
@@ -228,7 +233,7 @@ func nativeCompletedPointFixture(t *testing.T) (*Store, *NativePreparation, Nati
 	if err := s.SetOperationState(ctx, i.OperationID, ops.Succeeded); err != nil {
 		t.Fatal(err)
 	}
-	return s, preparation, v
+	return s, preparation, lifetime, v
 }
 
 func TestNativePointReadBindsCompletionAndOriginalOwner(t *testing.T) {

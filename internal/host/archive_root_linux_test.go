@@ -56,7 +56,7 @@ credential_ref="primary"
 		t.Fatal(err)
 	}
 	written, err := host.archiveFacts(ctx, string(desired.Name), "", false)
-	if err != nil || written.Candidate.ReleaseID != "" || len(written.Candidate.Databases) != 1 || !written.Candidate.Databases[0].Written {
+	if err != nil || written.Candidate.ReleaseID != "" || len(written.Candidate.Databases) != 1 || !written.Candidate.Databases[0].Written() {
 		t.Fatal("first writer history stranded retained preparation proof", written, err)
 	}
 	after, err := os.ReadDir(string(database.Root))

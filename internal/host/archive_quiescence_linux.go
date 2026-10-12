@@ -160,7 +160,11 @@ func (h archiveHost) archiveContainersStopped(ctx context.Context, p archive.Pla
 	return true, nil
 }
 func (h archiveHost) StopReplicas(ctx context.Context, p archive.Plan) error {
-	for _, database := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		database, sqlite := variant.SQLite()
+		if !sqlite {
+			return archive.ErrRefused
+		}
 		for _, binding := range database.Epochs {
 			name, err := replication.ServiceName(string(binding.BindingID))
 			if err != nil {
@@ -174,7 +178,11 @@ func (h archiveHost) StopReplicas(ctx context.Context, p archive.Plan) error {
 	return nil
 }
 func (h archiveHost) ReplicasStopped(ctx context.Context, p archive.Plan) (bool, error) {
-	for _, database := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		database, sqlite := variant.SQLite()
+		if !sqlite {
+			return false, archive.ErrRefused
+		}
 		for _, binding := range database.Epochs {
 			name, err := replication.ServiceName(string(binding.BindingID))
 			if err != nil {
@@ -198,7 +206,11 @@ func (h archiveHost) AcquireLifetimeLocks(ctx context.Context, p archive.Plan) (
 		return errors.Join(errs...)
 	}
 	seen := map[data.ReplicaBindingID]bool{}
-	for _, database := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		database, sqlite := variant.SQLite()
+		if !sqlite {
+			return nil, errors.Join(archive.ErrRefused, release())
+		}
 		for _, binding := range database.Epochs {
 			if seen[binding.BindingID] {
 				continue

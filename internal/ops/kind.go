@@ -10,18 +10,22 @@ import (
 type Kind string
 
 const (
-	Deploy               Kind = "deploy"
-	Resolve              Kind = "resolve"
-	SecretSet            Kind = "secret_set"
-	Reconcile            Kind = "reconcile"
-	RestoreTest          Kind = "restore_test"
-	CredentialActivation Kind = "credential_activation" // #nosec G101 -- A closed operation name, not credential material.
-	DataInitApply        Kind = "data_init_apply"
-	NativeCapture        Kind = "native_capture"
-	NativeRestoreTest    Kind = "native_restore_test"
-	NativePrepare        Kind = "native_prepare"
-	ModulePublishApply   Kind = "module_publish_apply"
-	ModulePublishResolve Kind = "module_publish_resolve"
+	Deploy                   Kind = "deploy"
+	Resolve                  Kind = "resolve"
+	SecretSet                Kind = "secret_set"
+	Reconcile                Kind = "reconcile"
+	RestoreTest              Kind = "restore_test"
+	CredentialActivation     Kind = "credential_activation" // #nosec G101 -- A closed operation name, not credential material.
+	DataInitApply            Kind = "data_init_apply"
+	NativeCapture            Kind = "native_capture"
+	NativeRestoreTest        Kind = "native_restore_test"
+	NativePrepare            Kind = "native_prepare"
+	NativeRecoverySet        Kind = "native_recovery_set"
+	NativeBackupActivate     Kind = "native_backup_activate"
+	ModulePublishApply       Kind = "module_publish_apply"
+	ModulePublishResolve     Kind = "module_publish_resolve"
+	NativeLiveRestore        Kind = "native_live_restore"
+	NativeLiveRestoreResolve Kind = "native_live_restore_resolve"
 )
 
 // Intent contains identity and references only. Secret values cannot be stored.
@@ -40,19 +44,19 @@ var secretRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 var planID = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func ValidIntent(i Intent) bool {
-	if i.Kind != Resolve && i.Kind != ModulePublishResolve && i.RecoveryOf != "" {
+	if i.Kind != Resolve && i.Kind != ModulePublishResolve && i.Kind != NativeLiveRestoreResolve && i.RecoveryOf != "" {
 		return false
 	}
 	switch i.Kind {
-	case ModulePublishApply:
+	case ModulePublishApply, NativeLiveRestore:
 		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef)
-	case ModulePublishResolve:
+	case ModulePublishResolve, NativeLiveRestoreResolve:
 		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef) && operationID.MatchString(i.RecoveryOf)
 	case Resolve:
 		return operationID.MatchString(i.RecoveryOf) && (planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == "" || i.PlanID == "" && ValidIntent(Intent{Kind: SecretSet, App: i.App, SecretRef: i.SecretRef}))
 	case Deploy:
 		return planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == ""
-	case RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare:
+	case RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate:
 		return i.PlanID == "" && appName.MatchString(i.App) && (operationID.MatchString(i.SecretRef) || planID.MatchString(i.SecretRef))
 	case Reconcile:
 		return i.PlanID == "" && i.App == "" && i.SecretRef == ""
@@ -63,7 +67,7 @@ func ValidIntent(i Intent) bool {
 	}
 }
 func ValidOperation(o Operation) bool {
-	if o.Kind != Resolve && o.Kind != ModulePublishResolve && o.RecoveryOf != "" {
+	if o.Kind != Resolve && o.Kind != ModulePublishResolve && o.Kind != NativeLiveRestoreResolve && o.RecoveryOf != "" {
 		return false
 	}
 	if !ValidState(o.State) {
@@ -87,7 +91,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy, Resolve:
 		return Transitions()
-	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, ModulePublishApply, ModulePublishResolve:
+	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
 	case SecretSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
@@ -165,5 +169,5 @@ func ValidateOperationEvent(op Operation, e Event) error {
 
 // IsTask identifies reference-only detached work; handlers own their host locking.
 func (k Kind) IsTask() bool {
-	return k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == ModulePublishApply || k == ModulePublishResolve
+	return k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve
 }

@@ -55,12 +55,16 @@ func (h storedRecoveryHost) CheckArchiveRecovery(ctx context.Context, p archive.
 		return ErrConflict
 	}
 	for i := range candidate.Databases {
-		candidate.Databases[i].Retention = p.Candidate.Databases[i].Retention
+		candidate.Databases[i] = candidate.Databases[i].WithRetention(p.Candidate.Databases[i].Retention())
 	}
 	if !reflect.DeepEqual(candidate, p.Candidate) {
 		return ErrConflict
 	}
-	for _, d := range candidate.Databases {
+	for _, variant := range candidate.Databases {
+		d, sqlite := variant.SQLite()
+		if !sqlite {
+			return ErrConflict
+		}
 		if data.VerifyArchivedAllocation(d.Binding, *d.Allocation, p.ArchiveID) == nil {
 			err = data.VerifyArchivedEmpty(d.Binding, *d.Allocation, p.ArchiveID)
 		} else {
@@ -107,7 +111,7 @@ func TestArchiveReconcileDurableJournalAndFilesystemAfterReopen(t *testing.T) {
 				t.Fatal(err)
 			}
 			now := time.Now().UTC()
-			candidate.Databases[0].Retention = []data.RetentionEvidence{{Destination: request.Destination.Reference, Endpoint: request.Destination.Endpoint, Bucket: request.Destination.Bucket, BasePrefix: request.Destination.BasePrefix, VerificationID: strings.Repeat("f", 32), VerifiedAt: now.Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}}
+			candidate.Databases[0] = candidate.Databases[0].WithRetention([]data.RetentionEvidence{{Destination: request.Destination.Reference, Endpoint: request.Destination.Endpoint, Bucket: request.Destination.Bucket, BasePrefix: request.Destination.BasePrefix, VerificationID: strings.Repeat("f", 32), VerifiedAt: now.Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}})
 			id, err := data.NewID()
 			if err != nil {
 				t.Fatal(err)

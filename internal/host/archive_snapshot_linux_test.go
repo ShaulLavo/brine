@@ -71,7 +71,7 @@ func TestArchiveSnapshotPreservesCommittedRowsWithoutTouchingLiveDatabase(t *tes
 	if err = os.Chmod(h.stateRoot, 0700); err != nil {
 		t.Fatal(err)
 	}
-	raw, err := h.snapshot(ctx, archive.Database{Binding: binding, Allocation: &allocation}, strings.Repeat("d", 32))
+	raw, err := h.snapshot(ctx, archive.SQLiteDatabase{Binding: binding, Allocation: &allocation}, strings.Repeat("d", 32))
 	if err != nil {
 		t.Fatal("snapshot", err)
 	}
