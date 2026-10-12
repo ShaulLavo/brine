@@ -20,6 +20,8 @@ const (
 	NativeCapture            Kind = "native_capture"
 	NativeRestoreTest        Kind = "native_restore_test"
 	NativePrepare            Kind = "native_prepare"
+	NativeRecoverySet        Kind = "native_recovery_set"
+	NativeBackupActivate     Kind = "native_backup_activate"
 	ModulePublishApply       Kind = "module_publish_apply"
 	ModulePublishResolve     Kind = "module_publish_resolve"
 	NativeLiveRestore        Kind = "native_live_restore"
@@ -54,7 +56,7 @@ func ValidIntent(i Intent) bool {
 		return operationID.MatchString(i.RecoveryOf) && (planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == "" || i.PlanID == "" && ValidIntent(Intent{Kind: SecretSet, App: i.App, SecretRef: i.SecretRef}))
 	case Deploy:
 		return planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == ""
-	case RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare:
+	case RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate:
 		return i.PlanID == "" && appName.MatchString(i.App) && (operationID.MatchString(i.SecretRef) || planID.MatchString(i.SecretRef))
 	case Reconcile:
 		return i.PlanID == "" && i.App == "" && i.SecretRef == ""
@@ -89,7 +91,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy, Resolve:
 		return Transitions()
-	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve:
+	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
 	case SecretSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
@@ -167,5 +169,5 @@ func ValidateOperationEvent(op Operation, e Event) error {
 
 // IsTask identifies reference-only detached work; handlers own their host locking.
 func (k Kind) IsTask() bool {
-	return k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve
+	return k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve
 }
