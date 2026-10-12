@@ -614,12 +614,16 @@ func reconcileCommittedCaddy(release CurrentRelease, files []target.CaddyFile, l
 }
 
 func deploymentCapabilities(s target.Snapshot, add func(ConflictCode, string)) {
+	deploymentCapabilitiesWithCaddy(s, add, "2.6")
+}
+
+func deploymentCapabilitiesWithCaddy(s target.Snapshot, add func(ConflictCode, string), caddyVersion string) {
 	for _, r := range []struct {
 		field    string
 		value    target.Observation[string]
 		baseline string
 	}{
-		{"versions.systemd", s.Versions.Systemd, "257"}, {"versions.podman", s.Versions.Podman, "5.4"}, {"versions.caddy", s.Versions.Caddy, "2.6"}, {"versions.passt", s.Versions.Passt, ""}, {"runner.user", s.Runner.User, ""},
+		{"versions.systemd", s.Versions.Systemd, "257"}, {"versions.podman", s.Versions.Podman, "5.4"}, {"versions.caddy", s.Versions.Caddy, caddyVersion}, {"versions.passt", s.Versions.Passt, ""}, {"runner.user", s.Runner.User, ""},
 	} {
 		switch r.value.Status {
 		case target.Unknown:
