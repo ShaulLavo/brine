@@ -186,7 +186,14 @@ func (s Service) Reconcile(ctx context.Context, id data.ArchiveID) (out Disposit
 			if out.TreeIndex+1 < len(p.Trees) {
 				err = advance(RenameIntent, out.TreeIndex+1)
 			} else {
-				err = advance(Retired, out.TreeIndex)
+				if mover, ok := s.Host.(interface {
+					ArchiveNativeTrees(context.Context, Plan) error
+				}); ok {
+					err = mover.ArchiveNativeTrees(ctx, p)
+				}
+				if err == nil {
+					err = advance(Retired, out.TreeIndex)
+				}
 			}
 		default:
 			return out, ErrRecovery

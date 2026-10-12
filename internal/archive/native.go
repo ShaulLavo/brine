@@ -42,7 +42,7 @@ func nativeDependenciesValid(d NativeDatabase) bool {
 			return false
 		}
 		switch ref.Kind {
-		case data.EngineMaterialEvidence, data.EngineRecoveryEvidence, data.EngineDependenciesEvidence, data.EngineCheckpointEvidence:
+		case data.EnginePreparedPointEvidence, data.EngineMaterialEvidence, data.EngineRecoveryEvidence, data.EngineDependenciesEvidence, data.EngineCheckpointEvidence:
 		default:
 			return false
 		}

@@ -42,12 +42,12 @@ func readNativeLiveRestoreVerifiedTx(ctx context.Context, tx *sql.Tx, retained n
 	if !data.ValidCatalogHash(proof.RestoredNativeSHA256) || !data.ValidCatalogHash(proof.RecoveredPairsSHA256) || !data.ValidID(proof.ReaderNonce) || !data.ValidCatalogHash(proof.ReaderViewSHA256) || !data.ValidCatalogHash(proof.ReaderImageID) || proof.ReaderDisposedAt.IsZero() || proof.VerifiedAt.Before(proof.ReaderDisposedAt) {
 		return proof, "", &IntegrityError{}
 	}
-	initial, next := retained.claim, retained.claim
+	initial := retained.claim
 	intent, err := readNativeLiveRestorePhaseTx(ctx, tx, retained, liverestore.RestoreIntent, &initial)
 	if err != nil || intent.SHA256() != proof.IntentSHA256 {
 		return proof, "", errors.Join(&IntegrityError{}, err)
 	}
-	next, err = readNativeLiveRestorePhaseTx(ctx, tx, retained, liverestore.Verified, &intent)
+	next, err := readNativeLiveRestorePhaseTx(ctx, tx, retained, liverestore.Verified, &intent)
 	hash := nativePointHash(raw)
 	if err != nil || next.ProofSHA256() != hash {
 		return proof, "", errors.Join(&IntegrityError{}, err)

@@ -87,7 +87,7 @@ func copyNativeRestoreTarget(ctx context.Context, source *nativeRestoredSource, 
 }
 
 func copyNativeRestoreMember(ctx context.Context, source *nativeRestoredSource, target *os.Root, name string, size uint64, hash string) error {
-	if size > uint64(source.limits.Bytes) || engineMakePrivateDirectories(target, filepath.Dir(name)) != nil {
+	if source == nil || source.limits.Bytes <= 0 || size > uint64(source.limits.Bytes) || engineMakePrivateDirectories(target, filepath.Dir(name)) != nil {
 		return errEngineSource
 	}
 	file, err := engineOpenMember(source.root, name, unix.O_RDONLY, 0)
@@ -104,7 +104,8 @@ func copyNativeRestoreMember(ctx context.Context, source *nativeRestoredSource, 
 }
 
 func prepareNativeRestoreMaterial(ctx context.Context, stage *nativeRestoreStage, source *nativeRestoredSource, runtime data.EngineRuntime) error {
-	if source.checkpoint.Record().SigningRecovery.Kind != "encrypted_member" || source.checkpoint.Record().SigningRecovery.Member != "recovery/signing.key" {
+	recovery := source.checkpoint.Record().SigningRecovery
+	if recovery.Reference != runtime.Secrets.SigningPrivate.Reference || recovery.Version != runtime.Secrets.SigningPrivate.Version || recovery.SHA256 != runtime.Secrets.SigningPrivate.SHA256 {
 		return errEngineSource
 	}
 	root, err := engineOpenRoot(source.preparation.StateRoot())
@@ -127,7 +128,7 @@ func prepareNativeRestoreMaterial(ctx context.Context, stage *nativeRestoreStage
 			return err
 		}
 	}
-	private, err := readEnginePrivateFile(ctx, source.root, "recovery/signing.key", runtime.Secrets.SigningPrivate.SHA256, 32<<10)
+	private, err := readNativeRestoreSigningPrivate(ctx, root, source.root, runtime, recovery.Kind, recovery.Member)
 	if err != nil {
 		return err
 	}
@@ -202,4 +203,22 @@ func syncNativeRestoreTarget(ctx context.Context, root *os.Root, limits engineCo
 		}
 	}
 	return syncEngineDirectory(root, ".")
+}
+
+func readNativeRestoreSigningPrivate(ctx context.Context, state, download *os.Root, runtime data.EngineRuntime, kind, member string) ([]byte, error) {
+	switch kind {
+	case "encrypted_member":
+		if member != "recovery/signing.key" {
+			return nil, errEngineSource
+		}
+		return readEnginePrivateFile(ctx, download, member, runtime.Secrets.SigningPrivate.SHA256, 32<<10)
+	case "external_immutable":
+		if member != "" {
+			return nil, errEngineSource
+		}
+		name := filepath.Join("engine-secrets", string(runtime.BindingID), "signing-private", "v"+strconv.FormatUint(runtime.Secrets.SigningPrivate.Version, 10)+".secret")
+		return readEnginePrivateFile(ctx, state, name, runtime.Secrets.SigningPrivate.SHA256, 32<<10)
+	default:
+		return nil, errEngineSource
+	}
 }

@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,14 +25,20 @@ func main() {
 	root := flag.String("root", "internal", "source directory")
 	write := flag.Bool("write", false, "apply edits")
 	flag.Parse()
-	err := filepath.WalkDir(*root, func(path string, entry os.DirEntry, walkErr error) error {
+	directory, err := os.OpenRoot(*root)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
+	defer func() { _ = directory.Close() }()
+	err = fs.WalkDir(directory.FS(), ".", func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		if entry.IsDir() || !strings.HasSuffix(path, ".go") || filepath.ToSlash(path) == "internal/archive/engine.go" {
+		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.HasSuffix(path, ".go") || strings.HasSuffix(filepath.ToSlash(filepath.Join(*root, path)), "archive/engine.go") {
 			return nil
 		}
-		return migrate(path, *write)
+		return migrate(directory, path, *write)
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -39,8 +46,8 @@ func main() {
 	}
 }
 
-func migrate(path string, write bool) error {
-	raw, err := os.ReadFile(path)
+func migrate(root *os.Root, path string, write bool) error {
+	raw, err := root.ReadFile(path)
 	if err != nil {
 		return err
 	}
@@ -88,7 +95,7 @@ func migrate(path string, write bool) error {
 	if !write {
 		return nil
 	}
-	return os.WriteFile(path, raw, 0600)
+	return root.WriteFile(path, raw, 0600)
 }
 
 func parentNodes(file *ast.File) map[ast.Node]ast.Node {

@@ -1,0 +1,72 @@
+package cli
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/liverestore"
+	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/transport"
+	"strings"
+	"testing"
+)
+
+func TestNativeLiveRestoreCLIWaitsForExactStoppedReceipt(t *testing.T) {
+	for _, resolve := range []bool{false, true} {
+		checkNativeLiveRestoreCLI(t, resolve, false)
+		checkNativeLiveRestoreCLI(t, resolve, true)
+	}
+}
+
+func checkNativeLiveRestoreCLI(t *testing.T, resolve, foreign bool) {
+	t.Helper()
+	var out, diagnostics bytes.Buffer
+	deps := testDependencies(t, &out, &diagnostics)
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+	plan := "sha256:" + strings.Repeat("a", 64)
+	kind := ops.NativeLiveRestore
+	original := ""
+	args := []string{"restore", "native-live", "apply", "game", "--plan", plan, "--target", "fixture", "--idempotency-key", strings.Repeat("b", 32), "--json"}
+	if resolve {
+		kind = ops.NativeLiveRestoreResolve
+		original = "original"
+		args = []string{"restore", "native-live", "resolve", original, "--review", plan, "--target", "fixture", "--idempotency-key", strings.Repeat("b", 32), "--json"}
+	}
+	receipt := liverestore.Receipt{Format: "brine-native-live-restore-receipt-v1", OperationID: "restore-operation", PlanID: plan, OriginalOperationID: original, BindingID: data.ReplicaBindingID(strings.Repeat("1", 32)), SelectedPointID: strings.Repeat("c", 32), EpochID: data.ReplicaEpochID(strings.Repeat("2", 32)), CompletionProofSHA256: strings.Repeat("d", 64), Outcome: "restored_stopped"}
+	if foreign {
+		receipt.PlanID = "sha256:" + strings.Repeat("e", 64)
+	}
+	calls := 0
+	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, request dispatch.Request) (result.Envelope, error) {
+		calls++
+		if request.Op == "operation" {
+			raw, _ := json.Marshal(receipt)
+			return result.Success("brine host operation", jobs.Status{Operation: ops.Operation{ID: receipt.OperationID, Kind: kind, App: "game", SecretRef: plan, RecoveryOf: original, State: ops.Succeeded}, Events: []ops.Event{}, Outcome: &ops.TaskOutcome{Receipt: raw}}), nil
+		}
+		expected := "native_live_restore"
+		if resolve {
+			expected = "native_live_restore_resolve"
+		}
+		if request.Op != expected {
+			t.Fatal("wrong effect", request.Op)
+		}
+		if _, err := dispatch.EncodeRequest(request); err != nil {
+			t.Fatal("invalid CLI request", err)
+		}
+		return result.Success("brine host "+expected, jobs.Accepted{Status: "accepted", OperationID: receipt.OperationID}), nil
+	})
+	err := Execute(deps, args)
+	if foreign {
+		if err == nil {
+			t.Fatal("foreign receipt accepted")
+		}
+		return
+	}
+	if err != nil || calls != 2 || !strings.Contains(out.String(), "restored_stopped") {
+		t.Fatal("restore did not wait for real tagged outcome", err, calls, out.String())
+	}
+}

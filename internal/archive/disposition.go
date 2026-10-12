@@ -270,6 +270,13 @@ func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (
 			return out, ErrRecovery
 		}
 	}
+	if mover, ok := s.Host.(interface {
+		ArchiveNativeTrees(context.Context, Plan) error
+	}); ok {
+		if mover.ArchiveNativeTrees(ctx, p) != nil {
+			return out, ErrRecovery
+		}
+	}
 	if advance(Retired, len(p.Trees)-1, true) != nil {
 		return out, ErrRecovery
 	}
