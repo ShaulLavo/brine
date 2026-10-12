@@ -1,0 +1,43 @@
+{
+  "fixture_source": "32af9fce211ddf9d42775c1b0b05270a930c4dcc",
+  "runtime": "2.11.0",
+  "canonicalizer": "spacetimedb-v10-expanded-v2",
+  "inputs": [
+    {
+      "variant": "v1",
+      "wasm_sha256": "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc",
+      "schema_sha256": "f10d1efcbbdcec34434fa257946ca8a562ba1ad5f6b1b22b17fca14ca7eacc45",
+      "descriptor_sha256": "c3c91ec4af7b8809191e81f4dea4708b245c10db2725845f7131ad51e10a8cb5"
+    },
+    {
+      "variant": "additive",
+      "wasm_sha256": "5f1de728e240ff189fdb47fae0af5f18cfa3c772b86a198220115a6869215ffb",
+      "schema_sha256": "23a8b7ac1656a127dbb519d45a0a35d88a114806e8933b554bede465b589cd7f",
+      "descriptor_sha256": "f86ecba3c78fd42aeacf90b0834e6211df96b6567f213c0f483439612ca56728"
+    },
+    {
+      "variant": "destructive",
+      "wasm_sha256": "2002870aaf07f3381defb11a0ecd975264f4bb348d06e7bd39cca0f69d66d3b6",
+      "schema_sha256": "e78254a6f39afe6876064e90e0f4e4ab8e2156fdd5132afa0ce9d402d276f812",
+      "descriptor_sha256": "c1c134a548a0d5dee1cc9d4f1a69d4063010312d83734a4511ff4ada25ce2ae6"
+    },
+    {
+      "variant": "observer-hooks",
+      "wasm_sha256": "884d158694eeb0dfe9e973e357aca18d24998b14fb26dc33223ca928550dbd83",
+      "schema_sha256": "d369f8c1423abf67e9144a9333d36fc8919e9ce84911e8ab7a49e403a844fa85",
+      "descriptor_sha256": "9b4d3d3594a014bf92b16fc779feba12a0670edd88b8ed9cbfab5aef41ac43f0"
+    },
+    {
+      "variant": "default-column",
+      "wasm_sha256": "40960700aea4b6dd4d201539e91ff6fc27fcd96c050c92e182bf4c0240a03269",
+      "schema_sha256": "95ac506b0911df63146d79cdba646d1e059e122240c1f0349a34335e9749d07b",
+      "descriptor_sha256": "1e877b820cff9be917f851e6b311ba9efab72d2caedb34c9c7df26a24cd87679"
+    },
+    {
+      "variant": "access-change",
+      "wasm_sha256": "7647ef3ff8f90bb7f1839a9ebd8ea17e493b6a3803acf6462009262701d3a516",
+      "schema_sha256": "e5e6b68bbe910fe99f8f8fc50b0194ae603e80b50bb39127987a7fa3e206ba07",
+      "descriptor_sha256": "fde415ddc4c020650820c555e63f3b01550bd612899b694f18d5b76c2b928f09"
+    }
+  ]
+}
