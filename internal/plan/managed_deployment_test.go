@@ -1,6 +1,7 @@
 package plan
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -99,4 +100,30 @@ func hasManagedConflict(p Plan, code ConflictCode) bool {
 		}
 	}
 	return false
+}
+
+func TestManagedFrontendRollbackDesiredUsesCurrentEngineAndTargetAccepts(t *testing.T) {
+	in := managedInitializedFixture(t, true)
+	client := in.Desired
+	raw, err := client.CanonicalBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &client); err != nil {
+		t.Fatal(err)
+	}
+	client.SpacetimeDB.Module.Metadata.RuntimeModuleHash = spec.RuntimeModuleHash(strings.Repeat("f", 64))
+	client.SpacetimeDB.Module.Metadata.WasmSHA256 = spec.WasmSHA256(strings.Repeat("f", 64))
+	in.Managed.Runtime.Module.Schema.Marker = "game-v2"
+	current, err := ManagedClientDesired(in, client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(current.SpacetimeDB.Module.Metadata.RuntimeModuleHash) != string(in.Managed.Runtime.Module.Program) || current.SpacetimeDB.Module.Marker != "game-v2" || current.SpacetimeDB.Image != spec.ImageReference(in.Managed.Runtime.Image) {
+		t.Fatal("rollback reused historical engine assertions")
+	}
+	client.SpacetimeDB.Module.Accepts = []string{"game-v1"}
+	if _, err := ManagedClientDesired(in, client); err == nil {
+		t.Fatal("incompatible retained frontend gained current engine authority")
+	}
 }

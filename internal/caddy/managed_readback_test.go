@@ -5,8 +5,6 @@ import (
 	"errors"
 	"os"
 	"testing"
-
-	"github.com/ShaulLavo/brine/internal/data"
 )
 
 type managedLoadedFixture struct {
@@ -27,7 +25,7 @@ type managedAuthorityFixture struct {
 	failure error
 }
 
-func (f *managedAuthorityFixture) CheckManagedIngress(context.Context, string, data.ReplicaBindingID, data.ReplicaEpochID, string) error {
+func (f *managedAuthorityFixture) CheckManagedIngress(context.Context, ManagedIngressClaim) error {
 	f.calls++
 	return f.failure
 }

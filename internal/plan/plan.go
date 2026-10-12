@@ -196,6 +196,7 @@ type Plan struct {
 	SchemaArtifacts     []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
 	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
 	Managed             *ManagedServicePlan   `json:"managed,omitempty"`
+	ManagedLifecycle    *ManagedLifecyclePlan `json:"managed_lifecycle,omitempty"`
 
 	decisionInput      []byte
 	ReplicaPrevious    *ReplicaPrevious               `json:"replica_previous,omitempty"`

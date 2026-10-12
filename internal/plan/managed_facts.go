@@ -22,6 +22,7 @@ type ManagedFacts struct {
 	Prepared            target.Observation[bool]   `json:"prepared"`
 	LoggingConfigSHA256 string                     `json:"logging_config_sha256"`
 	LoggingRootSHA256   string                     `json:"logging_root_sha256"`
+	Intent              *ManagedIntentFacts        `json:"intent,omitempty"`
 }
 
 func (f ManagedFacts) Clone() ManagedFacts {
@@ -54,6 +55,10 @@ func (f ManagedFacts) Clone() ManagedFacts {
 	if f.Prepared.Value != nil {
 		value := *f.Prepared.Value
 		f.Prepared.Value = &value
+	}
+	if f.Intent != nil {
+		value := *f.Intent
+		f.Intent = &value
 	}
 	return f
 }

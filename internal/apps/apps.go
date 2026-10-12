@@ -216,6 +216,9 @@ func (s Service) Rollback(ctx context.Context, app, id string) (RollbackPlan, er
 	if stored.App != app || stored.Target != snap.Identity || string(desired.Name) != app {
 		return RollbackPlan{}, result.New(result.Conflict, nil)
 	}
+	if current.Managed != nil || release.Managed != nil {
+		return s.managedRollback(ctx, snap, state, *current, release, desired)
+	}
 	if !stateless(current.Desired) || !stateless(desired) {
 		return RollbackPlan{}, result.New(result.RecoveryRequired, nil)
 	}

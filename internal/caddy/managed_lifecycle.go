@@ -26,7 +26,12 @@ func NewManagedSite(desired policy.Desired, pol policy.Policy, managed plan.Mana
 	if err != nil || string(want) != string(got) {
 		return Site{}, errors.New("managed routing policy changed")
 	}
-	return CommittedManagedSite(normalized, managed)
+	site, err := CommittedManagedSite(normalized, managed)
+	if err != nil {
+		return Site{}, err
+	}
+	site.managed.pending = true
+	return site, nil
 }
 
 // CommittedManagedSite reconstructs the exact recorded route for comparison

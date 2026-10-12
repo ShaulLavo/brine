@@ -196,6 +196,16 @@ func (s Service) Lifecycle(ctx context.Context, app string, action plan.ChangeKi
 	if err := s.collectPersistent(ctx, &in); err != nil {
 		return ConfigPlan{}, err
 	}
+	if in.Desired.SpacetimeDB != nil {
+		current, err := plan.ManagedClientDesired(in, in.Desired)
+		if err != nil {
+			return ConfigPlan{}, result.New(result.Conflict, err)
+		}
+		in.Desired, err = policy.Normalize(current.App(), pol)
+		if err != nil {
+			return ConfigPlan{}, err
+		}
+	}
 	p, err := plan.BuildLifecycle(in, action)
 	if err != nil {
 		return ConfigPlan{}, err

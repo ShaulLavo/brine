@@ -25,6 +25,7 @@ type managedSite struct {
 	epoch       data.ReplicaEpochID
 	runtimeHash string
 	authority   ManagedIngressAuthority
+	pending     bool
 }
 
 const subscriptionQueryNamePattern = "(t|%74)(o|%6[fF])(k|%6[bB])(e|%65)(n|%6[eE])"

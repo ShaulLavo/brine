@@ -8,6 +8,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"slices"
 
+	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -151,40 +152,43 @@ func (r managedRuntime) FrontendPermitOwner(ctx context.Context, app string) (st
 	return permit.Permit.OperationID, nil
 }
 
-func (r managedRuntime) CheckManagedIngress(ctx context.Context, app string, binding data.ReplicaBindingID, epoch data.ReplicaEpochID, runtimeHash string) error {
-	projection, err := r.state.ReadManagedApp(ctx, app)
-	if err != nil || projection.Permit == nil || projection.Reserved.Database.BindingID != binding || projection.Reserved.Archive.EpochID != epoch {
+func (r managedRuntime) CheckManagedIngress(ctx context.Context, claim caddy.ManagedIngressClaim) error {
+	projection, err := r.state.ReadManagedApp(ctx, claim.App)
+	if err != nil || projection.Permit == nil || projection.Reserved.Database.BindingID != claim.BindingID {
 		return errEngineSource
 	}
-	// Candidate/publication permits bind the exact protected current runtime. A
-	// route restored from another module or epoch cannot borrow current readiness.
-	proof, err := r.observer.current(ctx, binding, runtimeHash)
-	if err != nil || proof.permit.Runtime.EpochID != epoch {
+	current := projection.Permit.Runtime
+	expected, err := managedRuntimeHash(current)
+	if err != nil {
 		return errEngineSource
 	}
-	frontend, err := r.state.ReadManagedFrontendPermit(ctx, app)
-	if errors.Is(err, store.ErrNotFound) {
-		current, readErr := r.state.CurrentRelease(ctx, app)
-		if readErr == nil && current.Managed != nil && current.Managed.Frontend != nil {
+	if claim.Pending && (claim.EpochID != current.EpochID || claim.RuntimeSHA256 != expected) {
+		return errEngineSource
+	}
+	// Committed routes use current protected native state and their declared
+	// compatibility. Historical release runtime/epoch never grant route authority.
+	if !slices.Contains(claim.Accepts, current.Module.Schema.Marker) {
+		return errEngineSource
+	}
+	proof, err := r.observer.current(ctx, claim.BindingID, expected)
+	if err != nil {
+		return errEngineSource
+	}
+	if claim.Frontend {
+		frontend, err := r.state.ReadManagedFrontendPermit(ctx, claim.App)
+		if err != nil || frontend.Permit.BindingID != claim.BindingID || frontend.Desired.SpacetimeDB == nil || !slices.Contains(frontend.Desired.SpacetimeDB.Module.Accepts, proof.permit.Runtime.Module.Schema.Marker) {
 			return errEngineSource
 		}
-		if readErr != nil && !errors.Is(readErr, store.ErrNotFound) {
+		if frontend.Pending && (frontend.Permit.RuntimeSHA256 != expected || frontend.Permit.EpochID != current.EpochID) {
 			return errEngineSource
 		}
-		return nil
-	}
-	if err != nil || frontend.Permit.BindingID != binding || frontend.Desired.SpacetimeDB == nil || !slices.Contains(frontend.Desired.SpacetimeDB.Module.Accepts, proof.permit.Runtime.Module.Schema.Marker) {
-		return errEngineSource
-	}
-	if frontend.Pending && (frontend.Permit.RuntimeSHA256 != runtimeHash || frontend.Permit.EpochID != epoch) {
-		return errEngineSource
-	}
-	if quadlet.VerifyCurrent(ctx, r.home, app+".container", frontend.Permit.UnitHash) != nil {
-		return errEngineSource
-	}
-	active, err := r.observer.units.IsActive(ctx, mustManagedFrontendUnit(app))
-	if err != nil || !active {
-		return errEngineSource
+		if quadlet.VerifyCurrent(ctx, r.home, claim.App+".container", frontend.Permit.UnitHash) != nil {
+			return errEngineSource
+		}
+		active, err := r.observer.units.IsActive(ctx, mustManagedFrontendUnit(claim.App))
+		if err != nil || !active {
+			return errEngineSource
+		}
 	}
 	return ctx.Err()
 }
