@@ -274,6 +274,7 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `persistent_archive_required` | 4 | false | Removal refused. Persistent data needs the P04-08 archive path; no data will be deleted. |
 | `app_not_found` | 2 | false | The app has no committed Brine release. |
 | `release_not_found` | 2 | false | The rollback release is not known for this app. |
+| `native_point_not_found` | 2 | false | The native point reference is not known on this target. |
 | `rollback_no_op` | 5 | false | The rollback target is already current or requires no changes. |
 | `internal_error` | 1 | false | The operation failed. |
 | `invalid_usage` | 2 | false | Invalid command or arguments. Use --help for usage. |

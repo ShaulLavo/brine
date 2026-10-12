@@ -9,6 +9,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/logs"
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
@@ -50,6 +51,12 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "native_point":
+			point, err := nativecapture.DecodePointInspection(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = point
 		case "deploy_checkpoint":
 			checked, err := decodeDeploymentCheckpoint(fields["data"])
 			if err != nil {
