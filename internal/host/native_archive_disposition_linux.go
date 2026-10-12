@@ -6,7 +6,7 @@ import (
 	"context"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
-	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/target"
 	"golang.org/x/sys/unix"
 	"path/filepath"
 	"reflect"
@@ -50,17 +50,17 @@ func (h archiveHost) retireNativeArchiveRuntime(ctx context.Context, p archive.P
 		return err
 	}
 	defer func() { _ = preparation.Close() }()
-	release, err := h.service.Store.CurrentRelease(ctx, p.Candidate.App)
-	if err != nil || release.ID != p.Candidate.ReleaseID || release.Managed == nil {
+	facts, err := h.nativeArchiveOwnedUnits(ctx, p.Candidate)
+	if err != nil {
 		return archive.ErrRefused
 	}
-	if release.Managed.Frontend != nil {
-		unit := release.Managed.Frontend.Unit
+	if facts.frontend != nil {
+		unit := *facts.frontend
 		if h.units == nil || h.units.RemoveArchived(ctx, unit.Name, unit.Hash) != nil {
 			return archive.ErrRecovery
 		}
 	}
-	if err = h.retainNativeArchiveUnit(ctx, p, release); err != nil {
+	if err = h.retainNativeArchiveUnit(ctx, p, facts.engine); err != nil {
 		return err
 	}
 	result, err := h.session.Execute(ctx, "/usr/bin/systemctl", []string{"--user", "daemon-reload"}, nil, true)
@@ -74,7 +74,7 @@ func (h archiveHost) retireNativeArchiveRuntime(ctx context.Context, p archive.P
 	return nil
 }
 
-func (h archiveHost) retainNativeArchiveUnit(ctx context.Context, p archive.Plan, release ops.Release) error {
+func (h archiveHost) retainNativeArchiveUnit(ctx context.Context, p archive.Plan, unit target.Unit) error {
 	units, err := openManagedUnits(h.home)
 	if err != nil {
 		return err
@@ -83,11 +83,11 @@ func (h archiveHost) retainNativeArchiveUnit(ctx context.Context, p archive.Plan
 	if err = units.directory(managedServiceStaging, true); err != nil {
 		return err
 	}
-	name := release.Managed.EngineUnit.Name
+	name := unit.Name
 	from := filepath.Join(managedServiceDirectory, name)
 	to := filepath.Join(managedServiceStaging, "retired-"+string(p.ArchiveID)+"-"+name)
 	raw, present, err := units.read(ctx, from)
-	if err != nil || !present || "sha256:"+managedServiceHash(raw) != release.Managed.EngineUnit.Hash {
+	if err != nil || !present || "sha256:"+managedServiceHash(raw) != unit.Hash {
 		return archive.ErrRefused
 	}
 	src, err := engineOpenMember(units.root, managedServiceDirectory, unix.O_RDONLY|unix.O_DIRECTORY, 0)
@@ -104,7 +104,7 @@ func (h archiveHost) retainNativeArchiveUnit(ctx context.Context, p archive.Plan
 		return archive.ErrRecovery
 	}
 	moved, present, err := units.read(ctx, to)
-	if err != nil || !present || "sha256:"+managedServiceHash(moved) != release.Managed.EngineUnit.Hash || src.Sync() != nil || dest.Sync() != nil {
+	if err != nil || !present || "sha256:"+managedServiceHash(moved) != unit.Hash || src.Sync() != nil || dest.Sync() != nil {
 		return archive.ErrRecovery
 	}
 	return ctx.Err()
@@ -116,11 +116,11 @@ func (h archiveHost) nativeArchiveRuntimeAbsent(ctx context.Context, p archive.P
 	if err != nil || !absent {
 		return false, archive.ErrRefused
 	}
-	release, err := h.service.Store.CurrentRelease(ctx, p.Candidate.App)
-	if err != nil || release.ID != p.Candidate.ReleaseID || release.Managed == nil {
+	facts, err := h.nativeArchiveOwnedUnits(ctx, p.Candidate)
+	if err != nil {
 		return false, archive.ErrRefused
 	}
-	if release.Managed.Frontend != nil {
+	if facts.frontend != nil {
 		absent, err = h.serviceStopped(ctx, p.Candidate.App+".service", true)
 		if err != nil || !absent {
 			return false, archive.ErrRefused

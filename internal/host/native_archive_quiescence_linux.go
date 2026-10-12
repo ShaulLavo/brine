@@ -4,10 +4,12 @@ package host
 
 import (
 	"context"
+	"errors"
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/store"
 	"path/filepath"
 	"time"
@@ -18,13 +20,19 @@ func (h archiveHost) nativeArchiveStopped(ctx context.Context, p archive.Plan) (
 	if !ok {
 		return false, archive.ErrRefused
 	}
-	stopped, err := h.serviceStopped(ctx, engineContainerName(d.Binding.BindingID)+".service", false)
+	stopped, err := h.serviceStopped(ctx, engineContainerName(d.Binding.BindingID)+".service", d.State == data.EngineUnpublished)
 	if err != nil || !stopped {
 		return false, archive.ErrRefused
 	}
 	containers, err := listEngineContainers(ctx, h.session)
 	if err != nil || !engineSourceAbsent(containers, d.Binding.SourcePath()) || !nativeRestoreContainersAbsent(containers, d.Binding.BindingID, p.Candidate.App) {
 		return false, archive.ErrRefused
+	}
+	if d.State == data.EngineUnpublished {
+		stopped, err = h.serviceStopped(ctx, p.Candidate.App+".service", true)
+		if err != nil || !stopped {
+			return false, archive.ErrRefused
+		}
 	}
 	return true, ctx.Err()
 }
@@ -70,22 +78,27 @@ func (h archiveHost) coverNativeArchive(ctx context.Context, p archive.Plan, d a
 	defer func() { _ = lifetime.Release() }()
 	r := nativeBackupRuntime{state: h.service.Store, stateRoot: h.stateRoot, home: h.home, session: h.session}
 	original, err := h.service.Store.ReadNativePreparedStop(ctx, pointID)
-	if err != nil || original.Mode != "clean_exit" {
+	if err != nil || original.Mode != "clean_exit" && (original.Mode != "unpublished_absent" || d.State != data.EngineUnpublished) {
 		return zero, archive.ErrRefused
 	}
 	if stopped, err := h.nativeArchiveStopped(ctx, p); err != nil || !stopped {
 		return zero, archive.ErrRefused
 	}
-	inspected, err := h.session.Execute(ctx, "/usr/bin/podman", []string{"container", "inspect", original.ContainerID}, nil, false)
-	if err != nil {
-		return zero, archive.ErrRefused
-	}
-	finished, err := decodeNativeStoppedState([]byte(inspected.Stdout), original.ContainerID, time.Time{}, time.Now().UTC())
-	if err != nil || !finished.Equal(original.FinishedAt) {
-		return zero, archive.ErrRefused
+	current := original
+	if original.Mode == "clean_exit" {
+		inspected, err := h.session.Execute(ctx, "/usr/bin/podman", []string{"container", "inspect", original.ContainerID}, nil, false)
+		if err != nil {
+			return zero, archive.ErrRefused
+		}
+		finished, err := decodeNativeStoppedState([]byte(inspected.Stdout), original.ContainerID, time.Time{}, time.Now().UTC())
+		if err != nil || !finished.Equal(original.FinishedAt) {
+			return zero, archive.ErrRefused
+		}
+	} else {
+		current.FinishedAt = time.Now().UTC()
 	}
 	// The owned retirement claim retains the original preparation operation.
-	stopped, err := h.service.Store.ResumeNativePreparedPoint(ctx, preparation, lifetime, pointID, original)
+	stopped, err := h.service.Store.ResumeNativePreparedPoint(ctx, preparation, lifetime, pointID, current)
 	if err != nil {
 		return zero, err
 	}
@@ -102,6 +115,9 @@ func (h archiveHost) coverNativeArchive(ctx context.Context, p archive.Plan, d a
 		return zero, err
 	}
 	defer func() { _ = copied.discard() }()
+	if d.State == data.EngineUnpublished {
+		return h.coverNativeUnpublishedArchive(ctx, p, stopped, copied, r, writersAt)
+	}
 	source, err := reopenNativeCheckpoint(ctx, h.service.Store, stopped, copied)
 	if err != nil {
 		return zero, err
@@ -130,7 +146,26 @@ func (h archiveHost) coverNativeArchive(ctx context.Context, p archive.Plan, d a
 	return h.service.Store.RecordNativeArchiveVerified(ctx, p.ArchiveID, stopped, restored.extracted, store.NativeArchiveVerificationObservation{Parent: restored.parent, Evidence: evidence, ReaderNonce: disposal.nonce, ReaderViewSHA256: disposal.viewHash, ReaderImageID: disposal.imageID, ReaderDisposedAt: disposal.at, WritersQuiescedAt: writersAt})
 }
 
+func (h archiveHost) coverNativeUnpublishedArchive(ctx context.Context, p archive.Plan, stopped *store.NativeStoppedPreparation, copied *engineSourceCopy, runtime nativeBackupRuntime, writersAt time.Time) (archive.Coverage, error) {
+	empty, err := reopenNativeEmptySource(ctx, h.service.Store, h.stateRoot, stopped, copied)
+	if err != nil {
+		return archive.Coverage{}, err
+	}
+	derived, err := runtime.restorePreparedEmpty(ctx, empty)
+	if err != nil {
+		return archive.Coverage{}, err
+	}
+	defer func() { _ = derived.close() }()
+	if derived.unchanged(ctx) != nil || h.verifyNativeArchiveClosedRoute(ctx, p) != nil {
+		return archive.Coverage{}, archive.ErrRefused
+	}
+	return h.service.Store.RecordNativeArchiveVerified(ctx, p.ArchiveID, stopped, derived.extracted, store.NativeArchiveVerificationObservation{Parent: derived.parent, WritersQuiescedAt: writersAt})
+}
+
 func (h archiveHost) verifyNativeArchiveClosedRoute(ctx context.Context, p archive.Plan) error {
+	if p.Candidate.ReleaseID == "" {
+		return h.verifyNativeUnpublishedArchiveRoute(ctx, p)
+	}
 	route, err := h.service.Store.ReadManagedRouteState(ctx, p.Candidate.App)
 	routes, ok := h.routes.(apply.GenerationRoutes)
 	if err != nil || route.Present || !ok || routes.Manager == nil {
@@ -149,6 +184,40 @@ func (h archiveHost) verifyNativeArchiveClosedRoute(ctx context.Context, p archi
 		return archive.ErrRefused
 	}
 	site, err := caddy.CommittedManagedSite(desired, *planned.Managed)
+	if err != nil || routes.Manager.InspectLoadedChange(ctx, loaded, caddy.State{Sites: map[string]caddy.Site{p.Candidate.App + ".caddy": site}}) != nil {
+		return archive.ErrRefused
+	}
+	return ctx.Err()
+}
+
+func (h archiveHost) verifyNativeUnpublishedArchiveRoute(ctx context.Context, p archive.Plan) error {
+	d, _ := p.Candidate.Databases[0].Native()
+	if d.State != data.EngineUnpublished {
+		return archive.ErrRefused
+	}
+	route, err := h.service.Store.ReadManagedRouteState(ctx, p.Candidate.App)
+	if err != nil && !errors.Is(err, store.ErrNotFound) || err == nil && (route.Present || route.BindingID != d.Binding.BindingID) {
+		return archive.ErrRefused
+	}
+	routes, ok := h.routes.(apply.GenerationRoutes)
+	if !ok || routes.Manager == nil {
+		return archive.ErrRefused
+	}
+	loaded, err := routes.Manager.Observe()
+	if err != nil || loaded.Files[p.Candidate.App+".caddy"] != "" || routes.Manager.CheckDrift(loaded) != nil {
+		return archive.ErrRefused
+	}
+	preparation, err := h.service.Store.ReadManagedPreparation(ctx, d.Binding.BindingID)
+	if err != nil {
+		return err
+	}
+	planned, desired, err := h.service.Store.LoadPlan(ctx, preparation.PlanID)
+	if err != nil || planned.Managed == nil || planned.Managed.Database != d.Binding || preparation.EnginePort < 1024 {
+		return archive.ErrRefused
+	}
+	// This read-only site describes domains that must be absent, not a managed
+	// initialized service or permission to publish a route.
+	site, err := caddy.CommittedSite(desired, spec.Port(preparation.EnginePort))
 	if err != nil || routes.Manager.InspectLoadedChange(ctx, loaded, caddy.State{Sites: map[string]caddy.Site{p.Candidate.App + ".caddy": site}}) != nil {
 		return archive.ErrRefused
 	}

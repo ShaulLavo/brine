@@ -7,7 +7,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/nativeevidence"
 	"github.com/ShaulLavo/brine/internal/restic"
-	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"os"
 	"time"
 )
@@ -42,7 +41,7 @@ type nativeArchiveVerification struct {
 
 func (s *Store) RecordNativeArchiveVerified(ctx context.Context, id data.ArchiveID, stopped *NativeStoppedPreparation, extracted restic.AuthenticatedRestore, observed NativeArchiveVerificationObservation) (archive.Coverage, error) {
 	var zero archive.Coverage
-	if !stopped.active(s) || observed.Parent == nil || !data.ValidID(observed.ReaderNonce) || !data.ValidCatalogHash(observed.ReaderViewSHA256) || !data.ValidCatalogHash(observed.ReaderImageID) || observed.ReaderDisposedAt.IsZero() || observed.ReaderDisposedAt.Before(extracted.VerifiedAt()) || observed.ReaderDisposedAt.After(time.Now().UTC()) {
+	if !stopped.active(s) || observed.Parent == nil {
 		return zero, ErrConflict
 	}
 	if _, err := s.ReadNativeStoppedPermit(ctx, stopped); err != nil {
@@ -70,8 +69,7 @@ func (s *Store) RecordNativeArchiveVerified(ctx context.Context, id data.Archive
 		return zero, ErrConflict
 	}
 	bundle, err := readNativePreparedBundleTx(ctx, tx, point.view.PointID)
-	pairs, pairErr := spacetimedb.RecoveryPairsFromPassive(observed.Evidence, bundle.Schema())
-	if err != nil || pairErr != nil || !bundle.SourceEvidence().SamePersistedState(observed.Evidence) || spacetimedb.CheckConfirmedLowerBound(bundle.ConfirmedBound(), pairs) != nil || spacetimedb.CheckRecoveredPairsEqual(bundle.FinalPairs(), pairs) != nil || !extracted.Matches(ctx, observed.Parent, "download", bundle.Transport(), bundle.Manifest()) {
+	if err != nil || checkNativeArchiveReplayEvidence(bundle, extracted, observed) != nil || !extracted.Matches(ctx, observed.Parent, "download", bundle.Transport(), bundle.Manifest()) {
 		return zero, ErrConflict
 	}
 	head, _, err := readEngineHead(ctx, tx, point.view.BindingID)
@@ -79,7 +77,11 @@ func (s *Store) RecordNativeArchiveVerified(ctx context.Context, id data.Archive
 		return zero, err
 	}
 	now := time.Now().UTC()
-	if observed.WritersQuiescedAt.Before(p.CreatedAt) || observed.WritersQuiescedAt.After(observed.ReaderDisposedAt) {
+	verifiedAt := observed.ReaderDisposedAt
+	if bundle.Source().Kind() == "unpublished" {
+		verifiedAt = extracted.VerifiedAt()
+	}
+	if observed.WritersQuiescedAt.Before(p.CreatedAt) || observed.WritersQuiescedAt.After(verifiedAt) {
 		return zero, ErrConflict
 	}
 	v := point.view
