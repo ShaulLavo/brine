@@ -1,3 +1,4 @@
+// Package nativematerial defines the public metadata for immutable native role delivery.
 package nativematerial
 
 import (

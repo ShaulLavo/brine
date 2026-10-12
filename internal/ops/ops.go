@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/nativematerial"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -153,6 +154,10 @@ func ValidateEvent(e Event) error {
 	case "resolution":
 		var p ResolutionPayload
 		if decode(&p, "operation_id") != nil || !operationID.MatchString(p.OperationID) {
+			return ErrInvalidEvent
+		}
+	case "native_material":
+		if _, err := nativematerial.DecodeReceipt(e.Payload); err != nil {
 			return ErrInvalidEvent
 		}
 	case "secret_version":

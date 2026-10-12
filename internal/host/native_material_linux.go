@@ -35,7 +35,7 @@ func (o nativeMaterialOperations) DeliverMaterial(ctx context.Context, args disp
 	if err != nil {
 		return nativematerial.Receipt{}, err
 	}
-	defer lock.Release()
+	defer func() { _ = lock.Release() }()
 	p, d, err := o.service.Store.LoadPlan(ctx, args.PreparationPlanID)
 	if err != nil || p.App != args.App || p.Managed == nil || policy.ValidateManagedDesired(d) != nil {
 		return nativematerial.Receipt{}, result.New(result.PolicyRefused, nil)

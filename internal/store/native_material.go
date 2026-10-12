@@ -66,6 +66,9 @@ func (s *Store) ReserveNativeMaterial(ctx context.Context, app, planID, requeste
 	if headErr != nil && !initial {
 		return NativeMaterialInput{}, false, headErr
 	}
+	if initial && (candidate.State != data.EngineUnpublished || candidate.Database != "" || candidate.Publisher != "" || len(candidate.Names) != 0) {
+		return NativeMaterialInput{}, false, ErrConflict
+	}
 	input := NativeMaterialInput{Requester: requester, Runtime: candidate, Initial: initial, PriorRuntimeSHA256: head.RuntimeSHA256, PreparationOperationID: prepared.OperationID, DesiredRevision: wanted.Revision, PolicyHash: d.PolicyHash}
 	outcome := "stored_unreferenced"
 	if initial {
@@ -184,11 +187,21 @@ func checkNativeMaterialScope(ctx context.Context, q dataQuerier, input NativeMa
 		}
 	}
 	if !input.Initial {
-		head, _, err := readEngineHead(ctx, q, r.BindingID)
-		if err != nil || head.EpochID != r.EpochID || head.RuntimeSHA256 != input.PriorRuntimeSHA256 {
+		head, active, err := readEngineHead(ctx, q, r.BindingID)
+		if err != nil || head.EpochID != r.EpochID || head.RuntimeSHA256 != input.PriorRuntimeSHA256 || !sameNativeMaterialRuntime(active, input.Runtime) {
 			return errors.Join(ErrConflict, err)
 		}
 		return nil
+	}
+	metadata := d.SpacetimeDB.Module.Metadata
+	resources := d.SpacetimeDB.Resources
+	runtime := input.Runtime
+	if metadata == nil || runtime.State != data.EngineUnpublished || runtime.Database != "" || runtime.Publisher != "" || len(runtime.Names) != 0 || runtime.Version != d.SpacetimeDB.Version || runtime.Runtime != d.SpacetimeDB.Runtime || runtime.HostPort != prepared.EnginePort || runtime.MemoryMB != resources.MemoryMB || runtime.PIDsLimit != resources.PIDsLimit || runtime.PagePoolMB != resources.PagePoolMB || runtime.StopSeconds != resources.StopTimeoutSeconds {
+		return ErrConflict
+	}
+	expected := data.EngineModuleDefinition{Program: data.NativeProgramWireHash(metadata.RuntimeModuleHash), Wasm: data.WasmSHA256(metadata.WasmSHA256), Schema: data.EngineSchemaDefinition{Marker: d.SpacetimeDB.Module.Marker, Canonicalizer: metadata.Canonicalizer, SHA256: metadata.SchemaSHA256}}
+	if runtime.Module != expected {
+		return ErrConflict
 	}
 	if wanted.Revision != 1 || wanted.PlanID != prepared.PlanID || wanted.OperationID != prepared.OperationID || wanted.RuntimeSHA256 != "" || wanted.EngineRunning || wanted.FrontendRunning || wanted.IngressServing {
 		return ErrConflict
@@ -198,12 +211,12 @@ func checkNativeMaterialScope(ctx context.Context, q dataQuerier, input NativeMa
 	if err != nil || held != 1 {
 		return errors.Join(ErrConflict, err)
 	}
-	head, runtime, err := readEngineHead(ctx, q, r.BindingID)
+	head, currentRuntime, err := readEngineHead(ctx, q, r.BindingID)
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
 	raw, _ := json.Marshal(input.Runtime)
-	if err != nil || head.RuntimeSHA256 != strings.TrimPrefix(digest(raw), "sha256:") || runtime.State != data.EngineUnpublished {
+	if err != nil || head.RuntimeSHA256 != strings.TrimPrefix(digest(raw), "sha256:") || currentRuntime.State != data.EngineUnpublished {
 		return errors.Join(ErrConflict, err)
 	}
 	return nil
@@ -254,6 +267,10 @@ func (s *Store) CompleteNativeMaterial(ctx context.Context, input NativeMaterial
 		return nativematerial.Receipt{}, err
 	}
 	_, err = tx.ExecContext(ctx, "UPDATE operations SET state='succeeded',updated_at=? WHERE id=? AND state='preparing'", timestamp(), input.Receipt.OperationID)
+	if err != nil {
+		return nativematerial.Receipt{}, err
+	}
+	_, err = appendEvent(ctx, tx, input.Receipt.OperationID, Event{Kind: "native_material", Payload: raw})
 	if err != nil {
 		return nativematerial.Receipt{}, err
 	}
@@ -312,4 +329,11 @@ func (s *Store) ReadManagedPreparationFence(ctx context.Context, p ManagedPrepar
 		return "", errors.Join(ErrConflict, err)
 	}
 	return fence, nil
+}
+
+func sameNativeMaterialRuntime(a, b data.EngineRuntime) bool {
+	b.Secrets = a.Secrets
+	aa, _ := json.Marshal(a)
+	bb, _ := json.Marshal(b)
+	return bytes.Equal(aa, bb)
 }

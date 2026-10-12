@@ -240,7 +240,7 @@ func TestNativeMaterialFreshPublicDeliveryCreatesOnlyUnpublishedRuntime(t *testi
 		}
 	}
 	evidence, err := f.service.Store.EventsAfter(ctx, receipt.OperationID, 0, 100)
-	if err != nil || len(evidence) != 2 {
+	if err != nil || len(evidence) != 3 {
 		t.Fatal("real delivery operation events", err)
 	}
 	serialized, _ := json.Marshal(evidence)
@@ -346,7 +346,7 @@ func TestNativeMaterialUnknownWriteRetainsVersionsAndNeverRetries(t *testing.T) 
 	if r.Outcome != "recovery_required" {
 		t.Fatal("collision produced success")
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // Task-owned private collision fixture.
 	if err != nil || string(raw) != "foreign retained value" {
 		t.Fatal("delivery replaced unknown private file")
 	}
@@ -354,7 +354,7 @@ func TestNativeMaterialUnknownWriteRetainsVersionsAndNeverRetries(t *testing.T) 
 		t.Fatal("unknown write committed runtime")
 	}
 	publisher := filepath.Join(f.stateRoot, "engine-secrets", string(binding), "publisher", "v1.secret")
-	original, err := os.ReadFile(publisher)
+	original, err := os.ReadFile(publisher) //nolint:gosec // Task-owned private delivery fixture.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -369,7 +369,7 @@ func TestNativeMaterialUnknownWriteRetainsVersionsAndNeverRetries(t *testing.T) 
 	if _, err = os.Stat(path); !os.IsNotExist(err) {
 		t.Fatal("replay blindly completed a prior unknown write")
 	}
-	after, err := os.ReadFile(publisher)
+	after, err := os.ReadFile(publisher) //nolint:gosec // Task-owned retained delivery fixture.
 	defer clear(after)
 	if err != nil || !bytes.Equal(original, after) {
 		t.Fatal("retained material changed")
@@ -378,5 +378,31 @@ func TestNativeMaterialUnknownWriteRetainsVersionsAndNeverRetries(t *testing.T) 
 	status, err := f.service.Store.NativeMaterialReceipt(ctx, r.OperationID, f.service.Requester)
 	if err != nil || status != r {
 		t.Fatal("metadata-only inspection lost unknown delivery", err)
+	}
+}
+
+func TestNativeMaterialReservationCannotClaimInitializedAuthority(t *testing.T) {
+	f := freshNativeMaterialFixture(t)
+	ctx := context.Background()
+	packet := freshNativeMaterialPacket(t)
+	defer clear(packet)
+	material, expiry, err := decodeNativeMaterialPacket(packet, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer material.Clear()
+	candidate, err := (nativeMaterialOperations{service: f.service}).candidate(ctx, f.plan, f.desired, material, expiry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate.State = data.EngineInitialized
+	candidate.Database = data.NativeDatabaseIdentity(strings.Repeat("a", 64))
+	candidate.Publisher = data.NativePublisherIdentity(strings.Repeat("b", 64))
+	candidate.Names = []string{"game"}
+	if candidate.Validate() != nil {
+		t.Fatal("negative fixture invalid")
+	}
+	if _, _, err = f.service.Store.ReserveNativeMaterial(ctx, f.plan.App, f.plan.Hash, f.service.Requester, strings.Repeat("1", 32), candidate); err == nil {
+		t.Fatal("declared material granted initialized database authority")
 	}
 }

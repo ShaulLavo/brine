@@ -60,7 +60,6 @@ func nativeMaterialKeyPair(private, public []byte) (*ecdsa.PublicKey, error) {
 	if err != nil || !ok || key.Curve != elliptic.P256() {
 		return nil, errNativeMaterialPacket
 	}
-	defer key.D.SetInt64(0)
 	visible, trailing := pem.Decode(public)
 	if visible == nil || visible.Type != "PUBLIC KEY" || len(strings.TrimSpace(string(trailing))) != 0 {
 		return nil, errNativeMaterialPacket

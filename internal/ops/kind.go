@@ -2,6 +2,7 @@ package ops
 
 import (
 	"encoding/json"
+	"github.com/ShaulLavo/brine/internal/nativematerial"
 	"regexp"
 	"strconv"
 	"strings"
@@ -161,8 +162,14 @@ func ValidateOperationEvent(op Operation, e Event) error {
 		return nil
 	}
 	if op.Kind == NativeMaterialSet {
-		if e.Kind != "state" && e.Kind != "failure" {
+		if e.Kind != "state" && e.Kind != "failure" && e.Kind != "native_material" {
 			return ErrInvalidEvent
+		}
+		if e.Kind == "native_material" {
+			receipt, err := nativematerial.DecodeReceipt(e.Payload)
+			if err != nil || receipt.OperationID != op.ID || receipt.App != op.App || receipt.PreparationPlanID != op.SecretRef || receipt.Outcome == "recovery_required" {
+				return ErrInvalidEvent
+			}
 		}
 		return nil
 	}
