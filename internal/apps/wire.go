@@ -25,7 +25,10 @@ func DecodeReport(raw []byte) (Report, error) {
 	}
 	seen := map[string]bool{}
 	for _, a := range report.Apps {
-		if !appPattern.MatchString(a.App) || seen[a.App] || !validRelease(a.Current) || a.Previous != nil && !validRelease(*a.Previous) {
+		if !appPattern.MatchString(a.App) || seen[a.App] || (a.Current == nil && a.Managed == nil || a.Current != nil && !validRelease(*a.Current)) || a.Previous != nil && !validRelease(*a.Previous) {
+			return Report{}, strictjson.ErrObject
+		}
+		if a.Managed != nil && !a.Managed.Valid() {
 			return Report{}, strictjson.ErrObject
 		}
 		seen[a.App] = true

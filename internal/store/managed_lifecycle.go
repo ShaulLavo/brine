@@ -10,9 +10,10 @@ import (
 )
 
 type ManagedAppProjection struct {
-	App      string
-	Reserved ReservedEngine
-	Permit   *EnginePermit
+	App       string
+	Reserved  ReservedEngine
+	Permit    *EnginePermit
+	FenceHeld bool
 }
 
 // ReadManagedApp resolves one current binding from protected app ownership.
@@ -56,6 +57,11 @@ func (s *Store) ReadManagedApp(ctx context.Context, app string) (ManagedAppProje
 		return ManagedAppProjection{}, err
 	}
 	projection := ManagedAppProjection{App: app, Reserved: reserved}
+	var held int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_fences WHERE database_id=? AND state='held'", reserved.Database.DatabaseID).Scan(&held); err != nil {
+		return ManagedAppProjection{}, err
+	}
+	projection.FenceHeld = held != 0
 	var runtimes int
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_engine_runtime_commits WHERE binding_id=?", bindings[0]).Scan(&runtimes); err != nil {
 		return ManagedAppProjection{}, err

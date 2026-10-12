@@ -266,6 +266,9 @@ func Build(in Input) (Plan, error) {
 		in.Image.ManifestDigest.Value = &detached
 	}
 	if in.Desired.SpacetimeDB != nil {
+		if in.Managed != nil && in.Managed.Runtime != nil && in.Managed.Runtime.State == data.EngineInitialized {
+			return buildManagedDeployment(in, desired)
+		}
 		return buildManagedPreview(in, desired)
 	}
 	in.Snapshot = portAdmissionSnapshot(in)

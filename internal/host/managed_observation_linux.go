@@ -4,7 +4,6 @@ package host
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -55,14 +54,6 @@ func managedUnitAbsent(err error) bool {
 	return errors.As(err, &execution) && execution.Kind == localexec.NotFound
 }
 
-func managedRuntimeHash(runtime data.EngineRuntime) (string, error) {
-	raw, err := json.Marshal(runtime.Clone())
-	if err != nil || runtime.Validate() != nil {
-		return "", errEngineSource
-	}
-	return managedServiceHash(raw), nil
-}
-
 func (o managedEngineObserver) current(ctx context.Context, binding data.ReplicaBindingID, expectedRuntime string) (managedCurrentProof, error) {
 	if o.state == nil || o.units == nil || !data.ValidID(string(binding)) || !data.ValidCatalogHash(expectedRuntime) {
 		return managedCurrentProof{}, errEngineSource
@@ -87,6 +78,9 @@ func (o managedEngineObserver) current(ctx context.Context, binding data.Replica
 	}
 	properties, err := o.units.Show(observe, unit)
 	if err != nil || properties.ActiveState != "active" || properties.SubState != "running" {
+		return managedCurrentProof{}, errEngineSource
+	}
+	if verifyEngineLoadedService(observe, o.session, o.home, unit) != nil {
 		return managedCurrentProof{}, errEngineSource
 	}
 	root, err := engineOpenRoot(permit.Reserved.Database.SourcePath())
@@ -115,7 +109,7 @@ func (o managedEngineObserver) current(ctx context.Context, binding data.Replica
 		return managedCurrentProof{}, errEngineSource
 	}
 	current, err := o.state.ReadEnginePermit(observe, binding)
-	if err != nil || !sameEnginePermit(permit, current) || !current.AllowsVerification(time.Now().UTC()) || native.alive() != nil || verifyEngineService(observe, o.home, current) != nil {
+	if err != nil || !sameEnginePermit(permit, current) || !current.AllowsVerification(time.Now().UTC()) || native.alive() != nil || verifyEngineService(observe, o.home, current) != nil || verifyEngineLoadedService(observe, o.session, o.home, unit) != nil {
 		return managedCurrentProof{}, errEngineSource
 	}
 	pending, err = o.units.JobPending(observe, unit)
@@ -177,6 +171,37 @@ func observeManagedMetadata(ctx context.Context, permit store.EnginePermit, mate
 	}
 	evidence := engineReplayObservation{Database: data.NativeDatabaseIdentity(observed.Database()), Publisher: data.NativePublisherIdentity(observed.Publisher()), Names: observed.Names(), Program: data.NativeProgramWireHash(observed.CurrentModule()), Canonicalizer: observed.Schema().Version(), SchemaSHA256: observed.Schema().SHA256()}
 	if !evidence.matches(runtime) {
+		return errEngineSource
+	}
+	return ctx.Err()
+}
+
+func (o managedEngineObserver) stopped(ctx context.Context, permit store.EnginePermit) error {
+	if o.state == nil || o.units == nil || !permit.AllowsVerification(time.Now().UTC()) || verifyEngineService(ctx, o.home, permit) != nil {
+		return errEngineSource
+	}
+	unit, err := systemd.ParseUnit(engineContainerName(permit.Runtime.BindingID) + ".service")
+	if err != nil {
+		return errEngineSource
+	}
+	pending, err := o.units.JobPending(ctx, unit)
+	if err != nil || pending {
+		return errEngineSource
+	}
+	properties, err := o.units.Show(ctx, unit)
+	if err != nil || properties.ActiveState != "inactive" && properties.ActiveState != "failed" || properties.SubState != "dead" && properties.SubState != "failed" {
+		return errEngineSource
+	}
+	containers, err := listEngineContainers(ctx, o.session)
+	if err != nil || !engineBindingAbsent(containers, permit) {
+		return errEngineSource
+	}
+	current, err := o.state.ReadEnginePermit(ctx, permit.Runtime.BindingID)
+	if err != nil || !sameEnginePermit(permit, current) || !current.AllowsVerification(time.Now().UTC()) {
+		return errEngineSource
+	}
+	pending, err = o.units.JobPending(ctx, unit)
+	if err != nil || pending {
 		return errEngineSource
 	}
 	return ctx.Err()

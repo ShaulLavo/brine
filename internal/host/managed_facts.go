@@ -28,7 +28,7 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 			return apply.Facts{}, err
 		}
 	}
-	managed := &plan.ManagedFacts{EngineImage: engineImage, Fences: []data.QuiescenceFence{}}
+	managed := &plan.ManagedFacts{EngineImage: engineImage, Fences: []data.QuiescenceFence{}, NativeState: target.Observation[string]{Status: target.Unknown}, IngressProtected: target.Observation[bool]{Status: target.Unknown}}
 	projection, err := s.Store.ReadManagedApp(ctx, string(desired.Name))
 	if err == nil {
 		database, archive := projection.Reserved.Database, projection.Reserved.Archive
@@ -40,6 +40,18 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 			runtime := projection.Permit.Runtime.Clone()
 			managed.Runtime = &runtime
 			managed.Fences = projection.Permit.Fences
+			if runtime.State == data.EngineInitialized && s.managedObserver != nil {
+				fingerprint, hashErr := managedRuntimeHash(runtime)
+				if hashErr != nil {
+					return apply.Facts{}, hashErr
+				}
+				proof, observeErr := s.managedObserver.current(ctx, runtime.BindingID, fingerprint)
+				if observeErr == nil && !proof.observedAt.IsZero() {
+					managed.NativeState = target.Known("running")
+				} else if s.managedObserver.stopped(ctx, *projection.Permit) == nil {
+					managed.NativeState = target.Known("stopped")
+				}
+			}
 		}
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return apply.Facts{}, err

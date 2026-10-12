@@ -3,6 +3,7 @@ package plan
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"time"
 
@@ -21,6 +22,9 @@ func BuildManagedPreparation(in Input, proposed ManagedServicePlan, root data.Ro
 	}
 	if in.Desired.App().HasAppContainer() != (proposed.Frontend != nil) || proposed.EngineImage.Platform.Arch != in.Snapshot.Arch || proposed.Frontend != nil && (proposed.Frontend.Image.Platform.Arch != in.Snapshot.Arch || proposed.Frontend.Image.Digest != in.Image.Digest) {
 		return Plan{}, errors.New("managed preparation components differ")
+	}
+	if !reflect.DeepEqual(proposed.EngineImage, in.Managed.EngineImage) || proposed.Frontend != nil && !reflect.DeepEqual(proposed.Frontend.Image, in.Image) {
+		return Plan{}, errors.New("managed preparation image metadata differs")
 	}
 	if in.Managed.Database != nil && (*in.Managed.Database != proposed.Database || in.Managed.Archive == nil || *in.Managed.Archive != proposed.Archive) {
 		return Plan{}, errors.New("managed preparation reservation changed")
@@ -66,7 +70,7 @@ func BuildManagedPreparation(in Input, proposed ManagedServicePlan, root data.Ro
 	if in.State.Target != in.Snapshot.Identity || in.Snapshot.Generation.Value != nil && in.State.Generation != *in.Snapshot.Generation.Value {
 		add(StaleState, "brine_state")
 	}
-	if proposed.EnginePort < in.Desired.AppPorts.Min || proposed.EnginePort > in.Desired.AppPorts.Max || proposed.Frontend != nil && (proposed.Frontend.Port < in.Desired.AppPorts.Min || proposed.Frontend.Port > in.Desired.AppPorts.Max) {
+	if proposed.EnginePort < target.Port(in.Desired.AppPorts.Min) || proposed.EnginePort > target.Port(in.Desired.AppPorts.Max) || proposed.Frontend != nil && (proposed.Frontend.Port < target.Port(in.Desired.AppPorts.Min) || proposed.Frontend.Port > target.Port(in.Desired.AppPorts.Max)) {
 		add(PortOwned, "managed.ports")
 	}
 	ports, known := previewPorts(in)

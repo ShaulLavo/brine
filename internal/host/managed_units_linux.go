@@ -6,8 +6,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -58,11 +56,6 @@ func newManagedServiceChange(runtime data.EngineRuntime, previous ops.Release) (
 		change.previous = hash
 	}
 	return change, nil
-}
-
-func managedServiceHash(raw []byte) string {
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
 }
 
 type managedUnits struct {
