@@ -163,6 +163,8 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
+	r.NativeRecovery = nativeRecoveryOperations{service: service, jobs: taskJobs}
+	r.Runner.TaskHandlers[ops.NativeRecoverySet] = nativeRecoveryTask(service)
 	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{}, engine.Routes.(apply.RemovalRoutes), units)
 	archiveAdapter := r.Archives.Host.(archiveHost)
 	r.ArchiveMaintenance = archive.MaintenanceService{Journal: state, Host: archiveAdapter, Requester: requester, Authorize: r.Archives.Authorize, Lock: r.Archives.Lock}

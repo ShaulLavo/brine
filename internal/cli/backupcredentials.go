@@ -126,7 +126,7 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	set.Flags().StringVar(&planID, "plan-id", "", "Confirmed credential plan identity")
 	setFlags.register(set)
 	credentials.AddCommand(planned, set)
-	backup.AddCommand(credentials)
+	backup.AddCommand(newNativeRecoveryCmd(deps, modes), credentials)
 	backup.AddCommand(newNativeBackupCmd(deps, modes, ops.NativeCapture), newNativeBackupCmd(deps, modes, ops.NativePrepare))
 	return backup
 }

@@ -59,6 +59,7 @@ type Dependencies struct {
 	HostDataInitialization    dispatch.DataInitializationOperations
 	HostPermits               replication.LaunchReader
 	HostRestoreTests          dispatch.RestoreTestOperations
+	HostNativeRecovery        dispatch.NativeRecoveryOperations
 	HostNativeBackups         dispatch.NativeBackupOperations
 }
 

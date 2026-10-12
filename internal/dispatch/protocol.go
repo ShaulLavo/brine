@@ -55,6 +55,7 @@ type operation struct {
 var operations = map[string]operation{
 	"deploy_checkpoint":       {ReadOnly, decodeDeploymentCheckpointArgs},
 	"native_point":            {ReadOnly, decodeNativePoint},
+	"native_recovery_set":     {Mutating, decodeNativeRecovery},
 	"native_capture":          {Mutating, decodeNativeCapture},
 	"native_prepare":          {Mutating, decodeNativePrepare},
 	"native_restore_test":     {ReadOnly, decodeNativeRestoreTest},
@@ -171,6 +172,7 @@ type Server struct {
 	authorize          Authorization
 	RestoreTests       RestoreTestOperations
 	NativePoints       NativePointInspector
+	NativeRecovery     NativeRecoveryOperations
 	NativeBackups      NativeBackupOperations
 }
 
@@ -227,6 +229,16 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case NativeRecoveryArgs:
+		defer args.Clear()
+		if s.NativeRecovery == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		accepted, err := s.NativeRecovery.SetRecovery(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
 	case NativeCaptureArgs, NativePrepareArgs, NativeRestoreTestArgs:
 		accepted, err := s.submitNativeBackup(ctx, args)
 		if err != nil {
