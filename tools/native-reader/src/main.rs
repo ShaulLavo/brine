@@ -1,7 +1,9 @@
 mod framing;
 mod input;
 mod memory;
+mod projection;
 mod protocol;
+mod response;
 mod snapshot;
 mod state;
 
@@ -31,31 +33,20 @@ fn main() {
     let outcome = std::panic::catch_unwind(run).unwrap_or(Err(Refusal::Native));
     let code = match outcome {
         Ok(()) => 0,
-        Err(code) => {
-            write_refusal(code);
-            70
-        }
+        Err(code) => write_refusal(code),
     };
     std::process::exit(code);
 }
 
-fn write_refusal(code: Refusal) {
+fn write_refusal(code: Refusal) -> ! {
     let failure = Failure {
         format: FORMAT,
         outcome: "refused",
         code,
     };
-    let bytes = serde_json::to_vec(&failure).unwrap_or_default();
-    unsafe {
-        let flags = libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL);
-        if flags >= 0 {
-            libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK);
-        }
-    }
-    let mut output = std::io::stdout().lock();
-    let _ = output.write_all(&bytes);
-    let _ = output.write_all(b"\n");
-    let _ = output.flush();
+    let mut bytes = serde_json::to_vec(&failure).unwrap_or_default();
+    bytes.push(b'\n');
+    response::terminate(&bytes)
 }
 
 fn run() -> Result<()> {
@@ -93,10 +84,7 @@ fn run() -> Result<()> {
     };
     serde_json::to_writer(&mut writer, &evidence).map_err(|_| Refusal::OutputLimit)?;
     deadline.check()?;
-    std::io::stdout()
-        .lock()
-        .write_all(&writer.bytes)
-        .map_err(|_| Refusal::OutputLimit)?;
+    response::observed(&writer.bytes).map_err(|_| Refusal::OutputLimit)?;
     deadline.check()?;
     done.store(true, Ordering::Release);
     hard_done.store(true, Ordering::Release);
@@ -152,6 +140,7 @@ fn inspect(
         evidence_algorithm: ALGORITHM,
         state_blake3: recovered.hash,
         tables: recovered.tables,
+        confirmed_pairs_projection: recovered.projection,
         input: totals,
         limits: request.limits,
     })
@@ -205,7 +194,7 @@ fn watchdog(milliseconds: u64) -> Result<Arc<AtomicBool>> {
     std::thread::Builder::new().stack_size(65536).spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(milliseconds));
         if !stopped.load(Ordering::Acquire) {
-            memory::terminate(b"{\"format\":\"brine-native-reader-v1\",\"outcome\":\"refused\",\"code\":\"deadline\"}\n");
+            response::terminate(b"{\"format\":\"brine-native-reader-v1\",\"outcome\":\"refused\",\"code\":\"deadline\"}\n");
         }
     }).map_err(|_| Refusal::Native)?;
     Ok(done)

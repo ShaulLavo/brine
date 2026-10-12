@@ -51,6 +51,7 @@ pub struct State {
     pub program_bytes: u64,
     pub connected: u64,
     pub tables: Vec<TableEvidence>,
+    pub projection: Option<crate::projection::Projection>,
     pub hash: String,
     pub snapshot: Option<SnapshotEvidence>,
 }
@@ -118,6 +119,7 @@ pub fn observe(
         _ => return Err(Refusal::Program),
     };
     let tables = tables(&db, limits, deadline)?;
+    let projection = crate::projection::observe(&db, &tables, limits, deadline)?;
     let mut hash = blake3::Hasher::new();
     hash.update(b"brine-native-state-v1\0");
     hash.update(&metadata.database_identity.to_byte_array());
@@ -139,6 +141,7 @@ pub fn observe(
         program_bytes: program.bytes.len() as u64,
         connected: clients.len() as u64,
         tables,
+        projection,
         hash: hash.finalize().to_hex().to_string(),
         snapshot: prepared.evidence,
     })
@@ -286,6 +289,7 @@ fn tables(db: &RelationalDB, limits: &Limits, deadline: &Deadline) -> Result<Vec
         output.push(TableEvidence {
             table_id: schema.table_id.0,
             name: schema.table_name.to_string(),
+            table_type: schema.table_type.as_str(),
             rows: digests.len() as u64,
             bsatn_bytes: table_bytes,
             multiset_blake3: hash.finalize().to_hex().to_string(),
