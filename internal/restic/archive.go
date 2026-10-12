@@ -357,46 +357,88 @@ func (b Bundle) openVerified(ctx context.Context) (*os.File, error) {
 	return file, nil
 }
 
-func extractEnvelope(ctx context.Context, archive, directory string, manifest Manifest, limits Limits) error {
+func extractEnvelope(ctx context.Context, archive string, parent *os.Root, name string, manifest Manifest, limits Limits) (*os.Root, error) {
 	if !limits.valid() || len(manifest.raw) == 0 {
-		return ErrInvalid
+		return nil, ErrInvalid
 	}
-	if err := privateDirectory(filepath.Dir(directory)); err != nil {
+	if parent == nil || !validPath(name) || strings.Contains(name, "/") {
+		return nil, ErrInvalid
+	}
+	parentInfo, err := parent.Stat(".")
+	if err != nil || !safeNode(parentInfo, parentInfo) {
+		return nil, ErrInvalid
+	}
+	if err := parent.Mkdir(name, 0700); err != nil {
+		return nil, ErrInvalid
+	}
+	root, err := openExtractedDirectory(parent, name, parentInfo)
+	if err != nil {
+		return nil, err
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			_ = root.Close()
+		}
+	}()
+	file, err := openArchive(archive)
+	if err != nil {
+		return nil, ErrIntegrity
+	}
+	defer func() { _ = file.Close() }()
+	if err := validateTarBoundary(file, manifest, limits); err != nil {
+		return nil, err
+	}
+	reader := tar.NewReader(contextReader{ctx: ctx, reader: io.LimitReader(file, limits.ArchiveBytes+1)})
+	if err := readManifestHeader(reader, manifest); err != nil {
+		return nil, err
+	}
+	header, err := reader.Next()
+	if err != nil || !validHeader(header, "data", "directory", 0) {
+		return nil, ErrIntegrity
+	}
+	for _, member := range manifest.document.Members {
+		if err := extractMember(ctx, reader, root, member); err != nil {
+			return nil, err
+		}
+	}
+	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
+		return nil, ErrIntegrity
+	}
+	if err := syncExtractedDirectories(root, parent, name, manifest); err != nil {
+		return nil, err
+	}
+	complete = true
+	return root, nil
+}
+
+func syncExtractedDirectories(root, parent *os.Root, name string, manifest Manifest) error {
+	for _, member := range manifest.Members() {
+		if member.Type != "directory" {
+			continue
+		}
+		if err := syncResticDirectory(root, member.Path); err != nil {
+			return err
+		}
+	}
+	if err := syncResticDirectory(root, "."); err != nil {
 		return err
 	}
-	if err := os.Mkdir(directory, 0700); err != nil {
-		return ErrInvalid
+	current, err := parent.Lstat(name)
+	opened, openedErr := root.Stat(".")
+	if err != nil || openedErr != nil || !current.IsDir() || !os.SameFile(current, opened) {
+		return ErrIntegrity
 	}
-	root, err := os.OpenRoot(directory)
-	if err != nil {
-		return ErrInvalid
-	}
-	defer func() { _ = root.Close() }()
-	file, err := openArchive(archive)
+	return syncResticDirectory(parent, ".")
+}
+
+func syncResticDirectory(root *os.Root, name string) error {
+	file, err := root.Open(name)
 	if err != nil {
 		return ErrIntegrity
 	}
 	defer func() { _ = file.Close() }()
-	if err := validateTarBoundary(file, manifest, limits); err != nil {
-		return err
-	}
-	reader := tar.NewReader(contextReader{ctx: ctx, reader: io.LimitReader(file, limits.ArchiveBytes+1)})
-	if err := readManifestHeader(reader, manifest); err != nil {
-		return err
-	}
-	header, err := reader.Next()
-	if err != nil || !validHeader(header, "data", "directory", 0) {
-		return ErrIntegrity
-	}
-	for _, member := range manifest.document.Members {
-		if err := extractMember(ctx, reader, root, member); err != nil {
-			return err
-		}
-	}
-	if _, err := reader.Next(); !errors.Is(err, io.EOF) {
-		return ErrIntegrity
-	}
-	return nil
+	return file.Sync()
 }
 
 func envelopeSize(manifest Manifest) int64 {

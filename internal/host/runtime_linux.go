@@ -163,7 +163,35 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
+	nativeRuntime := nativeBackupRuntime{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session, routes: manager}
+	publicationOperations := modulePublications{service: service, runtime: nativeRuntime, jobs: taskJobs}
+	r.ModulePublications = publicationOperations
+	r.Runner.TaskHandlers[ops.ModulePublishApply] = modulePublicationApplyTask(publicationOperations)
+	r.Runner.TaskHandlers[ops.ModulePublishResolve] = modulePublicationResolveTask(publicationOperations)
+	resolutionOperations := nativeBackupResolutionOperations{service: service, jobs: taskJobs, runtime: nativeRuntime}
+	r.NativeBackupResolution = resolutionOperations
+	r.Runner.TaskHandlers[ops.NativeBackupResolve] = resolutionOperations.task
+	r.Runner.TaskHandlers[ops.NativeCapture] = nativeOnlineCaptureTask(service, nativeRuntime)
+	r.Runner.TaskHandlers[ops.NativeRestoreTest] = nativeHistoricalRestoreTask(service, nativeRuntime)
+	r.Runner.TaskHandlers[ops.NativePrepare] = nativePrepareTask(service, stateDir, identity.HomeDir, nativeRuntime)
+	backupOperations := nativeBackupOperations{service: service, jobs: taskJobs}
+	r.NativeCapture = nativeCaptureScheduler(backupOperations, nativeRuntime)
+	r.NativeBackups = backupOperations
+	r.NativeBackupStatus = nativeBackupPolicyOperations{service: service, jobs: taskJobs}
+	r.NativeBackupPolicy = nativeBackupPolicyOperations{service: service, jobs: taskJobs}
+	r.Runner.TaskHandlers[ops.NativeBackupActivate] = nativeBackupActivationTask(service, stateDir, identity.HomeDir, session)
+	nativeRestore := nativeLiveRestoreOperations{service: service, jobs: taskJobs, runtime: nativeBackupRuntime{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session}, routes: manager}
+	r.NativeLiveRestore = nativeRestore
+	r.Runner.TaskHandlers[ops.NativeLiveRestore] = nativeRestore.task
+	r.Runner.TaskHandlers[ops.NativeLiveRestoreResolve] = nativeRestore.resolveTask
+	r.NativeRecovery = nativeRecoveryOperations{service: service, jobs: taskJobs}
+	r.NativeMaterial = nativeMaterialOperations{service: service}
+	r.Runner.TaskHandlers[ops.NativeRecoverySet] = nativeRecoveryTask(service)
 	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{}, engine.Routes.(apply.RemovalRoutes), units)
+	nativeRetire := nativeRetireOperations{workflow: r.Archives, jobs: taskJobs, state: state}
+	r.NativeRetire = nativeRetire
+	r.Runner.TaskHandlers[ops.NativeRetire] = nativeRetire.task
+	r.Runner.TaskHandlers[ops.NativeRetireResolve] = nativeRetire.resolveTask
 	archiveAdapter := r.Archives.Host.(archiveHost)
 	r.ArchiveMaintenance = archive.MaintenanceService{Journal: state, Host: archiveAdapter, Requester: requester, Authorize: r.Archives.Authorize, Lock: r.Archives.Lock}
 	r.ArchiveCredentials = backupcredentials.ArchiveService{Requester: requester, Journal: state, Files: backupcredentials.Files{Root: filepath.Join(stateDir, "credentials")}, Scope: archiveAdapter.archiveCredentialScope, Lock: r.Archives.Lock}

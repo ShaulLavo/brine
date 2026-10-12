@@ -84,7 +84,7 @@ func readNativeEpoch(ctx context.Context, q dataQuerier, binding data.ReplicaBin
 }
 
 func checkNativeDestinationOwner(ctx context.Context, q dataQuerier, endpoint, bucket, prefix string, owner data.ReplicaBindingID) error {
-	rows, err := q.QueryContext(ctx, "SELECT binding_id,prefix FROM data_native_epochs WHERE endpoint=? AND bucket=?", endpoint, bucket)
+	rows, err := q.QueryContext(ctx, "SELECT binding_id,prefix FROM data_native_epochs WHERE endpoint=? AND bucket=? UNION ALL SELECT binding_id,prefix FROM data_native_repository_intents WHERE endpoint=? AND bucket=?", endpoint, bucket, endpoint, bucket)
 	if err != nil {
 		return err
 	}

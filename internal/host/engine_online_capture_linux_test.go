@@ -44,6 +44,7 @@ func TestEngineCapturedPrefixAllowsAppendAndRejectsRewrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	original.SHA256 = hash
 	appendFile, err := root.OpenFile("head", os.O_WRONLY|os.O_APPEND, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -117,29 +118,6 @@ func TestEngineOnlineCensusRequiresCompleteOwnedAliases(t *testing.T) {
 	}
 	if _, err := scanEngineOnlineMetadata(ctx, root, limits); err == nil {
 		t.Fatal("external alias omitted from owned census was admitted")
-	}
-}
-
-func TestEngineOnlineCensusRefusesWholeTailRotation(t *testing.T) {
-	root, _, original := onlineFileFixture(t)
-	ctx := context.Background()
-	limits := engineCopyLimits{Bytes: 1 << 20, Files: 16, Depth: 8}
-	before, err := scanEngineOnlineMetadata(ctx, root, limits)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := root.WriteFile("later-tail", []byte("later complete tail"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	after, err := scanEngineOnlineMetadata(ctx, root, limits)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if engineOnlineCensusMatches(before, after, "head", original.Size) {
-		t.Fatal("new complete tail ignored")
-	}
-	if engineOnlineCensusMatches(after, before, "head", original.Size) {
-		t.Fatal("removed complete tail ignored")
 	}
 }
 

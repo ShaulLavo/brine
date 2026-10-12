@@ -2,6 +2,7 @@ package ops
 
 import (
 	"encoding/json"
+	"github.com/ShaulLavo/brine/internal/nativematerial"
 	"regexp"
 	"strconv"
 	"strings"
@@ -10,18 +11,26 @@ import (
 type Kind string
 
 const (
-	Deploy               Kind = "deploy"
-	Resolve              Kind = "resolve"
-	SecretSet            Kind = "secret_set"
-	Reconcile            Kind = "reconcile"
-	RestoreTest          Kind = "restore_test"
-	CredentialActivation Kind = "credential_activation" // #nosec G101 -- A closed operation name, not credential material.
-	DataInitApply        Kind = "data_init_apply"
-	NativeCapture        Kind = "native_capture"
-	NativeRestoreTest    Kind = "native_restore_test"
-	NativePrepare        Kind = "native_prepare"
-	ModulePublishApply   Kind = "module_publish_apply"
-	ModulePublishResolve Kind = "module_publish_resolve"
+	Deploy                   Kind = "deploy"
+	Resolve                  Kind = "resolve"
+	SecretSet                Kind = "secret_set"
+	NativeMaterialSet        Kind = "native_material_set"
+	Reconcile                Kind = "reconcile"
+	RestoreTest              Kind = "restore_test"
+	CredentialActivation     Kind = "credential_activation" // #nosec G101 -- A closed operation name, not credential material.
+	DataInitApply            Kind = "data_init_apply"
+	NativeCapture            Kind = "native_capture"
+	NativeRestoreTest        Kind = "native_restore_test"
+	NativePrepare            Kind = "native_prepare"
+	NativeRecoverySet        Kind = "native_recovery_set"
+	NativeBackupActivate     Kind = "native_backup_activate"
+	NativeBackupResolve      Kind = "native_backup_resolve"
+	ModulePublishApply       Kind = "module_publish_apply"
+	ModulePublishResolve     Kind = "module_publish_resolve"
+	NativeLiveRestore        Kind = "native_live_restore"
+	NativeLiveRestoreResolve Kind = "native_live_restore_resolve"
+	NativeRetire             Kind = "native_retire"
+	NativeRetireResolve      Kind = "native_retire_resolve"
 )
 
 // Intent contains identity and references only. Secret values cannot be stored.
@@ -40,18 +49,26 @@ var secretRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 var planID = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func ValidIntent(i Intent) bool {
-	if i.Kind != Resolve && i.RecoveryOf != "" {
+	if i.Kind != Resolve && i.Kind != ModulePublishResolve && i.Kind != NativeLiveRestoreResolve && i.Kind != NativeRetireResolve && i.Kind != NativeBackupResolve && i.RecoveryOf != "" {
 		return false
 	}
 	switch i.Kind {
+	case ModulePublishApply, NativeLiveRestore, NativeRetire:
+		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef)
+	case NativeBackupResolve:
+		return i.PlanID == "" && appName.MatchString(i.App) && regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(i.SecretRef) && operationID.MatchString(i.RecoveryOf)
+	case ModulePublishResolve, NativeLiveRestoreResolve, NativeRetireResolve:
+		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef) && operationID.MatchString(i.RecoveryOf)
 	case Resolve:
 		return operationID.MatchString(i.RecoveryOf) && (planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == "" || i.PlanID == "" && ValidIntent(Intent{Kind: SecretSet, App: i.App, SecretRef: i.SecretRef}))
 	case Deploy:
 		return planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == ""
-	case RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare:
+	case RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate:
 		return i.PlanID == "" && appName.MatchString(i.App) && (operationID.MatchString(i.SecretRef) || planID.MatchString(i.SecretRef))
 	case Reconcile:
 		return i.PlanID == "" && i.App == "" && i.SecretRef == ""
+	case NativeMaterialSet:
+		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef)
 	case SecretSet:
 		return i.PlanID == "" && appName.MatchString(i.App) && secretRef.MatchString(i.SecretRef) && len("brine."+i.App+"."+i.SecretRef+".v18446744073709551615") <= 253
 	default:
@@ -59,14 +76,14 @@ func ValidIntent(i Intent) bool {
 	}
 }
 func ValidOperation(o Operation) bool {
-	if o.Kind != Resolve && o.RecoveryOf != "" {
+	if o.Kind != Resolve && o.Kind != ModulePublishResolve && o.Kind != NativeLiveRestoreResolve && o.Kind != NativeRetireResolve && o.Kind != NativeBackupResolve && o.RecoveryOf != "" {
 		return false
 	}
 	if !ValidState(o.State) {
 		return false
 	}
 	if o.Kind == Reconcile || o.Kind.IsTask() {
-		return ValidIntent(Intent{Kind: o.Kind, PlanID: o.PlanID, App: o.App, SecretRef: o.SecretRef}) && (o.State == Queued || o.State == LaunchUnknown || o.State == Preflight || o.State == Succeeded || o.State == Failed || o.State == RecoveryRequired)
+		return ValidIntent(Intent{Kind: o.Kind, PlanID: o.PlanID, App: o.App, SecretRef: o.SecretRef, RecoveryOf: o.RecoveryOf}) && (o.State == Queued || o.State == LaunchUnknown || o.State == Preflight || o.State == Succeeded || o.State == Failed || o.State == RecoveryRequired)
 	}
 	if o.Kind == Resolve {
 		return (o.PlanID != "" && ValidIntent(Intent{Kind: Resolve, PlanID: o.PlanID, RecoveryOf: o.RecoveryOf}) && appName.MatchString(o.App) && o.SecretRef == "") || (o.PlanID == "" && ValidIntent(Intent{Kind: Resolve, App: o.App, SecretRef: o.SecretRef, RecoveryOf: o.RecoveryOf}))
@@ -83,9 +100,9 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy, Resolve:
 		return Transitions()
-	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, ModulePublishApply, ModulePublishResolve:
+	case NativeBackupResolve, Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
-	case SecretSet:
+	case SecretSet, NativeMaterialSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
 	default:
 		return map[State][]State{}
@@ -147,6 +164,18 @@ func ValidateOperationEvent(op Operation, e Event) error {
 		}
 		return nil
 	}
+	if op.Kind == NativeMaterialSet {
+		if e.Kind != "state" && e.Kind != "failure" && e.Kind != "native_material" {
+			return ErrInvalidEvent
+		}
+		if e.Kind == "native_material" {
+			receipt, err := nativematerial.DecodeReceipt(e.Payload)
+			if err != nil || receipt.OperationID != op.ID || receipt.App != op.App || receipt.PreparationPlanID != op.SecretRef || receipt.Outcome == "recovery_required" {
+				return ErrInvalidEvent
+			}
+		}
+		return nil
+	}
 	if op.Kind != SecretSet || e.Kind != "secret_version" && e.Kind != "state" && e.Kind != "failure" {
 		return ErrInvalidEvent
 	}
@@ -161,5 +190,5 @@ func ValidateOperationEvent(op Operation, e Event) error {
 
 // IsTask identifies reference-only detached work; handlers own their host locking.
 func (k Kind) IsTask() bool {
-	return k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare
+	return k == NativeBackupResolve || k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve || k == NativeRetire || k == NativeRetireResolve
 }

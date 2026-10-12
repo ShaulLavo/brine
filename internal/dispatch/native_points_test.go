@@ -29,16 +29,11 @@ func TestNativePointInspectionWireIsReferenceOnlyAndReadOnly(t *testing.T) {
 			t.Fatal("point inspection accepted authority or path input")
 		}
 	}
-	for _, op := range []string{"native_capture", "native_restore_test", "native_prepare"} {
-		if _, ok := ClassOf(op); ok {
-			t.Fatal("unfinished native effect dispatch admitted")
-		}
-	}
 }
 
 func TestNativePointInspectionResponseIsClosedAndDoesNotGrantEffects(t *testing.T) {
 	now := time.Now().UTC()
-	view := nativecapture.PointInspection{Kind: "verified", PointID: strings.Repeat("a", 32), PointSHA256: strings.Repeat("b", 64), OperationID: "capture-operation", BindingID: strings.Repeat("c", 32), EpochID: strings.Repeat("d", 32), CheckpointSHA256: strings.Repeat("e", 64), SourceSHA256: strings.Repeat("f", 64), ObservedAt: now, RetainUntil: now.Add(30 * 24 * time.Hour), Admission: "unavailable"}
+	view := nativecapture.PointInspection{Kind: "verified", PointID: strings.Repeat("a", 32), PointSHA256: strings.Repeat("b", 64), OperationID: "capture-operation", BindingID: strings.Repeat("c", 32), EpochID: strings.Repeat("d", 32), CheckpointSHA256: strings.Repeat("e", 64), SourceSHA256: strings.Repeat("f", 64), ObservedAt: now, RetainUntil: now.Add(30 * 24 * time.Hour), Admission: "reference_only"}
 	raw, err := json.Marshal(result.Success("brine host native_point", view))
 	if err != nil {
 		t.Fatal(err)
@@ -47,7 +42,7 @@ func TestNativePointInspectionResponseIsClosedAndDoesNotGrantEffects(t *testing.
 		t.Fatal(err)
 	}
 	for _, invalid := range []string{
-		strings.Replace(string(raw), `"admission":"unavailable"`, `"admission":"available"`, 1),
+		strings.Replace(string(raw), `"admission":"reference_only"`, `"admission":"available"`, 1),
 		strings.Replace(string(raw), `"point_id":`, `"password":"private","point_id":`, 1),
 		strings.Replace(string(raw), `"point_id":`, `"point_id":null,"point_id":`, 1),
 	} {

@@ -49,6 +49,8 @@ func StartForeground(ctx context.Context, request ForegroundCommand) (*Foregroun
 
 func (p *ForegroundProcess) Done() <-chan error { return p.done }
 
+func (p *ForegroundProcess) PID() int { return p.command.Process.Pid }
+
 func (p *ForegroundProcess) Interrupt() error {
 	if p == nil || p.command.Process == nil {
 		return &Error{Kind: Invalid}

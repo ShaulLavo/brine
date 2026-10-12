@@ -87,7 +87,7 @@ func (m *managedUnits) Close() error { return m.root.Close() }
 
 func (m *managedUnits) directories(create bool) error {
 	info, err := m.root.Stat(".")
-	if err != nil || !managedAncestorNode(info, false) {
+	if err != nil || !managedAncestorNode(info, true) {
 		return errManagedService
 	}
 	for _, directory := range []string{managedServiceDirectory, managedServiceStaging} {
@@ -130,7 +130,7 @@ func managedHomeAncestors(home string) error {
 	current := home
 	for {
 		info, err := os.Lstat(current)
-		if err != nil || !managedAncestorNode(info, current != home) {
+		if err != nil || !managedAncestorNode(info, true) {
 			return errManagedService
 		}
 		if current == string(filepath.Separator) {

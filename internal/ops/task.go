@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"regexp"
 
+	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/datapublish"
+	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -26,6 +29,42 @@ type TaskOutcome struct {
 
 func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 	switch op.Kind {
+	case NativeBackupResolve:
+		receipt, err := nativecapture.DecodeBackupResolutionReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID || receipt.ReviewID != op.SecretRef || receipt.OriginalOperationID != op.RecoveryOf {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
+	case NativeRetire, NativeRetireResolve:
+		receipt, err := archive.DecodeTaskReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef || receipt.OriginalOperationID != op.RecoveryOf {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
+	case NativeRecoverySet:
+		receipt, err := nativecapture.DecodeRecoveryReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
+	case NativeBackupActivate:
+		receipt, err := nativecapture.DecodeBackupPolicyReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
+	case NativeLiveRestore, NativeLiveRestoreResolve:
+		receipt, err := liverestore.DecodeReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef || receipt.OriginalOperationID != op.RecoveryOf {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
+	case ModulePublishApply, ModulePublishResolve:
+		receipt, err := datapublish.DecodeTaskReceipt(raw)
+		if err != nil || receipt.Kind != string(op.Kind) || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef || op.Kind == ModulePublishResolve && receipt.ApplyOperationID != op.RecoveryOf {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
 	case NativeCapture, NativeRestoreTest, NativePrepare:
 		receipt, err := nativecapture.DecodeTaskReceipt(raw)
 		if err != nil || receipt.OperationID != op.ID || receipt.Kind != string(op.Kind) {

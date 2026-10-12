@@ -670,6 +670,7 @@ func deploymentCapabilitiesWithCaddy(s target.Snapshot, add func(ConflictCode, s
 var passtVersion = regexp.MustCompile(`^0\.0~git[0-9]{8}\.[0-9a-f]+([+~.-][0-9A-Za-z.+~_-]+)?$`)
 
 func versionLine(value, baseline string) bool {
+	value = strings.TrimPrefix(value, "v")
 	return value == baseline || strings.HasPrefix(value, baseline+".") || strings.HasPrefix(value, baseline+"-") || strings.HasPrefix(value, baseline+"+") || strings.HasPrefix(value, baseline+"~")
 }
 func servesDomain(observed, desired string) bool {

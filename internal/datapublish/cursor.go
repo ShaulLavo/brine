@@ -25,13 +25,15 @@ const (
 	InspectRequired CursorState = "inspect_required"
 	Finished        CursorState = "finished"
 	AttemptFailed   CursorState = "attempt_failed"
+	SourcePreserved CursorState = "source_preserved"
 )
 
 type ObservedOutcome string
 
 const (
-	ObservedCompleted    ObservedOutcome = "completed"
-	ObservedNotPerformed ObservedOutcome = "not_performed"
+	ObservedCompleted       ObservedOutcome = "completed"
+	ObservedNotPerformed    ObservedOutcome = "not_performed"
+	ObservedSourcePreserved ObservedOutcome = "source_preserved"
 )
 
 type ProofScope struct {
@@ -97,9 +99,16 @@ func NewCursor(plan Plan, applyOpID, consumerClaimSHA256, newEpochID string) (Cu
 	return cursor, nil
 }
 
-func (c Cursor) Scope() ProofScope      { return c.scope }
-func (c Cursor) State() CursorState     { return c.state }
-func (c Cursor) NativeDatabase() string { return c.nativeDatabase }
+func (c Cursor) Scope() ProofScope       { return c.scope }
+func (c Cursor) State() CursorState      { return c.state }
+func (c Cursor) NativeDatabase() string  { return c.nativeDatabase }
+func (c Cursor) NativePublisher() string { return c.nativePublisher }
+func (c Cursor) IntendedStep() Step {
+	if c.state != IntentRecorded && c.state != InspectRequired {
+		return ""
+	}
+	return c.step
+}
 func (c Cursor) NextStep() (Step, bool) {
 	if c.state != Ready {
 		return "", false
@@ -122,6 +131,19 @@ func (c Cursor) MarkUnknown() (Cursor, error) {
 	}
 	c.state = InspectRequired
 	c.appendEvent(cursorEvent{Kind: "unknown", Step: c.step})
+	return c, nil
+}
+
+// PreserveSource records a terminal expectation for a protected resolver that
+// has separately proved the original live tree and all private processes safe.
+// This core reference cannot release a fence or establish those host facts.
+func (c Cursor) PreserveSource(proofSHA256 string) (Cursor, error) {
+	if !digest(proofSHA256) || c.state == Finished || c.state == SourcePreserved {
+		return c, ErrInspection
+	}
+	observation := Observation{Scope: c.scope, Step: c.step, Outcome: ObservedSourcePreserved, ProofSHA256: proofSHA256, Requirements: []RequirementProof{}}
+	c.appendEvent(cursorEvent{Kind: "source_preserved", Step: c.step, Observation: &observation})
+	c.state, c.step = SourcePreserved, ""
 	return c, nil
 }
 

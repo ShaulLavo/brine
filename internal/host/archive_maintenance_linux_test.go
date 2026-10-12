@@ -130,7 +130,7 @@ func TestArchiveMaintenanceRealRootAdmissionAndFreshIncarnationIsolation(t *test
 	if _, err := h.ArchiveMaintenanceAdmission(ctx, p, d); err != nil {
 		t.Fatal("prepared retired root refused", err)
 	}
-	original := p.Candidate.Databases[0]
+	original := sqliteArchiveDatabase(t, p.Candidate.Databases[0])
 	reserved, err := h.service.Store.ReserveDatabase(ctx, store.DataReservation{App: p.Candidate.App, PolicyHash: p.PolicyHash, Database: data.SQLiteDatabase{Name: original.Binding.Name, PersistentRoot: original.Binding.Root, MountPath: original.Binding.MountPath, Filename: original.Binding.Filename, BackupDestination: original.Epochs[0].Destination.Reference, SyncInterval: time.Minute}, Destination: original.Epochs[0].Destination})
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestArchiveMaintenanceOriginalReplicaAndMountAdversaries(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The lock is outside the bundle and survives its removal.
-	binding := p.Candidate.Databases[0].Epochs[0]
+	binding := sqliteArchiveDatabase(t, p.Candidate.Databases[0]).Epochs[0]
 	if err = data.VerifyRunnerFile(filepath.Join(h.stateRoot, "replica-locks", string(binding.BindingID)+".lock")); err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestArchiveMaintenanceOriginalReplicaAndMountAdversaries(t *testing.T) {
 
 func TestArchiveRetentionEngineIndependentlyRestoresExactOriginalSource(t *testing.T) {
 	h, p, _, _ := retainedHostFixture(t)
-	database := p.Candidate.Databases[0]
+	database := sqliteArchiveDatabase(t, p.Candidate.Databases[0])
 	epoch := database.Epochs[0]
 	var payload []byte
 	var payloadLock sync.Mutex
@@ -303,12 +303,14 @@ func TestArchiveCredentialHostHealthUsesSealedOriginalScopeWithoutActivation(t *
 		}
 		return lock.Release, nil
 	}}
-	binding := p.Candidate.Databases[0].Epochs[0]
+	binding := sqliteArchiveDatabase(t, p.Candidate.Databases[0]).Epochs[0]
 	// Force the metadata-only observer's initialized branch without claiming this
 	// manually journaled never-written fixture is initialized deployment evidence.
 	observed := p
 	observed.Candidate.Databases = append([]archive.Database(nil), p.Candidate.Databases...)
-	observed.Candidate.Databases[0].Written = true
+	changed := sqliteArchiveDatabase(t, observed.Candidate.Databases[0])
+	changed.Written = true
+	observed.Candidate.Databases[0] = archive.SQLiteDatabaseVariant(changed)
 	health, err := h.ArchiveCredentialHealth(ctx, observed)
 	if err != nil || len(health) != 1 || !health[0].Missing || !health[0].RenewalNeeded {
 		t.Fatal("missing original credentials hidden", health, err)

@@ -26,7 +26,17 @@ import (
 // Retired maintenance checks original binding identities and both original and
 // archived mount paths, never the app-name service a fresh incarnation may own.
 func (h archiveHost) maintenanceQuiescent(ctx context.Context, p archive.Plan) error {
-	for _, database := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		if native, ok := variant.Native(); ok {
+			if err := h.nativeArchiveMaintenanceQuiescent(ctx, p, native); err != nil {
+				return err
+			}
+			continue
+		}
+		database, sqlite := variant.SQLite()
+		if !sqlite {
+			return archive.ErrRefused
+		}
 		for _, binding := range database.Epochs {
 			name, err := replication.ServiceName(string(binding.BindingID))
 			if err != nil {
@@ -87,11 +97,24 @@ func (h archiveHost) ArchiveMaintenanceAdmission(ctx context.Context, p archive.
 	sum := sha256.Sum256(raw)
 	out.TargetHash = "sha256:" + hex.EncodeToString(sum[:])
 	out.PolicyHash = pol.Hash()
+	out.PurgeAllowed = pol.AllowsArchivePurge()
 	out.RetentionAdmitted = true
 	if out.TargetHash != p.TargetHash {
 		return out, archive.ErrRefused
 	}
-	for _, database := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		if native, ok := variant.Native(); ok {
+			admitted, err := h.nativeArchiveMaintenanceAdmission(ctx, p, manifest, native, pol)
+			if err != nil {
+				return out, err
+			}
+			out.RetentionAdmitted = out.RetentionAdmitted && admitted
+			continue
+		}
+		database, sqlite := variant.SQLite()
+		if !sqlite {
+			return out, archive.ErrRefused
+		}
 		if database.Allocation == nil || !slices.Contains(pol.PersistentRoots(), string(database.Binding.Root)) {
 			return out, archive.ErrRefused
 		}
@@ -169,8 +192,8 @@ func (h archiveHost) archiveCredentialScope(ctx context.Context, id, binding, ep
 			return out, archive.ErrRefused
 		}
 	}
-	for _, database := range p.Candidate.Databases {
-		for _, recorded := range database.Epochs {
+	for _, variant := range p.Candidate.Databases {
+		for _, recorded := range variant.ArchiveBindings() {
 			if string(recorded.BindingID) == binding && string(recorded.EpochID) == epoch {
 				return backupcredentials.ArchiveScope{ArchiveID: id, Binding: binding, Epoch: epoch, CredentialRef: recorded.Destination.CredentialRef, Destination: string(recorded.Destination.Reference), TargetHash: admission.TargetHash, PolicyHash: admission.PolicyHash, RetainUntil: d.RetainUntil}, nil
 			}
@@ -242,7 +265,36 @@ func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan,
 		return out, archive.ErrRefused
 	}
 	validUntil := d.RetainUntil
-	for i, database := range p.Candidate.Databases {
+	for i, variant := range p.Candidate.Databases {
+		if native, ok := variant.Native(); ok {
+			if native.Allocation == nil || data.VerifyNativeArchivedAllocation(native.Binding, *native.Allocation, p.ArchiveID) != nil {
+				return out, archive.ErrRefused
+			}
+			if err = h.verifyNativeArchiveDataSeal(ctx, p, native); err != nil {
+				return out, err
+			}
+			receipt, expires, err := h.replayNativeArchivedSource(ctx, p, native)
+			if err != nil {
+				return out, err
+			}
+			out.NativeReceipts = append(out.NativeReceipts, receipt)
+			validUntil, err = nativeArchiveRetentionDeadline(pol, native, validUntil)
+			if err != nil {
+				return out, err
+			}
+			if expires.Before(validUntil) {
+				validUntil = expires
+			}
+			continue
+		}
+		database, sqlite := variant.SQLite()
+		if !sqlite {
+			return out, archive.ErrRefused
+		}
+		coverage, sqliteCoverage := m.Coverage[i].SQLite()
+		if !sqliteCoverage {
+			return out, archive.ErrRefused
+		}
 		if database.Allocation == nil || data.VerifyArchivedAllocation(database.Binding, *database.Allocation, p.ArchiveID) != nil {
 			return out, archive.ErrRefused
 		}
@@ -252,11 +304,11 @@ func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan,
 			}
 			continue
 		}
-		if len(database.Epochs) != 1 || m.Coverage[i].Point == nil || m.Coverage[i].Receipt == nil {
+		if len(database.Epochs) != 1 || coverage.Point == nil || coverage.Receipt == nil {
 			return out, archive.ErrRefused
 		}
 		observed := data.ObserveArchivedSchema(ctx, database.Binding, *database.Allocation, p.ArchiveID, database.Definitions)
-		if !archiveDispositionSchemaMatches(observed, m.Coverage[i].Observation, false) {
+		if !archiveDispositionSchemaMatches(observed, coverage.Observation, false) {
 			return out, archive.ErrRefused
 		}
 		binding := database.Epochs[0]
@@ -281,8 +333,8 @@ func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan,
 			validUntil = credentialsUntil
 		}
 		remote := restore.Binding{ID: string(binding.BindingID), Epoch: string(binding.EpochID), CredentialRef: binding.Destination.CredentialRef, Destination: restore.Destination{Endpoint: binding.Destination.Endpoint, Region: binding.Destination.Region, Bucket: binding.Destination.Bucket, Prefix: strings.TrimSuffix(binding.RemotePrefix, "/"), PathStyle: binding.Destination.PathStyle}}
-		request := requestAtPoint(restore.SQLiteRequest{OperationID: fmt.Sprintf("archive-retention-%s-%s-%d", p.ArchiveID, database.Binding.DatabaseID, time.Now().UnixNano()), Budget: 3 * time.Minute}, *m.Coverage[i].Point)
-		request.Coverage = &restore.CoverageEvidence{Source: request.Source, CoveredThrough: m.Coverage[i].WritersQuiescedAt}
+		request := requestAtPoint(restore.SQLiteRequest{OperationID: fmt.Sprintf("archive-retention-%s-%s-%d", p.ArchiveID, database.Binding.DatabaseID, time.Now().UnixNano()), Budget: 3 * time.Minute}, *coverage.Point)
+		request.Coverage = &restore.CoverageEvidence{Source: request.Source, CoveredThrough: coverage.WritersQuiescedAt}
 		for _, invariant := range database.Invariants {
 			request.Invariants = append(request.Invariants, restore.Invariant{Kind: restore.InvariantKind(invariant.Kind), Table: invariant.Table, Column: invariant.Column, Count: invariant.Count, Minimum: invariant.Minimum, Maximum: invariant.Maximum})
 		}
@@ -317,7 +369,19 @@ func (h archiveHost) ArchiveCredentialHealth(ctx context.Context, p archive.Plan
 	var out []archive.CredentialHealth
 	files := backupcredentials.Files{Root: filepath.Join(h.stateRoot, "credentials")}
 	now := time.Now().UTC()
-	for _, database := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		if native, ok := variant.Native(); ok {
+			health, err := h.nativeArchiveCredentialHealth(ctx, p, native)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, health...)
+			continue
+		}
+		database, sqlite := variant.SQLite()
+		if !sqlite {
+			return nil, archive.ErrRefused
+		}
 		if !database.Written {
 			continue
 		}

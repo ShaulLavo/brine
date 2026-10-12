@@ -160,27 +160,3 @@ func TestInventoryRejectsUnknownPathsAndBounds(t *testing.T) {
 		t.Fatal("quota overflow admitted", err)
 	}
 }
-
-func TestDriftRefusesRewriteRemovalAndRotation(t *testing.T) {
-	original := fixtureInventory(t)
-	for _, change := range []string{"rewrite", "remove", "rotation"} {
-		members := original.Members()
-		switch change {
-		case "rewrite":
-			members[0].SHA256 = strings.Repeat("e", 64)
-		case "remove":
-			members = members[1:]
-		case "rotation":
-			member := fixtureMember(fmt.Sprintf("replicas/1/clog/%020d.stdb.log", 60))
-			member.Inode = 20
-			members = append(members, member)
-		}
-		after, err := NewInventory(fixtureScope(), members, DefaultLimits())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := CheckUnchanged(original, after); !errors.Is(err, ErrDrift) {
-			t.Fatal("changed native input accepted", change, err)
-		}
-	}
-}

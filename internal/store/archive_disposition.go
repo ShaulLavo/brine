@@ -195,7 +195,14 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 			return old, ErrConflict
 		}
 		for i := range candidate.Databases {
-			candidate.Databases[i].Retention = p.Candidate.Databases[i].Retention
+			candidate.Databases[i] = candidate.Databases[i].WithRetention(p.Candidate.Databases[i].Retention())
+			if native, ok := candidate.Databases[i].Native(); ok {
+				wanted, ok := p.Candidate.Databases[i].Native()
+				if !ok || !nativeArchiveCandidatesMatch(native, wanted) {
+					return old, ErrConflict
+				}
+				candidate.Databases[i] = p.Candidate.Databases[i]
+			}
 		}
 		if !reflect.DeepEqual(candidate, p.Candidate) {
 			return old, ErrConflict
@@ -203,7 +210,7 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 	}
 	if next.Stage == archive.Abandoned {
 		for _, f := range o.Fences {
-			result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND state='held' AND operation_id=?", f.ID, o.ID)
+			result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND state='held' AND operation_id=?", f.ID, f.OperationID)
 			if err != nil {
 				return old, err
 			}
@@ -213,6 +220,9 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 			}
 		}
 	} else {
+		if err = checkNativeArchiveTreesMoved(ctx, tx, p); err != nil {
+			return old, err
+		}
 		result, err := tx.ExecContext(ctx, "DELETE FROM data_active_incarnations WHERE app=? AND incarnation_id=?", p.Candidate.App, p.Candidate.Incarnation)
 		if err != nil {
 			return old, err

@@ -37,10 +37,10 @@ func preparedStoredArchive(t *testing.T, s *Store, supplied ...archive.Plan) (ar
 			t.Fatal(err)
 		}
 	}
-	d := p.Candidate.Databases[0]
+	d := sqliteArchiveDatabase(t, p.Candidate.Databases[0])
 	fresh := *d.Allocation
 	fresh.AllocatedAt = time.Now().UTC()
-	coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}}}
+	coverage := []archive.Coverage{archive.SQLiteCoverageVariant(archive.SQLiteCoverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}})}
 	o, err = s.SaveArchiveCoverage(ctx, o, coverage)
 	if err != nil {
 		t.Fatal(err)
@@ -76,7 +76,7 @@ func TestArchiveAbandonAtomicallyReleasesOnlyOwnFencesAndAllowsNewAttempt(t *tes
 	if _, err = s.FinishArchiveDisposition(ctx, o, state, done); err != nil {
 		t.Fatal(err)
 	}
-	permit, err := s.ReadReplicaPermit(ctx, p.Candidate.Databases[0].Binding.DatabaseID)
+	permit, err := s.ReadReplicaPermit(ctx, sqliteArchiveDatabase(t, p.Candidate.Databases[0]).Binding.DatabaseID)
 	if err != nil || permit.FenceState != "released" {
 		t.Fatal("held fence after abandonment", err, permit)
 	}
@@ -134,7 +134,7 @@ func TestArchiveRetirementPreservesEvidenceAndRecreatesFreshIdentities(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := p.Candidate.Databases[0]
+	old := sqliteArchiveDatabase(t, p.Candidate.Databases[0])
 	if reserved.Database.IncarnationID == old.Binding.IncarnationID || reserved.Database.DatabaseID == old.Binding.DatabaseID || reserved.Replica.BindingID == old.Binding.ReplicaBindingID || reserved.Replica.EpochID == old.Epochs[0].EpochID || reserved.Replica.RemotePrefix == old.Epochs[0].RemotePrefix || reserved.Database.RelativeDirectory == old.Binding.RelativeDirectory {
 		t.Fatal("reused archived identity", reserved)
 	}
@@ -283,10 +283,10 @@ func TestArchiveAbandonEveryStoredPreManifestBoundary(t *testing.T) {
 			for o.Sequence < sequence {
 				next, _ := archive.StageAt(o.Sequence + 1)
 				if next == archive.CoverageVerified {
-					d := p.Candidate.Databases[0]
+					d := sqliteArchiveDatabase(t, p.Candidate.Databases[0])
 					fresh := *d.Allocation
 					fresh.AllocatedAt = time.Now().UTC()
-					coverage := []archive.Coverage{{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}}}
+					coverage := []archive.Coverage{archive.SQLiteCoverageVariant(archive.SQLiteCoverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: fresh.AllocatedAt, Empty: &fresh, Observation: data.SQLiteSchemaObservation{DatabaseID: d.Binding.DatabaseID, State: data.AllocatedEmpty, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: fresh.AllocatedAt}})}
 					o, err = s.SaveArchiveCoverage(ctx, o, coverage)
 				} else {
 					o, err = s.AdvanceArchive(ctx, o, next)
@@ -330,14 +330,14 @@ func TestArchiveAbandonEveryStoredPreManifestBoundary(t *testing.T) {
 			if _, err = s.FinishArchiveDisposition(ctx, wrong, intent, done); !errors.Is(err, ErrConflict) {
 				t.Fatal("foreign operation released fences", err)
 			}
-			own, err := s.ReadReplicaPermit(ctx, p.Candidate.Databases[0].Binding.DatabaseID)
+			own, err := s.ReadReplicaPermit(ctx, sqliteArchiveDatabase(t, p.Candidate.Databases[0]).Binding.DatabaseID)
 			if err != nil || own.FenceState != "held" {
 				t.Fatal("failed transaction changed fence", err)
 			}
 			if _, err = s.FinishArchiveDisposition(ctx, o, intent, done); err != nil {
 				t.Fatal(err)
 			}
-			own, err = s.ReadReplicaPermit(ctx, p.Candidate.Databases[0].Binding.DatabaseID)
+			own, err = s.ReadReplicaPermit(ctx, sqliteArchiveDatabase(t, p.Candidate.Databases[0]).Binding.DatabaseID)
 			if err != nil || own.FenceState != "released" {
 				t.Fatal("owned fence not released", err)
 			}

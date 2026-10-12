@@ -79,6 +79,23 @@ func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner st
 		return c, ErrConflict
 	}
 	for _, id := range ids {
+		var kind data.EngineKind
+		if err = q.QueryRowContext(ctx, "SELECT engine FROM data_engine_kinds WHERE database_id=?", id).Scan(&kind); err != nil {
+			return c, err
+		}
+		if kind == data.EngineSpacetimeDB {
+			tx, ok := q.(*sql.Tx)
+			if !ok {
+				return c, ErrConflict
+			}
+			native, err := readNativeArchiveDatabase(ctx, tx, id, owner)
+			if err != nil || native.Binding.IncarnationID != c.Incarnation {
+				return c, errors.Join(ErrConflict, err)
+			}
+			c.Databases = append(c.Databases, archive.NativeDatabaseVariant(native))
+			continue
+		}
+
 		permit, err := readReplicaPermit(ctx, q, id)
 		if err != nil || permit.Database.IncarnationID != c.Incarnation {
 			return c, ErrConflict
@@ -99,7 +116,7 @@ func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner st
 		if len(raw) > 4096 || json.Unmarshal(raw, &allocation) != nil || !allocation.Valid() || allocation.DatabaseID != id || allocation.IncarnationID != c.Incarnation {
 			return c, &IntegrityError{}
 		}
-		database := archive.Database{Binding: permit.Database, Allocation: &allocation, Definitions: []data.SQLiteSchemaDefinition{}, Invariants: []data.RestoreInvariant{}, Epochs: []data.ReplicaBinding{}, Retention: []data.RetentionEvidence{}}
+		database := archive.SQLiteDatabase{Binding: permit.Database, Allocation: &allocation, Definitions: []data.SQLiteSchemaDefinition{}, Invariants: []data.RestoreInvariant{}, Epochs: []data.ReplicaBinding{}, Retention: []data.RetentionEvidence{}}
 		var written int
 		if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM data_writer_history WHERE database_id=? UNION ALL SELECT 1 FROM data_writer_starts WHERE incarnation_id=?)`, id, c.Incarnation).Scan(&written); err != nil {
 			return c, err
@@ -141,7 +158,7 @@ func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner st
 			database.Epochs = append(database.Epochs, epoch)
 		}
 		slices.SortFunc(database.Epochs, func(a, b data.ReplicaBinding) int { return strings.Compare(string(a.EpochID), string(b.EpochID)) })
-		c.Databases = append(c.Databases, database)
+		c.Databases = append(c.Databases, archive.SQLiteDatabaseVariant(database))
 	}
 	return c, nil
 }

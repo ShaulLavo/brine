@@ -47,6 +47,16 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 		server.RestoreTests = newRestoreTests(f.diagnosticStateDir)
 		return server, nil
 	}
+	if op == "native_material_status" {
+		server := dispatch.NewServer(f.version, nil)
+		server.NativeMaterial = nativeMaterialStatusReader{stateDir: f.diagnosticStateDir}
+		return server, nil
+	}
+	if op == "native_backup_status" {
+		server := dispatch.NewServer(f.version, nil)
+		server.NativeBackupStatus = nativeBackupStatusReader{stateDir: f.diagnosticStateDir}
+		return server, nil
+	}
 	if op == "native_point" {
 		server := dispatch.NewServer(f.version, nil)
 		server.NativePoints = nativePointInspection{stateDir: f.diagnosticStateDir}
@@ -78,6 +88,15 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	server.Apps = runtime.Apps
 	server.Config = runtime.Config
 	server.Secrets = runtime.Secrets
+	server.NativeBackupResolution = runtime.NativeBackupResolution
+	server.NativeBackups = runtime.NativeBackups
+	server.ModulePublications = runtime.ModulePublications
+	server.NativeBackupStatus = runtime.NativeBackupStatus
+	server.NativeBackupPolicy = runtime.NativeBackupPolicy
+	server.NativeRecovery = runtime.NativeRecovery
+	server.NativeMaterial = runtime.NativeMaterial
+	server.NativeLiveRestore = runtime.NativeLiveRestore
+	server.NativeRetire = runtime.NativeRetire
 	server.BackupCredentials = runtime.BackupCredentials
 	server.DataInitialization = runtime.DataInitialization
 	server.Logs = runtime.Logs

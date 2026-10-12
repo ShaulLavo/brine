@@ -158,6 +158,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	artifacts := c.apps(ctx, &s, home, exists, control)
 	udpPorts := c.listeners(ctx, &s, home, artifacts.publications)
 	c.absence(ctx, &s, artifacts, control, udpPorts)
+	attachCommittedPorts(&s, control)
 	if e = c.caddy(ctx, &s); e != nil {
 		return s, e
 	}

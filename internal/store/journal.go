@@ -33,7 +33,7 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 	defer tx.Rollback()
 	old, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE requester=? AND idempotency_key=?", requester, idempotencyKey))
 	if err == nil {
-		if old.PlanID != intent.PlanID || old.Kind != intent.Kind || old.RecoveryOf != intent.RecoveryOf || (intent.Kind == ops.SecretSet || intent.Kind.IsTask() || intent.Kind == ops.Resolve && intent.PlanID == "") && (old.App != intent.App || old.SecretRef != intent.SecretRef) {
+		if old.PlanID != intent.PlanID || old.Kind != intent.Kind || old.RecoveryOf != intent.RecoveryOf || (intent.Kind == ops.SecretSet || intent.Kind == ops.NativeMaterialSet || intent.Kind.IsTask() || intent.Kind == ops.Resolve && intent.PlanID == "") && (old.App != intent.App || old.SecretRef != intent.SecretRef) {
 			return Operation{}, false, ErrConflict
 		}
 		return old, true, tx.Commit()
@@ -61,6 +61,16 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 		}
 		if e = resolutionFamilyAvailable(ctx, tx, source); e != nil {
 			return Operation{}, false, e
+		}
+	}
+	if intent.Kind == ops.NativeBackupResolve {
+		if err = checkNativeBackupResolutionIntent(ctx, tx, intent, requester); err != nil {
+			return Operation{}, false, err
+		}
+	}
+	if intent.Kind == ops.ModulePublishResolve {
+		if err = checkPublicationResolutionIntentTx(ctx, tx, intent, requester); err != nil {
+			return Operation{}, false, err
 		}
 	}
 	id, err := newID()

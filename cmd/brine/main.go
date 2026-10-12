@@ -75,6 +75,9 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 		return cli.RuntimeServices{ManagedFrontendPermit: runtime.Permit, Close: runtime.Close}, nil
 	}}
 	deps.HostEngineCopyObserve = host.RunEngineCopyObserver
+	deps.HostModuleDescribe = host.RunModuleDescriptor
+	deps.HostModuleDescribeProfile = host.RunModuleDescriptorProfile
+	deps.HostModuleStage = host.RunModuleStage
 	if cli.HostServeRequested(args) {
 		factory := host.NewServerFactory(deps.Version, authenticated)
 		deps.HostServerFactory = factory.Build
@@ -94,7 +97,7 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 			if err != nil {
 				return cli.RuntimeServices{}, err
 			}
-			return cli.RuntimeServices{Archives: runtime.Archives, ArchiveMaintenance: runtime.ArchiveMaintenance, ArchiveCredentials: runtime.ArchiveCredentials, Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
+			return cli.RuntimeServices{NativeCapture: runtime.NativeCapture, Archives: runtime.Archives, ArchiveMaintenance: runtime.ArchiveMaintenance, ArchiveCredentials: runtime.ArchiveCredentials, Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
 		}
 	}
 	return result.ExitCode(cli.ExecuteWithRuntime(deps, args, lifecycle))
@@ -116,7 +119,7 @@ func captureHostEnvironment(args []string, getenv func(string) string, clearenv 
 }
 
 func runtimeRequesterChannel(ctx context.Context, args []string, authenticated string) string {
-	if cli.HostArchiveRequested(ctx, args) {
+	if cli.HostArchiveRequested(ctx, args) || cli.HostNativeCaptureRequested(ctx, args) {
 		return "deploy"
 	}
 	return authenticated

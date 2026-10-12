@@ -103,6 +103,12 @@ func (c Cursor) replay(event cursorEvent) (Cursor, error) {
 			return c, ErrRecord
 		}
 		return c.Observe(*event.Observation)
+	case "source_preserved":
+		o := event.Observation
+		if o == nil || o.Scope != c.scope || o.Step != c.step || o.Outcome != ObservedSourcePreserved || o.NativeDatabase != "" || o.NativePublisher != "" || o.ProgramWireHash != "" || o.SchemaSHA256 != "" || len(o.Requirements) != 0 {
+			return c, ErrRecord
+		}
+		return c.PreserveSource(o.ProofSHA256)
 	default:
 		return c, ErrRecord
 	}
@@ -144,14 +150,14 @@ func validateCursorEvent(raw json.RawMessage) error {
 		return ErrRecord
 	}
 	fields := []string{"kind", "step"}
-	if kind.Kind == "observation" {
+	if kind.Kind == "observation" || kind.Kind == "source_preserved" {
 		fields = append(fields, "observation")
 	}
 	values, err := objectValues(raw, fields...)
 	if err != nil {
 		return err
 	}
-	if kind.Kind == "observation" {
+	if kind.Kind == "observation" || kind.Kind == "source_preserved" {
 		return validateObservation(values["observation"])
 	}
 	return nil

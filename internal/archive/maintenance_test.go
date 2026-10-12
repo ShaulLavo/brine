@@ -25,6 +25,7 @@ type maintenanceRig struct {
 	now          time.Time
 	health       []CredentialHealth
 	retentionOK  bool
+	purgeDenied  bool
 	beforeDelete func(int, bool)
 }
 
@@ -63,7 +64,7 @@ func (r *maintenanceRig) ArchiveMaintenanceAdmission(context.Context, Plan, Disp
 	if r.fail == "ownership" || r.fail == "running" {
 		return MaintenanceAdmission{}, ErrRefused
 	}
-	return MaintenanceAdmission{RetentionAdmitted: r.retentionOK, PolicyHash: r.p.PolicyHash, TargetHash: r.p.TargetHash}, nil
+	return MaintenanceAdmission{RetentionAdmitted: r.retentionOK, PurgeAllowed: !r.purgeDenied, PolicyHash: r.p.PolicyHash, TargetHash: r.p.TargetHash}, nil
 }
 func (r *maintenanceRig) VerifyArchiveRetention(context.Context, Plan, Manifest, Disposition) (RetentionProof, error) {
 	if r.fail == "credentials" || r.fail == "remote" || r.fail == "retention" {
@@ -273,35 +274,35 @@ func multiRootMaintenanceFixture(t *testing.T) (MaintenanceService, *maintenance
 		t.Fatal(err)
 	}
 	second := p.Candidate.Databases[0]
-	second.Binding.DatabaseID = data.DatabaseID(strings.Repeat("f", 32))
-	second.Binding.ReplicaBindingID = data.ReplicaBindingID(strings.Repeat("1", 32))
-	second.Binding.Name = "second"
-	second.Binding.Root = data.PersistentRoot(root)
-	relative, err := data.RelativeDirectory(second.Binding.IncarnationID, second.Binding.DatabaseID)
+	second.sqlite.Binding.DatabaseID = data.DatabaseID(strings.Repeat("f", 32))
+	second.sqlite.Binding.ReplicaBindingID = data.ReplicaBindingID(strings.Repeat("1", 32))
+	second.sqlite.Binding.Name = "second"
+	second.sqlite.Binding.Root = data.PersistentRoot(root)
+	relative, err := data.RelativeDirectory(second.sqlite.Binding.IncarnationID, second.sqlite.Binding.DatabaseID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second.Binding.RelativeDirectory = relative
-	second.Binding.MountPath = "/second"
+	second.sqlite.Binding.RelativeDirectory = relative
+	second.sqlite.Binding.MountPath = "/second"
 	if err = os.MkdirAll(filepath.Join(root, relative), 0700); err != nil {
 		t.Fatal(err)
 	}
-	allocation, err := data.CaptureAllocation(second.Binding)
+	allocation, err := data.CaptureAllocation(second.sqlite.Binding)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second.Allocation = &allocation
-	epoch := second.Epochs[0]
-	epoch.DatabaseID = second.Binding.DatabaseID
-	epoch.BindingID = second.Binding.ReplicaBindingID
+	second.sqlite.Allocation = &allocation
+	epoch := second.sqlite.Epochs[0]
+	epoch.DatabaseID = second.sqlite.Binding.DatabaseID
+	epoch.BindingID = second.sqlite.Binding.ReplicaBindingID
 	epoch.EpochID = data.ReplicaEpochID(strings.Repeat("2", 32))
 	epoch.RemotePrefix, err = data.RemotePrefix(epoch.Destination.BasePrefix, p.Candidate.Incarnation, epoch.DatabaseID, epoch.EpochID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second.Epochs = []data.ReplicaBinding{epoch}
+	second.sqlite.Epochs = []data.ReplicaBinding{epoch}
 	p.Candidate.Databases = append(p.Candidate.Databases, second)
-	tree, err := data.CaptureArchiveTree(second.Binding.Root, p.Candidate.Incarnation, p.ArchiveID)
+	tree, err := data.CaptureArchiveTree(second.sqlite.Binding.Root, p.Candidate.Incarnation, p.ArchiveID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +372,7 @@ func TestArchiveInitializedRetentionProofRequiresFreshExactRemoteEvidence(t *tes
 	retiredAt := preparedAt.Add(time.Second)
 	disposition := Disposition{ArchiveID: p.ArchiveID, Stage: Retired, CommittedAt: retiredAt, RetainUntil: retiredAt.Add(30 * 24 * time.Hour)}
 	now := retiredAt.Add(time.Hour)
-	fresh := *coverage.Receipt
+	fresh := *coverage.sqlite.Receipt
 	fresh.OperationID = "archive-retention-test"
 	fresh.ObservedAt = now
 	fresh.LossWindow.To = now
@@ -387,7 +388,7 @@ func TestArchiveInitializedRetentionProofRequiresFreshExactRemoteEvidence(t *tes
 			originalManifest := manifest
 			switch kind {
 			case "old":
-				changed.Receipts[0] = *coverage.Receipt
+				changed.Receipts[0] = *coverage.sqlite.Receipt
 			case "source":
 				source := *fresh.Source.Snapshot
 				source.SHA256 = strings.Repeat("b", 64)
@@ -403,7 +404,7 @@ func TestArchiveInitializedRetentionProofRequiresFreshExactRemoteEvidence(t *tes
 			case "deadline":
 				changed.ValidUntil = disposition.RetainUntil.Add(time.Second)
 			case "invariants":
-				database.Invariants = []data.RestoreInvariant{{Database: database.Binding.Name, Kind: "row_count", Table: "commits", Count: 1}}
+				database.sqlite.Invariants = []data.RestoreInvariant{{Database: database.sqlite.Binding.Name, Kind: "row_count", Table: "commits", Count: 1}}
 				plan.Candidate.Databases = []Database{database}
 				plan.ID, _ = plan.Fingerprint()
 				originalManifest.Plan = plan
@@ -417,7 +418,7 @@ func TestArchiveInitializedRetentionProofRequiresFreshExactRemoteEvidence(t *tes
 
 func TestArchiveMaintenanceHealthCannotHideMissingOrDifferentEpochs(t *testing.T) {
 	p, _, _, now := initializedCoverage(t)
-	binding := p.Candidate.Databases[0].Epochs[0]
+	binding := p.Candidate.Databases[0].sqlite.Epochs[0]
 	health := CredentialHealth{BindingID: binding.BindingID, EpochID: binding.EpochID, ReceivedAt: now.Add(-time.Minute), AgeSeconds: 60}
 	if !credentialHealthMatches(p, []CredentialHealth{health}, now) {
 		t.Fatal("exact health refused")
@@ -445,7 +446,7 @@ func TestArchiveMaintenanceHealthCannotHideMissingOrDifferentEpochs(t *testing.T
 func TestArchiveInitializedStatusReportsUnknownLifecycleWithoutRefreshingEvidence(t *testing.T) {
 	s, r := maintenanceFixture(t)
 	_, _, coverage, preparedAt := initializedCoverage(t)
-	r.p.Candidate.Databases[0].Written = true
+	r.p.Candidate.Databases[0].sqlite.Written = true
 	var err error
 	r.p.ID, err = r.p.Fingerprint()
 	if err != nil {
@@ -453,7 +454,7 @@ func TestArchiveInitializedStatusReportsUnknownLifecycleWithoutRefreshingEvidenc
 	}
 	r.m = Manifest{Plan: r.p, OperationID: strings.Repeat("a", 32), Coverage: []Coverage{coverage}, QuiescedAt: preparedAt, PreparedAt: preparedAt}
 	r.now = preparedAt.Add(time.Second)
-	binding := r.p.Candidate.Databases[0].Epochs[0]
+	binding := r.p.Candidate.Databases[0].sqlite.Epochs[0]
 	r.health = []CredentialHealth{{BindingID: binding.BindingID, EpochID: binding.EpochID, ReceivedAt: preparedAt, AgeSeconds: 1}}
 	status, err := s.Status(context.Background(), r.p.ArchiveID)
 	if err != nil || status.State != "degraded" || status.Reason != "destination_retention_unknown" || status.Proof != nil {
@@ -504,5 +505,29 @@ func TestArchiveMaintenanceReconcileCannotAdoptNewTreeAbsence(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(moved, "preserved")) // #nosec G304 -- Private fixture moved within its own temporary root.
 	if err != nil || string(raw) != "untouched" {
 		t.Fatal("later tree was changed", err)
+	}
+}
+
+func TestArchivePurgeDeniesMissingOrRevokedGrantBeforeEffects(t *testing.T) {
+	s, r := maintenanceFixture(t)
+	ctx := context.Background()
+	r.purgeDenied = true
+	if _, err := s.Plan(ctx, r.p.ArchiveID, PurgeArchive); err == nil {
+		t.Fatal("missing policy grant admitted early purge review")
+	}
+	if r.effects != 0 || r.deletion.Sequence != 0 {
+		t.Fatal("denied purge changed the tree or journal")
+	}
+	r.purgeDenied = false
+	p, err := s.Plan(ctx, r.p.ArchiveID, PurgeArchive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.purgeDenied = true
+	if _, err = s.Delete(ctx, p.ID); err == nil {
+		t.Fatal("revoked policy grant admitted reviewed deletion")
+	}
+	if r.effects != 0 || r.deletion.Sequence != 0 {
+		t.Fatal("revoked purge changed the tree or journal")
 	}
 }

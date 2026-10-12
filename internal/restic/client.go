@@ -44,42 +44,43 @@ func NewClient(toolSHA256 string, limits Limits, admission RepositoryAdmission) 
 
 // Init requires the separately reviewed new-owned-repository grant carried by
 // Repository. Callers must reconcile an unknown result before any retry.
-func (c *Client) Init(ctx context.Context, repository Repository, workspace string) (Repository, error) {
+func (c *Client) Init(ctx context.Context, repository Repository, workspace string) (InitializedRepository, error) {
 	if !hashPattern.MatchString(repository.initializationPlan) || repository.scope.RepositoryID != "" {
-		return Repository{}, ErrInvalid
+		return InitializedRepository{}, ErrInvalid
 	}
 	raw, err := c.jsonCommand(ctx, repository, workspace, true, nil, []string{"init", "--repository-version", "2"})
 	if err != nil {
-		return Repository{}, err
+		return InitializedRepository{}, err
 	}
 	id, err := parseInit(raw)
 	if err != nil {
-		return Repository{}, ErrUnknown
+		return InitializedRepository{}, ErrUnknown
 	}
 	observed, err := c.InspectInitialization(ctx, repository, workspace)
-	if err != nil || observed.scope.RepositoryID != id {
-		return Repository{}, ErrUnknown
+	if err != nil || observed.repository.scope.RepositoryID != id {
+		return InitializedRepository{}, ErrUnknown
 	}
 	return observed, nil
 }
 
 // InspectInitialization reconciles an issued initialization by authenticated
 // config readback under its retained creation grant. It never repeats init.
-func (c *Client) InspectInitialization(ctx context.Context, repository Repository, workspace string) (Repository, error) {
+func (c *Client) InspectInitialization(ctx context.Context, repository Repository, workspace string) (InitializedRepository, error) {
 	if !hashPattern.MatchString(repository.initializationPlan) || repository.scope.RepositoryID != "" {
-		return Repository{}, ErrInvalid
+		return InitializedRepository{}, ErrInvalid
 	}
 	raw, err := c.jsonCommand(ctx, repository, workspace, false, nil, []string{"cat", "config"})
 	if err != nil {
-		return Repository{}, err
+		return InitializedRepository{}, err
 	}
 	id, err := parseRepositoryConfig(raw)
 	if err != nil {
-		return Repository{}, err
+		return InitializedRepository{}, err
 	}
+	grant := repository.initializationPlan
 	repository.scope.RepositoryID = id
 	repository.initializationPlan = ""
-	return repository, nil
+	return InitializedRepository{repository: repository, creationGrant: grant, configSHA256: digest(raw), verifiedAt: time.Now().UTC()}, nil
 }
 
 // RepositoryIdentity authenticates the encrypted config through the current
@@ -182,44 +183,53 @@ func sameRepository(repository Repository, point TransportPoint) bool {
 	return repository.initializationPlan == "" && repository.scope.BindingID == point.Scope.BindingID && repository.scope.EpochID == point.Scope.EpochID && repository.scope.RepositoryID == point.Scope.RepositoryID && repository.scope.DestinationSHA256 == point.Scope.DestinationSHA256 && repository.scope.RecoveryVersion == point.Scope.RecoveryVersion
 }
 
-func (c *Client) RestoreExact(ctx context.Context, repository Repository, workspace, directory string, point TransportPoint, manifest Manifest) error {
+func (c *Client) RestoreExact(ctx context.Context, repository Repository, workspace string, parent *os.Root, name string, point TransportPoint, manifest Manifest) (AuthenticatedRestore, error) {
 	if err := manifest.admit(c.limits); err != nil {
-		return err
+		return AuthenticatedRestore{}, err
 	}
 	if !point.valid(c.limits) || manifest.SHA256() != point.ManifestSHA256 || manifest.document.Identity != point.Identity || point.ArchiveBytes != envelopeSize(manifest) || !sameRepository(repository, point) {
-		return ErrInvalid
+		return AuthenticatedRestore{}, ErrInvalid
 	}
 	if err := privateDirectory(workspace); err != nil {
-		return err
+		return AuthenticatedRestore{}, err
 	}
 	if err := c.InspectExact(ctx, repository, workspace, point); err != nil {
-		return err
+		return AuthenticatedRestore{}, err
 	}
 	file, err := os.CreateTemp(workspace, "downloaded-*.tar")
 	if err != nil {
-		return ErrFailed
+		return AuthenticatedRestore{}, ErrFailed
 	}
 	defer func() { _ = os.Remove(file.Name()) }()
 	defer func() { _ = file.Close() }()
 	output := &quotaWriter{writer: file, remaining: point.ArchiveBytes}
 	if err := c.command(ctx, repository, workspace, false, nil, output, []string{"dump", point.SnapshotID, "/" + archiveName}, false); err != nil {
-		return err
+		return AuthenticatedRestore{}, err
 	}
 	info, err := file.Stat()
 	if err != nil || info.Size() != point.ArchiveBytes {
-		return ErrIntegrity
+		return AuthenticatedRestore{}, ErrIntegrity
 	}
 	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return ErrFailed
+		return AuthenticatedRestore{}, ErrFailed
 	}
 	hash, err := hashFile(ctx, file, info.Size())
 	if err != nil || hash != point.ArchiveSHA256 {
-		return ErrIntegrity
+		return AuthenticatedRestore{}, ErrIntegrity
 	}
 	if err := file.Sync(); err != nil {
-		return ErrFailed
+		return AuthenticatedRestore{}, ErrFailed
 	}
-	return extractEnvelope(ctx, file.Name(), directory, manifest, c.limits)
+	root, err := extractEnvelope(ctx, file.Name(), parent, name, manifest, c.limits)
+	if err != nil {
+		return AuthenticatedRestore{}, err
+	}
+	identity, err := root.Stat(".")
+	if err != nil {
+		_ = root.Close()
+		return AuthenticatedRestore{}, ErrIntegrity
+	}
+	return AuthenticatedRestore{root: root, parent: parent, name: name, identity: identity, point: point, manifest: manifest, limits: c.limits, verifiedAt: time.Now().UTC()}, nil
 }
 
 func (c *Client) Check(ctx context.Context, repository Repository, workspace string) error {

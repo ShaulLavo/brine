@@ -69,11 +69,11 @@ func (r *preparationRig) WritersStopped(context.Context, Plan) (bool, error) {
 	return err == nil, err
 }
 func (r *preparationRig) Cover(_ context.Context, _ Plan, d Database, _ string, at time.Time) (Coverage, error) {
-	fresh, observed, err := data.FreshArchiveAllocation(d.Binding, *d.Allocation)
+	fresh, observed, err := data.FreshArchiveAllocation(d.sqlite.Binding, *d.sqlite.Allocation)
 	if err != nil {
 		return Coverage{}, err
 	}
-	return Coverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: at, Empty: &fresh, Observation: observed}, r.event("cover")
+	return SQLiteCoverageVariant(SQLiteCoverage{DatabaseID: d.sqlite.Binding.DatabaseID, WritersQuiescedAt: at, Empty: &fresh, Observation: observed}), r.event("cover")
 }
 func (r *preparationRig) StopReplicas(context.Context, Plan) error { return r.event("stop replicas") }
 func (r *preparationRig) ReplicasStopped(context.Context, Plan) (bool, error) {
@@ -95,16 +95,16 @@ func preparationFixture(t *testing.T) (Service, *preparationRig) {
 		t.Fatal(err)
 	}
 	d := &p.Candidate.Databases[0]
-	d.Binding.Root = data.PersistentRoot(root)
-	if err := os.MkdirAll(filepath.Join(root, d.Binding.RelativeDirectory), 0700); err != nil {
+	d.sqlite.Binding.Root = data.PersistentRoot(root)
+	if err := os.MkdirAll(filepath.Join(root, d.sqlite.Binding.RelativeDirectory), 0700); err != nil {
 		t.Fatal(err)
 	}
-	allocation, err := data.CaptureAllocation(d.Binding)
+	allocation, err := data.CaptureAllocation(d.sqlite.Binding)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.Allocation = &allocation
-	tree, err := data.CaptureArchiveTree(d.Binding.Root, p.Candidate.Incarnation, p.ArchiveID)
+	d.sqlite.Allocation = &allocation
+	tree, err := data.CaptureArchiveTree(d.sqlite.Binding.Root, p.Candidate.Incarnation, p.ArchiveID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ func TestPreparationInterruptedBoundariesNeverReplay(t *testing.T) {
 func TestPreparationReplacedDatabaseRefuses(t *testing.T) {
 	s, r := preparationFixture(t)
 	d := r.p.Candidate.Databases[0]
-	path := filepath.Join(string(d.Binding.Root), d.Binding.RelativeDirectory)
+	path := filepath.Join(string(d.sqlite.Binding.Root), d.sqlite.Binding.RelativeDirectory)
 	if err := os.Rename(path, path+"-old"); err != nil {
 		t.Fatal(err)
 	}
@@ -203,16 +203,16 @@ func multiEpochPreparationPlan(t *testing.T, p Plan, written bool) Plan {
 	t.Helper()
 	p.Candidate.Databases = append([]Database(nil), p.Candidate.Databases...)
 	d := &p.Candidate.Databases[0]
-	d.Written = written
-	epoch := d.Epochs[0]
+	d.sqlite.Written = written
+	epoch := d.sqlite.Epochs[0]
 	epoch.EpochID = data.ReplicaEpochID(strings.Repeat("f", 32))
 	var err error
-	epoch.RemotePrefix, err = data.RemotePrefix(epoch.Destination.BasePrefix, d.Binding.IncarnationID, d.Binding.DatabaseID, epoch.EpochID)
+	epoch.RemotePrefix, err = data.RemotePrefix(epoch.Destination.BasePrefix, d.sqlite.Binding.IncarnationID, d.sqlite.Binding.DatabaseID, epoch.EpochID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	d.Epochs = append(append([]data.ReplicaBinding(nil), d.Epochs...), epoch)
-	d.Retention = append(append([]data.RetentionEvidence(nil), d.Retention...), d.Retention[0])
+	d.sqlite.Epochs = append(append([]data.ReplicaBinding(nil), d.sqlite.Epochs...), epoch)
+	d.sqlite.Retention = append(append([]data.RetentionEvidence(nil), d.sqlite.Retention...), d.sqlite.Retention[0])
 	p.ID, err = p.Fingerprint()
 	if err != nil || !p.Valid() {
 		t.Fatal("invalid multi-epoch fixture", err)

@@ -33,7 +33,6 @@ type CaptureResult struct {
 func SQLiteCaptureTarget(request SQLiteCaptureRequest) CaptureTarget {
 	return CaptureTarget{kind: EngineSQLite, sqlite: request}
 }
-func SpacetimeDBCaptureTarget() CaptureTarget  { return CaptureTarget{kind: EngineSpacetimeDB} }
 func (r CaptureResult) SQLite() ([]byte, bool) { return r.sqlite, r.kind == EngineSQLite }
 func CaptureEngine(ctx context.Context, target CaptureTarget, budget time.Duration) (CaptureResult, error) {
 	if ctx.Err() != nil || budget <= 0 || budget > MaxCaptureBudget {

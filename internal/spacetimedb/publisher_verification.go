@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,11 +21,11 @@ type NativePublisherVerification struct {
 	credentialSHA string
 	verifiedAt    time.Time
 	encoded       []byte
+	createUsed    *atomic.Bool
 }
 
 func (v NativePublisherVerification) Publisher() PublisherIdentity { return v.publisher }
 func (v NativePublisherVerification) CredentialSHA256() string     { return v.credentialSHA }
-func (v NativePublisherVerification) VerifiedAt() time.Time        { return v.verifiedAt }
 func (v NativePublisherVerification) SHA256() string {
 	if len(v.encoded) == 0 {
 		return ""
@@ -44,6 +45,7 @@ func (NativePublisherVerification) MarshalJSON() ([]byte, error) { return nil, E
 // VerifyNativePublisher authenticates an existing supplied-key JWT identity.
 // The signed hex_identity is an expectation until the owned private runtime
 // confirms it. This request never allocates an identity or mints a new token.
+// Copies share the one initial-create attempt; storage bytes cannot restore it.
 func VerifyNativePublisher(ctx context.Context, endpoint PrivateServerEndpoint, credential PublisherCredential) (NativePublisherVerification, error) {
 	publisher, err := claimedNativePublisher(credential)
 	if err != nil || endpoint.base == "" || ctx.Err() != nil {
@@ -72,7 +74,7 @@ func VerifyNativePublisher(ctx context.Context, endpoint PrivateServerEndpoint, 
 	if err != nil || len(raw) != 0 || wait.Err() != nil {
 		return NativePublisherVerification{}, ErrNativePublisherVerification
 	}
-	verified := NativePublisherVerification{endpoint: endpoint, publisher: publisher, credentialSHA: publicationBytesSHA256([]byte(credential.bearer)), verifiedAt: time.Now().UTC()}
+	verified := NativePublisherVerification{endpoint: endpoint, publisher: publisher, credentialSHA: publicationBytesSHA256([]byte(credential.bearer)), verifiedAt: time.Now().UTC(), createUsed: &atomic.Bool{}}
 	verified.encoded, err = json.Marshal(struct {
 		Purpose       string            `json:"purpose"`
 		EndpointSHA   string            `json:"endpoint_sha256"`
@@ -82,7 +84,7 @@ func VerifyNativePublisher(ctx context.Context, endpoint PrivateServerEndpoint, 
 		Publisher     PublisherIdentity `json:"publisher"`
 		CredentialSHA string            `json:"credential_sha256"`
 		VerifiedAt    time.Time         `json:"verified_at"`
-	}{"native_supplied_key_publisher_verification", publicationBytesSHA256([]byte(endpoint.base)), http.MethodGet, request.URL.EscapedPath(), http.StatusNoContent, publisher, verified.credentialSHA, verified.verifiedAt})
+	}{"native_supplied_key_publisher_verification", endpoint.SHA256(), http.MethodGet, request.URL.EscapedPath(), http.StatusNoContent, publisher, verified.credentialSHA, verified.verifiedAt})
 	if err != nil {
 		return NativePublisherVerification{}, ErrNativePublisherVerification
 	}

@@ -1,11 +1,11 @@
 package plan
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -22,57 +22,6 @@ type ManagedBlueprint struct {
 	EngineVersion   string                  `json:"engine_version"`
 	EngineResources spec.SpacetimeResources `json:"engine_resources"`
 	AppResources    *policy.Resources       `json:"app_resources,omitempty"`
-}
-
-// ManagedRenderPreview is renderer input only. No apply engine consumes it.
-type ManagedRenderPreview struct {
-	desired    policy.Desired
-	enginePort spec.Port
-	appPort    spec.Port
-}
-
-func NewManagedRenderPreview(d policy.Desired, p policy.Policy, enginePort, appPort spec.Port) (ManagedRenderPreview, error) {
-	if policy.ValidateManagedDesired(d) != nil {
-		return ManagedRenderPreview{}, errors.New("managed preview: invalid desired input")
-	}
-	normalized, err := policy.Normalize(d.App(), p)
-	if err != nil {
-		return ManagedRenderPreview{}, err
-	}
-	wanted, err := d.CanonicalBytes()
-	if err != nil {
-		return ManagedRenderPreview{}, err
-	}
-	actual, err := normalized.CanonicalBytes()
-	if err != nil || !bytes.Equal(wanted, actual) {
-		return ManagedRenderPreview{}, errors.New("managed preview: normalized input differs")
-	}
-	if enginePort < d.AppPorts.Min || enginePort > d.AppPorts.Max {
-		return ManagedRenderPreview{}, errors.New("managed preview: engine port is not allowed")
-	}
-	if d.App().HasAppContainer() {
-		if appPort < d.AppPorts.Min || appPort > d.AppPorts.Max || appPort == enginePort {
-			return ManagedRenderPreview{}, errors.New("managed preview: app port is not allowed")
-		}
-	} else if appPort != 0 {
-		return ManagedRenderPreview{}, errors.New("managed preview: engine-only input cannot allocate an app port")
-	}
-	return ManagedRenderPreview{desired: normalized, enginePort: enginePort, appPort: appPort}, nil
-}
-
-func (p ManagedRenderPreview) Values() (policy.Desired, spec.Port, spec.Port, error) {
-	if policy.ValidateManagedDesired(p.desired) != nil || p.enginePort == 0 {
-		return policy.Desired{}, 0, 0, errors.New("managed preview required")
-	}
-	raw, err := p.desired.CanonicalBytes()
-	if err != nil {
-		return policy.Desired{}, 0, 0, err
-	}
-	var detached policy.Desired
-	if json.Unmarshal(raw, &detached) != nil {
-		return policy.Desired{}, 0, 0, errors.New("managed preview invalid")
-	}
-	return detached, p.enginePort, p.appPort, nil
 }
 
 func buildManagedPreview(in Input, desired []byte) (Plan, error) {
@@ -108,7 +57,11 @@ func buildManagedPreview(in Input, desired []byte) (Plan, error) {
 	if !d.App().HasAppContainer() {
 		image = Image{Digest: strings.SplitN(string(d.SpacetimeDB.Image), "@", 2)[1], Platform: target.Platform{OS: "linux", Arch: in.Snapshot.Arch}, ManifestDigest: target.Observation[string]{Status: target.Unknown}}
 	}
-	p := Plan{SchemaVersion: SchemaVersion, Kind: Conflict, App: string(d.Name), Image: image, Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: d.PolicyVersion, PolicyHash: d.PolicyHash, DesiredHash: hash(desired), DatabaseEnvironment: d.DatabaseEnvironmentValues(), Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{{Code: ManagedEngineUnsupported, Field: "databases.spacetimedb"}}}
+	diagnostic := Diagnostic{Code: ManagedEngineUnsupported, Field: "databases.spacetimedb"}
+	if in.Managed != nil && in.Managed.Runtime != nil && in.Managed.Runtime.State == data.EngineUnpublished && in.Managed.Runtime.Validate() == nil {
+		diagnostic = Diagnostic{Code: ManagedPublicationRequired, Field: "databases.module"}
+	}
+	p := Plan{SchemaVersion: SchemaVersion, Kind: Conflict, App: string(d.Name), Image: image, Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: d.PolicyVersion, PolicyHash: d.PolicyHash, DesiredHash: hash(desired), DatabaseEnvironment: d.DatabaseEnvironmentValues(), Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{diagnostic}}
 	if d.App().HasAppContainer() && (image.Platform.OS != "linux" || image.Platform.Arch != in.Snapshot.Arch) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: ImagePlatform, Field: "image.platform"})
 	}
@@ -155,7 +108,10 @@ func previewPorts(in Input) ([]target.Port, bool) {
 			busy[*app.AllocatedHostPort.Value] = true
 		}
 		if app.AllocatedHostPort.Status == target.Unknown {
-			return nil, false
+			if !committedPortReserved(in, app) {
+				return nil, false
+			}
+			busy[app.CommittedPortReservation.Port] = true
 		}
 	}
 	for _, release := range in.State.Releases {
@@ -175,4 +131,22 @@ func previewPorts(in Input) ([]target.Port, bool) {
 		}
 	}
 	return available, true
+}
+
+func committedPortReserved(in Input, app target.App) bool {
+	r := app.CommittedPortReservation
+	if r == nil || !app.UnitsAbsent() || in.State.Target != in.Snapshot.Identity || in.Snapshot.Generation.Value == nil || in.Snapshot.Generation.Status != target.KnownStatus || in.State.Generation != *in.Snapshot.Generation.Value {
+		return false
+	}
+	for _, reservation := range in.State.ManagedReservations {
+		if reservation.App == app.Name {
+			return false
+		}
+	}
+	for _, release := range in.State.Releases {
+		if release.App == app.Name && release.ID == r.ReleaseID && release.HostPort == r.Port && release.Managed == nil {
+			return true
+		}
+	}
+	return false
 }

@@ -16,7 +16,6 @@ const UpstreamCommit = "6b6e0ab19e4f8f52472aa4379552e9593c8f53bb"
 var (
 	ErrInvalid   = errors.New("invalid native capture record")
 	ErrLimit     = errors.New("native capture limit exceeded")
-	ErrDrift     = errors.New("native capture source changed")
 	ErrSelection = errors.New("native capture selection unavailable")
 	idPattern    = regexp.MustCompile(`^[0-9a-f]{32}$`)
 	hashPattern  = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -97,11 +96,4 @@ func NewInventory(scope Scope, members []Member, limits Limits) (Inventory, erro
 		return Inventory{}, ErrLimit
 	}
 	return inventory, nil
-}
-
-func CheckUnchanged(before, after Inventory) error {
-	if !before.scope.valid() || !after.scope.valid() || before.scope != after.scope || !slices.Equal(before.members, after.members) {
-		return ErrDrift
-	}
-	return nil
 }

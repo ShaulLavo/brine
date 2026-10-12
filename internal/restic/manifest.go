@@ -2,9 +2,11 @@ package restic
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -35,7 +37,17 @@ func (m Manifest) Bytes() []byte      { return slices.Clone(m.raw) }
 func (m Manifest) Members() []Member  { return slices.Clone(m.document.Members) }
 func (m Manifest) SHA256() string     { return digest(m.raw) }
 func (m Manifest) Identity() Identity { return m.document.Identity }
-func digest(raw []byte) string        { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
+
+// MatchesTree compares an actual rooted tree with this complete member list.
+// It validates content only and supplies no remote or mutation authority.
+func (m Manifest) MatchesTree(ctx context.Context, root *os.Root) bool {
+	if root == nil || ctx.Err() != nil || m.admit(DefaultLimits()) != nil {
+		return false
+	}
+	identity, err := root.Stat(".")
+	return err == nil && identity.IsDir() && verifyMemberSet(ctx, root, identity, m, DefaultLimits()) == nil
+}
+func digest(raw []byte) string { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
 
 func newManifest(identity Identity, members []Member, limits Limits) (Manifest, error) {
 	if !limits.valid() || !identity.valid() {

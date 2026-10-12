@@ -20,6 +20,7 @@ type NativePreparation struct {
 	preparation *EnginePreparation
 	intent      nativePreparationIntent
 	raw         []byte
+	inspection  *NativeBackupInspection
 }
 
 func (p *NativePreparation) PointID() string {
@@ -50,6 +51,9 @@ func (s *Store) BeginNativePreparation(ctx context.Context, preparation *EngineP
 	input, err := readNativeTaskInput(ctx, tx, op)
 	if err != nil || input.BindingID != preparation.binding {
 		return nil, errors.Join(ErrConflict, err)
+	}
+	if err := refusePendingNativeCaptureMutation(ctx, tx, input.BindingID, op.ID); err != nil {
+		return nil, err
 	}
 	intent, err := buildNativePreparationIntent(ctx, tx, op, input.BindingID)
 	if err != nil {
@@ -127,9 +131,24 @@ type NativeStopObservation struct {
 }
 
 type NativeStoppedPreparation struct {
-	preparation *NativePreparation
-	lifetime    *data.EngineLock
-	stopSHA256  string
+	preparation          *NativePreparation
+	lifetime             *data.EngineLock
+	stopSHA256           string
+	completedPointSHA256 string
+}
+
+func (p *NativeStoppedPreparation) PointID() string {
+	if p == nil || p.preparation == nil {
+		return ""
+	}
+	return p.preparation.intent.PointID
+}
+
+func (p *NativeStoppedPreparation) OperationID() string {
+	if p == nil || p.preparation == nil {
+		return ""
+	}
+	return p.preparation.intent.OperationID
 }
 
 type NativeStopIntent struct {
@@ -191,7 +210,7 @@ func (s *Store) ReadNativeStoppedPermit(ctx context.Context, capability *NativeS
 		return EnginePermit{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := checkNativePreparationCapability(ctx, tx, capability.preparation); err != nil {
+	if err := checkNativeStoppedCapability(ctx, tx, capability); err != nil {
 		return EnginePermit{}, err
 	}
 	events, err := readNativePreparationEvents(ctx, tx, capability.preparation.intent, capability.preparation.raw)
@@ -202,7 +221,85 @@ func (s *Store) ReadNativeStoppedPermit(ctx context.Context, capability *NativeS
 	if err != nil || !capability.active(s) {
 		return EnginePermit{}, errors.Join(ErrConflict, err)
 	}
+	if permit.Runtime.State == data.EngineUnpublished {
+		if err := checkNativeUntouchedHistory(ctx, tx, permit.Runtime); err != nil {
+			return EnginePermit{}, err
+		}
+	}
 	return permit, tx.Commit()
+}
+
+func checkNativeStoppedCapability(ctx context.Context, tx *sql.Tx, capability *NativeStoppedPreparation) error {
+	if capability.completedPointSHA256 == "" {
+		return checkNativePreparationCapability(ctx, tx, capability.preparation)
+	}
+	point, err := readNativePreparedPointTx(ctx, tx, capability.PointID())
+	if err != nil || point.hash != capability.completedPointSHA256 || point.view.StopProofSHA256 != capability.stopSHA256 || !time.Now().UTC().Before(point.view.ExpiresAt) {
+		return errors.Join(ErrConflict, err)
+	}
+	if err := checkNativePointCurrent(ctx, tx, point.view); err != nil {
+		return err
+	}
+	return checkNativePreparedCurrentPolicy(ctx, tx, point.view)
+}
+
+func checkNativePreparedCurrentPolicy(ctx context.Context, q dataQuerier, point NativePreparedPointView) error {
+	var policy string
+	err := q.QueryRowContext(ctx, "SELECT policy_hash FROM data_admissions WHERE database_id=? ORDER BY version DESC LIMIT 1", point.DatabaseID).Scan(&policy)
+	if err != nil || strings.TrimPrefix(policy, "sha256:") != point.PolicySHA256 {
+		return errors.Join(ErrConflict, err)
+	}
+	return nil
+}
+
+// ResumeNativePreparedPoint requires fresh retained locks and current host stop
+// facts. It does not reopen preparation append authority after completion.
+func (s *Store) ResumeNativePreparedPoint(ctx context.Context, preparation *EnginePreparation, lifetime *data.EngineLock, pointID string, current NativeStopObservation) (*NativeStoppedPreparation, error) {
+	if s.readOnly || preparation == nil || !preparation.Active(preparation.binding) || preparation.root != s.dir || !lifetime.HoldsLifetime(s.dir, preparation.binding) {
+		return nil, ErrConflict
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	point, err := readNativePreparedPointTx(ctx, tx, pointID)
+	if err != nil || point.view.BindingID != preparation.binding || !validNativeStop(current, point.view.SourceKind) || current.FinishedAt.After(time.Now().UTC()) || !time.Now().UTC().Before(point.view.ExpiresAt) || checkNativePointCurrent(ctx, tx, point.view) != nil {
+		return nil, errors.Join(ErrConflict, err)
+	}
+	if err := checkNativePreparedCurrentPolicy(ctx, tx, point.view); err != nil {
+		return nil, err
+	}
+	intent, raw, err := readNativePreparationIntent(ctx, tx, pointID)
+	if err != nil {
+		return nil, err
+	}
+	events, err := readNativePreparationEvents(ctx, tx, intent, raw)
+	if err != nil || len(events) != 6 {
+		return nil, errors.Join(ErrConflict, err)
+	}
+	var original NativeStopObservation
+	if json.Unmarshal(events[1].Proof, &original) != nil || current.Mode != original.Mode || current.ContainerID != original.ContainerID || current.Mode == "clean_exit" && !current.FinishedAt.Equal(original.FinishedAt) || current.Mode == "unpublished_absent" && current.FinishedAt.Before(original.FinishedAt) {
+		return nil, ErrConflict
+	}
+	native := &NativePreparation{store: s, preparation: preparation, intent: intent, raw: bytes.Clone(raw)}
+	stopped := &NativeStoppedPreparation{preparation: native, lifetime: lifetime, stopSHA256: point.view.StopProofSHA256, completedPointSHA256: point.hash}
+	if !stopped.active(s) {
+		return nil, ErrConflict
+	}
+	return stopped, tx.Commit()
+}
+
+// ReadNativeStoppedDescriptorPreparation reuses the actual held guard after
+// revalidation. A descriptor purpose does not acquire a second binding lock.
+func (s *Store) ReadNativeStoppedDescriptorPreparation(ctx context.Context, capability *NativeStoppedPreparation) (*EnginePreparation, error) {
+	if _, err := s.ReadNativeStoppedPermit(ctx, capability); err != nil {
+		return nil, err
+	}
+	if !capability.active(s) {
+		return nil, ErrConflict
+	}
+	return capability.preparation.preparation, nil
 }
 
 func (s *Store) RecordNativeStoppedPreparation(ctx context.Context, preparation *NativePreparation, lifetime *data.EngineLock, observed NativeStopObservation) (*NativeStoppedPreparation, error) {
@@ -262,7 +359,12 @@ func checkNativePreparationCapability(ctx context.Context, tx *sql.Tx, capabilit
 		return errors.Join(ErrConflict, err)
 	}
 	var state ops.State
-	if err := tx.QueryRowContext(ctx, "SELECT state FROM operations WHERE id=?", i.OperationID).Scan(&state); err != nil || state != ops.Preflight {
+	if capability.inspection != nil {
+		if err := capability.inspection.check(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT state FROM operations WHERE id=?", i.OperationID).Scan(&state); err != nil || capability.inspection == nil && state != ops.Preflight || capability.inspection != nil && state != ops.RecoveryRequired {
 		return errors.Join(ErrConflict, err)
 	}
 	view := NativePreparedPointView{PointID: i.PointID, PreparationOperationID: i.OperationID, FenceOwnerOpID: i.OperationID, FenceID: i.FenceID, BindingID: i.BindingID, EpochID: i.EpochID, DatabaseID: i.DatabaseID, IncarnationID: i.IncarnationID, Generation: i.Generation, PolicySHA256: i.PolicySHA256, RuntimeVersion: i.RuntimeVersion, RuntimeSHA256: i.RuntimeSHA256, AllocationID: string(i.DatabaseID), AllocationSHA256: i.AllocationSHA256, SourceKind: i.SourceKind}

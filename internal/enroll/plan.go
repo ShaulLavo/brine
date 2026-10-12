@@ -37,6 +37,10 @@ type Plan struct {
 	MissingPackages []string        `json:"missing_packages"`
 }
 
+// Debian's 2.6 line remains the SQLite baseline. Installed 2.10.2 is also
+// qualified for enrollment; managed native plans separately require 2.10.2.
+const enrollmentCaddyRuntimePattern = `^v?(?:2\.6(?:\.|$)|2\.10\.2(?:\s|$))`
+
 func MakePlan(f Facts) (Plan, error) {
 	fail := func() (Plan, error) {
 		return Plan{}, errors.New("enrollment refused: unsupported, conflicting, or incomplete host inventory")
@@ -49,7 +53,7 @@ func MakePlan(f Facts) (Plan, error) {
 		name    string
 		value   *string
 		pattern string
-	}{{"podman", s.Versions.Podman.Value, `^5\.4(?:\.|$)`}, {"caddy", s.Versions.Caddy.Value, `^v?2\.6(?:\.|$)`}, {"passt", s.Versions.Passt.Value, `^0\.0~git20250503\.`}} {
+	}{{"podman", s.Versions.Podman.Value, `^5\.4(?:\.|$)`}, {"caddy", s.Versions.Caddy.Value, enrollmentCaddyRuntimePattern}, {"passt", s.Versions.Passt.Value, `^0\.0~git20250503\.`}} {
 		if f.Packages[version.name] != "" && (version.value == nil || !regexp.MustCompile(version.pattern).MatchString(*version.value)) {
 			return fail()
 		}

@@ -124,7 +124,7 @@ func readArchiveOperation(ctx context.Context, q dataQuerier, id string) (o arch
 		if err = rows.Scan(&fence.ID, &fence.IncarnationID, &fence.DatabaseID, &fence.OperationID, &fence.State); err != nil {
 			return o, false, errors.Join(err, rows.Close())
 		}
-		if fence.OperationID != o.ID || fence.State != requiredFence {
+		if fence.State != requiredFence || fence.OperationID != o.ID && checkNativeArchiveFenceOwner(ctx, q, o, fence) != nil {
 			return o, false, errors.Join(&IntegrityError{}, rows.Close())
 		}
 		o.Fences = append(o.Fences, fence)
@@ -154,7 +154,10 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 	}
 	databases := make([]data.DatabaseID, len(p.Candidate.Databases))
 	for i, database := range p.Candidate.Databases {
-		databases[i] = database.Binding.DatabaseID
+		if !database.Engine().Valid() {
+			return o, data.ErrUnsupportedEngine
+		}
+		databases[i] = database.Reference().DatabaseID
 	}
 	guards, err := s.guardEngineDatabases(ctx, databases)
 	if err != nil {
@@ -179,7 +182,14 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 		return o, ErrConflict
 	}
 	for i := range candidate.Databases {
-		candidate.Databases[i].Retention = p.Candidate.Databases[i].Retention
+		candidate.Databases[i] = candidate.Databases[i].WithRetention(p.Candidate.Databases[i].Retention())
+		if native, ok := candidate.Databases[i].Native(); ok {
+			wanted, nativeWanted := p.Candidate.Databases[i].Native()
+			if !nativeWanted || !nativeArchiveCandidatesMatch(native, wanted) {
+				return o, ErrConflict
+			}
+			candidate.Databases[i] = p.Candidate.Databases[i]
+		}
 	}
 	if !reflect.DeepEqual(candidate, p.Candidate) {
 		return o, ErrConflict
@@ -192,11 +202,28 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 		return o, err
 	}
 	for _, database := range p.Candidate.Databases {
+		if native, ok := database.Native(); ok {
+			var launch *data.EngineLock
+			for _, lock := range guards {
+				if held, ok := lock.(*data.EngineLock); ok && held.HoldsLaunch(s.dir, native.Binding.BindingID) {
+					launch = held
+				}
+			}
+			fence, err := s.claimNativeArchiveDatabase(ctx, tx, p, o, native, launch)
+			if err != nil {
+				return o, err
+			}
+			if _, err = tx.ExecContext(ctx, "INSERT INTO data_archive_fences VALUES(?,?,?)", o.ID, fence.DatabaseID, fence.ID); err != nil {
+				return o, err
+			}
+			o.Fences = append(o.Fences, fence)
+			continue
+		}
 		id, err := data.NewID()
 		if err != nil {
 			return o, err
 		}
-		fence := data.QuiescenceFence{ID: data.FenceID(id), IncarnationID: p.Candidate.Incarnation, DatabaseID: database.Binding.DatabaseID, OperationID: o.ID, State: data.FenceHeld}
+		fence := data.QuiescenceFence{ID: data.FenceID(id), IncarnationID: p.Candidate.Incarnation, DatabaseID: database.Reference().DatabaseID, OperationID: o.ID, State: data.FenceHeld}
 		if _, err = tx.ExecContext(ctx, "INSERT INTO data_fences VALUES(?,?,?,?,?)", fence.ID, fence.DatabaseID, fence.IncarnationID, fence.OperationID, fence.State); err != nil {
 			return o, err
 		}
@@ -254,12 +281,19 @@ func (s *Store) SaveArchiveCoverage(ctx context.Context, o archive.Operation, co
 		if !point.Admits(p, p.Candidate.Databases[i], o.ID, time.Now().UTC()) {
 			return o, ErrInvalid
 		}
-		if point.Point != nil {
-			raw, err := json.Marshal(point.Point)
+		if nativePoint, ok := point.Native(); ok {
+			native, ok := p.Candidate.Databases[i].Native()
+			if !ok || checkNativeArchiveCoverageTx(ctx, tx, o, p, native, nativePoint) != nil {
+				return o, ErrConflict
+			}
+		}
+		sqlitePoint, sqlite := point.SQLite()
+		if sqlite && sqlitePoint.Point != nil {
+			raw, err := json.Marshal(sqlitePoint.Point)
 			if err != nil {
 				return o, err
 			}
-			if _, err = tx.ExecContext(ctx, "INSERT INTO data_restore_points VALUES(?,?,?,?)", point.Point.ID, point.Point.BindingID, point.Point.EpochID, raw); err != nil {
+			if _, err = tx.ExecContext(ctx, "INSERT INTO data_restore_points VALUES(?,?,?,?)", sqlitePoint.Point.ID, sqlitePoint.Point.BindingID, sqlitePoint.Point.EpochID, raw); err != nil {
 				return o, err
 			}
 		}

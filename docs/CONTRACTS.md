@@ -956,7 +956,7 @@ Rollback planning compares the selected immutable release's declaration with eac
 
 Apply revalidates that comparison under the host lock before effects. Automatic deployment compensation, reconcile and resolve also need fresh schema proof before restoring an old unit or starting its writer, even if the candidate never reached healthy or schema mutation occurred outside deployment. The proof must cover the destination writer and every database it uses. `stateless_compatible` applies only to affirmatively stateless desired and observed data state. `compatibility_verified` requires current schema evidence and the destination release's declaration. It is not a reusable approval for any later schema. Unproven compensation becomes `recovery_required` rather than `rolled_back`.
 
-A down migration is itself a new reviewed migration. Live restore is a different planned operation under D8's `allow_agent_live_restore`, default false, and P04-09. Until that operation ships, P04-06's separately approved operator runbook governs live restore. The recovery decision records possible lost writes and establishes the restored schema before any app start. Neither an app rollback request nor a schema initialization/migration plan authorizes data restoration.
+A down migration is itself a new reviewed migration. Live restore is a different planned operation under D8's operator-owned `allow_live_restore`, default false. Until that operation ships, P04-06's separately approved operator runbook governs live restore. The recovery decision records possible lost writes and establishes the restored schema before any app start. Neither an app rollback request nor a schema initialization/migration plan authorizes data restoration.
 
 ### Delivery and acceptance gates
 
@@ -1280,6 +1280,96 @@ Residual same-identity filesystem race: pinned directory handles do not prevent 
 
 The owned SpacetimeDB store, secret versions, foreground service, launch guard, lifetime lock, and copied-native boot proof are specified in [Managed engine startup](managed-engine-startup.md). These internal primitives do not enable ordinary deployment, first publication, or live restore. Existing SQLite startup and canonical records retain their contract.
 
+Native live restore activation keeps the authenticated download intact. Under
+one retained restore intent, the host verifies the selected immutable point and
+reader disposal. Under the following transition intent, it copies only native
+checkpoint/history members into a separate staged tree and recovers the exact
+historical signing version through the existing immutable material writer. The
+protected target record binds the actual rooted staged inode, original inode,
+allocation, runtime, checkpoint, material readback and owned service readback.
+An existing partial staged tree is preserved and cannot be overwritten.
+
+The restore adapter derives its actual16 journal input from actual20 records;
+requests cannot supply a transition, proof, repository scope or target path.
+Preserve/promote moves use the existing rooted no-replace rename/fsync helpers.
+Recovery adopts a positively observed retained movement rather than repeating
+an unknown movement. Activation atomically settles actual20 progress and the
+new epoch without installing a live-start grant. Completion requires fresh
+original/target layout, owned material/service readback, compatible retained
+code and absence of engines, application writers, ingress and private readers.
+It completes actual16 and actual20 and releases only the original owned fence
+in the same transaction. Existing-transition resolution holds fresh real guards
+and validates the immutable original claim, consumer, fence and current16
+layout; it never reopens an expired stopped-source mutation permit.
+
+The native restore commands below expose these guarded effects through the
+qualified backup runtime and existing operation adapter. Storage/helper tests
+alone are not physical restore acceptance.
+
+
+## Native backup command execution
+
+The reference-only native backup commands are described in
+[native-backup-commands.md](native-backup-commands.md). Their host controller
+binds the actual requester, current managed binding and protected policy before
+submitting work through the existing detached job engine. Recovery passwords
+are written privately before submission; operation journals contain references
+and hashes only. Native S3 credential delivery uses actual native archive scope
+and does not construct a SQLite replica.
+
+Routine capture holds the binding launch guard while the native writer remains
+running. It copies selected owned history, checks captured prefixes independently,
+and derives the actual sole replica and bounded compressed expansion sizes.
+Current module/control observations and the fixed passive native reader precede
+upload. The selected archive includes exact native-source metadata and encrypted
+signing recovery material. Authenticated remote extraction, complete persisted
+state equality, confirmed lower-bound inclusion and final-pair equality precede
+an immutable historical point. Later loss is unknown.
+
+Exact preparation additionally retains its original fence and clean-stop
+observations, withdraws hash-owned ingress under the host lock, and holds the
+native lifetime lock. Its completed source reloads the retained generation and
+exact bundle, not a newly generated checkpoint. The actual initial-owner helper
+supplies unpublished publisher provenance; JWT syntax does not supply it.
+Historical restore-test reads the exact retained point and verifies in private
+isolation without starting or replacing live data.
+
+Native backup activation records repository creation before invocation and
+requires opaque authenticated configuration readback. A pending activation
+blocks another creation attempt for the binding. Fixed unit and timer ownership
+and actual loaded timer properties precede active policy. Transport deadlines
+stay within both the caller budget and admitted material expiry. Enrollment
+installs the independently published main native-reader0.0.5 platform pin;
+reader execution pulls its fixed digest only after affirmative local absence.
+Unknown effects preserve their intents and partial files. Reference-only
+`native_backup_inspect`, `native_backup_review` and `native_backup_resolve` use
+fixed readback and an independent resolver task. Schema22 retains original upload
+source/workspace descriptors, fresh expiring reviews and resolver completion rows.
+Original outcomes remain immutable. Effective success requires the actual
+successful resolver outcome, exact original scope and real producer completion;
+a completion row or well-formed receipt alone is insufficient. Cleanup follows
+durable producer/resolution proof and precedes the success reply. Planned data
+mutations exclude unfinished uploads without asserting quiescence or stopping
+ordinary writers. Partial or unprovable effects refuse and retain their resources.
+Physical phase acceptance remains pending.
+
+## Native material delivery
+
+`native_material_set` is a synchronous, mutating, private-stdin operation with
+closed app/preparation-plan/idempotency selectors and four fixed roles. It is
+not a detached task and cannot queue plaintext. Schema 23 retains immutable
+metadata-only material reservations and terminal receipts through the existing
+operation/event journal. Host failures retain their candidate files and versions
+for inspection, never overwrite or resume an unknown write. `native_material_status`
+is read-only and bound to the server-established requester.
+
+The first delivery requires the genuine never-started managed allocation under
+its positively existing original fence. It commits only configured-unpublished
+runtime expectations: native database/publisher identities stay empty and names
+remain empty. Signed JWT claims and desired module metadata grant no native
+initialized authority. Later deliveries remain unreferenced by the active head;
+material activation is a separate reviewed operation. See
+[native material commands](native-material-commands.md) for the packet and flow.
 
 ### Passive discovery after unknown first publication
 
@@ -1300,3 +1390,95 @@ Discovery does not establish a logical database name or release a publication
 fence. Missing, partial, ambiguous, multi-module or corrupt history leaves the
 original publication unknown. Current request producers change together with
 the reader; there is no old-request fallback.
+### Native live restore execution
+
+`restore native-live plan APP` selects one immutable verified remote point, one
+fresh exact prepared current point and one compatible retained recovery release.
+The default-false live restore policy applies to both plan and execution. Apply
+submits `native_live_restore` through the existing detached task runner. Requests
+contain references only. The host reopens the completed original stop under actual
+launch and lifetime locks, copies and checks its retained checkpoint, records one
+download intent and verifies the authenticated extraction with the pinned passive
+reader. Any uncertain download retains its stage and fence and cannot be retried.
+
+Target preparation preserves the download, exact signing versions and original
+owner. The shared incoming repository lease records one initialization attempt,
+then authenticated config readback. Rooted no-replace moves journal preservation
+and promotion before epoch activation. Fresh loaded-route absence, service jobs,
+container/process absence, owned units, secret files and installed compatible code
+are checked before activation and completion. Completion retains the original
+whole tree, releases its original fence and leaves the new epoch stopped. The
+restore retains an immutable code intent naming both the original current release
+and the reviewed recovery release. With the original fence and both host guards
+held, it verifies the recovery image and retained secret versions, then uses the
+existing Quadlet staging and replacement to install the reviewed frontend while
+preserving its predecessor. Engine-only recovery removes and retains the prior
+frontend. No service starts or route publication occur. Epoch activation selects
+the reviewed release head in the same transaction. An interrupted replacement
+can settle only an observed original or reviewed artifact under that same intent.
+
+`inspect` reads retained progress. `review-resolution` binds a fresh immutable
+review to the original operation, journal head, transition input and actual layout,
+material and code observations. `resolve` uses its own task operation and guards,
+keeps the original recovery-required outcome unchanged and completes known moves
+through observed layout and fsync adoption. It never repeats extraction or
+repository creation. Missing target preparation, uncertain extraction or an
+unexplained layout refuses resolution and retains the fence for manual inspection.
+
+### Native archive retirement
+
+`archive native plan APP` reads an existing exact prepared point protecting the
+current initialized or positively unpublished native engine, every retained backup epoch and every terminal
+engine transition. Nonterminal transitions and unreserved incoming repositories
+refuse planning. The plan binds complete local transition-tree identities and
+retention evidence. `apply` submits `native_retire` through the existing task
+runner and uses the existing ordered archive service.
+
+Native retirement consumes the original prepared point once and keeps its original
+fence owner. A protected native archive verification row joins the actual stopped
+preparation, current head, authenticated extraction, passive replay, confirmed
+marker, signing/recovery bundle and known reader disposal. Coverage JSON alone
+cannot authorize retirement. The owned engine service is retained locally before
+retirement; recovery secrets and remote repositories are preserved.
+
+After the application tree moves, each complete terminal transition directory
+moves into the archive's `native-transitions` directory through a separate durable
+intent, rooted no-replace rename and parent fsync. Retained pending moves can only
+be adopted from positively observed destination identities. A pending source-side
+move is not blindly retried. Final retirement requires every transition move and
+sets the original thirty-day deadline only after all moves complete. SQLite
+archive records retain their original canonical encoding.
+
+`resolve OPERATION_ID` uses a separate `native_retire_resolve` task and preserves
+the original recovery-required outcome. With the original manifest and real host
+guards, it checks current unit ownership, loaded frontend jobs/processes, private
+reader absence and original source bytes. A new authenticated read and passive
+replay verifies the original bundle. Known completed unit/tree moves are synced
+and adopted; uncertain preparation without a manifest remains fenced.
+
+Archived repository reads have a separate capability joining the immutable
+manifest, canonical point dependency, original consumer/fence and exact retained
+bundle. Retired maintenance does not require an active incarnation or reuse an
+expired preparation permission. Eligible archived credentials and the original
+recovery version bound every read. The transport deadline ends before the
+credential authority. Retention receipts come only from authenticated extraction
+and, for initialized data, fixed passive replay with known reader disposal.
+Store receipt writes and reads independently join their protected replay row.
+
+Positively unpublished retirement retains the actual owner/config/metadata and
+signing-recovery source under authenticated extraction. It requires absent
+frontend artifacts, processes and loaded routes. It neither creates a database
+nor substitutes initialized schema, marker or offset evidence.
+
+No physical native retirement, successful R2 restore, post-archive recovery or
+purge acceptance is claimed by command, structural and local filesystem tests.
+
+Early archive purge requires the separate `allow_archive_purge=true` operator
+policy grant. Omission and explicit false preserve the previous canonical policy
+bytes and deny purge. Live restore does not grant purge. Plan and execution both
+recheck the grant; revocation prevents new deletion effects. Expiry remains bound
+to the original thirty-day deadline. Written/native early purge also requires a
+fresh protected retention proof, whose canonical hash is retained in the original
+deletion intent. Recovery preserves that intent and proof and checks the current
+grant, policy and retention before each further destructive step. Neither purpose
+deletes remote objects.

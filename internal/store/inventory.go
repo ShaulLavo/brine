@@ -190,6 +190,9 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 			apps[op.app] = app
 		}
 	}
+	if err := reserveCommittedPorts(ctx, tx, &result, apps); err != nil {
+		return result, err
+	}
 	for _, app := range apps {
 		if unsettled[app.Name] {
 			app.Status = target.Unknown

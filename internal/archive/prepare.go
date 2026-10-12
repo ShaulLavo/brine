@@ -77,11 +77,11 @@ func (s Service) Plan(ctx context.Context, app string) (p Plan, err error) {
 	roots := map[data.PersistentRoot]bool{}
 	p.Trees = nil
 	for _, database := range p.Candidate.Databases {
-		if roots[database.Binding.Root] {
+		if roots[database.Reference().Root] {
 			continue
 		}
-		roots[database.Binding.Root] = true
-		tree, err := data.CaptureArchiveTree(database.Binding.Root, p.Candidate.Incarnation, p.ArchiveID)
+		roots[database.Reference().Root] = true
+		tree, err := data.CaptureArchiveTree(database.Reference().Root, p.Candidate.Incarnation, p.ArchiveID)
 		if err != nil {
 			return Plan{}, ErrRefused
 		}
@@ -139,8 +139,8 @@ func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest
 		}
 	}
 	for _, database := range p.Candidate.Databases {
-		for i, epoch := range database.Epochs {
-			if !database.Retention[i].Admits(epoch.Destination, s.now()) {
+		for i, epoch := range database.ArchiveBindings() {
+			if !database.Retention()[i].Admits(epoch.Destination, s.now()) {
 				return manifest, ErrRefused
 			}
 		}
@@ -193,7 +193,7 @@ func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest
 		}
 	}
 	for _, database := range p.Candidate.Databases {
-		if database.Allocation == nil || data.VerifyArchiveAllocation(database.Binding, *database.Allocation) != nil {
+		if verifyDatabaseAllocation(database, p.ArchiveID, false) != nil {
 			return manifest, ErrRecovery
 		}
 	}
@@ -215,7 +215,7 @@ func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest
 // Never-written allocations use fresh emptiness evidence, not an epoch restore.
 func preparationCoverageSupported(candidate Candidate) bool {
 	for _, database := range candidate.Databases {
-		if database.Written && len(database.Epochs) != 1 {
+		if database.Engine() == data.EngineSQLite && database.Written() && len(database.ArchiveBindings()) != 1 {
 			return false
 		}
 	}

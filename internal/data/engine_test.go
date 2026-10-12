@@ -3,7 +3,6 @@ package data
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -62,45 +61,14 @@ func TestEngineDeclarationDecoderRejectsForeignAndIncompleteTags(t *testing.T) {
 	}
 }
 
-func TestEngineObservationRefusesCatalogEvidenceForSpacetimeDB(t *testing.T) {
-	at := time.Date(2026, 10, 10, 12, 0, 0, 0, time.UTC)
-	observed, err := SpacetimeDBObservation(SpacetimeDBSchemaObservation{State: VerifiedSchema, DatabaseID: DatabaseID(strings.Repeat("a", 32)), ObservedAt: at, Marker: "game-v1", ModuleIdentity: strings.Repeat("b", 64), SchemaSHA256: strings.Repeat("c", 64)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw, err := json.Marshal(observed)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var decoded EngineObservation
-	if err = json.Unmarshal(raw, &decoded); err != nil || decoded.Kind() != EngineSpacetimeDB {
-		t.Fatal("SpacetimeDB observation did not round-trip", err)
-	}
-	if _, ok := decoded.SQLite(); ok {
-		t.Fatal("SpacetimeDB observation converted to SQLite")
-	}
-	for _, forged := range []string{
-		strings.Replace(string(raw), `"schema_sha256"`, `"catalog_sha256"`, 1),
-		strings.Replace(string(raw), `"engine":"spacetimedb"`, `"engine":"sqlite"`, 1),
-		strings.Replace(string(raw), `"module_identity":`, `"module_identity":null,"ignored":`, 1),
-	} {
-		if json.Unmarshal([]byte(forged), &decoded) == nil {
-			t.Fatal("foreign or incomplete schema evidence accepted")
-		}
-	}
-}
-
 func TestEngineOperationsRefuseBeforeFilesystemEffects(t *testing.T) {
 	ctx := context.Background()
-	for _, target := range []ObservationTarget{{}, SpacetimeDBObservationTarget(DatabaseID(strings.Repeat("a", 32)))} {
+	for _, target := range []ObservationTarget{{}, {kind: EngineSpacetimeDB}} {
 		if _, err := ObserveEngine(ctx, target, time.Second); err == nil {
 			t.Fatal("unimplemented engine observation admitted")
 		}
 	}
-	if _, err := ObserveEngine(ctx, SpacetimeDBObservationTarget("invalid"), time.Second); !errors.Is(err, ErrUnsupportedEngine) {
-		t.Fatal("unimplemented engine was inferred from a path or identifier", err)
-	}
-	for _, target := range []CaptureTarget{{}, SpacetimeDBCaptureTarget()} {
+	for _, target := range []CaptureTarget{{}, {kind: EngineSpacetimeDB}} {
 		if _, err := CaptureEngine(ctx, target, time.Second); err == nil {
 			t.Fatal("unimplemented engine capture admitted")
 		}

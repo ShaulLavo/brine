@@ -170,10 +170,3 @@ func configurationMatches(expected string, members []CheckpointMember) bool {
 	}
 	return false
 }
-
-func CheckGeneration(checkpoint Checkpoint, current Checkpoint) error {
-	if checkpoint.hash == "" || current.hash == "" || checkpoint.hash != current.hash {
-		return ErrDrift
-	}
-	return nil
-}

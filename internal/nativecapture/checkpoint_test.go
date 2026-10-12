@@ -2,7 +2,6 @@ package nativecapture
 
 import (
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 
@@ -13,7 +12,7 @@ func fixtureCheckpoint() CheckpointRecord {
 	return CheckpointRecord{Format: Format, Scope: CheckpointScope{BindingID: fixtureScope().BindingID, EpochID: fixtureScope().EpochID, ReplicaID: 1}, GenerationID: strings.Repeat("1", 32), DatabaseIdentity: strings.Repeat("2", 64), PublisherIdentity: strings.Repeat("3", 64), Names: []string{"fixture"}, RuntimeModuleHash: strings.Repeat("4", 64), ArtifactSHA256: strings.Repeat("5", 64), SchemaVersion: spacetimedb.CanonicalizerVersion, SchemaSHA256: strings.Repeat("6", 64), ConfigurationSHA256: strings.Repeat("7", 64), SigningRecovery: SigningRecovery{Kind: "external_immutable", Reference: "fixture-signing", Version: 1, SHA256: strings.Repeat("8", 64)}, Members: []CheckpointMember{{Path: "config.toml", Bytes: 32, SHA256: strings.Repeat("7", 64)}, {Path: "control-db/db", Bytes: 64, SHA256: strings.Repeat("9", 64)}}}
 }
 
-func TestCheckpointCodecOwnsEvidenceAndRefusesMixedGeneration(t *testing.T) {
+func TestCheckpointCodecOwnsEvidenceAndRefusesInvalidFields(t *testing.T) {
 	record := fixtureCheckpoint()
 	checkpoint, err := NewCheckpoint(record, DefaultLimits())
 	if err != nil {
@@ -27,15 +26,6 @@ func TestCheckpointCodecOwnsEvidenceAndRefusesMixedGeneration(t *testing.T) {
 	decoded, err := DecodeCheckpoint(checkpoint.Bytes(), DefaultLimits())
 	if err != nil || decoded.SHA256() != checkpoint.SHA256() {
 		t.Fatal("checkpoint codec failed", err)
-	}
-	changed := checkpoint.Record()
-	changed.GenerationID = strings.Repeat("a", 32)
-	after, err := NewCheckpoint(changed, DefaultLimits())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := CheckGeneration(checkpoint, after); !errors.Is(err, ErrDrift) {
-		t.Fatal("mixed checkpoint accepted", err)
 	}
 	for _, invalid := range []string{
 		strings.Replace(string(checkpoint.Bytes()), `"members":`, `"unknown":true,"members":`, 1),

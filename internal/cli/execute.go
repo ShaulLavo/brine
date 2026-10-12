@@ -10,6 +10,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -33,6 +34,7 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 			deps.HostOperationRunner = lazyOperationRunner{&runtime}
 		}
 		deps.HostReconciler = lazyReconciler{&runtime}
+		deps.HostNativeCapture = lazyNativeCapture{&runtime}.Capture
 		deps.HostArchives = lazyArchives{&runtime}
 		deps.HostArchiveMaintenance = lazyArchiveMaintenance{&runtime}
 		deps.HostArchiveCredentials = lazyArchiveCredentials{&runtime}
@@ -152,6 +154,7 @@ func validEnvelopeStream(data []byte, command string) bool {
 }
 
 type RuntimeServices struct {
+	NativeCapture         func(context.Context, string) (jobs.Accepted, error)
 	Archives              archive.Service
 	ArchiveMaintenance    archive.MaintenanceService
 	ArchiveCredentials    backupcredentials.ArchiveService

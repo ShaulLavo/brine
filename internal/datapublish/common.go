@@ -5,7 +5,6 @@ package datapublish
 import (
 	"errors"
 	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -21,16 +20,12 @@ const RecordLimit = 64 << 10
 const MaxReviewLifetime = 15 * time.Minute
 
 var appName = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
-var versionReference = regexp.MustCompile(`^brine\.[a-z][a-z0-9-]{0,62}\.[A-Za-z0-9][A-Za-z0-9_-]{0,252}\.v[1-9][0-9]{0,19}$`)
 var operationReference = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 
 func digest(value string) bool   { return data.ValidCatalogHash(value) }
 func identity(value string) bool { return data.ValidID(value) }
 func planID(value string) bool {
 	return strings.HasPrefix(value, "sha256:") && digest(strings.TrimPrefix(value, "sha256:"))
-}
-func secretReference(value, app string) bool {
-	return len(value) <= 253 && versionReference.MatchString(value) && strings.HasPrefix(value, "brine."+app+".")
 }
 func utc(value time.Time) bool { return !value.IsZero() && value.Location() == time.UTC }
 
@@ -46,18 +41,21 @@ type CoverageContract string
 const ConfirmedRecoveryPairsV1 CoverageContract = "brine-recovery-pairs-confirmed-v1"
 
 type SecretReferences struct {
-	Publisher        string `json:"publisher"`
-	SigningPublic    string `json:"signing_public"`
-	SigningPrivate   string `json:"signing_private"`
-	RecoveryPassword string `json:"recovery_password"`
+	Publisher        data.EngineSecretVersion `json:"publisher"`
+	SigningPublic    data.EngineSecretVersion `json:"signing_public"`
+	SigningPrivate   data.EngineSecretVersion `json:"signing_private"`
+	AuthPolicy       data.EngineSecretVersion `json:"auth_policy"`
+	RecoveryPassword data.EngineSecretVersion `json:"recovery_password"`
 }
 
-func (s SecretReferences) valid(app string) bool {
-	refs := []string{s.Publisher, s.SigningPublic, s.SigningPrivate, s.RecoveryPassword}
-	for i, ref := range refs {
-		if !secretReference(ref, app) || slices.Contains(refs[:i], ref) {
+func (s SecretReferences) valid() bool {
+	refs := []data.EngineSecretVersion{s.Publisher, s.SigningPublic, s.SigningPrivate, s.AuthPolicy, s.RecoveryPassword}
+	seen := make(map[string]bool, len(refs))
+	for _, ref := range refs {
+		if ref.Validate() != nil || seen[ref.Reference] {
 			return false
 		}
+		seen[ref.Reference] = true
 	}
 	return true
 }
@@ -78,5 +76,5 @@ type BindingFacts struct {
 
 func (f BindingFacts) valid() bool {
 	return appName.MatchString(f.App) && identity(f.IncarnationID) && identity(f.DatabaseID) && identity(f.BindingID) && identity(f.EpochID) &&
-		digest(f.TargetSHA256) && digest(f.PolicySHA256) && digest(f.DesiredSHA256) && digest(f.ConfigSHA256) && f.SecretVersions.valid(f.App)
+		digest(f.TargetSHA256) && digest(f.PolicySHA256) && digest(f.DesiredSHA256) && digest(f.ConfigSHA256) && f.SecretVersions.valid()
 }

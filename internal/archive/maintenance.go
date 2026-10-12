@@ -22,6 +22,7 @@ const (
 
 type MaintenanceAdmission struct {
 	RetentionAdmitted bool   `json:"retention_admitted"`
+	PurgeAllowed      bool   `json:"purge_allowed,omitempty"`
 	PolicyHash        string `json:"policy_hash"`
 	TargetHash        string `json:"target_hash"`
 }
@@ -62,13 +63,25 @@ func (p MaintenancePlan) Valid() bool {
 }
 
 type RetentionProof struct {
-	PolicyHash  string                  `json:"policy_hash"`
-	TargetHash  string                  `json:"target_hash"`
-	ArchiveID   data.ArchiveID          `json:"archive_id"`
-	VerifiedAt  time.Time               `json:"verified_at"`
-	ValidUntil  time.Time               `json:"valid_until"`
-	RetainUntil time.Time               `json:"retain_until"`
-	Receipts    []restore.SQLiteReceipt `json:"receipts,omitempty"`
+	PolicyHash     string                   `json:"policy_hash"`
+	TargetHash     string                   `json:"target_hash"`
+	ArchiveID      data.ArchiveID           `json:"archive_id"`
+	VerifiedAt     time.Time                `json:"verified_at"`
+	ValidUntil     time.Time                `json:"valid_until"`
+	RetainUntil    time.Time                `json:"retain_until"`
+	Receipts       []restore.SQLiteReceipt  `json:"receipts,omitempty"`
+	NativeReceipts []NativeRetentionReceipt `json:"native_receipts,omitempty"`
+}
+
+type NativeRetentionReceipt struct {
+	ID          string                `json:"id"`
+	SHA256      string                `json:"sha256"`
+	ArchiveID   data.ArchiveID        `json:"archive_id"`
+	BindingID   data.ReplicaBindingID `json:"binding_id"`
+	EpochID     data.ReplicaEpochID   `json:"epoch_id"`
+	PointID     string                `json:"point_id"`
+	PointSHA256 string                `json:"point_sha256"`
+	VerifiedAt  time.Time             `json:"verified_at"`
 }
 type DeletionStage string
 
@@ -80,21 +93,25 @@ const (
 )
 
 type Deletion struct {
-	ArchiveID   data.ArchiveID  `json:"archive_id"`
-	PlanID      string          `json:"plan_id"`
-	Kind        MaintenanceKind `json:"kind"`
-	Sequence    uint64          `json:"sequence"`
-	Stage       DeletionStage   `json:"stage"`
-	TreeIndex   int             `json:"tree_index"`
-	StartedAt   time.Time       `json:"started_at"`
-	CompletedAt time.Time       `json:"completed_at,omitempty"`
+	ArchiveID       data.ArchiveID  `json:"archive_id"`
+	PlanID          string          `json:"plan_id"`
+	Kind            MaintenanceKind `json:"kind"`
+	Sequence        uint64          `json:"sequence"`
+	Stage           DeletionStage   `json:"stage"`
+	TreeIndex       int             `json:"tree_index"`
+	StartedAt       time.Time       `json:"started_at"`
+	CompletedAt     time.Time       `json:"completed_at,omitempty"`
+	RetentionSHA256 string          `json:"retention_sha256,omitempty"`
 }
 
 func DeletionNext(old, next Deletion, trees int) bool {
 	if !data.ValidID(string(next.ArchiveID)) || !digest.MatchString(next.PlanID) || next.Kind != PurgeArchive && next.Kind != ExpireArchive || trees < 1 || trees > 16 || next.TreeIndex < 0 || next.TreeIndex >= trees || next.Sequence != old.Sequence+1 || next.StartedAt.IsZero() || next.Stage != DeletionComplete && !next.CompletedAt.IsZero() {
 		return false
 	}
-	if old.Sequence != 0 && (old.ArchiveID != next.ArchiveID || old.PlanID != next.PlanID || old.Kind != next.Kind || !old.StartedAt.Equal(next.StartedAt)) {
+	if next.RetentionSHA256 != "" && !digest.MatchString(next.RetentionSHA256) || next.Kind != PurgeArchive && next.RetentionSHA256 != "" {
+		return false
+	}
+	if old.Sequence != 0 && (old.ArchiveID != next.ArchiveID || old.PlanID != next.PlanID || old.Kind != next.Kind || old.RetentionSHA256 != next.RetentionSHA256 || !old.StartedAt.Equal(next.StartedAt)) {
 		return false
 	}
 	switch old.Stage {
@@ -196,7 +213,14 @@ func verifyDeletionLocations(p Plan, reviewed MaintenancePlan, d Deletion, adopt
 }
 func verifyArchiveAllocations(p Plan) error {
 	for _, d := range p.Candidate.Databases {
-		if d.Allocation == nil || data.VerifyArchivedAllocation(d.Binding, *d.Allocation, p.ArchiveID) != nil {
+		if native, ok := d.Native(); ok {
+			if native.Allocation == nil || data.VerifyNativeArchivedAllocation(native.Binding, *native.Allocation, p.ArchiveID) != nil {
+				return ErrRefused
+			}
+			continue
+		}
+		sqlDatabase, sqlite := d.SQLite()
+		if !sqlite || sqlDatabase.Allocation == nil || data.VerifyArchivedAllocation(sqlDatabase.Binding, *sqlDatabase.Allocation, p.ArchiveID) != nil {
 			return ErrRefused
 		}
 	}
@@ -220,7 +244,7 @@ func (s MaintenanceService) Plan(ctx context.Context, id data.ArchiveID, kind Ma
 		return out, ErrRefused
 	}
 	admission, err := s.Host.ArchiveMaintenanceAdmission(ctx, p, d)
-	if err != nil || admission.TargetHash != p.TargetHash {
+	if err != nil || admission.TargetHash != p.TargetHash || kind == PurgeArchive && !admission.PurgeAllowed {
 		return out, ErrRefused
 	}
 	out = MaintenancePlan{ArchiveID: id, ArchivePlanID: p.ID, Kind: kind, Requester: s.Requester, PolicyHash: admission.PolicyHash, TargetHash: admission.TargetHash, CreatedAt: s.now(), RetiredAt: d.CommittedAt, RetainUntil: d.RetainUntil}
@@ -259,7 +283,7 @@ func (s MaintenanceService) reviewed(ctx context.Context, id string) (plan Maint
 func (s MaintenanceService) freshAdmission(ctx context.Context, plan MaintenancePlan, p Plan, d Disposition) error {
 	now := s.now()
 	admission, err := s.Host.ArchiveMaintenanceAdmission(ctx, p, d)
-	if err != nil || plan.PolicyHash != admission.PolicyHash || plan.TargetHash != admission.TargetHash || now.Before(plan.CreatedAt) || now.Sub(plan.CreatedAt) > MaxEvidenceAge {
+	if err != nil || plan.Kind == PurgeArchive && !admission.PurgeAllowed || plan.PolicyHash != admission.PolicyHash || plan.TargetHash != admission.TargetHash || now.Before(plan.CreatedAt) || now.Sub(plan.CreatedAt) > MaxEvidenceAge {
 		return ErrRefused
 	}
 	return nil
@@ -303,24 +327,37 @@ func RetentionProofMatches(proof RetentionProof, p Plan, d Disposition, m Manife
 	if !digest.MatchString(proof.PolicyHash) || proof.TargetHash != p.TargetHash || !p.Valid() || !m.Valid() || m.Plan.ID != p.ID || d.Stage != Retired || d.ArchiveID != p.ArchiveID || proof.VerifiedAt.IsZero() || proof.ArchiveID != p.ArchiveID || !proof.RetainUntil.Equal(d.RetainUntil) || now.Before(proof.VerifiedAt) || now.Sub(proof.VerifiedAt) > MaxEvidenceAge || !now.Before(proof.ValidUntil) || proof.ValidUntil.After(proof.VerifiedAt.Add(MaxEvidenceAge)) || proof.ValidUntil.After(d.RetainUntil) {
 		return false
 	}
-	index := 0
+	index, nativeIndex := 0, 0
 	for i, database := range p.Candidate.Databases {
-		if !database.Written {
+		if native, ok := database.Native(); ok {
+			covered, ok := m.Coverage[i].Native()
+			if !ok || nativeIndex >= len(proof.NativeReceipts) {
+				return false
+			}
+			receipt := proof.NativeReceipts[nativeIndex]
+			nativeIndex++
+			if !data.ValidID(receipt.ID) || !data.ValidCatalogHash(receipt.SHA256) || receipt.ArchiveID != p.ArchiveID || receipt.BindingID != native.Binding.BindingID || receipt.EpochID != covered.Point.EpochID || receipt.PointID != covered.Point.ID || receipt.PointSHA256 != covered.Point.SHA256 || receipt.VerifiedAt.IsZero() || now.Before(receipt.VerifiedAt) || now.Sub(receipt.VerifiedAt) > MaxEvidenceAge {
+				return false
+			}
 			continue
 		}
-		if index >= len(proof.Receipts) || m.Coverage[i].Receipt == nil {
+		if !database.Written() {
+			continue
+		}
+		original, sqliteCoverage := m.Coverage[i].SQLite()
+		sqlDatabase, sqliteDatabase := database.SQLite()
+		if !sqliteCoverage || !sqliteDatabase || index >= len(proof.Receipts) || original.Receipt == nil {
 			return false
 		}
 		receipt := proof.Receipts[index]
-		original := m.Coverage[i]
 		index++
 		source, sourceErr := json.Marshal(receipt.Source)
 		wanted, wantedErr := json.Marshal(original.Receipt.Source)
-		if sourceErr != nil || wantedErr != nil || string(source) != string(wanted) || !receipt.Valid() || now.Before(receipt.ObservedAt) || now.Sub(receipt.ObservedAt) > MaxEvidenceAge || receipt.Schema.State != restore.SchemaState(original.Observation.State) || receipt.Schema.Marker != original.Observation.Marker || receipt.Schema.CatalogSHA256 != original.Observation.CatalogSHA256 || receipt.Coverage == nil || !receipt.Coverage.CoveredThrough.Equal(original.WritersQuiescedAt) || receipt.LossWindow.State != restore.LossBounded || len(database.Invariants) > 0 && receipt.InvariantCheck != "passed" {
+		if sourceErr != nil || wantedErr != nil || string(source) != string(wanted) || !receipt.Valid() || now.Before(receipt.ObservedAt) || now.Sub(receipt.ObservedAt) > MaxEvidenceAge || receipt.Schema.State != restore.SchemaState(original.Observation.State) || receipt.Schema.Marker != original.Observation.Marker || receipt.Schema.CatalogSHA256 != original.Observation.CatalogSHA256 || receipt.Coverage == nil || !receipt.Coverage.CoveredThrough.Equal(original.WritersQuiescedAt) || receipt.LossWindow.State != restore.LossBounded || len(sqlDatabase.Invariants) > 0 && receipt.InvariantCheck != "passed" {
 			return false
 		}
 	}
-	return index == len(proof.Receipts)
+	return index == len(proof.Receipts) && nativeIndex == len(proof.NativeReceipts)
 }
 func (s MaintenanceService) Delete(ctx context.Context, id string) (out Deletion, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
@@ -353,6 +390,18 @@ func (s MaintenanceService) Delete(ctx context.Context, id string) (out Deletion
 	}
 	defer func() { err = errors.Join(err, unlock()) }()
 	next := Deletion{ArchiveID: p.ArchiveID, PlanID: plan.ID, Kind: plan.Kind, Sequence: 1, Stage: DeletionIntent, StartedAt: s.now()}
+	if plan.Kind == PurgeArchive && PurgeProofRequired(p) {
+		proof, err := s.Journal.ReadRetentionProof(ctx, p.ArchiveID)
+		manifest, manifestErr := s.Journal.ReadArchiveManifest(ctx, p.ArchiveID)
+		admission, admissionErr := s.Host.ArchiveMaintenanceAdmission(ctx, p, d)
+		if err != nil || manifestErr != nil || admissionErr != nil || !admission.RetentionAdmitted || proof.PolicyHash != plan.PolicyHash || !RetentionProofMatches(proof, p, d, manifest, next.StartedAt) {
+			return out, ErrRefused
+		}
+		next.RetentionSHA256, err = RetentionProofSHA256(proof)
+		if err != nil {
+			return out, err
+		}
+	}
 	if err = s.Journal.AdvanceArchiveDeletion(ctx, out, next); err != nil {
 		return out, ErrRecovery
 	}
@@ -405,7 +454,10 @@ func (s MaintenanceService) deleteRunLocked(ctx context.Context, p Plan, d Dispo
 			return out, ErrRecovery
 		}
 		admission, admissionErr := s.Host.ArchiveMaintenanceAdmission(ctx, p, d)
-		if admissionErr != nil || admission.TargetHash != p.TargetHash {
+		if admissionErr != nil || admission.TargetHash != p.TargetHash || out.Kind == PurgeArchive && (!admission.PurgeAllowed || admission.PolicyHash != plan.PolicyHash) {
+			return out, ErrRecovery
+		}
+		if out.Kind == PurgeArchive && PurgeProofRequired(p) && (!admission.RetentionAdmitted || s.checkRetainedPurgeProof(ctx, p, d, out, admission.PolicyHash) != nil) {
 			return out, ErrRecovery
 		}
 		next := out
@@ -435,6 +487,34 @@ func (s MaintenanceService) deleteRunLocked(ctx context.Context, p Plan, d Dispo
 		out = next
 	}
 	return out, nil
+}
+
+func PurgeProofRequired(p Plan) bool {
+	for _, database := range p.Candidate.Databases {
+		if database.Engine() == data.EngineSpacetimeDB || database.Written() {
+			return true
+		}
+	}
+	return false
+}
+
+func RetentionProofSHA256(proof RetentionProof) (string, error) {
+	raw, err := json.Marshal(proof)
+	if err != nil {
+		return "", ErrRefused
+	}
+	sum := sha256.Sum256(raw)
+	return "sha256:" + hex.EncodeToString(sum[:]), nil
+}
+
+func (s MaintenanceService) checkRetainedPurgeProof(ctx context.Context, p Plan, d Disposition, deletion Deletion, policyHash string) error {
+	proof, err := s.Journal.ReadRetentionProof(ctx, p.ArchiveID)
+	manifest, manifestErr := s.Journal.ReadArchiveManifest(ctx, p.ArchiveID)
+	hash, hashErr := RetentionProofSHA256(proof)
+	if err != nil || manifestErr != nil || hashErr != nil || deletion.RetentionSHA256 != hash || proof.PolicyHash != policyHash || !RetentionProofMatches(proof, p, d, manifest, deletion.StartedAt) {
+		return ErrRefused
+	}
+	return nil
 }
 
 type MaintenanceOutcome struct {

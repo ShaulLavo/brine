@@ -56,3 +56,5 @@ func cloneSQLiteReceipt(r SQLiteReceipt) SQLiteReceipt {
 	r.Coverage = cloneCoverage(r.Coverage)
 	return r
 }
+
+func (r SQLiteReceipt) Clone() SQLiteReceipt { return cloneSQLiteReceipt(r) }

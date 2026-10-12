@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/replication"
@@ -14,48 +15,58 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.13-dev"
+const Version = "0.1.14-dev"
 
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
 type Dependencies struct {
-	Context                   context.Context
-	Stdin                     io.Reader // Borrowed exclusively during secret reads; see readSecretInput.
-	Stdout                    io.Writer
-	Stderr                    io.Writer
-	Version                   string
-	LookPath                  func(string) (string, error)
-	RunTUI                    func(context.Context, io.Reader, io.Writer) error
-	DoctorRunner              localexec.Runner // Optional; nil uses bounded local execution.
-	HostServerFactory         dispatch.Factory
-	HostPlanner               dispatch.Planner
-	HostInventory             dispatch.Inventory
-	HostUID                   func() int // Optional; nil reads the effective process UID.
-	OriginalCommandLength     int
-	HostJobs                  dispatch.JobOperations
-	HostAuthorization         dispatch.Authorization
-	HostReconciler            dispatch.ReconcileOperations
-	HostOperationRunner       OperationRunner
-	OperationClient           OperationClient
-	LoadOperationTarget       func(string, string) (transport.Target, error)
-	HostLogs                  dispatch.LogReader
-	LogsClient                LogsClient
-	HostApps                  dispatch.AppOperations
-	HostDiagnose              dispatch.DiagnosticReader
-	HostConfig                dispatch.ConfigurationOperations
-	HostSecrets               dispatch.SecretOperations
-	HostWriterAttempt         func(context.Context, string) error
-	HostEngineExec            func(context.Context, string) error
-	HostEngineStop            func(context.Context, string) error
-	HostManagedFrontendPermit func(context.Context, string, string) error
-	HostEngineCopyObserve     func(context.Context, io.Reader, io.Writer) error
-	HostBackupCredentials     dispatch.BackupCredentialOperations
-	HostArchives              ArchiveOperations
-	HostArchiveMaintenance    ArchiveMaintenanceOperations
-	HostArchiveCredentials    ArchiveCredentialOperations
-	HostDataInitialization    dispatch.DataInitializationOperations
-	HostPermits               replication.LaunchReader
-	HostRestoreTests          dispatch.RestoreTestOperations
+	Context                    context.Context
+	Stdin                      io.Reader // Borrowed exclusively during secret reads; see readSecretInput.
+	Stdout                     io.Writer
+	Stderr                     io.Writer
+	Version                    string
+	LookPath                   func(string) (string, error)
+	RunTUI                     func(context.Context, io.Reader, io.Writer) error
+	DoctorRunner               localexec.Runner // Optional; nil uses bounded local execution.
+	HostServerFactory          dispatch.Factory
+	HostPlanner                dispatch.Planner
+	HostInventory              dispatch.Inventory
+	HostUID                    func() int // Optional; nil reads the effective process UID.
+	OriginalCommandLength      int
+	HostJobs                   dispatch.JobOperations
+	HostAuthorization          dispatch.Authorization
+	HostReconciler             dispatch.ReconcileOperations
+	HostOperationRunner        OperationRunner
+	OperationClient            OperationClient
+	LoadOperationTarget        func(string, string) (transport.Target, error)
+	HostLogs                   dispatch.LogReader
+	LogsClient                 LogsClient
+	HostApps                   dispatch.AppOperations
+	HostDiagnose               dispatch.DiagnosticReader
+	HostConfig                 dispatch.ConfigurationOperations
+	HostSecrets                dispatch.SecretOperations
+	HostWriterAttempt          func(context.Context, string) error
+	HostEngineExec             func(context.Context, string) error
+	HostEngineStop             func(context.Context, string) error
+	HostManagedFrontendPermit  func(context.Context, string, string) error
+	HostEngineCopyObserve      func(context.Context, io.Reader, io.Writer) error
+	HostModuleDescribe         func(context.Context, io.Reader, io.Writer) error
+	HostModuleDescribeProfile  func(context.Context, io.Reader, io.Writer) error
+	HostModuleStage            func(context.Context, io.Reader, io.Writer) error
+	HostBackupCredentials      dispatch.BackupCredentialOperations
+	HostArchives               ArchiveOperations
+	HostArchiveMaintenance     ArchiveMaintenanceOperations
+	HostArchiveCredentials     ArchiveCredentialOperations
+	HostDataInitialization     dispatch.DataInitializationOperations
+	HostPermits                replication.LaunchReader
+	HostRestoreTests           dispatch.RestoreTestOperations
+	HostNativeCapture          func(context.Context, string) (jobs.Accepted, error)
+	HostNativeBackupResolution dispatch.NativeBackupResolutionOperations
+	HostNativeBackupStatus     dispatch.NativeBackupStatusOperations
+	HostNativeBackupPolicy     dispatch.NativeBackupPolicyOperations
+	HostNativeMaterial         dispatch.NativeMaterialOperations
+	HostNativeRecovery         dispatch.NativeRecoveryOperations
+	HostNativeBackups          dispatch.NativeBackupOperations
 }
 
 // NewRootCommand builds an independent command tree without executing it.
@@ -87,6 +98,9 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.json, "json", false, "Machine-readable JSON output")
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
+	archiveCommand := &cobra.Command{Use: "archive", Short: "Review and retire data archives"}
+	archiveCommand.AddCommand(newNativeRetireCmd(deps, &modes))
+	root.AddCommand(archiveCommand)
 	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes), newRestoreCmd(deps, &modes), newDataCmd(deps, &modes))
 	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp), newLifecycleCmd(deps, &modes, "remove", plan.RemoveApp))
 	root.AddCommand(newReconcileCmd(&jsonOutput, deps))

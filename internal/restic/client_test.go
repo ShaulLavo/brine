@@ -98,10 +98,22 @@ func TestResticLocalEncryptedRoundTrip(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "ambient-key-must-not-be-used")
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	repository, err = client.Init(ctx, repository, work)
+	initialized, err := client.Init(ctx, repository, work)
 	if err != nil {
 		t.Fatal("actual encrypted initialization", err)
 	}
+	if !initialized.AdmitsCreation(repository.scope, repository.initializationPlan) {
+		t.Fatal("authenticated initialization lost its original creation grant")
+	}
+	if initialized.AdmitsCreation(repository.scope, strings.Repeat("b", 64)) {
+		t.Fatal("authenticated initialization admitted a different creation grant")
+	}
+	crossed := repository.scope
+	crossed.EpochID = strings.Repeat("f", 32)
+	if initialized.AdmitsCreation(crossed, repository.initializationPlan) {
+		t.Fatal("authenticated initialization admitted a different epoch")
+	}
+	repository = initialized.Repository()
 	bundle, err := Seal(ctx, source, work, testIdentity(), DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
@@ -122,8 +134,18 @@ func TestResticLocalEncryptedRoundTrip(t *testing.T) {
 		t.Fatal("actual repository data check", err)
 	}
 	output := filepath.Join(work, "remote-restore")
-	if err := client.RestoreExact(ctx, repository, work, output, point, bundle.Manifest()); err != nil {
+	parent, err := os.OpenRoot(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = parent.Close() }()
+	restored, err := client.RestoreExact(ctx, repository, work, parent, "remote-restore", point, bundle.Manifest())
+	if err != nil {
 		t.Fatal("actual exact remote download and member verification", err)
+	}
+	defer func() { _ = restored.Root().Close() }()
+	if !restored.Matches(ctx, parent, "remote-restore", point, bundle.Manifest()) {
+		t.Fatal("authenticated extraction lost owned parent or exact manifest")
 	}
 	// #nosec G304 -- Exact member in disposable local fixture source.
 	want, err := os.ReadFile(filepath.Join(source, "state"))
@@ -137,7 +159,7 @@ func TestResticLocalEncryptedRoundTrip(t *testing.T) {
 	}
 	wrong := point
 	wrong.ArchiveSHA256 = strings.Repeat("0", 64)
-	if err := client.RestoreExact(ctx, repository, work, filepath.Join(work, "bad-restore"), wrong, bundle.Manifest()); !errors.Is(err, ErrIntegrity) {
+	if _, err := client.RestoreExact(ctx, repository, work, parent, "bad-restore", wrong, bundle.Manifest()); !errors.Is(err, ErrIntegrity) {
 		t.Fatal("actual wrong archive digest admitted", err)
 	}
 	if _, err := os.Stat(filepath.Join(work, "bad-restore")); !os.IsNotExist(err) {

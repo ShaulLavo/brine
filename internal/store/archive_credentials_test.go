@@ -18,7 +18,7 @@ func TestArchiveCredentialsPersistExactOriginalScopeWithoutActivation(t *testing
 	s := openTest(t)
 	ctx := context.Background()
 	_, p, d := storedMaintenancePlan(t, s)
-	binding := p.Candidate.Databases[0].Epochs[0]
+	binding := sqliteArchiveDatabase(t, p.Candidate.Databases[0]).Epochs[0]
 	scope := backupcredentials.ArchiveScope{ArchiveID: string(p.ArchiveID), Binding: string(binding.BindingID), Epoch: string(binding.EpochID), CredentialRef: binding.Destination.CredentialRef, Destination: string(binding.Destination.Reference), TargetHash: p.TargetHash, PolicyHash: p.PolicyHash, RetainUntil: d.RetainUntil}
 	root := t.TempDir()
 	if err := os.Chmod(root, 0700); err != nil { // #nosec G302 -- Private fixture directory requires owner traversal.
@@ -65,7 +65,7 @@ func TestArchiveCredentialsPersistExactOriginalScopeWithoutActivation(t *testing
 	if err != nil || !reflect.DeepEqual(got, receipt) {
 		t.Fatal("archive scope lost across reopen", got, err)
 	}
-	permit, err := reopened.ReadReplicaPermit(ctx, p.Candidate.Databases[0].Binding.DatabaseID)
+	permit, err := reopened.ReadReplicaPermit(ctx, sqliteArchiveDatabase(t, p.Candidate.Databases[0]).Binding.DatabaseID)
 	if err != nil || permit.FenceState != "held" {
 		t.Fatal("renewal changed held fence", permit, err)
 	}

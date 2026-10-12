@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
@@ -116,7 +117,7 @@ func scanNativePreparationEvent(row interface{ Scan(...any) error }) (nativePrep
 	return event, raw, nil
 }
 
-func checkNativePointCompletion(ctx context.Context, tx *sql.Tx, point nativePreparedPoint) error {
+func checkNativePointCompletion(ctx context.Context, tx dataQuerier, point nativePreparedPoint) error {
 	i, raw, err := readNativePreparationIntent(ctx, tx, point.view.PointID)
 	if err != nil || !nativeIntentMatchesPoint(i, point.view) {
 		return errors.Join(&IntegrityError{}, err)
@@ -125,14 +126,55 @@ func checkNativePointCompletion(ctx context.Context, tx *sql.Tx, point nativePre
 	if err != nil || len(events) != 6 || !bytes.Equal(events[5].Proof, point.raw) || nativePointHash(events[1].Proof) != point.view.StopProofSHA256 || nativePointHash(events[4].Proof) != point.view.RestoreReceiptSHA256 {
 		return errors.Join(&IntegrityError{}, err)
 	}
+	if _, err := decodeNativePreparedVerification(point.view, events[4].Proof); err != nil {
+		return err
+	}
 	if err := checkNativePreparedDependencyFacts(point.view, events[2].Proof, events[3].Proof); err != nil {
+		return err
+	}
+	if err := checkNativePreparedStopFacts(i, events[0].Proof, events[1].Proof); err != nil {
 		return err
 	}
 	var kind ops.Kind
 	var state ops.State
 	err = tx.QueryRowContext(ctx, "SELECT kind,state FROM operations WHERE id=?", i.OperationID).Scan(&kind, &state)
-	if err != nil || kind != ops.NativePrepare || state != ops.Succeeded {
+	if err != nil || kind != ops.NativePrepare {
 		return errors.Join(ErrConflict, err)
+	}
+	if state == ops.RecoveryRequired {
+		original, err := nativeResolutionOperation(ctx, tx, i.OperationID)
+		if err != nil {
+			return err
+		}
+		receiptRaw, err := readNativeBackupResolvedReceipt(ctx, tx, original)
+		receipt, decodeErr := nativecapture.DecodeTaskReceipt(receiptRaw)
+		if err != nil || decodeErr != nil || receipt.PointID != point.view.PointID || receipt.PointSHA256 != point.hash || receipt.BindingID != string(point.view.BindingID) || receipt.EpochID != string(point.view.EpochID) {
+			return ErrConflict
+		}
+		return nil
+	}
+	if state != ops.Succeeded {
+		return errors.Join(ErrConflict, err)
+	}
+	return nil
+}
+
+func checkNativePreparedStopFacts(preparation nativePreparationIntent, intentRaw, stoppedRaw []byte) error {
+	var intent NativeStopIntent
+	var stopped NativeStopObservation
+	if _, err := strictjson.Object(intentRaw, "mode", "container_id", "pid", "start_ticks", "observed_at"); err != nil || json.Unmarshal(intentRaw, &intent) != nil {
+		return &IntegrityError{}
+	}
+	if _, err := strictjson.Object(stoppedRaw, "mode", "container_id", "exit_code", "oom_killed", "forced", "finished_at", "source_absent", "restart_jobs_absent", "ingress_closed"); err != nil || json.Unmarshal(stoppedRaw, &stopped) != nil {
+		return &IntegrityError{}
+	}
+	canonicalIntent, intentErr := json.Marshal(intent)
+	canonicalStop, stopErr := json.Marshal(stopped)
+	if intentErr != nil || stopErr != nil || !bytes.Equal(canonicalIntent, intentRaw) || !bytes.Equal(canonicalStop, stoppedRaw) || !validNativeStopIntent(intent, preparation.SourceKind) || !validNativeStop(stopped, preparation.SourceKind) || intent.ObservedAt.Before(preparation.CreatedAt) || stopped.FinishedAt.Before(intent.ObservedAt) || stopped.FinishedAt.After(time.Now().UTC()) || intent.ContainerID != stopped.ContainerID {
+		return &IntegrityError{}
+	}
+	if intent.Mode == "unpublished_absent" && stopped.Mode != "unpublished_absent" || intent.Mode == "managed_clean_stop" && stopped.Mode != "clean_exit" {
+		return &IntegrityError{}
 	}
 	return nil
 }
@@ -143,6 +185,8 @@ type nativePreparedSourceFacts struct {
 	EpochID               data.ReplicaEpochID   `json:"epoch_id"`
 	GenerationID          string                `json:"generation_id"`
 	SourceKind            string                `json:"source_kind"`
+	CommittedOffset       uint64                `json:"committed_offset"`
+	CommittedOffsetKnown  bool                  `json:"committed_offset_known"`
 	SourceSHA256          string                `json:"source_sha256"`
 	SourceSealSHA256      string                `json:"source_seal_sha256"`
 	SourceWitnessSHA256   string                `json:"source_witness_sha256"`
@@ -168,7 +212,7 @@ type nativePreparedRemoteFacts struct {
 }
 
 func nativePreparedSourceFactBytes(v NativePreparedPointView) ([]byte, error) {
-	return json.Marshal(nativePreparedSourceFacts{PointID: v.PointID, BindingID: v.BindingID, EpochID: v.EpochID, GenerationID: v.GenerationID, SourceKind: v.SourceKind, SourceSHA256: v.SourceSHA256, SourceSealSHA256: v.SourceSealSHA256, SourceWitnessSHA256: v.SourceWitnessSHA256, CheckpointSHA256: v.CheckpointSHA256, ConfigSHA256: v.ConfigSHA256, SigningRecoverySHA256: v.SigningRecoverySHA256, NativeDatabase: v.NativeDatabase, NativePublisher: v.NativePublisher, ProgramWireHash: v.ProgramWireHash, ArtifactWasmSHA256: v.ArtifactWasmSHA256, SchemaSHA256: v.SchemaSHA256, Names: v.Names})
+	return json.Marshal(nativePreparedSourceFacts{PointID: v.PointID, BindingID: v.BindingID, EpochID: v.EpochID, GenerationID: v.GenerationID, SourceKind: v.SourceKind, CommittedOffset: v.CommittedOffset, CommittedOffsetKnown: v.CommittedOffsetKnown, SourceSHA256: v.SourceSHA256, SourceSealSHA256: v.SourceSealSHA256, SourceWitnessSHA256: v.SourceWitnessSHA256, CheckpointSHA256: v.CheckpointSHA256, ConfigSHA256: v.ConfigSHA256, SigningRecoverySHA256: v.SigningRecoverySHA256, NativeDatabase: v.NativeDatabase, NativePublisher: v.NativePublisher, ProgramWireHash: v.ProgramWireHash, ArtifactWasmSHA256: v.ArtifactWasmSHA256, SchemaSHA256: v.SchemaSHA256, Names: v.Names})
 }
 
 func nativePreparedRemoteFactBytes(v NativePreparedPointView) ([]byte, error) {

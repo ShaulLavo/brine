@@ -38,11 +38,12 @@ func sufficientDisk(s target.Snapshot, minimum uint64) target.Observation[bool] 
 // Other apps only contribute their observed port to admission. The planned app
 // retains all ownership observations, including unknown image evidence.
 type decisionApp struct {
-	Name              string                               `json:"name"`
-	Image             *target.Observation[target.Image]    `json:"image,omitempty"`
-	AllocatedHostPort target.Observation[target.Port]      `json:"allocated_host_port"`
-	QuadletUnits      *target.Observation[[]target.Unit]   `json:"quadlet_units,omitempty"`
-	Secrets           *target.Observation[[]target.Secret] `json:"secrets,omitempty"`
+	CommittedPortReservation *target.CommittedPortReservation     `json:"committed_port_reservation,omitempty"`
+	Name                     string                               `json:"name"`
+	Image                    *target.Observation[target.Image]    `json:"image,omitempty"`
+	AllocatedHostPort        target.Observation[target.Port]      `json:"allocated_host_port"`
+	QuadletUnits             *target.Observation[[]target.Unit]   `json:"quadlet_units,omitempty"`
+	Secrets                  *target.Observation[[]target.Secret] `json:"secrets,omitempty"`
 }
 
 // The snapshot has already passed target.Encode's validation and sorting.
@@ -53,7 +54,7 @@ func canonicalDecisionFacts(in Input) ([]byte, error) {
 	if s.Apps.Value != nil {
 		projected := make([]decisionApp, 0, len(*s.Apps.Value))
 		for _, app := range *s.Apps.Value {
-			a := decisionApp{Name: app.Name, AllocatedHostPort: app.AllocatedHostPort}
+			a := decisionApp{Name: app.Name, AllocatedHostPort: app.AllocatedHostPort, CommittedPortReservation: app.CommittedPortReservation}
 			if app.Name == string(in.Desired.Name) {
 				a.Image = &app.Image
 				a.QuadletUnits = &app.QuadletUnits

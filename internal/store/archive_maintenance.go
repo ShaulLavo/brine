@@ -158,6 +158,14 @@ func (s *Store) AdvanceArchiveDeletion(ctx context.Context, old, next archive.De
 	if err != nil || !reflect.DeepEqual(current, old) {
 		return ErrConflict
 	}
+	if next.Kind == archive.PurgeArchive && archive.PurgeProofRequired(p) {
+		proof, err := readRetentionProofTx(ctx, tx, next.ArchiveID)
+		manifest, manifestErr := readArchiveManifest(ctx, tx, next.ArchiveID)
+		hash, hashErr := archive.RetentionProofSHA256(proof)
+		if err != nil || manifestErr != nil || hashErr != nil || hash != next.RetentionSHA256 || proof.PolicyHash != reviewed.PolicyHash || !archive.RetentionProofMatches(proof, p, d, manifest, next.StartedAt) {
+			return ErrConflict
+		}
+	}
 	raw, err := json.Marshal(next)
 	if err != nil || len(raw) > 4096 {
 		return ErrInvalid
@@ -187,6 +195,9 @@ func (s *Store) SaveRetentionProof(ctx context.Context, proof archive.RetentionP
 	if err != nil || deletion.Sequence != 0 {
 		return ErrConflict
 	}
+	if err = checkNativeRetentionReceipts(ctx, tx, proof); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(proof)
 	if err != nil || len(raw) > 1048576 {
 		return ErrInvalid
@@ -201,23 +212,39 @@ func (s *Store) SaveRetentionProof(ctx context.Context, proof archive.RetentionP
 	return tx.Commit()
 }
 func (s *Store) ReadRetentionProof(ctx context.Context, id data.ArchiveID) (out archive.RetentionProof, err error) {
-	p, d, err := retiredArchive(ctx, s.db, id)
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return out, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	out, err = readRetentionProofTx(ctx, tx, id)
+	if err != nil {
+		return out, err
+	}
+	return out, tx.Commit()
+}
+
+func readRetentionProofTx(ctx context.Context, tx *sql.Tx, id data.ArchiveID) (out archive.RetentionProof, err error) {
+	p, d, err := retiredArchive(ctx, tx, id)
 	if err != nil {
 		return out, err
 	}
 	var raw []byte
-	if err = s.db.QueryRowContext(ctx, "SELECT canonical FROM data_archive_retention_proofs WHERE archive_id=? ORDER BY sequence DESC LIMIT 1", id).Scan(&raw); errors.Is(err, sql.ErrNoRows) {
+	if err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_archive_retention_proofs WHERE archive_id=? ORDER BY sequence DESC LIMIT 1", id).Scan(&raw); errors.Is(err, sql.ErrNoRows) {
 		return out, nil
 	} else if err != nil {
 		return out, err
 	}
-	manifest, err := readArchiveManifest(ctx, s.db, id)
+	manifest, err := readArchiveManifest(ctx, tx, id)
 	if err != nil || len(raw) > 1048576 || json.Unmarshal(raw, &out) != nil || !archive.RetentionProofMatches(out, p, d, manifest, out.VerifiedAt) {
 		return out, &IntegrityError{}
 	}
 	canonical, err := json.Marshal(out)
 	if err != nil || !bytes.Equal(raw, canonical) {
 		return out, &IntegrityError{}
+	}
+	if err = checkNativeRetentionReceipts(ctx, tx, out); err != nil {
+		return out, err
 	}
 	return out, nil
 }

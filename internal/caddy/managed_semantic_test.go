@@ -9,16 +9,7 @@ import (
 
 // Captured from the pinned v2.10.2 adapter, independently of expected route construction.
 func TestManagedAdaptedSemanticOwnership(t *testing.T) {
-	preview := managedPreview(t, true)
-	d, engine, frontend, err := preview.Values()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ingress, err := NewManagedClientIngress(preview)
-	if err != nil {
-		t.Fatal(err)
-	}
-	site := Site{name: d.Name, domains: d.Domains, port: engine, managed: &managedSite{desired: d, enginePort: engine, appPort: frontend, ingress: ingress}}
+	site := managedTestSite(t, true)
 	raw, err := os.ReadFile("testdata/managed-adapted.json")
 	if err != nil {
 		t.Fatal(err)

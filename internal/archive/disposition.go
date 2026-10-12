@@ -188,7 +188,7 @@ func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (
 		}
 	}
 	for _, d := range p.Candidate.Databases {
-		if d.Allocation == nil || data.VerifyArchiveAllocation(d.Binding, *d.Allocation) != nil {
+		if verifyDatabaseAllocation(d, p.ArchiveID, false) != nil {
 			return out, ErrRefused
 		}
 	}
@@ -244,12 +244,12 @@ func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (
 			}
 		}
 		for _, d := range p.Candidate.Databases {
-			for j, epoch := range d.Epochs {
-				if !d.Retention[j].Admits(epoch.Destination, s.now()) {
+			for j, epoch := range d.ArchiveBindings() {
+				if !d.Retention()[j].Admits(epoch.Destination, s.now()) {
 					return out, ErrRecovery
 				}
 			}
-			if d.Binding.Root == tree.Root && data.VerifyArchiveAllocation(d.Binding, *d.Allocation) != nil {
+			if d.Reference().Root == tree.Root && verifyDatabaseAllocation(d, p.ArchiveID, false) != nil {
 				return out, ErrRecovery
 			}
 		}
@@ -266,7 +266,14 @@ func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (
 		}
 	}
 	for _, d := range p.Candidate.Databases {
-		if data.VerifyArchivedAllocation(d.Binding, *d.Allocation, p.ArchiveID) != nil {
+		if verifyDatabaseAllocation(d, p.ArchiveID, true) != nil {
+			return out, ErrRecovery
+		}
+	}
+	if mover, ok := s.Host.(interface {
+		ArchiveNativeTrees(context.Context, Plan) error
+	}); ok {
+		if mover.ArchiveNativeTrees(ctx, p) != nil {
 			return out, ErrRecovery
 		}
 	}
