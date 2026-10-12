@@ -129,6 +129,7 @@ func nativePublicationUnknown(t *testing.T, outcome string) {
 	t.Helper()
 	var puts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
 		if request.Method == http.MethodPost {
 			_, _ = io.WriteString(w, automaticNativePreflight())
 			return
@@ -201,6 +202,7 @@ func nativePublicationBeforeEffect(t *testing.T, attack string) {
 	t.Helper()
 	var puts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
 		if request.Method != http.MethodPost {
 			puts.Add(1)
 			return
