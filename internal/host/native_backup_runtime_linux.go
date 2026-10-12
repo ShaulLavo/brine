@@ -273,8 +273,11 @@ func (s *nativeRestoredSource) close() error {
 		return nil
 	}
 	var err error
+	if s.extracted.Root() != nil && s.extracted.Root() != s.root {
+		err = s.extracted.Root().Close()
+	}
 	if s.root != nil {
-		err = s.root.Close()
+		err = errors.Join(err, s.root.Close())
 		s.root = nil
 	}
 	if s.parent != nil && s.ownsParent {

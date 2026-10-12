@@ -25,13 +25,15 @@ const (
 	InspectRequired CursorState = "inspect_required"
 	Finished        CursorState = "finished"
 	AttemptFailed   CursorState = "attempt_failed"
+	SourcePreserved CursorState = "source_preserved"
 )
 
 type ObservedOutcome string
 
 const (
-	ObservedCompleted    ObservedOutcome = "completed"
-	ObservedNotPerformed ObservedOutcome = "not_performed"
+	ObservedCompleted       ObservedOutcome = "completed"
+	ObservedNotPerformed    ObservedOutcome = "not_performed"
+	ObservedSourcePreserved ObservedOutcome = "source_preserved"
 )
 
 type ProofScope struct {
@@ -129,6 +131,19 @@ func (c Cursor) MarkUnknown() (Cursor, error) {
 	}
 	c.state = InspectRequired
 	c.appendEvent(cursorEvent{Kind: "unknown", Step: c.step})
+	return c, nil
+}
+
+// PreserveSource records a terminal expectation for a protected resolver that
+// has separately proved the original live tree and all private processes safe.
+// This core reference cannot release a fence or establish those host facts.
+func (c Cursor) PreserveSource(proofSHA256 string) (Cursor, error) {
+	if !digest(proofSHA256) || c.state == Finished || c.state == SourcePreserved {
+		return c, ErrInspection
+	}
+	observation := Observation{Scope: c.scope, Step: c.step, Outcome: ObservedSourcePreserved, ProofSHA256: proofSHA256, Requirements: []RequirementProof{}}
+	c.appendEvent(cursorEvent{Kind: "source_preserved", Step: c.step, Observation: &observation})
+	c.state, c.step = SourcePreserved, ""
 	return c, nil
 }
 

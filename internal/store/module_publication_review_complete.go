@@ -90,6 +90,9 @@ func buildObservedPublicationReview(ctx context.Context, tx *sql.Tx, preparation
 	if err != nil {
 		return datapublish.PrivateReview{}, err
 	}
+	if err = checkPublicationCandidateRegistry(ctx, tx, point.view.DatabaseID, declaration.desired.SpacetimeDB.Module.Marker, candidate); err != nil {
+		return datapublish.PrivateReview{}, err
+	}
 	source, err := publicationSourceFromPoint(point.view, declaration.bundle.Schema())
 	if err != nil {
 		return datapublish.PrivateReview{}, err

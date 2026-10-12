@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -34,7 +35,7 @@ type PublicationEffectEvent struct {
 }
 
 func (s *Store) RecordPublicationEffect(ctx context.Context, attempt *PublicationAttempt, nonce string, step datapublish.Step) error {
-	if !attempt.active(s) || !data.ValidID(nonce) || attempt.restored.unchanged(ctx) != nil {
+	if !attempt.active(s) || !data.ValidID(nonce) || attempt.restored.unchanged(ctx) != nil || !attempt.restored.working {
 		return ErrConflict
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -55,7 +56,7 @@ func (s *Store) RecordPublicationEffect(ctx context.Context, attempt *Publicatio
 	if err != nil {
 		return err
 	}
-	effect := PublicationEffect{Scope: current.cursor.Scope(), Nonce: nonce, Step: step, RootPath: filepath.Join(attempt.restored.parent.Name(), "download"), Runtime: permit.Runtime.Clone(), RecordedAt: time.Now().UTC()}
+	effect := PublicationEffect{Scope: current.cursor.Scope(), Nonce: nonce, Step: step, RootPath: filepath.Join(attempt.restored.parent.Name(), "working"), Runtime: permit.Runtime.Clone(), RecordedAt: time.Now().UTC()}
 	if !data.ValidRoot(effect.RootPath) || attempt.restored.unchanged(ctx) != nil {
 		return ErrConflict
 	}
@@ -92,33 +93,26 @@ func (s *Store) RecordPublicationEffectEvent(ctx context.Context, attempt *Publi
 	if _, err = s.readPublicationAttemptTx(ctx, tx, attempt); err != nil {
 		return err
 	}
-	var raw []byte
-	if err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_module_publication_effects WHERE nonce=? AND plan_id=? AND operation_id=?", event.Nonce, attempt.planID, attempt.operationID).Scan(&raw); err != nil {
+	effect, err := readPublicationEffectTx(ctx, tx, event.Nonce)
+	if err != nil {
 		return err
 	}
-	var effect PublicationEffect
-	if json.Unmarshal(raw, &effect) != nil || effect.Nonce != event.Nonce || effect.Scope.ApplyOpID != attempt.operationID {
+	if effect.Scope.PlanID != attempt.planID || effect.Scope.ApplyOpID != attempt.operationID {
 		return &IntegrityError{}
 	}
-	var sequence uint64
-	if err = tx.QueryRowContext(ctx, "SELECT COALESCE(MAX(sequence),0)+1 FROM data_module_publication_effect_events WHERE nonce=?", event.Nonce).Scan(&sequence); err != nil {
+	events, err := readPublicationEffectEventsTx(ctx, tx, effect)
+	if err != nil {
 		return err
 	}
-	if event.Stage == "started" && sequence != 1 {
+	event.RecordedAt = time.Now().UTC()
+	if checkPublicationEffectEvent(effect, events, event) != nil {
 		return ErrConflict
 	}
-	if event.Stage == "stop_intent" {
-		var stops int
-		if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_module_publication_effect_events WHERE nonce=? AND stage='stop_intent'", event.Nonce).Scan(&stops); err != nil || stops != 0 {
-			return errors.Join(ErrConflict, err)
-		}
-	}
-	event.RecordedAt = time.Now().UTC()
-	raw, err = json.Marshal(event)
+	raw, err := json.Marshal(event)
 	if err != nil {
 		return ErrInvalid
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO data_module_publication_effect_events VALUES(?,?,?,?)", event.Nonce, sequence, event.Stage, raw)
+	_, err = tx.ExecContext(ctx, "INSERT INTO data_module_publication_effect_events VALUES(?,?,?,?)", event.Nonce, len(events)+1, event.Stage, raw)
 	if err != nil {
 		return err
 	}
@@ -128,11 +122,64 @@ func (s *Store) RecordPublicationEffectEvent(ctx context.Context, attempt *Publi
 func readPublicationEffectTx(ctx context.Context, tx *sql.Tx, nonce string) (PublicationEffect, error) {
 	var raw []byte
 	var effect PublicationEffect
-	if err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_module_publication_effects WHERE nonce=?", nonce).Scan(&raw); err != nil {
+	var plan, operation string
+	var step datapublish.Step
+	if err := tx.QueryRowContext(ctx, "SELECT plan_id,operation_id,step,canonical FROM data_module_publication_effects WHERE nonce=?", nonce).Scan(&plan, &operation, &step, &raw); err != nil {
 		return effect, err
 	}
-	if json.Unmarshal(raw, &effect) != nil || effect.Nonce != nonce {
+	if len(raw) == 0 || len(raw) > 65536 || json.Unmarshal(raw, &effect) != nil {
+		return effect, &IntegrityError{}
+	}
+	canonical, _ := json.Marshal(effect)
+	if !bytes.Equal(raw, canonical) || !data.ValidID(nonce) || effect.Nonce != nonce || effect.Scope.PlanID != plan || effect.Scope.ApplyOpID != operation || effect.Step != step || step != datapublish.CheckPreflight && step != datapublish.PublishStage || !data.ValidRoot(effect.RootPath) || effect.RootIdentity.Device == 0 || effect.RootIdentity.Inode == 0 || effect.RecordedAt.IsZero() || effect.RecordedAt.Location() != time.UTC || effect.RecordedAt.After(time.Now().UTC()) {
 		return effect, &IntegrityError{}
 	}
 	return effect, nil
+}
+
+func readPublicationEffectEventsTx(ctx context.Context, tx *sql.Tx, effect PublicationEffect) ([]PublicationEffectEvent, error) {
+	rows, err := tx.QueryContext(ctx, "SELECT sequence,stage,canonical FROM data_module_publication_effect_events WHERE nonce=? ORDER BY sequence", effect.Nonce)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var events []PublicationEffectEvent
+	for rows.Next() {
+		var event PublicationEffectEvent
+		var raw []byte
+		var sequence int
+		var stage string
+		if rows.Scan(&sequence, &stage, &raw) != nil || sequence != len(events)+1 || len(raw) == 0 || len(raw) > 65536 || json.Unmarshal(raw, &event) != nil || event.Stage != stage {
+			return nil, &IntegrityError{}
+		}
+		canonical, _ := json.Marshal(event)
+		if !bytes.Equal(raw, canonical) || checkPublicationEffectEvent(effect, events, event) != nil {
+			return nil, &IntegrityError{}
+		}
+		events = append(events, event)
+	}
+	return events, rows.Err()
+}
+
+func checkPublicationEffectEvent(effect PublicationEffect, prior []PublicationEffectEvent, next PublicationEffectEvent) error {
+	if next.Nonce != effect.Nonce || next.RecordedAt.Location() != time.UTC || next.RecordedAt.Before(effect.RecordedAt) || next.RecordedAt.After(time.Now().UTC()) || next.Stage != "started" && next.Stage != "stop_intent" && next.Stage != "disposed" && next.Stage != "unknown" {
+		return ErrConflict
+	}
+	if next.Stage == "started" && len(prior) != 0 {
+		return ErrConflict
+	}
+	if next.Stage != "unknown" && (!data.ValidCatalogHash(next.ContainerID) || next.PID <= 1 || next.StartTicks == 0 || next.Cgroup == "") {
+		return ErrConflict
+	}
+	for _, event := range prior {
+		if event.Stage == next.Stage || next.RecordedAt.Before(event.RecordedAt) || next.Stage == "stop_intent" && (event.Stage == "unknown" || event.Stage == "disposed") {
+			return ErrConflict
+		}
+	}
+	if next.Stage == "stop_intent" || next.Stage == "disposed" {
+		if len(prior) == 0 || prior[0].Stage != "started" || next.ContainerID != prior[0].ContainerID || next.PID != prior[0].PID || next.StartTicks != prior[0].StartTicks || next.Cgroup != prior[0].Cgroup {
+			return ErrConflict
+		}
+	}
+	return nil
 }

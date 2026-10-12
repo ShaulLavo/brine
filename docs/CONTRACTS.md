@@ -1343,6 +1343,44 @@ installs the independently published main native-reader0.0.4 platform pin;
 reader execution pulls its fixed digest only after affirmative local absence.
 Unknown effects preserve their intents and partial files. Automatic backup
 resolution and physical phase acceptance remain pending.
+
+## Native material delivery
+
+`native_material_set` is a synchronous, mutating, private-stdin operation with
+closed app/preparation-plan/idempotency selectors and four fixed roles. It is
+not a detached task and cannot queue plaintext. Schema 23 retains immutable
+metadata-only material reservations and terminal receipts through the existing
+operation/event journal. Host failures retain their candidate files and versions
+for inspection, never overwrite or resume an unknown write. `native_material_status`
+is read-only and bound to the server-established requester.
+
+The first delivery requires the genuine never-started managed allocation under
+its positively existing original fence. It commits only configured-unpublished
+runtime expectations: native database/publisher identities stay empty and names
+remain empty. Signed JWT claims and desired module metadata grant no native
+initialized authority. Later deliveries remain unreferenced by the active head;
+material activation is a separate reviewed operation. See
+[native material commands](native-material-commands.md) for the packet and flow.
+
+### Passive discovery after unknown first publication
+
+The pinned passive reader request has a required closed `identity` operation.
+`known` requires the protected database and publisher identities and keeps the
+existing exact identity/program/history constraints. `discover` requires the
+protected publisher identity and forbids any supplied database identity.
+Discovery reconstructs one selected replica with complete bounded fail-fast
+native replay, reads exactly one persisted `st_module` row, and verifies its
+owner. The observed database identity must also match the actual selected
+snapshot identity when present. The strict full-state observation then verifies
+that actual identity, owner, current program bytes and hash, complete history and
+tables. Neither operation starts a module, reducer, hook or scheduler.
+
+The host must already own and contain a quiescent app-specific private history
+copy. It verifies the exact pinned reader, unchanged copy and reader disposal.
+Discovery does not establish a logical database name or release a publication
+fence. Missing, partial, ambiguous, multi-module or corrupt history leaves the
+original publication unknown. Current request producers change together with
+the reader; there is no old-request fallback.
 ### Native live restore execution
 
 `restore native-live plan APP` selects one immutable verified remote point, one
@@ -1408,21 +1446,3 @@ policy grant. Omission and explicit false preserve the previous canonical policy
 bytes and deny purge. Live restore does not grant purge. Plan and execution both
 recheck the grant; revocation prevents new deletion effects. Expiry remains bound
 to the original thirty-day deadline. Neither purpose deletes remote objects.
-
-## Native material delivery
-
-`native_material_set` is a synchronous, mutating, private-stdin operation with
-closed app/preparation-plan/idempotency selectors and four fixed roles. It is
-not a detached task and cannot queue plaintext. Schema 23 retains immutable
-metadata-only material reservations and terminal receipts through the existing
-operation/event journal. Host failures retain their candidate files and versions
-for inspection, never overwrite or resume an unknown write. `native_material_status`
-is read-only and bound to the server-established requester.
-
-The first delivery requires the genuine never-started managed allocation under
-its positively existing original fence. It commits only configured-unpublished
-runtime expectations: native database/publisher identities stay empty and names
-remain empty. Signed JWT claims and desired module metadata grant no native
-initialized authority. Later deliveries remain unreferenced by the active head;
-material activation is a separate reviewed operation. See
-[native material commands](native-material-commands.md) for the packet and flow.

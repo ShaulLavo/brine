@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/nativeevidence"
 	"github.com/ShaulLavo/brine/internal/restic"
 )
@@ -17,6 +18,8 @@ type publicationReviewRestore struct {
 	identity          os.FileInfo
 	verifiedAt        time.Time
 	sourceEvidenceSHA string
+	download          restic.AuthenticatedRestore
+	working           bool
 }
 
 // BindPublicationReviewRestore consumes a real exact encrypted download before
@@ -52,7 +55,7 @@ func (s *Store) BindPublicationReviewRestore(ctx context.Context, preparation *P
 	if err = tx.Commit(); err != nil {
 		return err
 	}
-	preparation.restore = &publicationReviewRestore{root: restored.Root(), parent: parent, identity: identity, verifiedAt: restored.VerifiedAt(), sourceEvidenceSHA: evidence.SHA256()}
+	preparation.restore = &publicationReviewRestore{root: restored.Root(), parent: parent, identity: identity, verifiedAt: restored.VerifiedAt(), sourceEvidenceSHA: evidence.SHA256(), download: restored}
 	return nil
 }
 
@@ -61,9 +64,51 @@ func (r *publicationReviewRestore) unchanged(ctx context.Context) error {
 		return ErrConflict
 	}
 	held, err := r.root.Stat(".")
-	current, parentErr := r.parent.Lstat("download")
+	name := "download"
+	if r.working {
+		name = "working"
+		if !r.download.Matches(ctx, r.parent, "download", r.download.Point(), r.download.Manifest()) {
+			return ErrConflict
+		}
+	}
+	current, parentErr := r.parent.Lstat(name)
 	if err != nil || parentErr != nil || !current.IsDir() || !os.SameFile(current, r.identity) || !os.SameFile(held, r.identity) {
 		return errors.Join(ErrConflict, err, parentErr)
 	}
 	return nil
+}
+
+func (r *publicationReviewRestore) bindWorking(ctx context.Context, root *os.Root) error {
+	if r == nil || r.working || r.unchanged(ctx) != nil || !r.download.MatchesWorkingCopy(ctx, r.parent, "working", root) {
+		return ErrConflict
+	}
+	identity, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	r.root, r.identity, r.working = root, identity, true
+	return r.unchanged(ctx)
+}
+
+// BindPublicationReviewWorkingRoot admits only a complete separately copied
+// authenticated envelope before the private native preflight starts.
+func (s *Store) BindPublicationReviewWorkingRoot(ctx context.Context, preparation *PublicationReviewPreparation, root *os.Root) error {
+	if !preparation.active(s) || s.CheckPublicationReviewPreparation(ctx, preparation) != nil {
+		return ErrConflict
+	}
+	return preparation.restore.bindWorking(ctx, root)
+}
+
+// BindPublicationAttemptWorkingRoot preserves the authenticated download and
+// binds the distinct private root before any publication effect is admitted.
+func (s *Store) BindPublicationAttemptWorkingRoot(ctx context.Context, attempt *PublicationAttempt, root *os.Root) error {
+	if !attempt.active(s) {
+		return ErrConflict
+	}
+	cursor, err := s.ReadPublicationAttemptCursor(ctx, attempt)
+	step, ready := cursor.NextStep()
+	if err != nil || !ready || step != datapublish.CheckPreflight {
+		return errors.Join(ErrConflict, err)
+	}
+	return attempt.restored.bindWorking(ctx, root)
 }

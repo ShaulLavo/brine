@@ -10,6 +10,7 @@ import (
 )
 
 type Runtime struct {
+	ModulePublications dispatch.ModulePublicationOperations
 	Archives           archive.Service
 	ArchiveMaintenance archive.MaintenanceService
 	ArchiveCredentials backupcredentials.ArchiveService

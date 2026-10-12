@@ -26,6 +26,13 @@ func migratePublicationReviewAcknowledgements(ctx context.Context, tx *sql.Tx) e
  canonical BLOB NOT NULL CHECK(length(canonical)<=65536), PRIMARY KEY(nonce,sequence), UNIQUE(nonce,stage));
  CREATE TRIGGER data_module_publication_effect_events_no_update BEFORE UPDATE ON data_module_publication_effect_events BEGIN SELECT RAISE(ABORT,'immutable publication effect event'); END;
  CREATE TRIGGER data_module_publication_effect_events_no_delete BEFORE DELETE ON data_module_publication_effect_events BEGIN SELECT RAISE(ABORT,'retained publication effect event'); END;
+ CREATE TABLE data_module_publication_target_intents(
+ plan_id TEXT PRIMARY KEY REFERENCES data_module_publication_claims(plan_id),
+ transition_id TEXT NOT NULL UNIQUE REFERENCES data_native_repository_intents(id),
+ record_sha256 TEXT NOT NULL CHECK(length(record_sha256)=64),
+ canonical BLOB NOT NULL CHECK(length(canonical)<=2097152));
+ CREATE TRIGGER data_module_publication_target_intents_no_update BEFORE UPDATE ON data_module_publication_target_intents BEGIN SELECT RAISE(ABORT,'immutable publication target intent'); END;
+ CREATE TRIGGER data_module_publication_target_intents_no_delete BEFORE DELETE ON data_module_publication_target_intents BEGIN SELECT RAISE(ABORT,'retained publication target intent'); END;
  UPDATE schema_version SET version=24;`)
 	return err
 }
