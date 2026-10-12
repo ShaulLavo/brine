@@ -12,7 +12,7 @@ func (app *App) resolveManagedFiles(directory string) error {
 	if err != nil {
 		return refusal("spec.module_file", "databases.spacetimedb.module.file", "cannot read a bounded regular Wasm file")
 	}
-	artifact, native, err := moduleIdentities(wasm)
+	artifact, native, err := ModuleIdentities(wasm)
 	if err != nil {
 		return refusal("spec.module_file", "databases.spacetimedb.module.file", "expected a supported Wasm module")
 	}

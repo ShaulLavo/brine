@@ -45,7 +45,7 @@ func TestManagedFilesResolveOnlyDesiredMetadata(t *testing.T) {
 	root := managedFiles(t)
 	app := parseManagedFiles(t, root, managedSpec(t))
 	m := app.SpacetimeDB.Module
-	artifact, native, err := moduleIdentities(managedWasm)
+	artifact, native, err := ModuleIdentities(managedWasm)
 	if err != nil {
 		t.Fatal(err)
 	}

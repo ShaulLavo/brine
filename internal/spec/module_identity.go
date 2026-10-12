@@ -12,7 +12,7 @@ import (
 
 const MaxWasmBytes = 64 << 20
 
-func moduleIdentities(wasm []byte) (WasmSHA256, RuntimeModuleHash, error) {
+func ModuleIdentities(wasm []byte) (WasmSHA256, RuntimeModuleHash, error) {
 	if len(wasm) < 8 || len(wasm) > MaxWasmBytes || !bytes.Equal(wasm[:8], []byte{0, 'a', 's', 'm', 1, 0, 0, 0}) {
 		return "", "", data.ErrInvalid
 	}

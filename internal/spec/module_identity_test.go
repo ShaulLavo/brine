@@ -10,7 +10,7 @@ func TestModuleIdentityMatchesNativeWireWitness(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	artifact, native, err := moduleIdentities(wasm)
+	artifact, native, err := ModuleIdentities(wasm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestModuleIdentityMatchesNativeWireWitness(t *testing.T) {
 
 func TestModuleIdentityRefusesOtherPayloads(t *testing.T) {
 	for _, value := range [][]byte{nil, []byte("not Wasm"), {0, 'a', 's', 'm', 2, 0, 0, 0}, make([]byte, MaxWasmBytes+1)} {
-		if _, _, err := moduleIdentities(value); err == nil {
+		if _, _, err := ModuleIdentities(value); err == nil {
 			t.Fatal("unsupported artifact accepted")
 		}
 	}
