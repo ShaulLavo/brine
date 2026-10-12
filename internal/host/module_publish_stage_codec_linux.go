@@ -19,8 +19,8 @@ func decodeModuleStageObservation(raw []byte, startedAt, finishedAt time.Time) (
 	if len(raw) == 0 || len(raw) > 1<<20 {
 		return observation, datapublish.ErrRecord
 	}
-	fields := []string{"action", "credential_sha256", "publisher", "publisher_proof", "preflight", "receipt", "receipt_binding_sha256", "database", "program_wire_hash", "schema_sha256", "publication_known", "child_stopped"}
-	if _, err := strictjson.Object(raw, fields...); err != nil || json.Unmarshal(raw, &observation) != nil || !observation.ChildStopped || !data.ValidCatalogHash(observation.CredentialSHA256) || !data.ValidCatalogHash(observation.Publisher) || len(observation.PublisherProof) == 0 || len(observation.PublisherProof) > 8192 || len(observation.Preflight) > datapublish.NativePreflightResponseLimit || len(observation.Receipt) > datapublish.NativePreflightResponseLimit {
+	fields := []string{"action", "credential_sha256", "publisher", "publisher_proof", "preflight", "receipt", "receipt_binding_sha256", "database", "program_wire_hash", "schema_sha256", "publication_known", "child_stopped", "child_bound", "child_pid", "child_start_ticks"}
+	if _, err := strictjson.Object(raw, fields...); err != nil || json.Unmarshal(raw, &observation) != nil || !observation.ChildStopped || !observation.ChildBound || observation.ChildPID <= 1 || observation.ChildPID > 1<<22 || observation.ChildStartTicks == 0 || !data.ValidCatalogHash(observation.CredentialSHA256) || !data.ValidCatalogHash(observation.Publisher) || len(observation.PublisherProof) == 0 || len(observation.PublisherProof) > 8192 || len(observation.Preflight) > datapublish.NativePreflightResponseLimit || len(observation.Receipt) > datapublish.NativePreflightResponseLimit {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	if checkModuleStagePublisherProof(observation, startedAt, finishedAt) != nil {
@@ -32,13 +32,13 @@ func decodeModuleStageObservation(raw []byte, startedAt, finishedAt time.Time) (
 		}
 		return observation, nil
 	}
-	if observation.Action != moduleStagePreflight && observation.Action != moduleStagePublish && observation.Action != moduleStageObserve || !data.ValidCatalogHash(observation.Database) || !data.ValidCatalogHash(observation.ProgramWireHash) || !data.ValidCatalogHash(observation.SchemaSHA256) {
+	if observation.Action != moduleStagePreflight && observation.Action != moduleStagePublish && observation.Action != moduleStageCreate && observation.Action != moduleStageObserve || !data.ValidCatalogHash(observation.Database) || !data.ValidCatalogHash(observation.ProgramWireHash) || !data.ValidCatalogHash(observation.SchemaSHA256) {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	if observation.PublicationKnown && (len(observation.Receipt) == 0 || !data.ValidCatalogHash(observation.ReceiptBindingSHA)) {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
-	if observation.Action != moduleStagePublish && (observation.PublicationKnown || len(observation.Receipt) != 0 || observation.ReceiptBindingSHA != "") {
+	if observation.Action != moduleStagePublish && observation.Action != moduleStageCreate && (observation.PublicationKnown || len(observation.Receipt) != 0 || observation.ReceiptBindingSHA != "") {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	return observation, nil

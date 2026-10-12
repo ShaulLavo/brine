@@ -37,6 +37,10 @@ type publicationStageLease struct {
 	disposed      bool
 	startedAt     time.Time
 	finishedAt    time.Time
+	helperPID     uint32
+	helperTicks   uint64
+	helperCgroup  string
+	observation   moduleStageObservation
 }
 
 func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource, images *podman.Client) (*publicationStageLease, error) {
