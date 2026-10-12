@@ -29,14 +29,18 @@ func (ExecRunner) RunInput(ctx context.Context, command Command) (Output, error)
 	if err != nil {
 		return Output{}, err
 	}
+	if command.Dir == "" {
+		command.Dir = home
+	}
+	return runInputCommand(ctx, path, command, env)
+}
+
+func runInputCommand(ctx context.Context, path string, command Command, env []string) (Output, error) {
 	stdout := &limitedCapture{limit: command.OutputLimit}
 	stderr := &limitedCapture{limit: command.OutputLimit, tail: command.StderrTail}
 	cmd := exec.CommandContext(ctx, path, command.Args...)
 	cmd.Env = env
 	cmd.Dir = command.Dir
-	if cmd.Dir == "" {
-		cmd.Dir = home
-	}
 	cmd.Stdin = bytes.NewReader(command.Stdin)
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	configureProcessGroup(cmd)

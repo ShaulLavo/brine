@@ -66,8 +66,8 @@ func TestDescriptorPurposeKeepsActualNativeOutputAndFixedBounds(t *testing.T) {
 	if command.Path != engineNativePath || !slices.Equal(command.Args, []string{"extract-schema", moduleDescriptorArtifactPath, "--host-type", "wasm"}) || command.Dir != "/tmp" || len(command.Stdin) != 0 || command.OutputLimit != moduleDescriptorOutputLimit || runner.deadline.Before(started) || runner.deadline.After(started.Add(moduleDescriptorWait+time.Second)) {
 		t.Fatal("descriptor purpose escaped fixed arguments or bounds")
 	}
-	if !slices.Equal(command.Env, []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "TMPDIR=/tmp", "TOKIO_WORKER_THREADS=2"}) {
-		t.Fatal("descriptor inherited an ambient credential environment")
+	if len(command.Env) != 0 {
+		t.Fatal("descriptor supplied an override to the fixed guest environment")
 	}
 	raw[0] = 'x'
 	schema, err := spacetimedb.DecodeDescriptorV10(result, spacetimedb.DefaultSchemaLimits())
@@ -179,8 +179,7 @@ func testModuleDescriptorNativeExit(t *testing.T, mode string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	root := t.TempDir()
-	out, err := (localexec.ExecRunner{}).RunInput(ctx, localexec.Command{Path: os.Args[0], Args: []string{"-test.run=^TestModuleDescriptorNativeExitHelper$"}, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "BRINE_DESCRIPTOR_NATIVE_EXIT=" + mode}, Dir: root, OutputLimit: 1024})
+	out, err := (localexec.ExecRunner{}).RunInput(ctx, localexec.Command{Path: os.Args[0], Args: []string{"-test.run=^TestModuleDescriptorNativeExitHelper$", "--", "BRINE_DESCRIPTOR_NATIVE_EXIT=" + mode}, Dir: t.TempDir(), OutputLimit: 1024})
 	code := map[string]string{"exit": "native_exit", "arguments": "native_arguments", "signal": "native_signal"}[mode]
 	if err == nil || moduleDescriptorNativeFailure(err, out.Stderr) != code {
 		t.Fatal("real native child status classified incorrectly", mode, err)
@@ -188,10 +187,10 @@ func testModuleDescriptorNativeExit(t *testing.T, mode string) {
 }
 
 func TestModuleDescriptorNativeExitHelper(t *testing.T) {
-	mode := os.Getenv("BRINE_DESCRIPTOR_NATIVE_EXIT")
-	if mode == "" {
+	if !strings.HasPrefix(os.Args[len(os.Args)-1], "BRINE_DESCRIPTOR_NATIVE_EXIT=") {
 		return
 	}
+	mode := strings.TrimPrefix(os.Args[len(os.Args)-1], "BRINE_DESCRIPTOR_NATIVE_EXIT=")
 	if mode == "arguments" {
 		_, _ = fmt.Fprintln(os.Stderr, "error: unexpected argument private diagnostic")
 	}

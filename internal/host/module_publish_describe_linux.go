@@ -59,7 +59,7 @@ func RunModuleDescriptor(ctx context.Context, input io.Reader, output io.Writer)
 		_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal=artifact_identity")
 		return datapublish.ErrRecord
 	}
-	raw, err := extractModuleDescriptor(ctx, localexec.ExecRunner{})
+	raw, err := extractModuleDescriptor(ctx, localexec.GuestRunner{})
 	if err != nil {
 		stage := "native_extract"
 		var failure *moduleDescriptorFailure
@@ -136,7 +136,7 @@ func extractModuleDescriptor(ctx context.Context, runner localexec.InputRunner) 
 	defer cancel()
 	result, err := runner.RunInput(wait, localexec.Command{Path: engineNativePath,
 		Args: []string{"extract-schema", moduleDescriptorArtifactPath, "--host-type", "wasm"},
-		Env:  []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "TMPDIR=/tmp", "TOKIO_WORKER_THREADS=2"}, Dir: "/tmp", OutputLimit: moduleDescriptorOutputLimit})
+		Dir:  "/tmp", OutputLimit: moduleDescriptorOutputLimit})
 	if err != nil {
 		return nil, &moduleDescriptorFailure{stage: moduleDescriptorNativeFailure(err, result.Stderr)}
 	}

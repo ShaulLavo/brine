@@ -8,7 +8,7 @@ import (
 )
 
 func TestNativePreflightDescriptionIsOwnedSyntaxOnly(t *testing.T) {
-	token := strings.Repeat("a", 64)
+	token := "0x" + strings.Repeat("a", 64)
 	raw := []byte(`{"AutoMigrate":{"migrate_plan":"actual native plan","break_clients":false,"token":"` + token + `","major_version_upgrade":false}}`)
 	parsed, err := DescribeNativePreflight(raw)
 	if err != nil || !parsed.Automatic() || parsed.MajorUpgrade() || parsed.BreaksClients() || string(parsed.TokenBytes()) != token || parsed.ResponseSHA256() != publicationBytesSHA256(raw) || parsed.TokenSHA256() != publicationBytesSHA256([]byte(token)) {
