@@ -34,6 +34,59 @@ fn seed(snapshot: bool) -> Fixture {
     seed_replica(snapshot, 1)
 }
 
+#[test]
+fn runtime_marker_mount_requires_exact_path_flags_and_file_bind_root() {
+    let fields = [
+        "1",
+        "2",
+        "0:0",
+        "/marker",
+        "/run/.containerenv",
+        "ro,nosuid,nodev,noexec",
+        "-",
+        "tmpfs",
+        "tmpfs",
+        "rw",
+    ];
+    for point in [
+        "/run",
+        "/run/foreign",
+        "/run/.containerenv/child",
+        "/var/tmp/.containerenv",
+    ] {
+        assert!(!readonly_empty_runtime_marker(point, fields[5], &fields));
+    }
+    for options in [
+        "rw,nosuid,nodev,noexec",
+        "ro,nodev,noexec",
+        "ro,nosuid,noexec",
+        "ro,nosuid,nodev",
+    ] {
+        assert!(!readonly_empty_runtime_marker(fields[4], options, &fields));
+    }
+    let mut root = fields;
+    root[3] = "/";
+    assert!(!readonly_empty_runtime_marker(root[4], root[5], &root));
+}
+
+#[test]
+fn runtime_marker_file_rejects_visible_symlinks_directories_contents_and_links() {
+    let directory = tempfile::tempdir().unwrap();
+    let empty = directory.path().join("empty");
+    fs::write(&empty, []).unwrap();
+    fs::set_permissions(&empty, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(runtime_marker_file(&empty), unsafe { libc::geteuid() == 0 });
+    let link = directory.path().join("symlink");
+    symlink(&empty, &link).unwrap();
+    assert!(!runtime_marker_file(&link));
+    assert!(!runtime_marker_file(directory.path()));
+    fs::write(&empty, b"not empty").unwrap();
+    assert!(!runtime_marker_file(&empty));
+    fs::write(&empty, []).unwrap();
+    fs::hard_link(&empty, directory.path().join("second")).unwrap();
+    assert!(!runtime_marker_file(&empty));
+}
+
 fn seed_replica(snapshot: bool, replica_id: u64) -> Fixture {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("replica");

@@ -66,7 +66,7 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 		if err != nil {
 			return cli.RuntimeServices{}, err
 		}
-		return cli.RuntimeServices{EngineExec: runtime.EngineExec, Close: runtime.Close}, nil
+		return cli.RuntimeServices{EngineExec: runtime.EngineExec, EngineStop: runtime.EngineStop, Close: runtime.Close}, nil
 	}}
 	deps.HostEngineCopyObserve = host.RunEngineCopyObserver
 	if cli.HostServeRequested(args) {

@@ -37,7 +37,7 @@ func nativeForeignRoot(t *testing.T) string {
 
 func dropNativeCaptureMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
-	for _, table := range []string{"data_native_repository_results", "data_native_repository_intents", "data_native_verified_point_bundles", "data_native_verified_points", "data_native_point_consumers", "data_native_prepared_points", "data_native_preparation_events", "data_native_preparations", "data_native_task_inputs"} {
+	for _, table := range []string{"data_native_repository_leases", "data_native_repository_init_events", "data_native_recovery_retentions", "data_native_recovery_deliveries", "data_native_backup_revision_events", "data_native_backup_revision_claims", "data_native_backup_revision_plans", "data_native_backup_policies", "data_native_capture_events", "data_native_capture_inputs", "data_native_checkpoints", "data_native_repository_results", "data_native_repository_intents", "data_native_verified_point_bundles", "data_native_verified_points", "data_native_point_consumers", "data_native_prepared_points", "data_native_preparation_events", "data_native_preparations", "data_native_task_inputs"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatal(err)
 		}
@@ -200,10 +200,18 @@ func nativeCompletedPointFixture(t *testing.T) (*Store, *NativePreparation, Nati
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	sourceFacts, err := nativePreparedSourceFactBytes(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteFacts, err := nativePreparedRemoteFactBytes(v)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, phase := range []struct {
 		stage string
 		proof []byte
-	}{{"source", []byte(`{"fixture":"synthetic source"}`)}, {"remote", []byte(`{"fixture":"synthetic remote"}`)}, {"verified", verified}, {"completed", raw}} {
+	}{{"source", sourceFacts}, {"remote", remoteFacts}, {"verified", verified}, {"completed", raw}} {
 		if err := appendNativePreparationProof(ctx, tx, i, preparation.raw, phase.stage, phase.proof); err != nil {
 			t.Fatal(err)
 		}
