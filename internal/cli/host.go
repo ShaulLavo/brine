@@ -120,7 +120,7 @@ func HostStartupRequested(args []string) bool {
 		return false
 	}
 	switch command.CommandPath() {
-	case "brine host writer-permit", "brine host writer-attempt", "brine host replica-permit", "brine host replica-exec", "brine host engine-exec", "brine host engine-copy-observe":
+	case "brine host writer-permit", "brine host writer-attempt", "brine host replica-permit", "brine host replica-exec", "brine host engine-exec", "brine host engine-stop", "brine host engine-copy-observe":
 		return true
 	default:
 		return false

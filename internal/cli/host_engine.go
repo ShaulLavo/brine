@@ -19,5 +19,11 @@ func newHostEngineCommands(deps Dependencies) []*cobra.Command {
 		}
 		return deps.HostEngineCopyObserve(cmd.Context(), deps.Stdin, deps.Stdout)
 	}}
-	return []*cobra.Command{execute, observe}
+	stop := &cobra.Command{Use: "engine-stop BINDING", Hidden: true, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !data.ValidID(args[0]) || deps.HostEngineStop == nil {
+			return replication.ErrPermit
+		}
+		return deps.HostEngineStop(cmd.Context(), args[0])
+	}}
+	return []*cobra.Command{execute, observe, stop}
 }

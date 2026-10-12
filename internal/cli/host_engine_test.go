@@ -46,7 +46,7 @@ func TestEngineForegroundCancellationRequiresSuccessfulAbsence(t *testing.T) {
 }
 
 func TestEngineCommandsValidateBeforeEffects(t *testing.T) {
-	for _, args := range [][]string{{"host", "engine-exec"}, {"host", "engine-exec", "../data"}, {"host", "engine-exec", strings.Repeat("a", 32), "extra"}, {"host", "engine-exec", "--help"}, {"host", "engine-copy-observe", "extra"}, {"host", "engine-copy-observe", "--help"}} {
+	for _, args := range [][]string{{"host", "engine-exec"}, {"host", "engine-exec", "../data"}, {"host", "engine-exec", strings.Repeat("a", 32), "extra"}, {"host", "engine-exec", "--help"}, {"host", "engine-stop"}, {"host", "engine-stop", "../data"}, {"host", "engine-stop", strings.Repeat("a", 32), "extra"}, {"host", "engine-stop", "--help"}, {"host", "engine-copy-observe", "extra"}, {"host", "engine-copy-observe", "--help"}} {
 		deps := Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
 		deps.HostEngineCopyObserve = func(context.Context, io.Reader, io.Writer) error {
 			t.Fatal("invalid observe command had effects")
@@ -56,5 +56,19 @@ func TestEngineCommandsValidateBeforeEffects(t *testing.T) {
 			t.Fatal("invalid engine command opened state")
 			return RuntimeServices{}, nil
 		}})
+	}
+}
+
+func TestEngineStopCompositionUsesOnlyNarrowRuntime(t *testing.T) {
+	deps := Dependencies{Context: t.Context(), Stdout: &bytes.Buffer{}, Stderr: &bytes.Buffer{}}
+	called, closed := 0, 0
+	lifecycle := RuntimeLifecycle{Open: func(context.Context, bool) (RuntimeServices, error) {
+		t.Fatal("cleanup opened deployment runtime")
+		return RuntimeServices{}, nil
+	}, OpenEngineStartup: func(context.Context) (RuntimeServices, error) {
+		return RuntimeServices{EngineStop: func(context.Context, string) error { called++; return nil }, Close: func() error { closed++; return nil }}, nil
+	}}
+	if err := ExecuteWithRuntime(deps, []string{"host", "engine-stop", strings.Repeat("a", 32)}, lifecycle); err != nil || called != 1 || closed != 1 {
+		t.Fatal("cleanup did not own narrow composition", err, called, closed)
 	}
 }
