@@ -122,7 +122,10 @@ func buildNativeBackupRevisionPlan(ctx context.Context, q dataQuerier, p plan.Pl
 		return NativeBackupRevisionPlan{}, errors.Join(ErrConflict, err)
 	}
 	reserved, err := readReservedEngine(ctx, q, head.BindingID)
-	if err != nil || reserved.Database != p.Managed.Database || desired.BackupDestinations[0] != p.Managed.Archive.Destination {
+	if err == nil && reserved.Archive.EpochID != head.EpochID {
+		_, reserved.Archive, err = readNativeEpoch(ctx, q, head.BindingID, head.EpochID)
+	}
+	if err != nil || reserved.Database != p.Managed.Database || reserved.Archive != p.Managed.Archive || desired.BackupDestinations[0] != p.Managed.Archive.Destination {
 		return NativeBackupRevisionPlan{}, errors.Join(ErrConflict, err)
 	}
 	if runtime.State == data.EngineInitialized {
@@ -140,7 +143,10 @@ func buildNativeBackupRevisionPlan(ctx context.Context, q dataQuerier, p plan.Pl
 	previousHash := ""
 	if err == nil {
 		if previous.EpochID != head.EpochID {
-			return NativeBackupRevisionPlan{}, ErrConflict
+			permit := EnginePermit{Reserved: reserved, Runtime: runtime}
+			if _, err := readNativeCurrentRepositoryMaterialRecords(ctx, q, permit); err != nil {
+				return NativeBackupRevisionPlan{}, err
+			}
 		}
 		previousHash = nativePointHash(raw)
 	}

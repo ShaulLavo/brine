@@ -88,7 +88,7 @@ func (s *Store) ReadNativeArchivedBundle(ctx context.Context, archived *NativeAr
 	return bundle, tx.Commit()
 }
 
-func readNativePreparedBundleTx(ctx context.Context, tx *sql.Tx, pointID string) (NativePreparedBundle, error) {
+func readNativePreparedBundleTx(ctx context.Context, tx dataQuerier, pointID string) (NativePreparedBundle, error) {
 	point, err := readNativePreparedPointTx(ctx, tx, pointID)
 	if err != nil {
 		return NativePreparedBundle{}, err
@@ -108,7 +108,7 @@ func readNativePreparedBundleTx(ctx context.Context, tx *sql.Tx, pointID string)
 	return bundle, nil
 }
 
-func decodeNativePreparedBundle(ctx context.Context, tx *sql.Tx, point nativePreparedPoint, sourceRaw, manifestRaw, transportRaw, sourceEvidenceRaw, restoredEvidenceRaw, confirmedRaw, finalRaw []byte) (NativePreparedBundle, error) {
+func decodeNativePreparedBundle(ctx context.Context, tx dataQuerier, point nativePreparedPoint, sourceRaw, manifestRaw, transportRaw, sourceEvidenceRaw, restoredEvidenceRaw, confirmedRaw, finalRaw []byte) (NativePreparedBundle, error) {
 	pointID := point.view.PointID
 	source, err := nativecapture.DecodeSource(sourceRaw, nativecapture.DefaultLimits())
 	if err != nil || source.SHA256() != point.view.SourceSHA256 || source.Kind() != point.view.SourceKind {

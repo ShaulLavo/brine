@@ -14,7 +14,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/nativeevidence"
-	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/restic"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/strictjson"
@@ -217,7 +216,7 @@ func checkNativeRetainedRecoveryDelivery(ctx context.Context, q dataQuerier, ret
 	var version uint64
 	var raw []byte
 	err := q.QueryRowContext(ctx, "SELECT operation_id,requester,binding_id,epoch_id,reference,version,canonical FROM data_native_recovery_deliveries WHERE id=?", retention.DeliveryID).Scan(&operation, &requester, &binding, &epoch, &reference, &version, &raw)
-	if err != nil || binding != retention.BindingID || epoch != retention.EpochID || reference != retention.Reference || version != retention.Version || len(raw) == 0 || len(raw) > 16384 {
+	if err != nil || binding != retention.BindingID || reference != retention.Reference || version != retention.Version || len(raw) == 0 || len(raw) > 16384 {
 		return errors.Join(&IntegrityError{}, err)
 	}
 	var delivery nativeRecoveryDeliveryRecord
@@ -229,11 +228,11 @@ func checkNativeRetainedRecoveryDelivery(ctx context.Context, q dataQuerier, ret
 	if err != nil || !bytes.Equal(raw, canonical) || delivery.Format != "brine-native-recovery-delivery-v1" || delivery.ID != retention.DeliveryID || delivery.OperationID != operation || delivery.Requester != requester || delivery.BindingID != binding || delivery.EpochID != epoch || delivery.Reference != reference || delivery.Version != version || delivery.SHA256 != retention.MaterialSHA256 || delivery.ReceivedAt.IsZero() || delivery.ReceivedAt.Location() != time.UTC || delivery.ReceivedAt.After(capturedAt) {
 		return &IntegrityError{}
 	}
-	var kind ops.Kind
-	var state ops.State
-	err = q.QueryRowContext(ctx, "SELECT kind,state FROM operations WHERE id=? AND requester=?", operation, requester).Scan(&kind, &state)
-	if err != nil || kind != ops.NativeRecoverySet || state != ops.Succeeded {
-		return errors.Join(&IntegrityError{}, err)
+	if err := checkNativeRecoveryMaterialOperation(ctx, q, delivery); err != nil {
+		return err
+	}
+	if epoch != retention.EpochID {
+		return checkNativeRetainedRepositoryDelivery(ctx, q, retention)
 	}
 	return nil
 }

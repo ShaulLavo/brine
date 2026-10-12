@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -60,34 +59,19 @@ func (r *NativeIncomingRepository) Metadata(ctx context.Context) (NativeIncoming
 }
 
 func nativeIncomingRepositoryMetadata(ctx context.Context, q dataQuerier, intent nativeRepositoryIntent) (NativeIncomingRepositoryMetadata, error) {
-	policy, _, err := readNativeBackupPolicy(ctx, q, intent.record.BindingID)
-	if err != nil || policy.EpochID != intent.record.SourceEpochID {
+	bundle, err := readNativePreparedBundleTx(ctx, q, intent.record.PointID)
+	if err != nil || bundle.point.view.BindingID != intent.record.BindingID || bundle.point.view.EpochID != intent.record.SourceEpochID {
 		return NativeIncomingRepositoryMetadata{}, errors.Join(ErrConflict, err)
 	}
-	source, err := readReservedEngine(ctx, q, intent.record.BindingID)
+	material, err := readNativeRepositoryMaterial(ctx, q, bundle.transport)
 	if err != nil {
 		return NativeIncomingRepositoryMetadata{}, err
 	}
-	archive := source.Archive
-	if archive.EpochID != policy.EpochID {
-		_, archive, err = readNativeEpoch(ctx, q, intent.record.BindingID, policy.EpochID)
-		if err != nil {
-			return NativeIncomingRepositoryMetadata{}, err
-		}
-	}
-	d := archive.Destination
-	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
-	point := restic.TransportPoint{Scope: restic.Scope{BindingID: string(policy.BindingID), EpochID: string(policy.EpochID), RepositoryID: policy.RepositoryID, DestinationSHA256: location.SHA256(), CredentialVersion: policy.CredentialVersion, RecoveryVersion: policy.RecoveryVersion}}
-	material, err := readNativeRepositoryMaterial(ctx, q, point)
-	if err != nil {
-		return NativeIncomingRepositoryMetadata{}, err
-	}
-	incoming := intent.archive.Destination
-	material.Location = restic.S3Location{Endpoint: incoming.Endpoint, Bucket: incoming.Bucket, Prefix: strings.TrimSuffix(intent.archive.RemotePrefix, "/"), Region: incoming.Region, PathStyle: incoming.PathStyle}
+	material.Location = nativeArchiveLocation(intent.archive)
 	material.Scope.EpochID = string(intent.epochID)
 	material.Scope.RepositoryID = ""
 	material.Scope.DestinationSHA256 = material.Location.SHA256()
-	return NativeIncomingRepositoryMetadata{Material: material, CredentialEpochID: policy.EpochID, CreationGrantSHA256: intent.creationGrantSHA256, IntentID: intent.creationID}, nil
+	return NativeIncomingRepositoryMetadata{Material: material, CredentialEpochID: material.CredentialRecord.EpochID, CreationGrantSHA256: intent.creationGrantSHA256, IntentID: intent.creationID}, nil
 }
 
 func (s *Store) BeginNativeIncomingInitialization(ctx context.Context, r *NativeIncomingRepository) error {
@@ -104,7 +88,7 @@ func (s *Store) BeginNativeIncomingInitialization(ctx context.Context, r *Native
 	if err != nil {
 		return err
 	}
-	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, r)
+	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, nativePointHash(r.leaseRaw))
 	if err != nil || len(events) != 0 {
 		return errors.Join(ErrConflict, err)
 	}
@@ -137,7 +121,7 @@ func (r *NativeIncomingRepository) AdmitRepository(ctx context.Context, scope re
 	if err != nil {
 		return err
 	}
-	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, r)
+	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, nativePointHash(r.leaseRaw))
 	if err != nil || len(events) == 0 || events[len(events)-1].Stage == "initialized" || action == restic.CreateRepository && (len(events) != 1 || events[0].Stage != "init_issued") {
 		return errors.Join(ErrConflict, err)
 	}
@@ -149,7 +133,7 @@ func (r *NativeIncomingRepository) AdmitRepository(ctx context.Context, scope re
 	return tx.Commit()
 }
 
-func readNativeRepositoryInitEvents(ctx context.Context, q dataQuerier, intent nativeRepositoryIntent, r *NativeIncomingRepository) ([]nativeRepositoryInitEvent, error) {
+func readNativeRepositoryInitEvents(ctx context.Context, q dataQuerier, intent nativeRepositoryIntent, leaseSHA256 string) ([]nativeRepositoryInitEvent, error) {
 	rows, err := q.QueryContext(ctx, "SELECT sequence,stage,previous_sha256,canonical FROM data_native_repository_init_events WHERE intent_id=? ORDER BY sequence", intent.creationID)
 	if err != nil {
 		return nil, err
@@ -169,7 +153,7 @@ func readNativeRepositoryInitEvents(ctx context.Context, q dataQuerier, intent n
 			return nil, &IntegrityError{}
 		}
 		canonical, _ := json.Marshal(event)
-		if !bytes.Equal(raw, canonical) || sequence != uint64(len(events))+1 || event.Sequence != sequence || event.Stage != stage || event.PreviousSHA256 != parent || parent != previous || event.IntentID != intent.creationID || event.IntentSHA256 != intent.hash || event.LeaseSHA256 != nativePointHash(r.leaseRaw) || event.ObservedAt.IsZero() || event.ObservedAt.Location() != time.UTC || event.ObservedAt.After(time.Now().UTC()) || !validNativeRepositoryInitStage(events, stage) {
+		if !bytes.Equal(raw, canonical) || sequence != uint64(len(events))+1 || event.Sequence != sequence || event.Stage != stage || event.PreviousSHA256 != parent || parent != previous || event.IntentID != intent.creationID || event.IntentSHA256 != intent.hash || event.LeaseSHA256 != leaseSHA256 || event.ObservedAt.IsZero() || event.ObservedAt.Location() != time.UTC || event.ObservedAt.After(time.Now().UTC()) || !validNativeRepositoryInitStage(events, stage) {
 			return nil, &IntegrityError{}
 		}
 		events = append(events, event)
@@ -217,7 +201,7 @@ func (s *Store) RecordNativeIncomingInitialized(ctx context.Context, r *NativeIn
 	if err != nil {
 		return NativeInitializedRepositoryResult{}, err
 	}
-	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, r)
+	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, nativePointHash(r.leaseRaw))
 	if err != nil || len(events) == 0 || events[len(events)-1].Stage == "initialized" {
 		return NativeInitializedRepositoryResult{}, errors.Join(ErrConflict, err)
 	}
@@ -255,7 +239,7 @@ func (s *Store) ReadNativeIncomingInitialized(ctx context.Context, r *NativeInco
 	if err != nil {
 		return NativeInitializedRepositoryResult{}, err
 	}
-	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, r)
+	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, nativePointHash(r.leaseRaw))
 	if err != nil || len(events) == 0 || events[len(events)-1].Stage != "initialized" {
 		return NativeInitializedRepositoryResult{}, errors.Join(ErrConflict, err)
 	}

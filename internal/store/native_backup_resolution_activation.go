@@ -55,7 +55,7 @@ func readNativeBackupPreviousPolicy(ctx context.Context, q dataQuerier, p Native
 	}
 	var raw []byte
 	var value NativeBackupPolicy
-	err := q.QueryRowContext(ctx, "SELECT canonical FROM data_native_backup_policies WHERE binding_id=? AND revision=? AND epoch_id=?", p.BindingID, p.PreviousRevision, p.EpochID).Scan(&raw)
+	err := q.QueryRowContext(ctx, "SELECT canonical FROM data_native_backup_policies WHERE binding_id=? AND revision=?", p.BindingID, p.PreviousRevision).Scan(&raw)
 	if err != nil {
 		return value, err
 	}

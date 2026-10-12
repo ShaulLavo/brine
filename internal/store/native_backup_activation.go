@@ -132,29 +132,10 @@ func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *Native
 	if err != nil || !bytes.Equal(claim, a.claim) || opErr != nil || op.Kind != ops.NativeBackupActivate || (a.inspection == nil && op.State != ops.Preflight || a.inspection != nil && op.State != ops.RecoveryRequired) || op.Requester != plan.Requester || op.SecretRef != plan.ID || op.App != plan.App {
 		return NativeBackupActivationMetadata{}, ErrConflict
 	}
-	reserved, err := readReservedEngine(ctx, tx, plan.BindingID)
+	permit, err := readEnginePermit(ctx, tx, plan.BindingID)
+	reserved := permit.Reserved
 	if err != nil || reserved.Archive.EpochID != plan.EpochID {
 		return NativeBackupActivationMetadata{}, errors.Join(ErrConflict, err)
-	}
-	var credentialRaw, recoveryRaw []byte
-	d := reserved.Archive.Destination
-	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE binding_id=? AND json_extract(canonical,'$.epoch_id')=? AND kind='receipt' AND json_extract(canonical,'$.credential_ref')=? ORDER BY json_extract(canonical,'$.version') DESC LIMIT 1", plan.BindingID, plan.EpochID, d.CredentialRef).Scan(&credentialRaw)
-	var credential CredentialRecord
-	if err != nil || json.Unmarshal(credentialRaw, &credential) != nil {
-		return NativeBackupActivationMetadata{}, errors.Join(ErrConflict, err)
-	}
-	canonical, _ := json.Marshal(credential)
-	if !bytes.Equal(canonical, credentialRaw) || credential.BindingID != plan.BindingID || credential.EpochID != plan.EpochID || credential.CredentialRef != d.CredentialRef || credential.Version == 0 || credential.Kind != "receipt" || credential.ReceivedAt.IsZero() {
-		return NativeBackupActivationMetadata{}, &IntegrityError{}
-	}
-	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_recovery_deliveries WHERE binding_id=? AND epoch_id=? AND reference=? ORDER BY version DESC LIMIT 1", plan.BindingID, plan.EpochID, plan.RecoveryReference).Scan(&recoveryRaw)
-	var recovery nativeRecoveryDeliveryRecord
-	if err != nil || json.Unmarshal(recoveryRaw, &recovery) != nil || recovery.BindingID != plan.BindingID || recovery.EpochID != plan.EpochID || recovery.Reference != plan.RecoveryReference || checkNativeRecoveryMaterialOperation(ctx, tx, recovery) != nil {
-		return NativeBackupActivationMetadata{}, errors.Join(ErrConflict, err)
-	}
-	canonical, _ = json.Marshal(recovery)
-	if !bytes.Equal(canonical, recoveryRaw) || recovery.Version == 0 || !data.ValidCatalogHash(recovery.SHA256) || recovery.ReceivedAt.IsZero() {
-		return NativeBackupActivationMetadata{}, &IntegrityError{}
 	}
 	previous, _, err := readNativeBackupPolicy(ctx, tx, plan.BindingID)
 	if a.inspection != nil {
@@ -163,8 +144,58 @@ func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *Native
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return NativeBackupActivationMetadata{}, err
 	}
+	var inherited NativeRepositoryMaterial
+	if previous.Revision != 0 {
+		if a.inspection != nil && previous.EpochID == plan.EpochID {
+			inherited.Scope.RepositoryID = previous.RepositoryID
+		} else if a.inspection != nil {
+			epoch, archive, epochErr := readNativeEpoch(ctx, tx, plan.BindingID, plan.EpochID)
+			if epochErr != nil {
+				return NativeBackupActivationMetadata{}, epochErr
+			}
+			scope := restic.Scope{BindingID: string(plan.BindingID), EpochID: string(plan.EpochID), RepositoryID: epoch.Record().RepositoryID, DestinationSHA256: nativeArchiveLocation(archive).SHA256(), CredentialVersion: previous.CredentialVersion, RecoveryVersion: previous.RecoveryVersion}
+			inherited, err = readNativeInheritedRepositoryMaterial(ctx, tx, restic.TransportPoint{Scope: scope}, archive, map[string]bool{})
+		} else {
+			inherited, err = readNativeCurrentRepositoryMaterialRecords(ctx, tx, permit)
+		}
+		if err != nil {
+			return NativeBackupActivationMetadata{}, err
+		}
+	}
+	var credentialRaw, recoveryRaw []byte
+	d := reserved.Archive.Destination
+	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE binding_id=? AND json_extract(canonical,'$.epoch_id')=? AND kind='receipt' AND json_extract(canonical,'$.credential_ref')=? ORDER BY json_extract(canonical,'$.version') DESC LIMIT 1", plan.BindingID, plan.EpochID, d.CredentialRef).Scan(&credentialRaw)
+	if errors.Is(err, sql.ErrNoRows) && previous.Revision != 0 {
+		credentialRaw, err = json.Marshal(inherited.CredentialRecord)
+	}
+	var credential CredentialRecord
+	if err != nil || json.Unmarshal(credentialRaw, &credential) != nil {
+		return NativeBackupActivationMetadata{}, errors.Join(ErrConflict, err)
+	}
+	canonical, _ := json.Marshal(credential)
+	if !bytes.Equal(canonical, credentialRaw) || credential.BindingID != plan.BindingID || credential.EpochID != plan.EpochID && credential.ID != inherited.CredentialReceiptID || credential.CredentialRef != d.CredentialRef || credential.Version == 0 || credential.Kind != "receipt" || credential.ReceivedAt.IsZero() {
+		return NativeBackupActivationMetadata{}, &IntegrityError{}
+	}
+	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_recovery_deliveries WHERE binding_id=? AND epoch_id=? AND reference=? ORDER BY version DESC LIMIT 1", plan.BindingID, plan.EpochID, plan.RecoveryReference).Scan(&recoveryRaw)
+	if errors.Is(err, sql.ErrNoRows) && previous.Revision != 0 {
+		err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_recovery_deliveries WHERE id=?", inherited.RecoveryDeliveryID).Scan(&recoveryRaw)
+	}
+	var recovery nativeRecoveryDeliveryRecord
+	if err != nil || json.Unmarshal(recoveryRaw, &recovery) != nil || recovery.BindingID != plan.BindingID || recovery.Reference != plan.RecoveryReference || checkNativeRecoveryMaterialOperation(ctx, tx, recovery) != nil {
+		return NativeBackupActivationMetadata{}, errors.Join(ErrConflict, err)
+	}
+	canonical, _ = json.Marshal(recovery)
+	if !bytes.Equal(canonical, recoveryRaw) || recovery.Version == 0 || !data.ValidCatalogHash(recovery.SHA256) || recovery.ReceivedAt.IsZero() {
+		return NativeBackupActivationMetadata{}, &IntegrityError{}
+	}
+	if recovery.EpochID != plan.EpochID && (recovery.ID != inherited.RecoveryDeliveryID || recovery.Reference != inherited.RecoveryReference || recovery.Version != inherited.Scope.RecoveryVersion || recovery.SHA256 != inherited.RecoverySHA256) {
+		return NativeBackupActivationMetadata{}, ErrConflict
+	}
 	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(reserved.Archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
 	scope := restic.Scope{BindingID: string(plan.BindingID), EpochID: string(plan.EpochID), RepositoryID: previous.RepositoryID, DestinationSHA256: location.SHA256(), CredentialVersion: credential.Version, RecoveryVersion: recovery.Version, ExpiresAt: plan.ExpiresAt}
+	if previous.Revision != 0 {
+		scope.RepositoryID = inherited.Scope.RepositoryID
+	}
 	if a.inspection != nil {
 		scope.ExpiresAt = a.inspection.deadline
 	}
@@ -385,11 +416,11 @@ func (a *NativeBackupActivation) Commit(ctx context.Context, observed NativeBack
 		if err != nil || json.Unmarshal(raw, &initialized) != nil || initialized.RepositoryID != observed.RepositoryID || (!sameNativeResolutionScope(initialized.Scope, metadata.Material.Scope) || a.inspection == nil && initialized.Scope.ExpiresAt != metadata.Material.Scope.ExpiresAt) || !data.ValidCatalogHash(initialized.ConfigSHA256) {
 			return nativecapture.BackupPolicyReceipt{}, ErrConflict
 		}
-	} else if metadata.Previous.RepositoryID != observed.RepositoryID {
+	} else if metadata.Material.Scope.RepositoryID != observed.RepositoryID {
 		return nativecapture.BackupPolicyReceipt{}, ErrConflict
 	}
 	var deliveryID string
-	err = tx.QueryRowContext(ctx, "SELECT id FROM data_native_recovery_deliveries WHERE binding_id=? AND epoch_id=? AND reference=? AND version=?", metadata.Plan.BindingID, metadata.Plan.EpochID, metadata.Material.RecoveryReference, metadata.Material.Scope.RecoveryVersion).Scan(&deliveryID)
+	err = tx.QueryRowContext(ctx, "SELECT id FROM data_native_recovery_deliveries WHERE id=? AND binding_id=? AND reference=? AND version=?", metadata.Material.RecoveryDeliveryID, metadata.Plan.BindingID, metadata.Material.RecoveryReference, metadata.Material.Scope.RecoveryVersion).Scan(&deliveryID)
 	if err != nil || deliveryID != observed.RecoveryDeliveryID {
 		return nativecapture.BackupPolicyReceipt{}, ErrConflict
 	}

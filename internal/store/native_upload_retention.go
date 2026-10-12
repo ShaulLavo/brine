@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -81,13 +80,12 @@ func retainNativeUpload(ctx context.Context, tx *sql.Tx, permit EnginePermit, op
 		descriptor.ConfirmedBound = json.RawMessage("null")
 		descriptor.FinalPairs = json.RawMessage("null")
 	}
-	policy, _, err := readNativeBackupPolicy(ctx, tx, permit.Runtime.BindingID)
-	if err != nil || policy.EpochID != permit.Runtime.EpochID {
-		return ErrConflict
+	material, err := readNativeCurrentRepositoryMaterialRecords(ctx, tx, permit)
+	if err != nil {
+		return err
 	}
-	d := permit.Reserved.Archive.Destination
-	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(permit.Reserved.Archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
-	descriptor.Scope = restic.Scope{BindingID: string(permit.Runtime.BindingID), EpochID: string(policy.EpochID), RepositoryID: policy.RepositoryID, DestinationSHA256: location.SHA256(), CredentialVersion: policy.CredentialVersion, RecoveryVersion: policy.RecoveryVersion}
+	descriptor.Scope = material.Scope
+	descriptor.Scope.ExpiresAt = time.Time{}
 	raw, err := json.Marshal(descriptor)
 	if err != nil || len(raw) > 8<<20 || len(retained.Artifact) > 32<<20 || len(retained.Descriptor) > 4<<20 {
 		return ErrInvalid

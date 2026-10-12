@@ -143,13 +143,7 @@ func (c *NativeOnlineCapture) Material(ctx context.Context) (NativeRepositoryMat
 		return NativeRepositoryMaterial{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	policy, _, err := readNativeBackupPolicy(ctx, tx, permit.Runtime.BindingID)
-	if err != nil || policy.EpochID != permit.Runtime.EpochID {
-		return NativeRepositoryMaterial{}, ErrConflict
-	}
-	d := permit.Reserved.Archive.Destination
-	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(permit.Reserved.Archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
-	material, err := readNativeRepositoryMaterial(ctx, tx, restic.TransportPoint{Scope: restic.Scope{BindingID: string(permit.Runtime.BindingID), EpochID: string(policy.EpochID), RepositoryID: policy.RepositoryID, DestinationSHA256: location.SHA256(), CredentialVersion: policy.CredentialVersion, RecoveryVersion: policy.RecoveryVersion}})
+	material, err := readNativeCurrentRepositoryMaterial(ctx, tx, permit)
 	if err != nil {
 		return NativeRepositoryMaterial{}, err
 	}

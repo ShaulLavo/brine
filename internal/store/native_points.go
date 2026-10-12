@@ -120,7 +120,7 @@ func decodeNativePreparedPoint(raw []byte) (nativePreparedPoint, error) {
 	return nativePreparedPoint{view: v, raw: bytes.Clone(raw), hash: nativePointHash(raw)}, nil
 }
 
-func readNativePreparedPointTx(ctx context.Context, tx *sql.Tx, pointID string) (nativePreparedPoint, error) {
+func readNativePreparedPointTx(ctx context.Context, tx dataQuerier, pointID string) (nativePreparedPoint, error) {
 	if !data.ValidID(pointID) {
 		return nativePreparedPoint{}, ErrInvalid
 	}
