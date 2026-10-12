@@ -77,6 +77,33 @@ func nativeReaderInput(checkpoint nativecapture.Checkpoint, selection nativecapt
 	if checkpoint.SHA256() == "" || record.Scope.BindingID != scope.BindingID || record.Scope.EpochID != scope.EpochID || record.Scope.ReplicaID != scope.ReplicaID {
 		return nil, errEngineSource
 	}
+	return marshalNativeReaderInput(nativeKnownIdentity{"known", record.DatabaseIdentity, record.PublisherIdentity}, selection)
+}
+
+type nativeReaderIdentity interface{ nativeIdentity() }
+type nativeKnownIdentity struct {
+	Kind     string `json:"kind"`
+	Database string `json:"database_identity"`
+	Owner    string `json:"owner_identity"`
+}
+
+func (nativeKnownIdentity) nativeIdentity() {}
+
+type nativeDiscoveryIdentity struct {
+	Kind  string `json:"kind"`
+	Owner string `json:"owner_identity"`
+}
+
+func (nativeDiscoveryIdentity) nativeIdentity() {}
+
+func nativeDiscoveryInput(protectedOwner string, selection nativecapture.Selection) ([]byte, error) {
+	if !data.ValidCatalogHash(protectedOwner) {
+		return nil, errEngineSource
+	}
+	return marshalNativeReaderInput(nativeDiscoveryIdentity{"discover", protectedOwner}, selection)
+}
+
+func marshalNativeReaderInput(identity nativeReaderIdentity, selection nativecapture.Selection) ([]byte, error) {
 	var history any
 	switch selection.Kind() {
 	case "logs":
@@ -92,17 +119,16 @@ func nativeReaderInput(checkpoint nativecapture.Checkpoint, selection nativecapt
 			Kind    string `json:"kind"`
 			Offset  uint64 `json:"offset"`
 			Replica uint64 `json:"replica_id"`
-		}{"snapshot", offset, scope.ReplicaID}
+		}{"snapshot", offset, selection.Scope().ReplicaID}
 	default:
 		return nil, errEngineSource
 	}
 	raw, err := json.Marshal(struct {
 		Format   string                `json:"format"`
-		Database string                `json:"expected_database_identity"`
-		Owner    string                `json:"expected_owner_identity"`
+		Identity nativeReaderIdentity  `json:"identity"`
 		History  any                   `json:"history"`
 		Limits   nativeevidence.Limits `json:"limits"`
-	}{nativeevidence.Format, record.DatabaseIdentity, record.PublisherIdentity, history, nativeReaderLimits()})
+	}{nativeevidence.Format, identity, history, nativeReaderLimits()})
 	if err != nil || len(raw) > 8192 {
 		return nil, errEngineSource
 	}
@@ -125,6 +151,45 @@ type nativeDisposal struct {
 }
 
 func readNativeView(ctx context.Context, session localexec.Session, pin nativeReaderPin, view *nativeReadView, checkpoint nativecapture.Checkpoint) (nativeevidence.Evidence, nativeDisposal, error) {
+	if view == nil {
+		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
+	}
+	input, err := nativeReaderInput(checkpoint, view.selection)
+	if err != nil {
+		return nativeevidence.Evidence{}, nativeDisposal{}, err
+	}
+	observed, disposed, err := runNativeReadView(ctx, session, pin, view, input)
+	if err != nil || !nativeEvidenceMatches(checkpoint, view.selection, observed) {
+		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
+	}
+	return observed, disposed, nil
+}
+
+func readNativeDiscoveryView(ctx context.Context, session localexec.Session, pin nativeReaderPin, view *nativeReadView, protectedOwner string) (nativeevidence.Evidence, nativeDisposal, error) {
+	if view == nil {
+		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
+	}
+	input, err := nativeDiscoveryInput(protectedOwner, view.selection)
+	if err != nil {
+		return nativeevidence.Evidence{}, nativeDisposal{}, err
+	}
+	observed, disposed, err := runNativeReadView(ctx, session, pin, view, input)
+	if err != nil || !nativeDiscoveryMatches(protectedOwner, view.selection, observed) {
+		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
+	}
+	return observed, disposed, nil
+}
+
+func nativeDiscoveryMatches(protectedOwner string, selection nativecapture.Selection, observed nativeevidence.Evidence) bool {
+	if !data.ValidCatalogHash(protectedOwner) || observed.OwnerIdentity() != protectedOwner {
+		return false
+	}
+	snapshot, present := observed.Snapshot()
+	offset, selected := selection.SnapshotOffset()
+	return present == selected && (!selected || snapshot.Database == observed.DatabaseIdentity() && snapshot.Replica == selection.Scope().ReplicaID && snapshot.Offset == offset)
+}
+
+func runNativeReadView(ctx context.Context, session localexec.Session, pin nativeReaderPin, view *nativeReadView, input []byte) (nativeevidence.Evidence, nativeDisposal, error) {
 	if view == nil || view.unchanged(ctx) != nil {
 		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
 	}
@@ -144,10 +209,6 @@ func readNativeView(ctx context.Context, session localexec.Session, pin nativeRe
 	if err != nil || image.ImageID != pin.ImageID || image.Platform.OS != "linux" || image.Platform.Architecture != pin.Architecture {
 		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
 	}
-	input, err := nativeReaderInput(checkpoint, view.selection)
-	if err != nil {
-		return nativeevidence.Evidence{}, nativeDisposal{}, err
-	}
 	args, err := nativeReaderArguments(pin, view)
 	if err != nil {
 		return nativeevidence.Evidence{}, nativeDisposal{}, err
@@ -166,7 +227,7 @@ func readNativeView(ctx context.Context, session localexec.Session, pin nativeRe
 		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
 	}
 	observed, err := nativeevidence.Decode(output.Bytes(), nativeReaderLimits())
-	if err != nil || !nativeEvidenceMatches(checkpoint, view.selection, observed) {
+	if err != nil {
 		return nativeevidence.Evidence{}, nativeDisposal{}, errEngineSource
 	}
 	return observed, disposed, nil

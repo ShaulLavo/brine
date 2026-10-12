@@ -30,10 +30,21 @@ pub enum Refusal {
 #[serde(deny_unknown_fields)]
 pub struct Request {
     pub format: String,
-    pub expected_database_identity: String,
-    pub expected_owner_identity: String,
+    pub identity: RequestedIdentity,
     pub history: History,
     pub limits: Limits,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RequestedIdentity {
+    Known {
+        database_identity: String,
+        owner_identity: String,
+    },
+    Discover {
+        owner_identity: String,
+    },
 }
 
 #[derive(Clone, Copy, Deserialize, Serialize)]

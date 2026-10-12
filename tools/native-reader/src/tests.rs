@@ -136,11 +136,13 @@ fn seed_config(snapshot: bool, replica_id: u64, projection: Option<&str>) -> Fix
     )
     .unwrap();
     let mut tx = db.begin_mut_tx(IsolationLevel::Serializable, Workload::Internal);
-    db.set_initialized(
-        &mut tx,
-        Program::from_bytes(ModuleKind::WASM, b"initial-program".to_vec()),
-    )
-    .unwrap();
+    if projection != Some("missing-module") {
+        db.set_initialized(
+            &mut tx,
+            Program::from_bytes(ModuleKind::WASM, b"initial-program".to_vec()),
+        )
+        .unwrap();
+    }
     let mut schema =
         spacetimedb_schema::schema::TableSchema::from_product_type(ProductType::from([
             (Some("seq"), AlgebraicType::U64),
@@ -149,7 +151,9 @@ fn seed_config(snapshot: bool, replica_id: u64, projection: Option<&str>) -> Fix
     schema.table_name = spacetimedb_schema::table_name::TableName::for_test("reader_fixture");
     let table = db.create_table(&mut tx, schema).unwrap();
     db.commit_tx(tx).unwrap();
-    if let Some(variant) = projection {
+    if let Some(variant) =
+        projection.filter(|variant| *variant != "missing-module" && *variant != "multiple-modules")
+    {
         seed_projection(&db, variant);
     }
     for seq in 0..20u64 {
@@ -163,11 +167,30 @@ fn seed_config(snapshot: bool, replica_id: u64, projection: Option<&str>) -> Fix
         db.commit_tx(tx).unwrap();
     }
     let mut tx = db.begin_mut_tx(IsolationLevel::Serializable, Workload::Internal);
-    db.update_program(
-        &mut tx,
-        Program::from_bytes(ModuleKind::WASM, b"current-program".to_vec()),
-    )
-    .unwrap();
+    if projection != Some("missing-module") {
+        db.update_program(
+            &mut tx,
+            Program::from_bytes(ModuleKind::WASM, b"current-program".to_vec()),
+        )
+        .unwrap();
+        if projection == Some("multiple-modules") {
+            let program = Program::from_bytes(ModuleKind::WASM, b"foreign-program".to_vec());
+            let row = spacetimedb_datastore::system_tables::StModuleRow {
+                database_identity: id(9).into(),
+                owner_identity: id(2).into(),
+                program_kind: program.kind,
+                program_hash: program.hash,
+                program_bytes: program.bytes,
+                module_version: "foreign".into(),
+            };
+            db.insert(
+                &mut tx,
+                spacetimedb_datastore::system_tables::ST_MODULE_ID,
+                &row.to_bsatn_vec().unwrap(),
+            )
+            .unwrap();
+        }
+    }
     db.commit_tx(tx).unwrap();
     let (_, offset) = db.program_with_tx_offset().unwrap();
     runtime
@@ -194,8 +217,10 @@ fn seed_config(snapshot: bool, replica_id: u64, projection: Option<&str>) -> Fix
         selected_snapshot: snapshot.then_some(offset),
         request: Request {
             format: FORMAT.into(),
-            expected_database_identity: id(1).to_string(),
-            expected_owner_identity: id(2).to_string(),
+            identity: protocol::RequestedIdentity::Known {
+                database_identity: id(1).to_string(),
+                owner_identity: id(2).to_string(),
+            },
             history: if snapshot {
                 History::Snapshot { offset, replica_id }
             } else {
@@ -484,8 +509,6 @@ fn observed(fixture: &Fixture, alter: impl FnOnce(&Path)) -> Result<Evidence> {
     let result = inspect(
         &root,
         &fixture.request,
-        identity(&fixture.request.expected_database_identity)?,
-        identity(&fixture.request.expected_owner_identity)?,
         &Deadline::new(fixture.request.limits.deadline_ms),
     );
     assert!(before == input::files(&fixture.root, &Limits::MAX, &Deadline::new(60_000)).unwrap());
@@ -578,10 +601,15 @@ fn hex_sha(bytes: &[u8]) -> String {
 #[test]
 fn wrong_expected_identities_never_become_observed_authority() {
     let mut fixture = seed(false);
-    fixture.request.expected_database_identity = id(9).to_string();
+    fixture.request.identity = protocol::RequestedIdentity::Known {
+        database_identity: id(9).to_string(),
+        owner_identity: id(2).to_string(),
+    };
     assert!(matches!(observed(&fixture, |_| {}), Err(Refusal::Identity)));
-    fixture.request.expected_database_identity = id(1).to_string();
-    fixture.request.expected_owner_identity = id(9).to_string();
+    fixture.request.identity = protocol::RequestedIdentity::Known {
+        database_identity: id(1).to_string(),
+        owner_identity: id(9).to_string(),
+    };
     assert!(matches!(observed(&fixture, |_| {}), Err(Refusal::Identity)));
 }
 
@@ -956,4 +984,150 @@ fn explicit_replica_zero_is_observed_and_missing_or_mismatched_selectors_refuse(
         serde_json::to_vec(&fixture.request).unwrap(),
     )
     .unwrap();
+}
+
+#[test]
+fn discovery_uses_persisted_module_identity_and_matches_complete_known_state() {
+    for snapshot in [false, true] {
+        let mut fixture = seed(snapshot);
+        let known = observed(&fixture, |_| {}).unwrap();
+        fixture.request.identity = protocol::RequestedIdentity::Discover {
+            owner_identity: id(2).to_string(),
+        };
+        let discovered = observed(&fixture, |_| {}).unwrap();
+        assert_eq!(discovered.observed_database_identity, id(1).to_string());
+        assert_eq!(
+            serde_json::to_value(&discovered).unwrap(),
+            serde_json::to_value(&known).unwrap()
+        );
+        fixture.request.identity = protocol::RequestedIdentity::Discover {
+            owner_identity: id(9).to_string(),
+        };
+        assert!(matches!(observed(&fixture, |_| {}), Err(Refusal::Identity)));
+    }
+}
+
+#[test]
+fn discovery_snapshot_only_replays_actual_full_state() {
+    let mut fixture = seed(true);
+    let known = observed(&fixture, |_| {}).unwrap();
+    fixture.request.identity = protocol::RequestedIdentity::Discover {
+        owner_identity: id(2).to_string(),
+    };
+    let discovered = observed(&fixture, |root| {
+        fs::remove_dir_all(root.join("clog")).unwrap();
+        fs::create_dir(root.join("clog")).unwrap();
+    })
+    .unwrap();
+    assert_eq!(
+        discovered.observed_database_identity,
+        known.observed_database_identity
+    );
+    assert_eq!(
+        discovered
+            .tables
+            .iter()
+            .map(|table| &table.multiset_blake3)
+            .collect::<Vec<_>>(),
+        known
+            .tables
+            .iter()
+            .map(|table| &table.multiset_blake3)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(discovered.state_blake3, known.state_blake3);
+    assert_eq!(discovered.current_program_hash, known.current_program_hash);
+    assert_eq!(discovered.framing, "snapshot-only-v1");
+}
+
+#[test]
+fn discovery_refuses_missing_ambiguous_torn_and_foreign_replica_metadata() {
+    for variant in ["missing-module", "multiple-modules"] {
+        let mut fixture = seed_config(false, 1, Some(variant));
+        fixture.request.identity = protocol::RequestedIdentity::Discover {
+            owner_identity: id(2).to_string(),
+        };
+        assert!(observed(&fixture, |_| {}).is_err());
+    }
+    let mut fixture = seed(false);
+    fixture.request.identity = protocol::RequestedIdentity::Discover {
+        owner_identity: id(2).to_string(),
+    };
+    assert!(matches!(
+        observed(&fixture, |root| {
+            let path = last_log(root);
+            let mut bytes = fs::read(&path).unwrap();
+            bytes.pop();
+            fs::write(path, bytes).unwrap();
+        }),
+        Err(Refusal::Framing)
+    ));
+    assert!(matches!(
+        observed(&fixture, |root| {
+            fs::create_dir(root.join("other-replica")).unwrap();
+        }),
+        Err(Refusal::UnsafeMember)
+    ));
+    let mut fixture = seed(true);
+    fixture.request.identity = protocol::RequestedIdentity::Discover {
+        owner_identity: id(2).to_string(),
+    };
+    assert!(
+        observed(&fixture, |root| {
+            let offset = fixture.selected_snapshot.unwrap();
+            let snapshot = root
+                .join("snapshots")
+                .join(format!("{offset:020}.snapshot_dir"));
+            let path = snapshot.join(format!("{offset:020}.snapshot_bsatn"));
+            let mut bytes = fs::read(&path).unwrap();
+            bytes.pop();
+            fs::write(path, bytes).unwrap();
+        })
+        .is_err()
+    );
+}
+
+#[test]
+fn identity_operations_are_closed_and_never_accept_optional_database_identity() {
+    let fixture = seed(false);
+    let mut request = serde_json::to_value(&fixture.request).unwrap();
+    for identity in [
+        serde_json::json!({"kind":"discover", "owner_identity":id(2).to_string(), "database_identity":id(1).to_string()}),
+        serde_json::json!({"kind":"known", "owner_identity":id(2).to_string()}),
+        serde_json::json!({"kind":"discover"}),
+        serde_json::json!({"kind":"unknown", "owner_identity":id(2).to_string()}),
+    ] {
+        request["identity"] = identity;
+        assert!(serde_json::from_value::<Request>(request.clone()).is_err());
+    }
+}
+
+#[test]
+fn discovery_real_ambiguous_and_missing_module_fixtures() {
+    let output =
+        std::env::var_os("BRINE_DISCOVERY_READER_TEST_OUTPUT").map(std::path::PathBuf::from);
+    if let Some(output) = &output {
+        fs::create_dir(output).unwrap();
+    }
+    for snapshot in [false, true] {
+        for variant in ["missing-module", "multiple-modules"] {
+            let mut fixture = seed_config(snapshot, 1, Some(variant));
+            fixture.request.identity = protocol::RequestedIdentity::Discover {
+                owner_identity: id(2).to_string(),
+            };
+            assert!(observed(&fixture, |_| {}).is_err());
+            if let Some(output) = &output {
+                let name = format!("{}-{variant}", if snapshot { "snapshot" } else { "logs" });
+                let target = output.join(name);
+                fs::create_dir(&target).unwrap();
+                copy_tree(&fixture.root, &target.join("replica"));
+                select_snapshot_copy(&target.join("replica"), fixture.selected_snapshot);
+                fs::write(
+                    target.join("request.json"),
+                    serde_json::to_vec(&fixture.request).unwrap(),
+                )
+                .unwrap();
+            }
+        }
+    }
 }
