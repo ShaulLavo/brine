@@ -34,6 +34,9 @@ func TestModuleStageRequiresActualEmptySourceAndBlocksOrdinaryHost(t *testing.T)
 	if err := (initialPublisherEvidence{}).unchanged(context.Background()); !errors.Is(err, datapublish.ErrRecord) {
 		t.Fatal("zero publisher record manufactured actual empty-source verification", err)
 	}
+	if raw, err := (initialPublisherEvidence{}).provenanceBytes(context.Background()); !errors.Is(err, datapublish.ErrRecord) || len(raw) != 0 {
+		t.Fatal("unowned publisher record produced protected provenance", err)
+	}
 	if err := (extractedPublicationCandidate{}).unchanged(context.Background()); !errors.Is(err, datapublish.ErrRecord) {
 		t.Fatal("syntax manufactured actual descriptor execution", err)
 	}
@@ -119,6 +122,10 @@ func TestModuleStagePublisherProofBindsExactEndpointAndAttemptInterval(t *testin
 	if _, err := decodeModuleStageObservation(raw, started, finished); err != nil {
 		t.Fatal("exact fresh publisher transcript refused", err)
 	}
+	testModuleStageChildProofAttack(t, raw, "child_bound", false, started, finished)
+	testModuleStageChildProofAttack(t, raw, "child_pid", 1, started, finished)
+	testModuleStageChildProofAttack(t, raw, "child_start_ticks", 0, started, finished)
+	testModuleStageChildProofAttack(t, raw, "child_stopped", false, started, finished)
 	attacks := map[string]any{"endpoint_sha256": strings.Repeat("c", 64), "publisher": strings.Repeat("d", 64), "credential_sha256": strings.Repeat("e", 64), "status": 200, "method": "POST", "path": "/v1/identity", "verified_at": started.Add(-time.Nanosecond)}
 	for field, value := range attacks {
 		t.Run(field, func(t *testing.T) {
@@ -128,6 +135,17 @@ func TestModuleStagePublisherProofBindsExactEndpointAndAttemptInterval(t *testin
 	testModuleStagePublisherProofAttack(t, observation, proof, "verified_at", finished.Add(time.Nanosecond), started, finished)
 	if _, err := decodeModuleStageObservation(raw, time.Time{}, finished); !errors.Is(err, datapublish.ErrRecord) {
 		t.Fatal("missing actual start time accepted", err)
+	}
+}
+
+func testModuleStageChildProofAttack(t *testing.T, raw []byte, field string, value any, started, finished time.Time) {
+	t.Helper()
+	var record map[string]any
+	_ = json.Unmarshal(raw, &record)
+	record[field] = value
+	attack, _ := json.Marshal(record)
+	if _, err := decodeModuleStageObservation(attack, started, finished); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("missing/wrong actual native child observation admitted", field, err)
 	}
 }
 
