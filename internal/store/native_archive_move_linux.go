@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"golang.org/x/sys/unix"
 	"path"
@@ -50,7 +51,7 @@ func (s *Store) checkNativeArchiveMoveObservation(ctx context.Context, p archive
 				_ = unix.Close(file)
 				return ErrConflict
 			}
-			if openErr != unix.ENOENT {
+			if !errors.Is(openErr, unix.ENOENT) {
 				return ErrConflict
 			}
 			return ctx.Err()
