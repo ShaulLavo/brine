@@ -10,6 +10,8 @@ The executable accepts no arguments. It reads one JSON request, at most 8 KiB, f
 
 Standard OCI runtime masks at `/sys/firmware`, `/sys/devices/virtual/powercap` and numbered CPU `thermal_throttle` directories are accepted only as read-only, empty tmpfs mounts. Writable, populated, non-tmpfs and other extra mounts still refuse.
 
+Podman's `/run/.containerenv` marker is accepted only as a file bind with `ro,nosuid,nodev,noexec`, an empty regular file, mode `0644`, container UID zero and one link. Visible symlinks, other file types, populated or writable markers and other `/run` mounts refuse. The launcher suppresses Podman's additional writable tmpfs and passwd/group mounts.
+
 `format` must equal `brine-native-reader-v1`. `expected_database_identity` and `expected_owner_identity` are equality constraints, not observed evidence. Unknown, repeated, absent or mistyped request fields refuse. `history` is either `{"kind":"logs"}` or `{"kind":"snapshot","offset":N,"replica_id":N}`. Snapshot mode requires exactly the selected complete snapshot, its verified native identity and a connected log suffix. The suffix may be empty when the selected snapshot itself supplies the recovered head. The required `clog` directory must then contain no entries. Log mode requires nonempty history beginning at zero.
 
 On success, exit status is zero and `outcome` is `observed`. On refusal, exit status is 70 and a bounded object identifies the refusal code when the output pipe permits it. A killed process, partial output, unexpected status, invalid JSON or missing evidence must refuse. A refusal is never a restore receipt.
@@ -30,6 +32,8 @@ On success, exit status is zero and `outcome` is `observed`. On refusal, exit st
 Bare logs contain no replica ID. Logical database names and control aliases are also absent. The caller must bind those through its sealed control checkpoint. Table state hashes are not `CanonicalSchemaV10` hashes. The runtime package owns canonical module/schema observation.
 
 `framing` is `complete-v1` for nonempty complete logs. A complete selected snapshot with an empty log suffix reports `snapshot-only-v1`, zero actual `input.commits`, and `committed_offset` equal to the observed snapshot offset. It does not invent a log transaction or a placeholder offset. Missing, torn, corrupt, orphaned or header-only log input cannot select this arm.
+
+Replica selectors require an explicit u64 field and equality with the actual reconstructed snapshot. Zero is valid in the pinned native snapshot format. The standalone allocator normally issues a database ID before its first replica ID, so an ordinary new standalone replica starts above zero. That allocation behavior does not make zero corrupt in a native snapshot. Missing or mismatched selectors still refuse.
 
 ### State hash format
 
@@ -67,6 +71,8 @@ A global Rust allocator enforces configured allocation ceilings before calling t
 The native reader workflow builds on matching amd64 and arm64 runners with the pinned Rust 1.96.1 Alpine builder. It checks the static ELF target, runs native tests and exercises the contained executable. Artifact bundles retain executable SHA-256, source head, source pins, license and CLI evidence. The main-only publisher uses those tested bytes to publish an immutable GHCR image. An enrolled host needs the verified executable, not Cargo or a compiler.
 
 Published hashes and platform compatibility must come from completed workflow receipts. A workstation glibc build is development evidence only.
+
+Native compilation layers use architecture-specific GHA cache scopes bound to the pinned builder and upstream source. Source and lockfile contents determine layer keys. The separate `native-tests` stage is forced fresh on every workflow run, and both normal and explicit-replica-zero fixtures receive fresh contained CLI checks. Cached layers never replace ELF, checksum, test or publication verification.
 
 ## Coverage limits
 

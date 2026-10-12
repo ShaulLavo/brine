@@ -49,13 +49,14 @@ func OpenEngineStartup(ctx context.Context) (*EngineStartupRuntime, error) {
 func (r *EngineStartupRuntime) Close() error { return r.state.Close() }
 
 type engineStartGuard struct {
+	root     string
 	binding  data.ReplicaBindingID
 	launch   *data.EngineLock
 	lifetime *data.EngineLock
 }
 
 func (g *engineStartGuard) active() bool {
-	return g != nil && g.launch.HoldsLaunch(g.binding) && g.lifetime.HoldsLifetime(g.binding)
+	return g != nil && g.launch.HoldsLaunch(g.root, g.binding) && g.lifetime.HoldsLifetime(g.root, g.binding)
 }
 
 func (g *engineStartGuard) close() error {
@@ -72,7 +73,7 @@ func acquireEngineStart(ctx context.Context, root string, binding data.ReplicaBi
 		_ = launch.Release()
 		return nil, errEngineSource
 	}
-	return &engineStartGuard{binding: binding, launch: launch, lifetime: lifetime}, nil
+	return &engineStartGuard{root: root, binding: binding, launch: launch, lifetime: lifetime}, nil
 }
 
 type engineStartupProof struct {
@@ -278,7 +279,7 @@ func (r *EngineStartupRuntime) launchEngine(ctx, startup context.Context, proof 
 			return err
 		}
 		select {
-		case <-exited:
+		case err = <-exited:
 		case <-time.After(time.Duration(proof.permit.Runtime.StopSeconds) * time.Second):
 			r.retainEngineLifetime(ctx, proof.permit, native)
 			return errEngineSource

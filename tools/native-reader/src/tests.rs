@@ -31,6 +31,63 @@ fn id(byte: u8) -> Identity {
 }
 
 fn seed(snapshot: bool) -> Fixture {
+    seed_replica(snapshot, 1)
+}
+
+#[test]
+fn runtime_marker_mount_requires_exact_path_flags_and_file_bind_root() {
+    let fields = [
+        "1",
+        "2",
+        "0:0",
+        "/marker",
+        "/run/.containerenv",
+        "ro,nosuid,nodev,noexec",
+        "-",
+        "tmpfs",
+        "tmpfs",
+        "rw",
+    ];
+    for point in [
+        "/run",
+        "/run/foreign",
+        "/run/.containerenv/child",
+        "/var/tmp/.containerenv",
+    ] {
+        assert!(!readonly_empty_runtime_marker(point, fields[5], &fields));
+    }
+    for options in [
+        "rw,nosuid,nodev,noexec",
+        "ro,nodev,noexec",
+        "ro,nosuid,noexec",
+        "ro,nosuid,nodev",
+    ] {
+        assert!(!readonly_empty_runtime_marker(fields[4], options, &fields));
+    }
+    let mut root = fields;
+    root[3] = "/";
+    assert!(!readonly_empty_runtime_marker(root[4], root[5], &root));
+}
+
+#[test]
+fn runtime_marker_file_rejects_visible_symlinks_directories_contents_and_links() {
+    let directory = tempfile::tempdir().unwrap();
+    let empty = directory.path().join("empty");
+    fs::write(&empty, []).unwrap();
+    fs::set_permissions(&empty, fs::Permissions::from_mode(0o644)).unwrap();
+    assert_eq!(runtime_marker_file(&empty), unsafe { libc::geteuid() == 0 });
+    let link = directory.path().join("symlink");
+    symlink(&empty, &link).unwrap();
+    assert!(!runtime_marker_file(&link));
+    assert!(!runtime_marker_file(directory.path()));
+    fs::write(&empty, b"not empty").unwrap();
+    assert!(!runtime_marker_file(&empty));
+    fs::write(&empty, []).unwrap();
+    fs::hard_link(&empty, directory.path().join("second")).unwrap();
+    assert!(!runtime_marker_file(&empty));
+}
+
+fn seed_replica(snapshot: bool, replica_id: u64) -> Fixture {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("replica");
     fs::create_dir(&root).unwrap();
@@ -41,7 +98,7 @@ fn seed(snapshot: bool) -> Fixture {
         .build()
         .unwrap();
     let worker = snapshot.then(|| {
-        let repo = open_snapshot_repo(replica.snapshots(), id(1), 1).unwrap();
+        let repo = open_snapshot_repo(replica.snapshots(), id(1), replica_id).unwrap();
         SnapshotWorker::new(
             repo,
             Compression::Disabled,
@@ -133,10 +190,7 @@ fn seed(snapshot: bool) -> Fixture {
             expected_database_identity: id(1).to_string(),
             expected_owner_identity: id(2).to_string(),
             history: if snapshot {
-                History::Snapshot {
-                    offset,
-                    replica_id: 1,
-                }
+                History::Snapshot { offset, replica_id }
             } else {
                 History::Logs {}
             },
@@ -576,4 +630,51 @@ fn snapshot_only_inspection_uses_actual_snapshot_and_zero_log_commits() {
         observed(&fixture, empty_logs),
         Err(Refusal::MissingHistory)
     ));
+}
+
+#[test]
+fn explicit_replica_zero_is_observed_and_missing_or_mismatched_selectors_refuse() {
+    let mut fixture = seed_replica(true, 0);
+    let baseline = observed(&fixture, |_| {}).unwrap();
+    assert_eq!(baseline.snapshot.as_ref().unwrap().observed_replica_id, 0);
+    let snapshot_only = observed(&fixture, empty_logs).unwrap();
+    assert_eq!(
+        snapshot_only.snapshot.as_ref().unwrap().observed_replica_id,
+        0
+    );
+    assert_eq!(snapshot_only.input.commits, 0);
+    assert_eq!(snapshot_only.state_blake3, baseline.state_blake3);
+    fixture.request.history = History::Logs {};
+    assert_eq!(
+        observed(&fixture, |_| {}).unwrap().state_blake3,
+        baseline.state_blake3
+    );
+    let offset = fixture.selected_snapshot.unwrap();
+    fixture.request.history = History::Snapshot {
+        offset,
+        replica_id: 1,
+    };
+    assert!(matches!(observed(&fixture, |_| {}), Err(Refusal::Snapshot)));
+    let mut missing = serde_json::to_value(&fixture.request).unwrap();
+    missing["history"]
+        .as_object_mut()
+        .unwrap()
+        .remove("replica_id");
+    assert!(serde_json::from_value::<Request>(missing).is_err());
+    let Some(output) = std::env::var_os("BRINE_ZERO_READER_TEST_OUTPUT") else {
+        return;
+    };
+    let output = std::path::PathBuf::from(output);
+    fs::create_dir(&output).unwrap();
+    copy_tree(&fixture.root, &output.join("replica"));
+    select_snapshot_copy(&output.join("replica"), fixture.selected_snapshot);
+    fixture.request.history = History::Snapshot {
+        offset,
+        replica_id: 0,
+    };
+    fs::write(
+        output.join("request.json"),
+        serde_json::to_vec(&fixture.request).unwrap(),
+    )
+    .unwrap();
 }

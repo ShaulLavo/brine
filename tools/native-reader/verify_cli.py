@@ -84,6 +84,7 @@ def main():
     assert exit_code == 0 and baseline['outcome'] == 'observed', (exit_code, baseline)
     assert baseline['observed_database_identity'] == request['expected_database_identity']
     assert baseline['observed_owner_identity'] == request['expected_owner_identity']
+    assert baseline['snapshot']['observed_replica_id'] == request['history']['replica_id']
     assert next(table for table in baseline['tables'] if table['name'] == 'reader_fixture')['rows'] == 20
     results = [{'case': 'contained_native_replay', 'exit': exit_code, 'state': baseline['state_blake3']}]
     logs = copy.deepcopy(request)

@@ -165,23 +165,50 @@ func (c *engineSourceCopy) sourceUnchanged(ctx context.Context) error {
 }
 
 func (c *engineSourceCopy) discard() error {
-	return errors.Join(c.disposeStage(), c.source.Close())
+	if err := c.disposeStage(); err != nil {
+		return err
+	}
+	if c.source == nil {
+		return nil
+	}
+	err := c.source.Close()
+	c.source = nil
+	return err
 }
 
 func (c *engineSourceCopy) disposeStage() error {
+	if c.parent == nil {
+		return nil
+	}
+	if c.name != "" {
+		if !c.stageOwned() {
+			return errEngineSource
+		}
+		if err := c.parent.RemoveAll(c.name); err != nil {
+			return err
+		}
+		c.name = ""
+	}
 	var err error
 	if c.root != nil {
 		err = c.root.Close()
 		c.root = nil
 	}
-	if c.parent != nil && c.name != "" {
-		err = errors.Join(err, c.parent.RemoveAll(c.name))
-	}
-	if c.parent != nil {
-		err = errors.Join(err, c.parent.Close())
-		c.parent = nil
-	}
+	err = errors.Join(err, c.parent.Close())
+	c.parent = nil
 	return err
+}
+
+func (c *engineSourceCopy) stageOwned() bool {
+	if c.root == nil {
+		return false
+	}
+	held, err := c.root.Lstat(".")
+	if err != nil || !held.IsDir() || held.Mode().Perm() != 0700 {
+		return false
+	}
+	current, err := c.parent.Lstat(c.name)
+	return err == nil && current.IsDir() && os.SameFile(held, current)
 }
 
 func syncEngineDirectory(root *os.Root, name string) (err error) {
