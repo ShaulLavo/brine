@@ -31,8 +31,14 @@ func validateArchiveCredentialScope(ctx context.Context, q dataQuerier, scope ba
 			if string(epoch.Destination.Reference) != scope.Destination || epoch.Destination.CredentialRef != scope.CredentialRef {
 				return ErrConflict
 			}
+			owner := manifest.OperationID
+			if _, native := database.Native(); native {
+				if err = q.QueryRowContext(ctx, "SELECT original_fence_owner FROM data_native_archive_claims WHERE archive_id=? AND binding_id=? AND archive_operation_id=?", p.ArchiveID, epoch.BindingID, manifest.OperationID).Scan(&owner); err != nil {
+					return err
+				}
+			}
 			var held int
-			if err = q.QueryRowContext(ctx, "SELECT count(*) FROM data_archive_fences af JOIN data_fences f ON af.fence_id=f.id WHERE af.operation_id=? AND af.database_id=? AND f.state='held' AND f.operation_id=?", manifest.OperationID, database.Reference().DatabaseID, manifest.OperationID).Scan(&held); err != nil {
+			if err = q.QueryRowContext(ctx, "SELECT count(*) FROM data_archive_fences af JOIN data_fences f ON af.fence_id=f.id WHERE af.operation_id=? AND af.database_id=? AND f.state='held' AND f.operation_id=?", manifest.OperationID, database.Reference().DatabaseID, owner).Scan(&held); err != nil {
 				return err
 			}
 			if held != 1 {
@@ -132,19 +138,23 @@ func (s *Store) RecordArchiveCredentialReceipt(ctx context.Context, r backupcred
 // ReadArchiveCredentialReceipt selects only the original archive/binding/epoch;
 // no current app name, current epoch, or ordinary credential ref is consulted.
 func (s *Store) ReadArchiveCredentialReceipt(ctx context.Context, id data.ArchiveID, binding data.ReplicaBindingID, epoch data.ReplicaEpochID) (out backupcredentials.ArchiveReceipt, err error) {
+	return readArchiveCredentialReceipt(ctx, s.db, id, binding, epoch)
+}
+
+func readArchiveCredentialReceipt(ctx context.Context, q dataQuerier, id data.ArchiveID, binding data.ReplicaBindingID, epoch data.ReplicaEpochID) (out backupcredentials.ArchiveReceipt, err error) {
 	if !data.ValidID(string(id)) || !data.ValidID(string(binding)) || !data.ValidID(string(epoch)) {
 		return out, ErrInvalid
 	}
 	var raw []byte
 	var planID string
 	var version uint64
-	if err = s.db.QueryRowContext(ctx, "SELECT plan_id,version,canonical FROM data_archive_credential_receipts WHERE archive_id=? AND binding_id=? AND epoch_id=? ORDER BY version DESC LIMIT 1", id, binding, epoch).Scan(&planID, &version, &raw); err != nil {
+	if err = q.QueryRowContext(ctx, "SELECT plan_id,version,canonical FROM data_archive_credential_receipts WHERE archive_id=? AND binding_id=? AND epoch_id=? ORDER BY version DESC LIMIT 1", id, binding, epoch).Scan(&planID, &version, &raw); err != nil {
 		return out, err
 	}
 	if len(raw) > 8192 || json.Unmarshal(raw, &out) != nil || !out.Valid() || out.Plan.ID != planID || out.Plan.Version != version || out.Plan.Scope.ArchiveID != string(id) || out.Plan.Scope.Binding != string(binding) || out.Plan.Scope.Epoch != string(epoch) {
 		return out, &IntegrityError{}
 	}
-	p, err := loadArchiveCredentialPlan(ctx, s.db, planID)
+	p, err := loadArchiveCredentialPlan(ctx, q, planID)
 	if err != nil || !reflect.DeepEqual(p, out.Plan) {
 		return out, &IntegrityError{}
 	}

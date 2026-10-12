@@ -27,6 +27,8 @@ type Runtime struct {
 	NativeBackupPolicy dispatch.NativeBackupPolicyOperations
 	NativeRecovery     dispatch.NativeRecoveryOperations
 	NativeMaterial     dispatch.NativeMaterialOperations
+	NativeLiveRestore  dispatch.NativeLiveRestoreOperations
+	NativeRetire       dispatch.NativeRetireOperations
 	BackupCredentials  dispatch.BackupCredentialOperations
 	Config             dispatch.ConfigurationOperations
 	Secrets            dispatch.SecretOperations

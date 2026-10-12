@@ -65,6 +65,29 @@ func (s *Store) ReadNativePreparedBundle(ctx context.Context, stopped *NativeSto
 	return bundle, tx.Commit()
 }
 
+func (s *Store) ReadNativeArchivedBundle(ctx context.Context, archived *NativeArchivedSource) (NativePreparedBundle, error) {
+	if archived == nil || archived.state != s {
+		return NativePreparedBundle{}, ErrConflict
+	}
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return NativePreparedBundle{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	pointID, err := checkNativeArchivedSourceTx(ctx, tx, archived)
+	if err != nil {
+		return NativePreparedBundle{}, err
+	}
+	bundle, err := readNativePreparedBundleTx(ctx, tx, pointID)
+	if err != nil {
+		return NativePreparedBundle{}, err
+	}
+	if _, err := checkNativeArchivedSourceTx(ctx, tx, archived); err != nil {
+		return NativePreparedBundle{}, err
+	}
+	return bundle, tx.Commit()
+}
+
 func readNativePreparedBundleTx(ctx context.Context, tx *sql.Tx, pointID string) (NativePreparedBundle, error) {
 	point, err := readNativePreparedPointTx(ctx, tx, pointID)
 	if err != nil {

@@ -7,8 +7,10 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strconv"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/caddy"
@@ -40,11 +42,7 @@ func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.Na
 
 func (r nativeBackupRuntime) repositoryMaterial(ctx context.Context, material store.NativeRepositoryMaterial, admission restic.RepositoryAdmission, grant string) (*restic.Client, restic.Repository, error) {
 	files := backupcredentials.Files{Root: filepath.Join(r.stateRoot, "credentials")}
-	receipt, err := files.Receipt(material.CredentialReference, material.Scope.CredentialVersion)
-	if err != nil || !nativeCredentialReceiptMatches(material, receipt) {
-		return nil, restic.Repository{}, errEngineSource
-	}
-	packet, err := files.Read(material.CredentialReference, material.Scope.CredentialVersion)
+	packet, err := nativeRepositoryCredentialPacket(files, material)
 	if err != nil {
 		return nil, restic.Repository{}, errEngineSource
 	}
@@ -69,6 +67,24 @@ func (r nativeBackupRuntime) repositoryMaterial(ctx context.Context, material st
 	}
 	client, err := restic.NewClient(asset.BinarySHA256, restic.DefaultLimits(), admission)
 	return client, repository, err
+}
+
+func nativeRepositoryCredentialPacket(files backupcredentials.Files, material store.NativeRepositoryMaterial) (backupcredentials.Packet, error) {
+	ref := material.CredentialReference
+	if material.ArchiveCredential != nil {
+		expected := *material.ArchiveCredential
+		ref = expected.Plan.Scope.FileReference()
+		actual, err := files.ArchiveReceipt(ref, material.Scope.CredentialVersion)
+		if err != nil || !reflect.DeepEqual(actual, expected) || actual.Plan.Scope.Binding != material.Scope.BindingID || actual.Plan.Scope.Epoch != material.Scope.EpochID || actual.Plan.Scope.CredentialRef != material.CredentialReference || actual.Admit(time.Now().UTC(), time.Minute) != nil {
+			return backupcredentials.Packet{}, errEngineSource
+		}
+	} else {
+		receipt, err := files.Receipt(ref, material.Scope.CredentialVersion)
+		if err != nil || !nativeCredentialReceiptMatches(material, receipt) {
+			return backupcredentials.Packet{}, errEngineSource
+		}
+	}
+	return files.Read(ref, material.Scope.CredentialVersion)
 }
 
 func (r nativeBackupRuntime) restorePreparedSource(ctx context.Context, stopped *store.NativeStoppedPreparation, original engineSealedCheckpoint) (*nativeRestoredSource, error) {
@@ -184,7 +200,11 @@ func (r nativeBackupRuntime) restorePrepared(ctx context.Context, stopped *store
 }
 
 func newNativePreparedRestoreParent(ctx context.Context, permit store.EnginePermit) (*os.Root, string, error) {
-	base, err := engineOpenRoot(string(permit.Reserved.Database.Root))
+	return newNativeRestoreParent(ctx, string(permit.Reserved.Database.Root))
+}
+
+func newNativeRestoreParent(ctx context.Context, rootPath string) (*os.Root, string, error) {
+	base, err := engineOpenRoot(rootPath)
 	if err != nil {
 		return nil, "", errEngineSource
 	}
@@ -210,7 +230,7 @@ func newNativePreparedRestoreParent(ctx context.Context, permit store.EnginePerm
 		}
 		return nil, "", errEngineSource
 	}
-	return parent, filepath.Join(string(permit.Reserved.Database.Root), name), nil
+	return parent, filepath.Join(rootPath, name), nil
 }
 
 func engineMakePrivateDirectoriesForRestore(base *os.Root) error {

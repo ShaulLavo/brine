@@ -79,6 +79,23 @@ func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner st
 		return c, ErrConflict
 	}
 	for _, id := range ids {
+		var kind data.EngineKind
+		if err = q.QueryRowContext(ctx, "SELECT engine FROM data_engine_kinds WHERE database_id=?", id).Scan(&kind); err != nil {
+			return c, err
+		}
+		if kind == data.EngineSpacetimeDB {
+			tx, ok := q.(*sql.Tx)
+			if !ok {
+				return c, ErrConflict
+			}
+			native, err := readNativeArchiveDatabase(ctx, tx, id, owner)
+			if err != nil || native.Binding.IncarnationID != c.Incarnation {
+				return c, errors.Join(ErrConflict, err)
+			}
+			c.Databases = append(c.Databases, archive.NativeDatabaseVariant(native))
+			continue
+		}
+
 		permit, err := readReplicaPermit(ctx, q, id)
 		if err != nil || permit.Database.IncarnationID != c.Incarnation {
 			return c, ErrConflict

@@ -63,6 +63,6 @@ func newRestoreCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	test.Flags().StringVar(&point, "point", "", "Durable immutable restore-point ID")
 	test.MarkFlagsMutuallyExclusive("txid", "point")
 	flags.register(test)
-	root.AddCommand(test, newNativePointCmd(deps, modes), newNativeRestoreTestCmd(deps, modes))
+	root.AddCommand(test, newNativePointCmd(deps, modes), newNativeRestoreTestCmd(deps, modes), newNativeLiveRestoreCmd(deps, modes))
 	return root
 }

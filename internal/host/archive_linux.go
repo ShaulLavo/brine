@@ -26,7 +26,7 @@ import (
 )
 
 func newArchiveService(s Service, stateRoot, home string, session localexec.Session, executor localexec.Executor, routes apply.RemovalRoutes, units archiveRemovalUnits) archive.Service {
-	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home, routes: routes, units: units, recoveryVerified: make(map[string]time.Time)}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
+	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home, routes: routes, units: units, recoveryVerified: make(map[string]time.Time), nativeLifetimes: make(map[data.ReplicaBindingID]*data.EngineLock)}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
 		_, err := s.Policy.Load(ctx)
 		return err
 	}, Lock: func(ctx context.Context) (func() error, error) {
@@ -55,6 +55,9 @@ func (h archiveHost) archiveFacts(ctx context.Context, app, owner string, requir
 	}
 	if err != nil {
 		return p, err
+	}
+	if nativeArchiveCandidate(c) {
+		return h.nativeArchiveFacts(ctx, c, requireRetention)
 	}
 	snapshot, err := h.service.Inventory.Collect(ctx)
 	if err != nil || snapshot.Generation.Status != target.KnownStatus || snapshot.Generation.Value == nil || snapshot.Apps.Status != target.KnownStatus || snapshot.Apps.Value == nil {

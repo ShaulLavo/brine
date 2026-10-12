@@ -10,11 +10,12 @@ import (
 )
 
 type NativeCredentialScope struct {
-	App        string
-	PolicyHash string
-	Database   data.SpacetimeDBBinding
-	Archive    data.ArchiveBinding
-	FenceHeld  bool
+	App             string
+	PolicyHash      string
+	Database        data.SpacetimeDBBinding
+	Archive         data.ArchiveBinding
+	FenceHeld       bool
+	DeliveryAllowed bool
 }
 
 func (s *Store) AppDatabaseEngine(ctx context.Context, app, database string) (data.EngineKind, error) {
@@ -64,7 +65,7 @@ func readNativeCredentialScope(ctx context.Context, tx *sql.Tx, binding data.Rep
 	if err != nil {
 		return NativeCredentialScope{}, err
 	}
-	head, _, err := readEngineHead(ctx, tx, binding)
+	head, runtime, err := readEngineHead(ctx, tx, binding)
 	if err == nil && head.EpochID != reserved.Archive.EpochID {
 		_, reserved.Archive, err = readNativeEpoch(ctx, tx, binding, head.EpochID)
 		if err != nil {
@@ -79,12 +80,17 @@ func readNativeCredentialScope(ctx context.Context, tx *sql.Tx, binding data.Rep
 	if err != nil {
 		return NativeCredentialScope{}, err
 	}
-	return NativeCredentialScope{App: app, PolicyHash: policy, Database: reserved.Database, Archive: reserved.Archive, FenceHeld: held != 0}, nil
+	return NativeCredentialScope{App: app, PolicyHash: policy, Database: reserved.Database, Archive: reserved.Archive, FenceHeld: held != 0, DeliveryAllowed: held == 0 || runtime.State == data.EngineUnpublished}, nil
 }
 func (s *Store) SaveNativeCredentialRecord(ctx context.Context, r CredentialRecord) error {
 	if s.readOnly || r.Requester == "" || len(r.Requester) > 256 || !data.ValidID(r.ID) || !data.ValidID(string(r.BindingID)) || !data.ValidID(string(r.EpochID)) || r.Kind != "plan" && r.Kind != "receipt" || !digestPattern.MatchString(r.PlanID) || r.PlanHash != r.PlanID || !digestPattern.MatchString(r.PolicyHash) || !digestPattern.MatchString(r.TargetHash) || r.Version == 0 || r.Kind == "receipt" && r.ReceivedAt.IsZero() {
 		return ErrInvalid
 	}
+	guard, err := data.AcquireEngineLaunchGuard(ctx, s.dir, r.BindingID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = guard.Release() }()
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
@@ -92,12 +98,15 @@ func (s *Store) SaveNativeCredentialRecord(ctx context.Context, r CredentialReco
 	}
 	defer func() { _ = tx.Rollback() }()
 	scope, err := readNativeCredentialScope(ctx, tx, r.BindingID)
-	if err != nil || scope.FenceHeld || scope.App != r.App || scope.PolicyHash != r.PolicyHash || scope.Archive.EpochID != r.EpochID || scope.Archive.Destination.CredentialRef != r.CredentialRef || scope.Archive.Destination.Reference != r.Destination {
+	if err != nil || !scope.DeliveryAllowed || scope.App != r.App || scope.PolicyHash != r.PolicyHash || scope.Archive.EpochID != r.EpochID || scope.Archive.Destination.CredentialRef != r.CredentialRef || scope.Archive.Destination.Reference != r.Destination {
 		return errors.Join(ErrConflict, err)
 	}
 	raw, _ := json.Marshal(r)
 	if _, err := tx.ExecContext(ctx, "INSERT INTO data_credential_records VALUES(?,?,?,?)", r.ID, r.BindingID, r.Kind, raw); err != nil {
 		return err
+	}
+	if !guard.HoldsLaunch(s.dir, r.BindingID) {
+		return ErrConflict
 	}
 	return tx.Commit()
 }

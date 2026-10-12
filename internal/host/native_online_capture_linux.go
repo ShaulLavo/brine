@@ -30,6 +30,8 @@ type nativeOnlineCopy struct {
 	members      []engineTreeMember
 	copied       engineTreeSeal
 	sourcePermit store.EnginePermit
+	identity     engineTreeMember
+	created      bool
 }
 
 func (c *nativeOnlineCopy) close() error {
@@ -37,6 +39,12 @@ func (c *nativeOnlineCopy) close() error {
 		return nil
 	}
 	var err error
+	if c.created {
+		current, identityErr := nativeRestoreDirectoryIdentity(c.parent, "source")
+		if identityErr != nil || !sameNativeRestoreDirectory(current, c.identity) {
+			return errEngineSource
+		}
+	}
 	if c.root != nil {
 		err = c.root.Close()
 		c.root = nil
@@ -44,6 +52,10 @@ func (c *nativeOnlineCopy) close() error {
 	if c.original != nil {
 		err = errors.Join(err, c.original.Close())
 		c.original = nil
+	}
+	if c.created {
+		err = errors.Join(err, c.parent.RemoveAll("source"))
+		c.created = false
 	}
 	return err
 }
@@ -70,6 +82,11 @@ func captureNativeOnlineCopy(ctx context.Context, permit store.EnginePermit, par
 	if err != nil {
 		return nil, err
 	}
+	copy.identity, err = nativeRestoreDirectoryIdentity(copy.root, ".")
+	if err != nil {
+		return nil, err
+	}
+	copy.created = true
 	for _, member := range copy.before.members {
 		if member.Mode&unix.S_IFMT != unix.S_IFREG || !nativeCheckpointMember(member.Name) && !nativeCaptureHistoryMember(member.Name) {
 			continue
@@ -126,7 +143,7 @@ func (c *nativeOnlineCopy) unchanged(ctx context.Context) error {
 		return errEngineSource
 	}
 	after, err := scanEngineOnlineMetadata(ctx, c.original, engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16})
-	if err != nil || !sameNativeRestoreDirectory(c.before.root, after.root) {
+	if err != nil || !nativeOnlineCensusMatches(c.before, after) {
 		return errEngineSource
 	}
 	for _, member := range c.members {
@@ -143,12 +160,31 @@ func (c *nativeOnlineCopy) unchanged(ctx context.Context) error {
 	return nil
 }
 
+func nativeOnlineCensusMatches(before, after engineOnlineCensus) bool {
+	if !sameNativeRestoreDirectory(before.root, after.root) || len(before.members) != len(after.members) {
+		return false
+	}
+	for i, original := range before.members {
+		actual := after.members[i]
+		if nativeCaptureHistoryMember(original.Name) && original.Mode&unix.S_IFMT == unix.S_IFREG {
+			if !enginePrefixMetadata(actual, original, original.Size) {
+				return false
+			}
+			continue
+		}
+		if actual != original {
+			return false
+		}
+	}
+	return true
+}
+
 func nativeOnlineCaptureTask(service Service, runtime nativeBackupRuntime) jobs.TaskHandler {
 	return func(ctx context.Context, op ops.Operation) (json.RawMessage, error) {
 		return runNativeOnlineCapture(ctx, service, runtime, op)
 	}
 }
-func runNativeOnlineCapture(ctx context.Context, service Service, runtime nativeBackupRuntime, op ops.Operation) (json.RawMessage, error) {
+func runNativeOnlineCapture(ctx context.Context, service Service, runtime nativeBackupRuntime, op ops.Operation) (receipt json.RawMessage, taskErr error) {
 	claim, err := service.Store.BeginNativeOnlineCapture(ctx, op.ID)
 	if err != nil {
 		return nil, err
@@ -206,7 +242,14 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = parent.Close() }()
+	retainWorkspace := false
+	defer func() {
+		if retainWorkspace {
+			_ = parent.Close()
+			return
+		}
+		taskErr = errors.Join(taskErr, discardNativeWorkspace(parent, path))
+	}()
 	copied, err := captureNativeOnlineCopy(ctx, permit, parent, path)
 	if err != nil {
 		return nil, err
@@ -257,6 +300,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err := claim.UploadIntent(ctx, source, bundle.Manifest()); err != nil {
 		return nil, err
 	}
+	retainWorkspace = true
 	transport, err := client.Backup(ctx, repository, path, bundle)
 	if err != nil {
 		return nil, err
@@ -275,6 +319,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err != nil {
 		return nil, err
 	}
+	retainWorkspace = false
 	backup, err := service.Store.ReadNativeBackupPolicy(ctx, point.BindingID)
 	if err != nil {
 		return nil, err

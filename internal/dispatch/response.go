@@ -7,8 +7,11 @@ import (
 	"github.com/ShaulLavo/brine/internal/datapublish"
 
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	enginedata "github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/diagnose"
+	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/nativematerial"
@@ -71,6 +74,36 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = receipt
+		case "native_retire_plan":
+			var p archive.Plan
+			if json.Unmarshal(fields["data"], &p) != nil || !p.Valid() {
+				return invalid()
+			}
+			value = p
+		case "native_retire_inspect":
+			var i archive.Inspection
+			if json.Unmarshal(fields["data"], &i) != nil || !enginedata.ValidID(string(i.Disposition.ArchiveID)) || i.Disposition.Sequence == 0 {
+				return invalid()
+			}
+			value = i
+		case "native_live_restore_review_resolution":
+			r, err := liverestore.DecodeResolution(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = r
+		case "native_live_restore_plan":
+			p, err := liverestore.DecodePlan(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "native_live_restore_inspect":
+			p, err := liverestore.DecodeProgress(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
 		case "native_point":
 			point, err := nativecapture.DecodePointInspection(fields["data"])
 			if err != nil {
@@ -103,7 +136,7 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_backup_activate", "native_capture", "native_prepare", "native_restore_test", "module_publish_apply", "module_publish_resolve":
+		case "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_backup_activate", "native_capture", "native_prepare", "native_restore_test", "module_publish_apply", "module_publish_resolve", "native_retire", "native_retire_resolve", "native_live_restore_resolve", "native_live_restore":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()
