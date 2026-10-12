@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"math"
 	"os"
 
 	"github.com/ShaulLavo/brine/internal/nativecapture"
@@ -22,12 +23,16 @@ func checkPublicationCheckpointMembers(ctx context.Context, root *os.Root, check
 		return ErrConflict
 	}
 	defer func() { _ = base.Close() }()
-	identity, err := nativeRestoreStatDirectory(int(base.Fd()))
+	baseFD := base.Fd()
+	if baseFD > math.MaxInt32 {
+		return ErrConflict
+	}
+	identity, err := nativeRestoreStatDirectory(int(baseFD))
 	if err != nil {
 		return err
 	}
 	for _, member := range checkpoint.Record().Members {
-		if err = checkPublicationCheckpointMember(ctx, int(base.Fd()), identity.Mnt_id, member); err != nil {
+		if err = checkPublicationCheckpointMember(ctx, int(baseFD), identity.Mnt_id, member); err != nil {
 			return err
 		}
 	}
@@ -35,6 +40,9 @@ func checkPublicationCheckpointMembers(ctx context.Context, root *os.Root, check
 }
 
 func checkPublicationCheckpointMember(ctx context.Context, base int, mount uint64, member nativecapture.CheckpointMember) error {
+	if member.Bytes == 0 || member.Bytes > nativecapture.DefaultLimits().FileBytes || member.Bytes > math.MaxInt64-1 {
+		return ErrConflict
+	}
 	fd, err := unix.Openat2(base, member.Path, &unix.OpenHow{Flags: unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW | unix.O_NONBLOCK, Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS | unix.RESOLVE_NO_XDEV})
 	if err != nil {
 		return ErrConflict
