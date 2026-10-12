@@ -43,7 +43,7 @@ func managedUnitsFixture(t *testing.T) (*managedUnits, string, managedServiceCha
 }
 
 func TestManagedUnitsInstallPreservesOwnedPredecessor(t *testing.T) {
-	units, home, first := managedUnitsFixture(t)
+	units, _, first := managedUnitsFixture(t)
 	ctx := context.Background()
 	if err := units.stage(ctx, first); err != nil {
 		t.Fatal(err)

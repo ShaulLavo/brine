@@ -86,8 +86,7 @@ func (r managedRuntime) completedComponents(ctx context.Context, operation strin
 			return errEngineSource
 		}
 		state, err := podman.New(r.observer.session).ContainerState(ctx, name)
-		var missing *localexec.Error
-		if err != nil && !(errors.As(err, &missing) && missing.Kind == localexec.NotFound) || state.Running {
+		if !managedFrontendStopped(state, err) {
 			return errEngineSource
 		}
 		return ctx.Err()
@@ -137,4 +136,12 @@ func (r managedRuntime) completedFrontendOwner(ctx context.Context, record store
 	}
 	front := release.Managed.Frontend
 	return front.Unit.Hash == record.Resolution.Permit.UnitHash && release.PlanID == record.Resolution.Permit.PlanID && reflect.DeepEqual(front.Image, p.Managed.Frontend.Image) && front.Port == p.Managed.Frontend.Port && reflect.DeepEqual(front.Secrets, p.Managed.Frontend.Secrets)
+}
+
+func managedFrontendStopped(state podman.ContainerState, err error) bool {
+	if err == nil {
+		return !state.Running
+	}
+	var absent *localexec.Error
+	return errors.As(err, &absent) && absent.Kind == localexec.NotFound && absent.ExitCode == 0
 }
