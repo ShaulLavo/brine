@@ -7,11 +7,26 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
 )
+
+func TestEngineServiceSignalsOnlySupervisorBeforeForcedCleanup(t *testing.T) {
+	permit, _ := engineStartupFixture(t)
+	unit, err := EngineServiceBytes(permit.Runtime)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(unit), "KillSignal=SIGINT\nKillMode=mixed\n") {
+		t.Fatal("service can interrupt the native stop subprocess")
+	}
+	if strings.Contains(string(unit), "SendSIGKILL=no") {
+		t.Fatal("service lost bounded forced cgroup cleanup")
+	}
+}
 
 func TestEngineStopChildHelper(t *testing.T) {
 	ready := os.Getenv("BRINE_ENGINE_STOP_READY")
