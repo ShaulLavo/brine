@@ -62,6 +62,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	lease.containerID, lease.process = id, handle
 	var result localexec.Output
 	if runErr == nil && handle.alive() == nil && lease.sourceUnchanged(wait) == nil {
+		lease.helperPID, lease.helperTicks, lease.helperCgroup = handle.pid, handle.ticks, handle.cgroup
 		result, runErr = runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: []string{"attach", "--sig-proxy=false", id}, Stdin: input, Mutation: true, OutputLimit: 1 << 20})
 	} else {
 		runErr = datapublish.ErrRecord
@@ -82,7 +83,12 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	lease.finishedAt = time.Now().UTC()
-	return decodeModuleStageObservation(result.Stdout, startedAt, lease.finishedAt)
+	observation, err := decodeModuleStageObservation(result.Stdout, startedAt, lease.finishedAt)
+	if err != nil {
+		return moduleStageObservation{}, err
+	}
+	lease.observation = observation
+	return observation, nil
 }
 
 func startPublicationStageProcess(ctx context.Context, lease *publicationStageLease, session localexec.Session) (string, *engineNativeHandle, error) {

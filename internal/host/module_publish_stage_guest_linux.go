@@ -55,6 +55,9 @@ type moduleStageObservation struct {
 	SchemaSHA256      string            `json:"schema_sha256"`
 	PublicationKnown  bool              `json:"publication_known"`
 	ChildStopped      bool              `json:"child_stopped"`
+	ChildBound        bool              `json:"child_bound"`
+	ChildPID          uint32            `json:"child_pid"`
+	ChildStartTicks   uint64            `json:"child_start_ticks"`
 }
 
 // RunModuleStage operates only on the privately mounted copy. The enclosing
@@ -101,6 +104,7 @@ func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) erro
 		return datapublish.ErrRecord
 	}
 	observation.ChildStopped = true
+	observation.ChildBound, observation.ChildPID, observation.ChildStartTicks = true, handle.pid, handle.ticks
 	return json.NewEncoder(output).Encode(observation)
 }
 

@@ -19,8 +19,8 @@ func decodeModuleStageObservation(raw []byte, startedAt, finishedAt time.Time) (
 	if len(raw) == 0 || len(raw) > 1<<20 {
 		return observation, datapublish.ErrRecord
 	}
-	fields := []string{"action", "credential_sha256", "publisher", "publisher_proof", "preflight", "receipt", "receipt_binding_sha256", "database", "program_wire_hash", "schema_sha256", "publication_known", "child_stopped"}
-	if _, err := strictjson.Object(raw, fields...); err != nil || json.Unmarshal(raw, &observation) != nil || !observation.ChildStopped || !data.ValidCatalogHash(observation.CredentialSHA256) || !data.ValidCatalogHash(observation.Publisher) || len(observation.PublisherProof) == 0 || len(observation.PublisherProof) > 8192 || len(observation.Preflight) > datapublish.NativePreflightResponseLimit || len(observation.Receipt) > datapublish.NativePreflightResponseLimit {
+	fields := []string{"action", "credential_sha256", "publisher", "publisher_proof", "preflight", "receipt", "receipt_binding_sha256", "database", "program_wire_hash", "schema_sha256", "publication_known", "child_stopped", "child_bound", "child_pid", "child_start_ticks"}
+	if _, err := strictjson.Object(raw, fields...); err != nil || json.Unmarshal(raw, &observation) != nil || !observation.ChildStopped || !observation.ChildBound || observation.ChildPID <= 1 || observation.ChildPID > 1<<22 || observation.ChildStartTicks == 0 || !data.ValidCatalogHash(observation.CredentialSHA256) || !data.ValidCatalogHash(observation.Publisher) || len(observation.PublisherProof) == 0 || len(observation.PublisherProof) > 8192 || len(observation.Preflight) > datapublish.NativePreflightResponseLimit || len(observation.Receipt) > datapublish.NativePreflightResponseLimit {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	if checkModuleStagePublisherProof(observation, startedAt, finishedAt) != nil {

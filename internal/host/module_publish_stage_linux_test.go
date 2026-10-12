@@ -113,7 +113,7 @@ func TestModuleStagePublisherProofBindsExactEndpointAndAttemptInterval(t *testin
 	server, _ := spacetimedb.NewPrivateServerEndpoint("127.0.0.1", privateEnginePort)
 	publisher, credential := strings.Repeat("a", 64), strings.Repeat("b", 64)
 	proof := map[string]any{"purpose": "native_supplied_key_publisher_verification", "endpoint_sha256": server.SHA256(), "method": "GET", "path": "/v1/identity/" + publisher + "/verify", "status": 204, "publisher": publisher, "credential_sha256": credential, "verified_at": started.Add(time.Second)}
-	observation := moduleStageObservation{Action: moduleStagePublisher, Publisher: publisher, CredentialSHA256: credential, ChildStopped: true}
+	observation := moduleStageObservation{Action: moduleStagePublisher, Publisher: publisher, CredentialSHA256: credential, ChildStopped: true, ChildBound: true, ChildPID: 2, ChildStartTicks: 1}
 	observation.PublisherProof, _ = json.Marshal(proof)
 	raw, _ := json.Marshal(observation)
 	if _, err := decodeModuleStageObservation(raw, started, finished); err != nil {
