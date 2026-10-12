@@ -30,9 +30,16 @@ def run(image, fixture, output, request, alter=None, extra=None):
         args.extend(extra)
     args.append(image)
     result = subprocess.run(args, input=json.dumps(request), text=True, capture_output=True, timeout=70)
+    (directory / 'stdout.json').write_text(result.stdout)
+    (directory / 'stderr.txt').write_text(result.stderr)
     if before != seal(replica):
         raise AssertionError('verifier changed private input')
-    value = json.loads(result.stdout)
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise AssertionError({'exit': result.returncode, 'stdout_bytes': len(result.stdout.encode()),
+                              'stdout_sha256': hashlib.sha256(result.stdout.encode()).hexdigest(),
+                              'stdout_tail': result.stdout[-512:], 'stderr_tail': result.stderr[-512:]}) from error
     if len(result.stdout.encode()) > 1 << 20:
         raise AssertionError('hard output ceiling')
     return result.returncode, value
@@ -86,16 +93,37 @@ def main():
     assert baseline['observed_owner_identity'] == request['expected_owner_identity']
     assert baseline['snapshot']['observed_replica_id'] == request['history']['replica_id']
     assert next(table for table in baseline['tables'] if table['name'] == 'reader_fixture')['rows'] == 20
+    variant = fixture / 'projection-variant'
+    projection = baseline['confirmed_pairs_projection']
+    if not variant.exists():
+        assert projection is None
+    else:
+        name = variant.read_text()
+        assert projection['format'] == 'brine-confirmed-pairs-projection-v1'
+        assert projection['left']['rows'] == projection['right']['rows']
+        assert projection['left']['layout'] == ('rating-v1' if name == 'rating' else 'base-v1')
+        assert projection['left']['rows'] == [
+            {'sequence': i, 'marker': f'brine-p09-{i:08}', 'commit_time_micros': 1700000000000000 + i,
+             'scheduled': i == 2, 'rating': 7 if name == 'rating' else None} for i in [1, 2]]
+        assert projection['marker']['rows'] == [{'id': 1, 'revision': 'brine-recovery-v1'}]
+        assert projection['publisher']['rows'] == [{'id': 1, 'identity': baseline['observed_owner_identity']}]
+        assert projection['sequence']['rows'] == [{'id': 1, 'sequence': 2}]
+        assert (projection['note'] is not None) == (name == 'additive')
+        if name == 'additive':
+            assert projection['note']['rows'] == []
+        for table in [projection['left'], projection['right'], projection['marker'], projection['publisher'], projection['sequence']] + ([projection['note']] if projection['note'] else []):
+            assert next(summary for summary in baseline['tables'] if summary['table_id'] == table['table_id'])['name'] == table['name']
     results = [{'case': 'contained_native_replay', 'exit': exit_code, 'state': baseline['state_blake3']}]
     logs = copy.deepcopy(request)
     logs['history'] = {'kind': 'logs'}
     exit_code, observed = run(image, fixture, output, logs)
     assert exit_code == 0 and observed['state_blake3'] == baseline['state_blake3']
+    assert observed['confirmed_pairs_projection'] == projection
     results.append({'case': 'logs_snapshot_equality', 'exit': exit_code})
     code, snapshot = run(image, fixture, output, request, empty_logs)
     assert code == 0 and snapshot['framing'] == 'snapshot-only-v1' and snapshot['input']['commits'] == 0
     assert snapshot['committed_offset'] == snapshot['snapshot']['offset'] == baseline['committed_offset']
-    for field in ['state_blake3', 'tables', 'current_program_hash', 'current_program_sha256',
+    for field in ['state_blake3', 'tables', 'confirmed_pairs_projection', 'current_program_hash', 'current_program_sha256',
                   'observed_database_identity', 'observed_owner_identity']:
         assert snapshot[field] == baseline[field], field
     results.append({'case': 'selected_snapshot_empty_log_suffix', 'exit': code, 'log_commits': 0})

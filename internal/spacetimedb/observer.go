@@ -32,7 +32,7 @@ type PrivateEndpoint struct {
 type PrivateServerEndpoint struct{ base string }
 
 // NewPrivateServerEndpoint validates location only. Its caller proves the
-// actual owned private runtime and protected key/credential before use.
+// delivered keys, process ownership, source scope and startup permission.
 func NewPrivateServerEndpoint(host string, port uint16) (PrivateServerEndpoint, error) {
 	ip := net.ParseIP(host)
 	if ip == nil || !ip.IsLoopback() || port == 0 {

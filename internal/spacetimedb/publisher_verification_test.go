@@ -59,6 +59,15 @@ func TestNativePublisherVerificationRequiresTheFixedAuthenticatedResponse(t *tes
 		t.Fatal("actual verification response lost its identity/credential binding", err)
 	}
 	encoded := proof.StorageBytes()
+	var transcript struct {
+		Endpoint string `json:"endpoint_sha256"`
+		Method   string `json:"method"`
+		Path     string `json:"path"`
+		Status   int    `json:"status"`
+	}
+	if err := json.Unmarshal(encoded, &transcript); err != nil || transcript.Endpoint != publicationBytesSHA256([]byte(endpoint.base)) || transcript.Method != http.MethodGet || transcript.Path != "/v1/identity/"+publisherHex+"/verify" || transcript.Status != http.StatusNoContent {
+		t.Fatal("retained verification lost the actual request/result transcript", err)
+	}
 	encoded[0] = 'x'
 	if proof.SHA256() != publicationBytesSHA256(proof.StorageBytes()) {
 		t.Fatal("returned storage bytes mutated verification evidence")
