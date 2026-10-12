@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -47,15 +46,11 @@ func (r *NativeCaptureRepository) Material(ctx context.Context) (NativeRepositor
 	if err != nil || op.State != ops.Preflight || op.Kind != ops.NativeCapture && op.Kind != ops.NativePrepare {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
-	policy, _, err := readNativeBackupPolicy(ctx, tx, r.binding)
-	reserved, reservedErr := readReservedEngine(ctx, tx, r.binding)
-	if err != nil || reservedErr != nil || reserved.Archive.EpochID != policy.EpochID {
-		return NativeRepositoryMaterial{}, ErrConflict
+	permit, err := readEnginePermit(ctx, tx, r.binding)
+	if err != nil {
+		return NativeRepositoryMaterial{}, err
 	}
-	d := reserved.Archive.Destination
-	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(reserved.Archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
-	scope := restic.Scope{BindingID: string(r.binding), EpochID: string(policy.EpochID), RepositoryID: policy.RepositoryID, DestinationSHA256: location.SHA256(), CredentialVersion: policy.CredentialVersion, RecoveryVersion: policy.RecoveryVersion}
-	material, err := readNativeRepositoryMaterial(ctx, tx, restic.TransportPoint{Scope: scope})
+	material, err := readNativeCurrentRepositoryMaterial(ctx, tx, permit)
 	if err != nil {
 		return NativeRepositoryMaterial{}, err
 	}

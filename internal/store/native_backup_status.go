@@ -3,7 +3,6 @@ package store
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"time"
 
@@ -26,15 +25,19 @@ func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (n
 		return nativecapture.BackupStatus{}, err
 	}
 	policy, _, err := readNativeBackupPolicy(ctx, tx, binding)
-	if err != nil || policy.EpochID != permit.Runtime.EpochID {
+	if err != nil {
 		return nativecapture.BackupStatus{}, errors.Join(ErrConflict, err)
 	}
-	status := nativecapture.BackupStatus{Engine: "spacetimedb", BindingID: string(binding), EpochID: string(policy.EpochID), State: "unverified", ModuleSHA256: string(permit.Runtime.Module.Wasm), SchemaSHA256: permit.Runtime.Module.Schema.SHA256, CaptureIntervalSeconds: policy.Backup.CaptureIntervalSeconds, VerificationIntervalSeconds: policy.Backup.VerificationIntervalSeconds, MaintenanceBudgetSeconds: policy.Backup.MaxMaintenanceSeconds, Loss: "unknown", Fenced: nativeHasHeldFence(permit.Fences)}
+	material, err := readNativeCurrentRepositoryMaterialRecords(ctx, tx, permit)
+	if err != nil {
+		return nativecapture.BackupStatus{}, err
+	}
+	status := nativecapture.BackupStatus{Engine: "spacetimedb", BindingID: string(binding), EpochID: string(permit.Runtime.EpochID), State: "unverified", ModuleSHA256: string(permit.Runtime.Module.Wasm), SchemaSHA256: permit.Runtime.Module.Schema.SHA256, CaptureIntervalSeconds: policy.Backup.CaptureIntervalSeconds, VerificationIntervalSeconds: policy.Backup.VerificationIntervalSeconds, MaintenanceBudgetSeconds: policy.Backup.MaxMaintenanceSeconds, Loss: "unknown", Fenced: nativeHasHeldFence(permit.Fences)}
 	if permit.Runtime.State == data.EngineUnpublished {
 		status.ModuleSHA256, status.SchemaSHA256 = "", ""
 	}
 	var newest string
-	err = tx.QueryRowContext(ctx, "SELECT id FROM data_native_verified_points WHERE binding_id=? AND epoch_id=? ORDER BY json_extract(canonical,'$.captured_at') DESC LIMIT 1", binding, policy.EpochID).Scan(&newest)
+	err = tx.QueryRowContext(ctx, "SELECT id FROM data_native_verified_points WHERE binding_id=? AND epoch_id=? ORDER BY json_extract(canonical,'$.captured_at') DESC LIMIT 1", binding, permit.Runtime.EpochID).Scan(&newest)
 	if err == nil {
 		bundle, err := readNativeVerifiedPointBundleTx(ctx, tx, newest)
 		if err != nil {
@@ -49,14 +52,7 @@ func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (n
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return nativecapture.BackupStatus{}, err
 	}
-	var expires *time.Time
-	var raw []byte
-	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE id=?", policy.CredentialReceiptID).Scan(&raw)
-	var receipt CredentialRecord
-	if err != nil || json.Unmarshal(raw, &receipt) != nil {
-		return nativecapture.BackupStatus{}, ErrConflict
-	}
-	expires = receipt.ExpiresAt
+	expires := material.CredentialRecord.ExpiresAt
 	status.CredentialExpired = expires != nil && !time.Now().UTC().Before(*expires)
 	var pending int
 	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM operations o JOIN data_native_task_inputs i ON i.id=o.secret_ref WHERE i.binding_id=? AND o.kind='native_capture' AND o.state IN ('launch_unknown','preflight','failed','recovery_required')", binding).Scan(&pending)

@@ -180,7 +180,16 @@ func limitNativeRepositoryMaterial(material NativeRepositoryMaterial, expiry *ti
 }
 
 func readNativeRepositoryMaterialRecords(ctx context.Context, q dataQuerier, point restic.TransportPoint) (NativeRepositoryMaterial, error) {
+	return readNativeRepositoryMaterialLineage(ctx, q, point, map[string]bool{})
+}
+
+func readNativeRepositoryMaterialLineage(ctx context.Context, q dataQuerier, point restic.TransportPoint, ancestors map[string]bool) (NativeRepositoryMaterial, error) {
 	scope := point.Scope
+	if ancestors[scope.EpochID] {
+		return NativeRepositoryMaterial{}, &IntegrityError{}
+	}
+	ancestors[scope.EpochID] = true
+	defer delete(ancestors, scope.EpochID)
 	binding := data.ReplicaBindingID(scope.BindingID)
 	reserved, err := readReservedEngine(ctx, q, binding)
 	if err != nil {
@@ -196,13 +205,16 @@ func readNativeRepositoryMaterialRecords(ctx context.Context, q dataQuerier, poi
 	d := archive.Destination
 	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
 	policy, _, err := readNativeBackupPolicyScope(ctx, q, binding, archive.EpochID, scope.RepositoryID, 0, scope.RecoveryVersion)
+	if errors.Is(err, ErrNotFound) {
+		return readNativeInheritedRepositoryMaterial(ctx, q, point, archive, ancestors)
+	}
 	if err != nil || policy.RepositoryID != scope.RepositoryID || policy.EpochID != archive.EpochID || policy.RecoveryVersion != scope.RecoveryVersion || policy.CredentialReference != string(d.CredentialRef) || location.SHA256() != scope.DestinationSHA256 {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
 	var raw []byte
 	err = q.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE id=? AND kind='receipt'", policy.CredentialReceiptID).Scan(&raw)
 	var credential CredentialRecord
-	if err != nil || json.Unmarshal(raw, &credential) != nil || credential.BindingID != binding || credential.EpochID != archive.EpochID || credential.CredentialRef != policy.CredentialReference || credential.Version != policy.CredentialVersion || credential.ReceivedAt.IsZero() {
+	if err != nil || json.Unmarshal(raw, &credential) != nil || credential.BindingID != binding || credential.CredentialRef != policy.CredentialReference || credential.Version != policy.CredentialVersion || credential.ReceivedAt.IsZero() {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
 	credentialCanonical, marshalErr := json.Marshal(credential)
@@ -212,7 +224,7 @@ func readNativeRepositoryMaterialRecords(ctx context.Context, q dataQuerier, poi
 	var recoveryRaw []byte
 	err = q.QueryRowContext(ctx, "SELECT canonical FROM data_native_recovery_deliveries WHERE id=?", policy.RecoveryDeliveryID).Scan(&recoveryRaw)
 	var recovery nativeRecoveryDeliveryRecord
-	if err != nil || json.Unmarshal(recoveryRaw, &recovery) != nil || recovery.BindingID != binding || recovery.EpochID != archive.EpochID || recovery.Reference != policy.RecoveryReference || recovery.Version != scope.RecoveryVersion || recovery.SHA256 != policy.RecoverySHA256 {
+	if err != nil || json.Unmarshal(recoveryRaw, &recovery) != nil || recovery.BindingID != binding || recovery.Reference != policy.RecoveryReference || recovery.Version != scope.RecoveryVersion || recovery.SHA256 != policy.RecoverySHA256 {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
 	recoveryCanonical, marshalErr := json.Marshal(recovery)
@@ -224,6 +236,18 @@ func readNativeRepositoryMaterialRecords(ctx context.Context, q dataQuerier, poi
 	}
 	if err := checkNativeRecoveryMaterialOperation(ctx, q, recovery); err != nil {
 		return NativeRepositoryMaterial{}, err
+	}
+	if recovery.EpochID != archive.EpochID || credential.EpochID != archive.EpochID {
+		inherited, err := readNativeInheritedRepositoryMaterial(ctx, q, point, archive, ancestors)
+		if err != nil {
+			return NativeRepositoryMaterial{}, err
+		}
+		if recovery.EpochID != archive.EpochID && (inherited.RecoveryDeliveryID != policy.RecoveryDeliveryID || inherited.RecoverySHA256 != recovery.SHA256 || inherited.RecoveryReference != recovery.Reference) {
+			return NativeRepositoryMaterial{}, ErrConflict
+		}
+		if credential.EpochID != archive.EpochID && inherited.CredentialReceiptID != policy.CredentialReceiptID {
+			return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
+		}
 	}
 	scope.CredentialVersion = policy.CredentialVersion
 	return NativeRepositoryMaterial{Scope: scope, Location: location, CredentialReference: policy.CredentialReference, CredentialReceiptID: policy.CredentialReceiptID, CredentialRecord: credential, RecoveryReference: policy.RecoveryReference, RecoveryDeliveryID: policy.RecoveryDeliveryID, RecoverySHA256: policy.RecoverySHA256}, nil

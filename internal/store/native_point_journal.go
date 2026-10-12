@@ -116,7 +116,7 @@ func scanNativePreparationEvent(row interface{ Scan(...any) error }) (nativePrep
 	return event, raw, nil
 }
 
-func checkNativePointCompletion(ctx context.Context, tx *sql.Tx, point nativePreparedPoint) error {
+func checkNativePointCompletion(ctx context.Context, tx dataQuerier, point nativePreparedPoint) error {
 	i, raw, err := readNativePreparationIntent(ctx, tx, point.view.PointID)
 	if err != nil || !nativeIntentMatchesPoint(i, point.view) {
 		return errors.Join(&IntegrityError{}, err)

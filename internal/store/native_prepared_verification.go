@@ -3,7 +3,6 @@ package store
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"time"
 
@@ -42,7 +41,7 @@ func decodeNativePreparedVerification(v NativePreparedPointView, raw []byte) (na
 	return proof, nil
 }
 
-func checkNativePreparedBundleVerification(ctx context.Context, tx *sql.Tx, point nativePreparedPoint, bundle NativePreparedBundle, sourceNative, restoredNative, confirmed, final []byte) error {
+func checkNativePreparedBundleVerification(ctx context.Context, tx dataQuerier, point nativePreparedPoint, bundle NativePreparedBundle, sourceNative, restoredNative, confirmed, final []byte) error {
 	intent, raw, err := readNativePreparationIntent(ctx, tx, point.view.PointID)
 	if err != nil {
 		return err
