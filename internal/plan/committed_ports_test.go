@@ -1,12 +1,26 @@
 package plan
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/target"
 )
+
+func TestCommittedPortWithdrawalChangesDecisionFreshness(t *testing.T) {
+	in := committedPortFixture(t)
+	withReservation, err := canonicalDecisionFacts(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	(*in.Snapshot.Apps.Value)[0].CommittedPortReservation = nil
+	withoutReservation, err := canonicalDecisionFacts(in)
+	if err != nil || bytes.Equal(withReservation, withoutReservation) {
+		t.Fatal("withdrawn reservation did not invalidate plan freshness", err)
+	}
+}
 
 func committedPortFixture(t *testing.T) Input {
 	t.Helper()
