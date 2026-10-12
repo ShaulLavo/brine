@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
+	"golang.org/x/sys/unix"
 )
 
 type descriptorTestRunner struct {
@@ -137,4 +139,59 @@ func TestDescriptorMountProfileHasOnlyArtifactAndHelperBindings(t *testing.T) {
 	if err := RunModuleDescriptor(context.Background(), strings.NewReader("{}"), &bytes.Buffer{}); !errors.Is(err, datapublish.ErrRecord) {
 		t.Fatal("ordinary host acquired descriptor container authority", err)
 	}
+}
+
+func TestModuleDescriptorNativeFailuresHaveClosedCodes(t *testing.T) {
+	cases := []struct {
+		err    error
+		output []byte
+		code   string
+	}{
+		{context.DeadlineExceeded, nil, "native_timeout"},
+		{context.Canceled, nil, "native_cancelled"},
+		{localexec.ErrOutputLimit, nil, "native_output_limit"},
+		{&localexec.Error{Kind: localexec.NotFound}, nil, "native_missing"},
+		{errors.New("private process diagnostic"), nil, "native_launch"},
+		{nil, nil, "native_output_empty"},
+		{nil, []byte("{}"), "native_output_shape"},
+		{nil, bytes.Repeat([]byte("x"), moduleDescriptorOutputLimit+1), "native_output_limit"},
+	}
+	for _, value := range cases {
+		t.Run(value.code, func(t *testing.T) {
+			_, err := extractModuleDescriptor(context.Background(), &descriptorTestRunner{err: value.err, output: localexec.Output{Stdout: value.output}})
+			var failure *moduleDescriptorFailure
+			if !errors.Is(err, datapublish.ErrRecord) || !errors.As(err, &failure) || failure.stage != value.code || strings.Contains(err.Error(), "private process diagnostic") {
+				t.Fatal("native failure escaped closed classification", err)
+			}
+		})
+	}
+	for _, mode := range []string{"exit", "arguments", "signal"} {
+		t.Run(mode, func(t *testing.T) { testModuleDescriptorNativeExit(t, mode) })
+	}
+}
+
+func testModuleDescriptorNativeExit(t *testing.T, mode string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	root := t.TempDir()
+	out, err := (localexec.ExecRunner{}).RunInput(ctx, localexec.Command{Path: os.Args[0], Args: []string{"-test.run=^TestModuleDescriptorNativeExitHelper$"}, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + root, "BRINE_DESCRIPTOR_NATIVE_EXIT=" + mode}, Dir: root, OutputLimit: 1024})
+	code := map[string]string{"exit": "native_exit", "arguments": "native_arguments", "signal": "native_signal"}[mode]
+	if err == nil || moduleDescriptorNativeFailure(err, out.Stderr) != code {
+		t.Fatal("real native child status classified incorrectly", mode, err)
+	}
+}
+
+func TestModuleDescriptorNativeExitHelper(t *testing.T) {
+	mode := os.Getenv("BRINE_DESCRIPTOR_NATIVE_EXIT")
+	if mode == "" {
+		return
+	}
+	if mode == "arguments" {
+		_, _ = fmt.Fprintln(os.Stderr, "error: unexpected argument private diagnostic")
+	}
+	if mode == "signal" {
+		_ = unix.Kill(os.Getpid(), unix.SIGTERM)
+	}
+	os.Exit(3)
 }

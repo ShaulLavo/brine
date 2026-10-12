@@ -3,6 +3,7 @@
 package host
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -10,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"syscall"
@@ -59,7 +61,12 @@ func RunModuleDescriptor(ctx context.Context, input io.Reader, output io.Writer)
 	}
 	raw, err := extractModuleDescriptor(ctx, localexec.ExecRunner{})
 	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal=native_extract")
+		stage := "native_extract"
+		var failure *moduleDescriptorFailure
+		if errors.As(err, &failure) {
+			stage = failure.stage
+		}
+		_, _ = fmt.Fprintln(os.Stderr, "module_descriptor_refusal="+stage)
 		return err
 	}
 	current, err := readModuleDescriptorArtifact()
@@ -131,12 +138,47 @@ func extractModuleDescriptor(ctx context.Context, runner localexec.InputRunner) 
 		Args: []string{"extract-schema", moduleDescriptorArtifactPath, "--host-type", "wasm"},
 		Env:  []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "TMPDIR=/tmp", "TOKIO_WORKER_THREADS=2"}, Dir: "/tmp", OutputLimit: moduleDescriptorOutputLimit})
 	if err != nil {
-		return nil, datapublish.ErrRecord
+		return nil, &moduleDescriptorFailure{stage: moduleDescriptorNativeFailure(err, result.Stderr)}
+	}
+	if len(result.Stdout) == 0 {
+		return nil, &moduleDescriptorFailure{stage: "native_output_empty"}
+	}
+	if len(result.Stdout) > moduleDescriptorOutputLimit {
+		return nil, &moduleDescriptorFailure{stage: "native_output_limit"}
 	}
 	if _, err = spacetimedb.DecodeDescriptorV10(result.Stdout, spacetimedb.DefaultSchemaLimits()); err != nil {
-		return nil, datapublish.ErrRecord
+		return nil, &moduleDescriptorFailure{stage: "native_output_shape"}
 	}
 	return slices.Clone(result.Stdout), nil
+}
+
+func moduleDescriptorNativeFailure(err error, stderr []byte) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "native_timeout"
+	}
+	if errors.Is(err, context.Canceled) {
+		return "native_cancelled"
+	}
+	if errors.Is(err, localexec.ErrOutputLimit) {
+		return "native_output_limit"
+	}
+	var boundary *localexec.Error
+	if errors.As(err, &boundary) && boundary.Kind == localexec.NotFound {
+		return "native_missing"
+	}
+	var exited *exec.ExitError
+	if !errors.As(err, &exited) || exited.ProcessState == nil {
+		return "native_launch"
+	}
+	if status, ok := exited.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		return "native_signal"
+	}
+	for _, refusal := range []string{"error: unexpected argument ", "error: unrecognized subcommand ", "error: invalid value ", "error: the following required arguments were not provided"} {
+		if bytes.Contains(stderr, []byte(refusal)) {
+			return "native_arguments"
+		}
+	}
+	return "native_exit"
 }
 
 func moduleDescriptorContained() error {
