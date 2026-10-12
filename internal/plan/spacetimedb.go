@@ -1,7 +1,6 @@
 package plan
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"strings"
@@ -22,57 +21,6 @@ type ManagedBlueprint struct {
 	EngineVersion   string                  `json:"engine_version"`
 	EngineResources spec.SpacetimeResources `json:"engine_resources"`
 	AppResources    *policy.Resources       `json:"app_resources,omitempty"`
-}
-
-// ManagedRenderPreview is renderer input only. No apply engine consumes it.
-type ManagedRenderPreview struct {
-	desired    policy.Desired
-	enginePort spec.Port
-	appPort    spec.Port
-}
-
-func NewManagedRenderPreview(d policy.Desired, p policy.Policy, enginePort, appPort spec.Port) (ManagedRenderPreview, error) {
-	if policy.ValidateManagedDesired(d) != nil {
-		return ManagedRenderPreview{}, errors.New("managed preview: invalid desired input")
-	}
-	normalized, err := policy.Normalize(d.App(), p)
-	if err != nil {
-		return ManagedRenderPreview{}, err
-	}
-	wanted, err := d.CanonicalBytes()
-	if err != nil {
-		return ManagedRenderPreview{}, err
-	}
-	actual, err := normalized.CanonicalBytes()
-	if err != nil || !bytes.Equal(wanted, actual) {
-		return ManagedRenderPreview{}, errors.New("managed preview: normalized input differs")
-	}
-	if enginePort < d.AppPorts.Min || enginePort > d.AppPorts.Max {
-		return ManagedRenderPreview{}, errors.New("managed preview: engine port is not allowed")
-	}
-	if d.App().HasAppContainer() {
-		if appPort < d.AppPorts.Min || appPort > d.AppPorts.Max || appPort == enginePort {
-			return ManagedRenderPreview{}, errors.New("managed preview: app port is not allowed")
-		}
-	} else if appPort != 0 {
-		return ManagedRenderPreview{}, errors.New("managed preview: engine-only input cannot allocate an app port")
-	}
-	return ManagedRenderPreview{desired: normalized, enginePort: enginePort, appPort: appPort}, nil
-}
-
-func (p ManagedRenderPreview) Values() (policy.Desired, spec.Port, spec.Port, error) {
-	if policy.ValidateManagedDesired(p.desired) != nil || p.enginePort == 0 {
-		return policy.Desired{}, 0, 0, errors.New("managed preview required")
-	}
-	raw, err := p.desired.CanonicalBytes()
-	if err != nil {
-		return policy.Desired{}, 0, 0, err
-	}
-	var detached policy.Desired
-	if json.Unmarshal(raw, &detached) != nil {
-		return policy.Desired{}, 0, 0, errors.New("managed preview invalid")
-	}
-	return detached, p.enginePort, p.appPort, nil
 }
 
 func buildManagedPreview(in Input, desired []byte) (Plan, error) {

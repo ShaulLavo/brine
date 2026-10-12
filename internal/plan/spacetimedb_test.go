@@ -70,31 +70,8 @@ func TestManagedPlansAreDeterministicNonAdmittedPreviews(t *testing.T) {
 	}
 }
 
-func TestManagedPreviewPortAndOwnershipRefusals(t *testing.T) {
-	in, pol := managedPlanInput(t, true)
-	if _, err := NewManagedRenderPreview(in.Desired, pol, 20001, 20001); err == nil {
-		t.Fatal("same engine/frontend port accepted")
-	}
-	if _, err := NewManagedRenderPreview(in.Desired, pol, 19999, 20001); err == nil {
-		t.Fatal("foreign port range accepted")
-	}
-	preview, err := NewManagedRenderPreview(in.Desired, pol, 20001, 20003)
-	if err != nil {
-		t.Fatal(err)
-	}
-	d, _, _, err := preview.Values()
-	if err != nil {
-		t.Fatal(err)
-	}
-	d.SpacetimeDB.Publisher = "foreign"
-	if _, err := NewManagedRenderPreview(d, pol, 20001, 20003); err == nil {
-		t.Fatal("crossed publisher ownership accepted")
-	}
-	d, _, _, _ = preview.Values()
-	d.SpacetimePolicy.LicenseAuthority = "forged"
-	if _, err := NewManagedRenderPreview(d, pol, 20001, 20003); err == nil {
-		t.Fatal("forged reviewed license accepted")
-	}
+func TestManagedPreviewRefusesUnknownPorts(t *testing.T) {
+	in, _ := managedPlanInput(t, true)
 	in.Snapshot.UsedPorts = target.Observation[[]target.Port]{Status: target.Unknown}
 	p, err := Build(in)
 	if err != nil || p.ManagedPreview.EngineHostPort != 0 || len(p.Conflicts) < 2 {

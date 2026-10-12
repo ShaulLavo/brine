@@ -87,22 +87,19 @@ func checkRenderedManagedRoute(t *testing.T, client *http.Client, address string
 	}
 }
 
-func TestManagedPreviewRoutingWithPinnedCaddy(t *testing.T) {
+func TestManagedSiteRoutingWithPinnedCaddy(t *testing.T) {
 	binary := pinnedCaddyVerifier(t)
 	engine, frontend := routeStub("engine"), routeStub("frontend")
 	t.Cleanup(engine.Close)
 	t.Cleanup(frontend.Close)
-	preview := managedPreview(t, true)
-	raw, err := RenderManagedPreview(preview)
+	site := managedTestSite(t, true)
+	raw, err := Render(site)
 	if err != nil {
 		t.Fatal(err)
 	}
 	replacements := strings.NewReplacer("127.0.0.1:20000", strings.TrimPrefix(engine.URL, "http://"), "127.0.0.1:20001", strings.TrimPrefix(frontend.URL, "http://"))
 	address := loopbackCaddy(t, binary, []byte(replacements.Replace(string(raw))))
-	ingress, err := NewManagedClientIngress(preview)
-	if err != nil {
-		t.Fatal(err)
-	}
+	ingress := site.managed.ingress
 	transport := &http.Transport{Proxy: nil}
 	t.Cleanup(transport.CloseIdleConnections)
 	client := &http.Client{Transport: transport, Timeout: 2 * time.Second}

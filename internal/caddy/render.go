@@ -46,7 +46,7 @@ func Render(site Site) ([]byte, error) {
 		return nil, errors.New("caddy: site required")
 	}
 	if site.managed != nil {
-		return renderManagedClient(site.managed.desired, site.managed.enginePort, site.managed.appPort, site.managed.ingress, false)
+		return renderManagedClient(site.managed.desired, site.managed.enginePort, site.managed.appPort, site.managed.ingress)
 	}
 	domains := make([]string, len(site.domains))
 	for i, domain := range site.domains {

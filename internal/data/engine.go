@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"time"
 
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
@@ -132,122 +131,15 @@ func (k EngineKind) BackupCapabilities() (BackupCapabilities, error) {
 
 // EngineObservation keeps catalog evidence confined to SQLite.
 type EngineObservation struct {
-	kind      EngineKind
-	sqlite    SQLiteSchemaObservation
-	spacetime SpacetimeDBSchemaObservation
-}
-type SpacetimeDBSchemaObservation struct {
-	State          SchemaState `json:"state"`
-	DatabaseID     DatabaseID  `json:"database_id"`
-	ObservedAt     time.Time   `json:"observed_at"`
-	Marker         string      `json:"marker,omitempty"`
-	ModuleIdentity string      `json:"module_identity,omitempty"`
-	SchemaSHA256   string      `json:"schema_sha256,omitempty"`
-	UnknownReason  string      `json:"unknown_reason,omitempty"`
+	kind   EngineKind
+	sqlite SQLiteSchemaObservation
 }
 
-func (o SpacetimeDBSchemaObservation) Validate() error {
-	if !ValidID(string(o.DatabaseID)) || o.ObservedAt.IsZero() {
-		return ErrInvalid
-	}
-	switch o.State {
-	case Unknown:
-		if o.UnknownReason == "" || len(o.UnknownReason) > 128 || o.Marker != "" || o.ModuleIdentity != "" || o.SchemaSHA256 != "" {
-			return ErrInvalid
-		}
-	case AllocatedEmpty, VerifiedEmpty:
-		if o.UnknownReason != "" || o.Marker != "" || o.ModuleIdentity != "" || o.SchemaSHA256 != "" {
-			return ErrInvalid
-		}
-	case VerifiedSchema:
-		if o.UnknownReason != "" || !ValidMarker(o.Marker) || o.Marker == EmptyMarker || !hashPattern.MatchString(o.ModuleIdentity) || !ValidCatalogHash(o.SchemaSHA256) {
-			return ErrInvalid
-		}
-	default:
-		return ErrInvalid
-	}
-	return nil
-}
 func SQLiteObservation(o SQLiteSchemaObservation) EngineObservation {
 	return EngineObservation{kind: EngineSQLite, sqlite: o}
 }
-func SpacetimeDBObservation(o SpacetimeDBSchemaObservation) (EngineObservation, error) {
-	if o.Validate() != nil {
-		return EngineObservation{}, ErrInvalid
-	}
-	return EngineObservation{kind: EngineSpacetimeDB, spacetime: o}, nil
-}
-func (o EngineObservation) Kind() EngineKind { return o.kind }
 func (o EngineObservation) SQLite() (SQLiteSchemaObservation, bool) {
 	return o.sqlite, o.kind == EngineSQLite
-}
-func (o EngineObservation) SpacetimeDB() (SpacetimeDBSchemaObservation, bool) {
-	return o.spacetime, o.kind == EngineSpacetimeDB
-}
-func (o EngineObservation) MarshalJSON() ([]byte, error) {
-	switch o.kind {
-	case EngineSQLite:
-		if !validSQLiteObservation(o.sqlite) {
-			return nil, ErrInvalid
-		}
-		return engineJSON(o.kind, "sqlite", o.sqlite)
-	case EngineSpacetimeDB:
-		if o.spacetime.Validate() != nil {
-			return nil, ErrInvalid
-		}
-		return engineJSON(o.kind, "spacetimedb", o.spacetime)
-	default:
-		return nil, ErrInvalid
-	}
-}
-func (o *EngineObservation) UnmarshalJSON(raw []byte) error {
-	kind, value, err := engineValue(raw)
-	if err != nil {
-		return err
-	}
-	var decoded EngineObservation
-	switch kind {
-	case EngineSQLite:
-		if err = engineRecord(value, []string{"state", "database_id", "observed_at"}, []string{"marker", "catalog_sha256", "unknown_reason"}); err != nil {
-			return err
-		}
-		concrete, parseErr := strictjson.Value[SQLiteSchemaObservation](value)
-		if parseErr != nil || !validSQLiteObservation(concrete) {
-			return ErrInvalid
-		}
-		decoded = SQLiteObservation(concrete)
-	case EngineSpacetimeDB:
-		if err = engineRecord(value, []string{"state", "database_id", "observed_at"}, []string{"marker", "module_identity", "schema_sha256", "unknown_reason"}); err != nil {
-			return err
-		}
-		concrete, parseErr := strictjson.Value[SpacetimeDBSchemaObservation](value)
-		if parseErr != nil {
-			return ErrInvalid
-		}
-		decoded, err = SpacetimeDBObservation(concrete)
-	default:
-		return ErrInvalid
-	}
-	if err != nil {
-		return err
-	}
-	*o = decoded
-	return nil
-}
-func validSQLiteObservation(o SQLiteSchemaObservation) bool {
-	if !ValidID(string(o.DatabaseID)) || o.ObservedAt.IsZero() {
-		return false
-	}
-	switch o.State {
-	case Unknown:
-		return o.UnknownReason != "" && o.Marker == "" && o.CatalogSHA256 == ""
-	case AllocatedEmpty, VerifiedEmpty:
-		return o.UnknownReason == "" && o.Marker == EmptyMarker && o.CatalogSHA256 == EmptyCatalogSHA256
-	case VerifiedSchema:
-		return o.UnknownReason == "" && ValidMarker(o.Marker) && o.Marker != EmptyMarker && ValidCatalogHash(o.CatalogSHA256)
-	default:
-		return false
-	}
 }
 func engineJSON(kind EngineKind, key string, value any) ([]byte, error) {
 	return json.Marshal(map[string]any{"engine": kind, key: value})

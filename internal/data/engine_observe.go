@@ -14,7 +14,6 @@ type ObservationTarget struct {
 	sqlite      SQLiteDatabaseBinding
 	definitions []SQLiteSchemaDefinition
 	allocation  *AllocationReceipt
-	spacetime   DatabaseID
 }
 
 func SQLiteObservationTarget(b SQLiteDatabaseBinding, definitions []SQLiteSchemaDefinition, allocation *AllocationReceipt) ObservationTarget {
@@ -29,9 +28,6 @@ func SQLiteObservationTarget(b SQLiteDatabaseBinding, definitions []SQLiteSchema
 		detached = &copy
 	}
 	return ObservationTarget{kind: EngineSQLite, sqlite: b, definitions: slices.Clone(definitions), allocation: detached}
-}
-func SpacetimeDBObservationTarget(id DatabaseID) ObservationTarget {
-	return ObservationTarget{kind: EngineSpacetimeDB, spacetime: id}
 }
 func ObserveEngine(ctx context.Context, target ObservationTarget, budget time.Duration) (EngineObservation, error) {
 	if ctx.Err() != nil || budget <= 0 || budget > SQLiteObservationBudget {

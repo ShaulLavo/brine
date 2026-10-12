@@ -24,7 +24,7 @@ func managedLogEncoder(field string) string {
 
 func managedLoggingProbeConfig(t *testing.T, address, upstream, global, site, shadow string) []byte {
 	t.Helper()
-	raw, err := RenderManagedPreview(managedPreview(t, true))
+	raw, err := Render(managedTestSite(t, true))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -55,17 +55,18 @@ func TestNativePublisherVerificationRequiresTheFixedAuthenticatedResponse(t *tes
 	endpoint := publisherVerificationEndpoint(t, server.URL)
 	before := time.Now().UTC()
 	proof, err := VerifyNativePublisher(context.Background(), endpoint, credential)
-	if err != nil || proof.Publisher() != PublisherIdentity(publisherHex) || proof.CredentialSHA256() != publicationBytesSHA256([]byte(credential.bearer)) || proof.VerifiedAt().Before(before) || proof.VerifiedAt().Location() != time.UTC || proof.SHA256() == "" || !proof.At(endpoint) {
+	if err != nil || proof.Publisher() != PublisherIdentity(publisherHex) || proof.CredentialSHA256() != publicationBytesSHA256([]byte(credential.bearer)) || proof.SHA256() == "" || !proof.At(endpoint) {
 		t.Fatal("actual verification response lost its identity/credential binding", err)
 	}
 	encoded := proof.StorageBytes()
 	var transcript struct {
-		Endpoint string `json:"endpoint_sha256"`
-		Method   string `json:"method"`
-		Path     string `json:"path"`
-		Status   int    `json:"status"`
+		Endpoint   string    `json:"endpoint_sha256"`
+		Method     string    `json:"method"`
+		Path       string    `json:"path"`
+		Status     int       `json:"status"`
+		VerifiedAt time.Time `json:"verified_at"`
 	}
-	if err := json.Unmarshal(encoded, &transcript); err != nil || transcript.Endpoint != publicationBytesSHA256([]byte(endpoint.base)) || transcript.Method != http.MethodGet || transcript.Path != "/v1/identity/"+publisherHex+"/verify" || transcript.Status != http.StatusNoContent {
+	if err := json.Unmarshal(encoded, &transcript); err != nil || transcript.Endpoint != publicationBytesSHA256([]byte(endpoint.base)) || transcript.Method != http.MethodGet || transcript.Path != "/v1/identity/"+publisherHex+"/verify" || transcript.Status != http.StatusNoContent || transcript.VerifiedAt.Before(before) || transcript.VerifiedAt.Location() != time.UTC {
 		t.Fatal("retained verification lost the actual request/result transcript", err)
 	}
 	encoded[0] = 'x'
