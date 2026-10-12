@@ -29,18 +29,7 @@ pub fn configure(total: u64, single: u64) {
 }
 
 fn refuse() -> ! {
-    terminate(b"{\"format\":\"brine-native-reader-v1\",\"outcome\":\"refused\",\"code\":\"allocation_limit\"}\n")
-}
-
-pub fn terminate(message: &'static [u8]) -> ! {
-    unsafe {
-        let flags = libc::fcntl(libc::STDOUT_FILENO, libc::F_GETFL);
-        if flags >= 0 {
-            libc::fcntl(libc::STDOUT_FILENO, libc::F_SETFL, flags | libc::O_NONBLOCK);
-        }
-        libc::write(libc::STDOUT_FILENO, message.as_ptr().cast(), message.len());
-        libc::_exit(70);
-    }
+    crate::response::terminate(b"{\"format\":\"brine-native-reader-v1\",\"outcome\":\"refused\",\"code\":\"allocation_limit\"}\n")
 }
 
 unsafe impl GlobalAlloc for Bounded {

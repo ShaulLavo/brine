@@ -16,6 +16,8 @@ Podman's `/run/.containerenv` marker is accepted only as a file bind with `ro,no
 
 On success, exit status is zero and `outcome` is `observed`. On refusal, exit status is 70 and a bounded object identifies the refusal code when the output pipe permits it. A killed process, partial output, unexpected status, invalid JSON or missing evidence must refuse. A refusal is never a restore receipt.
 
+Allocator, watchdog and cooperative errors share one refusal writer. A second fatal thread cannot append another JSON object or interrupt the selected refusal writer. Once an observed response starts, a deadline still aborts the process with status70, including a blocked output pipe, without appending a refusal. Only complete output with status zero is successful evidence.
+
 ### Observed fields
 
 | Field | Native source |

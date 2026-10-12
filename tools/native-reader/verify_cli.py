@@ -30,9 +30,16 @@ def run(image, fixture, output, request, alter=None, extra=None):
         args.extend(extra)
     args.append(image)
     result = subprocess.run(args, input=json.dumps(request), text=True, capture_output=True, timeout=70)
+    (directory / 'stdout.json').write_text(result.stdout)
+    (directory / 'stderr.txt').write_text(result.stderr)
     if before != seal(replica):
         raise AssertionError('verifier changed private input')
-    value = json.loads(result.stdout)
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise AssertionError({'exit': result.returncode, 'stdout_bytes': len(result.stdout.encode()),
+                              'stdout_sha256': hashlib.sha256(result.stdout.encode()).hexdigest(),
+                              'stdout_tail': result.stdout[-512:], 'stderr_tail': result.stderr[-512:]}) from error
     if len(result.stdout.encode()) > 1 << 20:
         raise AssertionError('hard output ceiling')
     return result.returncode, value
