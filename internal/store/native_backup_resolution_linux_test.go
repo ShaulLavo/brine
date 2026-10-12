@@ -268,7 +268,7 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	if err = refusePendingNativeBackupActivation(ctx, state.db, scope.Database.BindingID, original.ID); err != nil {
 		t.Fatal("original claim excluded itself", err)
 	}
-	if err = refusePendingNativeBackupActivation(ctx, state.db, data.ReplicaBindingID(strings.Repeat("9", 64)), "future-activation"); err != nil {
+	if err = refusePendingNativeBackupActivation(ctx, state.db, data.ReplicaBindingID(strings.Repeat("9", 32)), "future-activation"); err != nil {
 		t.Fatal("unresolved activation excluded another binding", err)
 	}
 	permit, err := state.ReadEnginePermit(ctx, scope.Database.BindingID)
