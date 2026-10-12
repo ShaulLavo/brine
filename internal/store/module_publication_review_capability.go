@@ -80,6 +80,18 @@ func (p *PublicationReviewPreparation) active(s *Store) bool {
 	return p != nil && p.store == s && !s.readOnly && p.preparation.Active(p.binding) && p.preparation.StateRoot() == s.dir
 }
 
+func (s *Store) CheckPublicationReviewPreparation(ctx context.Context, preparation *PublicationReviewPreparation) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = s.readPublicationReviewPreparationTx(ctx, tx, preparation); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 func (s *Store) readPublicationReviewPreparationTx(ctx context.Context, tx *sql.Tx, preparation *PublicationReviewPreparation) (nativePreparedPoint, error) {
 	if !preparation.active(s) {
 		return nativePreparedPoint{}, ErrConflict
@@ -87,6 +99,10 @@ func (s *Store) readPublicationReviewPreparationTx(ctx context.Context, tx *sql.
 	point, err := readNativePreparedPointTx(ctx, tx, preparation.pointID)
 	if err != nil || point.hash != preparation.pointSHA || point.view.BindingID != preparation.binding {
 		return nativePreparedPoint{}, errors.Join(ErrConflict, err)
+	}
+	now := time.Now().UTC()
+	if now.Before(point.view.PreparedAt) || !now.Before(point.view.ExpiresAt) || !now.Before(point.view.RetainUntil) {
+		return nativePreparedPoint{}, ErrConflict
 	}
 	if err = checkNativePointCurrent(ctx, tx, point.view); err != nil {
 		return nativePreparedPoint{}, err

@@ -37,6 +37,9 @@ func TestModuleStageRequiresActualEmptySourceAndBlocksOrdinaryHost(t *testing.T)
 	if err := (extractedPublicationCandidate{}).unchanged(context.Background()); !errors.Is(err, datapublish.ErrRecord) {
 		t.Fatal("syntax manufactured actual descriptor execution", err)
 	}
+	if err := (publicationReviewPreflight{}).unchanged(context.Background()); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("syntax manufactured actual contained review preflight", err)
+	}
 }
 
 func TestModuleStagePublisherInputCannotSelectDatabaseOrMutation(t *testing.T) {
