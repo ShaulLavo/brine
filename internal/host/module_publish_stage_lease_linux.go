@@ -96,7 +96,7 @@ func acquireRestoredStage(ctx context.Context, source *nativeRestoredSource, art
 		return nil, datapublish.ErrRecord
 	}
 	point, err := source.state.ReadNativePreparedPoint(ctx, source.pointID)
-	if err != nil || point.PointSHA256 != source.pointSHA256 || point.BindingID != source.permit.Runtime.BindingID || point.EpochID != source.permit.Runtime.EpochID || point.SourceSHA256 != source.source.SHA256() || point.CheckpointSHA256 != source.checkpoint.SHA256() || point.BundleManifestSHA256 != source.manifest.SHA256() {
+	if err != nil || point.PointSHA256 != source.pointSHA256 || point.BindingID != source.permit.Runtime.BindingID || point.EpochID != source.permit.Runtime.EpochID || point.SourceSHA256 != source.source.SHA256() || point.CheckpointSHA256 != source.checkpointSHA256 || source.manifest.Identity().CheckpointSHA256 != source.checkpointSHA256 || point.BundleManifestSHA256 != source.manifest.SHA256() {
 		return nil, datapublish.ErrRecord
 	}
 	platform, err := descriptorRuntimePlatform(source.permit.Runtime)
