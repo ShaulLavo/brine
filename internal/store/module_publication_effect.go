@@ -35,7 +35,7 @@ type PublicationEffectEvent struct {
 }
 
 func (s *Store) RecordPublicationEffect(ctx context.Context, attempt *PublicationAttempt, nonce string, step datapublish.Step) error {
-	if !attempt.active(s) || !data.ValidID(nonce) || attempt.restored.unchanged(ctx) != nil {
+	if !attempt.active(s) || !data.ValidID(nonce) || attempt.restored.unchanged(ctx) != nil || !attempt.restored.working {
 		return ErrConflict
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -56,7 +56,7 @@ func (s *Store) RecordPublicationEffect(ctx context.Context, attempt *Publicatio
 	if err != nil {
 		return err
 	}
-	effect := PublicationEffect{Scope: current.cursor.Scope(), Nonce: nonce, Step: step, RootPath: filepath.Join(attempt.restored.parent.Name(), "download"), Runtime: permit.Runtime.Clone(), RecordedAt: time.Now().UTC()}
+	effect := PublicationEffect{Scope: current.cursor.Scope(), Nonce: nonce, Step: step, RootPath: filepath.Join(attempt.restored.parent.Name(), "working"), Runtime: permit.Runtime.Clone(), RecordedAt: time.Now().UTC()}
 	if !data.ValidRoot(effect.RootPath) || attempt.restored.unchanged(ctx) != nil {
 		return ErrConflict
 	}
