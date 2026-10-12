@@ -25,8 +25,10 @@ func newHostNativeCaptureCmd(deps Dependencies) *cobra.Command {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), accepted))
 	}}
 }
+
+// HostNativeCaptureRequested constructs command callbacks but never executes them.
 func HostNativeCaptureRequested(ctx context.Context, args []string) bool {
-	root := NewRootCommand(Dependencies{Context: ctx})
+	root := NewRootCommand(Dependencies{Context: ctx}) //nolint:contextcheck // This predicate only resolves a command path; no callback runs.
 	cmd, _, err := root.Find(args)
 	return err == nil && cmd != nil && cmd.CommandPath() == "brine host native-capture"
 }
