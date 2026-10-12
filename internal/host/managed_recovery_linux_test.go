@@ -31,7 +31,7 @@ func TestManagedStoppedFrontendRequiresAnActualPodmanAbsenceResult(t *testing.T)
 		if err != nil {
 			t.Fatal(err)
 		}
-		name, err := podman.ParseName("frontend")
+		name, err := managedFrontendContainerName("frontend")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -39,5 +39,12 @@ func TestManagedStoppedFrontendRequiresAnActualPodmanAbsenceResult(t *testing.T)
 		if managedFrontendStopped(state, err) != test.absent {
 			t.Fatal("lookup failure became container absence", test.failure, err)
 		}
+	}
+}
+
+func TestManagedRecoveryUsesTheGeneratedQuadletContainerIdentity(t *testing.T) {
+	name, err := managedFrontendContainerName("frontend")
+	if err != nil || name.String() != "systemd-frontend" {
+		t.Fatal("managed recovery observed the wrong container", name, err)
 	}
 }

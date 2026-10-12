@@ -81,7 +81,7 @@ func (r managedRuntime) completedComponents(ctx context.Context, operation strin
 		if err != nil || !stopped {
 			return errEngineSource
 		}
-		name, err := podman.ParseName(p.App)
+		name, err := managedFrontendContainerName(p.App)
 		if err != nil {
 			return errEngineSource
 		}
@@ -107,7 +107,7 @@ func (r managedRuntime) completedFrontend(ctx context.Context, operation string,
 	if err != nil || props.ActiveState != "active" || props.SubState != "running" {
 		return errEngineSource
 	}
-	name, err := podman.ParseName(p.App)
+	name, err := managedFrontendContainerName(p.App)
 	if err != nil {
 		return errEngineSource
 	}
@@ -144,4 +144,8 @@ func managedFrontendStopped(state podman.ContainerState, err error) bool {
 	}
 	var absent *localexec.Error
 	return errors.As(err, &absent) && absent.Kind == localexec.NotFound && absent.ExitCode == 0
+}
+
+func managedFrontendContainerName(app string) (podman.Name, error) {
+	return podman.ParseName("systemd-" + app)
 }
