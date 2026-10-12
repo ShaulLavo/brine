@@ -20,6 +20,10 @@ func (h archiveHost) recheckNativeArchive(ctx context.Context, p archive.Plan, o
 	if stopped, err := h.nativeArchiveStopped(ctx, p); err != nil || !stopped {
 		return archive.ErrRefused
 	}
+	d, _ := p.Candidate.Databases[0].Native()
+	if err = h.verifyNativeArchiveDataSeal(ctx, p, d); err != nil {
+		return err
+	}
 	return h.verifyNativeArchiveClosedRoute(ctx, p)
 }
 

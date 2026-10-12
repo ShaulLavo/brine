@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"reflect"
@@ -89,7 +90,7 @@ func checkNativeArchiveReplayEvidence(bundle NativePreparedBundle, extracted res
 	return nil
 }
 
-func checkNativeRetentionReceipts(ctx context.Context, q dataQuerier, proof archive.RetentionProof) error {
+func checkNativeRetentionReceipts(ctx context.Context, q *sql.Tx, proof archive.RetentionProof) error {
 	for _, receipt := range proof.NativeReceipts {
 		if err := checkNativeRetentionReceipt(ctx, q, receipt, proof.ArchiveID); err != nil {
 			return err
@@ -98,7 +99,7 @@ func checkNativeRetentionReceipts(ctx context.Context, q dataQuerier, proof arch
 	return nil
 }
 
-func checkNativeRetentionReceipt(ctx context.Context, q dataQuerier, receipt archive.NativeRetentionReceipt, id data.ArchiveID) error {
+func checkNativeRetentionReceipt(ctx context.Context, q *sql.Tx, receipt archive.NativeRetentionReceipt, id data.ArchiveID) error {
 	var raw []byte
 	var retainedArchive data.ArchiveID
 	err := q.QueryRowContext(ctx, "SELECT archive_id,canonical FROM data_native_archive_replays WHERE id=?", receipt.ID).Scan(&retainedArchive, &raw)

@@ -14,8 +14,50 @@ import (
 
 func newNativeRetireCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	root := &cobra.Command{Use: "native", Short: "Archive an exactly prepared SpacetimeDB app and preserve its recovery history"}
-	root.AddCommand(newNativeRetirePlanCmd(deps, modes), newNativeRetireApplyCmd(deps, modes), newNativeRetireInspectCmd(deps, modes))
+	root.AddCommand(newNativeRetirePlanCmd(deps, modes), newNativeRetireApplyCmd(deps, modes), newNativeRetireInspectCmd(deps, modes), newNativeRetireResolveCmd(deps, modes))
 	return root
+}
+
+func newNativeRetireResolveCmd(deps Dependencies, modes *machineModes) *cobra.Command {
+	var flags nativeTaskFlags
+	cmd := &cobra.Command{Use: "resolve OPERATION_ID --target NAME", Short: "Reconcile retained archive effects after fresh remote verification", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !jobs.ValidID(args[0]) {
+			return result.New(result.InvalidUsage, nil)
+		}
+		if err := flags.prepareKey(cmd); err != nil {
+			return err
+		}
+		response, err := flags.operation.call(cmd.Context(), deps, "native_retire_resolve", dispatch.NativeRetireResolveArgs{OperationID: args[0], IdempotencyKey: flags.key})
+		if err != nil {
+			return err
+		}
+		accepted, ok := response.Data.(jobs.Accepted)
+		if !ok || !response.OK || accepted.Status != "accepted" || !jobs.ValidID(accepted.OperationID) {
+			return result.New(result.TransportInvalidResponse, nil)
+		}
+		value, err := flags.operation.waitTask(cmd.Context(), deps, accepted, ops.NativeRetireResolve, flags.noWait)
+		if err != nil {
+			return err
+		}
+		if flags.noWait {
+			if modes.enabled() {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), value))
+			}
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Accepted archive resolution %s.\n", accepted.OperationID)
+			return err
+		}
+		receipt, ok := value.(archive.TaskReceipt)
+		if !ok || receipt.OperationID != accepted.OperationID || receipt.OriginalOperationID != args[0] || receipt.Outcome != "retired" {
+			return result.New(result.TransportInvalidResponse, nil)
+		}
+		if modes.enabled() {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), receipt))
+		}
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Resolved archive %s. Original operation %s remains recovery-required.\n", receipt.ArchiveID, receipt.OriginalOperationID)
+		return err
+	}}
+	flags.register(cmd)
+	return cmd
 }
 func newNativeRetirePlanCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	var flags operationFlags

@@ -21,11 +21,24 @@ type NativeRetireApplyArgs struct {
 type NativeRetireInspectArgs struct {
 	ArchiveID data.ArchiveID `json:"archive_id"`
 }
+type NativeRetireResolveArgs struct {
+	OperationID    string `json:"operation_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
 
 type NativeRetireOperations interface {
 	PlanNativeArchive(context.Context, NativeRetirePlanArgs) (archive.Plan, error)
 	RetireNativeArchive(context.Context, NativeRetireApplyArgs) (jobs.Accepted, error)
 	InspectNativeArchive(context.Context, NativeRetireInspectArgs) (archive.Inspection, error)
+	ResolveNativeArchive(context.Context, NativeRetireResolveArgs) (jobs.Accepted, error)
+}
+
+func decodeNativeRetireResolve(raw json.RawMessage) (any, error) {
+	var a NativeRetireResolveArgs
+	if _, err := strictjson.Object(raw, "operation_id", "idempotency_key"); err != nil || json.Unmarshal(raw, &a) != nil || !jobs.ValidID(a.OperationID) || !data.ValidID(a.IdempotencyKey) {
+		return nil, strictjson.ErrObject
+	}
+	return a, nil
 }
 
 func decodeNativeRetirePlan(raw json.RawMessage) (any, error) {
@@ -60,6 +73,8 @@ func (s *Server) nativeRetire(ctx context.Context, args any) (any, error) {
 		return s.NativeRetire.RetireNativeArchive(ctx, a)
 	case NativeRetireInspectArgs:
 		return s.NativeRetire.InspectNativeArchive(ctx, a)
+	case NativeRetireResolveArgs:
+		return s.NativeRetire.ResolveNativeArchive(ctx, a)
 	default:
 		return nil, result.New(result.DispatchInvalidRequest, nil)
 	}

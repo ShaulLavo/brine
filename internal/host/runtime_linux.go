@@ -183,6 +183,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	nativeRetire := nativeRetireOperations{workflow: r.Archives, jobs: taskJobs, state: state}
 	r.NativeRetire = nativeRetire
 	r.Runner.TaskHandlers[ops.NativeRetire] = nativeRetire.task
+	r.Runner.TaskHandlers[ops.NativeRetireResolve] = nativeRetire.resolveTask
 	archiveAdapter := r.Archives.Host.(archiveHost)
 	r.ArchiveMaintenance = archive.MaintenanceService{Journal: state, Host: archiveAdapter, Requester: requester, Authorize: r.Archives.Authorize, Lock: r.Archives.Lock}
 	r.ArchiveCredentials = backupcredentials.ArchiveService{Requester: requester, Journal: state, Files: backupcredentials.Files{Root: filepath.Join(stateDir, "credentials")}, Scope: archiveAdapter.archiveCredentialScope, Lock: r.Archives.Lock}
