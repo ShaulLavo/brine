@@ -143,11 +143,17 @@ func checkNativeArchiveTreesMoved(ctx context.Context, q dataQuerier, p archive.
 		if !ok {
 			continue
 		}
-		for _, tree := range native.TransitionTrees {
-			m, err := readNativeArchiveTreeMove(ctx, q, p.ArchiveID, tree.TransitionID)
-			if err != nil || m.Stage != "moved" || m.Tree != tree {
-				return ErrConflict
-			}
+		if err := checkNativeArchiveDatabaseTreesMoved(ctx, q, p.ArchiveID, native); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func checkNativeArchiveDatabaseTreesMoved(ctx context.Context, q dataQuerier, id data.ArchiveID, native archive.NativeDatabase) error {
+	for _, tree := range native.TransitionTrees {
+		m, err := readNativeArchiveTreeMove(ctx, q, id, tree.TransitionID)
+		if err != nil || m.Stage != "moved" || m.Tree != tree {
+			return ErrConflict
 		}
 	}
 	return nil

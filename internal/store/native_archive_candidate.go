@@ -88,14 +88,7 @@ func readNativeArchiveDependencies(ctx context.Context, tx *sql.Tx, permit Engin
 	refs := []data.EngineEvidenceRef{{Kind: data.EnginePreparedPointEvidence, ID: point.view.PointID, SHA256: point.view.CheckpointSHA256, DatabaseID: point.view.DatabaseID, BindingID: point.view.BindingID, EpochID: point.view.EpochID}}
 	seen := map[string]bool{point.view.PointID: true}
 	for _, transition := range closure {
-		c := transition.Input.Common()
-		for _, ref := range []data.EngineEvidenceRef{c.TargetMaterial, c.RetainedDependencies, c.TargetCheckpoint} {
-			if seen[ref.ID] {
-				continue
-			}
-			seen[ref.ID] = true
-			refs = append(refs, ref)
-		}
+		refs = appendNativeArchiveTransitionDependencies(refs, seen, transition)
 	}
 	// Every verified bundle retains its exact signing/recovery versions, module
 	// and schema references even when its data epoch is no longer current.
@@ -157,4 +150,16 @@ func nativeArchiveCandidatesMatch(a, b archive.NativeDatabase) bool {
 	ar, _ := json.Marshal(a)
 	br, _ := json.Marshal(b)
 	return string(ar) == string(br)
+}
+
+func appendNativeArchiveTransitionDependencies(refs []data.EngineEvidenceRef, seen map[string]bool, transition NativeArchiveTransition) []data.EngineEvidenceRef {
+	c := transition.Input.Common()
+	for _, ref := range []data.EngineEvidenceRef{c.TargetMaterial, c.RetainedDependencies, c.TargetCheckpoint} {
+		if seen[ref.ID] {
+			continue
+		}
+		seen[ref.ID] = true
+		refs = append(refs, ref)
+	}
+	return refs
 }

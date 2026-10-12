@@ -1365,3 +1365,9 @@ read/replay, archive credential renewal, retention and purge still require their
 qualified native adapters; the existing SQLite-only adapters refuse native inputs.
 No physical native retirement, successful R2 restore, post-archive recovery or
 purge acceptance is claimed by these command and local filesystem tests.
+
+Early archive purge requires the separate `allow_archive_purge=true` operator
+policy grant. Omission and explicit false preserve the previous canonical policy
+bytes and deny purge. Live restore does not grant purge. Plan and execution both
+recheck the grant; revocation prevents new deletion effects. Expiry remains bound
+to the original thirty-day deadline. Neither purpose deletes remote objects.

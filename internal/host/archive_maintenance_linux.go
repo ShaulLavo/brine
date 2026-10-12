@@ -91,6 +91,7 @@ func (h archiveHost) ArchiveMaintenanceAdmission(ctx context.Context, p archive.
 	sum := sha256.Sum256(raw)
 	out.TargetHash = "sha256:" + hex.EncodeToString(sum[:])
 	out.PolicyHash = pol.Hash()
+	out.PurgeAllowed = pol.AllowsArchivePurge()
 	out.RetentionAdmitted = true
 	if out.TargetHash != p.TargetHash {
 		return out, archive.ErrRefused

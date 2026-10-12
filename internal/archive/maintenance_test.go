@@ -25,6 +25,7 @@ type maintenanceRig struct {
 	now          time.Time
 	health       []CredentialHealth
 	retentionOK  bool
+	purgeDenied  bool
 	beforeDelete func(int, bool)
 }
 
@@ -63,7 +64,7 @@ func (r *maintenanceRig) ArchiveMaintenanceAdmission(context.Context, Plan, Disp
 	if r.fail == "ownership" || r.fail == "running" {
 		return MaintenanceAdmission{}, ErrRefused
 	}
-	return MaintenanceAdmission{RetentionAdmitted: r.retentionOK, PolicyHash: r.p.PolicyHash, TargetHash: r.p.TargetHash}, nil
+	return MaintenanceAdmission{RetentionAdmitted: r.retentionOK, PurgeAllowed: !r.purgeDenied, PolicyHash: r.p.PolicyHash, TargetHash: r.p.TargetHash}, nil
 }
 func (r *maintenanceRig) VerifyArchiveRetention(context.Context, Plan, Manifest, Disposition) (RetentionProof, error) {
 	if r.fail == "credentials" || r.fail == "remote" || r.fail == "retention" {
@@ -504,5 +505,29 @@ func TestArchiveMaintenanceReconcileCannotAdoptNewTreeAbsence(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join(moved, "preserved")) // #nosec G304 -- Private fixture moved within its own temporary root.
 	if err != nil || string(raw) != "untouched" {
 		t.Fatal("later tree was changed", err)
+	}
+}
+
+func TestArchivePurgeDeniesMissingOrRevokedGrantBeforeEffects(t *testing.T) {
+	s, r := maintenanceFixture(t)
+	ctx := context.Background()
+	r.purgeDenied = true
+	if _, err := s.Plan(ctx, r.p.ArchiveID, PurgeArchive); err == nil {
+		t.Fatal("missing policy grant admitted early purge review")
+	}
+	if r.effects != 0 || r.deletion.Sequence != 0 {
+		t.Fatal("denied purge changed the tree or journal")
+	}
+	r.purgeDenied = false
+	p, err := s.Plan(ctx, r.p.ArchiveID, PurgeArchive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.purgeDenied = true
+	if _, err = s.Delete(ctx, p.ID); err == nil {
+		t.Fatal("revoked policy grant admitted reviewed deletion")
+	}
+	if r.effects != 0 || r.deletion.Sequence != 0 {
+		t.Fatal("revoked purge changed the tree or journal")
 	}
 }

@@ -19,13 +19,39 @@ func (h archiveHost) ArchiveNativeTrees(ctx context.Context, p archive.Plan) err
 		if !ok {
 			continue
 		}
-		for _, tree := range native.TransitionTrees {
-			if err := h.moveNativeArchiveTree(ctx, p, native.Binding, tree); err != nil {
-				return err
-			}
+		if err := h.archiveNativeDatabaseTrees(ctx, p, native); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func (h archiveHost) archiveNativeDatabaseTrees(ctx context.Context, p archive.Plan, native archive.NativeDatabase) error {
+	for _, tree := range native.TransitionTrees {
+		if err := h.moveNativeArchiveTree(ctx, p, native.Binding, tree); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func nativeArchivePreparedPointID(p archive.Plan, binding data.ReplicaBindingID) string {
+	for _, variant := range p.Candidate.Databases {
+		native, ok := variant.Native()
+		if !ok || native.Binding.BindingID != binding {
+			continue
+		}
+		return nativeArchiveDatabasePointID(native)
+	}
+	return ""
+}
+func nativeArchiveDatabasePointID(native archive.NativeDatabase) string {
+	for _, ref := range native.Dependencies {
+		if ref.Kind == data.EnginePreparedPointEvidence {
+			return ref.ID
+		}
+	}
+	return ""
 }
 
 func (h archiveHost) moveNativeArchiveTree(ctx context.Context, p archive.Plan, binding data.SpacetimeDBBinding, expected archive.NativeTransitionTree) error {
@@ -33,16 +59,7 @@ func (h archiveHost) moveNativeArchiveTree(ctx context.Context, p archive.Plan, 
 	if !lifetime.HoldsLifetime(h.stateRoot, binding.BindingID) {
 		return archive.ErrRefused
 	}
-	pointID := ""
-	for _, variant := range p.Candidate.Databases {
-		if native, ok := variant.Native(); ok {
-			for _, ref := range native.Dependencies {
-				if ref.Kind == data.EnginePreparedPointEvidence {
-					pointID = ref.ID
-				}
-			}
-		}
-	}
+	pointID := nativeArchivePreparedPointID(p, binding.BindingID)
 	point, err := h.service.Store.ReadNativePreparedPoint(ctx, pointID)
 	if err != nil {
 		return err

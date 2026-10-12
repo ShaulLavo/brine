@@ -22,6 +22,7 @@ const (
 
 type MaintenanceAdmission struct {
 	RetentionAdmitted bool   `json:"retention_admitted"`
+	PurgeAllowed      bool   `json:"purge_allowed,omitempty"`
 	PolicyHash        string `json:"policy_hash"`
 	TargetHash        string `json:"target_hash"`
 }
@@ -221,7 +222,7 @@ func (s MaintenanceService) Plan(ctx context.Context, id data.ArchiveID, kind Ma
 		return out, ErrRefused
 	}
 	admission, err := s.Host.ArchiveMaintenanceAdmission(ctx, p, d)
-	if err != nil || admission.TargetHash != p.TargetHash {
+	if err != nil || admission.TargetHash != p.TargetHash || kind == PurgeArchive && !admission.PurgeAllowed {
 		return out, ErrRefused
 	}
 	out = MaintenancePlan{ArchiveID: id, ArchivePlanID: p.ID, Kind: kind, Requester: s.Requester, PolicyHash: admission.PolicyHash, TargetHash: admission.TargetHash, CreatedAt: s.now(), RetiredAt: d.CommittedAt, RetainUntil: d.RetainUntil}
@@ -260,7 +261,7 @@ func (s MaintenanceService) reviewed(ctx context.Context, id string) (plan Maint
 func (s MaintenanceService) freshAdmission(ctx context.Context, plan MaintenancePlan, p Plan, d Disposition) error {
 	now := s.now()
 	admission, err := s.Host.ArchiveMaintenanceAdmission(ctx, p, d)
-	if err != nil || plan.PolicyHash != admission.PolicyHash || plan.TargetHash != admission.TargetHash || now.Before(plan.CreatedAt) || now.Sub(plan.CreatedAt) > MaxEvidenceAge {
+	if err != nil || plan.Kind == PurgeArchive && !admission.PurgeAllowed || plan.PolicyHash != admission.PolicyHash || plan.TargetHash != admission.TargetHash || now.Before(plan.CreatedAt) || now.Sub(plan.CreatedAt) > MaxEvidenceAge {
 		return ErrRefused
 	}
 	return nil
