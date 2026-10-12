@@ -32,7 +32,7 @@ func (s *Store) BuildNativeLiveRestorePlan(ctx context.Context, preparation *Eng
 	}
 	defer func() { _ = tx.Rollback() }()
 	point, err := readNativePreparedPointTx(ctx, tx, request.CurrentPreparedPointID)
-	if err != nil || !preparation.Active(point.view.BindingID) {
+	if err != nil || !preparation.Active(point.view.BindingID) || point.view.SourceKind != "initialized" {
 		return liverestore.Plan{}, errors.Join(ErrConflict, err)
 	}
 	if err = checkNativePointCurrent(ctx, tx, point.view); err != nil {
@@ -51,6 +51,9 @@ func (s *Store) BuildNativeLiveRestorePlan(ctx context.Context, preparation *Eng
 		return liverestore.Plan{}, errors.Join(ErrConflict, err)
 	}
 	selection := nativeLiveRestoreSelected(selected)
+	if selection.NativeDatabase != point.view.NativeDatabase || selection.NativePublisher != point.view.NativePublisher {
+		return liverestore.Plan{}, ErrConflict
+	}
 	recovery, err := readNativeLiveRestoreRecoveryTx(ctx, tx, request.App, request.RecoveryReleaseID, selection)
 	if err != nil {
 		return liverestore.Plan{}, err

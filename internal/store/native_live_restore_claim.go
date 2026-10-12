@@ -77,7 +77,7 @@ func readNativeLiveRestoreAdmissionTx(ctx context.Context, tx *sql.Tx, stopped *
 		return p, nativePointConsumer{}, ErrConflict
 	}
 	point, err := readNativePreparedPointTx(ctx, tx, spec.Safety.PointID)
-	if err != nil || checkNativePointCurrent(ctx, tx, point.view) != nil || point.view.StopProofSHA256 != stopped.stopSHA256 {
+	if err != nil || point.view.SourceKind != "initialized" || checkNativePointCurrent(ctx, tx, point.view) != nil || point.view.StopProofSHA256 != stopped.stopSHA256 {
 		return p, nativePointConsumer{}, errors.Join(ErrConflict, err)
 	}
 	facts, safety, err := readNativeLiveRestoreCurrentTx(ctx, tx, point)
@@ -89,6 +89,9 @@ func readNativeLiveRestoreAdmissionTx(ctx context.Context, tx *sql.Tx, stopped *
 		return p, nativePointConsumer{}, err
 	}
 	selected := nativeLiveRestoreSelected(bundle)
+	if selected.NativeDatabase != point.view.NativeDatabase || selected.NativePublisher != point.view.NativePublisher {
+		return p, nativePointConsumer{}, ErrConflict
+	}
 	recovery, err := readNativeLiveRestoreRecoveryTx(ctx, tx, facts.App, spec.Recovery.ReleaseID, selected)
 	if err != nil || recovery != spec.Recovery || p.CheckFreshness(spec.Requester, facts, safety, selected, time.Now().UTC()) != nil {
 		return p, nativePointConsumer{}, errors.Join(ErrConflict, err)
