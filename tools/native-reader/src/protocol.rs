@@ -144,6 +144,7 @@ pub struct Evidence {
     pub evidence_algorithm: &'static str,
     pub state_blake3: String,
     pub tables: Vec<TableEvidence>,
+    pub confirmed_pairs_projection: Option<crate::projection::Projection>,
     pub input: InputTotals,
     pub limits: Limits,
 }
@@ -159,6 +160,7 @@ pub struct SnapshotEvidence {
 pub struct TableEvidence {
     pub table_id: u32,
     pub name: String,
+    pub table_type: &'static str,
     pub rows: u64,
     pub bsatn_bytes: u64,
     pub multiset_blake3: String,

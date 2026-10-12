@@ -3,6 +3,7 @@ package nativeevidence
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -53,6 +54,7 @@ type Program struct {
 type Table struct {
 	ID         uint32 `json:"table_id"`
 	Name       string `json:"name"`
+	Type       string `json:"table_type"`
 	Rows       uint64 `json:"rows"`
 	BSATNBytes uint64 `json:"bsatn_bytes"`
 	Blake3     string `json:"multiset_blake3"`
@@ -72,29 +74,37 @@ type Totals struct {
 }
 
 type record struct {
-	Format        string    `json:"format"`
-	Outcome       string    `json:"outcome"`
-	Upstream      string    `json:"upstream_commit"`
-	Database      string    `json:"observed_database_identity"`
-	Owner         string    `json:"observed_owner_identity"`
-	Kind          string    `json:"current_program_kind"`
-	ProgramAlgo   string    `json:"current_program_algorithm"`
-	ProgramDigest string    `json:"current_program_digest"`
-	ProgramWire   string    `json:"current_program_hash"`
-	ProgramSHA    string    `json:"current_program_sha256"`
-	ProgramBytes  uint64    `json:"program_bytes"`
-	Offset        uint64    `json:"committed_offset"`
-	Framing       string    `json:"framing"`
-	Snapshot      *Snapshot `json:"snapshot"`
-	Clients       uint64    `json:"persisted_connected_clients"`
-	Algorithm     string    `json:"evidence_algorithm"`
-	State         string    `json:"state_blake3"`
-	Tables        []Table   `json:"tables"`
-	Input         Totals    `json:"input"`
-	Limits        Limits    `json:"limits"`
+	Format        string                    `json:"format"`
+	Outcome       string                    `json:"outcome"`
+	Upstream      string                    `json:"upstream_commit"`
+	Database      string                    `json:"observed_database_identity"`
+	Owner         string                    `json:"observed_owner_identity"`
+	Kind          string                    `json:"current_program_kind"`
+	ProgramAlgo   string                    `json:"current_program_algorithm"`
+	ProgramDigest string                    `json:"current_program_digest"`
+	ProgramWire   string                    `json:"current_program_hash"`
+	ProgramSHA    string                    `json:"current_program_sha256"`
+	ProgramBytes  uint64                    `json:"program_bytes"`
+	Offset        uint64                    `json:"committed_offset"`
+	Framing       string                    `json:"framing"`
+	Snapshot      *Snapshot                 `json:"snapshot"`
+	Clients       uint64                    `json:"persisted_connected_clients"`
+	Algorithm     string                    `json:"evidence_algorithm"`
+	State         string                    `json:"state_blake3"`
+	Tables        []Table                   `json:"tables"`
+	Projection    *ConfirmedPairsProjection `json:"confirmed_pairs_projection"`
+	Input         Totals                    `json:"input"`
+	Limits        Limits                    `json:"limits"`
 }
 
-type Evidence struct{ value record }
+type Evidence struct {
+	value     record
+	canonical []byte
+	digest    string
+}
+
+func (e Evidence) Bytes() []byte  { return bytes.Clone(e.canonical) }
+func (e Evidence) SHA256() string { return e.digest }
 
 func (e Evidence) DatabaseIdentity() string { return e.value.Database }
 func (e Evidence) OwnerIdentity() string    { return e.value.Owner }
@@ -129,14 +139,14 @@ func (e Evidence) SamePersistedState(other Evidence) bool {
 	if leftPresent != rightPresent || left != right {
 		return false
 	}
-	return slices.Equal(e.value.Tables, other.value.Tables)
+	return slices.Equal(e.value.Tables, other.value.Tables) && sameProjection(e.value.Projection, other.value.Projection)
 }
 
 func Decode(raw []byte, requested Limits) (Evidence, error) {
 	if !validLimits(requested) || uint64(len(raw)) > requested.OutputBytes || len(raw) == 0 {
 		return Evidence{}, ErrEvidence
 	}
-	fields, err := strictjson.Object(raw, "format", "outcome", "upstream_commit", "observed_database_identity", "observed_owner_identity", "current_program_kind", "current_program_algorithm", "current_program_digest", "current_program_hash", "current_program_sha256", "program_bytes", "committed_offset", "framing", "snapshot", "persisted_connected_clients", "evidence_algorithm", "state_blake3", "tables", "input", "limits")
+	fields, err := strictjson.Object(raw, "format", "outcome", "upstream_commit", "observed_database_identity", "observed_owner_identity", "current_program_kind", "current_program_algorithm", "current_program_digest", "current_program_hash", "current_program_sha256", "program_bytes", "committed_offset", "framing", "snapshot", "persisted_connected_clients", "evidence_algorithm", "state_blake3", "tables", "confirmed_pairs_projection", "input", "limits")
 	if err != nil || requiredValues(fields) != nil {
 		return Evidence{}, ErrEvidence
 	}
@@ -144,7 +154,7 @@ func Decode(raw []byte, requested Limits) (Evidence, error) {
 		return Evidence{}, ErrEvidence
 	}
 	var value record
-	if err := json.Unmarshal(raw, &value); err != nil || validate(value, requested) != nil {
+	if err := json.Unmarshal(raw, &value); err != nil || validate(value, requested) != nil || validateProjection(value, requested) != nil {
 		return Evidence{}, ErrEvidence
 	}
 	value.Tables = slices.Clone(value.Tables)
@@ -152,12 +162,17 @@ func Decode(raw []byte, requested Limits) (Evidence, error) {
 		owned := *value.Snapshot
 		value.Snapshot = &owned
 	}
-	return Evidence{value}, nil
+	canonical, err := json.Marshal(value)
+	if err != nil || uint64(len(canonical)) > requested.OutputBytes {
+		return Evidence{}, ErrEvidence
+	}
+	digest := sha256.Sum256(canonical)
+	return Evidence{value: value, canonical: canonical, digest: hex.EncodeToString(digest[:])}, nil
 }
 
 func requiredValues(fields map[string]json.RawMessage) error {
 	for key, value := range fields {
-		if key != "snapshot" && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+		if key != "snapshot" && key != "confirmed_pairs_projection" && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return ErrEvidence
 		}
 	}
@@ -178,6 +193,9 @@ func object(raw []byte, fields ...string) error {
 }
 
 func nested(fields map[string]json.RawMessage, requested Limits) error {
+	if err := projectionNested(fields["confirmed_pairs_projection"], requested); err != nil {
+		return err
+	}
 	if err := object(fields["limits"], "files", "stored_bytes", "file_bytes", "expanded_bytes", "expanded_file_bytes", "commit_bytes", "commits", "tables", "rows", "row_bytes", "state_bytes", "program_bytes", "output_bytes", "memory_bytes", "allocation_bytes", "deadline_ms"); err != nil {
 		return err
 	}
@@ -194,7 +212,7 @@ func nested(fields map[string]json.RawMessage, requested Limits) error {
 		return ErrEvidence
 	}
 	for _, table := range tables {
-		if err := object(table, "table_id", "name", "rows", "bsatn_bytes", "multiset_blake3"); err != nil {
+		if err := object(table, "table_id", "name", "table_type", "rows", "bsatn_bytes", "multiset_blake3"); err != nil {
 			return err
 		}
 	}
@@ -272,10 +290,15 @@ func validTables(tables []Table, limits Limits) error {
 	var previous uint32
 	var rows, count uint64
 	module := false
+	names := make(map[string]struct{}, len(tables))
 	for _, table := range tables {
-		if table.ID <= previous || len(table.Name) == 0 || len(table.Name) > 1024 || !hash(table.Blake3) {
+		if table.ID <= previous || len(table.Name) == 0 || len(table.Name) > 1024 || !hash(table.Blake3) || table.Type != "system" && table.Type != "user" {
 			return ErrEvidence
 		}
+		if _, present := names[table.Name]; present {
+			return ErrEvidence
+		}
+		names[table.Name] = struct{}{}
 		if table.Rows > limits.Rows-rows || table.BSATNBytes > limits.StateBytes-count {
 			return ErrEvidence
 		}

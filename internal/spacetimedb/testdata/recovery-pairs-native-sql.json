@@ -1,0 +1,204 @@
+{
+  "left": [
+    {
+      "schema": {
+        "elements": [
+          {
+            "name": {
+              "some": "sequence"
+            },
+            "algebraic_type": {
+              "U64": []
+            }
+          },
+          {
+            "name": {
+              "some": "marker"
+            },
+            "algebraic_type": {
+              "String": []
+            }
+          },
+          {
+            "name": {
+              "some": "commit_time"
+            },
+            "algebraic_type": {
+              "Product": {
+                "elements": [
+                  {
+                    "name": {
+                      "some": "__timestamp_micros_since_unix_epoch__"
+                    },
+                    "algebraic_type": {
+                      "I64": []
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "name": {
+              "some": "scheduled"
+            },
+            "algebraic_type": {
+              "Bool": []
+            }
+          }
+        ]
+      },
+      "rows": [
+        [
+          1,
+          "brine-p09-00000001",
+          [
+            1791772424950729
+          ],
+          false
+        ],
+        [
+          2,
+          "brine-p09-00000002",
+          [
+            1791772424951082
+          ],
+          false
+        ],
+        [
+          3,
+          "brine-p09-00000003",
+          [
+            1791772425952917
+          ],
+          true
+        ]
+      ],
+      "total_duration_micros": 1,
+      "stats": {
+        "rows_inserted": 0,
+        "rows_deleted": 0,
+        "rows_updated": 0
+      }
+    }
+  ],
+  "right": [
+    {
+      "schema": {
+        "elements": [
+          {
+            "name": {
+              "some": "sequence"
+            },
+            "algebraic_type": {
+              "U64": []
+            }
+          },
+          {
+            "name": {
+              "some": "marker"
+            },
+            "algebraic_type": {
+              "String": []
+            }
+          },
+          {
+            "name": {
+              "some": "commit_time"
+            },
+            "algebraic_type": {
+              "Product": {
+                "elements": [
+                  {
+                    "name": {
+                      "some": "__timestamp_micros_since_unix_epoch__"
+                    },
+                    "algebraic_type": {
+                      "I64": []
+                    }
+                  }
+                ]
+              }
+            }
+          },
+          {
+            "name": {
+              "some": "scheduled"
+            },
+            "algebraic_type": {
+              "Bool": []
+            }
+          }
+        ]
+      },
+      "rows": [
+        [
+          1,
+          "brine-p09-00000001",
+          [
+            1791772424950729
+          ],
+          false
+        ],
+        [
+          2,
+          "brine-p09-00000002",
+          [
+            1791772424951082
+          ],
+          false
+        ],
+        [
+          3,
+          "brine-p09-00000003",
+          [
+            1791772425952917
+          ],
+          true
+        ]
+      ],
+      "total_duration_micros": 1,
+      "stats": {
+        "rows_inserted": 0,
+        "rows_deleted": 0,
+        "rows_updated": 0
+      }
+    }
+  ],
+  "marker": [
+    {
+      "schema": {
+        "elements": [
+          {
+            "name": {
+              "some": "id"
+            },
+            "algebraic_type": {
+              "U8": []
+            }
+          },
+          {
+            "name": {
+              "some": "revision"
+            },
+            "algebraic_type": {
+              "String": []
+            }
+          }
+        ]
+      },
+      "rows": [
+        [
+          1,
+          "brine-recovery-v1"
+        ]
+      ],
+      "total_duration_micros": 1,
+      "stats": {
+        "rows_inserted": 0,
+        "rows_deleted": 0,
+        "rows_updated": 0
+      }
+    }
+  ]
+}

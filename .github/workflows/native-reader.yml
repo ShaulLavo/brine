@@ -64,6 +64,10 @@ jobs:
           python3 tools/native-reader/verify_cli.py brine-native-reader:test "$RUNNER_TEMP/reader-artifact/replica-zero-fixture" "$RUNNER_TEMP/reader-zero-cli-evidence"
           cp "$RUNNER_TEMP/reader-cli-evidence/receipt.json" "$RUNNER_TEMP/reader-artifact/cli-receipt.json"
           cp "$RUNNER_TEMP/reader-zero-cli-evidence/receipt.json" "$RUNNER_TEMP/reader-artifact/zero-cli-receipt.json"
+          for variant in base additive rating; do
+            python3 tools/native-reader/verify_cli.py brine-native-reader:test "$RUNNER_TEMP/reader-artifact/projection-fixtures/$variant" "$RUNNER_TEMP/reader-projection-$variant-cli-evidence"
+            cp "$RUNNER_TEMP/reader-projection-$variant-cli-evidence/receipt.json" "$RUNNER_TEMP/reader-artifact/projection-$variant-cli-receipt.json"
+          done
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
