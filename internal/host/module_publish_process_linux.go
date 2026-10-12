@@ -88,7 +88,7 @@ func descriptorProcessBindings(process string, lease *descriptorLease) bool {
 
 func descriptorArtifactIdentity(info os.FileInfo, expected engineTreeMember) bool {
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	return ok && info.Mode().IsRegular() && uint64(stat.Dev) == expected.Device && stat.Ino == expected.Inode && stat.Uid == expected.UID && stat.Nlink == uint64(expected.Links) && stat.Size == expected.Size
+	return ok && info.Mode().IsRegular() && uint64(stat.Dev) == expected.Device && stat.Ino == expected.Inode && stat.Uid == expected.UID && uint64(stat.Nlink) == uint64(expected.Links) && stat.Size == expected.Size
 }
 
 func descriptorProcessDisposed(ctx context.Context, handle *engineNativeHandle) error {
