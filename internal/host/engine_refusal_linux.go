@@ -94,11 +94,11 @@ type engineRefusalReceipt struct {
 	At      time.Time         `json:"at"`
 }
 
-func (r *EngineStartupRuntime) recordEngineRefusal(binding data.ReplicaBindingID, failure error) {
+func (r *EngineStartupRuntime) recordEngineRefusal(parent context.Context, binding data.ReplicaBindingID, failure error) {
 	if failure == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), time.Second)
 	defer cancel()
 	if _, err := r.state.ReadReservedEngine(ctx, binding); err != nil {
 		return
@@ -111,9 +111,9 @@ func (r *EngineStartupRuntime) recordEngineRefusal(binding data.ReplicaBindingID
 	_ = writeEngineRefusal(ctx, r.stateRoot, binding, engineRefusalReceipt{Version: 1, Code: code, At: time.Now().UTC()})
 }
 
-func (r *EngineStartupRuntime) retainedEngineRefusal(binding data.ReplicaBindingID, code engineRefusalCode, cause error) error {
+func (r *EngineStartupRuntime) retainedEngineRefusal(ctx context.Context, binding data.ReplicaBindingID, code engineRefusalCode, cause error) error {
 	failure := engineRefusal(code, cause)
-	r.recordEngineRefusal(binding, failure)
+	r.recordEngineRefusal(ctx, binding, failure)
 	return failure
 }
 
@@ -178,7 +178,7 @@ func engineRefusalTarget(root *os.Root, name string) error {
 	}
 	defer func() { _ = file.Close() }()
 	member, err := engineMember(file, name)
-	if err != nil || member.Mode != unix.S_IFREG|0600 || member.UID != uint32(os.Geteuid()) || member.Links != 1 || member.Size > 4096 {
+	if err != nil || member.Mode != unix.S_IFREG|0600 || int64(member.UID) != int64(os.Geteuid()) || member.Links != 1 || member.Size > 4096 {
 		return errEngineSource
 	}
 	return nil

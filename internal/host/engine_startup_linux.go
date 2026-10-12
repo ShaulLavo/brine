@@ -90,7 +90,7 @@ func (r *EngineStartupRuntime) EngineExec(ctx context.Context, binding string) (
 	if !data.ValidID(binding) {
 		return errEngineSource
 	}
-	defer func() { r.recordEngineRefusal(data.ReplicaBindingID(binding), err) }()
+	defer func() { r.recordEngineRefusal(ctx, data.ReplicaBindingID(binding), err) }()
 	permit, err := r.state.ReadEnginePermit(ctx, data.ReplicaBindingID(binding))
 	if err != nil {
 		return engineRefusal(engineRefusalPermitRead, errEngineSource)
@@ -219,7 +219,7 @@ func (r *EngineStartupRuntime) privateEngineProof(ctx context.Context, proof eng
 	disposeErr := privateEngineDisposed(cleanup, r.session, nonce)
 	if disposeErr != nil {
 		failure := engineRefusal(engineRefusalPrivateDisposal, errEngineSource)
-		r.recordEngineRefusal(proof.permit.Runtime.BindingID, failure)
+		r.recordEngineRefusal(ctx, proof.permit.Runtime.BindingID, failure)
 		r.retainEngineLifetime(ctx, proof.permit, nil)
 		return failure
 	}
@@ -300,26 +300,26 @@ func (r *EngineStartupRuntime) launchEngine(ctx, startup context.Context, proof 
 	if err != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
 		_ = command.KillGroup()
-		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeHandoff, errEngineSource)
+		failure := r.retainedEngineRefusal(ctx, proof.permit.Runtime.BindingID, engineRefusalNativeHandoff, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
 		return failure
 	}
 	defer native.close()
 	if !proof.guard.active() || native.alive() != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
-		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeGuard, errEngineSource)
+		failure := r.retainedEngineRefusal(ctx, proof.permit.Runtime.BindingID, engineRefusalNativeGuard, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
 		return failure
 	}
 	if err = proof.guard.launch.Release(); err != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
-		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalGuardRelease, errEngineSource)
+		failure := r.retainedEngineRefusal(ctx, proof.permit.Runtime.BindingID, engineRefusalGuardRelease, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
 		return failure
 	}
 	if err = engineReadyNotify(startup); err != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
-		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNotify, errEngineSource)
+		failure := r.retainedEngineRefusal(ctx, proof.permit.Runtime.BindingID, engineRefusalNotify, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
 		return failure
 	}
@@ -327,20 +327,20 @@ func (r *EngineStartupRuntime) launchEngine(ctx, startup context.Context, proof 
 	case err = <-exited:
 	case <-ctx.Done():
 		if err = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit); err != nil {
-			failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeStop, err)
+			failure := r.retainedEngineRefusal(ctx, proof.permit.Runtime.BindingID, engineRefusalNativeStop, err)
 			r.retainEngineLifetime(ctx, proof.permit, native)
 			return failure
 		}
 		select {
 		case err = <-exited:
 		case <-time.After(time.Duration(proof.permit.Runtime.StopSeconds) * time.Second):
-			failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeWait, errEngineSource)
+			failure := r.retainedEngineRefusal(ctx, proof.permit.Runtime.BindingID, engineRefusalNativeWait, errEngineSource)
 			r.retainEngineLifetime(ctx, proof.permit, native)
 			return failure
 		}
 	}
 	if absenceErr := r.liveEngineAbsent(context.WithoutCancel(ctx), proof.permit); absenceErr != nil || !native.exited() {
-		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeAbsence, errEngineSource)
+		failure := r.retainedEngineRefusal(ctx, proof.permit.Runtime.BindingID, engineRefusalNativeAbsence, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
 		return failure
 	}

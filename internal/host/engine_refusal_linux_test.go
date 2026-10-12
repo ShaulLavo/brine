@@ -57,11 +57,11 @@ func TestEngineRefusalReceiptIsPrivateBoundedAndAtomic(t *testing.T) {
 		t.Fatal(err)
 	}
 	name := refusalFile(root, binding)
-	held, err := os.Open(name)
+	held, err := os.Open(name) //nolint:gosec // Known fixture binding receipt under the private test root.
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer held.Close()
+	defer func() { _ = held.Close() }()
 	before, err := held.Stat()
 	if err != nil || before.Mode().Perm() != 0600 || before.Size() > 4096 {
 		t.Fatal("receipt permissions or quota", err)
@@ -196,13 +196,13 @@ func TestEngineRefusalRecordingPreservesFailureAndLastRefusal(t *testing.T) {
 	if err = json.Unmarshal(before, &receipt); err != nil || receipt.Code != engineRefusalPermitRead {
 		t.Fatal("actual failing proof was not recorded", err)
 	}
-	runtime.recordEngineRefusal(binding, nil)
+	runtime.recordEngineRefusal(t.Context(), binding, nil)
 	current, err := os.ReadFile(name) //nolint:gosec // Known fixture binding's fixed receipt path.
 	if err != nil || !bytes.Equal(before, current) {
 		t.Fatal("later success cleared prior refusal", err)
 	}
 	unknown := data.ReplicaBindingID(strings.Repeat("f", 32))
-	runtime.recordEngineRefusal(unknown, engineRefusal(engineRefusalUnit, errEngineSource))
+	runtime.recordEngineRefusal(t.Context(), unknown, engineRefusal(engineRefusalUnit, errEngineSource))
 	if _, err = os.Stat(refusalFile(runtime.stateRoot, unknown)); !os.IsNotExist(err) {
 		t.Fatal("unknown binding gained a receipt", err)
 	}
