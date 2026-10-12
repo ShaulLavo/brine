@@ -43,21 +43,37 @@ func (r managedRuntime) StageEngine(ctx context.Context, p plan.Plan, previous o
 		return err
 	}
 	change, err := newManagedServiceChange(permit.Runtime, previous)
-	if err != nil || r.units == nil {
+	if err != nil {
 		return errEngineSource
 	}
-	return r.units.stage(ctx, change)
+	return r.serviceChange(ctx, change, false)
 }
 func (r managedRuntime) InstallEngine(ctx context.Context, p plan.Plan, previous ops.Release) error {
 	permit, err := r.expected(ctx, p)
-	if err != nil || r.units == nil || r.observer.stopped(ctx, permit) != nil {
+	if err != nil || r.observer.stopped(ctx, permit) != nil {
 		return errEngineSource
 	}
 	change, err := newManagedServiceChange(permit.Runtime, previous)
 	if err != nil {
 		return err
 	}
-	return r.units.install(ctx, change)
+	return r.serviceChange(ctx, change, true)
+}
+
+func (r managedRuntime) serviceChange(ctx context.Context, change managedServiceChange, install bool) error {
+	units := r.units
+	if units == nil {
+		var err error
+		units, err = openManagedUnits(r.home)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = units.Close() }()
+	}
+	if install {
+		return units.install(ctx, change)
+	}
+	return units.stage(ctx, change)
 }
 func (r managedRuntime) VerifyEngineUnit(ctx context.Context, p plan.Plan) error {
 	permit, err := r.expected(ctx, p)

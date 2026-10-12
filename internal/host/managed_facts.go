@@ -29,10 +29,11 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 		}
 	}
 	managed := &plan.ManagedFacts{EngineImage: engineImage, Fences: []data.QuiescenceFence{}, NativeState: target.Observation[string]{Status: target.Unknown}, LoggingPrerequisite: target.Observation[bool]{Status: target.Unknown}}
-	if s.managedLoadedConfig != nil {
-		loaded, readErr := s.managedLoadedConfig(ctx)
+	if s.managedLoggingFacts != nil {
+		loaded, rootHash, configHash, readErr := s.managedLoggingFacts(ctx)
 		if readErr == nil {
-			managed.LoggingConfigSHA256 = managedServiceHash(loaded)
+			managed.LoggingRootSHA256 = rootHash
+			managed.LoggingConfigSHA256 = configHash
 			managed.LoggingPrerequisite = target.Known(caddy.VerifyProspectiveManagedLogging(loaded, desired.Domains) == nil)
 		}
 	}
@@ -83,20 +84,23 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return apply.Facts{}, err
 	}
-	routing, err := managedRoutingFacts(state, pol, snapshot)
+	routing, err := managedRoutingFacts(state, pol, snapshot, s.managedAuthority)
 	if err != nil {
 		return apply.Facts{}, err
 	}
 	return apply.Facts{Input: plan.Input{Desired: desired, Snapshot: snapshot, State: state, Image: primary, Managed: managed}, Routing: routing}, nil
 }
 
-func managedRoutingFacts(state plan.BrineState, pol policy.Policy, snapshot target.Snapshot) (caddy.State, error) {
+func managedRoutingFacts(state plan.BrineState, pol policy.Policy, snapshot target.Snapshot, authority caddy.ManagedIngressAuthority) (caddy.State, error) {
 	routing := caddy.State{Files: map[string]string{}, Sites: map[string]caddy.Site{}}
 	for _, release := range state.Releases {
 		var site caddy.Site
 		var err error
 		if release.Managed != nil {
 			site, err = caddy.CommittedManagedSite(release.Desired, *release.Managed)
+			if err == nil {
+				site, err = caddy.WithManagedAuthority(site, authority)
+			}
 		} else {
 			site, err = caddy.NewSite(release.Desired.App(), pol, spec.Port(release.HostPort))
 		}

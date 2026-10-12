@@ -3,10 +3,13 @@
 package host
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"reflect"
 	"time"
 )
 
@@ -33,4 +36,33 @@ func (caddyValidator) ReadLoaded(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("managed Caddy readback refused")
 	}
 	return raw, nil
+}
+
+func (v caddyValidator) loggingFacts(ctx context.Context) ([]byte, string, string, error) {
+	refusal := errors.New("managed Caddy source and loaded configuration differ")
+	source, err := trustedRead(ctx, "/etc/caddy/Caddyfile", 1<<20)
+	if err != nil {
+		return nil, "", "", refusal
+	}
+	adapted, err := v.session.Execute(ctx, "caddy", []string{"adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"}, nil, false)
+	if err != nil || adapted.Truncated {
+		return nil, "", "", refusal
+	}
+	loaded, err := v.ReadLoaded(ctx)
+	if err != nil {
+		return nil, "", "", refusal
+	}
+	final, err := trustedRead(ctx, "/etc/caddy/Caddyfile", 1<<20)
+	if err != nil || !bytes.Equal(source, final) {
+		return nil, "", "", refusal
+	}
+	var fromSource, fromLoaded any
+	if json.Unmarshal([]byte(adapted.Stdout), &fromSource) != nil || json.Unmarshal(loaded, &fromLoaded) != nil || !reflect.DeepEqual(fromSource, fromLoaded) {
+		return nil, "", "", refusal
+	}
+	canonical, err := json.Marshal(fromLoaded)
+	if err != nil {
+		return nil, "", "", refusal
+	}
+	return loaded, managedServiceHash(source), managedServiceHash(canonical), nil
 }

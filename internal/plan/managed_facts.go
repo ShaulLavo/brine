@@ -21,6 +21,7 @@ type ManagedFacts struct {
 	Preparation         *ManagedServicePlan        `json:"preparation,omitempty"`
 	Prepared            target.Observation[bool]   `json:"prepared"`
 	LoggingConfigSHA256 string                     `json:"logging_config_sha256"`
+	LoggingRootSHA256   string                     `json:"logging_root_sha256"`
 }
 
 func (f ManagedFacts) Clone() ManagedFacts {

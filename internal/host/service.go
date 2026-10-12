@@ -28,7 +28,8 @@ type ImageResolver interface {
 type Service struct {
 	managedObserver     *managedEngineObserver
 	managedPreparation  apply.ManagedPreparation
-	managedLoadedConfig func(context.Context) ([]byte, error)
+	managedLoggingFacts func(context.Context) ([]byte, string, string, error)
+	managedAuthority    caddy.ManagedIngressAuthority
 	Data                PersistentFacts
 	Store               *store.Store
 	Inventory           dispatch.Inventory
@@ -138,19 +139,9 @@ func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
 		snap.PersistentData = &observation
 	}
 	out.Input = plan.Input{Desired: d, Snapshot: snap, State: state, Image: image}
-	out.Routing = caddy.State{Files: map[string]string{}, Sites: map[string]caddy.Site{}}
-	for _, release := range state.Releases {
-		site, err := caddy.NewSite(App(release.Desired), pol, spec.Port(release.HostPort))
-		if err != nil {
-			return out, err
-		}
-		out.Routing.Files[release.CaddyFile.Name] = release.CaddyFile.Hash
-		out.Routing.Sites[release.CaddyFile.Name] = site
-	}
-	if snap.CaddyConfig.Status == target.KnownStatus && snap.CaddyConfig.Value != nil {
-		out.Routing.Generation = snap.CaddyConfig.Value.Generation
-	} else if snap.CaddyConfig.Status != target.Absent {
-		return out, errors.New("host: unknown routing generation")
+	out.Routing, err = managedRoutingFacts(state, pol, snap, s.managedAuthority)
+	if err != nil {
+		return out, err
 	}
 	return out, nil
 }
