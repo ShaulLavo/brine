@@ -1,0 +1,265 @@
+{
+  "admin": {
+    "disabled": true
+  },
+  "logging": {
+    "logs": {
+      "default": {
+        "encoder": {
+          "fields": {
+            "request>uri": {
+              "filter": "delete"
+            }
+          },
+          "format": "filter",
+          "wrap": {
+            "format": "json"
+          }
+        },
+        "exclude": [
+          "http.log.access.log0"
+        ]
+      },
+      "log0": {
+        "writer": {
+          "output": "file",
+          "filename": "/var/log/caddy/managed-fixture.json"
+        },
+        "encoder": {
+          "fields": {
+            "request>uri": {
+              "filter": "delete"
+            }
+          },
+          "format": "filter",
+          "wrap": {
+            "format": "json"
+          }
+        },
+        "include": [
+          "http.log.access.log0"
+        ]
+      }
+    }
+  },
+  "apps": {
+    "http": {
+      "servers": {
+        "srv0": {
+          "listen": [
+            ":56715"
+          ],
+          "routes": [
+            {
+              "match": [
+                {
+                  "host": [
+                    "127.0.0.1"
+                  ]
+                }
+              ],
+              "handle": [
+                {
+                  "handler": "subroute",
+                  "routes": [
+                    {
+                      "handle": [
+                        {
+                          "handler": "headers",
+                          "response": {
+                            "set": {
+                              "X-Content-Type-Options": [
+                                "nosniff"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "handler": "headers",
+                          "response": {
+                            "set": {
+                              "Referrer-Policy": [
+                                "no-referrer"
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "handler": "subroute",
+                          "routes": [
+                            {
+                              "group": "group5",
+                              "handle": [
+                                {
+                                  "handler": "subroute",
+                                  "routes": [
+                                    {
+                                      "handle": [
+                                        {
+                                          "handler": "rewrite",
+                                          "strip_path_prefix": "/_brine/db/main"
+                                        },
+                                        {
+                                          "handler": "reverse_proxy",
+                                          "upstreams": [
+                                            {
+                                              "dial": "127.0.0.1:42029"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "match": [
+                                {
+                                  "expression": "{http.request.orig_uri}.matches('^/_brine/db/main/v1/database/game/subscribe([?].*)?$') && {http.request.orig_uri.query}.matches('^([^%;]|%[0-9a-fA-F]{2})*$') && {http.request.header.Upgrade}.lowerAscii() == 'websocket' && {http.request.uri.query.token} != '' && {http.request.orig_uri.query}.split('&').filter(pair, pair.matches('^(t|%74)(o|%6[fF])(k|%6[bB])(e|%65)(n|%6[eE])(=|$)')).size() == 1",
+                                  "method": [
+                                    "GET"
+                                  ],
+                                  "path": [
+                                    "/_brine/db/main/v1/database/game/subscribe"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "group": "group5",
+                              "handle": [
+                                {
+                                  "handler": "subroute",
+                                  "routes": [
+                                    {
+                                      "handle": [
+                                        {
+                                          "handler": "rewrite",
+                                          "strip_path_prefix": "/_brine/db/main"
+                                        },
+                                        {
+                                          "handler": "reverse_proxy",
+                                          "upstreams": [
+                                            {
+                                              "dial": "127.0.0.1:42029"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "match": [
+                                {
+                                  "expression": "{http.request.orig_uri}.matches('^/_brine/db/main/v1/identity/websocket-token([?].*)?$') && {http.request.orig_uri.query}.matches('^([^%;]|%[0-9a-fA-F]{2})*$') && {http.request.header.Authorization}.matches('^Bearer .+$')",
+                                  "method": [
+                                    "POST"
+                                  ],
+                                  "path": [
+                                    "/_brine/db/main/v1/identity/websocket-token"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "group": "group5",
+                              "handle": [
+                                {
+                                  "handler": "subroute",
+                                  "routes": [
+                                    {
+                                      "handle": [
+                                        {
+                                          "handler": "static_response",
+                                          "status_code": 403
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "match": [
+                                {
+                                  "expression": {
+                                    "expr": "{http.request.orig_uri.path}.matches('^/_brine/db(/|$)')",
+                                    "name": "originalManaged"
+                                  }
+                                }
+                              ]
+                            },
+                            {
+                              "group": "group5",
+                              "handle": [
+                                {
+                                  "handler": "subroute",
+                                  "routes": [
+                                    {
+                                      "handle": [
+                                        {
+                                          "handler": "static_response",
+                                          "status_code": 403
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ],
+                              "match": [
+                                {
+                                  "path": [
+                                    "/_brine/db",
+                                    "/_brine/db/*"
+                                  ]
+                                }
+                              ]
+                            },
+                            {
+                              "group": "group5",
+                              "handle": [
+                                {
+                                  "handler": "subroute",
+                                  "routes": [
+                                    {
+                                      "handle": [
+                                        {
+                                          "handler": "reverse_proxy",
+                                          "upstreams": [
+                                            {
+                                              "dial": "127.0.0.1:42029"
+                                            }
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                }
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ],
+              "terminal": true
+            }
+          ],
+          "automatic_https": {
+            "disable": true,
+            "skip": [
+              "127.0.0.1"
+            ]
+          },
+          "logs": {
+            "logger_names": {
+              "127.0.0.1": [
+                "log0"
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}
