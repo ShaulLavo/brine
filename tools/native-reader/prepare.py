@@ -52,7 +52,7 @@ def prepare(output, supplied):
     package = upstream / 'crates/brine-native-reader'
     package.mkdir()
     shutil.copyfile(HERE / 'Cargo.toml', package / 'Cargo.toml')
-    shutil.copytree(HERE / 'src', package / 'src')
+    shutil.copytree(HERE / 'src', package / 'src', copy_function=shutil.copyfile)
     shutil.copyfile(HERE / 'Cargo.lock', upstream / 'Cargo.lock')
     shutil.copyfile(HERE / 'pins.json', output / 'pins.json')
     for filename in ['LICENSE.txt', 'README.md']:
