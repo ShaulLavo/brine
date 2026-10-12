@@ -3,7 +3,7 @@ package datapublish
 import (
 	"slices"
 
-	"github.com/ShaulLavo/brine/internal/spec"
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 )
 
 const ModuleArtifactLimit = 1 << 20
@@ -12,8 +12,8 @@ const ModuleArtifactLimit = 1 << 20
 // guest-review authority; those come from protected host evidence.
 type Artifact struct {
 	bytes   []byte
-	wasm    spec.WasmSHA256
-	program spec.RuntimeModuleHash
+	wasm    spacetimedb.WasmSHA256
+	program spacetimedb.RuntimeModuleHash
 }
 
 func NewArtifact(raw []byte) (Artifact, error) {
@@ -21,16 +21,16 @@ func NewArtifact(raw []byte) (Artifact, error) {
 		return Artifact{}, ErrRecord
 	}
 	owned := slices.Clone(raw)
-	wasm, program, err := spec.ModuleIdentities(owned)
+	wasm, program, err := spacetimedb.ModuleIdentities(owned)
 	if err != nil {
 		return Artifact{}, ErrRecord
 	}
 	return Artifact{bytes: owned, wasm: wasm, program: program}, nil
 }
 
-func (a Artifact) Bytes() []byte                           { return slices.Clone(a.bytes) }
-func (a Artifact) WasmSHA256() spec.WasmSHA256             { return a.wasm }
-func (a Artifact) ProgramWireHash() spec.RuntimeModuleHash { return a.program }
-func (Artifact) String() string                            { return "[private reviewed Wasm]" }
-func (Artifact) GoString() string                          { return "[private reviewed Wasm]" }
-func (Artifact) MarshalJSON() ([]byte, error)              { return nil, ErrRecord }
+func (a Artifact) Bytes() []byte                                  { return slices.Clone(a.bytes) }
+func (a Artifact) WasmSHA256() spacetimedb.WasmSHA256             { return a.wasm }
+func (a Artifact) ProgramWireHash() spacetimedb.RuntimeModuleHash { return a.program }
+func (Artifact) String() string                                   { return "[private reviewed Wasm]" }
+func (Artifact) GoString() string                                 { return "[private reviewed Wasm]" }
+func (Artifact) MarshalJSON() ([]byte, error)                     { return nil, ErrRecord }

@@ -45,7 +45,7 @@ func TestManagedFilesResolveOnlyDesiredMetadata(t *testing.T) {
 	root := managedFiles(t)
 	app := parseManagedFiles(t, root, managedSpec(t))
 	m := app.SpacetimeDB.Module
-	artifact, native, err := ModuleIdentities(managedWasm)
+	artifact, native, err := spacetimedb.ModuleIdentities(managedWasm)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,7 +107,7 @@ func TestManagedFilesRefuseUnsupportedPayloads(t *testing.T) {
 		managedFileRefusal(t, "module/schema-v10.json", []byte(strings.Repeat(" ", (1<<20)+1)))
 	})
 	root := managedFiles(t)
-	if err := os.Truncate(filepath.Join(root, "module/game.wasm"), MaxWasmBytes+1); err != nil {
+	if err := os.Truncate(filepath.Join(root, "module/game.wasm"), spacetimedb.MaxWasmBytes+1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := ParseFile(t.Context(), filepath.Join(root, "brine.toml"), []byte(managedSpec(t))); err == nil {
@@ -152,7 +152,7 @@ func TestManagedFilesRefusePathEscape(t *testing.T) {
 	if _, err := ParseFile(t.Context(), filepath.Join(root, "brine.toml"), []byte(raw)); err == nil {
 		t.Fatal("escaped schema accepted")
 	}
-	if _, err := readRelativeFile(root, "../outside", MaxWasmBytes); err == nil {
+	if _, err := readRelativeFile(root, "../outside", spacetimedb.MaxWasmBytes); err == nil {
 		t.Fatal("reader accepted escape before opening")
 	}
 }
