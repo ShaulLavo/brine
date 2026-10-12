@@ -16,6 +16,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"golang.org/x/sys/unix"
 )
 
 const managedServiceDirectory = ".config/systemd/user"
@@ -252,7 +253,10 @@ func (m *managedUnits) install(ctx context.Context, change managedServiceChange)
 	if err := m.write(ctx, active, staged, change.previous); err != nil {
 		return err
 	}
-	return m.verify(ctx, change, change.wanted)
+	if err := m.verify(ctx, change, change.wanted); err != nil {
+		return errManagedServiceUnknown
+	}
+	return nil
 }
 
 func (m *managedUnits) retain(ctx context.Context, change managedServiceChange, raw []byte) error {
@@ -300,7 +304,10 @@ func (m *managedUnits) restore(ctx context.Context, change managedServiceChange)
 	if err := m.write(ctx, active, retained, change.wanted); err != nil {
 		return err
 	}
-	return m.verify(ctx, change, change.previous)
+	if err := m.verify(ctx, change, change.previous); err != nil {
+		return errManagedServiceUnknown
+	}
+	return nil
 }
 
 func (m *managedUnits) write(ctx context.Context, path string, raw []byte, expected string) error {
@@ -313,7 +320,12 @@ func (m *managedUnits) write(ctx context.Context, path string, raw []byte, expec
 	if err != nil {
 		return errManagedService
 	}
-	defer func() { _ = m.root.Remove(temporary) }()
+	retained := false
+	defer func() {
+		if !retained {
+			_ = m.root.Remove(temporary)
+		}
+	}()
 	_, writeErr := file.Write(raw)
 	err = errors.Join(writeErr, file.Sync(), file.Close(), ctx.Err())
 	if err != nil {
@@ -323,8 +335,30 @@ func (m *managedUnits) write(ctx context.Context, path string, raw []byte, expec
 	if err != nil || present && managedServiceHash(current) != expected || !present && expected != "" {
 		return errManagedService
 	}
-	if err := m.root.Rename(temporary, path); err != nil {
-		return errManagedServiceUnknown
+	parent, err := engineOpenMember(m.root, directory, unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return errManagedService
+	}
+	defer func() { _ = parent.Close() }()
+	flags := uint(unix.RENAME_NOREPLACE)
+	if expected != "" {
+		flags = unix.RENAME_EXCHANGE
+	}
+	if err := unix.Renameat2(int(parent.Fd()), filepath.Base(temporary), int(parent.Fd()), filepath.Base(path), flags); err != nil {
+		return errManagedService
+	}
+	if expected != "" {
+		// Exchange retains the displaced file. A raced foreign predecessor is
+		// preserved for inspection rather than overwritten or deleted.
+		retained = true
+		displaced, present, err := m.read(ctx, temporary)
+		if err != nil || !present || managedServiceHash(displaced) != expected {
+			return errManagedServiceUnknown
+		}
+		if err := unix.Unlinkat(int(parent.Fd()), filepath.Base(temporary), 0); err != nil {
+			return errManagedServiceUnknown
+		}
+		retained = false
 	}
 	if err := m.syncDirectory(directory); err != nil {
 		return errManagedServiceUnknown

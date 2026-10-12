@@ -70,6 +70,7 @@ func managedPreparationRig(t *testing.T, frontend bool) *rig {
 	_, digest, _ := strings.Cut(data.SpacetimeDBImage, "@")
 	image := plan.Image{Digest: digest, Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known(data.SpacetimeDBARM64Manifest)}
 	in := r.facts.Input
+	in.Snapshot.Versions.Caddy = target.Known("2.10.2")
 	in.Desired = desired
 	in.Image = image
 	in.Managed = &plan.ManagedFacts{EngineImage: image, Fences: []data.QuiescenceFence{}}

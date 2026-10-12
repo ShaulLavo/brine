@@ -73,6 +73,8 @@ func managedInitializedRig(t *testing.T, frontend bool) *rig {
 	in.Managed.Runtime = &runtime
 	in.Managed.NativeState = target.Known("running")
 	in.Managed.LoggingPrerequisite = target.Known(true)
+	in.Managed.LoggingRootSHA256 = strings.Repeat("a", 64)
+	in.Managed.LoggingConfigSHA256 = strings.Repeat("b", 64)
 	in.State.ManagedReservations = []target.ManagedPortReservation{{App: string(in.Desired.Name), BindingID: reserved.Database.BindingID, EnginePort: reserved.EnginePort}}
 	if frontend {
 		in.State.ManagedReservations[0].FrontendPort = reserved.Frontend.Port

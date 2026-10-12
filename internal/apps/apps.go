@@ -34,12 +34,13 @@ type PersistentFacts interface {
 }
 
 type Service struct {
-	Managed    ManagedReader
-	Data       PersistentFacts
-	Store      Store
-	Inventory  Inventory
-	Probe      HealthProbe
-	LoadPolicy func(context.Context) (policy.Policy, error)
+	Managed      ManagedReader
+	ManagedFacts ManagedFactsReader
+	Data         PersistentFacts
+	Store        Store
+	Inventory    Inventory
+	Probe        HealthProbe
+	LoadPolicy   func(context.Context) (policy.Policy, error)
 }
 type Report struct {
 	Apps []Status `json:"apps"`

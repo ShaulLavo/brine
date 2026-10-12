@@ -141,7 +141,11 @@ func (s Service) currentInput(ctx context.Context, app string) (plan.Input, poli
 		if stored.App != app || stored.Target != snap.Identity || string(d.Name) != app {
 			return plan.Input{}, pol, result.New(result.Conflict, nil)
 		}
-		return plan.Input{Desired: d, Snapshot: snap, State: state, Image: r.Image}, pol, nil
+		in := plan.Input{Desired: d, Snapshot: snap, State: state, Image: r.Image}
+		if err := s.collectManaged(ctx, &in); err != nil {
+			return in, pol, err
+		}
+		return in, pol, nil
 	}
 	return plan.Input{}, pol, result.New(result.AppNotFound, nil)
 }
@@ -166,6 +170,9 @@ func (s Service) ConfigSet(ctx context.Context, app string, edits []Edit) (Confi
 		return ConfigPlan{}, err
 	}
 	if err := s.collectPersistent(ctx, &in); err != nil {
+		return ConfigPlan{}, err
+	}
+	if err := s.collectManaged(ctx, &in); err != nil {
 		return ConfigPlan{}, err
 	}
 	p, err := plan.Build(in)

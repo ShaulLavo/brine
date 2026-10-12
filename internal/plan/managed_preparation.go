@@ -63,7 +63,7 @@ func BuildManagedPreparation(in Input, proposed ManagedServicePlan, root data.Ro
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
 	}
-	deploymentCapabilities(in.Snapshot, add)
+	managedCapabilities(in.Snapshot, add)
 	if in.Snapshot.Generation.Status != target.KnownStatus || in.Snapshot.Generation.Value == nil {
 		add(UnknownFacts, "generation")
 	}

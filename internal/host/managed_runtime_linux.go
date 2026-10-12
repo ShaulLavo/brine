@@ -9,6 +9,7 @@ import (
 	"slices"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
@@ -70,10 +71,16 @@ func (r managedRuntime) serviceChange(ctx context.Context, change managedService
 		}
 		defer func() { _ = units.Close() }()
 	}
+	var err error
 	if install {
-		return units.install(ctx, change)
+		err = units.install(ctx, change)
+	} else {
+		err = units.stage(ctx, change)
 	}
-	return units.stage(ctx, change)
+	if errors.Is(err, errManagedServiceUnknown) {
+		return &localexec.Error{Kind: localexec.UnknownOutcome}
+	}
+	return err
 }
 func (r managedRuntime) VerifyEngineUnit(ctx context.Context, p plan.Plan) error {
 	permit, err := r.expected(ctx, p)

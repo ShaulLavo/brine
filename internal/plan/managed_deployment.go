@@ -38,7 +38,7 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
 	}
-	deploymentCapabilities(in.Snapshot, add)
+	managedCapabilities(in.Snapshot, add)
 	if in.Snapshot.Generation.Status != target.KnownStatus || in.Snapshot.Generation.Value == nil {
 		add(UnknownFacts, "generation")
 	}
@@ -53,7 +53,7 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 	if facts.NativeState.Status != target.KnownStatus || facts.NativeState.Value == nil || *facts.NativeState.Value != "running" && *facts.NativeState.Value != "stopped" {
 		add(UnknownFacts, "managed.native_state")
 	}
-	if facts.LoggingPrerequisite.Status != target.KnownStatus || facts.LoggingPrerequisite.Value == nil || !*facts.LoggingPrerequisite.Value {
+	if facts.LoggingPrerequisite.Status != target.KnownStatus || facts.LoggingPrerequisite.Value == nil || !*facts.LoggingPrerequisite.Value || !data.ValidCatalogHash(facts.LoggingRootSHA256) || !data.ValidCatalogHash(facts.LoggingConfigSHA256) {
 		add(UnknownFacts, "managed.ingress_logging")
 	}
 	engine := in.Desired.SpacetimeDB

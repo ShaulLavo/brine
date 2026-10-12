@@ -31,6 +31,7 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 	run := &managedExecution{x: &execution{executor: e, id: id, plan: p, desired: d}}
 	x := run.x
 	preflight := func(ctx context.Context) error {
+		if p.Lifecycle!="" {return errors.New("managed lifecycle requires its typed operation branch")}
 		if managedChange(p, plan.RemoveManagedFrontend) {
 			return errors.New("managed frontend removal not yet admitted")
 		}

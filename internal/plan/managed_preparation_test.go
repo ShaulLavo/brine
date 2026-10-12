@@ -15,6 +15,7 @@ func managedPreparationFixture(t *testing.T, frontend bool) (Input, ManagedServi
 	t.Helper()
 	in, _ := managedPlanInput(t, frontend)
 	in.Snapshot = fixture(t, "ready-arm64").Snapshot
+	in.Snapshot.Versions.Caddy = target.Known("2.10.2")
 	in.Desired.SpacetimeDB.Image = spec.ImageReference(data.SpacetimeDBImage)
 	_, digest, _ := strings.Cut(data.SpacetimeDBImage, "@")
 	image := Image{Digest: digest, Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known(data.SpacetimeDBARM64Manifest)}
