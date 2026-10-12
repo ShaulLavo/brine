@@ -36,8 +36,8 @@ func engineTreeTransitionFixture(t *testing.T) *engineTransitionTree {
 
 func TestEngineTransitionRejectsLifetimeFromAnotherStateRoot(t *testing.T) {
 	tree := engineTreeTransitionFixture(t)
-	other := t.TempDir()
-	if err := os.Chmod(other, 0700); err != nil {
+	other := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(other, 0700); err != nil {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
