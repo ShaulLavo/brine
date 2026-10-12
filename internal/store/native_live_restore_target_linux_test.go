@@ -15,7 +15,10 @@ import (
 )
 
 func TestNativeRestoreTargetTreeAnchorRefusesReplacedDirectoryAndMountAliases(t *testing.T) {
-	directory := t.TempDir()
+	directory := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(directory, "transitions", "owned", "staged"), 0700); err != nil {
 		t.Fatal(err)
 	}
