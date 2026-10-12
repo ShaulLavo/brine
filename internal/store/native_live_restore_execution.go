@@ -89,8 +89,15 @@ func (s *Store) ReadNativeLiveRestoreExecution(ctx context.Context, stopped *Nat
 }
 
 func checkNativeLiveRestoreExecutionTx(ctx context.Context, tx *sql.Tx, stopped *NativeStoppedPreparation, retained nativeLiveRestoreAttempt) error {
+	if retained.current.Stage() != liverestore.RestoreIntent {
+		return ErrConflict
+	}
+	return checkNativeLiveRestoreSourceTx(ctx, tx, stopped, retained)
+}
+
+func checkNativeLiveRestoreSourceTx(ctx context.Context, tx *sql.Tx, stopped *NativeStoppedPreparation, retained nativeLiveRestoreAttempt) error {
 	a, spec := retained.claim.Attempt(), retained.plan.Spec()
-	if retained.current.Stage() != liverestore.RestoreIntent || stopped.PointID() != a.PreparedPointID || stopped.OperationID() != a.FenceOwnerOpID {
+	if stopped.PointID() != a.PreparedPointID || stopped.OperationID() != a.FenceOwnerOpID {
 		return ErrConflict
 	}
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", a.OperationID))
