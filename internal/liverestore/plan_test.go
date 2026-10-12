@@ -24,11 +24,11 @@ func planFixture(t *testing.T) PlanSpec {
 		Head:       data.EngineHeadRef{BindingID: data.ReplicaBindingID(id), EpochID: data.ReplicaEpochID(id), Version: 3, RuntimeSHA256: hash},
 		Generation: 3, GenerationID: id, PolicySHA256: hash, TargetSHA256: hash, DesiredSHA256: hash}
 	safety := Safety{PointID: id, PointSHA256: hash, FenceID: data.FenceID(id), FenceOwnerOpID: "prepared-operation", SourceSealSHA256: hash,
-		SourceWitnessSHA256: hash, StopProofSHA256: hash, CheckpointSHA256: hash, CommittedOffset: 21,
+		SourceWitnessSHA256: hash, StopProofSHA256: hash, CheckpointSHA256: hash, CommittedOffset: 21, CommittedOffsetKnown: true,
 		PreparedAt: at.Add(-time.Minute), ExpiresAt: at.Add(10 * time.Minute)}
 	selected := SelectedPoint{IncarnationID: facts.IncarnationID, DatabaseID: facts.DatabaseID, BindingID: facts.Head.BindingID,
 		PointID: oldID, PointSHA256: hash, EpochID: facts.Head.EpochID, GenerationID: id, CaptureID: oldID,
-		RepositoryID: hash, RepositorySnapshot: hash, ManifestSHA256: hash, RestoreReceiptSHA256: hash, CheckpointSHA256: hash,
+		RepositoryID: hash, RepositorySnapshot: hash, ManifestSHA256: hash, RestoreEvidenceSHA256: hash, CheckpointSHA256: hash,
 		StateWitnessSHA256: hash, NativeDatabase: hash, NativePublisher: hash, ProgramWireHash: hash, ArtifactWasmSHA256: hash,
 		SchemaSHA256: hash, MaterialSHA256: hash, DependenciesSHA256: hash, CommittedOffset: 8,
 		RecordedAt: at.Add(-time.Hour), RetainUntil: at.Add(30 * 24 * time.Hour)}
