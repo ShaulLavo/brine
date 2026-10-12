@@ -15,6 +15,10 @@ func managedFrontendStep(step string) string {
 		return "ensure_secrets"
 	case "frontend_stage":
 		return "stage_unit"
+	case "managed_frontend_stop":
+		return "stop_unit"
+	case "managed_frontend_start":
+		return "start_unit"
 	case "frontend_stop":
 		return "quiesce_old"
 	case "frontend_install":
@@ -41,7 +45,12 @@ func (x *execution) reconcileManagedUnknown(ctx context.Context, step string) re
 		return unresolved
 	}
 	switch step {
-	case "engine_start", "engine_check":
+	case "managed_engine_stop":
+		if x.executor.Managed.EngineStopped(ctx, x.plan) == nil {
+			return applied
+		}
+		return unresolved
+	case "engine_start", "engine_check", "managed_engine_start", "managed_engine_check":
 		if x.executor.Managed.EngineReady(ctx, x.plan) == nil {
 			return applied
 		}
@@ -66,5 +75,5 @@ func (x *execution) reconcileManagedUnknown(ctx context.Context, step string) re
 }
 
 func managedHealthStep(p plan.Plan, step string) bool {
-	return p.Managed != nil && (step == "frontend_check" || step == "managed_route_check")
+	return p.Managed != nil && (step == "frontend_check" || step == "managed_route_check" || step == "managed_frontend_check")
 }

@@ -28,6 +28,12 @@ func (f *managedRuntimeFake) call(name string) error {
 	}
 	return nil
 }
+func (f *managedRuntimeFake) SetDesired(context.Context, string, plan.Plan, uint64, plan.ManagedLifecyclePlan) error {
+	return f.call("managed_desired")
+}
+func (f *managedRuntimeFake) DesiredMatches(context.Context, string, plan.Plan, uint64, plan.ManagedLifecyclePlan) (bool, error) {
+	return f.failure != "managed_desired", nil
+}
 func (f *managedRuntimeFake) StageEngine(context.Context, plan.Plan, ops.Release) error {
 	return f.call("engine_stage")
 }
@@ -36,6 +42,9 @@ func (f *managedRuntimeFake) InstallEngine(context.Context, plan.Plan, ops.Relea
 }
 func (f *managedRuntimeFake) VerifyEngineUnit(context.Context, plan.Plan) error {
 	return f.call("engine_verify")
+}
+func (f *managedRuntimeFake) EngineStopped(context.Context, plan.Plan) error {
+	return f.call("engine_stopped")
 }
 func (f *managedRuntimeFake) EngineReady(context.Context, plan.Plan) error {
 	return f.call("engine_ready")

@@ -122,7 +122,7 @@ func (r managedRuntime) BeforeFrontendStart(ctx context.Context, operation strin
 		return errEngineSource
 	}
 	permit, err := r.state.ReadManagedFrontendPermit(ctx, p.App)
-	if err != nil || permit.Permit.OperationID != operation || permit.Permit.PlanID != p.Hash || permit.Permit.UnitHash != unitHash || quadlet.VerifyCurrent(ctx, r.home, p.App+".container", unitHash) != nil {
+	if err != nil || permit.Permit.BindingID != p.Managed.Database.BindingID || p.Lifecycle == "" && (permit.Permit.OperationID != operation || permit.Permit.PlanID != p.Hash) || p.Lifecycle != "" && permit.Pending || permit.Permit.UnitHash != unitHash || quadlet.VerifyCurrent(ctx, r.home, p.App+".container", unitHash) != nil {
 		return errEngineSource
 	}
 	return ctx.Err()
@@ -135,7 +135,7 @@ func (r managedRuntime) BeforeIngress(ctx context.Context, operation string, p p
 		return nil
 	}
 	permit, err := r.state.ReadManagedFrontendPermit(ctx, p.App)
-	if err != nil || permit.Permit.OperationID != operation || permit.Permit.PlanID != p.Hash {
+	if err != nil || permit.Permit.BindingID != p.Managed.Database.BindingID || p.Lifecycle == "" && (permit.Permit.OperationID != operation || permit.Permit.PlanID != p.Hash) || p.Lifecycle != "" && permit.Pending {
 		return errors.Join(errEngineSource, err)
 	}
 	return ctx.Err()
@@ -204,4 +204,48 @@ func (r managedRuntime) CheckManagedIngress(ctx context.Context, claim caddy.Man
 func mustManagedFrontendUnit(app string) systemd.Unit {
 	unit, _ := systemd.ParseUnit(app + ".service")
 	return unit
+}
+
+func managedDesiredRecord(operation string, p plan.Plan, revision uint64, flags plan.ManagedLifecyclePlan) store.ManagedDesiredState {
+	return store.ManagedDesiredState{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, Revision: revision, PlanID: p.Hash, OperationID: operation, EngineRunning: flags.EngineRunning, FrontendRunning: flags.FrontendRunning, IngressServing: flags.IngressServing}
+}
+func (r managedRuntime) SetDesired(ctx context.Context, operation string, p plan.Plan, before uint64, flags plan.ManagedLifecyclePlan) error {
+	if _, err := r.expected(ctx, p); err != nil {
+		return err
+	}
+	_, err := r.state.CommitManagedDesired(ctx, operation, before, managedDesiredRecord(operation, p, before+1, flags))
+	return err
+}
+func (r managedRuntime) DesiredMatches(ctx context.Context, operation string, p plan.Plan, revision uint64, flags plan.ManagedLifecyclePlan) (bool, error) {
+	if _, err := r.expected(ctx, p); err != nil {
+		return false, err
+	}
+	wanted, err := r.state.ReadManagedDesired(ctx, p.Managed.Database.BindingID)
+	return err == nil && wanted == managedDesiredRecord(operation, p, revision, flags), err
+}
+
+func (r managedRuntime) EngineStopped(ctx context.Context, p plan.Plan) error {
+	permit, err := r.expected(ctx, p)
+	if err != nil || verifyEngineService(ctx, r.home, permit) != nil {
+		return errEngineSource
+	}
+	name := engineContainerName(permit.Runtime.BindingID) + ".service"
+	host := archiveHost{session: r.observer.session}
+	stopped, err := host.serviceStopped(ctx, name, false)
+	if err != nil || !stopped {
+		return errEngineSource
+	}
+	containers, err := listEngineContainers(ctx, r.observer.session)
+	if err != nil || !engineBindingAbsent(containers, permit) {
+		return errEngineSource
+	}
+	current, err := r.expected(ctx, p)
+	if err != nil || !sameEnginePermit(current, permit) {
+		return errEngineSource
+	}
+	stopped, err = host.serviceStopped(ctx, name, false)
+	if err != nil || !stopped {
+		return errEngineSource
+	}
+	return ctx.Err()
 }

@@ -1,7 +1,6 @@
 package apply
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"reflect"
@@ -28,74 +27,20 @@ type managedExecution struct {
 }
 
 func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
+	if p.Lifecycle != "" {
+		return e.runManagedLifecycle(ctx, id, p, d)
+	}
 	run := &managedExecution{x: &execution{executor: e, id: id, plan: p, desired: d}}
 	x := run.x
-	preflight := func(ctx context.Context) error {
-		if p.Lifecycle!="" {return errors.New("managed lifecycle requires its typed operation branch")}
-		if managedChange(p, plan.RemoveManagedFrontend) {
-			return errors.New("managed frontend removal not yet admitted")
-		}
-		if e.Managed == nil || e.Facts == nil || e.Releases == nil || e.Systemd == nil || e.Routes == nil || p.Managed == nil || !p.Managed.Valid() || p.Managed.State != data.EngineInitialized || !desiredMatches(p, d) || p.Kind != plan.Create && p.Kind != plan.Update && p.Kind != plan.NoOp || len(p.Conflicts) != 0 {
-			return errors.New("managed deployment input required")
-		}
-		facts, err := e.Facts.Read(ctx)
-		if err != nil {
-			return err
-		}
-		fresh, err := plan.Build(facts.Input)
-		if err != nil {
-			return err
-		}
-		approved, err := p.CanonicalBytes()
-		if err != nil {
-			return err
-		}
-		rebuilt, err := fresh.CanonicalBytes()
-		if err != nil || !bytes.Equal(approved, rebuilt) {
-			return errors.Join(err, errors.New("managed plan drift"), ops.RecordPlanDrift(ctx, e.Journal, id, p, fresh))
-		}
-		x.facts = facts
-		x.previous, run.hadRelease, err = e.Releases.CurrentRelease(ctx, p.App)
-		if err != nil {
-			return err
-		}
-		if p.Kind == plan.Create && run.hadRelease || p.Kind != plan.Create && !run.hadRelease {
-			return errors.New("managed release drift")
-		}
-		if run.hadRelease {
-			if x.previous.Managed == nil || e.Plans == nil {
-				return errors.New("managed previous release required")
-			}
-			run.previousPlan, x.previousDesired, err = e.Plans.LoadPlan(ctx, x.previous.PlanID)
-			if err != nil {
-				return err
-			}
-			x.hasPrevious = x.previous.Managed.Frontend != nil
-		}
-		if p.Managed.Frontend != nil {
-			run.previousFrontendPermit, err = e.Managed.FrontendPermitOwner(ctx, p.App)
-			if err != nil {
-				return err
-			}
-		}
-		run.engineService, err = systemd.ParseUnit("brine-engine-" + string(p.Managed.Database.BindingID) + ".service")
-		if err != nil {
-			return err
-		}
-		x.service, err = systemd.ParseUnit(p.App + ".service")
-		if err != nil {
-			return err
-		}
-		if p.Managed.Frontend != nil && (e.Podman == nil || e.Units == nil || e.Health == nil) {
-			return errors.New("managed frontend adapters required")
-		}
-		return nil
-	}
-	if err := x.step(ctx, "preflight", Preflight, "drift", preflight); err != nil {
+
+	if err := x.step(ctx, "preflight", Preflight, "drift", run.preflight); err != nil {
 		return x.fail(ctx, err)
 	}
 	if p.Kind == plan.NoOp {
 		return x.terminal(ctx, Succeeded, nil)
+	}
+	if err := run.setDesired(ctx, "managed_desired", Preparing, p.ManagedIntentRevision, plan.DesiredComponentsForDeployment(*p.Managed)); err != nil {
+		return run.fail(ctx, err)
 	}
 	if err := x.step(ctx, "engine_stage", Preparing, "unit_invalid", func(ctx context.Context) error {
 		if !managedChange(p, plan.StartManagedEngine) {
