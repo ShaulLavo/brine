@@ -662,6 +662,18 @@ This unit supplies no filesystem bridge, uploader, native reader, receipt,
 fence, startup permission, or public dispatch. Real contained replay, managed
 ownership, credentials, jobs, and remote storage acceptance remain required.
 
+### Candidate schema and publication records (P09-06 core)
+
+`spacetimedb.DecodeDescriptorV10` requires exactly one `V10` envelope and delegates body validation to `CanonicalSchemaV10`. It accepts metadata, not proof that a Wasm artifact produced it. Pinned native `extract-schema` executes guest initialization and description code; protected extraction must contain those effects and establish the artifact/schema binding. The six captured native descriptors and their content pins are retained with [the core evidence](evidence/p09-schema-publication.md).
+
+`CompareSchemas` returns immutable changes and required checks. Every update, including equal schemas with changed code, requires guest review and preserved-data verification. New tables require independent new-table data evidence. Appended U8 defaults require old-column projection and default-value evidence. Removal, rename, reordering, type/access changes and changes to existing keys, indexes, constraints, sequences or defaults require a separate operator procedure. Unqualified appended defaults refuse. Callable, lifecycle and scheduler changes add explicit effects qualification. No result says an update is safe to apply.
+
+`datapublish.Plan` binds requester, current target/policy/desired/generation, app/incarnation/database/binding/epoch, source point/fence/preparation owner, candidate Wasm/native-program/schema, review and recovery releases, native preflight references and a bounded UTC expiry. Its closed source arms distinguish a recovered empty owned server bundle from initialized captured history. The empty arm has no native database, module, replica or history placeholders. Captured history is restricted to the fixed supported artifact/schema pairs under `brine-recovery-pairs-confirmed-v1`; a supplied contract label cannot widen it. Requirements derive from opaque canonical schemas during construction and private decoding. Secret references must belong to the app and be distinct across roles. Operator-selected key names and equal numeric versions across different roles are valid. Protected host lookups must independently bind those exact references to their required roles before effects.
+
+The private cursor separates immutable preparation ownership from the apply operation and consumer claim. It sequences restore, preflight, publication, data verification, disposal and an external final-transition receipt. Unknown outcomes permit inspection and matching observation only. A proven unperformed publication still consumes that attempt. `DecodeCursor` requires an exact record hash loaded independently from protected retained state. Computing the expected hash from supplied cursor bytes does not prevent rewinding history. Store composition must atomically retain each record/hash and compare-and-swap its head, authenticate proof references and enforce one consumer per point/plan.
+
+These records grant no mutation, swap, epoch activation or fence-release authority. Protected extraction, exact-point consumption, staged data/projection/effects evidence, store/jobs/host wiring and physical acceptance remain required. P09-06 and T39 remain unchecked.
+
 ### Definition and typed identities
 
 ~~~toml
@@ -1188,3 +1200,7 @@ Retained local deletion never crosses mounts, including same-device bind mounts.
 Reconciliation snapshots the single tree index whose deletion intent was already in flight when it starts. Only that tree may adopt absence as an unknown prior effect. Later trees in the same run require actual deletion; unexplained absence refuses with recovery required, even after this run writes their intents.
 
 Residual same-identity filesystem race: pinned directory handles do not prevent the owner's own same-UID processes from renaming an already opened subdirectory out of the archive on the same filesystem. Purge can continue unlinking that original directory's contents through its pinned handle after the rename. Brine's lifetime locks coordinate managed writers, not arbitrary same-UID filesystem changes; the archive walker is not a sandbox against the enrolled identity. The owner must avoid manual moves or other unmanaged mutations of archived directories during purge. Mount-boundary checks remain enforced, but do not provide continuous pathname containment against this rename race. Additional ancestor observations would themselves race with the next unlink, so this remains an explicit residual rather than a claimed isolation guarantee.
+
+## Managed engine startup primitives
+
+The owned SpacetimeDB store, secret versions, foreground service, launch guard, lifetime lock, and copied-native boot proof are specified in [Managed engine startup](managed-engine-startup.md). These internal primitives do not enable ordinary deployment, first publication, or live restore. Existing SQLite startup and canonical records retain their contract.
