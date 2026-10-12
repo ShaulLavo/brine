@@ -56,7 +56,11 @@ role files exist, the runtime has empty native database/publisher identities and
 an empty name list, and the original preparation fence remains held. No native
 process, frontend or ingress is started. Backup credentials and the independent
 recovery password can then be delivered and the backup policy activated before
-reviewed publication.
+reviewed publication. Keep `$preparation_plan` as the original allocation plan
+whose apply succeeded. The [fresh backup flow](native-backup-commands.md#start-a-fresh-managed-app)
+reuses that exact ID for recovery, backup policy and first publication. Ordinary
+planning at this point reports `managed_publication_required` with no effects.
+Replan ordinary deployment after publication succeeds.
 
 A later delivery says `stored_unreferenced`. It validates the current material
 and protected runtime, writes new immutable versions and leaves the current

@@ -35,6 +35,17 @@ brine backup policy plan --deployment-plan PREPARATION_PLAN_ID --target TARGET -
 brine backup policy activate BACKUP_PLAN_ID --target TARGET --json
 ```
 
+Keep `PREPARATION_PLAN_ID` as the ID of the original saved allocation plan whose
+apply operation succeeded. Reuse that exact ID for material delivery, recovery
+password delivery, backup policy planning and first module publication. The
+`--deployment-plan` flag accepts this original unpublished preparation plan in
+these steps. Do not reapply it or replace it with a new ordinary deployment plan.
+
+After material delivery, an ordinary `brine plan` reports
+`managed_publication_required` and has no executable changes. Complete reviewed
+publication using the original preparation plan, then obtain the ordinary
+deployment plan shown below.
+
 Material delivery preserves the original fence. It does not require an already
 active backup policy. Activate the backup before preparing the original empty
 source and reviewing first publication:

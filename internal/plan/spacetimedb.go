@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -56,7 +57,11 @@ func buildManagedPreview(in Input, desired []byte) (Plan, error) {
 	if !d.App().HasAppContainer() {
 		image = Image{Digest: strings.SplitN(string(d.SpacetimeDB.Image), "@", 2)[1], Platform: target.Platform{OS: "linux", Arch: in.Snapshot.Arch}, ManifestDigest: target.Observation[string]{Status: target.Unknown}}
 	}
-	p := Plan{SchemaVersion: SchemaVersion, Kind: Conflict, App: string(d.Name), Image: image, Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: d.PolicyVersion, PolicyHash: d.PolicyHash, DesiredHash: hash(desired), DatabaseEnvironment: d.DatabaseEnvironmentValues(), Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{{Code: ManagedEngineUnsupported, Field: "databases.spacetimedb"}}}
+	diagnostic := Diagnostic{Code: ManagedEngineUnsupported, Field: "databases.spacetimedb"}
+	if in.Managed != nil && in.Managed.Runtime != nil && in.Managed.Runtime.State == data.EngineUnpublished && in.Managed.Runtime.Validate() == nil {
+		diagnostic = Diagnostic{Code: ManagedPublicationRequired, Field: "databases.module"}
+	}
+	p := Plan{SchemaVersion: SchemaVersion, Kind: Conflict, App: string(d.Name), Image: image, Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: d.PolicyVersion, PolicyHash: d.PolicyHash, DesiredHash: hash(desired), DatabaseEnvironment: d.DatabaseEnvironmentValues(), Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{diagnostic}}
 	if d.App().HasAppContainer() && (image.Platform.OS != "linux" || image.Platform.Arch != in.Snapshot.Arch) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: ImagePlatform, Field: "image.platform"})
 	}
