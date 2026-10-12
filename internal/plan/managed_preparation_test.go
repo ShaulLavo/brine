@@ -45,6 +45,22 @@ func TestManagedPreparationHasOnlyUnpublishedAllocationEffects(t *testing.T) {
 	}
 }
 
+func TestManagedPreparationRefusesSQLiteCaddyBaseline(t *testing.T) {
+	in, proposal, root := managedPreparationFixture(t, false)
+	in.Snapshot.Versions.Caddy = target.Known("2.6.2")
+	planned, err := BuildManagedPreparation(in, proposal, root)
+	if err != nil || planned.Kind != Conflict {
+		t.Fatal("SQLite Caddy baseline admitted native preparation", err)
+	}
+	found := false
+	for _, conflict := range planned.Conflicts {
+		found = found || conflict.Code == RuntimeUnavailable && conflict.Field == "managed.caddy_version"
+	}
+	if !found {
+		t.Fatal("native Caddy qualification was not reported")
+	}
+}
+
 func testManagedPreparation(t *testing.T, frontend bool) {
 	t.Helper()
 	in, proposal, root := managedPreparationFixture(t, frontend)

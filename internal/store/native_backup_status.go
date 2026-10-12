@@ -63,7 +63,10 @@ func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (n
 	if err != nil {
 		return nativecapture.BackupStatus{}, err
 	}
-	if status.CredentialExpired || pending > 0 || status.Fenced {
+	if err := status.ObserveCadence(time.Now().UTC(), policy.ActivatedAt); err != nil {
+		return nativecapture.BackupStatus{}, &IntegrityError{}
+	}
+	if status.CredentialExpired || pending > 0 || status.Fenced || status.MissedCaptureIntervals > 0 {
 		status.State = "degraded"
 	}
 	if !status.Valid() {

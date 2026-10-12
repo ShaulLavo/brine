@@ -65,9 +65,9 @@ func (r nativeBackupRuntime) reopenPreparedSource(ctx context.Context, pointID s
 		return nil, err
 	}
 	if point.SourceKind == "unpublished" {
-		empty, err := reopenNativeEmptySource(ctx, r.state, r.stateRoot, held.stopped, held.copy)
-		if err != nil {
-			return nil, err
+		empty, openErr := reopenNativeEmptySource(ctx, r.state, r.stateRoot, held.stopped, held.copy)
+		if openErr != nil {
+			return nil, openErr
 		}
 		held.restored, err = r.restorePreparedEmpty(ctx, empty)
 	} else {

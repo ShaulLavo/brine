@@ -7,24 +7,23 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/store"
 	"os"
-	"path/filepath"
 	"testing"
 )
 
-func nativeOnlineCopyFixture(t *testing.T) (*nativeOnlineCopy, string, *os.Root) {
+func nativeOnlineCopyFixture(t *testing.T) (*nativeOnlineCopy, *os.Root) {
 	t.Helper()
 	binding, staging := engineSourceFixture(t)
 	parent, err := engineOpenRoot(staging)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { parent.Close() })
+	t.Cleanup(func() { _ = parent.Close() })
 	source, err := openEngineSource(binding)
 	if err != nil {
 		t.Fatal(err)
 	}
 	identity, err := nativeRestoreDirectoryIdentity(source, ".")
-	source.Close()
+	_ = source.Close()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,13 +32,12 @@ func nativeOnlineCopyFixture(t *testing.T) (*nativeOnlineCopy, string, *os.Root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { copy.close() })
-	return copy, binding.SourcePath(), parent
+	t.Cleanup(func() { _ = copy.close() })
+	return copy, parent
 }
 func TestNativeOnlineCopyRejectsControlMetadataAppend(t *testing.T) {
-	copy, source, _ := nativeOnlineCopyFixture(t)
-	name := filepath.Join(source, "control-db/state")
-	file, err := os.OpenFile(name, os.O_APPEND|os.O_WRONLY, 0600)
+	copy, _ := nativeOnlineCopyFixture(t)
+	file, err := copy.original.OpenFile("control-db/state", os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +51,7 @@ func TestNativeOnlineCopyRejectsControlMetadataAppend(t *testing.T) {
 	}
 }
 func TestNativeOnlineCopyRemovesOwnedScratch(t *testing.T) {
-	copy, _, parent := nativeOnlineCopyFixture(t)
+	copy, parent := nativeOnlineCopyFixture(t)
 	payload, err := copy.root.ReadFile("control-db/state")
 	if err != nil {
 		t.Fatal(err)
