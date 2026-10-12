@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -37,18 +38,20 @@ import (
 )
 
 type Executor struct {
-	Journal        Journal
-	Releases       ReleaseStore
-	Plans          PlanLoader
-	Facts          FactsReader
-	Podman         podman.Adapter
-	Systemd        systemd.Adapter
-	Units          Units
-	Routes         Routes
-	Health         Health
-	Compatibility  Compatibility
-	WriterStarts   WriterStarts
-	PersistentData PersistentData
+	Journal            Journal
+	Releases           ReleaseStore
+	Plans              PlanLoader
+	Facts              FactsReader
+	Podman             podman.Adapter
+	Systemd            systemd.Adapter
+	Units              Units
+	Routes             Routes
+	Health             Health
+	Compatibility      Compatibility
+	WriterStarts       WriterStarts
+	PersistentData     PersistentData
+	ManagedPreparation ManagedPreparation
+	Managed            ManagedRuntime
 	// EffectTimeout bounds individual non-health steps. Zero uses one minute.
 	EffectTimeout time.Duration
 }
@@ -94,6 +97,12 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 	}
 	if p.Lifecycle == plan.RemoveApp {
 		return e.runRemove(ctx, opID, p, d)
+	}
+	if p.Managed != nil && p.Managed.State == data.EngineUnpublished {
+		return e.runManagedPreparation(ctx, opID, p, d)
+	}
+	if p.Managed != nil {
+		return e.runManagedDeployment(ctx, opID, p, d)
 	}
 	x := &execution{executor: e, id: opID, plan: p, desired: d}
 	preflight := func(ctx context.Context) error {
@@ -420,7 +429,7 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		return err
 	}
 	timeout := x.executor.effectTimeout()
-	if name == "check_direct" || name == "check_routed" {
+	if name == "check_direct" || name == "check_routed" || managedHealthStep(x.plan, name) {
 		timeout = time.Duration(x.desired.Health.StartupDeadlineSeconds) * time.Second
 	}
 	if name == "rollback_check" {

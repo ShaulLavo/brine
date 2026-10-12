@@ -23,6 +23,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
@@ -114,6 +115,13 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	}
 	closers = append(closers, permits.Close)
 	preparation := DataPreparation{Runner: localexec.ExecRunner{}, State: state, StateRoot: stateDir, Home: identity.HomeDir, Permits: permits.Reader, Publisher: replication.ArtifactPublisher{StateRoot: stateDir, UnitRoot: filepath.Join(identity.HomeDir, ".config/systemd/user")}, Services: replication.NewServices(session), Units: runtimeSystemd}
+	observer := managedEngineObserver{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session, units: runtimeSystemd}
+	managed := managedRuntime{state: state, observer: observer, home: identity.HomeDir, routes: manager, loggingFacts: caddyValidator{session}.loggingFacts}
+	preparation.managedObserver = &observer
+	service.managedObserver = &observer
+	service.managedPreparation = preparation
+	service.managedAuthority = managed
+	service.managedLoggingFacts = caddyValidator{session}.loggingFacts
 	engine := apply.Executor{PersistentData: preparation, WriterStarts: DataWriterStarts{Store: state}, Compatibility: DataCompatibility{Store: state}, Journal: state, Releases: releases{state}, Plans: state, Podman: podman.New(session), Systemd: runtimeSystemd, Units: units, Health: policyHealth{loader}, Routes: apply.GenerationRoutes{
 		Manager: manager,
 		Main:    func(ctx context.Context) ([]byte, error) { return trustedRead(ctx, "/etc/caddy/Caddyfile", 1<<20) },
@@ -125,9 +133,26 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 			return caddy.NewSite(App(d), p, spec.Port(port))
 		},
 	}}
+	engine.Managed = managed
+	engine.ManagedPreparation = preparation
+	routes := engine.Routes.(apply.GenerationRoutes)
+	routes.ManagedSite = func(ctx context.Context, d policy.Desired, m plan.ManagedServicePlan) (caddy.Site, error) {
+		pol, err := loader.Load(ctx)
+		if err != nil {
+			return caddy.Site{}, err
+		}
+		site, err := caddy.NewManagedSite(d, pol, m)
+		if err != nil {
+			return caddy.Site{}, err
+		}
+		return caddy.WithManagedAuthority(site, managed)
+	}
+	engine.Routes = routes
 	reconciler := newReconciler(service, engine, runtimeSystemd)
 	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
 	appService := apps.Service{Data: service.Data, Store: state, Inventory: collector, Probe: apps.HTTPProbe{}, LoadPolicy: loader.Load}
+	appService.Managed = managedStatusReader{state: state, preparation: preparation, observer: observer}
+	appService.ManagedFacts = managedAppFacts{service: service}
 	secretService := secrets.Service{Store: state, Podman: podman.New(session), LoadPolicy: loader.Load, Requester: requester}
 	rotation := backupcredentials.Rotator{Journal: rotationJournal{state: state}, Host: replicaRotation{state: state, stateRoot: stateDir, home: identity.HomeDir, services: replication.NewServices(session), units: runtimeSystemd, permits: permits.Reader}}
 	taskJobs := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
@@ -274,4 +299,11 @@ func (u lazyUnits) RemoveArchived(ctx context.Context, name, hash string) error 
 
 func (u lazyUnits) InspectArchiveRemove(ctx context.Context, name, hash string) (bool, error) {
 	return quadlet.InspectArchiveRemove(ctx, u.home, name, hash)
+}
+
+func (u lazyUnits) RemoveRetained(ctx context.Context, name, hash string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.RemoveRetained(ctx, name, hash) })
+}
+func (u lazyUnits) RestoreRemoved(ctx context.Context, name, hash string) error {
+	return u.withManager(func(m *quadlet.Manager) error { return m.RestoreRemoved(ctx, name, hash) })
 }

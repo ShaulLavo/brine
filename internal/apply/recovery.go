@@ -64,6 +64,9 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if !prefixOK {
 		return r, nil
 	}
+	if p.Managed != nil {
+		return e.inspectManagedRecovery(ctx, op, p, d, events, r)
+	}
 	if p.Lifecycle == plan.ReviseReplica {
 		return e.inspectReplicaRevisionRecovery(ctx, op, p, d, events, r)
 	}

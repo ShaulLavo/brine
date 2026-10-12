@@ -20,6 +20,8 @@ const (
 	NativeCapture        Kind = "native_capture"
 	NativeRestoreTest    Kind = "native_restore_test"
 	NativePrepare        Kind = "native_prepare"
+	ModulePublishApply   Kind = "module_publish_apply"
+	ModulePublishResolve Kind = "module_publish_resolve"
 )
 
 // Intent contains identity and references only. Secret values cannot be stored.
@@ -81,7 +83,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy, Resolve:
 		return Transitions()
-	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare:
+	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, ModulePublishApply, ModulePublishResolve:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
 	case SecretSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}

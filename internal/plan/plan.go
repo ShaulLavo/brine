@@ -83,18 +83,20 @@ type Input struct {
 	Desired  policy.Desired
 	Snapshot target.Snapshot
 	// Image is manifest metadata supplied by the caller, never looked up by Build.
-	Image Image
-	State BrineState
+	Image   Image
+	State   BrineState
+	Managed *ManagedFacts
 }
 
 // BrineState comes from the target control database, not host observation. It
 // binds committed releases to the snapshot identity and control generation.
 // Releases must be non-nil; [] affirmatively records no committed releases.
 type BrineState struct {
-	Target           target.Identity   `json:"target"`
-	Generation       uint64            `json:"generation"`
-	Releases         []CurrentRelease  `json:"releases"`
-	DataIncarnations []DataIncarnation `json:"data_incarnations,omitempty"`
+	Target              target.Identity                 `json:"target"`
+	Generation          uint64                          `json:"generation"`
+	Releases            []CurrentRelease                `json:"releases"`
+	DataIncarnations    []DataIncarnation               `json:"data_incarnations,omitempty"`
+	ManagedReservations []target.ManagedPortReservation `json:"managed_reservations,omitempty"`
 }
 
 // DataIncarnation records live persistent ownership independently of releases.
@@ -105,15 +107,16 @@ type DataIncarnation struct {
 }
 
 type CurrentRelease struct {
-	App             string           `json:"app"`
-	ID              string           `json:"id"`
-	Desired         policy.Desired   `json:"desired"`
-	Image           Image            `json:"image"`
-	HostPort        target.Port      `json:"host_port"`
-	Secrets         []SecretBinding  `json:"secrets"`
-	Units           []target.Unit    `json:"units"`
-	CaddyFile       target.CaddyFile `json:"caddy_file"`
-	CaddyGeneration uint64           `json:"caddy_generation"`
+	App             string              `json:"app"`
+	ID              string              `json:"id"`
+	Desired         policy.Desired      `json:"desired"`
+	Image           Image               `json:"image"`
+	HostPort        target.Port         `json:"host_port"`
+	Secrets         []SecretBinding     `json:"secrets"`
+	Units           []target.Unit       `json:"units"`
+	CaddyFile       target.CaddyFile    `json:"caddy_file"`
+	CaddyGeneration uint64              `json:"caddy_generation"`
+	Managed         *ManagedServicePlan `json:"managed,omitempty"`
 }
 
 type SecretBinding struct {
@@ -189,9 +192,13 @@ type ReplicaPrevious struct {
 }
 
 type Plan struct {
-	ManagedPreview      *ManagedBlueprint     `json:"managed_preview,omitempty"`
-	SchemaArtifacts     []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
-	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
+	ManagedPreview        *ManagedBlueprint     `json:"managed_preview,omitempty"`
+	SchemaArtifacts       []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
+	DatabaseEnvironment   []policy.Environment  `json:"database_environment,omitempty"`
+	Managed               *ManagedServicePlan   `json:"managed,omitempty"`
+	ManagedLifecycle      *ManagedLifecyclePlan `json:"managed_lifecycle,omitempty"`
+	ManagedRouteRevision  uint64                `json:"managed_route_revision,omitempty"`
+	ManagedIntentRevision uint64                `json:"managed_intent_revision,omitempty"`
 
 	decisionInput      []byte
 	ReplicaPrevious    *ReplicaPrevious               `json:"replica_previous,omitempty"`
@@ -227,6 +234,12 @@ type Plan struct {
 // puts every set and ordered change in canonical order. Callers must not mutate
 // a returned Plan before serializing or storing it under its Hash.
 func (p Plan) CanonicalBytes() ([]byte, error) {
+	if p.Managed != nil && (!p.Managed.Valid() || len(p.SchemaArtifacts) != 0 || len(p.DataAllocations) != 0 || len(p.DataMounts) != 0 || len(p.DataSchemas) != 0 || len(p.DataCredentials) != 0 || p.Backup != nil || p.Runtime != nil || p.ReplicaPrevious != nil) {
+		return nil, fmt.Errorf("managed plan contains foreign data payload")
+	}
+	if p.ManagedLifecycle != nil && (p.Managed == nil || !p.ManagedLifecycle.Valid(p.Lifecycle, *p.Managed, p.ManagedIntentRevision)) {
+		return nil, fmt.Errorf("invalid managed lifecycle intent")
+	}
 	b, e := json.Marshal(p)
 	if e != nil {
 		return nil, e
@@ -259,6 +272,9 @@ func Build(in Input) (Plan, error) {
 		in.Image.ManifestDigest.Value = &detached
 	}
 	if in.Desired.SpacetimeDB != nil {
+		if in.Managed != nil && in.Managed.Runtime != nil && in.Managed.Runtime.State == data.EngineInitialized {
+			return buildManagedDeployment(in, desired)
+		}
 		return buildManagedPreview(in, desired)
 	}
 	in.Snapshot = portAdmissionSnapshot(in)
@@ -286,6 +302,11 @@ func Build(in Input) (Plan, error) {
 	p := Plan{SchemaArtifacts: slices.Clone(in.Desired.SchemaArtifacts), DatabaseEnvironment: in.Desired.DatabaseEnvironmentValues(), SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{}}
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
+	}
+	for _, reservation := range in.State.ManagedReservations {
+		if reservation.App == p.App {
+			add(ArtifactDrift, "managed_engine_ownership")
+		}
 	}
 	for _, release := range in.State.Releases {
 		if release.App == p.App && CadenceOnly(in.Desired, release.Desired) && reflect.DeepEqual(in.Image, release.Image) {
@@ -436,6 +457,10 @@ func Build(in Input) (Plan, error) {
 		for _, committed := range in.State.Releases {
 			reserved[committed.App] = committed.HostPort
 			busy[committed.HostPort] = true
+		}
+		for _, reservation := range in.State.ManagedReservations {
+			busy[reservation.EnginePort] = true
+			busy[reservation.FrontendPort] = true
 		}
 		for _, a := range *in.Snapshot.Apps.Value {
 			_, committed := reserved[a.Name]
@@ -595,12 +620,16 @@ func reconcileCommittedCaddy(release CurrentRelease, files []target.CaddyFile, l
 }
 
 func deploymentCapabilities(s target.Snapshot, add func(ConflictCode, string)) {
+	deploymentCapabilitiesWithCaddy(s, add, "2.6")
+}
+
+func deploymentCapabilitiesWithCaddy(s target.Snapshot, add func(ConflictCode, string), caddyVersion string) {
 	for _, r := range []struct {
 		field    string
 		value    target.Observation[string]
 		baseline string
 	}{
-		{"versions.systemd", s.Versions.Systemd, "257"}, {"versions.podman", s.Versions.Podman, "5.4"}, {"versions.caddy", s.Versions.Caddy, "2.6"}, {"versions.passt", s.Versions.Passt, ""}, {"runner.user", s.Runner.User, ""},
+		{"versions.systemd", s.Versions.Systemd, "257"}, {"versions.podman", s.Versions.Podman, "5.4"}, {"versions.caddy", s.Versions.Caddy, caddyVersion}, {"versions.passt", s.Versions.Passt, ""}, {"runner.user", s.Runner.User, ""},
 	} {
 		switch r.value.Status {
 		case target.Unknown:
@@ -716,6 +745,9 @@ func canonicalState(state BrineState) ([]byte, error) {
 	state = BrineState{}
 	if e = json.Unmarshal(raw, &state); e != nil {
 		return nil, e
+	}
+	if err := canonicalManagedReservations(state.ManagedReservations); err != nil {
+		return nil, err
 	}
 	slices.SortFunc(state.DataIncarnations, func(a, b DataIncarnation) int { return strings.Compare(a.App, b.App) })
 	incarnations := make(map[string]bool, len(state.DataIncarnations))

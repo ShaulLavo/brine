@@ -143,23 +143,30 @@ func PersistentExcludedRoots(home, stateDir string) []string {
 func (f DataFacts) InspectPreparationRoots(ctx context.Context, desired policy.Desired) ([]data.RootEvidence, error) {
 	roots := []data.RootEvidence{}
 	seen := map[data.PersistentRoot]bool{}
+	declared := make([]data.PersistentRoot, 0, len(desired.Databases)+1)
 	for _, declaration := range desired.Databases {
+		declared = append(declared, declaration.PersistentRoot)
+	}
+	if desired.SpacetimeDB != nil {
+		declared = append(declared, desired.SpacetimeDB.PersistentRoot)
+	}
+	for _, persistentRoot := range declared {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		if !slices.Contains(desired.PersistentRoots, declaration.PersistentRoot) {
+		if !slices.Contains(desired.PersistentRoots, persistentRoot) {
 			return nil, data.ErrInvalid
 		}
 		for _, excluded := range f.ExcludedRoots {
-			if data.OverlappingPaths(string(declaration.PersistentRoot), excluded) {
+			if data.OverlappingPaths(string(persistentRoot), excluded) {
 				return nil, data.ErrInvalid
 			}
 		}
-		if seen[declaration.PersistentRoot] {
+		if seen[persistentRoot] {
 			continue
 		}
-		seen[declaration.PersistentRoot] = true
-		root, err := data.InspectRoot(string(declaration.PersistentRoot))
+		seen[persistentRoot] = true
+		root, err := data.InspectRoot(string(persistentRoot))
 		if err != nil {
 			return nil, err
 		}

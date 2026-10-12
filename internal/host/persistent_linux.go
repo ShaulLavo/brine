@@ -24,6 +24,7 @@ import (
 )
 
 type DataPreparation struct {
+	managedObserver *managedEngineObserver
 	Now             func() time.Time
 	Runner          localexec.Runner
 	ProbeRoot       func(context.Context, string) (data.RootEvidence, error)

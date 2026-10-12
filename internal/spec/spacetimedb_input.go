@@ -15,7 +15,7 @@ func ValidateManagedApp(a App) error {
 	}
 	d := a.SpacetimeDB
 	raw := map[string]any{"schema_version": a.SchemaVersion, "name": string(a.Name), "domains": domains,
-		"databases": []map[string]any{{"engine": "spacetimedb", "name": string(d.Name), "persistent_root": string(d.PersistentRoot), "backup_destination": string(d.BackupDestination), "spacetimedb": d.TOMLValue()}}}
+		"databases": []map[string]any{{"engine": "spacetimedb", "name": string(d.Name), "persistent_root": string(d.PersistentRoot), "backup_destination": string(d.BackupDestination), "recovery_password_ref": string(d.RecoveryPasswordRef), "spacetimedb": d.TOMLValue()}}}
 	rows := make([]map[string]any, 0, len(a.SchemaCompatibility))
 	for _, c := range a.SchemaCompatibility {
 		rows = append(rows, map[string]any{"database": string(c.Database), "accepts": c.Accepts, "startup": c.Startup})

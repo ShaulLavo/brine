@@ -67,6 +67,12 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 			return cli.RuntimeServices{}, err
 		}
 		return cli.RuntimeServices{EngineExec: runtime.EngineExec, EngineStop: runtime.EngineStop, Close: runtime.Close}, nil
+	}, OpenManagedFrontendPermit: func(ctx context.Context) (cli.RuntimeServices, error) {
+		runtime, err := host.OpenManagedFrontendPermit(ctx)
+		if err != nil {
+			return cli.RuntimeServices{}, err
+		}
+		return cli.RuntimeServices{ManagedFrontendPermit: runtime.Permit, Close: runtime.Close}, nil
 	}}
 	deps.HostEngineCopyObserve = host.RunEngineCopyObserver
 	if cli.HostServeRequested(args) {

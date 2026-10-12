@@ -51,6 +51,9 @@ func normalizeManaged(a spec.App, p Policy) (Desired, error) {
 	if !ok {
 		return Desired{}, refuse("policy.backup_destination_unknown", "databases.backup_destination", "backup destination is not allowed")
 	}
+	if string(engine.RecoveryPasswordRef) == destination.CredentialRef {
+		return Desired{}, refuse("policy.recovery_dependency_invalid", "databases.recovery_password_ref", "recovery and S3 references must be distinct")
+	}
 	for _, ref := range engine.References() {
 		if err := p.CheckSecret(a.Name, ref); err != nil {
 			return Desired{}, err
@@ -165,6 +168,9 @@ func ValidateManagedDesired(d Desired) error {
 		return data.ErrInvalid
 	}
 	if len(d.Databases) != 0 || d.Runtime != nil || d.Backup != nil || len(d.RestoreInvariants) != 0 || len(d.SchemaDefinitions) != 0 || len(d.SchemaArtifacts) != 0 || !slices.Contains(d.PersistentRoots, d.SpacetimeDB.PersistentRoot) || len(d.BackupDestinations) != 1 || d.BackupDestinations[0].Reference != d.SpacetimeDB.BackupDestination || d.BackupDestinations[0].Validate() != nil {
+		return data.ErrInvalid
+	}
+	if string(d.SpacetimeDB.RecoveryPasswordRef) == d.BackupDestinations[0].CredentialRef {
 		return data.ErrInvalid
 	}
 	if len(d.Environment) != len(managedApp(d).Environment) || len(d.Secrets) != len(managedApp(d).Secrets) {

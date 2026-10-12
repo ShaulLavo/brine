@@ -23,7 +23,11 @@ func newDataCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if err != nil {
 			return result.New(result.InvalidUsage, err)
 		}
-		response, err := flags.call(cmd.Context(), deps, "data_prepare_plan", dispatch.PlanArgs{Spec: string(raw), SchemaArtifacts: app.SchemaArtifacts})
+		request, err := dispatch.NewPlanArgs(string(raw), app)
+		if err != nil {
+			return result.New(result.InvalidUsage, err)
+		}
+		response, err := flags.call(cmd.Context(), deps, "data_prepare_plan", request)
 		if err != nil {
 			return err
 		}
