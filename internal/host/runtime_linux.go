@@ -168,6 +168,9 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	r.ModulePublications = publicationOperations
 	r.Runner.TaskHandlers[ops.ModulePublishApply] = modulePublicationApplyTask(publicationOperations)
 	r.Runner.TaskHandlers[ops.ModulePublishResolve] = modulePublicationResolveTask(publicationOperations)
+	resolutionOperations := nativeBackupResolutionOperations{service: service, jobs: taskJobs, runtime: nativeRuntime}
+	r.NativeBackupResolution = resolutionOperations
+	r.Runner.TaskHandlers[ops.NativeBackupResolve] = resolutionOperations.task
 	r.Runner.TaskHandlers[ops.NativeCapture] = nativeOnlineCaptureTask(service, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativeRestoreTest] = nativeHistoricalRestoreTask(service, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativePrepare] = nativePrepareTask(service, stateDir, identity.HomeDir, nativeRuntime)

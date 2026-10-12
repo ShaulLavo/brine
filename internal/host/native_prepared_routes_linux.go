@@ -109,6 +109,12 @@ func (r nativeBackupRuntime) preparedRouteStates(ctx context.Context, service Se
 	if err != nil || planErr != nil || planned.App != app || record.App != app || desired.Name != spec.Name(app) {
 		return nil, caddy.State{}, caddy.State{}, errEngineSource
 	}
+	return r.preparedObservedRouteStates(ctx, service, record)
+}
+func (r nativeBackupRuntime) preparedObservedRouteStates(ctx context.Context, service Service, record store.NativePreparedRoutes) (*caddy.Manager, caddy.State, caddy.State, error) {
+	if r.routes == nil {
+		return nil, caddy.State{}, caddy.State{}, errEngineSource
+	}
 	snapshot, err := service.Inventory.Collect(ctx)
 	if err != nil || snapshot.Generation.Status != target.KnownStatus || snapshot.Generation.Value == nil {
 		return nil, caddy.State{}, caddy.State{}, errEngineSource

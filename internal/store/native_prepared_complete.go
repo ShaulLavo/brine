@@ -57,7 +57,7 @@ type nativePreparedVerification struct {
 }
 
 func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *NativeStoppedPreparation, extracted restic.AuthenticatedRestore, observed NativePreparedObservation) (NativePreparedPointView, error) {
-	if s.readOnly || !stopped.active(s) || stopped.completedPointSHA256 != "" {
+	if s.readOnly || !stopped.active(s) || stopped.completedPointSHA256 != "" || stopped.preparation.inspection != nil && stopped.preparation.inspection.resolver == "" {
 		return NativePreparedPointView{}, ErrConflict
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -68,6 +68,11 @@ func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *Native
 	defer func() { _ = tx.Rollback() }()
 	if err := checkNativeStoppedCapability(ctx, tx, stopped); err != nil {
 		return NativePreparedPointView{}, err
+	}
+	if stopped.preparation.inspection != nil {
+		if err := checkNativeRetainedUploadObservation(ctx, tx, stopped.OperationID(), observed); err != nil {
+			return NativePreparedPointView{}, err
+		}
 	}
 	if checkNativePreparedSourceRuntime(ctx, tx, stopped, observed.Source) != nil {
 		return NativePreparedPointView{}, ErrConflict
@@ -89,6 +94,28 @@ func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *Native
 		return NativePreparedPointView{}, ErrInvalid
 	}
 	i := stopped.preparation.intent
+	if stopped.preparation.inspection != nil {
+		var retainedRaw []byte
+		retainedErr := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_prepared_points WHERE id=?", i.PointID).Scan(&retainedRaw)
+		if retainedErr == nil {
+			retainedTransport, transportErr := nativeResolvedTransportMatches(ctx, tx, i.PointID, "prepared", observed.Transport)
+			if transportErr != nil {
+				return NativePreparedPointView{}, transportErr
+			}
+			retained, decodeErr := decodeNativePreparedPoint(retainedRaw)
+			if decodeErr != nil || retained.view.SourceSHA256 != observed.Source.SHA256() || retained.view.BundleManifestSHA256 != observed.Manifest.SHA256() || retained.view.SourceSealSHA256 != observed.SourceSealSHA256 || retained.view.StopProofSHA256 != stopped.stopSHA256 {
+				return NativePreparedPointView{}, ErrConflict
+			}
+			if _, err := decodeNativePreparedBundle(ctx, tx, retained, sourceRaw, observed.Manifest.Bytes(), retainedTransport, observed.SourceEvidence.Bytes(), observed.RestoredEvidence.Bytes(), observed.ConfirmedBound.Bytes(), observed.FinalPairs.Bytes()); err != nil {
+				return NativePreparedPointView{}, err
+			}
+			retained.view.PointSHA256 = retained.hash
+			return retained.view, tx.Commit()
+		}
+		if !errors.Is(retainedErr, sql.ErrNoRows) {
+			return NativePreparedPointView{}, retainedErr
+		}
+	}
 	now := time.Now().UTC()
 	v := NativePreparedPointView{Format: nativePreparedPointFormat, PointID: i.PointID, PreparationOperationID: i.OperationID, FenceOwnerOpID: i.OperationID, FenceID: i.FenceID, BindingID: i.BindingID, EpochID: i.EpochID, DatabaseID: i.DatabaseID, IncarnationID: i.IncarnationID, Generation: i.Generation, PolicySHA256: i.PolicySHA256, RuntimeVersion: i.RuntimeVersion, RuntimeSHA256: i.RuntimeSHA256, AllocationID: string(i.DatabaseID), AllocationSHA256: i.AllocationSHA256, SourceKind: i.SourceKind, SourceSHA256: observed.Source.SHA256(), SourceSealSHA256: observed.SourceSealSHA256, StopProofSHA256: stopped.stopSHA256, BundleManifestSHA256: observed.Manifest.SHA256(), TransportPointSHA256: nativePointHash(transportRaw), Names: []string{}, PreparedAt: now, ExpiresAt: now.Add(10 * time.Minute), RetainUntil: now.Add(30 * 24 * time.Hour)}
 	var sourceEvidence, restoredEvidence, confirmed, final []byte

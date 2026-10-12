@@ -130,22 +130,29 @@ func checkNativeVerifiedPointBundle(ctx context.Context, tx *sql.Tx, point nativ
 		return err
 	}
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", point.view.OperationID))
-	if err != nil || op.Kind != ops.NativeCapture || op.State != ops.Succeeded {
+	if err != nil || op.Kind != ops.NativeCapture || op.State != ops.Succeeded && op.State != ops.RecoveryRequired {
 		return errors.Join(ErrConflict, err)
 	}
 	input, err := readNativeTaskInput(ctx, tx, op)
 	if err != nil || input.BindingID != point.view.BindingID {
 		return errors.Join(&IntegrityError{}, err)
 	}
-	var outcomeRaw []byte
-	if err := tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", op.ID).Scan(&outcomeRaw); err != nil {
+	var receiptRaw json.RawMessage
+	if op.State == ops.RecoveryRequired {
+		receiptRaw, err = readNativeBackupResolvedReceipt(ctx, tx, op)
+	} else {
+		var outcomeRaw []byte
+		err = tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", op.ID).Scan(&outcomeRaw)
+		if err == nil {
+			var outcome ops.TaskOutcome
+			outcome, err = ops.DecodeTaskOutcome(op, outcomeRaw)
+			receiptRaw = outcome.Receipt
+		}
+	}
+	if err != nil {
 		return errors.Join(&IntegrityError{}, err)
 	}
-	outcome, err := ops.DecodeTaskOutcome(op, outcomeRaw)
-	if err != nil {
-		return &IntegrityError{}
-	}
-	receipt, err := nativecapture.DecodeTaskReceipt(outcome.Receipt)
+	receipt, err := nativecapture.DecodeTaskReceipt(receiptRaw)
 	if err != nil || receipt.PointID != point.view.PointID || receipt.PointSHA256 != point.hash || receipt.BindingID != string(point.view.BindingID) || receipt.EpochID != string(point.view.EpochID) {
 		return &IntegrityError{}
 	}

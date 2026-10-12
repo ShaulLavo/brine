@@ -20,52 +20,53 @@ const Version = "0.1.14-dev"
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
 type Dependencies struct {
-	Context                   context.Context
-	Stdin                     io.Reader // Borrowed exclusively during secret reads; see readSecretInput.
-	Stdout                    io.Writer
-	Stderr                    io.Writer
-	Version                   string
-	LookPath                  func(string) (string, error)
-	RunTUI                    func(context.Context, io.Reader, io.Writer) error
-	DoctorRunner              localexec.Runner // Optional; nil uses bounded local execution.
-	HostServerFactory         dispatch.Factory
-	HostPlanner               dispatch.Planner
-	HostInventory             dispatch.Inventory
-	HostUID                   func() int // Optional; nil reads the effective process UID.
-	OriginalCommandLength     int
-	HostJobs                  dispatch.JobOperations
-	HostAuthorization         dispatch.Authorization
-	HostReconciler            dispatch.ReconcileOperations
-	HostOperationRunner       OperationRunner
-	OperationClient           OperationClient
-	LoadOperationTarget       func(string, string) (transport.Target, error)
-	HostLogs                  dispatch.LogReader
-	LogsClient                LogsClient
-	HostApps                  dispatch.AppOperations
-	HostDiagnose              dispatch.DiagnosticReader
-	HostConfig                dispatch.ConfigurationOperations
-	HostSecrets               dispatch.SecretOperations
-	HostWriterAttempt         func(context.Context, string) error
-	HostEngineExec            func(context.Context, string) error
-	HostEngineStop            func(context.Context, string) error
-	HostManagedFrontendPermit func(context.Context, string, string) error
-	HostEngineCopyObserve     func(context.Context, io.Reader, io.Writer) error
-	HostModuleDescribe        func(context.Context, io.Reader, io.Writer) error
-	HostModuleDescribeProfile func(context.Context, io.Reader, io.Writer) error
-	HostModuleStage           func(context.Context, io.Reader, io.Writer) error
-	HostBackupCredentials     dispatch.BackupCredentialOperations
-	HostArchives              ArchiveOperations
-	HostArchiveMaintenance    ArchiveMaintenanceOperations
-	HostArchiveCredentials    ArchiveCredentialOperations
-	HostDataInitialization    dispatch.DataInitializationOperations
-	HostPermits               replication.LaunchReader
-	HostRestoreTests          dispatch.RestoreTestOperations
-	HostNativeCapture         func(context.Context, string) (jobs.Accepted, error)
-	HostNativeBackupStatus    dispatch.NativeBackupStatusOperations
-	HostNativeBackupPolicy    dispatch.NativeBackupPolicyOperations
-	HostNativeRecovery        dispatch.NativeRecoveryOperations
-	HostNativeMaterial        dispatch.NativeMaterialOperations
-	HostNativeBackups         dispatch.NativeBackupOperations
+	Context                    context.Context
+	Stdin                      io.Reader // Borrowed exclusively during secret reads; see readSecretInput.
+	Stdout                     io.Writer
+	Stderr                     io.Writer
+	Version                    string
+	LookPath                   func(string) (string, error)
+	RunTUI                     func(context.Context, io.Reader, io.Writer) error
+	DoctorRunner               localexec.Runner // Optional; nil uses bounded local execution.
+	HostServerFactory          dispatch.Factory
+	HostPlanner                dispatch.Planner
+	HostInventory              dispatch.Inventory
+	HostUID                    func() int // Optional; nil reads the effective process UID.
+	OriginalCommandLength      int
+	HostJobs                   dispatch.JobOperations
+	HostAuthorization          dispatch.Authorization
+	HostReconciler             dispatch.ReconcileOperations
+	HostOperationRunner        OperationRunner
+	OperationClient            OperationClient
+	LoadOperationTarget        func(string, string) (transport.Target, error)
+	HostLogs                   dispatch.LogReader
+	LogsClient                 LogsClient
+	HostApps                   dispatch.AppOperations
+	HostDiagnose               dispatch.DiagnosticReader
+	HostConfig                 dispatch.ConfigurationOperations
+	HostSecrets                dispatch.SecretOperations
+	HostWriterAttempt          func(context.Context, string) error
+	HostEngineExec             func(context.Context, string) error
+	HostEngineStop             func(context.Context, string) error
+	HostManagedFrontendPermit  func(context.Context, string, string) error
+	HostEngineCopyObserve      func(context.Context, io.Reader, io.Writer) error
+	HostModuleDescribe         func(context.Context, io.Reader, io.Writer) error
+	HostModuleDescribeProfile  func(context.Context, io.Reader, io.Writer) error
+	HostModuleStage            func(context.Context, io.Reader, io.Writer) error
+	HostBackupCredentials      dispatch.BackupCredentialOperations
+	HostArchives               ArchiveOperations
+	HostArchiveMaintenance     ArchiveMaintenanceOperations
+	HostArchiveCredentials     ArchiveCredentialOperations
+	HostDataInitialization     dispatch.DataInitializationOperations
+	HostPermits                replication.LaunchReader
+	HostRestoreTests           dispatch.RestoreTestOperations
+	HostNativeCapture          func(context.Context, string) (jobs.Accepted, error)
+	HostNativeBackupResolution dispatch.NativeBackupResolutionOperations
+	HostNativeBackupStatus     dispatch.NativeBackupStatusOperations
+	HostNativeBackupPolicy     dispatch.NativeBackupPolicyOperations
+	HostNativeMaterial         dispatch.NativeMaterialOperations
+	HostNativeRecovery         dispatch.NativeRecoveryOperations
+	HostNativeBackups          dispatch.NativeBackupOperations
 }
 
 // NewRootCommand builds an independent command tree without executing it.

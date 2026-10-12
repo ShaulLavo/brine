@@ -21,6 +21,7 @@ type NativeBackupActivation struct {
 	operationID string
 	plan        NativeBackupRevisionPlan
 	claim       []byte
+	inspection  *NativeBackupInspection
 }
 
 func (a *NativeBackupActivation) active() bool {
@@ -114,14 +115,21 @@ func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *Native
 	if !a.active() {
 		return NativeBackupActivationMetadata{}, ErrConflict
 	}
-	plan, err := readNativeBackupRevisionPlan(ctx, tx, a.plan.ID)
+	var plan NativeBackupRevisionPlan
+	var err error
+	if a.inspection != nil {
+		err = a.inspection.check(ctx, tx)
+		plan = a.plan
+	} else {
+		plan, err = readNativeBackupRevisionPlan(ctx, tx, a.plan.ID)
+	}
 	if err != nil {
 		return NativeBackupActivationMetadata{}, err
 	}
 	var claim []byte
 	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_backup_revision_claims WHERE plan_id=? AND operation_id=?", plan.ID, a.operationID).Scan(&claim)
 	op, opErr := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", a.operationID))
-	if err != nil || !bytes.Equal(claim, a.claim) || opErr != nil || op.Kind != ops.NativeBackupActivate || op.State != ops.Preflight || op.Requester != plan.Requester || op.SecretRef != plan.ID || op.App != plan.App {
+	if err != nil || !bytes.Equal(claim, a.claim) || opErr != nil || op.Kind != ops.NativeBackupActivate || (a.inspection == nil && op.State != ops.Preflight || a.inspection != nil && op.State != ops.RecoveryRequired) || op.Requester != plan.Requester || op.SecretRef != plan.ID || op.App != plan.App {
 		return NativeBackupActivationMetadata{}, ErrConflict
 	}
 	permit, err := readEnginePermit(ctx, tx, plan.BindingID)
@@ -130,12 +138,26 @@ func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *Native
 		return NativeBackupActivationMetadata{}, errors.Join(ErrConflict, err)
 	}
 	previous, _, err := readNativeBackupPolicy(ctx, tx, plan.BindingID)
+	if a.inspection != nil {
+		previous, err = readNativeBackupPreviousPolicy(ctx, tx, plan)
+	}
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return NativeBackupActivationMetadata{}, err
 	}
 	var inherited NativeRepositoryMaterial
 	if previous.Revision != 0 {
-		inherited, err = readNativeCurrentRepositoryMaterialRecords(ctx, tx, permit)
+		if a.inspection != nil && previous.EpochID == plan.EpochID {
+			inherited.Scope.RepositoryID = previous.RepositoryID
+		} else if a.inspection != nil {
+			epoch, archive, epochErr := readNativeEpoch(ctx, tx, plan.BindingID, plan.EpochID)
+			if epochErr != nil {
+				return NativeBackupActivationMetadata{}, epochErr
+			}
+			scope := restic.Scope{BindingID: string(plan.BindingID), EpochID: string(plan.EpochID), RepositoryID: epoch.Record().RepositoryID, DestinationSHA256: nativeArchiveLocation(archive).SHA256(), CredentialVersion: previous.CredentialVersion, RecoveryVersion: previous.RecoveryVersion}
+			inherited, err = readNativeInheritedRepositoryMaterial(ctx, tx, restic.TransportPoint{Scope: scope}, archive, map[string]bool{})
+		} else {
+			inherited, err = readNativeCurrentRepositoryMaterialRecords(ctx, tx, permit)
+		}
 		if err != nil {
 			return NativeBackupActivationMetadata{}, err
 		}
@@ -173,6 +195,9 @@ func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *Native
 	scope := restic.Scope{BindingID: string(plan.BindingID), EpochID: string(plan.EpochID), RepositoryID: previous.RepositoryID, DestinationSHA256: location.SHA256(), CredentialVersion: credential.Version, RecoveryVersion: recovery.Version, ExpiresAt: plan.ExpiresAt}
 	if previous.Revision != 0 {
 		scope.RepositoryID = inherited.Scope.RepositoryID
+	}
+	if a.inspection != nil {
+		scope.ExpiresAt = a.inspection.deadline
 	}
 	if credential.ExpiresAt != nil && scope.ExpiresAt.After(*credential.ExpiresAt) {
 		scope.ExpiresAt = *credential.ExpiresAt
@@ -295,7 +320,19 @@ func (a *NativeBackupActivation) RecordInitialized(ctx context.Context, proof re
 		return errors.Join(ErrConflict, err)
 	}
 	var stage string
-	if err := tx.QueryRowContext(ctx, "SELECT stage FROM data_native_backup_initialization_events WHERE operation_id=? ORDER BY sequence DESC LIMIT 1", a.operationID).Scan(&stage); err != nil || stage != "unknown" {
+	if err := tx.QueryRowContext(ctx, "SELECT stage FROM data_native_backup_initialization_events WHERE operation_id=? ORDER BY sequence DESC LIMIT 1", a.operationID).Scan(&stage); err != nil {
+		return ErrConflict
+	}
+	if a.inspection != nil && stage == "initialized" {
+		var raw []byte
+		var original nativeBackupInitEvent
+		err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_backup_initialization_events WHERE operation_id=? AND stage='initialized'", a.operationID).Scan(&raw)
+		if err != nil || json.Unmarshal(raw, &original) != nil || original.RepositoryID != proof.Scope().RepositoryID || original.ConfigSHA256 != proof.ConfigurationSHA256() {
+			return ErrConflict
+		}
+		return tx.Commit()
+	}
+	if stage != "unknown" {
 		return ErrConflict
 	}
 	event := nativeBackupInitEvent{OperationID: a.operationID, Stage: "initialized", Scope: metadata.Material.Scope, GrantSHA256: metadata.CreationGrantSHA256, RepositoryID: proof.Scope().RepositoryID, ConfigSHA256: proof.ConfigurationSHA256(), VerifiedAt: proof.VerifiedAt()}
@@ -376,7 +413,7 @@ func (a *NativeBackupActivation) Commit(ctx context.Context, observed NativeBack
 		var raw []byte
 		var initialized nativeBackupInitEvent
 		err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_backup_initialization_events WHERE operation_id=? AND stage='initialized'", a.operationID).Scan(&raw)
-		if err != nil || json.Unmarshal(raw, &initialized) != nil || initialized.RepositoryID != observed.RepositoryID || initialized.Scope != metadata.Material.Scope || !data.ValidCatalogHash(initialized.ConfigSHA256) {
+		if err != nil || json.Unmarshal(raw, &initialized) != nil || initialized.RepositoryID != observed.RepositoryID || (!sameNativeResolutionScope(initialized.Scope, metadata.Material.Scope) || a.inspection == nil && initialized.Scope.ExpiresAt != metadata.Material.Scope.ExpiresAt) || !data.ValidCatalogHash(initialized.ConfigSHA256) {
 			return nativecapture.BackupPolicyReceipt{}, ErrConflict
 		}
 	} else if metadata.Material.Scope.RepositoryID != observed.RepositoryID {
@@ -388,6 +425,19 @@ func (a *NativeBackupActivation) Commit(ctx context.Context, observed NativeBack
 		return nativecapture.BackupPolicyReceipt{}, ErrConflict
 	}
 	p, m := metadata.Plan, metadata.Material
+	if a.inspection != nil {
+		existing, existingErr := readNativeBackupInstalledPolicy(ctx, tx, p)
+		if existingErr == nil {
+			if existing.RepositoryID != observed.RepositoryID || existing.UnitSHA256 != observed.UnitSHA256 || existing.TimerSHA256 != observed.TimerSHA256 || existing.RecoveryDeliveryID != observed.RecoveryDeliveryID {
+				return nativecapture.BackupPolicyReceipt{}, ErrConflict
+			}
+			raw, _ := json.Marshal(existing)
+			return nativeBackupPolicyReceipt(a.operationID, p, nativePointHash(raw), existing), tx.Commit()
+		}
+		if !errors.Is(existingErr, sql.ErrNoRows) {
+			return nativecapture.BackupPolicyReceipt{}, existingErr
+		}
+	}
 	policy := NativeBackupPolicy{Format: "brine-native-backup-policy-v1", BindingID: p.BindingID, EpochID: p.EpochID, Revision: p.PreviousRevision + 1, OperationID: a.operationID, RevisionPlanID: p.ID, DeploymentPlanID: p.DeploymentPlanID, DesiredSHA256: p.DesiredSHA256, PolicySHA256: p.PolicySHA256, RepositoryID: observed.RepositoryID, CredentialReference: m.CredentialReference, CredentialVersion: m.Scope.CredentialVersion, CredentialReceiptID: m.CredentialReceiptID, RecoveryReference: m.RecoveryReference, RecoveryVersion: m.Scope.RecoveryVersion, RecoveryDeliveryID: deliveryID, RecoverySHA256: m.RecoverySHA256, Backup: p.Backup, UnitSHA256: observed.UnitSHA256, TimerSHA256: observed.TimerSHA256, ActivatedAt: time.Now().UTC()}
 	raw, _ := json.Marshal(policy)
 	var stage string

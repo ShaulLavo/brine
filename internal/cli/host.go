@@ -75,6 +75,7 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		server.BackupCredentials = deps.HostBackupCredentials
 		server.DataInitialization = deps.HostDataInitialization
 		server.RestoreTests = deps.HostRestoreTests
+		server.NativeBackupResolution = deps.HostNativeBackupResolution
 		server.NativeBackupStatus = deps.HostNativeBackupStatus
 		server.NativeBackupPolicy = deps.HostNativeBackupPolicy
 		server.NativeRecovery = deps.HostNativeRecovery

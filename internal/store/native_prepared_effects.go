@@ -10,7 +10,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/restic"
 )
 
-func (s *Store) RecordNativePreparedUploadIntent(ctx context.Context, stopped *NativeStoppedPreparation, source nativecapture.Source, manifest restic.Manifest) error {
+func (s *Store) RecordNativePreparedUploadIntent(ctx context.Context, stopped *NativeStoppedPreparation, source nativecapture.Source, manifest restic.Manifest, retained NativeUploadRetention) error {
 	if s.readOnly || !stopped.active(s) {
 		return ErrConflict
 	}
@@ -26,7 +26,14 @@ func (s *Store) RecordNativePreparedUploadIntent(ctx context.Context, stopped *N
 	if err := checkNativePreparedSourceRuntime(ctx, tx, stopped, source); err != nil {
 		return err
 	}
+	permit, err := readEnginePermit(ctx, tx, stopped.preparation.intent.BindingID)
+	if err != nil {
+		return err
+	}
 	pointID := stopped.PointID()
+	if err := retainNativeUpload(ctx, tx, permit, stopped.OperationID(), pointID, source, manifest, retained); err != nil {
+		return err
+	}
 	raw, _ := json.Marshal(struct {
 		PointID     string    `json:"point_id"`
 		SourceSHA   string    `json:"source_sha256"`

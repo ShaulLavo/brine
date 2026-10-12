@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
@@ -137,7 +138,22 @@ func checkNativePointCompletion(ctx context.Context, tx dataQuerier, point nativ
 	var kind ops.Kind
 	var state ops.State
 	err = tx.QueryRowContext(ctx, "SELECT kind,state FROM operations WHERE id=?", i.OperationID).Scan(&kind, &state)
-	if err != nil || kind != ops.NativePrepare || state != ops.Succeeded {
+	if err != nil || kind != ops.NativePrepare {
+		return errors.Join(ErrConflict, err)
+	}
+	if state == ops.RecoveryRequired {
+		original, err := nativeResolutionOperation(ctx, tx, i.OperationID)
+		if err != nil {
+			return err
+		}
+		receiptRaw, err := readNativeBackupResolvedReceipt(ctx, tx, original)
+		receipt, decodeErr := nativecapture.DecodeTaskReceipt(receiptRaw)
+		if err != nil || decodeErr != nil || receipt.PointID != point.view.PointID || receipt.PointSHA256 != point.hash || receipt.BindingID != string(point.view.BindingID) || receipt.EpochID != string(point.view.EpochID) {
+			return ErrConflict
+		}
+		return nil
+	}
+	if state != ops.Succeeded {
 		return errors.Join(ErrConflict, err)
 	}
 	return nil

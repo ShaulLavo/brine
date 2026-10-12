@@ -234,6 +234,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err != nil {
 		return nil, err
 	}
+	defer func() { taskErr = errors.Join(taskErr, module.close()) }()
 	confirmed, err := observeNativeConfirmed(ctx, permit, keys, module)
 	if err != nil || live.alive() != nil {
 		return nil, errEngineSource
@@ -297,7 +298,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 		return nil, err
 	}
 	defer func() { _ = bundle.Close() }()
-	if err := claim.UploadIntent(ctx, source, bundle.Manifest()); err != nil {
+	if err := claim.UploadIntent(ctx, source, bundle.Manifest(), store.NativeUploadRetention{Parent: parent, Workspace: path, SourceSealSHA256: copied.copied.hash, SourceEvidence: witness, ConfirmedBound: confirmed, FinalPairs: final, Artifact: artifact.Bytes(), Descriptor: module.descriptor}); err != nil {
 		return nil, err
 	}
 	retainWorkspace = true

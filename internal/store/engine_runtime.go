@@ -128,6 +128,9 @@ func (s *Store) CommitEngineRuntime(ctx context.Context, runtime data.EngineRunt
 }
 
 func admitEngineRuntimeCommit(ctx context.Context, tx *sql.Tx, reserved ReservedEngine, runtime data.EngineRuntime, fence data.FenceID, operation string) error {
+	if err := refusePendingNativeCaptureMutation(ctx, tx, reserved.Database.BindingID, operation); err != nil {
+		return err
+	}
 	var active int
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_active_incarnations WHERE incarnation_id=?", reserved.Database.IncarnationID).Scan(&active); err != nil || active != 1 {
 		return errors.Join(ErrConflict, err)
