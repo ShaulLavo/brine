@@ -231,7 +231,7 @@ func checkNativeRetainedRecoveryDelivery(ctx context.Context, q dataQuerier, ret
 	var kind ops.Kind
 	var state ops.State
 	err = q.QueryRowContext(ctx, "SELECT kind,state FROM operations WHERE id=? AND requester=?", operation, requester).Scan(&kind, &state)
-	if err != nil || kind != ops.Kind("native_recovery_set") || state != ops.Succeeded {
+	if err != nil || kind != ops.NativeRecoverySet || state != ops.Succeeded {
 		return errors.Join(&IntegrityError{}, err)
 	}
 	return nil

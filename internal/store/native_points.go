@@ -44,6 +44,8 @@ type NativePreparedPointView struct {
 	AllocationID           string                `json:"allocation_id"`
 	AllocationSHA256       string                `json:"allocation_sha256"`
 	SourceKind             string                `json:"source_kind"`
+	CommittedOffset        uint64                `json:"committed_offset"`
+	CommittedOffsetKnown   bool                  `json:"committed_offset_known"`
 	SourceSHA256           string                `json:"source_sha256"`
 	SourceSealSHA256       string                `json:"source_seal_sha256"`
 	SourceWitnessSHA256    string                `json:"source_witness_sha256"`
@@ -89,9 +91,9 @@ func validNativePreparedPoint(v NativePreparedPointView) bool {
 		return false
 	}
 	if v.SourceKind == "unpublished" {
-		return v.NativeDatabase == "" && v.NativePublisher == "" && v.ProgramWireHash == "" && v.ArtifactWasmSHA256 == "" && v.SchemaSHA256 == "" && len(v.Names) == 0
+		return !v.CommittedOffsetKnown && v.CommittedOffset == 0 && v.NativeDatabase == "" && v.NativePublisher == "" && v.ProgramWireHash == "" && v.ArtifactWasmSHA256 == "" && v.SchemaSHA256 == "" && len(v.Names) == 0
 	}
-	if v.SourceKind != "initialized" || !data.ValidCatalogHash(v.NativeDatabase) || !data.ValidCatalogHash(v.NativePublisher) || !data.ValidCatalogHash(v.ProgramWireHash) || !spacetimedb.SupportsConfirmedRecoveryPairs(v.ArtifactWasmSHA256, v.SchemaSHA256) || len(v.Names) == 0 || len(v.Names) > 16 || !slices.IsSorted(v.Names) {
+	if v.SourceKind != "initialized" || !v.CommittedOffsetKnown || !data.ValidCatalogHash(v.NativeDatabase) || !data.ValidCatalogHash(v.NativePublisher) || !data.ValidCatalogHash(v.ProgramWireHash) || !spacetimedb.SupportsConfirmedRecoveryPairs(v.ArtifactWasmSHA256, v.SchemaSHA256) || len(v.Names) == 0 || len(v.Names) > 16 || !slices.IsSorted(v.Names) {
 		return false
 	}
 	for i, name := range v.Names {
@@ -106,7 +108,7 @@ func decodeNativePreparedPoint(raw []byte) (nativePreparedPoint, error) {
 	if len(raw) == 0 || len(raw) > 65536 {
 		return nativePreparedPoint{}, &IntegrityError{}
 	}
-	fields := []string{"format", "point_id", "preparation_operation_id", "fence_owner_operation_id", "fence_id", "binding_id", "epoch_id", "database_id", "incarnation_id", "generation", "generation_id", "policy_sha256", "runtime_version", "runtime_sha256", "allocation_id", "allocation_sha256", "source_kind", "source_sha256", "source_seal_sha256", "source_witness_sha256", "checkpoint_sha256", "stop_proof_sha256", "restore_receipt_sha256", "bundle_manifest_sha256", "transport_point_sha256", "config_sha256", "signing_recovery_sha256", "native_database", "native_publisher", "program_wire_hash", "artifact_wasm_sha256", "schema_sha256", "names", "prepared_at", "expires_at", "retain_until"}
+	fields := []string{"format", "point_id", "preparation_operation_id", "fence_owner_operation_id", "fence_id", "binding_id", "epoch_id", "database_id", "incarnation_id", "generation", "generation_id", "policy_sha256", "runtime_version", "runtime_sha256", "allocation_id", "allocation_sha256", "source_kind", "committed_offset", "committed_offset_known", "source_sha256", "source_seal_sha256", "source_witness_sha256", "checkpoint_sha256", "stop_proof_sha256", "restore_receipt_sha256", "bundle_manifest_sha256", "transport_point_sha256", "config_sha256", "signing_recovery_sha256", "native_database", "native_publisher", "program_wire_hash", "artifact_wasm_sha256", "schema_sha256", "names", "prepared_at", "expires_at", "retain_until"}
 	if _, err := strictjson.Object(raw, fields...); err != nil {
 		return nativePreparedPoint{}, &IntegrityError{}
 	}

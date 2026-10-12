@@ -88,7 +88,7 @@ func (s MaintenanceService) Status(ctx context.Context, id data.ArchiveID) (out 
 		return out, nil
 	}
 	for _, database := range p.Candidate.Databases {
-		if database.Written && !admission.RetentionAdmitted {
+		if database.Written() && !admission.RetentionAdmitted {
 			out.State = "degraded"
 			out.Reason = "destination_retention_unknown"
 			return out, nil
@@ -119,10 +119,10 @@ func credentialHealthMatches(p Plan, health []CredentialHealth, now time.Time) b
 	}
 	expected := map[scope]bool{}
 	for _, database := range p.Candidate.Databases {
-		if !database.Written {
+		if !database.Written() {
 			continue
 		}
-		for _, binding := range database.Epochs {
+		for _, binding := range database.ArchiveBindings() {
 			expected[scope{binding.BindingID, binding.EpochID}] = true
 		}
 	}

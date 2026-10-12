@@ -196,7 +196,8 @@ func verifyDeletionLocations(p Plan, reviewed MaintenancePlan, d Deletion, adopt
 }
 func verifyArchiveAllocations(p Plan) error {
 	for _, d := range p.Candidate.Databases {
-		if d.Allocation == nil || data.VerifyArchivedAllocation(d.Binding, *d.Allocation, p.ArchiveID) != nil {
+		sqlDatabase, sqlite := d.SQLite()
+		if !sqlite || sqlDatabase.Allocation == nil || data.VerifyArchivedAllocation(sqlDatabase.Binding, *sqlDatabase.Allocation, p.ArchiveID) != nil {
 			return ErrRefused
 		}
 	}
@@ -305,18 +306,19 @@ func RetentionProofMatches(proof RetentionProof, p Plan, d Disposition, m Manife
 	}
 	index := 0
 	for i, database := range p.Candidate.Databases {
-		if !database.Written {
+		if !database.Written() {
 			continue
 		}
-		if index >= len(proof.Receipts) || m.Coverage[i].Receipt == nil {
+		original, sqliteCoverage := m.Coverage[i].SQLite()
+		sqlDatabase, sqliteDatabase := database.SQLite()
+		if !sqliteCoverage || !sqliteDatabase || index >= len(proof.Receipts) || original.Receipt == nil {
 			return false
 		}
 		receipt := proof.Receipts[index]
-		original := m.Coverage[i]
 		index++
 		source, sourceErr := json.Marshal(receipt.Source)
 		wanted, wantedErr := json.Marshal(original.Receipt.Source)
-		if sourceErr != nil || wantedErr != nil || string(source) != string(wanted) || !receipt.Valid() || now.Before(receipt.ObservedAt) || now.Sub(receipt.ObservedAt) > MaxEvidenceAge || receipt.Schema.State != restore.SchemaState(original.Observation.State) || receipt.Schema.Marker != original.Observation.Marker || receipt.Schema.CatalogSHA256 != original.Observation.CatalogSHA256 || receipt.Coverage == nil || !receipt.Coverage.CoveredThrough.Equal(original.WritersQuiescedAt) || receipt.LossWindow.State != restore.LossBounded || len(database.Invariants) > 0 && receipt.InvariantCheck != "passed" {
+		if sourceErr != nil || wantedErr != nil || string(source) != string(wanted) || !receipt.Valid() || now.Before(receipt.ObservedAt) || now.Sub(receipt.ObservedAt) > MaxEvidenceAge || receipt.Schema.State != restore.SchemaState(original.Observation.State) || receipt.Schema.Marker != original.Observation.Marker || receipt.Schema.CatalogSHA256 != original.Observation.CatalogSHA256 || receipt.Coverage == nil || !receipt.Coverage.CoveredThrough.Equal(original.WritersQuiescedAt) || receipt.LossWindow.State != restore.LossBounded || len(sqlDatabase.Invariants) > 0 && receipt.InvariantCheck != "passed" {
 			return false
 		}
 	}

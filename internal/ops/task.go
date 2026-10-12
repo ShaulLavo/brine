@@ -28,6 +28,18 @@ type TaskOutcome struct {
 
 func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 	switch op.Kind {
+	case NativeRecoverySet:
+		receipt, err := nativecapture.DecodeRecoveryReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
+	case NativeBackupActivate:
+		receipt, err := nativecapture.DecodeBackupPolicyReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
 	case NativeLiveRestore, NativeLiveRestoreResolve:
 		receipt, err := liverestore.DecodeReceipt(raw)
 		if err != nil || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef || receipt.OriginalOperationID != op.RecoveryOf {

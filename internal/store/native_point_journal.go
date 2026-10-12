@@ -143,6 +143,8 @@ type nativePreparedSourceFacts struct {
 	EpochID               data.ReplicaEpochID   `json:"epoch_id"`
 	GenerationID          string                `json:"generation_id"`
 	SourceKind            string                `json:"source_kind"`
+	CommittedOffset       uint64                `json:"committed_offset"`
+	CommittedOffsetKnown  bool                  `json:"committed_offset_known"`
 	SourceSHA256          string                `json:"source_sha256"`
 	SourceSealSHA256      string                `json:"source_seal_sha256"`
 	SourceWitnessSHA256   string                `json:"source_witness_sha256"`
@@ -168,7 +170,7 @@ type nativePreparedRemoteFacts struct {
 }
 
 func nativePreparedSourceFactBytes(v NativePreparedPointView) ([]byte, error) {
-	return json.Marshal(nativePreparedSourceFacts{PointID: v.PointID, BindingID: v.BindingID, EpochID: v.EpochID, GenerationID: v.GenerationID, SourceKind: v.SourceKind, SourceSHA256: v.SourceSHA256, SourceSealSHA256: v.SourceSealSHA256, SourceWitnessSHA256: v.SourceWitnessSHA256, CheckpointSHA256: v.CheckpointSHA256, ConfigSHA256: v.ConfigSHA256, SigningRecoverySHA256: v.SigningRecoverySHA256, NativeDatabase: v.NativeDatabase, NativePublisher: v.NativePublisher, ProgramWireHash: v.ProgramWireHash, ArtifactWasmSHA256: v.ArtifactWasmSHA256, SchemaSHA256: v.SchemaSHA256, Names: v.Names})
+	return json.Marshal(nativePreparedSourceFacts{PointID: v.PointID, BindingID: v.BindingID, EpochID: v.EpochID, GenerationID: v.GenerationID, SourceKind: v.SourceKind, CommittedOffset: v.CommittedOffset, CommittedOffsetKnown: v.CommittedOffsetKnown, SourceSHA256: v.SourceSHA256, SourceSealSHA256: v.SourceSealSHA256, SourceWitnessSHA256: v.SourceWitnessSHA256, CheckpointSHA256: v.CheckpointSHA256, ConfigSHA256: v.ConfigSHA256, SigningRecoverySHA256: v.SigningRecoverySHA256, NativeDatabase: v.NativeDatabase, NativePublisher: v.NativePublisher, ProgramWireHash: v.ProgramWireHash, ArtifactWasmSHA256: v.ArtifactWasmSHA256, SchemaSHA256: v.SchemaSHA256, Names: v.Names})
 }
 
 func nativePreparedRemoteFactBytes(v NativePreparedPointView) ([]byte, error) {

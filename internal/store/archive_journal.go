@@ -154,7 +154,10 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 	}
 	databases := make([]data.DatabaseID, len(p.Candidate.Databases))
 	for i, database := range p.Candidate.Databases {
-		databases[i] = database.Binding.DatabaseID
+		if database.Engine() != data.EngineSQLite {
+			return o, data.ErrUnsupportedEngine
+		}
+		databases[i] = database.Reference().DatabaseID
 	}
 	guards, err := s.guardEngineDatabases(ctx, databases)
 	if err != nil {
@@ -179,7 +182,7 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 		return o, ErrConflict
 	}
 	for i := range candidate.Databases {
-		candidate.Databases[i].Retention = p.Candidate.Databases[i].Retention
+		candidate.Databases[i] = candidate.Databases[i].WithRetention(p.Candidate.Databases[i].Retention())
 	}
 	if !reflect.DeepEqual(candidate, p.Candidate) {
 		return o, ErrConflict
@@ -196,7 +199,7 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 		if err != nil {
 			return o, err
 		}
-		fence := data.QuiescenceFence{ID: data.FenceID(id), IncarnationID: p.Candidate.Incarnation, DatabaseID: database.Binding.DatabaseID, OperationID: o.ID, State: data.FenceHeld}
+		fence := data.QuiescenceFence{ID: data.FenceID(id), IncarnationID: p.Candidate.Incarnation, DatabaseID: database.Reference().DatabaseID, OperationID: o.ID, State: data.FenceHeld}
 		if _, err = tx.ExecContext(ctx, "INSERT INTO data_fences VALUES(?,?,?,?,?)", fence.ID, fence.DatabaseID, fence.IncarnationID, fence.OperationID, fence.State); err != nil {
 			return o, err
 		}
@@ -254,12 +257,13 @@ func (s *Store) SaveArchiveCoverage(ctx context.Context, o archive.Operation, co
 		if !point.Admits(p, p.Candidate.Databases[i], o.ID, time.Now().UTC()) {
 			return o, ErrInvalid
 		}
-		if point.Point != nil {
-			raw, err := json.Marshal(point.Point)
+		sqlitePoint, sqlite := point.SQLite()
+		if sqlite && sqlitePoint.Point != nil {
+			raw, err := json.Marshal(sqlitePoint.Point)
 			if err != nil {
 				return o, err
 			}
-			if _, err = tx.ExecContext(ctx, "INSERT INTO data_restore_points VALUES(?,?,?,?)", point.Point.ID, point.Point.BindingID, point.Point.EpochID, raw); err != nil {
+			if _, err = tx.ExecContext(ctx, "INSERT INTO data_restore_points VALUES(?,?,?,?)", sqlitePoint.Point.ID, sqlitePoint.Point.BindingID, sqlitePoint.Point.EpochID, raw); err != nil {
 				return o, err
 			}
 		}

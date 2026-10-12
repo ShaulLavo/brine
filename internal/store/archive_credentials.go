@@ -24,7 +24,7 @@ func validateArchiveCredentialScope(ctx context.Context, q dataQuerier, scope ba
 		return err
 	}
 	for _, database := range p.Candidate.Databases {
-		for _, epoch := range database.Epochs {
+		for _, epoch := range database.ArchiveBindings() {
 			if string(epoch.BindingID) != scope.Binding || string(epoch.EpochID) != scope.Epoch {
 				continue
 			}
@@ -32,7 +32,7 @@ func validateArchiveCredentialScope(ctx context.Context, q dataQuerier, scope ba
 				return ErrConflict
 			}
 			var held int
-			if err = q.QueryRowContext(ctx, "SELECT count(*) FROM data_archive_fences af JOIN data_fences f ON af.fence_id=f.id WHERE af.operation_id=? AND af.database_id=? AND f.state='held' AND f.operation_id=?", manifest.OperationID, database.Binding.DatabaseID, manifest.OperationID).Scan(&held); err != nil {
+			if err = q.QueryRowContext(ctx, "SELECT count(*) FROM data_archive_fences af JOIN data_fences f ON af.fence_id=f.id WHERE af.operation_id=? AND af.database_id=? AND f.state='held' AND f.operation_id=?", manifest.OperationID, database.Reference().DatabaseID, manifest.OperationID).Scan(&held); err != nil {
 				return err
 			}
 			if held != 1 {
