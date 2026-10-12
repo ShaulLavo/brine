@@ -136,11 +136,11 @@ func marshalNativeReaderInput(identity nativeReaderIdentity, selection nativecap
 }
 
 func nativeReaderArguments(pin nativeReaderPin, view *nativeReadView) ([]string, error) {
-	if view == nil || view.state != nativeViewPrepared || !data.ValidID(view.nonce) || !engineMountPath(view.path) {
+	if view == nil || view.state != nativeViewPrepared || !data.ValidID(view.nonce) || !engineMountPath(view.path) || !data.ValidID(view.selection.Scope().BindingID) {
 		return nil, errEngineSource
 	}
 	name := "brine-native-read-" + view.nonce
-	return []string{"run", "--interactive", "--name", name, "--label", "BRINE_PRIVATE_VERIFY=" + view.nonce, "--hostname", "brine-native-reader", "--network", "none", "--read-only", "--read-only-tmpfs=false", "--passwd=false", "--userns", "keep-id:uid=1000,gid=1000", "--user", "1000:1000", "--umask", "0077", "--pid", "private", "--cgroupns", "private", "--memory", "512m", "--memory-swap", "512m", "--pids-limit", "16", "--cpus", "1", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--stop-signal", "SIGINT", "--stop-timeout", "5", "--unsetenv-all", "--tmpfs", "/tmp:rw,nosuid,nodev,noexec", "--log-driver", "none", "--volume", filepath.Join(view.path, view.replica) + ":/copy/replica:rw", "--entrypoint", "/brine-native-reader", pin.Image}, nil
+	return []string{"run", "--interactive", "--name", name, "--label", "BRINE_PRIVATE_VERIFY=" + view.nonce, "--label", "BRINE_ENGINE_BINDING=" + view.selection.Scope().BindingID, "--hostname", "brine-native-reader", "--network", "none", "--read-only", "--read-only-tmpfs=false", "--passwd=false", "--userns", "keep-id:uid=1000,gid=1000", "--user", "1000:1000", "--umask", "0077", "--pid", "private", "--cgroupns", "private", "--memory", "512m", "--memory-swap", "512m", "--pids-limit", "16", "--cpus", "1", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--stop-signal", "SIGINT", "--stop-timeout", "5", "--unsetenv-all", "--tmpfs", "/tmp:rw,nosuid,nodev,noexec", "--log-driver", "none", "--volume", filepath.Join(view.path, view.replica) + ":/copy/replica:rw", "--entrypoint", "/brine-native-reader", pin.Image}, nil
 }
 
 type nativeDisposal struct {
@@ -278,7 +278,7 @@ func disposeNativeReader(ctx context.Context, session localexec.Session, pin nat
 }
 
 func stoppedNativeReader(container engineContainer, pin nativeReaderPin, view *nativeReadView) bool {
-	if container.Name != "brine-native-read-"+view.nonce || container.Image != pin.ImageID || container.Path != "/brine-native-reader" || !slices.Equal(container.Args, []string{"/brine-native-reader"}) || container.State.Running == nil || container.State.PID == nil || *container.State.Running || *container.State.PID != 0 {
+	if container.Config.Labels["BRINE_ENGINE_BINDING"] != view.selection.Scope().BindingID || container.Name != "brine-native-read-"+view.nonce || container.Image != pin.ImageID || container.Path != "/brine-native-reader" || !slices.Equal(container.Args, []string{"/brine-native-reader"}) || container.State.Running == nil || container.State.PID == nil || *container.State.Running || *container.State.PID != 0 {
 		return false
 	}
 	if !engineContainerSecurity(container, data.EngineRuntime{MemoryMB: 512, PIDsLimit: 16, StopSeconds: 5}, "none") {
