@@ -9,6 +9,55 @@ before making exact coverage. Both retain unknown effects for inspection.
 Physical S3, Pi, browser and interruption acceptance remains pending. Passing
 unit tests does not establish those results.
 
+## Start a fresh managed app
+
+Save a connected plan for the app, then apply that exact plan:
+
+```sh
+brine plan brine.toml --target TARGET --json
+brine apply PREPARATION_PLAN_ID --target TARGET --json
+```
+
+For a fresh managed app, this allocates owned empty data and keeps its data fence
+held. It starts no native writer or frontend. Use the returned plan ID to deliver
+the [four native roles](native-material-commands.md), then deliver the independent
+backup password and S3 credentials:
+
+```sh
+brine data material set APP --preparation-plan PREPARATION_PLAN_ID \
+  --target TARGET --json < private-material.json
+brine backup recovery set --deployment-plan PREPARATION_PLAN_ID \
+  --target TARGET --json < recovery.json
+brine backup credentials plan APP --database NAME --target TARGET --json
+brine backup credentials set APP --database NAME --plan-id CREDENTIAL_PLAN_ID \
+  --target TARGET --json < private-credentials.json
+brine backup policy plan --deployment-plan PREPARATION_PLAN_ID --target TARGET --json
+brine backup policy activate BACKUP_PLAN_ID --target TARGET --json
+```
+
+Material delivery preserves the original fence. It does not require an already
+active backup policy. Activate the backup before preparing the original empty
+source and reviewing first publication:
+
+```sh
+brine backup prepare APP --database NAME --target TARGET --json
+brine data module plan APP --point PREPARED_POINT_ID \
+  --deployment-plan PREPARATION_PLAN_ID --wasm module/game.wasm --target TARGET --json
+brine data module apply APP MODULE_PLAN_ID --target TARGET --json
+brine plan brine.toml --target TARGET --json
+brine apply DEPLOYMENT_PLAN_ID --target TARGET --json
+```
+
+The module review binds owned Wasm bytes, the original empty source and actual
+native owner proof. Applying it activates the new data epoch. The following
+connected plan starts the declared service and frontend. Later module reviews
+also require compatible retained recovery releases.
+
+A completed publication or live restore inherits backup material through its
+protected repository result and original source. Brine keeps the actual original
+credential and recovery delivery records. It does not invent delivery in the new
+epoch. Routine capture selects the new repository automatically.
+
 ## Capture an online point
 
 ```sh
@@ -131,6 +180,11 @@ capture and verification cadence, maintenance budget, selected point and its
 capture and verification times. Loss remains `unknown`. A stale verification,
 expired credential, pending failed capture or held fence is degraded. Status
 never contacts the provider or refreshes a proof timestamp.
+
+`missed_capture_intervals` counts complete capture intervals without a newer
+verified capture. `verified_capture_age_seconds` reports the age of the selected
+verified source, or `null` when no source has been verified. These measurements
+do not prove the amount of data lost.
 
 ## Unknown effects
 
