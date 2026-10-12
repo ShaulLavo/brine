@@ -107,6 +107,40 @@ the sidecar creates no schema registration or initializer. Host dispatch never
 opens the client paths. Reviewed private staging must prove actual module/schema and
 register its marker before startup authority exists. A sidecar cannot grant it.
 
+### Managed ingress logging admission (P09-04)
+
+The pure `caddy.VerifyManagedLogging` helper reads complete adapted JSON before
+managed route admission. It requires an explicit protected default logger and
+checks every output receiving relevant error, enabled access and reverse-proxy
+logs. A qualifying output uses the exact filter/JSON encoder with
+`request>uri delete`, with only deletion filters, or an explicit `discard`
+writer. Token-only query filtering refuses because malformed request targets
+can bypass Caddy's query parser. Access logging being disabled does not protect
+default error logs.
+
+Host matches and logger mappings account for casing and wildcard matches;
+default fallback namespaces remain checked even when access skip rules exist.
+Unprotected shadow outputs, dynamic route logger names or `log_append` handlers
+on matching routes, credential logging, handler tracing, unknown filters,
+duplicate keys and ambiguous logging input refuse without exposing input values.
+Unrelated logger namespaces remain
+allowed. The helper performs no mutation and grants no managed effects.
+
+The pinned Caddy 2.10.2 server has three route roots: primary `routes`, server
+`errors.routes` and `named_routes`. For a server serving a managed domain, all
+error and named routes are checked, along with every nested handler/error tree.
+Only primary routes with a host matcher excluding all managed domains are
+skipped. Unknown server fields, route-field aliases and malformed route objects
+refuse. This includes error routes that inherit the original request without
+their own host matcher.
+
+The operator establishes protected global logging through enrollment or an
+explicitly authorized change. D4 still forbids routine Brine operations from
+editing the root Caddyfile after enrollment. See the
+[operator logging prerequisite](managed-ingress-logging.md) for the pinned
+snippet and local admission/log probe. Production caller wiring and physical
+ingress qualification remain separate P09-04 gates.
+
 ~~~text
 brine init [directory]
 brine validate ./brine.toml --policy ./policy.toml
@@ -708,6 +742,35 @@ The default is one operator-provisioned bucket with immutable per-database/epoch
 Versioned runner-owned 0600 environment files contain `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and optional `AWS_SESSION_TOKEN`. Installing a new version changes/restarts only the replica service, retaining its database, binding and epoch. Serialize activation through its lifetime lock, verify remote access and reconcile unknown outcomes. No app restart occurs. Backup/restore admission checks supplied remaining lifetime; status reports age, expiry/renewal-needed and authentication/network failures. An external operator/script/layer renews credentials. Archive restores may require newly supplied credentials for their authorized destination. Provider scope tests prove least privilege; Brine's prefix records alone cannot prove a key's scope.
 
 ### State transitions and restore evidence
+
+The native replacement prerequisite adds append-only epoch reservations and an
+intent-first bundle transition journal. Its latest immutable runtime commit is
+the sole active head. Activation compares the expected old version and commits
+the new runtime, per-epoch allocation/checkpoint references and activation event
+in one transaction while the original preparation fence stays held. Native
+permits resolve that committed epoch and incoming inode; original binding and
+allocation bytes remain historical. Every retained prefix enters destination
+ownership checks, and a new epoch cannot reuse an earlier prefix even for the
+same binding. Generic fence release refuses a nonterminal transition.
+
+First publication binds an affirmative unpublished runtime head and its protected
+allocation record. That head contains owned configuration and resource limits;
+it does not establish an initialized database. The store requires its exact
+version/hash, unpublished state, empty database/publisher identities and matching
+allocation identity/hash. Initialized replacement requires an initialized head.
+Both arms activate the next version of their recorded head. Missing runtime
+history never implies an unpublished source. Launch and lifetime capabilities
+must match the protected state directory, binding, role and current lock inode.
+
+The protected point/publication callers still own exact preparation, the
+immutable one-consumer join, target verification and fresh completion authority.
+Structural transition records and private storage helpers do not provide those
+proofs or admit public publish/live-restore operations. Normal managed start is
+separate from data completion. The rooted movement helper preserves the old
+binding leaf and promotes only the recorded staged leaf with pinned no-follow
+parents, same-device identity, no-replace rename and parent fsync. An uncertain
+rename is inspected; an already moved recorded inode permits sync and adoption
+only, never a second rename or an automatic data rewind.
 
 Deploy/update/rollback preserve incarnation/data/binding and may leave replication running. Removal/live restore require independent app-writer and replica-process/lock quiescence, not `systemctl stop` exit alone. Before freeze, verify a fresh remote restore point covering the recorded marker/TXID. Unknown upload/stop/swap outcomes enter reconciliation. No retry starts a competing writer. Archive retention begins at committed removal, lasts 30 days and is keyed only by archive ID. Recreation never reuses its incarnation or replica prefix. Purge/expiry recheck all live path and destination references immediately before deleting local archived data. They never delete remote backup objects or prefixes; Brine has no provider-delete authority. Local metadata and all recorded remote epochs stay bound to that archive.
 

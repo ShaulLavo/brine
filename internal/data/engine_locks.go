@@ -2,6 +2,7 @@ package data
 
 import (
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 )
@@ -31,10 +32,15 @@ func (l *EngineLock) Release() error {
 	return l.err
 }
 
-func (l *EngineLock) HoldsLaunch(binding ReplicaBindingID) bool {
-	return l != nil && l.file != nil && l.binding == binding && l.role == ".launch" && !l.released.Load() && engineLockCurrent(l.file, l.path)
+func (l *EngineLock) HoldsLaunch(stateRoot string, binding ReplicaBindingID) bool {
+	return l.holds(stateRoot, binding, ".launch")
 }
 
-func (l *EngineLock) HoldsLifetime(binding ReplicaBindingID) bool {
-	return l != nil && l.file != nil && l.binding == binding && l.role == ".lifetime" && !l.released.Load() && engineLockCurrent(l.file, l.path)
+func (l *EngineLock) HoldsLifetime(stateRoot string, binding ReplicaBindingID) bool {
+	return l.holds(stateRoot, binding, ".lifetime")
+}
+
+func (l *EngineLock) holds(stateRoot string, binding ReplicaBindingID, role string) bool {
+	return stateRoot != "" && l != nil && l.file != nil && l.binding == binding && l.role == role &&
+		l.path == filepath.Join(stateRoot, "engine-locks", string(binding)+role) && !l.released.Load() && engineLockCurrent(l.file, l.path)
 }

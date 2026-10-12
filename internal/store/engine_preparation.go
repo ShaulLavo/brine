@@ -16,7 +16,7 @@ type EnginePreparation struct {
 }
 
 func (p *EnginePreparation) Active(binding data.ReplicaBindingID) bool {
-	return p != nil && p.binding == binding && p.guard.HoldsLaunch(binding)
+	return p != nil && p.binding == binding && p.guard.HoldsLaunch(p.root, binding)
 }
 
 func (p *EnginePreparation) StateRoot() string {
@@ -47,7 +47,7 @@ func (s *Store) AcquireEnginePreparation(ctx context.Context, binding data.Repli
 	}
 	var held int
 	err = s.db.QueryRowContext(ctx, "SELECT count(*) FROM data_fences f JOIN data_active_incarnations a ON a.incarnation_id=f.incarnation_id WHERE f.database_id=? AND f.id=? AND f.operation_id=? AND f.state='held'", reserved.Database.DatabaseID, fence, operation).Scan(&held)
-	if err != nil || held != 1 || !guard.HoldsLaunch(binding) {
+	if err != nil || held != 1 || !guard.HoldsLaunch(s.dir, binding) {
 		return nil, errors.Join(ErrConflict, err, guard.Release())
 	}
 	return &EnginePreparation{root: s.dir, binding: binding, guard: guard}, nil

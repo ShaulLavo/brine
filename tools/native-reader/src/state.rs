@@ -190,10 +190,7 @@ fn snapshot(
             evidence: None,
         });
     };
-    if replica_id == 0
-        || head
-            .is_some_and(|head| offset > head.last || (head.first > 0 && offset < head.first - 1))
-    {
+    if head.is_some_and(|head| offset > head.last || (head.first > 0 && offset < head.first - 1)) {
         return Err(Refusal::Snapshot);
     }
     selected_directory(root, offset)?;

@@ -35,7 +35,16 @@ jobs:
       - name: Prepare exact pinned source
         run: python3 tools/native-reader/prepare.py "$RUNNER_TEMP/reader-build"
       - name: Build and test native static executable
-        run: docker buildx build --target runtime --load --tag brine-native-reader:test "$RUNNER_TEMP/reader-build"
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: ${{ runner.temp }}/reader-build
+          target: runtime
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: brine-native-reader:test
+          cache-from: type=gha,scope=native-reader-${{ matrix.arch }}-14b9b5f47dcc-6b6e0ab19e4f
+          cache-to: type=gha,mode=max,scope=native-reader-${{ matrix.arch }}-14b9b5f47dcc-6b6e0ab19e4f
+          no-cache-filters: native-tests
       - name: Extract executable and synthetic fixture
         run: |
           container=$(docker create brine-native-reader:test)
@@ -52,7 +61,9 @@ jobs:
           readelf -h "$RUNNER_TEMP/reader-artifact/brine-native-reader" | grep -F "$MACHINE"
           if readelf -l "$RUNNER_TEMP/reader-artifact/brine-native-reader" | grep -q INTERP; then exit 1; fi
           python3 tools/native-reader/verify_cli.py brine-native-reader:test "$RUNNER_TEMP/reader-artifact/fixture" "$RUNNER_TEMP/reader-cli-evidence"
+          python3 tools/native-reader/verify_cli.py brine-native-reader:test "$RUNNER_TEMP/reader-artifact/replica-zero-fixture" "$RUNNER_TEMP/reader-zero-cli-evidence"
           cp "$RUNNER_TEMP/reader-cli-evidence/receipt.json" "$RUNNER_TEMP/reader-artifact/cli-receipt.json"
+          cp "$RUNNER_TEMP/reader-zero-cli-evidence/receipt.json" "$RUNNER_TEMP/reader-artifact/zero-cli-receipt.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
