@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func buildManagedLifecycle(in Input, action ChangeKind) (Plan, error) {
@@ -33,6 +34,12 @@ func buildManagedLifecycle(in Input, action ChangeKind) (Plan, error) {
 	p, err := Build(in)
 	if err != nil {
 		return Plan{}, err
+	}
+	if action == StopApp {
+		p.Conflicts = managedStopConflicts(p.Conflicts, in.Managed.OwnedNativeState)
+		if len(p.Conflicts) == 0 {
+			p.Kind = Update
+		}
 	}
 	// Lifecycle uses current owned components; it never installs artifacts from a
 	// previous release, publishes a module, creates a release or rotates keys.
@@ -80,4 +87,18 @@ func buildManagedLifecycle(in Input, action ChangeKind) (Plan, error) {
 	}
 	p.Hash = ""
 	return finish(p, desired, snapshot, state)
+}
+
+func managedStopConflicts(conflicts []Diagnostic, owned target.Observation[string]) []Diagnostic {
+	result := make([]Diagnostic, 0, len(conflicts))
+	for _, conflict := range conflicts {
+		if conflict.Code == UnknownFacts && (conflict.Field == "managed.native_state" || conflict.Field == "managed.ingress_logging") || conflict.Code == ArtifactDrift && conflict.Field == "managed.fence" {
+			continue
+		}
+		result = append(result, conflict)
+	}
+	if owned.Status != target.KnownStatus || owned.Value == nil || *owned.Value != "running" && *owned.Value != "stopped" {
+		result = append(result, Diagnostic{Code: UnknownFacts, Field: "managed.owned_native_state"})
+	}
+	return result
 }

@@ -30,6 +30,7 @@ func managedInitializedFixture(t *testing.T, frontend bool) Input {
 	in.Managed.Archive = &reserved.Archive
 	in.Managed.Runtime = &runtime
 	in.Managed.NativeState = target.Known("running")
+	in.Managed.OwnedNativeState = target.Known("running")
 	in.Managed.LoggingPrerequisite = target.Known(true)
 	in.Managed.LoggingRootSHA256 = strings.Repeat("a", 64)
 	in.Managed.LoggingConfigSHA256 = strings.Repeat("b", 64)
@@ -125,5 +126,30 @@ func TestManagedFrontendRollbackDesiredUsesCurrentEngineAndTargetAccepts(t *test
 	client.SpacetimeDB.Module.Accepts = []string{"game-v1"}
 	if _, err := ManagedClientDesired(in, client); err == nil {
 		t.Fatal("incompatible retained frontend gained current engine authority")
+	}
+}
+
+func TestManagedStopUsesOwnedStateWithoutRegrantingSourceAuthority(t *testing.T) {
+	in := managedInitializedFixture(t, false)
+	created, err := Build(in)
+	if err != nil || created.Kind == Conflict {
+		t.Fatal(err, created.Conflicts)
+	}
+	in.State.Releases = []CurrentRelease{{App: created.App, ID: "current", Desired: in.Desired, Image: created.Image, HostPort: created.HostPort, Secrets: []SecretBinding{}, Units: []target.Unit{{Name: "brine-engine-" + string(created.Managed.Database.BindingID) + ".service", Hash: "sha256:" + created.Managed.EngineUnitHash}}, CaddyFile: target.CaddyFile{Name: created.App + ".caddy", Hash: "sha256:" + strings.Repeat("a", 64)}, Managed: created.Managed}}
+	in.Managed.NativeState = target.Observation[string]{Status: target.Unknown}
+	in.Managed.LoggingPrerequisite = target.Observation[bool]{Status: target.Unknown}
+	in.Managed.Fences = []data.QuiescenceFence{{State: data.FenceHeld}}
+	paused, err := BuildLifecycle(in, StopApp)
+	if err != nil || paused.Kind == Conflict || paused.ManagedLifecycle.EngineRunning {
+		t.Fatal("cleanup blocked by source-only predicates", err, paused.Conflicts)
+	}
+	started, err := BuildLifecycle(in, StartApp)
+	if err != nil || started.Kind != Conflict {
+		t.Fatal("stop facts granted live start", err)
+	}
+	in.Managed.OwnedNativeState = target.Observation[string]{Status: target.Unknown}
+	refused, err := BuildLifecycle(in, StopApp)
+	if err != nil || refused.Kind != Conflict {
+		t.Fatal("unknown ownership permitted stop", err)
 	}
 }

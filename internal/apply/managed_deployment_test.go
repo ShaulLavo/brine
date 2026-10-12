@@ -98,6 +98,7 @@ func managedInitializedRig(t *testing.T, frontend bool) *rig {
 	in.Managed.Archive = &reserved.Archive
 	in.Managed.Runtime = &runtime
 	in.Managed.NativeState = target.Known("running")
+	in.Managed.OwnedNativeState = target.Known("running")
 	in.Managed.LoggingPrerequisite = target.Known(true)
 	in.Managed.LoggingRootSHA256 = strings.Repeat("a", 64)
 	in.Managed.LoggingConfigSHA256 = strings.Repeat("b", 64)

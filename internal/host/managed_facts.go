@@ -79,6 +79,7 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 		if projection.Permit != nil {
 			runtime := projection.Permit.Runtime.Clone()
 			managed.Runtime = &runtime
+			managed.OwnedNativeState = observeOwnedManagedState(ctx, s.managedObserver, *projection.Permit)
 			if managed.Intent != nil {
 				projectManagedIntent(managed.Intent, wanted, runtime)
 			}
@@ -155,4 +156,15 @@ func projectManagedIntent(into *plan.ManagedIntentFacts, wanted store.ManagedDes
 	}
 	into.Current = true
 	into.EngineRunning, into.FrontendRunning, into.IngressServing = wanted.EngineRunning, wanted.FrontendRunning, wanted.IngressServing
+}
+
+func observeOwnedManagedState(ctx context.Context, observer *managedEngineObserver, permit store.EnginePermit) target.Observation[string] {
+	if observer == nil {
+		return target.Observation[string]{Status: target.Unknown}
+	}
+	state, err := observer.ownedState(ctx, permit)
+	if err != nil {
+		return target.Observation[string]{Status: target.Unknown}
+	}
+	return target.Known(state)
 }

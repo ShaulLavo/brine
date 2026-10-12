@@ -132,7 +132,8 @@ func (s *Store) CommitManagedDesired(ctx context.Context, operation string, expe
 			return ManagedDesiredState{}, err
 		}
 		rawRuntime, _ := json.Marshal(runtime.Runtime)
-		if digest(rawRuntime) != "sha256:"+wanted.RuntimeSHA256 || runtime.Runtime.EpochID != wanted.EpochID || wanted.EngineRunning && !runtime.AllowsVerification(time.Now().UTC()) {
+		stoppingFrontend := p.Lifecycle == plan.StopApp && p.ManagedLifecycle != nil && !p.ManagedLifecycle.Engine && previous.Current(wanted.BindingID, wanted.EpochID, wanted.RuntimeSHA256) && previous.EngineRunning
+		if digest(rawRuntime) != "sha256:"+wanted.RuntimeSHA256 || runtime.Runtime.EpochID != wanted.EpochID || wanted.EngineRunning && !runtime.AllowsVerification(time.Now().UTC()) && !stoppingFrontend {
 			return ManagedDesiredState{}, ErrConflict
 		}
 	}

@@ -42,7 +42,11 @@ func (e *Executor) runManagedLifecycle(ctx context.Context, id string, p plan.Pl
 			return x.terminal(ctx, Succeeded, nil)
 		}
 	}
-	if err := r.setDesired(ctx, "managed_resume", Starting, revision, *p.ManagedLifecycle); err != nil {
+	resumeState := Starting
+	if p.Lifecycle == plan.StartApp {
+		resumeState = Preparing
+	}
+	if err := r.setDesired(ctx, "managed_resume", resumeState, revision, *p.ManagedLifecycle); err != nil {
 		return x.lifecycleFailure(ctx, err)
 	}
 	if err := r.startManagedComponent(ctx); err != nil {

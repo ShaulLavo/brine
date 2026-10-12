@@ -17,6 +17,7 @@ type ManagedFacts struct {
 	Archive             *data.ArchiveBinding       `json:"archive,omitempty"`
 	Runtime             *data.EngineRuntime        `json:"runtime,omitempty"`
 	Fences              []data.QuiescenceFence     `json:"fences"`
+	OwnedNativeState    target.Observation[string] `json:"owned_native_state"`
 	NativeState         target.Observation[string] `json:"native_state"`
 	LoggingPrerequisite target.Observation[bool]   `json:"logging_prerequisite"`
 	Preparation         *ManagedServicePlan        `json:"preparation,omitempty"`
@@ -41,6 +42,10 @@ func (f ManagedFacts) Clone() ManagedFacts {
 		f.Runtime = &value
 	}
 	f.Fences = slices.Clone(f.Fences)
+	if f.OwnedNativeState.Value != nil {
+		value := *f.OwnedNativeState.Value
+		f.OwnedNativeState.Value = &value
+	}
 	if f.NativeState.Value != nil {
 		value := *f.NativeState.Value
 		f.NativeState.Value = &value
