@@ -7,12 +7,15 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func managedPreparationFixture(t *testing.T, frontend bool) (Input, ManagedServicePlan, data.RootEvidence) {
 	t.Helper()
 	in, _ := managedPlanInput(t, frontend)
+	in.Snapshot = fixture(t, "ready-arm64").Snapshot
+	in.Desired.SpacetimeDB.Image = spec.ImageReference(data.SpacetimeDBImage)
 	_, digest, _ := strings.Cut(data.SpacetimeDBImage, "@")
 	image := Image{Digest: digest, Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known(data.SpacetimeDBARM64Manifest)}
 	in.Managed = &ManagedFacts{EngineImage: image, Fences: []data.QuiescenceFence{}}
