@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/store"
 	"golang.org/x/sys/unix"
 )
 
@@ -28,7 +29,9 @@ func (o nativeBackupResolutionOperations) cleanupOriginalUpload(ctx context.Cont
 		return nil
 	}
 	err := discardNativeWorkspace(v.originalParent, v.retained.Workspace)
-	v.originalParent = nil
+	if err == nil {
+		v.originalParent = nil
+	}
 	return err
 }
 
@@ -179,6 +182,51 @@ func nativeUploadProcessAbsent(ctx context.Context, process, workspace string) e
 		}
 		if nativeUploadContains(workspace, target) {
 			return errEngineSource
+		}
+	}
+	return nil
+}
+
+func (o nativeBackupResolutionOperations) cleanupInspectionWorkspaces(ctx context.Context, i *store.NativeBackupInspection, permit store.EnginePermit) error {
+	workspaces, err := i.Workspaces(ctx)
+	if err != nil {
+		return err
+	}
+	for _, workspace := range workspaces {
+		if workspace.EpochID != permit.Runtime.EpochID {
+			return errEngineSource
+		}
+		path := filepath.Join(string(permit.Reserved.Database.Root), workspace.Relative)
+		if err = o.disposeOriginalUploadReaders(ctx, path); err != nil {
+			return err
+		}
+		if err = nativeUploadProcessesAbsent(ctx, path); err != nil {
+			return err
+		}
+		if _, err = os.Lstat(path); os.IsNotExist(err) {
+			if err = i.DisposeWorkspace(ctx, workspace.ID); err != nil {
+				return err
+			}
+			continue
+		} else if err != nil {
+			return errEngineSource
+		}
+		parent, err := engineOpenRoot(path)
+		if err != nil {
+			return err
+		}
+		identity, err := nativeRestoreDirectoryIdentity(parent, ".")
+		if err != nil || identity.Device != workspace.Directory.Device || identity.Inode != workspace.Directory.Inode {
+			_ = parent.Close()
+			return errEngineSource
+		}
+		err = discardNativeWorkspace(parent, path)
+		if err != nil {
+			_ = parent.Close()
+			return err
+		}
+		if err = i.DisposeWorkspace(ctx, workspace.ID); err != nil {
+			return err
 		}
 	}
 	return nil

@@ -65,6 +65,12 @@ CREATE TABLE data_native_upload_descriptors(
  artifact BLOB NOT NULL CHECK(length(artifact)<=33554432), descriptor BLOB NOT NULL CHECK(length(descriptor)<=4194304));
 CREATE TRIGGER data_native_upload_descriptors_no_update BEFORE UPDATE ON data_native_upload_descriptors BEGIN SELECT RAISE(ABORT,'immutable native upload source'); END;
 CREATE TRIGGER data_native_upload_descriptors_no_delete BEFORE DELETE ON data_native_upload_descriptors BEGIN SELECT RAISE(ABORT,'retained native upload source'); END;
+CREATE TABLE data_native_backup_inspection_workspaces(id TEXT PRIMARY KEY,operation_id TEXT NOT NULL REFERENCES operations(id),canonical BLOB NOT NULL CHECK(length(canonical)<=16384));
+CREATE TRIGGER data_native_backup_inspection_workspaces_no_update BEFORE UPDATE ON data_native_backup_inspection_workspaces BEGIN SELECT RAISE(ABORT,'immutable inspection workspace'); END;
+CREATE TRIGGER data_native_backup_inspection_workspaces_no_delete BEFORE DELETE ON data_native_backup_inspection_workspaces BEGIN SELECT RAISE(ABORT,'retained inspection workspace'); END;
+CREATE TABLE data_native_backup_inspection_workspace_disposals(workspace_id TEXT PRIMARY KEY REFERENCES data_native_backup_inspection_workspaces(id),canonical BLOB NOT NULL CHECK(length(canonical)<=4096));
+CREATE TRIGGER data_native_backup_inspection_workspace_disposals_no_update BEFORE UPDATE ON data_native_backup_inspection_workspace_disposals BEGIN SELECT RAISE(ABORT,'immutable inspection disposal'); END;
+CREATE TRIGGER data_native_backup_inspection_workspace_disposals_no_delete BEFORE DELETE ON data_native_backup_inspection_workspace_disposals BEGIN SELECT RAISE(ABORT,'retained inspection disposal'); END;
 CREATE TABLE data_native_backup_resolutions(
  id TEXT PRIMARY KEY, operation_id TEXT NOT NULL REFERENCES operations(id), canonical BLOB NOT NULL CHECK(length(canonical)<=16384));
 CREATE TRIGGER data_native_backup_resolutions_no_update BEFORE UPDATE ON data_native_backup_resolutions BEGIN SELECT RAISE(ABORT,'immutable native backup review'); END;

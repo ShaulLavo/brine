@@ -150,6 +150,45 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	if err = inspection.AdmitRepository(ctx, current.Scope, restic.ReadRepository, material.CreationGrantSHA256); err != nil {
 		t.Fatal("actual issued grant fixed config inspection", err)
 	}
+	permitBeforeWorkspace, err := state.ReadEnginePermit(ctx, scope.Database.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspace := filepath.Join(string(permitBeforeWorkspace.Reserved.Database.Root), "native-restores", strings.Repeat("f", 32))
+	if err = os.MkdirAll(workspace, 0700); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := os.OpenRoot(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceID, err := inspection.RecordWorkspace(ctx, parent, workspace)
+	if err != nil {
+		_ = parent.Close()
+		t.Fatal("actual inspection workspace ownership", err)
+	}
+	owned, err := inspection.Workspaces(ctx)
+	if err != nil || len(owned) != 1 || owned[0].ID != workspaceID {
+		_ = parent.Close()
+		t.Fatal("missing retained inspection workspace", err)
+	}
+	if err = inspection.DisposeWorkspace(ctx, workspaceID); err == nil {
+		_ = parent.Close()
+		t.Fatal("existing inspection directory declared removed")
+	}
+	if err = parent.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(workspace); err != nil {
+		t.Fatal(err)
+	}
+	if err = inspection.DisposeWorkspace(ctx, workspaceID); err != nil {
+		t.Fatal("actual removed workspace disposal", err)
+	}
+	owned, err = inspection.Workspaces(ctx)
+	if err != nil || len(owned) != 0 {
+		t.Fatal("removed workspace still pending", err)
+	}
 	review, err := inspection.Review(ctx, strings.Repeat("1", 64))
 	if err != nil {
 		t.Fatal(err)

@@ -112,6 +112,8 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 
 type nativeBackupObserved struct {
 	material       store.NativeRepositoryMaterial
+	inspection     *store.NativeBackupInspection
+	workspaceID    string
 	lifetime       *data.EngineLock
 	preparedStop   store.NativeStopObservation
 	retained       store.NativeRetainedUpload
@@ -159,13 +161,22 @@ func (v *nativeBackupObserved) close() error {
 		v.originalParent = nil
 	}
 	if v.parent != nil {
-		err = errors.Join(err, discardNativeWorkspace(v.parent, v.path))
+		cleanupErr := discardNativeWorkspace(v.parent, v.path)
+		if cleanupErr != nil {
+			_ = v.parent.Close()
+		}
+		err = errors.Join(err, cleanupErr)
+		if cleanupErr == nil && v.workspaceID != "" {
+			ctx, cancel := context.WithTimeout(context.Background(), jobs.JournalTimeout)
+			err = errors.Join(err, v.inspection.DisposeWorkspace(ctx, v.workspaceID))
+			cancel()
+		}
 		v.parent = nil
 	}
 	return err
 }
 func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.NativeBackupInspection) (observed *nativeBackupObserved, inspectErr error) {
-	v := &nativeBackupObserved{}
+	v := &nativeBackupObserved{inspection: i}
 	complete := false
 	defer func() {
 		if !complete {
@@ -187,7 +198,14 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 	if err != nil {
 		return nil, err
 	}
+	if err = o.cleanupInspectionWorkspaces(ctx, i, permit); err != nil {
+		return nil, err
+	}
 	v.parent, v.path, err = newNativePreparedRestoreParent(ctx, permit)
+	if err != nil {
+		return nil, err
+	}
+	v.workspaceID, err = i.RecordWorkspace(ctx, v.parent, v.path)
 	if err != nil {
 		return nil, err
 	}
@@ -215,92 +233,12 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 		return nil, err
 	}
 	if i.OriginalKind() == ops.NativeBackupActivate {
-		if grant != "" {
-			v.initialized, err = client.InspectInitialization(ctx, repository, v.path)
-			if err != nil {
-				return nil, err
-			}
-			v.repositoryID = v.initialized.Scope().RepositoryID
-			v.configSHA256 = v.initialized.ConfigurationSHA256()
-		} else {
-			v.repositoryID, err = client.RepositoryIdentity(ctx, repository, v.path)
-			if err != nil {
-				return nil, err
-			}
-		}
-		stage, err := i.ActivationStage(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if stage == "prepared" {
-			v.unitsState = "not_issued"
-		} else {
-			if err = o.verifyUnits(ctx, v.activation); err != nil {
-				return nil, err
-			}
-			v.unitsState = "verified"
-		}
+		err = o.inspectActivation(ctx, i, v, client, repository, grant)
 	} else {
-		v.retained, err = i.Upload(ctx)
-		if err != nil {
-			return nil, err
-		}
-		point, known, err := i.CompletedTransport(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if _, statErr := os.Lstat(v.retained.Workspace); statErr == nil {
-			v.originalParent, err = engineOpenRoot(v.retained.Workspace)
-			if err != nil || i.CheckUploadWorkspace(ctx, v.originalParent) != nil {
-				return nil, errEngineSource
-			}
-		} else if !os.IsNotExist(statErr) || !known {
-			return nil, errEngineSource
-		}
-		if known {
-			point.Scope = material.Scope
-			if err = client.InspectExact(ctx, repository, v.path, point); err != nil {
-				return nil, err
-			}
-		} else {
-			bundle, err := restic.Seal(ctx, filepath.Join(v.retained.Workspace, "bundle"), v.path, v.retained.Manifest.Identity(), restic.DefaultLimits())
-			if err != nil {
-				return nil, err
-			}
-			defer func() { _ = bundle.Close() }()
-			if !bytes.Equal(bundle.Manifest().Bytes(), v.retained.Manifest.Bytes()) {
-				return nil, errEngineSource
-			}
-			point, err = client.InspectCapture(ctx, repository, v.path, bundle)
-			if err != nil {
-				return nil, err
-			}
-		}
-		v.extracted, err = client.RestoreExact(ctx, repository, v.path, v.parent, "download", point, v.retained.Manifest)
-		if err != nil {
-			return nil, err
-		}
-		v.observation = store.NativePreparedObservation{Parent: v.parent, Source: v.retained.Source, Manifest: v.retained.Manifest, Transport: point, SourceSealSHA256: v.retained.SourceSealSHA256, SourceEvidence: v.retained.SourceEvidence, ConfirmedBound: v.retained.ConfirmedBound, FinalPairs: v.retained.FinalPairs, Artifact: v.retained.Artifact, Descriptor: v.retained.Descriptor}
-		if checkpoint, selection, initialized := v.retained.Source.Initialized(); initialized {
-			schema, err := spacetimedb.DecodeDescriptorV10(v.retained.Descriptor, spacetimedb.DefaultSchemaLimits())
-			if err != nil {
-				return nil, err
-			}
-			evidence, disposal, err := o.runtime.verifyExtracted(ctx, v.extracted, v.parent, v.path, checkpoint, selection, v.retained.SourceEvidence, schema, v.retained.ConfirmedBound, v.retained.FinalPairs)
-			if err != nil {
-				return nil, err
-			}
-			v.observation.RestoredEvidence = evidence
-			v.observation.ReaderNonce = disposal.nonce
-			v.observation.ReaderViewSHA256 = disposal.viewHash
-			v.observation.ReaderImageID = disposal.imageID
-			v.observation.ReaderDisposedAt = disposal.at
-		}
-		if v.originalParent != nil {
-			if err = i.CheckUploadWorkspace(ctx, v.originalParent); err != nil {
-				return nil, err
-			}
-		}
+		err = o.inspectUpload(ctx, i, v, client, repository)
+	}
+	if err != nil {
+		return nil, err
 	}
 	complete = true
 	return v, nil
@@ -324,35 +262,7 @@ func (o nativeBackupResolutionOperations) verifyUnits(ctx context.Context, metad
 }
 func (o nativeBackupResolutionOperations) adopt(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved) (json.RawMessage, error) {
 	if i.OriginalKind() == ops.NativeBackupActivate {
-		activation, err := i.Activation(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if v.activation.Previous.Revision == 0 {
-			if err = activation.RecordInitialized(ctx, v.initialized); err != nil {
-				return nil, err
-			}
-		}
-		unit, timer := nativeBackupUnitBytes(v.activation)
-		if v.unitsState == "not_issued" {
-			if err = i.BeginResolutionUnits(ctx); err != nil {
-				return nil, err
-			}
-			if err = activation.BeginUnits(ctx); err != nil {
-				return nil, err
-			}
-			if err = installNativeBackupUnits(ctx, o.runtime.home, o.runtime.session, v.activation, unit, timer); err != nil {
-				return nil, err
-			}
-		}
-		if err = o.verifyUnits(ctx, v.activation); err != nil {
-			return nil, err
-		}
-		receipt, err := activation.Commit(ctx, store.NativeBackupActivationObservation{RepositoryID: v.repositoryID, UnitSHA256: nativeBackupBytesHash(unit), TimerSHA256: nativeBackupBytesHash(timer), RecoveryDeliveryID: v.material.RecoveryDeliveryID})
-		if err != nil {
-			return nil, err
-		}
-		return json.Marshal(receipt)
+		return o.adoptActivation(ctx, i, v)
 	}
 	if i.OriginalKind() == ops.NativePrepare {
 		return o.adoptPrepared(ctx, i, v)
@@ -372,4 +282,131 @@ func (o nativeBackupResolutionOperations) adopt(ctx context.Context, i *store.Na
 	}
 	c := checkpoint.Record()
 	return json.Marshal(nativecapture.TaskReceipt{Kind: string(ops.NativeCapture), OperationID: i.OriginalOperationID(), BindingID: string(point.BindingID), EpochID: string(point.EpochID), PointID: point.PointID, PointSHA256: point.PointSHA256, Outcome: "verified", Engine: "spacetimedb", ModuleSHA256: c.ArtifactSHA256, SchemaSHA256: c.SchemaSHA256, CaptureIntervalSeconds: backup.Backup.CaptureIntervalSeconds, Loss: "unknown"})
+}
+
+func (o nativeBackupResolutionOperations) inspectActivation(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved, client *restic.Client, repository restic.Repository, grant string) error {
+	var err error
+	if grant != "" {
+		v.initialized, err = client.InspectInitialization(ctx, repository, v.path)
+		if err != nil {
+			return err
+		}
+		v.repositoryID = v.initialized.Scope().RepositoryID
+		v.configSHA256 = v.initialized.ConfigurationSHA256()
+	} else {
+		v.repositoryID, err = client.RepositoryIdentity(ctx, repository, v.path)
+		if err != nil {
+			return err
+		}
+	}
+	stage, err := i.ActivationStage(ctx)
+	if err != nil {
+		return err
+	}
+	if stage == "prepared" {
+		v.unitsState = "not_issued"
+	} else {
+		if err = o.verifyUnits(ctx, v.activation); err != nil {
+			return err
+		}
+		v.unitsState = "verified"
+	}
+	return nil
+}
+
+func (o nativeBackupResolutionOperations) inspectUpload(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved, client *restic.Client, repository restic.Repository) error {
+	var err error
+	v.retained, err = i.Upload(ctx)
+	if err != nil {
+		return err
+	}
+	point, known, err := i.CompletedTransport(ctx)
+	if err != nil {
+		return err
+	}
+	if _, statErr := os.Lstat(v.retained.Workspace); statErr == nil {
+		v.originalParent, err = engineOpenRoot(v.retained.Workspace)
+		if err != nil || i.CheckUploadWorkspace(ctx, v.originalParent) != nil {
+			return errEngineSource
+		}
+	} else if !os.IsNotExist(statErr) || !known {
+		return errEngineSource
+	}
+	if known {
+		point.Scope = v.material.Scope
+		if err = client.InspectExact(ctx, repository, v.path, point); err != nil {
+			return err
+		}
+	} else {
+		bundle, err := restic.Seal(ctx, filepath.Join(v.retained.Workspace, "bundle"), v.path, v.retained.Manifest.Identity(), restic.DefaultLimits())
+		if err != nil {
+			return err
+		}
+		defer func() { _ = bundle.Close() }()
+		if !bytes.Equal(bundle.Manifest().Bytes(), v.retained.Manifest.Bytes()) {
+			return errEngineSource
+		}
+		point, err = client.InspectCapture(ctx, repository, v.path, bundle)
+		if err != nil {
+			return err
+		}
+	}
+	v.extracted, err = client.RestoreExact(ctx, repository, v.path, v.parent, "download", point, v.retained.Manifest)
+	if err != nil {
+		return err
+	}
+	v.observation = store.NativePreparedObservation{Parent: v.parent, Source: v.retained.Source, Manifest: v.retained.Manifest, Transport: point, SourceSealSHA256: v.retained.SourceSealSHA256, SourceEvidence: v.retained.SourceEvidence, ConfirmedBound: v.retained.ConfirmedBound, FinalPairs: v.retained.FinalPairs, Artifact: v.retained.Artifact, Descriptor: v.retained.Descriptor}
+	if checkpoint, selection, initialized := v.retained.Source.Initialized(); initialized {
+		schema, err := spacetimedb.DecodeDescriptorV10(v.retained.Descriptor, spacetimedb.DefaultSchemaLimits())
+		if err != nil {
+			return err
+		}
+		evidence, disposal, err := o.runtime.verifyExtracted(ctx, v.extracted, v.parent, v.path, checkpoint, selection, v.retained.SourceEvidence, schema, v.retained.ConfirmedBound, v.retained.FinalPairs)
+		if err != nil {
+			return err
+		}
+		v.observation.RestoredEvidence = evidence
+		v.observation.ReaderNonce = disposal.nonce
+		v.observation.ReaderViewSHA256 = disposal.viewHash
+		v.observation.ReaderImageID = disposal.imageID
+		v.observation.ReaderDisposedAt = disposal.at
+	}
+	if v.originalParent != nil {
+		if err = i.CheckUploadWorkspace(ctx, v.originalParent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (o nativeBackupResolutionOperations) adoptActivation(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved) (json.RawMessage, error) {
+	activation, err := i.Activation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if v.activation.Previous.Revision == 0 {
+		if err = activation.RecordInitialized(ctx, v.initialized); err != nil {
+			return nil, err
+		}
+	}
+	unit, timer := nativeBackupUnitBytes(v.activation)
+	if v.unitsState == "not_issued" {
+		if err = i.BeginResolutionUnits(ctx); err != nil {
+			return nil, err
+		}
+		if err = activation.BeginUnits(ctx); err != nil {
+			return nil, err
+		}
+		if err = installNativeBackupUnits(ctx, o.runtime.home, o.runtime.session, v.activation, unit, timer); err != nil {
+			return nil, err
+		}
+	}
+	if err = o.verifyUnits(ctx, v.activation); err != nil {
+		return nil, err
+	}
+	receipt, err := activation.Commit(ctx, store.NativeBackupActivationObservation{RepositoryID: v.repositoryID, UnitSHA256: nativeBackupBytesHash(unit), TimerSHA256: nativeBackupBytesHash(timer), RecoveryDeliveryID: v.material.RecoveryDeliveryID})
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(receipt)
 }
