@@ -14,7 +14,7 @@ func TestArchiveAbandonAllowsChangedContextButNeverChangedOwnership(t *testing.T
 	observed := planned
 	observed.PolicyHash = "new"
 	observed.Generation = 2
-	observed.Candidate.Databases = []archive.Database{archive.SQLiteDatabaseVariant(archive.SQLiteDatabase{Binding: planned.Candidate.Databases[0].Binding, Retention: nil})}
+	observed.Candidate.Databases = []archive.Database{archive.SQLiteDatabaseVariant(archive.SQLiteDatabase{Binding: sqliteArchiveDatabase(t, planned.Candidate.Databases[0]).Binding, Retention: nil})}
 	if !archiveDispositionFactsMatch(planned, observed, true) {
 		t.Fatal("unrelated changes stranded abandonment")
 	}
@@ -28,7 +28,7 @@ func TestArchiveAbandonAllowsChangedContextButNeverChangedOwnership(t *testing.T
 			t.Fatal("changed ownership authorized fence release")
 		}
 	}
-	if len(planned.Candidate.Databases[0].Retention) != 1 || observed.Candidate.Databases[0].Retention != nil {
+	if len(planned.Candidate.Databases[0].Retention()) != 1 || observed.Candidate.Databases[0].Retention() != nil {
 		t.Fatal("comparison mutated borrowed evidence")
 	}
 }

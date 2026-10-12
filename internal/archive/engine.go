@@ -94,6 +94,20 @@ func (d Database) Retention() []data.RetentionEvidence {
 	return nil
 }
 
+func (d Database) WithRetention(evidence []data.RetentionEvidence) Database {
+	if d.engine == data.EngineSQLite {
+		value := cloneSQLiteDatabase(d.sqlite)
+		value.Retention = slices.Clone(evidence)
+		return SQLiteDatabaseVariant(value)
+	}
+	if d.engine == data.EngineSpacetimeDB {
+		value := cloneNativeDatabase(d.native)
+		value.Retention = slices.Clone(evidence)
+		return NativeDatabaseVariant(value)
+	}
+	return Database{}
+}
+
 func (d Database) ArchiveBindings() []data.ArchiveBinding {
 	if d.engine == data.EngineSpacetimeDB {
 		return slices.Clone(d.native.Epochs)

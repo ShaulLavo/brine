@@ -90,7 +90,10 @@ func (h archiveHost) archiveFacts(ctx context.Context, app, owner string, requir
 		}
 	}
 	for i := range c.Databases {
-		database := &c.Databases[i]
+		database, sqlite := c.Databases[i].SQLite()
+		if !sqlite {
+			return p, archive.ErrRefused
+		}
 		if !slices.Contains(pol.PersistentRoots(), string(database.Binding.Root)) || database.Allocation == nil || data.VerifyArchiveAllocation(database.Binding, *database.Allocation) != nil {
 			return p, archive.ErrRefused
 		}
@@ -122,6 +125,7 @@ func (h archiveHost) archiveFacts(ctx context.Context, app, owner string, requir
 				}
 			}
 		}
+		c.Databases[i] = archive.SQLiteDatabaseVariant(database)
 	}
 	identity, err := json.Marshal(snapshot.Identity)
 	if err != nil {
@@ -167,7 +171,7 @@ func (h archiveHost) archiveCredentials(ctx context.Context, b data.ReplicaBindi
 	return credentials, nil
 }
 
-func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Database, operation string, writersAt time.Time) (archive.Coverage, error) {
+func (h archiveHost) coverSQLite(ctx context.Context, p archive.Plan, d archive.SQLiteDatabase, operation string, writersAt time.Time) (archive.SQLiteCoverage, error) {
 	coverage := archive.SQLiteCoverage{DatabaseID: d.Binding.DatabaseID, WritersQuiescedAt: writersAt}
 	if d.Allocation == nil || data.VerifyArchiveAllocation(d.Binding, *d.Allocation) != nil {
 		return coverage, archive.ErrRefused
@@ -250,7 +254,7 @@ func (h archiveHost) Cover(ctx context.Context, p archive.Plan, d archive.Databa
 	return coverage, nil
 }
 
-func (h archiveHost) snapshot(ctx context.Context, d archive.Database, id string) ([]byte, error) {
+func (h archiveHost) snapshot(ctx context.Context, d archive.SQLiteDatabase, id string) ([]byte, error) {
 	if err := ensurePrivateChild(h.stateRoot, "archive-snapshots"); err != nil {
 		return nil, err
 	}
@@ -266,7 +270,7 @@ func (h archiveHost) snapshot(ctx context.Context, d archive.Database, id string
 	return raw, nil
 }
 
-func (h archiveHost) archiveRestoreEngine(d archive.Database, binding restore.Binding, credentials restore.Credentials) restore.SQLiteEngine {
+func (h archiveHost) archiveRestoreEngine(d archive.SQLiteDatabase, binding restore.Binding, credentials restore.Credentials) restore.SQLiteEngine {
 	return restore.SQLiteEngine{Root: filepath.Join(h.stateRoot, "archive-restores"), MaxSnapshotBytes: 64 << 20, Observer: restoreSchemaObserver{database: d.Binding.Name, definitions: d.Definitions}, Bindings: restore.BindingReaderFunc(func(_ context.Context, id, epoch string) (restore.Binding, error) {
 		if id != binding.ID || epoch != binding.Epoch {
 			return restore.Binding{}, archive.ErrRefused

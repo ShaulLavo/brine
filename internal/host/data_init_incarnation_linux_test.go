@@ -172,12 +172,12 @@ func retireInitializedIncarnation(t *testing.T, r *deployRig, request datainit.R
 	if !ok {
 		t.Fatal("missing retention")
 	}
-	candidate.Databases[0].Retention = []data.RetentionEvidence{retention}
+	candidate.Databases[0] = candidate.Databases[0].WithRetention([]data.RetentionEvidence{retention})
 	id, err := data.NewID()
 	if err != nil {
 		t.Fatal(err)
 	}
-	db := candidate.Databases[0]
+	db := sqliteArchiveDatabase(t, candidate.Databases[0])
 	allocation := db.Allocation
 	generation, err := r.store.Generation(ctx)
 	if err != nil {
@@ -215,7 +215,7 @@ func retireInitializedIncarnation(t *testing.T, r *deployRig, request datainit.R
 	coverage := []archive.Coverage{archive.SQLiteCoverageVariant(archive.SQLiteCoverage{DatabaseID: db.Binding.DatabaseID, WritersQuiescedAt: now, Observation: observation, Point: &point, Receipt: &receipt})}
 	operation, err = r.store.SaveArchiveCoverage(ctx, operation, coverage)
 	if err != nil {
-		t.Fatal("archive coverage", err, "receipt valid", receipt.Valid(), "admits", coverage[0].Admits(archivePlan, db, operation.ID, time.Now().UTC()))
+		t.Fatal("archive coverage", err, "receipt valid", receipt.Valid(), "admits", coverage[0].Admits(archivePlan, archive.SQLiteDatabaseVariant(db), operation.ID, time.Now().UTC()))
 	}
 	for _, stage := range []archive.Stage{archive.ReplicaStopIntent, archive.Quiesced} {
 		operation, err = r.store.AdvanceArchive(ctx, operation, stage)

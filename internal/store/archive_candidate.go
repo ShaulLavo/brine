@@ -141,7 +141,7 @@ func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner st
 			database.Epochs = append(database.Epochs, epoch)
 		}
 		slices.SortFunc(database.Epochs, func(a, b data.ReplicaBinding) int { return strings.Compare(string(a.EpochID), string(b.EpochID)) })
-		c.Databases = append(c.Databases, database)
+		c.Databases = append(c.Databases, archive.SQLiteDatabaseVariant(database))
 	}
 	return c, nil
 }

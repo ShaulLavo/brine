@@ -62,7 +62,7 @@ func TestArchiveCandidateReadsLiveWALWhileAnotherHandleWrites(t *testing.T) {
 				if err != nil {
 					t.Fatalf("live WAL candidate read %d: %v", n, err)
 				}
-				if candidate.Incarnation != plan.Candidate.Incarnation || len(candidate.Databases) != 1 || candidate.Databases[0].Binding != plan.Candidate.Databases[0].Binding {
+				if candidate.Incarnation != plan.Candidate.Incarnation || len(candidate.Databases) != 1 || sqliteArchiveDatabase(t, candidate.Databases[0]).Binding != sqliteArchiveDatabase(t, plan.Candidate.Databases[0]).Binding {
 					t.Fatal("inconsistent archive snapshot", candidate)
 				}
 			}

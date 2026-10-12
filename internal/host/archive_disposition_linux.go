@@ -27,7 +27,11 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 			return archive.ErrRefused
 		}
 	}
-	for i, d := range p.Candidate.Databases {
+	for i, variant := range p.Candidate.Databases {
+		d, sqlite := variant.SQLite()
+		if !sqlite {
+			return archive.ErrRefused
+		}
 		if !d.Written {
 			if _, _, err = data.FreshArchiveAllocation(d.Binding, *d.Allocation); err != nil {
 				return archive.ErrRefused
@@ -37,7 +41,11 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 		observed := data.ObserveSQLiteSchema(ctx, d.Binding, d.Definitions)
 		var previous data.SQLiteSchemaObservation
 		if !abandon {
-			previous = m.Coverage[i].Observation
+			covered, sqlite := m.Coverage[i].SQLite()
+			if !sqlite {
+				return archive.ErrRefused
+			}
+			previous = covered.Observation
 		}
 		if !archiveDispositionSchemaMatches(observed, previous, abandon) {
 			return archive.ErrRefused
@@ -87,7 +95,11 @@ func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) e
 			return err
 		}
 	}
-	for _, d := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		d, sqlite := variant.SQLite()
+		if !sqlite {
+			return archive.ErrRefused
+		}
 		for _, b := range d.Epochs {
 			if !b.Committed {
 				continue
@@ -122,7 +134,11 @@ func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) e
 	if err != nil || !stopped {
 		return archive.ErrRecovery
 	}
-	for _, d := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		d, sqlite := variant.SQLite()
+		if !sqlite {
+			return archive.ErrRefused
+		}
 		for _, b := range d.Epochs {
 			name, err := replication.ServiceName(string(b.BindingID))
 			if err != nil {
@@ -165,7 +181,7 @@ func archiveDispositionFactsMatch(planned, observed archive.Plan, abandon bool) 
 	if abandon {
 		candidate.Databases = append([]archive.Database(nil), observed.Candidate.Databases...)
 		for i := range candidate.Databases {
-			candidate.Databases[i].Retention = planned.Candidate.Databases[i].Retention
+			candidate.Databases[i] = candidate.Databases[i].WithRetention(planned.Candidate.Databases[i].Retention())
 		}
 	}
 	return reflect.DeepEqual(candidate, planned.Candidate)
@@ -190,7 +206,11 @@ func (h archiveHost) VerifyArchiveRuntime(ctx context.Context, p archive.Plan) e
 			return err
 		}
 	}
-	for _, d := range p.Candidate.Databases {
+	for _, variant := range p.Candidate.Databases {
+		d, sqlite := variant.SQLite()
+		if !sqlite {
+			return archive.ErrRefused
+		}
 		for _, binding := range d.Epochs {
 			if !binding.Committed {
 				continue

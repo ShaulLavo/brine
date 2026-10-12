@@ -37,14 +37,14 @@ func TestArchiveCandidateReadOnlyUsesCommittedWALSnapshot(t *testing.T) {
 	// The write transaction remains open during this read. Read-only readers must
 	// see the earlier committed snapshot, not partial writes or a copied main DB.
 	candidate, err := reader.ArchiveCandidate(ctx, plan.Candidate.App)
-	if err != nil || len(candidate.Databases) != 1 || candidate.Databases[0].Written {
+	if err != nil || len(candidate.Databases) != 1 || candidate.Databases[0].Written() {
 		t.Fatal("uncommitted WAL read", candidate, err)
 	}
 	if err = tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
 	candidate, err = reader.ArchiveCandidate(ctx, plan.Candidate.App)
-	if err != nil || len(candidate.Databases) != 1 || !candidate.Databases[0].Written {
+	if err != nil || len(candidate.Databases) != 1 || !candidate.Databases[0].Written() {
 		t.Fatal("committed WAL not observed", candidate, err)
 	}
 }

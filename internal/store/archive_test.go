@@ -32,7 +32,7 @@ func storedArchivePlan(t *testing.T, s *Store) archive.Plan {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.Databases[0].Retention = []data.RetentionEvidence{{Destination: req.Destination.Reference, Endpoint: req.Destination.Endpoint, Bucket: req.Destination.Bucket, BasePrefix: req.Destination.BasePrefix, VerificationID: strings.Repeat("f", 32), VerifiedAt: now.Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}}
+	c.Databases[0] = c.Databases[0].WithRetention([]data.RetentionEvidence{{Destination: req.Destination.Reference, Endpoint: req.Destination.Endpoint, Bucket: req.Destination.Bucket, BasePrefix: req.Destination.BasePrefix, VerificationID: strings.Repeat("f", 32), VerifiedAt: now.Format(time.RFC3339Nano), FreshnessSeconds: 3600, NoObjectExpiration: true}})
 	id, err := data.NewID()
 	if err != nil {
 		t.Fatal(err)
@@ -56,7 +56,7 @@ func TestArchiveJournalPreparationAndImmutableHistory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	permit, err := s.ReadReplicaPermit(ctx, p.Candidate.Databases[0].Binding.DatabaseID)
+	permit, err := s.ReadReplicaPermit(ctx, sqliteArchiveDatabase(t, p.Candidate.Databases[0]).Binding.DatabaseID)
 	if err != nil || permit.FenceState != "held" {
 		t.Fatal("no durable fence", permit, err)
 	}
@@ -76,7 +76,7 @@ func TestArchiveJournalPreparationAndImmutableHistory(t *testing.T) {
 	if _, err = s.AdvanceArchive(ctx, stale, archive.WritersStopIntent); !errors.Is(err, ErrConflict) {
 		t.Fatal("stale operation admitted", err)
 	}
-	d := p.Candidate.Databases[0]
+	d := sqliteArchiveDatabase(t, p.Candidate.Databases[0])
 	now := time.Now().UTC()
 	fresh := *d.Allocation
 	fresh.AllocatedAt = now
@@ -143,7 +143,7 @@ func TestArchiveManifestCannotReplaceVerifiedCoverage(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	d := p.Candidate.Databases[0]
+	d := sqliteArchiveDatabase(t, p.Candidate.Databases[0])
 	now := time.Now().UTC()
 	fresh := *d.Allocation
 	fresh.AllocatedAt = now
@@ -163,7 +163,9 @@ func TestArchiveManifestCannotReplaceVerifiedCoverage(t *testing.T) {
 	if err = json.Unmarshal(raw, &coverage); err != nil {
 		t.Fatal(err)
 	}
-	coverage[0].Observation.ObservedAt = now.Add(time.Nanosecond)
+	changed, _ := coverage[0].SQLite()
+	changed.Observation.ObservedAt = now.Add(time.Nanosecond)
+	coverage[0] = archive.SQLiteCoverageVariant(changed)
 	m := archive.Manifest{Plan: p, OperationID: o.ID, Coverage: coverage, QuiescedAt: time.Now().UTC(), PreparedAt: time.Now().UTC()}
 	if _, err = s.SaveArchiveManifest(ctx, o, m); !errors.Is(err, ErrConflict) {
 		t.Fatal("changed coverage admitted", err)
@@ -196,7 +198,7 @@ func TestArchiveMigrationFromSchemaTenPreservesAllocations(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidate, err := s.ArchiveCandidate(ctx, p.Candidate.App)
-	if err != nil || candidate.Incarnation != p.Candidate.Incarnation || candidate.Databases[0].Allocation == nil {
+	if err != nil || candidate.Incarnation != p.Candidate.Incarnation || sqliteArchiveDatabase(t, candidate.Databases[0]).Allocation == nil {
 		t.Fatal("migration lost allocation", err)
 	}
 	if err = s.SaveArchivePlan(ctx, p); err != nil {
