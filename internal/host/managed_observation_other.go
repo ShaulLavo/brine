@@ -18,3 +18,7 @@ func (managedEngineObserver) current(context.Context, data.ReplicaBindingID, str
 func (managedEngineObserver) stopped(context.Context, store.EnginePermit) error {
 	return data.ErrUnsupportedEngine
 }
+
+func (managedEngineObserver) ownedState(context.Context, store.EnginePermit) (string, error) {
+	return "", data.ErrUnsupportedEngine
+}
