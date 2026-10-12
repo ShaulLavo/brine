@@ -63,6 +63,6 @@ func EncodeNativeRecoverySet(plan, key string, packet []byte) (json.RawMessage, 
 	return json.Marshal(struct {
 		Plan     string `json:"deployment_plan_id"`
 		Key      string `json:"idempotency_key"`
-		Password string `json:"password"`
+		Material string `json:"password"` // #nosec G117 -- Intentional private transport packet; logging and metadata use the redacted type.
 	}{plan, key, password})
 }

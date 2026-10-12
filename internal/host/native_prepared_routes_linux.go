@@ -110,7 +110,7 @@ func (r nativeBackupRuntime) preparedRouteStates(ctx context.Context, service Se
 		return nil, caddy.State{}, caddy.State{}, errEngineSource
 	}
 	snapshot, err := service.Inventory.Collect(ctx)
-	if err != nil || snapshot.Generation.Value == nil {
+	if err != nil || snapshot.Generation.Status != target.KnownStatus || snapshot.Generation.Value == nil {
 		return nil, caddy.State{}, caddy.State{}, errEngineSource
 	}
 	state, err := r.state.LoadBrineState(ctx, snapshot.Identity, *snapshot.Generation.Value)

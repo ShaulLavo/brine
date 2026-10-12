@@ -544,6 +544,7 @@ func (h *host) steps() []Step {
 		{Name: "packages", Check: h.packagesInstalled, Apply: h.installPackages, Undo: h.removePackages},
 		{Name: "litestream", Check: h.checkLitestream, Apply: h.installLitestream, Undo: h.undoLitestream},
 		{Name: "restic", Check: h.checkRestic, Apply: h.installRestic, Undo: h.undoRestic},
+		{Name: "native-reader", Check: h.checkNativeReader, Apply: h.installNativeReader, Undo: h.undoNativeReader},
 		{Name: "user", Check: h.checkUser, Apply: h.createUser, Undo: h.removeUser},
 		{Name: "layout", Check: h.checkLayout, Apply: h.layout, Undo: noop},
 		{Name: "linger", Check: func(context.Context) (bool, error) {

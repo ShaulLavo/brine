@@ -34,6 +34,11 @@ func nativeBackupActivationTask(service Service, stateRoot, home string, session
 		if err != nil || pol.Hash() != "sha256:"+metadata.Plan.PolicySHA256 {
 			return nil, result.New(result.PolicyRefused, nil)
 		}
+		ctx, cancel, err := nativeTransportContext(ctx, metadata.Material.Scope)
+		if err != nil {
+			return nil, err
+		}
+		defer cancel()
 		runtime := nativeBackupRuntime{state: service.Store, stateRoot: stateRoot, home: home, session: session}
 		grant := ""
 		if metadata.Previous.Revision == 0 {

@@ -76,6 +76,11 @@ func (s *Store) ClaimNativeBackupActivation(ctx context.Context, operationID str
 	if err != nil {
 		return nil, err
 	}
+	var pending int
+	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM data_native_backup_revision_claims c JOIN data_native_backup_revision_plans p ON p.id=c.plan_id JOIN operations o ON o.id=c.operation_id WHERE p.binding_id=? AND c.operation_id<>? AND o.state<>'succeeded'", current.BindingID, operationID).Scan(&pending)
+	if err != nil || pending != 0 {
+		return nil, ErrConflict
+	}
 	planRaw, _ := json.Marshal(current)
 	claim := nativeBackupClaim{OperationID: operationID, PlanID: plan.ID, PlanSHA256: nativePointHash(planRaw), CreatedAt: time.Now().UTC()}
 	raw, _ := json.Marshal(claim)

@@ -27,6 +27,11 @@ func nativeHistoricalRestoreTask(service Service, runtime nativeBackupRuntime) j
 		if err != nil || policyErr != nil || pol.Hash() != "sha256:"+bundle.Point.PolicySHA256 {
 			return nil, result.New(result.PolicyRefused, nil)
 		}
+		ctx, cancel, err := nativeTransportContext(ctx, bundle.Material.Scope)
+		if err != nil {
+			return nil, err
+		}
+		defer cancel()
 		client, repository, err := runtime.repositoryMaterial(ctx, bundle.Material, claim, "")
 		if err != nil {
 			return nil, err

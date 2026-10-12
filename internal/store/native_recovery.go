@@ -111,6 +111,11 @@ func checkNativeRecoveryInputCurrent(ctx context.Context, q dataQuerier, input N
 	if err != nil || head.EpochID != input.EpochID || head.Version != input.RuntimeVersion || head.RuntimeSHA256 != input.RuntimeSHA256 || runtime.Secrets.Publisher.Reference == input.Reference || runtime.Secrets.SigningPrivate.Reference == input.Reference || runtime.Secrets.SigningPublic.Reference == input.Reference || runtime.Secrets.AuthPolicy.Reference == input.Reference || desired.BackupDestinations[0].CredentialRef == input.Reference {
 		return errors.Join(ErrConflict, err)
 	}
+	for _, material := range []string{runtime.Secrets.Publisher.SHA256, runtime.Secrets.SigningPrivate.SHA256, runtime.Secrets.SigningPublic.SHA256, runtime.Secrets.AuthPolicy.SHA256} {
+		if input.MaterialSHA256 == material {
+			return ErrConflict
+		}
+	}
 	var admission string
 	err = q.QueryRowContext(ctx, "SELECT policy_hash FROM data_admissions WHERE database_id=? ORDER BY version DESC LIMIT 1", p.Managed.Database.DatabaseID).Scan(&admission)
 	if err != nil || strings.TrimPrefix(admission, "sha256:") != input.PolicySHA256 {

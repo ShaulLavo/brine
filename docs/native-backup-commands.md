@@ -1,9 +1,13 @@
 # Native backup command contract
 
-This command source is a consumer checkpoint for the combined P05 delivery.
-Production capture, preparation and remote restore acceptance still require
-P05's protected host controller and real storage evidence. Fake-backed command
-tests establish request, authorization, polling and presentation behavior only.
+The commands use the existing detached operation engine and protected native
+backup records. Capture reads the running source, encrypts its selected native
+history and signing recovery material, uploads it, then independently restores
+and verifies it. Preparation withdraws owned ingress and proves a clean stop
+before making exact coverage. Both retain unknown effects for inspection.
+
+Physical S3, Pi, browser and interruption acceptance remains pending. Passing
+unit tests does not establish those results.
 
 ## Capture an online point
 
@@ -74,3 +78,61 @@ An interrupted observer does not cancel the detached job. A recovery-required
 or mismatched receipt is a refusal, never a successful verification or a second
 automatic submission. Inspect the retained operation and its actual effect
 before taking another data action.
+
+
+## Deliver independent recovery material
+
+```sh
+brine backup recovery set --deployment-plan DEPLOYMENT_PLAN_ID --target TARGET \
+  --idempotency-key KEY --json < recovery.json
+```
+
+The private packet is exactly `{"password":"YOUR_INDEPENDENT_RECOVERY_PASSWORD"}`.
+The password has 16 to 4096 bytes and contains no NUL. The saved managed
+plan selects the recovery reference, binding and epoch. Delivery reserves an
+immutable version before writing it and verifies the exact private file before
+recording a reference-only receipt. Reusing the same key and password keeps the
+same reserved version. A different password with that key refuses.
+
+Recovery material is separate from S3 credentials and the publisher, signing
+and auth-policy roles. The archive contains the selected signing private key as
+an encrypted member. It does not contain the publisher token or recovery password.
+
+## Activate backup policy
+
+```sh
+brine backup policy plan --deployment-plan DEPLOYMENT_PLAN_ID --target TARGET --json
+brine backup policy activate BACKUP_PLAN_ID --target TARGET --json
+```
+
+The host derives the destination, cadence, retention and exact delivered
+credential and recovery versions from protected records. Initial activation
+records its repository creation intent, authenticates the encrypted repository
+configuration, installs the fixed user service and timer, and reads back their
+ownership and loaded timer state before committing the policy. A pending
+activation blocks another revision from retrying the same creation.
+
+The timer invokes the same capture operation. Its local command verifies the
+exact installed service and actual current systemd invocation before submission.
+It does not expose a general local command runner.
+
+## Inspect backup health
+
+```sh
+brine backup status APP --database NAME --target TARGET --json
+```
+
+Status reads protected metadata. It reports the engine, module and schema,
+capture and verification cadence, maintenance budget, selected point and its
+capture and verification times. Loss remains `unknown`. A stale verification,
+expired credential, pending failed capture or held fence is degraded. Status
+never contacts the provider or refreshes a proof timestamp.
+
+## Unknown effects
+
+An upload, repository initialization or unit change that loses its result remains
+recovery-required. Its retained intent and partial private files stay available.
+A new activation cannot bypass pending creation by using another plan. Automated
+resolution of these backup effects is still pending; inspect the existing
+operation and preserve its files and fence. Do not edit control records or retry
+an uncertain mutation to make the command report success.

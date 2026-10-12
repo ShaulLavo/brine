@@ -1305,3 +1305,41 @@ layout; it never reopens an expired stopped-source mutation permit.
 These are internal guarded effect contracts. Public native restore commands
 remain pending integration with the qualified backup runtime and operation
 adapter; storage/helper tests alone are not physical restore acceptance.
+
+
+## Native backup command execution
+
+The reference-only native backup commands are described in
+[native-backup-commands.md](native-backup-commands.md). Their host controller
+binds the actual requester, current managed binding and protected policy before
+submitting work through the existing detached job engine. Recovery passwords
+are written privately before submission; operation journals contain references
+and hashes only. Native S3 credential delivery uses actual native archive scope
+and does not construct a SQLite replica.
+
+Routine capture holds the binding launch guard while the native writer remains
+running. It copies selected owned history, checks captured prefixes independently,
+and derives the actual sole replica and bounded compressed expansion sizes.
+Current module/control observations and the fixed passive native reader precede
+upload. The selected archive includes exact native-source metadata and encrypted
+signing recovery material. Authenticated remote extraction, complete persisted
+state equality, confirmed lower-bound inclusion and final-pair equality precede
+an immutable historical point. Later loss is unknown.
+
+Exact preparation additionally retains its original fence and clean-stop
+observations, withdraws hash-owned ingress under the host lock, and holds the
+native lifetime lock. Its completed source reloads the retained generation and
+exact bundle, not a newly generated checkpoint. The actual initial-owner helper
+supplies unpublished publisher provenance; JWT syntax does not supply it.
+Historical restore-test reads the exact retained point and verifies in private
+isolation without starting or replacing live data.
+
+Native backup activation records repository creation before invocation and
+requires opaque authenticated configuration readback. A pending activation
+blocks another creation attempt for the binding. Fixed unit and timer ownership
+and actual loaded timer properties precede active policy. Transport deadlines
+stay within both the caller budget and admitted material expiry. Enrollment
+installs the independently published main native-reader0.0.4 platform pin;
+reader execution pulls its fixed digest only after affirmative local absence.
+Unknown effects preserve their intents and partial files. Automatic backup
+resolution and physical phase acceptance remain pending.

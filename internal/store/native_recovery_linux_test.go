@@ -69,3 +69,16 @@ func TestNativeRecoveryDeliveryRequiresOriginalTaskAndRealLaunchGuard(t *testing
 		t.Fatal("released guard rewrote delivery receipt")
 	}
 }
+
+func TestNativeRecoveryPasswordCannotReuseAnEngineRoleValue(t *testing.T) {
+	state, plan, _ := managedControlFixture(t)
+	_, runtime, err := state.ReadEngineHead(context.Background(), plan.Managed.Database.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, hash := range []string{runtime.Secrets.Publisher.SHA256, runtime.Secrets.SigningPrivate.SHA256, runtime.Secrets.SigningPublic.SHA256, runtime.Secrets.AuthPolicy.SHA256} {
+		if _, err := state.ReserveNativeRecoveryInput(context.Background(), plan.Hash, "deploy:"+strings.Repeat("c", 64), strings.Repeat("d", 32), hash); err == nil {
+			t.Fatal("independent recovery password reused an engine role value")
+		}
+	}
+}

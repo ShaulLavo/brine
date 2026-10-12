@@ -68,6 +68,9 @@ func nativePrepareTask(service Service, stateRoot, home string, session nativeBa
 		if err := work.withdrawIngress(ctx, service, session.routes); err != nil {
 			return nil, err
 		}
+		if err := work.stopFrontend(ctx); err != nil {
+			return nil, err
+		}
 		if err := work.stop(ctx, service); err != nil {
 			return nil, err
 		}
@@ -315,6 +318,11 @@ func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source native
 	if err != nil {
 		return store.NativePreparedPointView{}, err
 	}
+	ctx, cancel, err := nativeTransportContext(ctx, material.Scope)
+	if err != nil {
+		return store.NativePreparedPointView{}, err
+	}
+	defer cancel()
 	client, repository, err := w.runtime.repositoryMaterial(ctx, material, admission, "")
 	if err != nil {
 		return store.NativePreparedPointView{}, err
