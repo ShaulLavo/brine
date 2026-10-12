@@ -13,7 +13,15 @@ type ControlInventory struct {
 // includes unfinished removals. RetiredPorts let inventory detect orphan sockets
 // without treating historical allocations as current reservations.
 type ControlApp struct {
-	Name         string
-	Status       Status
-	RetiredPorts []Port
+	Name            string
+	Status          Status
+	RetiredPorts    []Port
+	PortReservation *CommittedPortReservation
+}
+
+// CommittedPortReservation reserves a verified current release's port. It is
+// neither a listener observation nor permission to start or retire that release.
+type CommittedPortReservation struct {
+	ReleaseID string `json:"release_id"`
+	Port      Port   `json:"port"`
 }
