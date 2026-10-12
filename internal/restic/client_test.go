@@ -15,7 +15,7 @@ import (
 )
 
 func testScope() Scope {
-	return Scope{BindingID: testIdentity().BindingID, EpochID: testIdentity().EpochID, DestinationSHA256: strings.Repeat("f", 64), CredentialVersion: 1, RecoveryVersion: 1, ExpiresAt: time.Now().UTC().Add(time.Hour)}
+	return Scope{BindingID: testIdentity().BindingID, EpochID: testIdentity().EpochID, RepositoryID: strings.Repeat("e", 64), DestinationSHA256: strings.Repeat("f", 64), CredentialVersion: 1, RecoveryVersion: 1, ExpiresAt: time.Now().UTC().Add(time.Hour)}
 }
 
 type fixtureAdmission struct{}
@@ -93,14 +93,27 @@ func TestResticLocalEncryptedRoundTrip(t *testing.T) {
 	repositoryPath := filepath.Join(base, "repository")
 	private := []string{"RESTIC_REPOSITORY=" + repositoryPath, "RESTIC_PASSWORD=disposable-fixture-recovery-password"}
 	repository := Repository{scope: testScope(), initializationPlan: strings.Repeat("a", 64), private: func() []string { return append([]string{}, private...) }}
+	repository.scope.RepositoryID = ""
 	t.Setenv("RESTIC_PASSWORD", "ambient-password-must-not-be-used")
 	t.Setenv("AWS_ACCESS_KEY_ID", "ambient-key-must-not-be-used")
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	repository, err = client.Init(ctx, repository, work)
+	initialized, err := client.Init(ctx, repository, work)
 	if err != nil {
 		t.Fatal("actual encrypted initialization", err)
 	}
+	if !initialized.AdmitsCreation(repository.scope, repository.initializationPlan) {
+		t.Fatal("authenticated initialization lost its original creation grant")
+	}
+	if initialized.AdmitsCreation(repository.scope, strings.Repeat("b", 64)) {
+		t.Fatal("authenticated initialization admitted a different creation grant")
+	}
+	crossed := repository.scope
+	crossed.EpochID = strings.Repeat("f", 32)
+	if initialized.AdmitsCreation(crossed, repository.initializationPlan) {
+		t.Fatal("authenticated initialization admitted a different epoch")
+	}
+	repository = initialized.Repository()
 	bundle, err := Seal(ctx, source, work, testIdentity(), DefaultLimits())
 	if err != nil {
 		t.Fatal(err)

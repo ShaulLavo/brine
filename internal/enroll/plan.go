@@ -31,9 +31,10 @@ type Facts struct {
 	OwnedRunner             bool                                     `json:"owned_runner"`
 }
 type Plan struct {
-	Litestream      ToolAsset `json:"litestream"`
-	Changes         []string  `json:"changes"`
-	MissingPackages []string  `json:"missing_packages"`
+	Litestream      ToolAsset       `json:"litestream"`
+	Restic          ResticToolAsset `json:"restic"`
+	Changes         []string        `json:"changes"`
+	MissingPackages []string        `json:"missing_packages"`
 }
 
 func MakePlan(f Facts) (Plan, error) {
@@ -98,7 +99,11 @@ func MakePlan(f Facts) (Plan, error) {
 	if err != nil {
 		return fail()
 	}
-	p := Plan{Litestream: asset, Changes: []string{
+	resticAsset, err := ResticAsset(s.Arch)
+	if err != nil {
+		return fail()
+	}
+	p := Plan{Litestream: asset, Restic: resticAsset, Changes: []string{
 		"Install missing Debian podman, passt and caddy packages and their declared dependencies; never upgrade or remove existing packages during enrollment.",
 		"Before any package installation, mask Caddy so its package default site cannot start; its post-install normally enables and starts caddy.service.",
 		"Podman's netavark dependency can enable netavark-dhcp-proxy.service, netavark-dhcp-proxy.socket and netavark-firewalld-reload.service, and activate the DHCP proxy socket on installation. These package post-install effects are part of the transaction.",
@@ -119,6 +124,7 @@ func MakePlan(f Facts) (Plan, error) {
 		"Make no firewall, DNS, Tailscale, other-user, app-data or root-helper changes; unwired lifecycle capabilities remain refused.",
 	}}
 	p.Changes = append(p.Changes, fmt.Sprintf("Install root-owned 0755 Litestream %s for linux/%s from %s (SHA-256 %s) at %s. Create protected /opt/brine/litestream version directories, stage and verify version before installation; journal file/directory ownership for undo. No app or replica restart.", asset.Version, asset.Architecture, asset.URL, asset.SHA256, asset.Path))
+	p.Changes = append(p.Changes, fmt.Sprintf("Install root-owned 0755 restic %s for linux/%s from %s. Verify archive SHA-256 %s and executable SHA-256 %s, stage and verify the exact version before installation at %s. Journal dedicated restic directories and files for undo; preserve shared /opt/brine. No repository, app or engine changes.", resticAsset.Archive.Version, resticAsset.Archive.Architecture, resticAsset.Archive.URL, resticAsset.Archive.SHA256, resticAsset.BinarySHA256, resticAsset.Archive.Path))
 	for _, name := range []string{"podman", "passt", "caddy"} {
 		if f.Packages[name] == "" {
 			p.MissingPackages = append(p.MissingPackages, name)

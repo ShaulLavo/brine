@@ -60,6 +60,7 @@ func (i Identity) valid() bool {
 type Scope struct {
 	BindingID         string    `json:"binding_id"`
 	EpochID           string    `json:"epoch_id"`
+	RepositoryID      string    `json:"repository_id"`
 	DestinationSHA256 string    `json:"destination_sha256"`
 	CredentialVersion uint64    `json:"credential_version"`
 	RecoveryVersion   uint64    `json:"recovery_version"`
@@ -67,7 +68,7 @@ type Scope struct {
 }
 
 func (s Scope) valid() bool {
-	return idPattern.MatchString(s.BindingID) && idPattern.MatchString(s.EpochID) && hashPattern.MatchString(s.DestinationSHA256) && s.CredentialVersion > 0 && s.RecoveryVersion > 0 && !s.ExpiresAt.IsZero() && s.ExpiresAt.Location() == time.UTC
+	return idPattern.MatchString(s.BindingID) && idPattern.MatchString(s.EpochID) && (s.RepositoryID == "" || hashPattern.MatchString(s.RepositoryID)) && hashPattern.MatchString(s.DestinationSHA256) && s.CredentialVersion > 0 && s.RecoveryVersion > 0 && !s.ExpiresAt.IsZero() && s.ExpiresAt.Location() == time.UTC
 }
 
 type TransportPoint struct {
@@ -80,7 +81,7 @@ type TransportPoint struct {
 }
 
 func (p TransportPoint) valid(l Limits) bool {
-	return p.Identity.valid() && p.Scope.valid() && p.Identity.BindingID == p.Scope.BindingID && p.Identity.EpochID == p.Scope.EpochID && hashPattern.MatchString(p.SnapshotID) && hashPattern.MatchString(p.ManifestSHA256) && hashPattern.MatchString(p.ArchiveSHA256) && p.ArchiveBytes > 0 && p.ArchiveBytes <= l.ArchiveBytes
+	return p.Identity.valid() && p.Scope.valid() && hashPattern.MatchString(p.Scope.RepositoryID) && p.Identity.BindingID == p.Scope.BindingID && p.Identity.EpochID == p.Scope.EpochID && hashPattern.MatchString(p.SnapshotID) && hashPattern.MatchString(p.ManifestSHA256) && hashPattern.MatchString(p.ArchiveSHA256) && p.ArchiveBytes > 0 && p.ArchiveBytes <= l.ArchiveBytes
 }
 
 func (p *TransportPoint) UnmarshalJSON(raw []byte) error {
@@ -94,7 +95,7 @@ func (p *TransportPoint) UnmarshalJSON(raw []byte) error {
 	if _, err := strictjson.Object(fields["identity"], "binding_id", "epoch_id", "capture_id", "module_sha256", "checkpoint_sha256"); err != nil {
 		return ErrInvalid
 	}
-	if _, err := strictjson.Object(fields["scope"], "binding_id", "epoch_id", "destination_sha256", "credential_version", "recovery_version", "expires_at"); err != nil {
+	if _, err := strictjson.Object(fields["scope"], "binding_id", "epoch_id", "repository_id", "destination_sha256", "credential_version", "recovery_version", "expires_at"); err != nil {
 		return ErrInvalid
 	}
 	type pointValue TransportPoint

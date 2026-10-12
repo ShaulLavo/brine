@@ -44,20 +44,63 @@ func NewClient(toolSHA256 string, limits Limits, admission RepositoryAdmission) 
 
 // Init requires the separately reviewed new-owned-repository grant carried by
 // Repository. Callers must reconcile an unknown result before any retry.
-func (c *Client) Init(ctx context.Context, repository Repository, workspace string) (Repository, error) {
-	if !hashPattern.MatchString(repository.initializationPlan) {
-		return Repository{}, ErrInvalid
+func (c *Client) Init(ctx context.Context, repository Repository, workspace string) (InitializedRepository, error) {
+	if !hashPattern.MatchString(repository.initializationPlan) || repository.scope.RepositoryID != "" {
+		return InitializedRepository{}, ErrInvalid
 	}
 	raw, err := c.jsonCommand(ctx, repository, workspace, true, nil, []string{"init", "--repository-version", "2"})
 	if err != nil {
-		return Repository{}, err
+		return InitializedRepository{}, err
 	}
-	if err := parseInit(raw); err != nil {
-		return Repository{}, ErrUnknown
+	id, err := parseInit(raw)
+	if err != nil {
+		return InitializedRepository{}, ErrUnknown
 	}
-	repository.initializationPlan = ""
-	return repository, nil
+	observed, err := c.InspectInitialization(ctx, repository, workspace)
+	if err != nil || observed.repository.scope.RepositoryID != id {
+		return InitializedRepository{}, ErrUnknown
+	}
+	return observed, nil
 }
+
+// InspectInitialization reconciles an issued initialization by authenticated
+// config readback under its retained creation grant. It never repeats init.
+func (c *Client) InspectInitialization(ctx context.Context, repository Repository, workspace string) (InitializedRepository, error) {
+	if !hashPattern.MatchString(repository.initializationPlan) || repository.scope.RepositoryID != "" {
+		return InitializedRepository{}, ErrInvalid
+	}
+	raw, err := c.jsonCommand(ctx, repository, workspace, false, nil, []string{"cat", "config"})
+	if err != nil {
+		return InitializedRepository{}, err
+	}
+	id, err := parseRepositoryConfig(raw)
+	if err != nil {
+		return InitializedRepository{}, err
+	}
+	grant := repository.initializationPlan
+	repository.scope.RepositoryID = id
+	repository.initializationPlan = ""
+	return InitializedRepository{repository: repository, creationGrant: grant, configSHA256: digest(raw), verifiedAt: time.Now().UTC()}, nil
+}
+
+// RepositoryIdentity authenticates the encrypted config through the current
+// protected repository/key scope. It never returns its location or key material.
+func (c *Client) RepositoryIdentity(ctx context.Context, repository Repository, workspace string) (string, error) {
+	if repository.initializationPlan != "" || !hashPattern.MatchString(repository.scope.RepositoryID) {
+		return "", ErrInvalid
+	}
+	raw, err := c.jsonCommand(ctx, repository, workspace, false, nil, []string{"cat", "config"})
+	if err != nil {
+		return "", err
+	}
+	id, err := parseRepositoryConfig(raw)
+	if err != nil || id != repository.scope.RepositoryID {
+		return "", ErrIntegrity
+	}
+	return id, nil
+}
+
+func (r Repository) RepositoryID() string { return r.scope.RepositoryID }
 
 func (c *Client) Backup(ctx context.Context, repository Repository, workspace string, bundle Bundle) (TransportPoint, error) {
 	if err := bundle.manifest.admit(c.limits); err != nil {
@@ -65,6 +108,9 @@ func (c *Client) Backup(ctx context.Context, repository Repository, workspace st
 	}
 	if repository.initializationPlan != "" || repository.scope.BindingID != bundle.manifest.document.Identity.BindingID || repository.scope.EpochID != bundle.manifest.document.Identity.EpochID {
 		return TransportPoint{}, ErrInvalid
+	}
+	if _, err := c.RepositoryIdentity(ctx, repository, workspace); err != nil {
+		return TransportPoint{}, err
 	}
 	file, err := bundle.openVerified(ctx)
 	if err != nil {
@@ -83,6 +129,9 @@ func (c *Client) Backup(ctx context.Context, repository Repository, workspace st
 	if err := bundle.verify(ctx); err != nil {
 		return TransportPoint{}, ErrUnknown
 	}
+	if _, err := c.RepositoryIdentity(ctx, repository, workspace); err != nil {
+		return TransportPoint{}, ErrUnknown
+	}
 	return TransportPoint{Identity: bundle.manifest.document.Identity, Scope: repository.scope, SnapshotID: id, ManifestSHA256: bundle.manifest.SHA256(), ArchiveSHA256: bundle.sha256, ArchiveBytes: bundle.size}, nil
 }
 
@@ -91,6 +140,9 @@ func captureTag(identity Identity) string { return "brine-capture-" + identity.C
 func (c *Client) InspectExact(ctx context.Context, repository Repository, workspace string, point TransportPoint) error {
 	if !point.valid(c.limits) || !sameRepository(repository, point) {
 		return ErrInvalid
+	}
+	if _, err := c.RepositoryIdentity(ctx, repository, workspace); err != nil {
+		return err
 	}
 	raw, err := c.jsonCommand(ctx, repository, workspace, false, nil, []string{"ls", point.SnapshotID})
 	if err != nil {
@@ -109,6 +161,9 @@ func (c *Client) InspectCapture(ctx context.Context, repository Repository, work
 	if err := bundle.verify(ctx); err != nil {
 		return TransportPoint{}, err
 	}
+	if _, err := c.RepositoryIdentity(ctx, repository, workspace); err != nil {
+		return TransportPoint{}, err
+	}
 	raw, err := c.jsonCommand(ctx, repository, workspace, false, nil, []string{"snapshots", "--tag", captureTag(bundle.manifest.document.Identity)})
 	if err != nil {
 		return TransportPoint{}, err
@@ -125,7 +180,7 @@ func (c *Client) InspectCapture(ctx context.Context, repository Repository, work
 }
 
 func sameRepository(repository Repository, point TransportPoint) bool {
-	return repository.initializationPlan == "" && repository.scope.BindingID == point.Scope.BindingID && repository.scope.EpochID == point.Scope.EpochID && repository.scope.DestinationSHA256 == point.Scope.DestinationSHA256 && repository.scope.RecoveryVersion == point.Scope.RecoveryVersion
+	return repository.initializationPlan == "" && repository.scope.BindingID == point.Scope.BindingID && repository.scope.EpochID == point.Scope.EpochID && repository.scope.RepositoryID == point.Scope.RepositoryID && repository.scope.DestinationSHA256 == point.Scope.DestinationSHA256 && repository.scope.RecoveryVersion == point.Scope.RecoveryVersion
 }
 
 func (c *Client) RestoreExact(ctx context.Context, repository Repository, workspace, directory string, point TransportPoint, manifest Manifest) error {
@@ -169,6 +224,9 @@ func (c *Client) RestoreExact(ctx context.Context, repository Repository, worksp
 }
 
 func (c *Client) Check(ctx context.Context, repository Repository, workspace string) error {
+	if _, err := c.RepositoryIdentity(ctx, repository, workspace); err != nil {
+		return err
+	}
 	raw, err := c.jsonCommand(ctx, repository, workspace, false, nil, []string{"check", "--read-data"})
 	if err != nil {
 		return err
