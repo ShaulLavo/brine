@@ -244,7 +244,7 @@ func validate(value record, requested Limits) error {
 	if !validFraming(value) {
 		return ErrEvidence
 	}
-	if value.Snapshot != nil && (value.Snapshot.Database != value.Database || value.Snapshot.Replica == 0 || value.Snapshot.Offset > value.Offset) {
+	if value.Snapshot != nil && (value.Snapshot.Database != value.Database || value.Snapshot.Offset > value.Offset) {
 		return ErrEvidence
 	}
 	return validTables(value.Tables, requested)

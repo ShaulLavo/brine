@@ -7,17 +7,22 @@ RUN case "$TARGETARCH" in amd64) target=x86_64-unknown-linux-musl ;; arm64) targ
     && test "$(rustc --version | cut -d ' ' -f 2)" = 1.96.1 \
     && RUSTFLAGS='-C target-feature=+crt-static --remap-path-prefix=/build=/source' cargo build --locked --release --target "$target" -p brine-native-reader -j 2 \
     && mkdir /artifact \
-    && BRINE_READER_TEST_OUTPUT=/artifact/fixture RUSTFLAGS='-C target-feature=+crt-static --remap-path-prefix=/build=/source' cargo test --locked --target "$target" -p brine-native-reader -j 2 -- --test-threads=1 \
+    && RUSTFLAGS='-C target-feature=+crt-static --remap-path-prefix=/build=/source' cargo test --locked --target "$target" -p brine-native-reader -j 2 --no-run \
     && cp "target/$target/release/brine-native-reader" /artifact/brine-native-reader \
     && strip /artifact/brine-native-reader \
     && ! readelf -l /artifact/brine-native-reader | grep -q INTERP \
     && (cd /artifact && sha256sum brine-native-reader > SHA256SUMS)
 COPY pins.json upstream-LICENSE.txt /artifact/
 
+FROM build AS native-tests
+ARG TARGETARCH
+RUN case "$TARGETARCH" in amd64) target=x86_64-unknown-linux-musl ;; arm64) target=aarch64-unknown-linux-musl ;; *) exit 64 ;; esac \
+    && BRINE_READER_TEST_OUTPUT=/artifact/fixture BRINE_ZERO_READER_TEST_OUTPUT=/artifact/replica-zero-fixture RUSTFLAGS='-C target-feature=+crt-static --remap-path-prefix=/build=/source' cargo test --locked --target "$target" -p brine-native-reader -j 2 -- --test-threads=1
+
 FROM scratch AS artifact
-COPY --from=build /artifact/ /
+COPY --from=native-tests /artifact/ /
 
 FROM scratch AS runtime
-COPY --from=build /artifact/ /usr/share/brine-native-reader/
-COPY --from=build /artifact/brine-native-reader /brine-native-reader
+COPY --from=native-tests /artifact/ /usr/share/brine-native-reader/
+COPY --from=native-tests /artifact/brine-native-reader /brine-native-reader
 ENTRYPOINT ["/brine-native-reader"]
