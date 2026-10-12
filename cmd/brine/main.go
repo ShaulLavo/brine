@@ -69,6 +69,7 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 		return cli.RuntimeServices{EngineExec: runtime.EngineExec, Close: runtime.Close}, nil
 	}}
 	deps.HostEngineCopyObserve = host.RunEngineCopyObserver
+	deps.HostModuleDescribe = host.RunModuleDescriptor
 	if cli.HostServeRequested(args) {
 		factory := host.NewServerFactory(deps.Version, authenticated)
 		deps.HostServerFactory = factory.Build

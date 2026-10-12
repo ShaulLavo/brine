@@ -47,6 +47,7 @@ type Dependencies struct {
 	HostWriterAttempt      func(context.Context, string) error
 	HostEngineExec         func(context.Context, string) error
 	HostEngineCopyObserve  func(context.Context, io.Reader, io.Writer) error
+	HostModuleDescribe     func(context.Context, io.Reader, io.Writer) error
 	HostBackupCredentials  dispatch.BackupCredentialOperations
 	HostArchives           ArchiveOperations
 	HostArchiveMaintenance ArchiveMaintenanceOperations
