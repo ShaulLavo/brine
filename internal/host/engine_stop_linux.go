@@ -65,10 +65,12 @@ func (r *EngineStartupRuntime) stopOwnedNative(ctx, lifetime context.Context, pe
 		}
 		native, err := bindEngineNative(container, permit, engineMaterialPaths(r.stateRoot, permit.Runtime))
 		if err != nil {
+			r.retainEngineLifetime(lifetime, permit, nil)
 			return errEngineSource
 		}
 		defer native.close()
 		if native.alive() != nil || r.stopPostOwned(ctx, permit, self) != nil {
+			r.retainEngineLifetime(lifetime, permit, native)
 			return errEngineSource
 		}
 		if err = r.stopLiveEngine(ctx, permit); err != nil || !native.exited() {
@@ -77,5 +79,6 @@ func (r *EngineStartupRuntime) stopOwnedNative(ctx, lifetime context.Context, pe
 		}
 		return nil
 	}
+	r.retainEngineLifetime(lifetime, permit, nil)
 	return errEngineSource
 }
