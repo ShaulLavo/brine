@@ -13,8 +13,8 @@ import (
 
 func onlineFileFixture(t *testing.T) (*os.Root, *os.File, engineTreeMember) {
 	t.Helper()
-	directory := t.TempDir()
-	if err := os.Chmod(directory, 0700); err != nil {
+	directory := filepath.Join(t.TempDir(), "source")
+	if err := os.Mkdir(directory, 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(directory, "head"), []byte("captured prefix"), 0600); err != nil {
@@ -149,9 +149,6 @@ func TestEngineCapturedPrefixCopiesExactlyBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	directory := t.TempDir()
-	if err := os.Chmod(directory, 0700); err != nil {
-		t.Fatal(err)
-	}
 	destination, err := os.OpenRoot(directory)
 	if err != nil {
 		t.Fatal(err)
