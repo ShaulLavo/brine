@@ -36,7 +36,7 @@ func TestEngineStopChildHelper(t *testing.T) {
 	interrupt := make(chan os.Signal, 1)
 	signal.Notify(interrupt, os.Interrupt)
 	defer signal.Stop(interrupt)
-	if err := os.WriteFile(ready, []byte("ready"), 0600); err != nil {
+	if err := os.WriteFile(ready, []byte("ready"), 0600); err != nil { //nolint:gosec // Parent-selected readiness file for this child-only test.
 		t.Fatal(err)
 	}
 	select {

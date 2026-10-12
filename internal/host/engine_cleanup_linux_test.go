@@ -42,7 +42,7 @@ func testEngineCopyReplacedStage(t *testing.T, operation string) {
 	if err = cleanup(); err == nil {
 		t.Error("replacement stage earned successful disposal")
 	}
-	content, statErr := os.ReadFile(marker)
+	content, statErr := os.ReadFile(marker) //nolint:gosec // Parent-created marker under this test's owned temporary stage.
 	if statErr != nil || string(content) != "must survive" {
 		t.Fatal("cleanup deleted replacement data", statErr)
 	}
