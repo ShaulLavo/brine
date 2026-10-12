@@ -49,6 +49,30 @@ func TestConfirmedPairsUseActualNativeSQLShape(t *testing.T) {
 	}
 }
 
+func TestConfirmedPairsRefuseChangedNativeSQLSchemaAndWrites(t *testing.T) {
+	cases := map[string]func(map[string]any){
+		"reported write":          func(statement map[string]any) { statement["stats"].(map[string]any)["rows_updated"] = json.Number("1") },
+		"unknown statement field": func(statement map[string]any) { statement["future"] = true },
+		"unknown stats field":     func(statement map[string]any) { statement["stats"].(map[string]any)["future"] = json.Number("0") },
+		"timestamp type": func(statement map[string]any) {
+			statement["schema"].(map[string]any)["elements"].([]any)[2].(map[string]any)["algebraic_type"] = map[string]any{"String": []any{}}
+		},
+		"null rows": func(statement map[string]any) { statement["rows"] = nil },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) { checkChangedSQLRefusal(t, mutate) })
+	}
+}
+
+func checkChangedSQLRefusal(t *testing.T, mutate func(map[string]any)) {
+	t.Helper()
+	value := nativeRecoverySQL(t)["left"]
+	mutate(value.([]any)[0].(map[string]any))
+	if _, err := decodeConfirmedSQLStatement(value, false); !errors.Is(err, ErrRecoveryPairs) {
+		t.Fatal("changed schema or SQL-write result admitted")
+	}
+}
+
 func confirmedRecordFixture(t testing.TB) confirmedPairsRecord {
 	t.Helper()
 	rows, err := decodeConfirmedRecoveryResults(recoverySQLResults(t, nativeRecoverySQL(t)))
