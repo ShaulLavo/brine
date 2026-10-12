@@ -40,6 +40,7 @@ type nativePrepareWork struct {
 	observed    nativeOwnedObservation
 	withdrawn   caddy.State
 	prior       caddy.State
+	startedAt   time.Time
 }
 
 func nativePrepareTask(service Service, stateRoot, home string, session nativeBackupRuntime) jobs.TaskHandler {
@@ -60,7 +61,7 @@ func nativePrepareTask(service Service, stateRoot, home string, session nativeBa
 			return nil, err
 		}
 		defer func() { _ = lock.Release() }()
-		work := &nativePrepareWork{runtime: session, input: input, operation: op}
+		work := &nativePrepareWork{runtime: session, input: input, operation: op, startedAt: time.Now()}
 		defer func() { _ = work.close() }()
 		if err := work.acquire(ctx); err != nil {
 			return nil, err
@@ -78,7 +79,7 @@ func nativePrepareTask(service Service, stateRoot, home string, session nativeBa
 		if err != nil {
 			return nil, err
 		}
-		return json.Marshal(nativecapture.TaskReceipt{Kind: string(ops.NativePrepare), OperationID: op.ID, BindingID: string(input.BindingID), EpochID: string(point.EpochID), PointID: point.PointID, PointSHA256: point.PointSHA256, Outcome: "verified"})
+		return json.Marshal(nativecapture.TaskReceipt{Kind: string(ops.NativePrepare), OperationID: op.ID, BindingID: string(input.BindingID), EpochID: string(point.EpochID), PointID: point.PointID, PointSHA256: point.PointSHA256, Outcome: "verified", Engine: "spacetimedb", ModuleSHA256: point.ArtifactWasmSHA256, SchemaSHA256: point.SchemaSHA256, CaptureIntervalSeconds: backup.Backup.CaptureIntervalSeconds, MaintenanceMillis: work.maintenanceMillis(), Loss: "unknown"})
 	}
 }
 
@@ -357,4 +358,12 @@ func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source native
 		return store.NativePreparedPointView{}, errEngineSource
 	}
 	return w.runtime.state.CompleteNativePreparedPoint(ctx, w.stopped, extracted, observation)
+}
+
+func (w *nativePrepareWork) maintenanceMillis() uint64 {
+	elapsed := time.Since(w.startedAt).Milliseconds()
+	if elapsed < 0 || elapsed > 365*24*3600*1000 {
+		return 0
+	}
+	return uint64(elapsed)
 }
