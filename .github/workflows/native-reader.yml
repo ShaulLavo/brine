@@ -60,7 +60,7 @@ jobs:
         run: |
           readelf -h "$RUNNER_TEMP/reader-artifact/brine-native-reader" | grep -F "$MACHINE"
           if readelf -l "$RUNNER_TEMP/reader-artifact/brine-native-reader" | grep -q INTERP; then exit 1; fi
-          python3 tools/native-reader/verify_cli.py brine-native-reader:test "$RUNNER_TEMP/reader-artifact/fixture" "$RUNNER_TEMP/reader-cli-evidence"
+          python3 tools/native-reader/verify_cli.py brine-native-reader:test "$RUNNER_TEMP/reader-artifact/fixture" "$RUNNER_TEMP/reader-cli-evidence" "$RUNNER_TEMP/reader-artifact/discovery-negative-fixtures"
           python3 tools/native-reader/verify_cli.py brine-native-reader:test "$RUNNER_TEMP/reader-artifact/replica-zero-fixture" "$RUNNER_TEMP/reader-zero-cli-evidence"
           cp "$RUNNER_TEMP/reader-cli-evidence/receipt.json" "$RUNNER_TEMP/reader-artifact/cli-receipt.json"
           cp "$RUNNER_TEMP/reader-zero-cli-evidence/receipt.json" "$RUNNER_TEMP/reader-artifact/zero-cli-receipt.json"
