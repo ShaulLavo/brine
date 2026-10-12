@@ -43,7 +43,7 @@ func nativeEmptyBundleRecords(t *testing.T) (nativePreparedPoint, []byte, []byte
 	if err != nil {
 		t.Fatal(err)
 	}
-	point := nativePreparedPoint{view: NativePreparedPointView{PointID: pointID, BindingID: data.ReplicaBindingID(binding), EpochID: data.ReplicaEpochID(epoch), SourceKind: "unpublished", SourceSHA256: source.SHA256(), CheckpointSHA256: source.SHA256(), ConfigSHA256: config, GenerationID: generation, BundleManifestSHA256: manifest.SHA256(), TransportPointSHA256: nativePointHash(transportRaw)}}
+	point := nativePreparedPoint{view: NativePreparedPointView{PointID: pointID, BindingID: data.ReplicaBindingID(binding), EpochID: data.ReplicaEpochID(epoch), SourceKind: "unpublished", SourceSHA256: source.SHA256(), CheckpointSHA256: source.SHA256(), ConfigSHA256: config, SigningRecoverySHA256: nativeSigningRecoverySHA256(nativecapture.SigningRecovery{Kind: "external_immutable", Reference: "signing", Version: 1, SHA256: key}), GenerationID: generation, BundleManifestSHA256: manifest.SHA256(), TransportPointSHA256: nativePointHash(transportRaw)}}
 	return point, sourceRaw, manifestRaw, transportRaw
 }
 
@@ -110,5 +110,13 @@ func TestNativePreparedCompletionRequiresRealStoppedAndAuthenticatedExtraction(t
 	}
 	if (&NativeRepositoryRead{}).AdmitRepository(context.Background(), restic.Scope{}, restic.CreateRepository, "") == nil {
 		t.Fatal("read capability created repository")
+	}
+}
+
+func TestNativePreparedEmptyBundleRejectsCrossedSigningRecovery(t *testing.T) {
+	point, source, manifest, transport := nativeEmptyBundleRecords(t)
+	point.view.SigningRecoverySHA256 = strings.Repeat("9", 64)
+	if _, err := decodeNativePreparedBundle(context.Background(), nil, point, source, manifest, transport, nil, nil, nil, nil); err == nil {
+		t.Fatal("authenticated source did not bind signing recovery")
 	}
 }

@@ -35,7 +35,7 @@ func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.Na
 	}
 	files := backupcredentials.Files{Root: filepath.Join(r.stateRoot, "credentials")}
 	receipt, err := files.Receipt(material.CredentialReference, material.Scope.CredentialVersion)
-	if err != nil || !receipt.Valid() || receipt.Scope.Binding != material.Scope.BindingID || receipt.Scope.Epoch != material.Scope.EpochID {
+	if err != nil || !nativeCredentialReceiptMatches(material, receipt) {
 		return nil, restic.Repository{}, errEngineSource
 	}
 	packet, err := files.Read(material.CredentialReference, material.Scope.CredentialVersion)
@@ -134,12 +134,16 @@ func (r nativeBackupRuntime) restorePrepared(ctx context.Context, stopped *store
 		return nil, err
 	}
 	complete := false
+	var extracted restic.AuthenticatedRestore
 	defer func() {
 		if !complete {
+			if extracted.Root() != nil {
+				_ = extracted.Root().Close()
+			}
 			_ = parent.Close()
 		}
 	}()
-	extracted, err := client.RestoreExact(ctx, repository, path, parent, "download", bundle.Transport(), bundle.Manifest())
+	extracted, err = client.RestoreExact(ctx, repository, path, parent, "download", bundle.Transport(), bundle.Manifest())
 	if err != nil {
 		return nil, err
 	}
@@ -266,6 +270,12 @@ func (r nativeBackupRuntime) restoreVerifiedPoint(ctx context.Context, pointID s
 	if err != nil {
 		return nativeVerifiedRestore{}, err
 	}
+	complete := false
+	defer func() {
+		if !complete {
+			_ = extracted.Root().Close()
+		}
+	}()
 	evidence, disposal, err := r.verifyExtracted(ctx, extracted, stage.root, parentPath, bundle.Checkpoint, bundle.Selection, bundle.SourceEvidence, bundle.Schema, bundle.ConfirmedBound, bundle.FinalPairs)
 	if err != nil || stage.unchanged(ctx) != nil {
 		return nativeVerifiedRestore{}, errEngineSource
@@ -293,5 +303,14 @@ func (r nativeBackupRuntime) restoreVerifiedPoint(ctx context.Context, pointID s
 	if err != nil {
 		return nativeVerifiedRestore{}, err
 	}
+	complete = true
 	return nativeVerifiedRestore{source: restored, evidence: evidence, disposal: disposal}, nil
+}
+
+func nativeCredentialReceiptMatches(material store.NativeRepositoryMaterial, receipt backupcredentials.Receipt) bool {
+	v := material.CredentialRecord
+	if !receipt.Valid() || v.ID != material.CredentialReceiptID || v.ID != credentialRecordID("receipt", receipt.PlanID) || v.Kind != "receipt" || v.PlanID != receipt.PlanID || v.PlanHash != receipt.PlanID || v.Requester != receipt.Requester || v.App != receipt.Scope.App || v.CredentialRef != receipt.Scope.CredentialRef || v.TargetHash != receipt.Scope.TargetHash || v.PolicyHash != receipt.Scope.PolicyHash || string(v.BindingID) != receipt.Scope.Binding || string(v.EpochID) != receipt.Scope.Epoch || string(v.Destination) != receipt.Scope.Destination || v.Version != receipt.Version || !v.ReceivedAt.Equal(receipt.ReceivedAt) || (v.ExpiresAt == nil) != (receipt.ExpiresAt == nil) {
+		return false
+	}
+	return v.ExpiresAt == nil || v.ExpiresAt.Equal(*receipt.ExpiresAt)
 }

@@ -59,7 +59,7 @@ func (s *Store) ReadNativePreparedBundle(ctx context.Context, stopped *NativeSto
 		return NativePreparedBundle{}, err
 	}
 	bundle, err := readNativePreparedBundleTx(ctx, tx, stopped.PointID())
-	if err != nil || !stopped.active(s) || bundle.point.hash != stopped.completedPointSHA256 {
+	if err != nil || !stopped.active(s) || bundle.point.hash != stopped.completedPointSHA256 || checkNativePreparedSourceRuntime(ctx, tx, stopped, bundle.source) != nil {
 		return NativePreparedBundle{}, errors.Join(ErrConflict, err)
 	}
 	return bundle, tx.Commit()
@@ -75,7 +75,14 @@ func readNativePreparedBundleTx(ctx context.Context, tx *sql.Tx, pointID string)
 	if err != nil {
 		return NativePreparedBundle{}, errors.Join(&IntegrityError{}, err)
 	}
-	return decodeNativePreparedBundle(ctx, tx, point, sourceRaw, manifestRaw, transportRaw, sourceEvidenceRaw, restoredEvidenceRaw, confirmedRaw, finalRaw)
+	bundle, err := decodeNativePreparedBundle(ctx, tx, point, sourceRaw, manifestRaw, transportRaw, sourceEvidenceRaw, restoredEvidenceRaw, confirmedRaw, finalRaw)
+	if err != nil {
+		return NativePreparedBundle{}, err
+	}
+	if err := checkNativePreparedBundleVerification(ctx, tx, point, bundle, sourceEvidenceRaw, restoredEvidenceRaw, confirmedRaw, finalRaw); err != nil {
+		return NativePreparedBundle{}, err
+	}
+	return bundle, nil
 }
 
 func decodeNativePreparedBundle(ctx context.Context, tx *sql.Tx, point nativePreparedPoint, sourceRaw, manifestRaw, transportRaw, sourceEvidenceRaw, restoredEvidenceRaw, confirmedRaw, finalRaw []byte) (NativePreparedBundle, error) {
@@ -99,14 +106,14 @@ func decodeNativePreparedBundle(ctx context.Context, tx *sql.Tx, point nativePre
 	}
 	if point.view.SourceKind == "unpublished" {
 		empty, valid := source.Empty()
-		if !valid || empty.GenerationID != point.view.GenerationID || empty.ConfigurationSHA256 != point.view.ConfigSHA256 || empty.Scope.BindingID != string(point.view.BindingID) || empty.Scope.EpochID != string(point.view.EpochID) || transport.Identity.ModuleSHA256 != source.SHA256() || nativePointHash(sourceRaw) != point.view.CheckpointSHA256 || len(sourceEvidenceRaw) != 0 || len(restoredEvidenceRaw) != 0 || len(confirmedRaw) != 0 || len(finalRaw) != 0 {
+		if !valid || empty.GenerationID != point.view.GenerationID || empty.ConfigurationSHA256 != point.view.ConfigSHA256 || nativeSigningRecoverySHA256(empty.SigningRecovery) != point.view.SigningRecoverySHA256 || empty.Scope.BindingID != string(point.view.BindingID) || empty.Scope.EpochID != string(point.view.EpochID) || transport.Identity.ModuleSHA256 != source.SHA256() || nativePointHash(sourceRaw) != point.view.CheckpointSHA256 || len(sourceEvidenceRaw) != 0 || len(restoredEvidenceRaw) != 0 || len(confirmedRaw) != 0 || len(finalRaw) != 0 {
 			return NativePreparedBundle{}, &IntegrityError{}
 		}
 		return bundle, nil
 	}
 	checkpoint, selection, valid := source.Initialized()
 	c := checkpoint.Record()
-	if !valid || checkpoint.SHA256() != point.view.CheckpointSHA256 || c.Scope.BindingID != string(point.view.BindingID) || c.Scope.EpochID != string(point.view.EpochID) || transport.Identity.ModuleSHA256 != c.ArtifactSHA256 || c.GenerationID != point.view.GenerationID || c.DatabaseIdentity != point.view.NativeDatabase || c.PublisherIdentity != point.view.NativePublisher || c.ArtifactSHA256 != point.view.ArtifactWasmSHA256 || c.RuntimeModuleHash != point.view.ProgramWireHash || c.SchemaSHA256 != point.view.SchemaSHA256 || selection.Scope().CaptureID != pointID || checkNativeBundleMembers(source, manifest, sourceRaw) != nil {
+	if !valid || checkpoint.SHA256() != point.view.CheckpointSHA256 || c.Scope.BindingID != string(point.view.BindingID) || c.Scope.EpochID != string(point.view.EpochID) || transport.Identity.ModuleSHA256 != c.ArtifactSHA256 || c.GenerationID != point.view.GenerationID || c.DatabaseIdentity != point.view.NativeDatabase || c.PublisherIdentity != point.view.NativePublisher || c.ArtifactSHA256 != point.view.ArtifactWasmSHA256 || c.RuntimeModuleHash != point.view.ProgramWireHash || c.SchemaSHA256 != point.view.SchemaSHA256 || c.ConfigurationSHA256 != point.view.ConfigSHA256 || nativeSigningRecoverySHA256(c.SigningRecovery) != point.view.SigningRecoverySHA256 || !slices.Equal(c.Names, point.view.Names) || selection.Scope().CaptureID != pointID || checkNativeBundleMembers(source, manifest, sourceRaw) != nil {
 		return NativePreparedBundle{}, &IntegrityError{}
 	}
 	sourceEvidence, sourceErr := nativeevidence.Decode(sourceEvidenceRaw, nativeevidence.MaximumLimits())
@@ -136,4 +143,9 @@ func readNativePreparedSchema(ctx context.Context, q dataQuerier, checkpoint nat
 		return spacetimedb.CanonicalSchema{}, errors.Join(&IntegrityError{}, err)
 	}
 	return schema, nil
+}
+
+func nativeSigningRecoverySHA256(recovery nativecapture.SigningRecovery) string {
+	raw, _ := json.Marshal(recovery)
+	return nativePointHash(raw)
 }
