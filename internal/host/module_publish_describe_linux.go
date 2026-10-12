@@ -11,7 +11,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 	"syscall"
@@ -169,11 +168,11 @@ func moduleDescriptorNativeFailure(err error, stderr []byte) string {
 	if errors.As(err, &boundary) && boundary.Kind == localexec.NotFound {
 		return "native_missing"
 	}
-	var exited *exec.ExitError
-	if !errors.As(err, &exited) || exited.ProcessState == nil {
+	status, exited := localexec.InspectExit(err)
+	if !exited {
 		return "native_launch"
 	}
-	if status, ok := exited.ProcessState.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+	if status.Signaled {
 		return "native_signal"
 	}
 	for _, refusal := range []string{"error: unexpected argument ", "error: unrecognized subcommand ", "error: invalid value ", "error: the following required arguments were not provided"} {
