@@ -83,7 +83,48 @@ func readNativeCompletedRepositoryResult(ctx context.Context, q dataQuerier, int
 	if err != nil || !bytes.Equal(raw, canonical) || result.IntentID != intent.creationID || result.IntentSHA256 != intent.hash || result.RepositoryID != repository || !data.ValidCatalogHash(repository) || !data.ValidCatalogHash(result.ConfigSHA256) || scope.BindingID != string(intent.record.BindingID) || scope.EpochID != string(intent.epochID) || scope.RepositoryID != repository || scope.DestinationSHA256 != nativeArchiveLocation(intent.archive).SHA256() || scope.CredentialVersion == 0 || scope.RecoveryVersion == 0 || !scope.ExpiresAt.After(result.VerifiedAt) || result.VerifiedAt.Location() != time.UTC || result.VerifiedAt.Before(events[0].ObservedAt) || result.VerifiedAt.After(events[len(events)-1].ObservedAt) {
 		return result, &IntegrityError{}
 	}
+	if err := checkNativeInitializedCredential(ctx, q, intent, result); err != nil {
+		return result, err
+	}
 	return result, nil
+}
+
+func checkNativeInitializedCredential(ctx context.Context, q dataQuerier, intent nativeRepositoryIntent, result NativeInitializedRepositoryResult) error {
+	var raw []byte
+	err := q.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE binding_id=? AND kind='receipt' AND json_extract(canonical,'$.credential_ref')=? AND json_extract(canonical,'$.version')=?", intent.record.BindingID, intent.archive.Destination.CredentialRef, result.Scope.CredentialVersion).Scan(&raw)
+	var record CredentialRecord
+	if err != nil || json.Unmarshal(raw, &record) != nil {
+		return errors.Join(ErrConflict, err)
+	}
+	canonical, err := json.Marshal(record)
+	if err != nil || !bytes.Equal(raw, canonical) || record.BindingID != intent.record.BindingID || record.CredentialRef != intent.archive.Destination.CredentialRef || record.Version != result.Scope.CredentialVersion || record.Kind != "receipt" || record.ReceivedAt.IsZero() || record.ReceivedAt.Location() != time.UTC || record.ReceivedAt.After(result.VerifiedAt) || record.PolicyHash != "sha256:"+intent.record.PolicySHA256 {
+		return errors.Join(&IntegrityError{}, err)
+	}
+	policy, _, err := readNativeBackupPolicyScope(ctx, q, record.BindingID, record.EpochID, "", record.Version, result.Scope.RecoveryVersion)
+	if err != nil || policy.CredentialReceiptID != record.ID || checkNativeBackupPolicyOperation(ctx, q, policy) != nil {
+		return errors.Join(ErrConflict, err)
+	}
+	return checkNativeCredentialEpochAncestry(ctx, q, record.BindingID, intent.record.SourceEpochID, record.EpochID)
+}
+
+func checkNativeCredentialEpochAncestry(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID, source, delivered data.ReplicaEpochID) error {
+	seen := map[data.ReplicaEpochID]bool{}
+	for source != delivered {
+		if seen[source] {
+			return &IntegrityError{}
+		}
+		seen[source] = true
+		epoch, _, err := readNativeEpoch(ctx, q, binding, source)
+		if err != nil {
+			return err
+		}
+		transition, cursor, err := readEngineTransition(ctx, q, epoch.Record().TransitionID)
+		if err != nil || cursor.Stage != data.EngineTransitionCompleted || !epoch.Matches(transition) {
+			return errors.Join(ErrConflict, err)
+		}
+		source = epoch.Record().PredecessorEpochID
+	}
+	return nil
 }
 
 func nativeArchiveLocation(archive data.ArchiveBinding) restic.S3Location {
