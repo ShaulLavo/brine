@@ -200,10 +200,18 @@ func nativeCompletedPointFixture(t *testing.T) (*Store, *NativePreparation, Nati
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	sourceFacts, err := nativePreparedSourceFactBytes(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteFacts, err := nativePreparedRemoteFactBytes(v)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, phase := range []struct {
 		stage string
 		proof []byte
-	}{{"source", []byte(`{"fixture":"synthetic source"}`)}, {"remote", []byte(`{"fixture":"synthetic remote"}`)}, {"verified", verified}, {"completed", raw}} {
+	}{{"source", sourceFacts}, {"remote", remoteFacts}, {"verified", verified}, {"completed", raw}} {
 		if err := appendNativePreparationProof(ctx, tx, i, preparation.raw, phase.stage, phase.proof); err != nil {
 			t.Fatal(err)
 		}

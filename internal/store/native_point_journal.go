@@ -125,11 +125,61 @@ func checkNativePointCompletion(ctx context.Context, tx *sql.Tx, point nativePre
 	if err != nil || len(events) != 6 || !bytes.Equal(events[5].Proof, point.raw) || nativePointHash(events[1].Proof) != point.view.StopProofSHA256 || nativePointHash(events[4].Proof) != point.view.RestoreReceiptSHA256 {
 		return errors.Join(&IntegrityError{}, err)
 	}
+	if err := checkNativePreparedDependencyFacts(point.view, events[2].Proof, events[3].Proof); err != nil {
+		return err
+	}
 	var kind ops.Kind
 	var state ops.State
 	err = tx.QueryRowContext(ctx, "SELECT kind,state FROM operations WHERE id=?", i.OperationID).Scan(&kind, &state)
 	if err != nil || kind != ops.NativePrepare || state != ops.Succeeded {
 		return errors.Join(ErrConflict, err)
+	}
+	return nil
+}
+
+type nativePreparedSourceFacts struct {
+	PointID               string                `json:"point_id"`
+	BindingID             data.ReplicaBindingID `json:"binding_id"`
+	EpochID               data.ReplicaEpochID   `json:"epoch_id"`
+	GenerationID          string                `json:"generation_id"`
+	SourceKind            string                `json:"source_kind"`
+	SourceSHA256          string                `json:"source_sha256"`
+	SourceSealSHA256      string                `json:"source_seal_sha256"`
+	SourceWitnessSHA256   string                `json:"source_witness_sha256"`
+	CheckpointSHA256      string                `json:"checkpoint_sha256"`
+	ConfigSHA256          string                `json:"config_sha256"`
+	SigningRecoverySHA256 string                `json:"signing_recovery_sha256"`
+	NativeDatabase        string                `json:"native_database"`
+	NativePublisher       string                `json:"native_publisher"`
+	ProgramWireHash       string                `json:"program_wire_hash"`
+	ArtifactWasmSHA256    string                `json:"artifact_wasm_sha256"`
+	SchemaSHA256          string                `json:"schema_sha256"`
+	Names                 []string              `json:"names"`
+}
+
+type nativePreparedRemoteFacts struct {
+	PointID              string                `json:"point_id"`
+	BindingID            data.ReplicaBindingID `json:"binding_id"`
+	EpochID              data.ReplicaEpochID   `json:"epoch_id"`
+	SourceSHA256         string                `json:"source_sha256"`
+	CheckpointSHA256     string                `json:"checkpoint_sha256"`
+	TransportPointSHA256 string                `json:"transport_point_sha256"`
+	BundleManifestSHA256 string                `json:"bundle_manifest_sha256"`
+}
+
+func nativePreparedSourceFactBytes(v NativePreparedPointView) ([]byte, error) {
+	return json.Marshal(nativePreparedSourceFacts{PointID: v.PointID, BindingID: v.BindingID, EpochID: v.EpochID, GenerationID: v.GenerationID, SourceKind: v.SourceKind, SourceSHA256: v.SourceSHA256, SourceSealSHA256: v.SourceSealSHA256, SourceWitnessSHA256: v.SourceWitnessSHA256, CheckpointSHA256: v.CheckpointSHA256, ConfigSHA256: v.ConfigSHA256, SigningRecoverySHA256: v.SigningRecoverySHA256, NativeDatabase: v.NativeDatabase, NativePublisher: v.NativePublisher, ProgramWireHash: v.ProgramWireHash, ArtifactWasmSHA256: v.ArtifactWasmSHA256, SchemaSHA256: v.SchemaSHA256, Names: v.Names})
+}
+
+func nativePreparedRemoteFactBytes(v NativePreparedPointView) ([]byte, error) {
+	return json.Marshal(nativePreparedRemoteFacts{PointID: v.PointID, BindingID: v.BindingID, EpochID: v.EpochID, SourceSHA256: v.SourceSHA256, CheckpointSHA256: v.CheckpointSHA256, TransportPointSHA256: v.TransportPointSHA256, BundleManifestSHA256: v.BundleManifestSHA256})
+}
+
+func checkNativePreparedDependencyFacts(v NativePreparedPointView, sourceRaw, remoteRaw []byte) error {
+	source, sourceErr := nativePreparedSourceFactBytes(v)
+	remote, remoteErr := nativePreparedRemoteFactBytes(v)
+	if sourceErr != nil || remoteErr != nil || !bytes.Equal(source, sourceRaw) || !bytes.Equal(remote, remoteRaw) {
+		return &IntegrityError{}
 	}
 	return nil
 }
