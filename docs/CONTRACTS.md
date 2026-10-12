@@ -653,11 +653,28 @@ Current database declarations, bindings, schema definitions/observations, restor
 
 `data.EngineDeclaration` and `data.EngineObservation`, and `restore.Source`, have closed `sqlite` and `spacetimedb` variants. Their tagged JSON requires `engine` plus exactly that engine's payload. Unknown, duplicate, missing, null, case-aliased and mismatched fields refuse. Concrete SQLite decoders also refuse foreign engine tags. The SpacetimeDB declaration names an owned engine tree and backup reference without a SQLite filename or mount path. Its schema evidence binds native module identity and schema hash without a SQLite catalog. Its restore source names an encrypted repository snapshot and member manifest without LTX positions or SQLite checks. These are structural records, not deployment or mutation admission.
 
-The existing TOML declaration defaults to SQLite at parsing. An explicit `engine = "sqlite"` produces the same normalized input and canonical desired/plan bytes. `engine = "spacetimedb"` and unknown engines remain refused until their runtime, identity, schema, capture and authority gates ship.
+The existing TOML declaration defaults to SQLite at parsing. An explicit
+`engine = "sqlite"` produces the same normalized input and canonical desired/plan
+bytes. Managed `engine = "spacetimedb"` declarations use the separate
+[managed deployment contract](#managed-spacetimedb-deployment-and-lifecycle-p09-04)
+and protected native operations. Unknown engines refuse before effects.
 
-Existing observation calls use bounded engine dispatch to the fixed SQLite observer. Archive snapshot capture uses bounded engine dispatch to the SQLite snapshot primitive. The operation owner retains fence, writer-quiescence, journal and source-identity checks. Host initialization, archive and restore checks use engine dispatch for isolated verification. SpacetimeDB observation, capture and verification currently refuse before binding/credential access, staging or runtime effects. Its admitted backup capabilities remain false.
+SQLite observation, snapshot capture and isolated verification use bounded
+engine dispatch to their fixed adapters. The operation owner retains fence,
+writer-quiescence, journal and source-identity checks. SpacetimeDB uses the
+[protected native capture flow](#native-backup-command-execution), whose
+capabilities require actual owned source, repository, material and replay proof.
+The original P09-01 extraction did not admit those native effects; subsequent
+composition does not complete their physical acceptance.
 
-P09-02 adds the qualified `internal/spacetimedb` primitives without enabling that dispatch. `CanonicalSchemaV10` returns immutable bounded schema evidence using `spacetimedb-v10-expanded-v2`. Named declaration sets are sorted after positional type-reference expansion; ordered columns, variants, parameters, index columns and default bytes remain ordered. Unknown sections, recursive or invalid graphs, duplicate declarations and budget overflow refuse. Its versioned schema hash supplies the derived engine marker independently of a game's marker table.
+P09-02 supplies the qualified `internal/spacetimedb` primitives consumed by the
+native composition. `CanonicalSchemaV10` returns immutable bounded schema
+evidence using `spacetimedb-v10-expanded-v2`. Named declaration sets are sorted
+after positional type-reference expansion; ordered columns, variants, parameters,
+index columns and default bytes remain ordered. Unknown sections, recursive or
+invalid graphs, duplicate declarations and budget overflow refuse. Its versioned
+schema hash supplies the derived engine marker independently of a game's marker
+table.
 
 `ObserveCurrent` accepts a validated literal-loopback location, privately resolved publisher credential, expected native database/publisher/name binding and bounded deadline. Location validation is not ownership or startup authority. It performs fixed info/names/environment/schema-v10/environment GETs, requires matching current module wire identities and returns no credentials or raw headers. SQL/WS hooks are not an observer substitute. Host callers retain control serialization and establish actual runtime ownership. The module wire identity is native Keccak-256 represented through little-endian u256, distinct from Wasm SHA-256 and native digest display.
 

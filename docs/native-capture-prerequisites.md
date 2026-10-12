@@ -1,11 +1,14 @@
 # Native capture prerequisites
 
-Phase09 remains Approved and incomplete. This change adds protected storage,
-enrollment and passive-reader components for P09-05. It does not admit native
-capture, restore tests, publication, live restore or retirement through the
-request dispatcher, and it does not mark a phase task complete.
+Phase 09 remains Approved and incomplete. This page records the original
+protected storage, enrollment and passive-reader prerequisite slice. Its local
+checks do not complete physical acceptance. Subsequent implementation connects
+native capture, preparation, restore tests, publication, live restore and
+retirement through the request dispatcher. Use the
+[operator runbook](runbooks/spacetimedb.md) and
+[backup command contract](native-backup-commands.md) for the current flow.
 
-## Available behavior
+## Historical prerequisite behavior
 
 `brine restore point POINT_ID --target NAME --kind verified` reads a retained
 historical point reference. `--kind prepared` reads a completed exact preparation
@@ -96,8 +99,9 @@ private disposable local repository; initialization and encrypted config
 readback returned the same ID. That probe was a local process/codec check, not a
 protected installation or S3 acceptance test.
 
-The following exact-symbol dead-code allowances are temporary dependency
-allowances. They do not weaken request admission or replace real callers:
+The original slice used temporary exact-symbol dependency allowances for the
+following consumers. This list records the required composition; it is not a
+current allowance inventory or authority grant:
 
 - P05 online capture will consume the rooted metadata census and bounded prefix
   hash/check/copy functions, preserving membership, inode, alias and prefix
@@ -111,15 +115,15 @@ allowances. They do not weaken request admission or replace real callers:
   identity and unknown-initialization inspection under protected scope,
   credential, recovery, ownership and lease checks.
 
-Remove each exact allowance when its real consumer lands. No unused caller is
-registered to conceal missing integration.
+Remove each allowance when its real consumer lands, and delete unused APIs.
+No unused caller may conceal missing integration.
 
-P05 still requires the actual source/remote witness and complete persisted-state
+At this prerequisite stage, P05 still required the actual source/remote witness and complete persisted-state
 comparison, fixed confirmed-row lower-bound/final equality and invariants,
 controlled checkpoint and key-recovery retention, repository admission,
 credential/recovery delivery and activation, capture/drill handlers, schedules,
 CLI health and reconciliation, and the actual authorized Pi/S3 operation drill.
-Source schema reload must derive an opaque schema from authenticated module
+Current source schema reload must derive an opaque schema from authenticated module
 bytes through the fixed descriptor purpose. A stored schema hash does not
 construct one. Unknown stop, upload, initialization or publication effects remain
 fenced or pending until inspection establishes their state.
