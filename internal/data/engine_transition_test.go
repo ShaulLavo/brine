@@ -2,7 +2,6 @@ package data
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
