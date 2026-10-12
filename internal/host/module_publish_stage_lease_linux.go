@@ -204,5 +204,5 @@ func publicationStageMountedRoot(process string, lease *publicationStageLease) b
 	}
 	member, ok := actual.Sys().(*syscall.Stat_t)
 	expected := lease.rootMember
-	return ok && uint64(member.Dev) == expected.Device && member.Ino == expected.Inode && member.Uid == expected.UID && uint16(member.Mode) == expected.Mode
+	return ok && uint64(member.Dev) == expected.Device && member.Ino == expected.Inode && member.Uid == expected.UID && member.Mode == uint32(expected.Mode)
 }

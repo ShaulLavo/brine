@@ -100,14 +100,18 @@ func inspectDescriptorMask(path string, mounts []byte) descriptorMaskInspection 
 
 func inspectDescriptorInput(input io.Reader) (string, bool) {
 	file, ok := input.(*os.File)
-	if !ok || file.Fd() > math.MaxInt32 {
+	if !ok {
+		return "unavailable", false
+	}
+	descriptorFD := file.Fd()
+	if descriptorFD > math.MaxInt32 {
 		return "unavailable", false
 	}
 	var status unix.Stat_t
-	if unix.Fstat(int(file.Fd()), &status) != nil {
+	if unix.Fstat(int(descriptorFD), &status) != nil {
 		return "unavailable", false
 	}
-	fds := []unix.PollFd{{Fd: int32(file.Fd()), Events: unix.POLLIN | unix.POLLHUP}}
+	fds := []unix.PollFd{{Fd: int32(descriptorFD), Events: unix.POLLIN | unix.POLLHUP}}
 	_, err := unix.Poll(fds, 0)
 	return descriptorStatKind(uint32(status.Mode)), err == nil && fds[0].Revents&unix.POLLHUP != 0
 }
