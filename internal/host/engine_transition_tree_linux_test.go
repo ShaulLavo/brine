@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -119,6 +120,7 @@ func TestEngineTransitionRenamePreservesOriginalAndPromotesTarget(t *testing.T) 
 	ctx := context.Background()
 	intent := preserveIntentFixture(t, tree)
 	if err := tree.move(ctx, intent, enginePreserveOriginal); err != nil {
+		transitionFailureDetails(t, tree)
 		t.Fatal(err)
 	}
 	observed, err := tree.inspect(ctx)
@@ -165,8 +167,16 @@ func TestEngineTransitionUnknownRenameSettlesWithoutRepeatingEffect(t *testing.T
 		t.Fatal("unknown movement replayed")
 	}
 	if err := tree.settle(context.Background(), intent, enginePreserveOriginal); err != nil || renamed != 1 {
+		transitionFailureDetails(t, tree)
 		t.Fatal("known original not adopted by sync only", err, renamed)
 	}
+}
+
+func transitionFailureDetails(t *testing.T, tree *engineTransitionTree) {
+	t.Helper()
+	observed, err := tree.inspect(context.Background())
+	raw, _ := json.Marshal(observed)
+	t.Logf("synthetic layout inspect error=%v observed=%s expected=%+v", err, raw, tree.input.Common())
 }
 
 func TestEngineTransitionRefusesOccupiedDestinationAndReleasedGuard(t *testing.T) {
