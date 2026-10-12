@@ -67,6 +67,32 @@ These local checks used only private disposable copies and synthetic credentials
 
 Unit and race tests cover the retained codec, finite comparisons, preservation
 and initial-state refusals. Actual typed private publications in separate copied
-stages established the native protocol. Staged passive preservation and the
-production host/journal composition remain separate acceptance gates. A private
-fixture publication does not prove a working migration command.
+stages established the native protocol. Passive logs and snapshot replay then
+proved all four additive/default-column preservation cases. Each retained the
+three confirmed source tuples and unchanged user-table commitments. The default
+ratings were 7 and the additive note table was empty. The stopped original stayed
+unchanged and was never restarted. A first publication with an unknown outcome
+was inspected and stopped without retry.
+
+`VerifyNativePublisher` checks an existing supplied-key credential through the
+fixed private `GET /v1/identity/{identity}/verify` route. The signed identity claim
+is only an expectation until native verification returns an empty HTTP 204.
+The opaque result binds the endpoint digest, request method/path, status,
+publisher, credential digest and UTC verification time. It allocates no identity
+and mints no credential. Redirects, proxies, invalid claims and nonempty responses
+refuse. Returned storage bytes are detached; the verifier cannot be serialized
+as a public credential or constructed from a supplied digest.
+
+The actual pinned native server accepted the unchanged supplied-key fixture
+credential and refused a wrong identity, wrong key, expired valid signature and
+missing identity claim. The test used an isolated network with no external route
+and no database or ModuleHost. The verifier result proves this private response.
+Host composition still must bind actual role/key delivery, runtime identity,
+process and filesystem ownership, source identity and verifier disposal.
+
+Production host/journal composition remains a separate acceptance gate. These
+local fixture checks do not prove an R2 restore or a working migration command.
+The [database contracts](CONTRACTS.md#database-and-recovery) and
+[native capture test matrix](TEST_MATRIX.md#native-capture-structural-prerequisites-p09-05--t35)
+retain those wider requirements. P09-05 and P09-06 remain unchecked until their
+full acceptance evidence exists.
