@@ -21,7 +21,17 @@ type ModulePlanArgs struct {
 }
 
 func (a ModulePlanArgs) Valid() bool {
-	return ValidApp(a.App) && data.ValidID(a.PreparedPointID) && validModulePlanID(a.TargetDeploymentPlanID) && len(a.Wasm) > 0 && len(a.Wasm) <= datapublish.ModuleArtifactLimit && len(a.RecoveryReleaseIDs) <= 16 && slices.IsSorted(a.RecoveryReleaseIDs)
+	if !ValidApp(a.App) || !data.ValidID(a.PreparedPointID) || !validModulePlanID(a.TargetDeploymentPlanID) || len(a.Wasm) == 0 || len(a.Wasm) > datapublish.ModuleArtifactLimit || a.RecoveryReleaseIDs == nil || len(a.RecoveryReleaseIDs) > 16 || !slices.IsSorted(a.RecoveryReleaseIDs) {
+		return false
+	}
+	previous := ""
+	for _, id := range a.RecoveryReleaseIDs {
+		if !jobs.ValidID(id) || id == previous {
+			return false
+		}
+		previous = id
+	}
+	return true
 }
 
 func validModulePlanID(id string) bool {
