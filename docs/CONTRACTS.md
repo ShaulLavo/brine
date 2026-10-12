@@ -1348,6 +1348,44 @@ qualified backup runtime and existing operation adapter. Storage/helper tests
 alone are not physical restore acceptance.
 
 
+## Protected workspace consumer observation
+
+Fresh enrollment retains the actual runner UID/GID before installing
+`brine-workspace-observer.service`. The fixed service may establish its private
+listener during enrollment, but every request requires a protected record whose
+phase is exactly `enrolled`, matching kernel peer/message credentials and the
+current protected persistent roots. Listener startup supplies no request grant.
+
+The separate root-owned `/etc/ssh/brine/workspace-observer.toml` accepts only the
+boolean `allow_workspace_observation`, default false. Missing, omitted, false,
+malformed or unprotected permission denies observation. Enrollment installs false
+when absent and preserves a valid existing grant. It changes no deployment
+operator-policy hash. The fixed root:brine service uses the private AF_UNIX
+`unixpacket` socket `/run/brine-workspace-observer/observe.sock`; public dispatch
+cannot start or configure it.
+
+One passed runner-owned `0700` directory descriptor selects
+`native-restores/<32 lowercase hex>` under the current admitted root. A fresh
+nonce and actual device/inode/mount bind the `absent`, `busy` or `unknown` result.
+No request selects a path, PID, policy, command or caller-supplied proof. The
+service preserves mount-namespace identity and bounds capabilities to
+`CAP_SYS_PTRACE` and `CAP_DAC_READ_SEARCH` for read-only process metadata.
+The fixed syscall sandbox denies `ptrace`, `process_vm_readv`,
+`process_vm_writev`, `kcmp`, `kill` and `pidfd_send_signal`, plus mount/reboot and
+namespace changes. It has no execution or deletion action.
+Actual installed sandbox and FDSTORE qualification remains pending; source
+review does not establish those physical results.
+
+Backup inspection/resolution cleanup disposes only identified stopped private
+readers, independently proves process-consumer absence, and records an owned
+retirement intent before deleting the held original workspace. Intent binds the
+original operation, canonical descriptor and directory identity. A later missing
+directory can settle an issued retirement; missing without that matching intent
+or a replacement directory remains unknown. The intent itself is not an absence
+proof. Inspection and review join cleanup errors into their returned error, even
+after remote verification. Only actual successful cleanup can support a success
+view or resolver outcome.
+
 ## Native backup command execution
 
 The reference-only native backup commands are described in
