@@ -26,11 +26,11 @@ func projectionRecord(rating bool, note bool) record {
 		Publisher: PublisherTable{13, "publisher", []PublisherRow{{1, value.Owner}}},
 		Sequence:  SequenceTable{14, "sequence_state", []SequenceRow{{1, 1}}},
 	}
-	value.Tables = append(value.Tables, Table{10, "recovery_left", 1, 64, strings.Repeat("08", 32)}, Table{11, "recovery_right", 1, 64, strings.Repeat("09", 32)}, Table{12, "schema_marker", 1, 32, strings.Repeat("0a", 32)})
-	value.Tables = append(value.Tables, Table{13, "publisher", 1, 33, strings.Repeat("0c", 32)}, Table{14, "sequence_state", 1, 9, strings.Repeat("0d", 32)})
+	value.Tables = append(value.Tables, Table{10, "recovery_left", "user", 1, 64, strings.Repeat("08", 32)}, Table{11, "recovery_right", "user", 1, 64, strings.Repeat("09", 32)}, Table{12, "schema_marker", "user", 1, 32, strings.Repeat("0a", 32)})
+	value.Tables = append(value.Tables, Table{13, "publisher", "user", 1, 33, strings.Repeat("0c", 32)}, Table{14, "sequence_state", "user", 1, 9, strings.Repeat("0d", 32)})
 	if note {
 		value.Projection.Note = &NoteTable{15, "fixture_note", []NoteRow{}}
-		value.Tables = append(value.Tables, Table{15, "fixture_note", 0, 0, strings.Repeat("0b", 32)})
+		value.Tables = append(value.Tables, Table{15, "fixture_note", "user", 0, 0, strings.Repeat("0b", 32)})
 	}
 	return value
 }
@@ -166,7 +166,7 @@ func TestProjectionDecoderDoesNotClaimPairDomainAuthority(t *testing.T) {
 
 func TestNativeTableNamesAreUniqueBeforeConsumersMapThem(t *testing.T) {
 	value := projectionRecord(false, false)
-	value.Tables = append(value.Tables, Table{15, "recovery_left", 0, 0, strings.Repeat("0b", 32)})
+	value.Tables = append(value.Tables, Table{15, "recovery_left", "user", 0, 0, strings.Repeat("0b", 32)})
 	if _, err := Decode(encoded(t, value), value.Limits); err == nil {
 		t.Fatal("accepted duplicate table name with another table ID")
 	}

@@ -54,6 +54,7 @@ type Program struct {
 type Table struct {
 	ID         uint32 `json:"table_id"`
 	Name       string `json:"name"`
+	Type       string `json:"table_type"`
 	Rows       uint64 `json:"rows"`
 	BSATNBytes uint64 `json:"bsatn_bytes"`
 	Blake3     string `json:"multiset_blake3"`
@@ -211,7 +212,7 @@ func nested(fields map[string]json.RawMessage, requested Limits) error {
 		return ErrEvidence
 	}
 	for _, table := range tables {
-		if err := object(table, "table_id", "name", "rows", "bsatn_bytes", "multiset_blake3"); err != nil {
+		if err := object(table, "table_id", "name", "table_type", "rows", "bsatn_bytes", "multiset_blake3"); err != nil {
 			return err
 		}
 	}
@@ -291,7 +292,7 @@ func validTables(tables []Table, limits Limits) error {
 	module := false
 	names := make(map[string]struct{}, len(tables))
 	for _, table := range tables {
-		if table.ID <= previous || len(table.Name) == 0 || len(table.Name) > 1024 || !hash(table.Blake3) {
+		if table.ID <= previous || len(table.Name) == 0 || len(table.Name) > 1024 || !hash(table.Blake3) || table.Type != "system" && table.Type != "user" {
 			return ErrEvidence
 		}
 		if _, present := names[table.Name]; present {

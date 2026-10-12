@@ -14,7 +14,7 @@ func validRecord() record {
 		ProgramAlgo: "keccak-256", ProgramDigest: strings.Repeat("03", 32), ProgramWire: strings.Repeat("03", 32), ProgramSHA: strings.Repeat("04", 32), ProgramBytes: 16,
 		Offset: 1, Framing: "complete-v1", Algorithm: Algorithm, State: strings.Repeat("05", 32),
 		Snapshot: &Snapshot{Database: strings.Repeat("01", 32), Replica: 1, Offset: 0},
-		Tables:   []Table{{1, "st_table", 2, 100, strings.Repeat("06", 32)}, {6, "st_module", 1, 200, strings.Repeat("07", 32)}},
+		Tables:   []Table{{1, "st_table", "system", 2, 100, strings.Repeat("06", 32)}, {6, "st_module", "system", 1, 200, strings.Repeat("07", 32)}},
 		Input:    Totals{3, 1000, 1000, 2}, Limits: MaximumLimits(),
 	}
 }
@@ -77,6 +77,7 @@ func TestComparisonIncludesProgramIdentityHeadAndCatalog(t *testing.T) {
 		func(value *record) { value.Snapshot = nil },
 		func(value *record) { value.Tables[0].Blake3 = strings.Repeat("08", 32) },
 		func(value *record) { value.Tables[0].Rows++ },
+		func(value *record) { value.Tables[0].Type = "user" },
 	}
 	for index, change := range mutations {
 		value := validRecord()
@@ -113,6 +114,7 @@ func TestDecoderRefusesInvalidFormsAndInconsistentLimits(t *testing.T) {
 		func(value *record) { value.Tables[1].Rows = 2 },
 		func(value *record) { value.Tables[0].Rows = math.MaxUint64 },
 		func(value *record) { value.Tables[0].BSATNBytes = math.MaxUint64 },
+		func(value *record) { value.Tables[0].Type = "unknown" },
 		func(value *record) { value.Input.Files = 0 },
 		func(value *record) { value.Input.StoredBytes = math.MaxUint64 },
 		func(value *record) { value.Limits.Files-- },
@@ -141,6 +143,9 @@ func TestNestedUnknownDuplicateNullAndAliasesRefuse(t *testing.T) {
 		raw + "{}",
 		strings.Replace(raw, `"files":8192`, `"files":8192,"unknown":1`, 1),
 		strings.Replace(raw, `"name":"st_table"`, `"name":null`, 1),
+		strings.Replace(raw, `"table_type":"system",`, ``, 1),
+		strings.Replace(raw, `"table_type":"system"`, `"Table_type":"system"`, 1),
+		strings.Replace(raw, `"table_type":"system"`, `"table_type":null`, 1),
 	}
 	for index, value := range negatives {
 		if _, err := Decode([]byte(value), MaximumLimits()); err == nil {
