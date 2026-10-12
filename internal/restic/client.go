@@ -44,42 +44,43 @@ func NewClient(toolSHA256 string, limits Limits, admission RepositoryAdmission) 
 
 // Init requires the separately reviewed new-owned-repository grant carried by
 // Repository. Callers must reconcile an unknown result before any retry.
-func (c *Client) Init(ctx context.Context, repository Repository, workspace string) (Repository, error) {
+func (c *Client) Init(ctx context.Context, repository Repository, workspace string) (InitializedRepository, error) {
 	if !hashPattern.MatchString(repository.initializationPlan) || repository.scope.RepositoryID != "" {
-		return Repository{}, ErrInvalid
+		return InitializedRepository{}, ErrInvalid
 	}
 	raw, err := c.jsonCommand(ctx, repository, workspace, true, nil, []string{"init", "--repository-version", "2"})
 	if err != nil {
-		return Repository{}, err
+		return InitializedRepository{}, err
 	}
 	id, err := parseInit(raw)
 	if err != nil {
-		return Repository{}, ErrUnknown
+		return InitializedRepository{}, ErrUnknown
 	}
 	observed, err := c.InspectInitialization(ctx, repository, workspace)
-	if err != nil || observed.scope.RepositoryID != id {
-		return Repository{}, ErrUnknown
+	if err != nil || observed.repository.scope.RepositoryID != id {
+		return InitializedRepository{}, ErrUnknown
 	}
 	return observed, nil
 }
 
 // InspectInitialization reconciles an issued initialization by authenticated
 // config readback under its retained creation grant. It never repeats init.
-func (c *Client) InspectInitialization(ctx context.Context, repository Repository, workspace string) (Repository, error) {
+func (c *Client) InspectInitialization(ctx context.Context, repository Repository, workspace string) (InitializedRepository, error) {
 	if !hashPattern.MatchString(repository.initializationPlan) || repository.scope.RepositoryID != "" {
-		return Repository{}, ErrInvalid
+		return InitializedRepository{}, ErrInvalid
 	}
 	raw, err := c.jsonCommand(ctx, repository, workspace, false, nil, []string{"cat", "config"})
 	if err != nil {
-		return Repository{}, err
+		return InitializedRepository{}, err
 	}
 	id, err := parseRepositoryConfig(raw)
 	if err != nil {
-		return Repository{}, err
+		return InitializedRepository{}, err
 	}
+	grant := repository.initializationPlan
 	repository.scope.RepositoryID = id
 	repository.initializationPlan = ""
-	return repository, nil
+	return InitializedRepository{repository: repository, creationGrant: grant, configSHA256: digest(raw), verifiedAt: time.Now().UTC()}, nil
 }
 
 // RepositoryIdentity authenticates the encrypted config through the current

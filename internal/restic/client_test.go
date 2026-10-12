@@ -98,10 +98,22 @@ func TestResticLocalEncryptedRoundTrip(t *testing.T) {
 	t.Setenv("AWS_ACCESS_KEY_ID", "ambient-key-must-not-be-used")
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	repository, err = client.Init(ctx, repository, work)
+	initialized, err := client.Init(ctx, repository, work)
 	if err != nil {
 		t.Fatal("actual encrypted initialization", err)
 	}
+	if !initialized.AdmitsCreation(repository.scope, repository.initializationPlan) {
+		t.Fatal("authenticated initialization lost its original creation grant")
+	}
+	if initialized.AdmitsCreation(repository.scope, strings.Repeat("b", 64)) {
+		t.Fatal("authenticated initialization admitted a different creation grant")
+	}
+	crossed := repository.scope
+	crossed.EpochID = strings.Repeat("f", 32)
+	if initialized.AdmitsCreation(crossed, repository.initializationPlan) {
+		t.Fatal("authenticated initialization admitted a different epoch")
+	}
+	repository = initialized.Repository()
 	bundle, err := Seal(ctx, source, work, testIdentity(), DefaultLimits())
 	if err != nil {
 		t.Fatal(err)
