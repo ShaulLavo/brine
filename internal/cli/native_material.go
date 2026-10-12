@@ -54,21 +54,29 @@ func newNativeMaterialCmd(deps Dependencies, modes *machineModes) *cobra.Command
 	set.Flags().StringVar(&key, "idempotency-key", "", "Reuse this key to inspect the same immutable delivery after a lost response")
 	set.Flags().StringVar(&planID, "preparation-plan", "", "Saved managed preparation plan (required)")
 	var statusSelection operationFlags
-	status := &cobra.Command{Use: "status OPERATION_ID --target NAME", Short: "Inspect retained delivery metadata without changing files or runtime", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if !jobs.ValidID(args[0]) || !statusSelection.validSelection() {
+	var lookupKey, lookupApp, lookupPlan string
+	status := &cobra.Command{Use: "status [OPERATION_ID] --target NAME", Short: "Inspect retained delivery metadata without changing files or runtime", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		lookup := dispatch.NativeMaterialInspectArgs{App: lookupApp, PreparationPlanID: lookupPlan, IdempotencyKey: lookupKey}
+		if len(args) == 1 {
+			lookup.OperationID = args[0]
+		}
+		if !lookup.Valid() || !statusSelection.validSelection() {
 			return result.New(result.InvalidUsage, nil)
 		}
-		response, err := statusSelection.call(cmd.Context(), deps, "native_material_status", dispatch.NativeMaterialInspectArgs{OperationID: args[0]})
+		response, err := statusSelection.call(cmd.Context(), deps, "native_material_status", lookup)
 		if err != nil {
 			return err
 		}
 		receipt, ok := response.Data.(nativematerial.Receipt)
-		if !response.OK || !ok || !receipt.Valid() || receipt.OperationID != args[0] {
+		if !response.OK || !ok || !receipt.Valid() || lookup.OperationID != "" && receipt.OperationID != lookup.OperationID || lookup.OperationID == "" && (receipt.App != lookup.App || receipt.PreparationPlanID != lookup.PreparationPlanID) {
 			return result.New(result.TransportInvalidResponse, nil)
 		}
 		return writeNativeMaterialResult(cmd, modes, receipt)
 	}}
 	statusSelection.register(status)
+	status.Flags().StringVar(&lookupKey, "idempotency-key", "", "Inspect a lost response using the reported delivery key")
+	status.Flags().StringVar(&lookupApp, "app", "", "App for a key-based inspection")
+	status.Flags().StringVar(&lookupPlan, "preparation-plan", "", "Preparation plan for a key-based inspection")
 	group.AddCommand(set, status)
 	return group
 }

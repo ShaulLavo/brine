@@ -62,3 +62,40 @@ func TestNativeMaterialCommandRejectsOpenPacketBeforeTargetIO(t *testing.T) {
 		t.Fatal("open runtime packet reached target or output")
 	}
 }
+
+func TestNativeMaterialStatusRecoversKeyWithoutPrivateStdin(t *testing.T) {
+	var out, diagnostics bytes.Buffer
+	deps := testDependencies(t, &out, &diagnostics)
+	deps.Stdin = nil
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+	planID, key := "sha256:"+strings.Repeat("a", 64), strings.Repeat("b", 32)
+	role := func(ref string) data.EngineSecretVersion {
+		return data.EngineSecretVersion{Reference: ref, Version: 1, SHA256: strings.Repeat("a", 64)}
+	}
+	secrets := data.EngineSecrets{Publisher: role("publisher"), SigningPrivate: role("private"), SigningPublic: role("public"), AuthPolicy: role("auth")}
+	secrets.Publisher.ExpiresAt = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	receipt := nativematerial.Receipt{OperationID: "lost-material-operation", App: "game", PreparationPlanID: planID, BindingID: data.ReplicaBindingID(strings.Repeat("b", 32)), EpochID: data.ReplicaEpochID(strings.Repeat("c", 32)), Outcome: "configured_unpublished", Secrets: secrets}
+	calls := 0
+	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, request dispatch.Request) (result.Envelope, error) {
+		calls++
+		var lookup dispatch.NativeMaterialInspectArgs
+		if request.Op != "native_material_status" || json.Unmarshal(request.Args, &lookup) != nil || !lookup.Valid() || lookup.OperationID != "" || lookup.App != "game" || lookup.PreparationPlanID != planID || lookup.IdempotencyKey != key {
+			t.Fatal("key-based metadata selector changed")
+		}
+		return result.Success("brine host native_material_status", receipt), nil
+	})
+	err := Execute(deps, []string{"data", "material", "status", "--app", "game", "--preparation-plan", planID, "--idempotency-key", key, "--target", "fixture", "--json"})
+	if err != nil || calls != 1 || !strings.Contains(out.String(), receipt.OperationID) {
+		t.Fatal("lost expired-lease receipt could not be inspected", err, calls)
+	}
+}
+func TestNativeMaterialStatusRejectsMixedSelectorsBeforeTargetIO(t *testing.T) {
+	var out, diagnostics bytes.Buffer
+	deps := testDependencies(t, &out, &diagnostics)
+	called := false
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { called = true; return transport.Target{}, nil }
+	err := Execute(deps, []string{"data", "material", "status", "operation-native-material", "--idempotency-key", strings.Repeat("b", 32), "--target", "fixture"})
+	if err == nil || called {
+		t.Fatal("mixed inspection selectors reached host")
+	}
+}

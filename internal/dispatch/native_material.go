@@ -33,19 +33,47 @@ type NativeMaterialOperations interface {
 	InspectMaterial(context.Context, NativeMaterialInspectArgs) (nativematerial.Receipt, error)
 }
 type NativeMaterialInspectArgs struct {
-	OperationID string `json:"operation_id"`
+	OperationID       string `json:"operation_id,omitempty"`
+	App               string `json:"app,omitempty"`
+	PreparationPlanID string `json:"preparation_plan_id,omitempty"`
+	IdempotencyKey    string `json:"idempotency_key,omitempty"`
 }
 
+func (a NativeMaterialInspectArgs) Valid() bool {
+	if a.OperationID != "" {
+		return jobs.ValidID(a.OperationID) && a.App == "" && a.PreparationPlanID == "" && a.IdempotencyKey == ""
+	}
+	return ValidApp(a.App) && jobs.ValidPlanID(a.PreparationPlanID) && data.ValidID(a.IdempotencyKey)
+}
 func decodeNativeMaterialInspect(raw json.RawMessage) (any, error) {
-	fields, err := strictjson.Object(raw, "operation_id")
+	var names map[string]json.RawMessage
+	if json.Unmarshal(raw, &names) != nil {
+		return nil, strictjson.ErrObject
+	}
+	if _, direct := names["operation_id"]; direct {
+		fields, err := strictjson.Object(raw, "operation_id")
+		if err != nil {
+			return nil, strictjson.ErrObject
+		}
+		id, err := strictjson.Value[string](fields["operation_id"])
+		args := NativeMaterialInspectArgs{OperationID: id}
+		if err != nil || !args.Valid() {
+			return nil, strictjson.ErrObject
+		}
+		return args, nil
+	}
+	fields, err := strictjson.Object(raw, "app", "preparation_plan_id", "idempotency_key")
 	if err != nil {
 		return nil, strictjson.ErrObject
 	}
-	id, err := strictjson.Value[string](fields["operation_id"])
-	if err != nil || !jobs.ValidID(id) {
+	app, aErr := strictjson.Value[string](fields["app"])
+	plan, pErr := strictjson.Value[string](fields["preparation_plan_id"])
+	key, kErr := strictjson.Value[string](fields["idempotency_key"])
+	args := NativeMaterialInspectArgs{App: app, PreparationPlanID: plan, IdempotencyKey: key}
+	if aErr != nil || pErr != nil || kErr != nil || !args.Valid() {
 		return nil, strictjson.ErrObject
 	}
-	return NativeMaterialInspectArgs{OperationID: id}, nil
+	return args, nil
 }
 
 func decodeNativeMaterial(raw json.RawMessage) (any, error) {

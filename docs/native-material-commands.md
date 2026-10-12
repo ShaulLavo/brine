@@ -64,6 +64,16 @@ Inspect an operation without changing its files or runtime:
 brine data material status "$operation_id" --target "$target" --json
 ```
 
+If a response was lost, inspect using the reported key without sending private
+material again. This also works after the original material lease expires:
+
+```sh
+brine data material status --app game --preparation-plan "$preparation_plan" \
+  --idempotency-key "$delivery_key" --target "$target" --json
+```
+
+Operation-ID and key-based selectors cannot be mixed.
+
 Receipts, plans, operations and events contain only IDs, references, hashes,
 versions and lease expiry. They contain no private material or private paths.
 Retained unknown files belong to the reported operation and require inspected

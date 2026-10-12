@@ -33,5 +33,19 @@ func (r nativeMaterialStatusReader) InspectMaterial(ctx context.Context, args di
 		return nativematerial.Receipt{}, err
 	}
 	defer func() { _ = state.Close() }()
-	return state.NativeMaterialReceipt(ctx, args.OperationID, requester)
+	return inspectNativeMaterial(ctx, state, requester, args)
+}
+
+func inspectNativeMaterial(ctx context.Context, state *store.Store, requester string, args dispatch.NativeMaterialInspectArgs) (nativematerial.Receipt, error) {
+	if !args.Valid() {
+		return nativematerial.Receipt{}, result.New(result.InvalidUsage, nil)
+	}
+	if args.OperationID != "" {
+		return state.NativeMaterialReceipt(ctx, args.OperationID, requester)
+	}
+	input, err := state.NativeMaterialByKey(ctx, requester, args.IdempotencyKey)
+	if err != nil || input.Receipt.App != args.App || input.Receipt.PreparationPlanID != args.PreparationPlanID {
+		return nativematerial.Receipt{}, result.New(result.Conflict, nil)
+	}
+	return state.NativeMaterialReceipt(ctx, input.Receipt.OperationID, requester)
 }

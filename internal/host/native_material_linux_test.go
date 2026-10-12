@@ -406,3 +406,32 @@ func TestNativeMaterialReservationCannotClaimInitializedAuthority(t *testing.T) 
 		t.Fatal("declared material granted initialized database authority")
 	}
 }
+
+func TestNativeMaterialLostResponseInspectionNeedsNoPacketOrCurrentLease(t *testing.T) {
+	f := freshNativeMaterialFixture(t)
+	packet := freshNativeMaterialPacket(t)
+	defer clear(packet)
+	key := strings.Repeat("1", 32)
+	delivered := deliverNativeMaterialFixture(t, f, key, packet)
+	// A read-only metadata lookup has no publisher packet and no live policy
+	// dependency. Failed future authorization cannot hide retained operation facts.
+	f.service.Policy = &fakePolicy{err: fmt.Errorf("current policy unavailable")}
+	state, err := store.OpenReadOnly(context.Background(), f.stateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = state.Close() }()
+	lookup := dispatch.NativeMaterialInspectArgs{App: f.plan.App, PreparationPlanID: f.plan.Hash, IdempotencyKey: key}
+	observed, err := inspectNativeMaterial(context.Background(), state, f.service.Requester, lookup)
+	if err != nil || observed != delivered {
+		t.Fatal("lost response could not be inspected without material", err)
+	}
+	foreign := lookup
+	foreign.App = "other-game"
+	if _, err = inspectNativeMaterial(context.Background(), state, f.service.Requester, foreign); err == nil {
+		t.Fatal("foreign app retrieved key receipt")
+	}
+	if _, err = inspectNativeMaterial(context.Background(), state, "deploy:"+strings.Repeat("f", 64), lookup); err == nil {
+		t.Fatal("foreign requester retrieved key receipt")
+	}
+}

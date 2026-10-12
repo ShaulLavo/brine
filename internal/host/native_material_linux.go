@@ -212,5 +212,5 @@ func (o nativeMaterialOperations) deliver(ctx context.Context, input store.Nativ
 	return o.service.Store.CommitEngineRuntime(ctx, input.Runtime, input.FenceID, input.PreparationOperationID)
 }
 func (o nativeMaterialOperations) InspectMaterial(ctx context.Context, args dispatch.NativeMaterialInspectArgs) (nativematerial.Receipt, error) {
-	return o.service.Store.NativeMaterialReceipt(ctx, args.OperationID, o.service.Requester)
+	return inspectNativeMaterial(ctx, o.service.Store, o.service.Requester, args)
 }
