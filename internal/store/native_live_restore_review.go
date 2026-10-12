@@ -109,7 +109,7 @@ func readNativeLiveRestoreCurrentTx(ctx context.Context, tx *sql.Tx, point nativ
 		return liverestore.Facts{}, liverestore.Safety{}, ErrInvalid
 	}
 	facts := liverestore.Facts{App: app, IncarnationID: v.IncarnationID, DatabaseID: v.DatabaseID, Head: data.EngineHeadRef{BindingID: v.BindingID, EpochID: v.EpochID, Version: v.RuntimeVersion, RuntimeSHA256: v.RuntimeSHA256}, Generation: v.Generation, GenerationID: v.GenerationID, PolicySHA256: strings.TrimPrefix(policyHash, "sha256:"), TargetSHA256: nativePointHash(targetRaw), DesiredSHA256: nativePointHash(desiredRaw)}
-	safety := liverestore.Safety{PointID: v.PointID, PointSHA256: point.hash, FenceID: v.FenceID, FenceOwnerOpID: v.FenceOwnerOpID, SourceSealSHA256: v.SourceSealSHA256, SourceWitnessSHA256: v.SourceWitnessSHA256, StopProofSHA256: v.StopProofSHA256, CheckpointSHA256: v.CheckpointSHA256, PreparedAt: v.PreparedAt, ExpiresAt: v.ExpiresAt}
+	safety := liverestore.Safety{PointID: v.PointID, PointSHA256: point.hash, FenceID: v.FenceID, FenceOwnerOpID: v.FenceOwnerOpID, SourceSealSHA256: v.SourceSealSHA256, SourceWitnessSHA256: v.SourceWitnessSHA256, StopProofSHA256: v.StopProofSHA256, CheckpointSHA256: v.CheckpointSHA256, CommittedOffset: v.CommittedOffset, CommittedOffsetKnown: v.CommittedOffsetKnown, PreparedAt: v.PreparedAt, ExpiresAt: v.ExpiresAt}
 	return facts, safety, nil
 }
 
