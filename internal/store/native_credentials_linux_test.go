@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/restic"
 )
@@ -43,8 +44,21 @@ func TestNativeCredentialRenewalPreservesAnInitializedRecoveryFence(t *testing.T
 	after, err := state.ReadEnginePermit(ctx, scope.Database.BindingID)
 	beforeRaw, _ := json.Marshal(before)
 	afterRaw, _ := json.Marshal(after)
-	if err != nil || string(beforeRaw) != string(afterRaw) || len(after.Fences) != 1 || after.Fences[0].ID != fence.ID || after.Fences[0].OperationID != "backup-recovery" {
+	if err != nil || string(beforeRaw) != string(afterRaw) {
 		t.Fatal("credential renewal changed runtime or original recovery fence", err)
+	}
+	held := 0
+	for _, retained := range after.Fences {
+		if retained.State != data.FenceHeld {
+			continue
+		}
+		if retained.ID != fence.ID || retained.OperationID != "backup-recovery" {
+			t.Fatal("credential renewal replaced recovery fence owner")
+		}
+		held++
+	}
+	if held != 1 {
+		t.Fatal("credential renewal released recovery fence")
 	}
 }
 
