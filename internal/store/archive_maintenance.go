@@ -187,6 +187,9 @@ func (s *Store) SaveRetentionProof(ctx context.Context, proof archive.RetentionP
 	if err != nil || deletion.Sequence != 0 {
 		return ErrConflict
 	}
+	if err = checkNativeRetentionReceipts(ctx, tx, proof); err != nil {
+		return err
+	}
 	raw, err := json.Marshal(proof)
 	if err != nil || len(raw) > 1048576 {
 		return ErrInvalid
@@ -218,6 +221,9 @@ func (s *Store) ReadRetentionProof(ctx context.Context, id data.ArchiveID) (out 
 	canonical, err := json.Marshal(out)
 	if err != nil || !bytes.Equal(raw, canonical) {
 		return out, &IntegrityError{}
+	}
+	if err = checkNativeRetentionReceipts(ctx, s.db, out); err != nil {
+		return out, err
 	}
 	return out, nil
 }
