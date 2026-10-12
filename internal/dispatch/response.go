@@ -104,12 +104,6 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "native_material_set", "native_material_status":
-			receipt, err := nativematerial.DecodeReceipt(fields["data"])
-			if err != nil {
-				return invalid()
-			}
-			value = receipt
 		case "native_point":
 			point, err := nativecapture.DecodePointInspection(fields["data"])
 			if err != nil {

@@ -100,8 +100,6 @@ var operations = map[string]operation{
 	"native_live_restore_plan":              {Mutating, decodeNativeLiveRestorePlan},
 	"native_live_restore":                   {Mutating, decodeNativeLiveRestoreApply},
 	"native_live_restore_inspect":           {ReadOnly, decodeNativeLiveRestoreInspect},
-	"native_material_set":                   {Mutating, decodeNativeMaterial},
-	"native_material_status":                {ReadOnly, decodeNativeMaterialInspect},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
