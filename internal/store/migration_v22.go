@@ -55,6 +55,10 @@ CREATE TABLE data_native_prepared_routes(
  point_id TEXT NOT NULL REFERENCES data_native_preparations(id),stage TEXT NOT NULL CHECK(stage IN ('intent','withdrawn')),canonical BLOB NOT NULL CHECK(length(canonical)<=65536),PRIMARY KEY(point_id,stage));
 CREATE TRIGGER data_native_prepared_routes_no_update BEFORE UPDATE ON data_native_prepared_routes BEGIN SELECT RAISE(ABORT,'immutable prepared route facts'); END;
 CREATE TRIGGER data_native_prepared_routes_no_delete BEFORE DELETE ON data_native_prepared_routes BEGIN SELECT RAISE(ABORT,'retained prepared route facts'); END;
+CREATE TABLE data_native_prepared_frontend_stops(
+ point_id TEXT NOT NULL REFERENCES data_native_preparations(id),stage TEXT NOT NULL CHECK(stage IN ('intent','stopped')),canonical BLOB NOT NULL CHECK(length(canonical)<=8192),PRIMARY KEY(point_id,stage));
+CREATE TRIGGER data_native_prepared_frontend_stops_no_update BEFORE UPDATE ON data_native_prepared_frontend_stops BEGIN SELECT RAISE(ABORT,'immutable prepared frontend stop'); END;
+CREATE TRIGGER data_native_prepared_frontend_stops_no_delete BEFORE DELETE ON data_native_prepared_frontend_stops BEGIN SELECT RAISE(ABORT,'retained prepared frontend stop'); END;
 UPDATE schema_version SET version=22;
 `)
 	return err

@@ -68,6 +68,9 @@ func nativePrepareTask(service Service, stateRoot, home string, session nativeBa
 		if err := work.withdrawIngress(ctx, service, session.routes); err != nil {
 			return nil, err
 		}
+		if err := work.stopFrontend(ctx); err != nil {
+			return nil, err
+		}
 		if err := work.stop(ctx, service); err != nil {
 			return nil, err
 		}
