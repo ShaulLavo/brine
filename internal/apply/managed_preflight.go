@@ -53,6 +53,7 @@ func (run *managedExecution) preflight(ctx context.Context) error {
 			return err
 		}
 		x.hasPrevious = x.previous.Managed.Frontend != nil
+		run.previousFrontendRunning = x.hasPrevious && facts.Input.Managed != nil && facts.Input.Managed.Intent != nil && facts.Input.Managed.Intent.Current && facts.Input.Managed.Intent.FrontendRunning
 	}
 	if p.Managed.Frontend != nil || x.hasPrevious {
 		run.previousFrontendPermit, err = e.Managed.FrontendPermitOwner(ctx, p.App)

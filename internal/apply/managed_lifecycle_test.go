@@ -138,3 +138,26 @@ func testManagedFrontendRemoval(t *testing.T, fail bool) {
 		}
 	}
 }
+
+func TestManagedFailedDeploymentPreservesDeliberatelyPausedFrontendAndRoute(t *testing.T) {
+	r, runtime := managedLifecycleRig(t, true, plan.StartApp)
+	r.active = false
+	r.facts.Input.Managed.Intent.FrontendRunning, r.facts.Input.Managed.Intent.IngressServing = false, false
+	r.facts.Routing = caddy.State{Generation: r.facts.Routing.Generation, Files: map[string]string{}}
+	r.facts.Input.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: r.facts.Routing.Generation, Files: []target.CaddyFile{}})
+	p, err := plan.Build(r.facts.Input)
+	if err != nil || p.Kind == plan.Conflict {
+		t.Fatal("paused deployment", p.Conflicts, err)
+	}
+	r.plan = p
+	runtime.failure = "route_permit"
+	err = r.executor.Run(context.Background(), "resume-attempt", p, r.desired)
+	if err == nil || r.state != RolledBack || r.active || r.committed {
+		t.Fatal("paused state not preserved", err, r.state, r.active)
+	}
+	for _, effect := range r.effects {
+		if effect == "rollback_start" || effect == "rollback_check" {
+			t.Fatal("paused frontend restarted", effect)
+		}
+	}
+}

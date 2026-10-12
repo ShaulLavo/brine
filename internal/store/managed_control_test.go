@@ -251,3 +251,43 @@ func TestManagedServingReleaseRequiresActualDesiredAndRouteReceipts(t *testing.T
 		t.Fatal("actual joined control receipts refused", err)
 	}
 }
+
+func TestManagedRouteCASRejectsAConcurrentFenceOrRuntimeReplacement(t *testing.T) {
+	for _, swap := range []bool{false, true} {
+		testManagedRouteCASCurrentHead(t, swap)
+	}
+}
+func testManagedRouteCASCurrentHead(t *testing.T, swap bool) {
+	t.Helper()
+	s, p, op := managedControlFixture(t)
+	ctx := context.Background()
+	desired := ManagedDesiredState{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, Revision: 1, PlanID: p.Hash, OperationID: op.ID, EngineRunning: true, IngressServing: true}
+	if _, err := s.CommitManagedDesired(ctx, op.ID, 0, desired); err != nil {
+		t.Fatal(err)
+	}
+	fence, err := s.HoldDataFence(ctx, p.Managed.Database.DatabaseID, "concurrent-data-operation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if swap {
+		current, err := s.ReadEnginePermit(ctx, desired.BindingID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		next := current.Runtime.Clone()
+		next.Secrets.Publisher.Version++
+		if err := s.CommitEngineRuntime(ctx, next, fence.ID, "concurrent-data-operation"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ReleaseDataFence(ctx, fence.ID, "concurrent-data-operation"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	receipt := ManagedRouteState{App: p.App, BindingID: desired.BindingID, EpochID: desired.EpochID, RuntimeSHA256: desired.RuntimeSHA256, DesiredRevision: 1, PlanID: p.Hash, OperationID: op.ID, Revision: 1, Generation: 1, Present: true, FileHash: "sha256:" + strings.Repeat("a", 64), RootSHA256: strings.Repeat("b", 64), LoadedSHA256: strings.Repeat("c", 64)}
+	if _, err := s.CommitManagedRouteState(ctx, 0, receipt); err == nil {
+		t.Fatal("historical desired stamp granted present route under changed fence/head", swap)
+	}
+	if _, err := s.ReadManagedRouteState(ctx, p.App); !errors.Is(err, ErrNotFound) {
+		t.Fatal("refusal mutated route head", err)
+	}
+}

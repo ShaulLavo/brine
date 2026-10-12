@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 )
 
@@ -23,7 +24,11 @@ func (r *managedExecution) compensate(ctx context.Context, cause error) error {
 	if e.Managed.EngineReady(rollback, x.plan) != nil {
 		return x.terminal(ctx, RecoveryRequired, cause)
 	}
-	if r.hadRelease && (r.previousPlan.Managed == nil || r.previousPlan.Managed.RuntimeSHA256 != x.plan.Managed.RuntimeSHA256 || r.previousPlan.Managed.Archive.EpochID != x.plan.Managed.Archive.EpochID) {
+	if r.hadRelease && (r.previousPlan.Managed == nil || r.previousPlan.Managed.Database != x.plan.Managed.Database) {
+		return x.terminal(ctx, RecoveryRequired, cause)
+	}
+	_, previousRoutePresent := x.facts.Routing.Files[x.plan.App+".caddy"]
+	if (r.previousFrontendRunning || previousRoutePresent) && (x.previousDesired.SpacetimeDB == nil || !slices.Contains(x.previousDesired.SpacetimeDB.Module.Accepts, x.desired.SpacetimeDB.Module.Marker)) {
 		return x.terminal(ctx, RecoveryRequired, cause)
 	}
 	step := func(name string, effect func(context.Context) error) error {
@@ -76,7 +81,7 @@ func (r *managedExecution) compensate(ctx context.Context, cause error) error {
 			return x.terminal(ctx, RecoveryRequired, errors.Join(cause, err))
 		}
 	}
-	if x.hasPrevious {
+	if r.previousFrontendRunning {
 		if err := step("rollback_start", func(ctx context.Context) error {
 			if e.Managed.EngineReady(ctx, x.plan) != nil {
 				return errors.New("current engine not ready")

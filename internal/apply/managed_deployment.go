@@ -17,15 +17,16 @@ import (
 )
 
 type managedExecution struct {
-	x                      *execution
-	hadRelease             bool
-	previousFrontendPermit string
-	previousPlan           plan.Plan
-	frontendBound          bool
-	intentWritten          bool
-	routeRecorded          bool
-	frontendRemoved        bool
-	engineService          systemd.Unit
+	x                       *execution
+	hadRelease              bool
+	previousFrontendPermit  string
+	previousPlan            plan.Plan
+	frontendBound           bool
+	intentWritten           bool
+	routeRecorded           bool
+	frontendRemoved         bool
+	previousFrontendRunning bool
+	engineService           systemd.Unit
 }
 
 func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {

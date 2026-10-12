@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -103,6 +104,11 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 		return ManagedRouteState{}, err
 	}
 	if opPlan != wanted.PlanID || opApp != wanted.App || state != ops.Preparing && state != ops.Quiescing && state != ops.Starting && state != ops.Checking && state != ops.RollingBack {
+		return ManagedRouteState{}, ErrConflict
+	}
+	permit, err := readEnginePermit(ctx, tx, wanted.BindingID)
+	actualRuntime, _ := json.Marshal(permit.Runtime)
+	if err != nil || permit.Runtime.EpochID != wanted.EpochID || digest(actualRuntime) != "sha256:"+wanted.RuntimeSHA256 || wanted.Present && !permit.AllowsVerification(time.Now().UTC()) {
 		return ManagedRouteState{}, ErrConflict
 	}
 	desired, current, err := readEffectiveManagedDesired(ctx, tx, wanted.BindingID, wanted.EpochID, wanted.RuntimeSHA256)
