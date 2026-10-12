@@ -4,9 +4,16 @@ Status: Approved implementation. This command configures an allocated SpacetimeD
 runtime without starting it. Native publication and its separate owner/module
 proof remain required before the engine or frontend can serve traffic.
 
-First save and apply a managed preparation plan through `brine data prepare` and
-`brine apply`. That operation owns the empty allocation and held data fence. Then
-send operator-supplied material through private stdin:
+First obtain a connected managed preparation plan and apply its reported ID:
+
+```sh
+brine plan brine.toml --target "$target" --json
+brine apply "$preparation_plan" --target "$target" --json
+```
+
+The plan reports an unpublished allocation with no native start, frontend or
+ingress effects. Its apply operation owns the empty allocation and held data
+fence. Then send operator-supplied material through private stdin:
 
 ```sh
 brine data material set game --preparation-plan "$preparation_plan" \
