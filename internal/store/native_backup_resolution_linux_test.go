@@ -265,6 +265,15 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	if _, err = readNativeBackupResolvedReceipt(ctx, state.db, ops.Operation{ID: original.ID, Requester: requester, App: original.App, Kind: ops.NativeBackupActivate, State: ops.RecoveryRequired}); err == nil {
 		t.Fatal("nonterminal resolver admitted effective success")
 	}
+	if err = refusePendingNativeBackupActivation(ctx, state.db, scope.Database.BindingID, "future-activation"); err == nil {
+		t.Fatal("nonterminal resolver admitted future activation")
+	}
+	if err = refusePendingNativeBackupActivation(ctx, state.db, scope.Database.BindingID, original.ID); err != nil {
+		t.Fatal("original claim excluded itself", err)
+	}
+	if err = refusePendingNativeBackupActivation(ctx, state.db, data.ReplicaBindingID(strings.Repeat("9", 32)), "future-activation"); err != nil {
+		t.Fatal("unresolved activation excluded another binding", err)
+	}
 	permit, err := state.ReadEnginePermit(ctx, scope.Database.BindingID)
 	fences := permit.Fences
 	if err != nil {

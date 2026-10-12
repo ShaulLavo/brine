@@ -195,6 +195,10 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	archiveAdapter := r.Archives.Host.(archiveHost)
 	r.ArchiveMaintenance = archive.MaintenanceService{Journal: state, Host: archiveAdapter, Requester: requester, Authorize: r.Archives.Authorize, Lock: r.Archives.Lock}
 	r.ArchiveCredentials = backupcredentials.ArchiveService{Requester: requester, Journal: state, Files: backupcredentials.Files{Root: filepath.Join(stateDir, "credentials")}, Scope: archiveAdapter.archiveCredentialScope, Lock: r.Archives.Lock}
+	publicArchive := newPublicArchiveMaintenance(service, r.ArchiveMaintenance, r.ArchiveCredentials, taskJobs)
+	r.PublicArchiveMaintenance = publicArchive
+	r.Runner.TaskHandlers[ops.ArchiveMaintenanceApply] = publicArchive.task
+	r.Runner.TaskHandlers[ops.ArchiveMaintenanceResolve] = publicArchive.task
 	initEngine := dataInitializationService(service, stateDir)
 	initTasks := jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}
 	initTasks.Requester = initEngine.Requester.String()

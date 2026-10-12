@@ -77,10 +77,8 @@ func (s *Store) ClaimNativeBackupActivation(ctx context.Context, operationID str
 	if err != nil {
 		return nil, err
 	}
-	var pending int
-	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM data_native_backup_revision_claims c JOIN data_native_backup_revision_plans p ON p.id=c.plan_id JOIN operations o ON o.id=c.operation_id WHERE p.binding_id=? AND c.operation_id<>? AND o.state<>'succeeded'", current.BindingID, operationID).Scan(&pending)
-	if err != nil || pending != 0 {
-		return nil, ErrConflict
+	if err = refusePendingNativeBackupActivation(ctx, tx, current.BindingID, operationID); err != nil {
+		return nil, err
 	}
 	planRaw, _ := json.Marshal(current)
 	claim := nativeBackupClaim{OperationID: operationID, PlanID: plan.ID, PlanSHA256: nativePointHash(planRaw), CreatedAt: time.Now().UTC()}
@@ -109,6 +107,35 @@ func (s *Store) ClaimNativeBackupActivation(ctx context.Context, operationID str
 	}
 	complete = true
 	return capability, nil
+}
+
+func refusePendingNativeBackupActivation(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID, operationID string) error {
+	rows, err := q.QueryContext(ctx, "SELECT o.id FROM data_native_backup_revision_claims c JOIN data_native_backup_revision_plans p ON p.id=c.plan_id JOIN operations o ON o.id=c.operation_id WHERE p.binding_id=? AND c.operation_id<>? AND o.state<>'succeeded'", binding, operationID)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return err
+		}
+		ids = append(ids, id)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		original, err := nativeResolutionOperation(ctx, q, id)
+		if err != nil {
+			return err
+		}
+		if _, err = readNativeBackupResolvedReceipt(ctx, q, original); err != nil {
+			return ErrConflict
+		}
+	}
+	return nil
 }
 
 func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *NativeBackupActivation) (NativeBackupActivationMetadata, error) {
