@@ -72,11 +72,12 @@ func BeginAttempt(p Plan, attempt Attempt) (Event, error) {
 		PreviousSHA256: stringsHash(p.id), ProofSHA256: attempt.ConsumerSHA256})
 }
 
-func (e Event) Attempt() Attempt { return e.record.Attempt }
-func (e Event) Stage() Stage     { return e.record.Stage }
-func (e Event) Sequence() uint64 { return e.record.Sequence }
-func (e Event) SHA256() string   { return e.hash }
-func (e Event) Bytes() []byte    { return bytes.Clone(e.raw) }
+func (e Event) Attempt() Attempt    { return e.record.Attempt }
+func (e Event) Stage() Stage        { return e.record.Stage }
+func (e Event) Sequence() uint64    { return e.record.Sequence }
+func (e Event) SHA256() string      { return e.hash }
+func (e Event) Bytes() []byte       { return bytes.Clone(e.raw) }
+func (e Event) ProofSHA256() string { return e.record.ProofSHA256 }
 func (e Event) Pending() bool {
 	return e.record.Stage == RestoreIntent || e.record.Stage == TransitionIntent || e.record.Stage == FinishIntent || e.record.Stage == AbandonIntent
 }
