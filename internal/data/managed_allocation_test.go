@@ -9,7 +9,7 @@ import (
 
 func TestNativeAllocationOwnsEmptyTreeWithoutSQLiteShape(t *testing.T) {
 	root := t.TempDir()
-	if err := os.Chmod(root, 0700); err != nil {
+	if err := os.Chmod(root, 0700); err != nil { // #nosec G302 -- private test directory requires traversal.
 		t.Fatal(err)
 	}
 	if _, err := InspectRoot(root); err != nil {

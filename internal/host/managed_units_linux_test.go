@@ -23,7 +23,7 @@ func managedUnitsFixture(t *testing.T) (*managedUnits, string, managedServiceCha
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(home) })
-	if err := os.Chmod(home, 0700); err != nil {
+	if err := os.Chmod(home, 0700); err != nil { // #nosec G302 -- private test directory requires traversal.
 		t.Fatal(err)
 	}
 	for _, path := range []string{".config", ".config/systemd", managedServiceDirectory} {
@@ -42,8 +42,8 @@ func managedUnitsFixture(t *testing.T) (*managedUnits, string, managedServiceCha
 	return units, home, change
 }
 
-func TestManagedUnitsInstallPreserveAndRestoreOwnedPredecessor(t *testing.T) {
-	units, home, first := managedUnitsFixture(t)
+func TestManagedUnitsInstallPreservesOwnedPredecessor(t *testing.T) {
+	units, _, first := managedUnitsFixture(t)
 	ctx := context.Background()
 	if err := units.stage(ctx, first); err != nil {
 		t.Fatal(err)
@@ -62,18 +62,14 @@ func TestManagedUnitsInstallPreserveAndRestoreOwnedPredecessor(t *testing.T) {
 	if err := units.install(ctx, second); err != nil {
 		t.Fatal(err)
 	}
-	if err := units.restore(ctx, second); err != nil {
+	if err := units.verify(ctx, second, second.wanted); err != nil {
 		t.Fatal(err)
 	}
-	if err := units.verify(ctx, first, first.wanted); err != nil {
-		t.Fatal(err)
+	retained, exists, err := units.read(ctx, filepath.Join(managedServiceStaging, first.name+"."+first.wanted))
+	if err != nil || !exists || string(retained) != string(first.raw) {
+		t.Fatal("owned predecessor not retained", err)
 	}
-	if err := units.restore(ctx, first); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(filepath.Join(home, managedServiceDirectory, first.name)); !os.IsNotExist(err) {
-		t.Fatal("fresh service not removed by owned compensation")
-	}
+
 }
 
 func TestManagedUnitsPrivateDirectoryUnderTraversableHome(t *testing.T) {
@@ -166,7 +162,7 @@ func TestManagedUnitsRefuseLinkModeAndBindingEscape(t *testing.T) {
 	if err := units.install(ctx, change); err == nil {
 		t.Fatal("symlink accepted")
 	}
-	raw, err := os.ReadFile(outside)
+	raw, err := os.ReadFile(outside) // #nosec G304 -- test-owned sentinel proves symlink targets stay unchanged.
 	if err != nil || string(raw) != "outside unchanged" {
 		t.Fatal("outside target changed")
 	}

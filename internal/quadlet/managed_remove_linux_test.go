@@ -13,7 +13,7 @@ import (
 func TestManagedFrontendRemovalRetainsExactBytesAndRefusesForeignRestoration(t *testing.T) {
 	home := t.TempDir()
 	m := manager(t, home)
-	defer m.Close()
+	defer func() { _ = m.Close() }()
 	ctx := context.Background()
 	unit := rendered(t, "value")
 	if err := m.Install(ctx, unit, ""); err != nil {
@@ -33,7 +33,7 @@ func TestManagedFrontendRemovalRetainsExactBytesAndRefusesForeignRestoration(t *
 	if err := m.RestoreRemoved(ctx, unit.Name(), unit.Hash()); err == nil {
 		t.Fatal("foreign active bytes replaced")
 	}
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) // #nosec G304 -- test-owned path inside the fixture root.
 	if err != nil || !bytes.Equal(raw, foreign.Bytes()) {
 		t.Fatal("foreign bytes changed", err)
 	}
@@ -43,7 +43,7 @@ func TestManagedFrontendRemovalRetainsExactBytesAndRefusesForeignRestoration(t *
 	if err := m.RestoreRemoved(ctx, unit.Name(), unit.Hash()); err != nil {
 		t.Fatal(err)
 	}
-	raw, err = os.ReadFile(path)
+	raw, err = os.ReadFile(path) // #nosec G304 -- test-owned path inside the fixture root.
 	if err != nil || !bytes.Equal(raw, unit.Bytes()) {
 		t.Fatal("retained bytes not restored", err)
 	}

@@ -50,7 +50,7 @@ func cloneManagedImage(image Image) Image {
 }
 
 func (m ManagedServicePlan) Valid() bool {
-	if m.Archive.Validate(m.Database) != nil || m.EnginePort < 1024 || !managedEngineImageVerified(m.EngineImage) {
+	if m.Archive.Validate(m.Database) != nil || m.EnginePort < 1024 || m.EnginePort > 65535 || !managedEngineImageVerified(m.EngineImage) {
 		return false
 	}
 	if m.State != data.EngineUnpublished && m.State != data.EngineInitialized {
@@ -85,7 +85,7 @@ func managedEngineImageVerified(image Image) bool {
 }
 
 func (f ManagedFrontendPlan) Valid(enginePort target.Port) bool {
-	if f.Port < 1024 || f.Port == enginePort || !managedImageVerified(f.Image) || f.Secrets == nil || len(f.Secrets) > 128 {
+	if f.Port < 1024 || f.Port > 65535 || f.Port == enginePort || !managedImageVerified(f.Image) || f.Secrets == nil || len(f.Secrets) > 128 {
 		return false
 	}
 	seen := map[string]bool{}

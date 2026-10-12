@@ -33,35 +33,35 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 	if p.Lifecycle != "" {
 		return e.runManagedLifecycle(ctx, id, p, d)
 	}
-	run := &managedExecution{x: &execution{executor: e, id: id, plan: p, desired: d}}
-	x := run.x
+	r := &managedExecution{x: &execution{executor: e, id: id, plan: p, desired: d}}
+	x := r.x
 
-	if err := x.step(ctx, "preflight", Preflight, "drift", run.preflight); err != nil {
+	if err := x.step(ctx, "preflight", Preflight, "drift", r.preflight); err != nil {
 		return x.fail(ctx, err)
 	}
 	if p.Kind == plan.NoOp {
 		return x.terminal(ctx, Succeeded, nil)
 	}
-	if err := run.setDesired(ctx, "managed_desired", Preparing, p.ManagedIntentRevision, plan.DesiredComponentsForDeployment(*p.Managed)); err != nil {
-		return run.fail(ctx, err)
+	if err := r.setDesired(ctx, "managed_desired", Preparing, p.ManagedIntentRevision, plan.DesiredComponentsForDeployment(*p.Managed)); err != nil {
+		return r.fail(ctx, err)
 	}
-	run.intentWritten = true
+	r.intentWritten = true
 	if err := x.step(ctx, "engine_stage", Preparing, "unit_invalid", func(ctx context.Context) error {
 		if !managedChange(p, plan.StartManagedEngine) {
 			return e.Managed.VerifyEngineUnit(ctx, p)
 		}
 		return e.Managed.StageEngine(ctx, p, x.previous)
 	}); err != nil {
-		return run.fail(ctx, err)
+		return r.fail(ctx, err)
 	}
 	if p.Managed.Frontend != nil {
-		if err := run.prepareFrontend(ctx); err != nil {
-			return run.fail(ctx, err)
+		if err := r.prepareFrontend(ctx); err != nil {
+			return r.fail(ctx, err)
 		}
 	}
 	if x.hasPrevious {
 		if err := x.step(ctx, "frontend_stop", Quiescing, "stop_failed", func(ctx context.Context) error { x.quiesced = true; return x.stop(ctx) }); err != nil {
-			return run.fail(ctx, err)
+			return r.fail(ctx, err)
 		}
 	}
 	if managedChange(p, plan.StartManagedEngine) {
@@ -76,26 +76,26 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 				if err := e.Managed.BeforeEngineStart(ctx, p); err != nil {
 					return err
 				}
-				return e.Systemd.Start(ctx, run.engineService)
+				return e.Systemd.Start(ctx, r.engineService)
 			}},
 		}
 		for _, step := range engineSteps {
 			if err := x.step(ctx, step.name, Starting, step.code, step.effect); err != nil {
-				return run.fail(ctx, err)
+				return r.fail(ctx, err)
 			}
 		}
 	}
 	if err := x.step(ctx, "engine_check", Starting, "health_failed", func(ctx context.Context) error { return e.Managed.EngineReady(ctx, p) }); err != nil {
-		return run.fail(ctx, err)
+		return r.fail(ctx, err)
 	}
 	if p.Managed.Frontend != nil {
-		if err := run.startFrontend(ctx); err != nil {
-			return run.fail(ctx, err)
+		if err := r.startFrontend(ctx); err != nil {
+			return r.fail(ctx, err)
 		}
 	}
 	if managedChange(p, plan.RemoveManagedFrontend) {
-		if err := run.removeFrontend(ctx); err != nil {
-			return run.fail(ctx, err)
+		if err := r.removeFrontend(ctx); err != nil {
+			return r.fail(ctx, err)
 		}
 	}
 	if err := x.step(ctx, "managed_route", Checking, "route_invalid", func(ctx context.Context) error {
@@ -116,12 +116,12 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 		}
 		return nil
 	}); err != nil {
-		return run.fail(ctx, err)
+		return r.fail(ctx, err)
 	}
-	if err := run.recordRoutes(ctx, p.ManagedRouteRevision, x.facts.Routing, x.route); err != nil {
-		return run.fail(ctx, err)
+	if err := r.recordRoutes(ctx, p.ManagedRouteRevision, x.facts.Routing, x.route); err != nil {
+		return r.fail(ctx, err)
 	}
-	run.routeRecorded = true
+	r.routeRecorded = true
 	if err := x.step(ctx, "managed_route_check", Checking, "health_failed", func(ctx context.Context) error {
 		if err := e.Managed.BeforeIngress(ctx, id, p, d); err != nil {
 			return err
@@ -131,14 +131,14 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 		}
 		return x.check(ctx, d, p.HostPort, true)
 	}); err != nil {
-		return run.fail(ctx, err)
+		return r.fail(ctx, err)
 	}
 	if err := x.step(ctx, "managed_commit", Committing, "commit_failed", func(ctx context.Context) error {
 		if err := e.Managed.BeforeIngress(ctx, id, p, d); err != nil {
 			return err
 		}
 		m := p.Managed
-		engine := target.Unit{Name: run.engineService.String(), Hash: "sha256:" + m.EngineUnitHash}
+		engine := target.Unit{Name: r.engineService.String(), Hash: "sha256:" + m.EngineUnitHash}
 		units := []target.Unit{engine}
 		adjunct := &ops.ManagedRelease{BindingID: m.Database.BindingID, EpochID: m.Archive.EpochID, RuntimeSHA256: m.RuntimeSHA256, EngineUnit: engine, EnginePort: m.EnginePort}
 		if m.Frontend != nil {
@@ -158,7 +158,7 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 		}
 		return &Error{Step: "managed_commit", Code: "interrupted", Cause: errors.Join(err, readErr)}
 	}); err != nil {
-		return run.fail(ctx, err)
+		return r.fail(ctx, err)
 	}
 	return x.terminal(ctx, Succeeded, nil)
 }

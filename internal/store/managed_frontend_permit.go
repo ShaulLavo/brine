@@ -112,7 +112,28 @@ func (s *Store) ReadManagedFrontendPermit(ctx context.Context, app string) (Mana
 	return resolution, tx.Commit()
 }
 
-func readManagedFrontendPermit(ctx context.Context, tx *sql.Tx, app string) (ManagedFrontendResolution, error) {
+// ManagedFrontendRecord describes immutable ownership without live permission.
+// Unknown/recovery operation state remains explicit and cannot start a writer.
+type ManagedFrontendRecord struct {
+	Resolution ManagedFrontendResolution
+	State      ops.State
+}
+
+func (s *Store) ReadManagedFrontendRecord(ctx context.Context, app string) (ManagedFrontendRecord, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return ManagedFrontendRecord{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	record, err := readManagedFrontendRecord(ctx, tx, app)
+	if err != nil {
+		return record, err
+	}
+	return record, tx.Commit()
+}
+
+func readManagedFrontendRecord(ctx context.Context, tx *sql.Tx, app string) (ManagedFrontendRecord, error) {
+	var record ManagedFrontendRecord
 	var resolution ManagedFrontendResolution
 	var raw []byte
 	var recordApp, recordPlan string
@@ -120,38 +141,59 @@ func readManagedFrontendPermit(ctx context.Context, tx *sql.Tx, app string) (Man
 	var operation string
 	err := tx.QueryRowContext(ctx, `SELECT p.operation_id,p.app,p.plan_id,p.binding_id,p.canonical FROM data_engine_frontend_heads h JOIN data_engine_frontend_permits p ON p.operation_id=h.operation_id WHERE h.app=?`, app).Scan(&operation, &recordApp, &recordPlan, &binding, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
-		return resolution, ErrNotFound
+		return record, ErrNotFound
 	}
 	if err != nil {
-		return resolution, err
+		return record, err
 	}
 	permit := &resolution.Permit
 	if len(raw) > 4096 || json.Unmarshal(raw, permit) != nil || !permit.Valid() || permit.App != app || recordApp != app || permit.OperationID != operation || permit.PlanID != recordPlan || permit.BindingID != binding {
-		return resolution, &IntegrityError{}
+		return record, &IntegrityError{}
 	}
 	canonical, _ := json.Marshal(permit)
 	if !bytes.Equal(raw, canonical) {
-		return resolution, &IntegrityError{}
+		return record, &IntegrityError{}
 	}
 	p, d, err := loadPlan(ctx, tx, permit.PlanID)
 	if err != nil {
-		return resolution, err
+		return record, err
 	}
 	if p.Managed == nil || p.Managed.Frontend == nil || p.Managed.Database.BindingID != permit.BindingID || p.Managed.Archive.EpochID != permit.EpochID || p.Managed.RuntimeSHA256 != permit.RuntimeSHA256 || p.App != app || p.Kind == plan.Conflict || len(p.Conflicts) != 0 {
-		return resolution, &IntegrityError{}
+		return record, &IntegrityError{}
 	}
 	var opPlan, opApp string
 	var state ops.State
 	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", operation).Scan(&opPlan, &opApp, &state); err != nil {
-		return resolution, err
+		return record, err
 	}
 	if opPlan != permit.PlanID || opApp != app {
-		return resolution, ErrConflict
+		return record, ErrConflict
 	}
 	resolution.Plan, resolution.Desired = p, d
+	record.Resolution, record.State = resolution, state
+	return record, nil
+}
+
+func readManagedFrontendPermit(ctx context.Context, tx *sql.Tx, app string) (ManagedFrontendResolution, error) {
+	record, err := readManagedFrontendRecord(ctx, tx, app)
+	if err != nil {
+		return ManagedFrontendResolution{}, err
+	}
+	if current, applies, err := managedLifecycleFrontend(ctx, tx, record); err != nil || applies {
+		return current, err
+	}
+	resolution, state := record.Resolution, record.State
+	permit := resolution.Permit
 	if state == ops.Starting || state == ops.Checking || state == ops.Committing {
 		resolution.Pending = true
 		return resolution, nil
+	}
+	if state == ops.RecoveryRequired {
+		resolved, err := managedResolutionSucceeded(ctx, tx, record)
+		if err != nil || !resolved {
+			return resolution, errors.Join(ErrConflict, err)
+		}
+		state = ops.Succeeded
 	}
 	if state != ops.Succeeded {
 		return resolution, ErrConflict
@@ -171,7 +213,8 @@ func readManagedFrontendPermit(ctx context.Context, tx *sql.Tx, app string) (Man
 }
 
 // RestoreManagedFrontendPermit is a conditional compensation of a known head.
-// An invalid old permit is never restored over a changed module/epoch/runtime.
+// Changed runtime scope requires a fresh closed lifecycle proof under the
+// restored desired revision; raw historical ownership never grants boot.
 func (s *Store) RestoreManagedFrontendPermit(ctx context.Context, operation, previous string) error {
 	if s.readOnly || operation == "" {
 		return ErrInvalid
@@ -209,12 +252,18 @@ func (s *Store) RestoreManagedFrontendPermit(ctx context.Context, operation, pre
 		return err
 	}
 	var old, newPermit ManagedFrontendPermit
-	if len(oldRaw) > 4096 || len(newRaw) > 4096 || json.Unmarshal(oldRaw, &old) != nil || json.Unmarshal(newRaw, &newPermit) != nil || !old.Valid() || !newPermit.Valid() || oldApp != app || oldBinding != binding || old.EpochID != newPermit.EpochID || old.RuntimeSHA256 != newPermit.RuntimeSHA256 {
+	if len(oldRaw) > 4096 || len(newRaw) > 4096 || json.Unmarshal(oldRaw, &old) != nil || json.Unmarshal(newRaw, &newPermit) != nil || !old.Valid() || !newPermit.Valid() || oldApp != app || oldBinding != binding {
 		return ErrConflict
 	}
 	_, err = tx.ExecContext(ctx, "UPDATE data_engine_frontend_heads SET operation_id=? WHERE app=? AND operation_id=?", previous, app, operation)
 	if err != nil {
 		return err
+	}
+	if old.EpochID != newPermit.EpochID || old.RuntimeSHA256 != newPermit.RuntimeSHA256 {
+		projected, err := readManagedFrontendPermit(ctx, tx, app)
+		if err != nil || projected.Permit.BindingID != newPermit.BindingID || projected.Permit.EpochID != newPermit.EpochID || projected.Permit.RuntimeSHA256 != newPermit.RuntimeSHA256 {
+			return ErrConflict
+		}
 	}
 	return tx.Commit()
 }

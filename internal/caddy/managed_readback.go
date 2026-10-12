@@ -59,3 +59,26 @@ func (m *Manager) VerifyLoadedChange(ctx context.Context, next, previous State) 
 	}
 	return m.verifyLoaded(ctx, next.Sites, previous.Sites)
 }
+
+// InspectLoadedChange is read-only evidence. It validates actual disk/loaded
+// semantics and logging without issuing live route/boot authority to a caller.
+func (m *Manager) InspectLoadedChange(ctx context.Context, expected, previous State) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped {
+		return errors.New("caddy: manager requires reconciliation")
+	}
+	disk, _, err := m.observe()
+	if err != nil || compareState(disk, expected) != nil {
+		return errors.New("caddy: inspected generation differs")
+	}
+	reader, ok := m.validator.(LoadedConfig)
+	if !ok {
+		return errors.New("caddy: loaded inspection unavailable")
+	}
+	raw, err := reader.ReadLoaded(ctx)
+	if err != nil {
+		return err
+	}
+	return checkAdapted(raw, expected.Sites, previous.Sites)
+}

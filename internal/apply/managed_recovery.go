@@ -13,6 +13,9 @@ import (
 // Prepared recovery proves only complete prior effects. It never recreates a
 // tree, config, reservation, unit, service, route, or module after interruption.
 func (e *Executor) inspectManagedRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, r Recovery) (Recovery, error) {
+	if p.Managed != nil && p.Managed.State == data.EngineInitialized {
+		return e.inspectManagedInitialized(ctx, op, p, d, events, r)
+	}
 	if p.Managed == nil || !p.Managed.Valid() || p.Hash != op.PlanID || !desiredMatches(p, d) || len(p.Conflicts) != 0 || op.State != Preparing || p.Managed.State != data.EngineUnpublished || e.ManagedPreparation == nil {
 		return r, nil
 	}
@@ -76,6 +79,6 @@ func (e *Executor) inspectManagedRecovery(ctx context.Context, op Operation, p p
 }
 
 func managedRecoveryState(step string) State {
-	states := map[string]State{"preflight": Preflight, "prepare_managed_engine": Preparing, "engine_stage": Preparing, "frontend_pull": Preparing, "frontend_verify": Preparing, "frontend_secrets": Preparing, "frontend_stage": Preparing, "frontend_stop": Quiescing, "engine_install": Starting, "engine_reload": Starting, "engine_start": Starting, "engine_check": Starting, "frontend_install": Starting, "frontend_reload": Starting, "frontend_bind": Starting, "frontend_start": Starting, "frontend_check": Checking, "managed_route": Checking, "managed_route_check": Checking, "managed_commit": Committing}
+	states := map[string]State{"preflight": Preflight, "prepare_managed_engine": Preparing, "managed_desired": Preparing, "engine_stage": Preparing, "frontend_pull": Preparing, "frontend_verify": Preparing, "frontend_secrets": Preparing, "frontend_stage": Preparing, "frontend_stop": Quiescing, "engine_install": Starting, "engine_reload": Starting, "engine_start": Starting, "engine_check": Starting, "frontend_install": Starting, "frontend_reload": Starting, "frontend_bind": Starting, "frontend_start": Starting, "frontend_check": Checking, "managed_route": Checking, "managed_route_check": Checking, "managed_commit": Committing, "managed_pause": Preparing, "managed_resume": Preparing, "managed_withdraw": Quiescing, "managed_engine_stop": Quiescing, "managed_frontend_stop": Quiescing, "managed_engine_start": Starting, "managed_frontend_start": Starting, "managed_engine_check": Checking, "managed_frontend_check": Checking, "managed_route_receipt": Checking}
 	return states[step]
 }
