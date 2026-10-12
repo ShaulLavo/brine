@@ -34,11 +34,13 @@ type PersistentFacts interface {
 }
 
 type Service struct {
-	Data       PersistentFacts
-	Store      Store
-	Inventory  Inventory
-	Probe      HealthProbe
-	LoadPolicy func(context.Context) (policy.Policy, error)
+	Managed      ManagedReader
+	ManagedFacts ManagedFactsReader
+	Data         PersistentFacts
+	Store        Store
+	Inventory    Inventory
+	Probe        HealthProbe
+	LoadPolicy   func(context.Context) (policy.Policy, error)
 }
 type Report struct {
 	Apps []Status `json:"apps"`
@@ -60,11 +62,12 @@ type Drift struct {
 }
 type Status struct {
 	App           string         `json:"app"`
-	Current       Release        `json:"current"`
+	Current       *Release       `json:"current"`
 	Previous      *Release       `json:"previous"`
 	LastOperation *ops.Operation `json:"last_operation"`
 	Health        Health         `json:"health"`
 	Drift         Drift          `json:"drift"`
+	Managed       *ManagedStatus `json:"managed,omitempty"`
 }
 type RollbackPlan struct {
 	PlanID        string                  `json:"plan_id"`
@@ -112,7 +115,7 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 		if err != nil {
 			return report, err
 		}
-		item := Status{App: r.App, Current: Release{ID: r.ID, PlanID: current.PlanID, ImageDigest: r.Image.Digest, Port: r.HostPort, Domains: r.Desired.Domains}, Health: Health{UnitActive: target.Observation[bool]{Status: target.Unknown}, Direct: "not_checked"}}
+		item := Status{App: r.App, Current: &Release{ID: r.ID, PlanID: current.PlanID, ImageDigest: r.Image.Digest, Port: r.HostPort, Domains: r.Desired.Domains}, Health: Health{UnitActive: target.Observation[bool]{Status: target.Unknown}, Direct: "not_checked"}}
 		previous, err := s.Store.PreviousRelease(ctx, r.App)
 		if err == nil {
 			v, e := s.releaseView(ctx, previous)
@@ -130,6 +133,17 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 			return report, err
 		}
 		item.Drift = CompareDrift(snap, r)
+		if r.Managed != nil {
+			if s.Managed == nil {
+				return report, result.New(result.DependencyMissing, nil)
+			}
+			managed, err := s.Managed.Read(ctx, r.App)
+			if err != nil || !managed.Valid() {
+				return report, errors.Join(result.New(result.Conflict, nil), err)
+			}
+			item.Managed = &managed
+			item.Drift = managedDrift(snap, r)
+		}
 		if snap.Apps.Status == target.KnownStatus && snap.Apps.Value != nil {
 			for _, a := range *snap.Apps.Value {
 				if a.Name == r.App && a.UnitActive != nil {
@@ -137,7 +151,7 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 				}
 			}
 		}
-		if item.Drift.State != "drifted" && observedPortMatches(snap, r) && item.Health.UnitActive.Value != nil && *item.Health.UnitActive.Value && probes < DirectProbeLimit {
+		if r.Desired.App().HasAppContainer() && item.Drift.State != "drifted" && observedPortMatches(snap, r) && item.Health.UnitActive.Value != nil && *item.Health.UnitActive.Value && probes < DirectProbeLimit {
 			if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > DirectProbeTimeout {
 				probe := s.Probe
 				if probe == nil {
@@ -154,6 +168,9 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 			}
 		}
 		report.Apps = append(report.Apps, item)
+	}
+	if err := s.appendManagedReservations(ctx, state, app, &report); err != nil {
+		return report, err
 	}
 	if app != "" && len(report.Apps) == 0 {
 		return report, result.New(result.AppNotFound, nil)
@@ -198,6 +215,9 @@ func (s Service) Rollback(ctx context.Context, app, id string) (RollbackPlan, er
 	}
 	if stored.App != app || stored.Target != snap.Identity || string(desired.Name) != app {
 		return RollbackPlan{}, result.New(result.Conflict, nil)
+	}
+	if current.Managed != nil || release.Managed != nil {
+		return s.managedRollback(ctx, snap, state, *current, release, desired)
 	}
 	if !stateless(current.Desired) || !stateless(desired) {
 		return RollbackPlan{}, result.New(result.RecoveryRequired, nil)

@@ -3,9 +3,10 @@ package target
 // ControlInventory is a coherent read of durable ownership, not a runtime
 // snapshot. An omitted app has no release history or unfinished removal.
 type ControlInventory struct {
-	Generation uint64
-	Target     *Identity
-	Apps       []ControlApp
+	Generation          uint64
+	Target              *Identity
+	Apps                []ControlApp
+	ManagedReservations []ManagedPortReservation
 }
 
 // Absent requires a retirement receipt when release history exists. Unknown

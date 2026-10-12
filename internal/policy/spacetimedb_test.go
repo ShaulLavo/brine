@@ -54,7 +54,7 @@ func TestManagedNormalizedEnvironmentAndHash(t *testing.T) {
 	if err != nil || !bytes.Equal(before, regenerated) {
 		t.Fatal("generated environment override accepted", err)
 	}
-	for _, change := range []string{"database", "alias", "accepts", "module", "metadata", "license", "cadence", "domain"} {
+	for _, change := range []string{"database", "alias", "accepts", "module", "metadata", "license", "cadence", "recovery", "domain"} {
 		t.Run(change, func(t *testing.T) {
 			next, err := Normalize(a, p)
 			if err != nil {
@@ -77,6 +77,8 @@ func TestManagedNormalizedEnvironmentAndHash(t *testing.T) {
 				next.SpacetimePolicy.LicenseAuthority = "another-grant"
 			case "cadence":
 				next.SpacetimePolicy.CaptureIntervalSeconds++
+			case "recovery":
+				next.SpacetimeDB.RecoveryPasswordRef = "other-recovery"
 			case "domain":
 				next.Domains = []spec.Domain{"other.example.net"}
 			}
@@ -97,6 +99,8 @@ func TestManagedPolicyRefusesMissingAndCrossedFacts(t *testing.T) {
 		func(a *spec.App) { a.SpacetimeDB.PersistentRoot = "/foreign" },
 		func(a *spec.App) { a.SpacetimeDB.BackupDestination = "foreign" },
 		func(a *spec.App) { a.SpacetimeDB.Publisher = "foreign" },
+		func(a *spec.App) { a.SpacetimeDB.RecoveryPasswordRef = "foreign" },
+		func(a *spec.App) { a.SpacetimeDB.RecoveryPasswordRef = "backup-credentials" },
 		func(a *spec.App) { a.Secrets["OWNER_TOKEN"] = a.SpacetimeDB.Publisher },
 		func(a *spec.App) { a.SpacetimeDB.Resources.MemoryMB = 512 },
 		func(a *spec.App) { a.SpacetimeDB.Module.Accepts = []string{"game-v1"} },

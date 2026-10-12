@@ -13,16 +13,17 @@ type rawRuntime struct {
 	GID any `toml:"gid"`
 }
 type rawDatabase struct {
-	SpacetimeDB       *rawSpacetimeDB `toml:"spacetimedb"`
-	Engine            any             `toml:"engine"`
-	Schema            any             `toml:"schema"`
-	Marker            any             `toml:"marker"`
-	Name              any             `toml:"name"`
-	PersistentRoot    any             `toml:"persistent_root"`
-	MountPath         any             `toml:"mount_path"`
-	Filename          any             `toml:"filename"`
-	BackupDestination any             `toml:"backup_destination"`
-	SyncInterval      any             `toml:"sync_interval"`
+	SpacetimeDB         *rawSpacetimeDB `toml:"spacetimedb"`
+	Engine              any             `toml:"engine"`
+	Schema              any             `toml:"schema"`
+	Marker              any             `toml:"marker"`
+	Name                any             `toml:"name"`
+	PersistentRoot      any             `toml:"persistent_root"`
+	MountPath           any             `toml:"mount_path"`
+	Filename            any             `toml:"filename"`
+	BackupDestination   any             `toml:"backup_destination"`
+	RecoveryPasswordRef any             `toml:"recovery_password_ref"`
+	SyncInterval        any             `toml:"sync_interval"`
 }
 type rawCompatibility struct {
 	Database any `toml:"database"`
@@ -60,7 +61,7 @@ func validatePersistence(raw rawApp, app *App) error {
 		if r == nil {
 			return bad("databases")
 		}
-		if r.SpacetimeDB != nil {
+		if r.SpacetimeDB != nil || r.RecoveryPasswordRef != nil {
 			return bad("databases.spacetimedb")
 		}
 		if r.Engine != nil {

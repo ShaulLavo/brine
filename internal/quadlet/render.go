@@ -118,6 +118,9 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	if persistent.runtime != nil {
 		fmt.Fprintf(&b, "UMask=0077\nExecStartPre=/usr/local/bin/brine host writer-permit %s\nExecStartPre=/usr/local/bin/brine host writer-attempt %s\n", persistent.incarnation, persistent.incarnation)
 	}
+	if persistent.managedBinding != "" {
+		fmt.Fprintf(&b, "ExecStartPre=/usr/local/bin/brine host managed-frontend-permit %s %s\n", persistent.managedBinding, d.Name)
+	}
 	b.WriteString("\n[Install]\nWantedBy=default.target\n")
 	return Unit{name: string(d.Name) + ".container", content: b.String()}, nil
 }
