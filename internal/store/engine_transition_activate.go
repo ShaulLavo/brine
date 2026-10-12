@@ -41,10 +41,7 @@ func (s *Store) activateEngineTransitionTx(ctx context.Context, tx *sql.Tx, prep
 	if err != nil || nativeCanonicalHash(raw) != common.TargetRuntimeSHA256 {
 		return old, ErrConflict
 	}
-	version := uint64(1)
-	if base, committed := common.Base.Committed(); committed {
-		version = base.Version + 1
-	}
+	version := common.Base.Head().Version + 1
 	head := data.EngineHeadRef{BindingID: runtime.BindingID, EpochID: runtime.EpochID, Version: version, RuntimeSHA256: nativeCanonicalHash(raw)}
 	event, err := data.RecordEngineTransitionActivation(input, old, head)
 	if err != nil {

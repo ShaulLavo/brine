@@ -107,14 +107,8 @@ func RecordEngineTransitionActivation(t EngineTransition, old EngineTransitionCu
 		head.BindingID != t.common.Scope.BindingID || head.EpochID != t.common.NewEpochID || head.RuntimeSHA256 != t.common.TargetRuntimeSHA256 {
 		return EngineTransitionEvent{}, ErrInvalid
 	}
-	version := uint64(1)
-	if before, ok := t.common.Base.Committed(); ok {
-		if before.Version >= math.MaxInt64 {
-			return EngineTransitionEvent{}, ErrInvalid
-		}
-		version = before.Version + 1
-	}
-	if head.Version != version {
+	before := t.common.Base.Head()
+	if before.Validate() != nil || before.Version >= math.MaxInt64 || head.Version != before.Version+1 {
 		return EngineTransitionEvent{}, ErrInvalid
 	}
 	return nextEngineTransitionEvent(t, old, EngineTransitionActivated, "activation", head)

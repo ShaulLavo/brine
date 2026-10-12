@@ -3,8 +3,7 @@ package data
 import "encoding/json"
 
 type EngineUnpublishedBase struct {
-	BindingID  ReplicaBindingID  `json:"binding_id"`
-	EpochID    ReplicaEpochID    `json:"epoch_id"`
+	Head       EngineHeadRef     `json:"head"`
 	Allocation EngineEvidenceRef `json:"allocation"`
 }
 
@@ -22,8 +21,8 @@ func CommittedEngineBase(head EngineHeadRef) (EngineTransitionBase, error) {
 }
 
 func UnpublishedEngineBase(base EngineUnpublishedBase) (EngineTransitionBase, error) {
-	if !ValidID(string(base.BindingID)) || !ValidID(string(base.EpochID)) ||
-		!base.Allocation.validFor(EngineAllocationEvidence) || base.Allocation.BindingID != base.BindingID || base.Allocation.EpochID != base.EpochID {
+	if base.Head.Validate() != nil ||
+		!base.Allocation.validFor(EngineAllocationEvidence) || base.Allocation.BindingID != base.Head.BindingID || base.Allocation.EpochID != base.Head.EpochID {
 		return EngineTransitionBase{}, ErrInvalid
 	}
 	return EngineTransitionBase{kind: "unpublished", unpublished: base}, nil
@@ -41,14 +40,21 @@ func (b EngineTransitionBase) binding() ReplicaBindingID {
 	if b.kind == "committed" {
 		return b.committed.BindingID
 	}
-	return b.unpublished.BindingID
+	return b.unpublished.Head.BindingID
 }
 
 func (b EngineTransitionBase) epoch() ReplicaEpochID {
 	if b.kind == "committed" {
 		return b.committed.EpochID
 	}
-	return b.unpublished.EpochID
+	return b.unpublished.Head.EpochID
+}
+
+func (b EngineTransitionBase) Head() EngineHeadRef {
+	if b.kind == "committed" {
+		return b.committed
+	}
+	return b.unpublished.Head
 }
 
 func (b EngineTransitionBase) valid() bool {
@@ -102,8 +108,8 @@ func decodeEngineBase(kind string, raw json.RawMessage) (EngineTransitionBase, e
 		}
 		return CommittedEngineBase(head)
 	case "unpublished":
-		fields, err := engineRecordFields(raw, []string{"binding_id", "epoch_id", "allocation"}, nil)
-		if err != nil || checkEngineEvidenceJSON(fields["allocation"]) != nil {
+		fields, err := engineRecordFields(raw, []string{"head", "allocation"}, nil)
+		if err != nil || engineRecord(fields["head"], []string{"binding_id", "epoch_id", "version", "runtime_sha256"}, nil) != nil || checkEngineEvidenceJSON(fields["allocation"]) != nil {
 			return EngineTransitionBase{}, ErrInvalid
 		}
 		var base EngineUnpublishedBase

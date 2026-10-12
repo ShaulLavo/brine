@@ -27,6 +27,10 @@ func storeTransitionEvidence(scope data.EngineTransitionScope, epoch data.Replic
 }
 
 func newNativeTransitionFixture(t *testing.T) nativeTransitionFixture {
+	return nativeTransitionStateFixture(t, data.EngineInitialized)
+}
+
+func nativeTransitionStateFixture(t *testing.T, state data.EngineDataState) nativeTransitionFixture {
 	t.Helper()
 	ctx := context.Background()
 	s := openTest(t)
@@ -46,7 +50,11 @@ func newNativeTransitionFixture(t *testing.T) nativeTransitionFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = s.CommitEngineRuntime(ctx, runtime, fence.ID, "prepare-engine"); err != nil {
+	current := runtime.Clone()
+	if state == data.EngineUnpublished {
+		current.State, current.Database, current.Publisher, current.Names = state, "", "", []string{}
+	}
+	if err = s.CommitEngineRuntime(ctx, current, fence.ID, "prepare-engine"); err != nil {
 		t.Fatal(err)
 	}
 	head, _, err := s.ReadEngineHead(ctx, runtime.BindingID)
@@ -56,6 +64,19 @@ func newNativeTransitionFixture(t *testing.T) nativeTransitionFixture {
 	base, err := data.CommittedEngineBase(head)
 	if err != nil {
 		t.Fatal(err)
+	}
+	initialAllocation, err := readInitialEngineAllocation(ctx, s.db, reserved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state == data.EngineUnpublished {
+		allocationRaw, _ := json.Marshal(initialAllocation)
+		base, err = data.UnpublishedEngineBase(data.EngineUnpublishedBase{Head: head, Allocation: data.EngineEvidenceRef{
+			Kind: data.EngineAllocationEvidence, ID: string(reserved.Database.DatabaseID), SHA256: nativeCanonicalHash(allocationRaw),
+			DatabaseID: reserved.Database.DatabaseID, BindingID: head.BindingID, EpochID: head.EpochID}})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
 	runtime.EpochID = data.ReplicaEpochID(strings.Repeat("e", 32))
 	runtime.Names = []string{"recovered"}
@@ -81,10 +102,7 @@ func newNativeTransitionFixture(t *testing.T) nativeTransitionFixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = preparation.Close() })
-	allocation, err := readInitialEngineAllocation(ctx, s.db, reserved)
-	if err != nil {
-		t.Fatal(err)
-	}
+	allocation := initialAllocation
 	allocation.DirectoryInode = 6
 	return nativeTransitionFixture{s, input, preparation, runtime, allocation}
 }

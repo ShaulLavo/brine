@@ -79,21 +79,25 @@ func transitionReservedIdentity(input data.EngineTransition, reserved ReservedEn
 
 func checkTransitionBase(ctx context.Context, q dataQuerier, input data.EngineTransition, reserved ReservedEngine) error {
 	base := input.Common().Base
-	head, _, err := readEngineHead(ctx, q, reserved.Database.BindingID)
+	head, runtime, err := readEngineHead(ctx, q, reserved.Database.BindingID)
 	if expected, committed := base.Committed(); committed {
-		if err != nil || head != expected {
+		if err != nil || head != expected || runtime.State != data.EngineInitialized {
 			return errors.Join(ErrConflict, err)
 		}
 		return nil
 	}
-	if !errors.Is(err, ErrNotFound) || base.Kind() != "unpublished" {
+	if err != nil || base.Kind() != "unpublished" || runtime.State != data.EngineUnpublished || runtime.Database != "" || runtime.Publisher != "" {
 		return ErrConflict
 	}
 	initial, _ := base.Unpublished()
-	if initial.EpochID != reserved.Archive.EpochID {
+	if head != initial.Head || initial.Head.EpochID != reserved.Archive.EpochID || initial.Allocation.ID != string(reserved.Database.DatabaseID) {
 		return ErrConflict
 	}
-	_, err = readInitialEngineAllocation(ctx, q, reserved)
+	allocation, err := readInitialEngineAllocation(ctx, q, reserved)
+	raw, marshalErr := json.Marshal(allocation)
+	if err != nil || marshalErr != nil || initial.Allocation.SHA256 != nativeCanonicalHash(raw) {
+		return errors.Join(ErrConflict, err, marshalErr)
+	}
 	return err
 }
 
