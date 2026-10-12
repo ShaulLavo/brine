@@ -78,6 +78,9 @@ type adaptedRoute struct {
 // This checks the pinned adapter's complete host routes, including handlers and
 // upstreams, rather than merely finding host names somewhere in a JSON tree.
 func checkAdapted(data []byte, next, previous map[string]Site) error {
+	if err := verifyManagedSitesLogging(data, next); err != nil {
+		return err
+	}
 	refused := errors.New("caddy: adapted routes differ from expected Brine sites")
 	if len(data) == 0 || len(data) > maxSetBytes || (len(bytes.TrimSpace(data)) == 0 || bytes.TrimSpace(data)[0] != '{') {
 		return refused

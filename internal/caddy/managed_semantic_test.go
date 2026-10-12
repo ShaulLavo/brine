@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"testing"
 )
@@ -25,6 +26,18 @@ func TestManagedAdaptedSemanticOwnership(t *testing.T) {
 	next := map[string]Site{"web.caddy": site}
 	if err := checkAdapted(raw, next, nil); err != nil {
 		t.Fatal("pinned managed route refused", err)
+	}
+	var unprotected map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &unprotected); err != nil {
+		t.Fatal(err)
+	}
+	delete(unprotected, "logging")
+	unsafeRaw, err := json.Marshal(unprotected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if checkAdapted(unsafeRaw, next, nil) == nil {
+		t.Fatal("exact route bypassed protected default logging")
 	}
 	changes := []struct{ name, old, new string }{
 		{"engine destination", "127.0.0.1:20000", "127.0.0.1:20100"},
