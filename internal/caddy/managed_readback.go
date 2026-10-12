@@ -48,3 +48,14 @@ func (m *Manager) VerifyLoaded(ctx context.Context, expected State) error {
 	}
 	return m.verifyLoaded(ctx, expected.Sites, nil)
 }
+
+// VerifyLoadedChange proves current loaded routes against both sides, including
+// domain absence when the last managed site was deliberately withdrawn.
+func (m *Manager) VerifyLoadedChange(ctx context.Context, next, previous State) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped {
+		return errors.New("caddy: manager requires reconciliation")
+	}
+	return m.verifyLoaded(ctx, next.Sites, previous.Sites)
+}

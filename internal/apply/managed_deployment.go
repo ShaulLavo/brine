@@ -111,6 +111,9 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 	}); err != nil {
 		return run.fail(ctx, err)
 	}
+	if err := run.recordRoutes(ctx, p.ManagedRouteRevision, x.facts.Routing, x.route); err != nil {
+		return run.fail(ctx, err)
+	}
 	if err := x.step(ctx, "managed_route_check", Checking, "health_failed", func(ctx context.Context) error {
 		if err := e.Managed.BeforeIngress(ctx, id, p, d); err != nil {
 			return err

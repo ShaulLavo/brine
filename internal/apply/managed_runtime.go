@@ -3,6 +3,7 @@ package apply
 import (
 	"context"
 
+	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
@@ -11,6 +12,7 @@ import (
 // ManagedRuntime owns the binding service and separate frontend/route permits.
 // It cannot initialize/publish Wasm or restore engine state from an app release.
 type ManagedRuntime interface {
+	RecordRoutes(context.Context, string, plan.Plan, uint64, caddy.State, caddy.State) error
 	SetDesired(context.Context, string, plan.Plan, uint64, plan.ManagedLifecyclePlan) error
 	DesiredMatches(context.Context, string, plan.Plan, uint64, plan.ManagedLifecyclePlan) (bool, error)
 	StageEngine(context.Context, plan.Plan, ops.Release) error

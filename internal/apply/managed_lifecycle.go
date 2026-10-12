@@ -35,6 +35,9 @@ func (e *Executor) runManagedLifecycle(ctx context.Context, id string, p plan.Pl
 		if err := r.stopManagedComponent(ctx); err != nil {
 			return x.lifecycleFailure(ctx, err)
 		}
+		if err := r.recordRoutes(ctx, p.ManagedRouteRevision, x.facts.Routing, x.route); err != nil {
+			return x.lifecycleFailure(ctx, err)
+		}
 		if p.Lifecycle == plan.StopApp {
 			return x.terminal(ctx, Succeeded, nil)
 		}
@@ -45,7 +48,17 @@ func (e *Executor) runManagedLifecycle(ctx context.Context, id string, p plan.Pl
 	if err := r.startManagedComponent(ctx); err != nil {
 		return x.lifecycleFailure(ctx, err)
 	}
+	withdrawn := x.route
 	if err := r.publishManagedRoutes(ctx); err != nil {
+		return x.lifecycleFailure(ctx, err)
+	}
+	routeRevision := p.ManagedRouteRevision
+	before := x.facts.Routing
+	if p.Lifecycle == plan.RestartApp {
+		routeRevision++
+		before = withdrawn
+	}
+	if err := r.recordRoutes(ctx, routeRevision, before, x.route); err != nil {
 		return x.lifecycleFailure(ctx, err)
 	}
 	return x.terminal(ctx, Succeeded, nil)

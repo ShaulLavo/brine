@@ -197,6 +197,7 @@ type Plan struct {
 	DatabaseEnvironment   []policy.Environment  `json:"database_environment,omitempty"`
 	Managed               *ManagedServicePlan   `json:"managed,omitempty"`
 	ManagedLifecycle      *ManagedLifecyclePlan `json:"managed_lifecycle,omitempty"`
+	ManagedRouteRevision  uint64                `json:"managed_route_revision,omitempty"`
 	ManagedIntentRevision uint64                `json:"managed_intent_revision,omitempty"`
 
 	decisionInput      []byte

@@ -19,10 +19,12 @@ import (
 )
 
 type managedRuntime struct {
-	state    *store.Store
-	units    *managedUnits
-	observer managedEngineObserver
-	home     string
+	state        *store.Store
+	units        *managedUnits
+	observer     managedEngineObserver
+	routes       *caddy.Manager
+	loggingFacts func(context.Context) ([]byte, string, string, error)
+	home         string
 }
 
 func (r managedRuntime) expected(ctx context.Context, p plan.Plan) (store.EnginePermit, error) {
@@ -248,4 +250,33 @@ func (r managedRuntime) EngineStopped(ctx context.Context, p plan.Plan) error {
 		return errEngineSource
 	}
 	return ctx.Err()
+}
+
+func (r managedRuntime) RecordRoutes(ctx context.Context, operation string, p plan.Plan, expected uint64, before, after caddy.State) error {
+	if r.routes == nil || r.loggingFacts == nil || r.routes.CheckDrift(after) != nil || r.routes.VerifyLoadedChange(ctx, after, before) != nil {
+		return errEngineSource
+	}
+	permit, err := r.expected(ctx, p)
+	if err != nil {
+		return err
+	}
+	desired, err := currentManagedDesired(ctx, r.state, permit.Runtime)
+	if err != nil {
+		return err
+	}
+	_, rootHash, loadedHash, err := r.loggingFacts(ctx)
+	if err != nil {
+		return errEngineSource
+	}
+	hash, present := after.Files[p.App+".caddy"]
+	wanted := store.ManagedRouteState{App: p.App, BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, DesiredRevision: desired.Revision, PlanID: p.Hash, OperationID: operation, Revision: expected + 1, Generation: after.Generation, Present: present, FileHash: hash, RootSHA256: rootHash, LoadedSHA256: loadedHash}
+	_, err = r.state.CommitManagedRouteState(ctx, expected, wanted)
+	if err != nil {
+		current, readErr := r.state.ReadManagedRouteState(ctx, p.App)
+		if readErr == nil && current == wanted {
+			return nil
+		}
+		return &localexec.Error{Kind: localexec.UnknownOutcome}
+	}
+	return nil
 }

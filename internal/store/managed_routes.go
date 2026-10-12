@@ -15,20 +15,23 @@ import (
 // ManagedRouteState retains deliberate route presence independently of immutable
 // release history. Disk absence without this protected receipt is never proof.
 type ManagedRouteState struct {
-	App          string                `json:"app"`
-	BindingID    data.ReplicaBindingID `json:"binding_id"`
-	PlanID       string                `json:"plan_id"`
-	OperationID  string                `json:"operation_id"`
-	Revision     uint64                `json:"revision"`
-	Generation   uint64                `json:"generation"`
-	Present      bool                  `json:"present"`
-	FileHash     string                `json:"file_hash"`
-	RootSHA256   string                `json:"root_sha256"`
-	LoadedSHA256 string                `json:"loaded_sha256"`
+	App             string                `json:"app"`
+	BindingID       data.ReplicaBindingID `json:"binding_id"`
+	PlanID          string                `json:"plan_id"`
+	OperationID     string                `json:"operation_id"`
+	EpochID         data.ReplicaEpochID   `json:"epoch_id"`
+	RuntimeSHA256   string                `json:"runtime_sha256"`
+	DesiredRevision uint64                `json:"desired_revision"`
+	Revision        uint64                `json:"revision"`
+	Generation      uint64                `json:"generation"`
+	Present         bool                  `json:"present"`
+	FileHash        string                `json:"file_hash"`
+	RootSHA256      string                `json:"root_sha256"`
+	LoadedSHA256    string                `json:"loaded_sha256"`
 }
 
 func (s ManagedRouteState) Valid() bool {
-	return validAppName(s.App) && data.ValidID(string(s.BindingID)) && digestPattern.MatchString(s.PlanID) && len(s.OperationID) > 0 && len(s.OperationID) <= 128 && s.Revision != 0 && s.Revision <= math.MaxInt64 && s.Generation != 0 && (s.Present && digestPattern.MatchString(s.FileHash) || !s.Present && s.FileHash == "") && data.ValidCatalogHash(s.RootSHA256) && data.ValidCatalogHash(s.LoadedSHA256)
+	return validAppName(s.App) && data.ValidID(string(s.BindingID)) && data.ValidID(string(s.EpochID)) && data.ValidCatalogHash(s.RuntimeSHA256) && s.DesiredRevision > 0 && s.DesiredRevision <= math.MaxInt64 && digestPattern.MatchString(s.PlanID) && len(s.OperationID) > 0 && len(s.OperationID) <= 128 && s.Revision != 0 && s.Revision <= math.MaxInt64 && s.Generation != 0 && (s.Present && digestPattern.MatchString(s.FileHash) || !s.Present && s.FileHash == "") && data.ValidCatalogHash(s.RootSHA256) && data.ValidCatalogHash(s.LoadedSHA256)
 }
 
 func migrateManagedRoutes(ctx context.Context, tx *sql.Tx) error {
@@ -69,6 +72,15 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 	if s.readOnly || !wanted.Valid() || wanted.Revision != expected+1 || expected >= math.MaxInt64 {
 		return ManagedRouteState{}, ErrInvalid
 	}
+	reserved, err := s.ReadReservedEngine(ctx, wanted.BindingID)
+	if err != nil {
+		return ManagedRouteState{}, err
+	}
+	guard, err := s.guardEngineDatabase(ctx, reserved.Database.DatabaseID)
+	if err != nil {
+		return ManagedRouteState{}, err
+	}
+	defer func() { _ = guard.Release() }()
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
@@ -79,7 +91,7 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 	if err != nil {
 		return ManagedRouteState{}, err
 	}
-	if p.Managed == nil || !p.Managed.Valid() || p.App != wanted.App || p.Managed.Database.BindingID != wanted.BindingID || len(p.Conflicts) != 0 {
+	if p.Managed == nil || !p.Managed.Valid() || p.App != wanted.App || p.Managed.Database.BindingID != wanted.BindingID || p.Managed.Archive.EpochID != wanted.EpochID || p.Managed.RuntimeSHA256 != wanted.RuntimeSHA256 || len(p.Conflicts) != 0 {
 		return ManagedRouteState{}, ErrConflict
 	}
 	var opPlan, opApp string
@@ -88,6 +100,10 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 		return ManagedRouteState{}, err
 	}
 	if opPlan != wanted.PlanID || opApp != wanted.App || state != ops.Preparing && state != ops.Quiescing && state != ops.Starting && state != ops.Checking && state != ops.RollingBack {
+		return ManagedRouteState{}, ErrConflict
+	}
+	desired, current, err := readEffectiveManagedDesired(ctx, tx, wanted.BindingID, wanted.EpochID, wanted.RuntimeSHA256)
+	if err != nil || !current || desired.Revision != wanted.DesiredRevision || desired.IngressServing != wanted.Present {
 		return ManagedRouteState{}, ErrConflict
 	}
 	previous, err := readManagedRouteState(ctx, tx, wanted.App)

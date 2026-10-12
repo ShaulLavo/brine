@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -27,6 +28,9 @@ func (f *managedRuntimeFake) call(name string) error {
 		return injected
 	}
 	return nil
+}
+func (f *managedRuntimeFake) RecordRoutes(context.Context, string, plan.Plan, uint64, caddy.State, caddy.State) error {
+	return f.call("managed_route_receipt")
 }
 func (f *managedRuntimeFake) SetDesired(context.Context, string, plan.Plan, uint64, plan.ManagedLifecyclePlan) error {
 	return f.call("managed_desired")

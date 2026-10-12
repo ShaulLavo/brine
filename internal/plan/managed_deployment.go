@@ -75,7 +75,7 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 	}
 	if previous != nil {
 		p.Kind = Update
-		if previous.Managed == nil || previous.Managed.Database != managed.Database || previous.Managed.Archive != managed.Archive {
+		if previous.Managed == nil || previous.Managed.Database != managed.Database || previous.Managed.Archive.Destination != managed.Archive.Destination {
 			add(ArtifactDrift, "managed.release")
 		}
 	}
@@ -88,6 +88,7 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 		p.Secrets = slices.Clone(frontend.Secrets)
 	}
 	p.Managed = &managed
+	p.ManagedRouteRevision = facts.RouteRevision
 	if facts.Intent != nil {
 		p.ManagedIntentRevision = facts.Intent.Revision
 	}

@@ -10,7 +10,8 @@ import (
 )
 
 func TestManagedIntentProjectionDoesNotResumeAcrossEpochs(t *testing.T) {
-	runtime := data.EngineRuntime{BindingID: data.ReplicaBindingID(strings.Repeat("a", 32)), EpochID: data.ReplicaEpochID(strings.Repeat("b", 32))}
+	permit, _ := engineStartupFixture(t)
+	runtime := permit.Runtime
 	fingerprint, err := managedRuntimeHash(runtime)
 	if err != nil {
 		t.Fatal(err)

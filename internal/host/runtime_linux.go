@@ -116,7 +116,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	closers = append(closers, permits.Close)
 	preparation := DataPreparation{Runner: localexec.ExecRunner{}, State: state, StateRoot: stateDir, Home: identity.HomeDir, Permits: permits.Reader, Publisher: replication.ArtifactPublisher{StateRoot: stateDir, UnitRoot: filepath.Join(identity.HomeDir, ".config/systemd/user")}, Services: replication.NewServices(session), Units: runtimeSystemd}
 	observer := managedEngineObserver{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session, units: runtimeSystemd}
-	managed := managedRuntime{state: state, observer: observer, home: identity.HomeDir}
+	managed := managedRuntime{state: state, observer: observer, home: identity.HomeDir, routes: manager, loggingFacts: caddyValidator{session}.loggingFacts}
 	preparation.managedObserver = &observer
 	service.managedObserver = &observer
 	service.managedPreparation = preparation

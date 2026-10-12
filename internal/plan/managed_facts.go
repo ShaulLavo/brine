@@ -11,6 +11,7 @@ import (
 // ManagedFacts is a measured control-state projection, not source proof or
 // native launch authority. Its canonical content belongs in plan fingerprints.
 type ManagedFacts struct {
+	RouteRevision       uint64                     `json:"route_revision"`
 	EngineImage         Image                      `json:"engine_image"`
 	Database            *data.SpacetimeDBBinding   `json:"database,omitempty"`
 	Archive             *data.ArchiveBinding       `json:"archive,omitempty"`
