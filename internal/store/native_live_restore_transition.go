@@ -48,6 +48,14 @@ func (s *Store) ClaimNativeLiveRestoreTransition(ctx context.Context, capability
 	if _, err := s.ReadNativeStoppedPermit(ctx, capability.stopped); err != nil {
 		return nil, err
 	}
+	recorded, err := s.ReadNativeIncomingInitialized(ctx, incoming)
+	if err != nil || recorded.Scope != initialized.Scope() || recorded.ConfigSHA256 != initialized.ConfigurationSHA256() || !recorded.VerifiedAt.Equal(initialized.VerifiedAt()) {
+		return nil, ErrConflict
+	}
+	recordedRaw, err := json.Marshal(recorded)
+	if err != nil {
+		return nil, err
+	}
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
@@ -72,8 +80,9 @@ func (s *Store) ClaimNativeLiveRestoreTransition(ctx context.Context, capability
 		return nil, ErrConflict
 	}
 	var recordedRepository string
-	err = tx.QueryRowContext(ctx, "SELECT repository_id FROM data_native_repository_results WHERE intent_id=?", intent.creationID).Scan(&recordedRepository)
-	if err != nil || recordedRepository != initialized.Scope().RepositoryID {
+	var retainedRaw []byte
+	err = tx.QueryRowContext(ctx, "SELECT repository_id,canonical FROM data_native_repository_results WHERE intent_id=?", intent.creationID).Scan(&recordedRepository, &retainedRaw)
+	if err != nil || recordedRepository != initialized.Scope().RepositoryID || !bytes.Equal(retainedRaw, recordedRaw) {
 		return nil, errors.Join(ErrConflict, err)
 	}
 	target, err := readNativeRestoreTargetTx(ctx, tx, retained)
