@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"path"
 	"slices"
 	"time"
@@ -246,16 +247,24 @@ func checkNativeBundleMembers(source nativecapture.Source, manifest restic.Manif
 	}
 	expected := map[string]restic.Member{nativeSourceMember: {Path: nativeSourceMember, Type: "file", Mode: 0600, Size: int64(len(sourceRaw)), SHA256: source.SHA256()}}
 	for _, member := range checkpoint.Record().Members {
+		if member.Bytes > math.MaxInt64 {
+			return &IntegrityError{}
+		}
 		expected[member.Path] = restic.Member{Path: member.Path, Type: "file", Mode: 0600, Size: int64(member.Bytes), SHA256: member.SHA256}
 	}
 	for _, member := range selection.Members() {
+		if member.Bytes > math.MaxInt64 {
+			return &IntegrityError{}
+		}
 		if _, duplicate := expected[member.Path]; duplicate {
 			return &IntegrityError{}
 		}
 		expected[member.Path] = restic.Member{Path: member.Path, Type: "file", Mode: 0600, Size: int64(member.Bytes), SHA256: member.SHA256}
 	}
 	for name := range expected {
-		addNativeBundleParentDirectories(expected, name)
+		if err := addNativeBundleParentDirectories(expected, name); err != nil {
+			return err
+		}
 	}
 	if len(expected) != len(manifest.Members()) {
 		return &IntegrityError{}
@@ -268,8 +277,12 @@ func checkNativeBundleMembers(source nativecapture.Source, manifest restic.Manif
 	return nil
 }
 
-func addNativeBundleParentDirectories(expected map[string]restic.Member, name string) {
+func addNativeBundleParentDirectories(expected map[string]restic.Member, name string) error {
 	for parent := path.Dir(name); parent != "."; parent = path.Dir(parent) {
+		if member, exists := expected[parent]; exists && member.Type != "directory" {
+			return &IntegrityError{}
+		}
 		expected[parent] = restic.Member{Path: parent, Type: "directory", Mode: 0700}
 	}
+	return nil
 }

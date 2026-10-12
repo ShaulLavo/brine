@@ -233,7 +233,19 @@ func checkNativeStoppedCapability(ctx context.Context, tx *sql.Tx, capability *N
 	if err != nil || point.hash != capability.completedPointSHA256 || point.view.StopProofSHA256 != capability.stopSHA256 || !time.Now().UTC().Before(point.view.ExpiresAt) {
 		return errors.Join(ErrConflict, err)
 	}
-	return checkNativePointCurrent(ctx, tx, point.view)
+	if err := checkNativePointCurrent(ctx, tx, point.view); err != nil {
+		return err
+	}
+	return checkNativePreparedCurrentPolicy(ctx, tx, point.view)
+}
+
+func checkNativePreparedCurrentPolicy(ctx context.Context, q dataQuerier, point NativePreparedPointView) error {
+	var policy string
+	err := q.QueryRowContext(ctx, "SELECT policy_hash FROM data_admissions WHERE database_id=? ORDER BY version DESC LIMIT 1", point.DatabaseID).Scan(&policy)
+	if err != nil || strings.TrimPrefix(policy, "sha256:") != point.PolicySHA256 {
+		return errors.Join(ErrConflict, err)
+	}
+	return nil
 }
 
 // ResumeNativePreparedPoint requires fresh retained locks and current host stop
@@ -250,6 +262,9 @@ func (s *Store) ResumeNativePreparedPoint(ctx context.Context, preparation *Engi
 	point, err := readNativePreparedPointTx(ctx, tx, pointID)
 	if err != nil || point.view.BindingID != preparation.binding || !validNativeStop(current, point.view.SourceKind) || current.FinishedAt.After(time.Now().UTC()) || !time.Now().UTC().Before(point.view.ExpiresAt) || checkNativePointCurrent(ctx, tx, point.view) != nil {
 		return nil, errors.Join(ErrConflict, err)
+	}
+	if err := checkNativePreparedCurrentPolicy(ctx, tx, point.view); err != nil {
+		return nil, err
 	}
 	intent, raw, err := readNativePreparationIntent(ctx, tx, pointID)
 	if err != nil {
