@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.3-dev"
+const Version = "0.1.5-dev"
 
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
@@ -45,6 +45,8 @@ type Dependencies struct {
 	HostConfig             dispatch.ConfigurationOperations
 	HostSecrets            dispatch.SecretOperations
 	HostWriterAttempt      func(context.Context, string) error
+	HostEngineExec         func(context.Context, string) error
+	HostEngineCopyObserve  func(context.Context, io.Reader, io.Writer) error
 	HostBackupCredentials  dispatch.BackupCredentialOperations
 	HostArchives           ArchiveOperations
 	HostArchiveMaintenance ArchiveMaintenanceOperations

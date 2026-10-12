@@ -167,6 +167,15 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 	if next.Stage != archive.Retired && next.Stage != archive.Abandoned || next.CommittedAt.After(time.Now().UTC()) || time.Since(next.CommittedAt) > archive.MaxEvidenceAge {
 		return old, ErrInvalid
 	}
+	databases := make([]data.DatabaseID, len(o.Fences))
+	for i, fence := range o.Fences {
+		databases[i] = fence.DatabaseID
+	}
+	guards, err := s.guardEngineDatabases(ctx, databases)
+	if err != nil {
+		return old, err
+	}
+	defer func() { _ = guards.Release() }()
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {

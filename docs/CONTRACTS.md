@@ -45,6 +45,68 @@ Pi drill.
 
 ## Command surface
 
+### Managed SpacetimeDB previews (P09-04B)
+
+The app declaration accepts one `[[databases]]` entry with
+`engine = "spacetimedb"`, the existing alias/root/backup-destination fields and
+a nested `[databases.spacetimedb]` service declaration. The payload binds a
+digest-pinned image, pinned runtime version, logical database name, module Wasm
+and schema-v10 sidecar paths, runtime identity, bounded resources and distinct
+publisher/signing/auth references. Shared `[[schema_compatibility]]` selects
+accepted markers for the alias with `startup = "preserve"`. The current marker
+is the default accepted marker. Mixed SQLite and SpacetimeDB declarations are
+refused in this first delivery. Existing SQLite canonical records are unchanged.
+
+Application `image` and `container_port` remain a pair. Both may be omitted for
+an engine-only declaration. Such a declaration has no frontend port, container,
+data mount or application secret input. When present, the app receives
+`BRINE_DB_<NAME>_ENGINE=spacetimedb`, `_URL`, `_NAME` and sorted `_ACCEPTS`.
+The URL uses the first sorted owned domain and fixed managed prefix
+`/_brine/db/<alias>/`, including its trailing slash. It has no SQLite `_PATH`.
+Browser assets obtain only public URL/name settings through their app's config.
+
+Protected operator `[spacetimedb]` policy supplies license-use authority and
+explicit capture/verification intervals, maintenance and remote-loss budgets.
+The 24-hour/seven-day proposals are not automatic admission or a durability
+guarantee. Combined engine and frontend resource requests fit operator ceilings.
+An omitted frontend resource request uses the remaining memory and PID ceilings
+after the engine request, and refuses when either remaining budget is empty.
+Engine credentials cannot be reused as app secrets.
+
+Managed planning returns `managed_engine_not_admitted` and no executable
+changes. Renderer previews describe independent loopback ports, a typed Podman
+supervisor `.service` and optional ordinary frontend Quadlet. The engine service
+invokes only `brine host engine-exec BINDING`; authenticated runtime configuration,
+Podman arguments, startup serialization and supervision are later integration.
+Preview values cannot authorize installation, start, publication or proxy changes.
+
+Ingress preview allows selected-database WebSocket subscription and temporary
+WebSocket-token exchange with credential presence. It denies other managed
+requests before frontend fallback. The engine must authenticate JWTs; Caddy
+does not validate them. Real forwarding and boot/fence qualification remain
+P09-04 integration acceptance.
+
+The executable route guard matches the original literal client path, so escaped
+and cleaned path aliases cannot pass the allowlist. Subscription queries retain
+SDK fields such as `confirmed`, `compression` and `connection_id`, but require
+one nonempty token and reject duplicate token keys, including encoded aliases.
+Malformed query encoding refuses. Both original decoded and normalized managed
+namespaces terminate before frontend fallback, including traversal out of the
+reserved prefix. Optional local checks drive the actual pinned Caddy config
+against private HTTP stubs. They qualify route selection, not native JWT or
+WebSocket subscription behavior.
+
+Wasm artifact SHA-256 and native runtime identity are distinct. The pinned
+runtime hashes program bytes with Keccak-256; API JSON encodes a little-endian
+u256, unlike its display digest. Client `ParseFile` reads confined regular files
+relative to the app declaration, refuses symlink components, and bounds Wasm to
+64 MiB and schema-v10 JSON to 1 MiB. It uses the production v2 canonicalizer and
+retains both program identities and the canonical schema hash as untrusted
+desired input. The explicit app marker and shared accepted markers stay intact;
+the sidecar creates no schema registration or initializer. Host dispatch never
+opens the client paths. Reviewed private staging must prove actual module/schema and
+register its marker before startup authority exists. A sidecar cannot grant it.
+
 ~~~text
 brine init [directory]
 brine validate ./brine.toml --policy ./policy.toml
@@ -533,6 +595,59 @@ Initialized startup verification must recover current persisted `st_module` in a
 Shared startup proof binds explicit engine, incarnation, database, binding and epoch IDs, local destination ownership, settled source state and an affirmative unfenced/released state. The SQLite runtime then independently verifies the exact Litestream configuration and hash. A common identity proof is not an engine-service permit by itself. Missing/unknown engine, fence or ownership and cross-engine evidence refuse startup. Existing durable-fence, credential, reboot and archive rules remain in force.
 
 Persistent allocated/unknown desired and plan goldens, a historical SQLite restore-receipt golden, engine-tag refusal tests and store/permit tests establish this local boundary. No physical SpacetimeDB behavior is claimed. D13 and Phase 09 require routine online native snapshot/log archival with existing encrypted tooling and separately fenced exact data operations.
+
+### Native capture structural prerequisites (P09-05)
+
+`internal/nativecapture` owns bounded records under `brine-native-capture-v1` for
+SpacetimeDB `2.11.0`, upstream commit
+`6b6e0ab19e4f8f52472aa4379552e9593c8f53bb`. Constructors validate supplied
+records. They do not establish source ownership, replay success, or operation
+authority.
+
+`Inventory` owns private member records and rejects duplicate or unsafe paths.
+Native log names contain a 20-digit offset. Finalized snapshot paths contain the
+same offset in their directory and manifest names. Object paths use exactly two
+lowercase hexadecimal digits followed by 62 lowercase hexadecimal digits.
+`CheckUnchanged` compares every supplied member's content and filesystem facts.
+Detection of a removed complete tail requires an independently sealed whole-source
+inventory, not just the selected backup members.
+
+`Selection` has closed `snapshot` and `logs` variants. The snapshot choice uses
+the latest finalized manifest with a containing or immediately adjacent log
+suffix. A snapshot can lie inside the only segment or have an empty suffix.
+The log-only choice requires a segment starting at offset zero. `TailMember`
+describes the last selected filename, not a committed high-water. Qualified
+native framing and replay must still prove snapshot eligibility, suffix
+continuity, object completeness, and recovered state.
+
+`Checkpoint` owns canonical control, module, schema, configuration, and signing
+recovery records. Its binding, epoch, and replica scope allows ordinary captures
+to reuse one unchanged control generation. `Source` has closed unpublished and
+initialized variants. Unpublished records omit database, publisher owner,
+module, replica, and snapshot facts. Initialized records bind the checkpoint to
+the selected member records and reject crossed scopes or unselected members.
+All constructors and getters own mutable data. Codecs reject unknown, missing,
+duplicate, null, and crossed fields. Combined source limits count the encoded
+manifest, checkpoint members, and native members.
+
+Signing recovery records contain only immutable references, versions, and
+hashes. Recovery uses either an encrypted archive member or a tested external
+secret version. Tokens and the archive recovery password are not members.
+This unit supplies no filesystem bridge, uploader, native reader, receipt,
+fence, startup permission, or public dispatch. Real contained replay, managed
+ownership, credentials, jobs, and remote storage acceptance remain required.
+
+### Candidate schema and publication records (P09-06 core)
+
+`spacetimedb.DecodeDescriptorV10` requires exactly one `V10` envelope and delegates body validation to `CanonicalSchemaV10`. It accepts metadata, not proof that a Wasm artifact produced it. Pinned native `extract-schema` executes guest initialization and description code; protected extraction must contain those effects and establish the artifact/schema binding. The six captured native descriptors and their content pins are retained with [the core evidence](evidence/p09-schema-publication.md).
+
+`CompareSchemas` returns immutable changes and required checks. Every update, including equal schemas with changed code, requires guest review and preserved-data verification. New tables require independent new-table data evidence. Appended U8 defaults require old-column projection and default-value evidence. Removal, rename, reordering, type/access changes and changes to existing keys, indexes, constraints, sequences or defaults require a separate operator procedure. Unqualified appended defaults refuse. Callable, lifecycle and scheduler changes add explicit effects qualification. No result says an update is safe to apply.
+
+`datapublish.Plan` binds requester, current target/policy/desired/generation, app/incarnation/database/binding/epoch, source point/fence/preparation owner, candidate Wasm/native-program/schema, review and recovery releases, native preflight references and a bounded UTC expiry. Its closed source arms distinguish a recovered empty owned server bundle from initialized captured history. The empty arm has no native database, module, replica or history placeholders. Captured history is restricted to the fixed supported artifact/schema pairs under `brine-recovery-pairs-confirmed-v1`; a supplied contract label cannot widen it. Requirements derive from opaque canonical schemas during construction and private decoding. Secret references must belong to the app and be distinct across roles. Operator-selected key names and equal numeric versions across different roles are valid. Protected host lookups must independently bind those exact references to their required roles before effects.
+
+The private cursor separates immutable preparation ownership from the apply operation and consumer claim. It sequences restore, preflight, publication, data verification, disposal and an external final-transition receipt. Unknown outcomes permit inspection and matching observation only. A proven unperformed publication still consumes that attempt. `DecodeCursor` requires an exact record hash loaded independently from protected retained state. Computing the expected hash from supplied cursor bytes does not prevent rewinding history. Store composition must atomically retain each record/hash and compare-and-swap its head, authenticate proof references and enforce one consumer per point/plan.
+
+These records grant no mutation, swap, epoch activation or fence-release authority. Protected extraction, exact-point consumption, staged data/projection/effects evidence, store/jobs/host wiring and physical acceptance remain required. P09-06 and T39 remain unchecked.
 
 ### Definition and typed identities
 
@@ -1060,3 +1175,7 @@ Retained local deletion never crosses mounts, including same-device bind mounts.
 Reconciliation snapshots the single tree index whose deletion intent was already in flight when it starts. Only that tree may adopt absence as an unknown prior effect. Later trees in the same run require actual deletion; unexplained absence refuses with recovery required, even after this run writes their intents.
 
 Residual same-identity filesystem race: pinned directory handles do not prevent the owner's own same-UID processes from renaming an already opened subdirectory out of the archive on the same filesystem. Purge can continue unlinking that original directory's contents through its pinned handle after the rename. Brine's lifetime locks coordinate managed writers, not arbitrary same-UID filesystem changes; the archive walker is not a sandbox against the enrolled identity. The owner must avoid manual moves or other unmanaged mutations of archived directories during purge. Mount-boundary checks remain enforced, but do not provide continuous pathname containment against this rename race. Additional ancestor observations would themselves race with the next unlink, so this remains an explicit residual rather than a claimed isolation guarantee.
+
+## Managed engine startup primitives
+
+The owned SpacetimeDB store, secret versions, foreground service, launch guard, lifetime lock, and copied-native boot proof are specified in [Managed engine startup](managed-engine-startup.md). These internal primitives do not enable ordinary deployment, first publication, or live restore. Existing SQLite startup and canonical records retain their contract.

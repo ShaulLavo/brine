@@ -2,6 +2,22 @@
 
 **This is a test plan, not a report of passing deployments.** No real VPS is authorized by this file. Unit tests use synthetic fixtures and fake adapters; destructive integration tests require an explicitly named disposable target and clean test credentials.
 
+P09-04B pure preview checks cover shared managed database syntax, paired optional
+frontend, normalized ENGINE/URL/NAME/ACCEPTS, module SHA-256 versus executed native
+Keccak/API-wire pilot witness, bounded confined client module/schema resolution,
+production v2 schema hashing without marker authority, explicit license/cadence/loss facts, resource ceilings,
+secret-purpose separation, independent ports and typed client-route denies.
+Managed plans must remain conflict-only with zero executable changes. Renderer
+checks cover the typed Podman supervisor service and optional frontend Quadlet;
+an explicit pinned local Caddy CLI can independently adapt both route previews.
+Optional actual Caddy routing probes compare the pure checker with forwarding
+to private HTTP stubs, covering literal/escaped/cleaned paths, duplicate and
+encoded token keys, SDK query fields, malformed encoding and terminal original
+managed-prefix denial before frontend fallback. Caller input mutation must not
+change an already hashed managed plan.
+These checks do not complete T37 or verify physical routing, startup, publishing,
+backup, fence handoff or reboot.
+
 | ID | Scenario | Required evidence | Phase |
 | --- | --- | --- | --- |
 | T01 | Human and JSON version/doctor output | Valid schema, no ANSI or prompts in machine output | 00 |
@@ -62,6 +78,14 @@ T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequi
 - Supplied-key JWT ingress denies missing/forged/signed-expired credentials and reserved management paths; valid ordinary user WS/exchange passes. External OIDC is unexecuted. Native preflight binding/default backfill passed; AutoMigrate's destructive/access-changing results are not authority.
 
 Remaining T35 predicates are production startup ownership/quiescence/fence composition and independent exact native framing/high-water coverage qualification. The public spec and engine dispatch remain unsupported. Full protected Brine/S3 capture, restore and interruption admission belongs to T37-T41 and the physical exit drill.
+
+## T39 schema/publication core, admission pending
+
+[Core evidence](evidence/p09-schema-publication.md) retains six actual final native descriptor payloads and their artifact/schema/content pins. Tests cover strict V10 envelopes and shared budgets, preserved declaration order, actual default bytes, access/removal/default/constraint changes, explicit names on existing tables/functions/indexes, required effect reviews and immutable returned evidence. Same-schema code updates still require guest review and data verification.
+
+Pure publication tests cover disjoint recovered-empty versus captured-history records, supported source artifact/schema pairs, derived projection requirements, requester/source/expiry freshness, app-bound distinct secret roles with custom key names, private codec refusal of extra/null/duplicate/mixed fields and immutable review/proof slices. Cursor tests cover unknown-effect inspection, no repeat after matching observation or known nonperformance, delayed creation identity adoption, every required verification proof, verifier disposal and an external transition receipt. Coherent journal truncation cannot reopen publication when decoded against the independently retained record hash. Malformed-record tests supply matching hashes to exercise shape/state refusal separately from the retention check.
+
+These are metadata/domain regressions. Actual protected extraction, independently authenticated journal/claim and role lookups, exact remote point, staged publication/data projections, bundle swap/new epoch/fence release, jobs/dispatch and physical T41 remain open. Neither P09-06 nor T39 is completed by this source unit.
 
 ## T16 schema policy acceptance, physical completion pending
 
@@ -386,6 +410,30 @@ Retained purge mount-boundary regressions compare known/missing/zero/different m
 
 Retained multi-root reconciliation adopts an already missing first tree only under its pre-existing in-flight intent, then refuses a later tree renamed away immediately before its deletion call. The regression asserts recovery-required at the later intent, no deletion receipt/completion, and preserved moved-tree bytes.
 
+
+## Native capture structural prerequisites (P09-05 / T35)
+
+`go test -race -count=1 ./internal/nativecapture` checks immutable inventory,
+checkpoint, and source records. Cases cover the following structural boundaries:
+
+- A snapshot inside one log segment, a directly adjacent retained segment, a
+  snapshot with no log suffix, and rooted log-only history.
+- Offset overflow, a missing manifest, a suffix gap, unsafe member paths, and the
+  pinned two-digit and 62-digit object path format.
+- Content rewrite, removal, and rotation against the whole supplied inventory.
+- Mixed checkpoint generations and source scopes, changed caller or getter
+  slices, combined member and manifest quotas, and configuration hash mismatch.
+- Unknown, missing, duplicate, null, case-aliased, and crossed source fields.
+  Initialized source decoding rejects members the structural selector would drop.
+- Unpublished records contain no invented native database, owner, module,
+  replica, snapshot, or framing facts.
+
+These tests use synthetic member records. They establish no descriptor ownership,
+native framing, object completeness, recoverable point, or exact coverage.
+Contained production-reader replay, immutable source and remote equality,
+managed jobs and credentials, scoped real S3, and physical T35-T41 acceptance
+remain required. Native source hardlinks require a separately qualified host
+copy boundary before the private one-link member contract applies.
 
 ## Typed engine boundary evidence (P09-01 / T34)
 

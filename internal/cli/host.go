@@ -23,6 +23,7 @@ func newHostCmd(deps Dependencies) *cobra.Command {
 	serve := &cobra.Command{Use: "serve", Hidden: true, DisableFlagParsing: true, RunE: func(_ *cobra.Command, _ []string) error { return executeHostServe(deps) }}
 	host.AddCommand(serve, newHostEnrollmentCmd(deps), newHostRunOpCmd(deps), newHostReconcileCmd(deps))
 	host.AddCommand(newHostPermitCommands(deps)...)
+	host.AddCommand(newHostEngineCommands(deps)...)
 	host.AddCommand(newArchivePrepareCmd(deps), newArchiveDispositionCmd(deps, false), newArchiveDispositionCmd(deps, true), newArchiveReconcileCmd(deps))
 	host.AddCommand(newArchiveMaintainCmd(deps), newArchiveMaintenanceReadCmd(deps, false), newArchiveMaintenanceReadCmd(deps, true), newArchiveCredentialsCmd(deps))
 	return host
@@ -118,7 +119,7 @@ func HostStartupRequested(args []string) bool {
 		return false
 	}
 	switch command.CommandPath() {
-	case "brine host writer-permit", "brine host writer-attempt", "brine host replica-permit", "brine host replica-exec":
+	case "brine host writer-permit", "brine host writer-attempt", "brine host replica-permit", "brine host replica-exec", "brine host engine-exec", "brine host engine-copy-observe":
 		return true
 	default:
 		return false

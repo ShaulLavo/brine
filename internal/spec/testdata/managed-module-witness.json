@@ -1,0 +1,8 @@
+{
+  "engine_version": "2.11.0",
+  "artifact_sha256": "94369514b1160afc9d88df5dfe89fabe8f95a9aec57904931b1cd415ca96c2c6",
+  "runtime_hash_algorithm": "keccak256",
+  "runtime_api_wire_encoding": "little_endian_u256_hex",
+  "runtime_api_wire_hash": "594a40f8dc12577e4d185ad74d8a61d3894015a3f356a2f727214ef40024f072",
+  "observed_source": "Retained P09-02 pilot Rust fixture module, owner environment metadata GET on executed v2.11.0; historical hash regression, not the current published fixture"
+}

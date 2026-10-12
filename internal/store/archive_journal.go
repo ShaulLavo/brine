@@ -152,6 +152,15 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 	if !p.Valid() {
 		return o, ErrInvalid
 	}
+	databases := make([]data.DatabaseID, len(p.Candidate.Databases))
+	for i, database := range p.Candidate.Databases {
+		databases[i] = database.Binding.DatabaseID
+	}
+	guards, err := s.guardEngineDatabases(ctx, databases)
+	if err != nil {
+		return o, err
+	}
+	defer func() { _ = guards.Release() }()
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
