@@ -24,8 +24,8 @@ type BackupStatus struct {
 	VerifiedAt                  *time.Time `json:"verified_at"`
 	Fenced                      bool       `json:"fenced"`
 	CredentialExpired           bool       `json:"credential_expired"`
-	MissedCaptureIntervals      uint64     `json:"missed_capture_intervals"`
-	VerifiedCaptureAgeSeconds   *uint64    `json:"verified_capture_age_seconds"`
+	MissedCaptureIntervals      int64      `json:"missed_capture_intervals"`
+	VerifiedCaptureAgeSeconds   *int64     `json:"verified_capture_age_seconds"`
 }
 
 func (s *BackupStatus) ObserveCadence(now, activatedAt time.Time) error {
@@ -38,17 +38,20 @@ func (s *BackupStatus) ObserveCadence(now, activatedAt time.Time) error {
 		if now.Before(*s.CapturedAt) {
 			return ErrInvalid
 		}
-		age := uint64(now.Sub(*s.CapturedAt) / time.Second)
+		age := int64(now.Sub(*s.CapturedAt) / time.Second)
 		s.VerifiedCaptureAgeSeconds = &age
 		if baseline.Before(*s.CapturedAt) {
 			baseline = *s.CapturedAt
 		}
 	}
-	s.MissedCaptureIntervals = uint64(now.Sub(baseline) / (time.Duration(s.CaptureIntervalSeconds) * time.Second))
+	s.MissedCaptureIntervals = int64(now.Sub(baseline) / (time.Duration(s.CaptureIntervalSeconds) * time.Second))
 	return nil
 }
 
 func (s BackupStatus) Valid() bool {
+	if s.MissedCaptureIntervals < 0 || s.VerifiedCaptureAgeSeconds != nil && *s.VerifiedCaptureAgeSeconds < 0 {
+		return false
+	}
 	if s.Engine != "spacetimedb" || !idPattern.MatchString(s.BindingID) || !idPattern.MatchString(s.EpochID) || s.Loss != "unknown" || s.CaptureIntervalSeconds <= 0 || s.VerificationIntervalSeconds <= 0 || s.MaintenanceBudgetSeconds <= 0 {
 		return false
 	}
