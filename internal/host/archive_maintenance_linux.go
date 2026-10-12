@@ -27,6 +27,12 @@ import (
 // archived mount paths, never the app-name service a fresh incarnation may own.
 func (h archiveHost) maintenanceQuiescent(ctx context.Context, p archive.Plan) error {
 	for _, variant := range p.Candidate.Databases {
+		if native, ok := variant.Native(); ok {
+			if err := h.nativeArchiveMaintenanceQuiescent(ctx, p, native); err != nil {
+				return err
+			}
+			continue
+		}
 		database, sqlite := variant.SQLite()
 		if !sqlite {
 			return archive.ErrRefused
@@ -97,6 +103,14 @@ func (h archiveHost) ArchiveMaintenanceAdmission(ctx context.Context, p archive.
 		return out, archive.ErrRefused
 	}
 	for _, variant := range p.Candidate.Databases {
+		if native, ok := variant.Native(); ok {
+			admitted, err := h.nativeArchiveMaintenanceAdmission(ctx, p, manifest, native, pol)
+			if err != nil {
+				return out, err
+			}
+			out.RetentionAdmitted = out.RetentionAdmitted && admitted
+			continue
+		}
 		database, sqlite := variant.SQLite()
 		if !sqlite {
 			return out, archive.ErrRefused
@@ -179,11 +193,7 @@ func (h archiveHost) archiveCredentialScope(ctx context.Context, id, binding, ep
 		}
 	}
 	for _, variant := range p.Candidate.Databases {
-		database, sqlite := variant.SQLite()
-		if !sqlite {
-			return out, archive.ErrRefused
-		}
-		for _, recorded := range database.Epochs {
+		for _, recorded := range variant.ArchiveBindings() {
 			if string(recorded.BindingID) == binding && string(recorded.EpochID) == epoch {
 				return backupcredentials.ArchiveScope{ArchiveID: id, Binding: binding, Epoch: epoch, CredentialRef: recorded.Destination.CredentialRef, Destination: string(recorded.Destination.Reference), TargetHash: admission.TargetHash, PolicyHash: admission.PolicyHash, RetainUntil: d.RetainUntil}, nil
 			}
