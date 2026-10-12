@@ -34,7 +34,7 @@ func nativeSchema(t *testing.T, variant string) spacetimedb.CanonicalSchema {
 func testFacts() BindingFacts {
 	return BindingFacts{App: "example", IncarnationID: strings.Repeat("1", 32), DatabaseID: strings.Repeat("2", 32), BindingID: strings.Repeat("3", 32), EpochID: strings.Repeat("4", 32), Generation: 1,
 		TargetSHA256: strings.Repeat("a", 64), PolicySHA256: strings.Repeat("b", 64), DesiredSHA256: strings.Repeat("c", 64), ConfigSHA256: strings.Repeat("d", 64),
-		SecretVersions: SecretReferences{Publisher: "brine.example.publisher.v1", SigningPublic: "brine.example.public.v1", SigningPrivate: "brine.example.private.v1", RecoveryPassword: "brine.example.recovery.v1"}}
+		SecretVersions: SecretReferences{Publisher: "brine.example.publisher.v1", SigningPublic: "brine.example.public.v1", SigningPrivate: "brine.example.private.v1", RecoveryPassword: "brine.example.recovery.v1"}} // #nosec G101 -- Immutable version names checked by secretReference, never credential values.
 }
 
 func capturedFixture(t *testing.T) Source {
