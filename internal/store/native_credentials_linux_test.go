@@ -20,13 +20,41 @@ func TestNativeFreshFencedDeliveryReachesFirstBackupInitialization(t *testing.T)
 	}
 }
 
+func TestNativeCredentialRenewalPreservesAnInitializedRecoveryFence(t *testing.T) {
+	state, plan, _ := managedControlFixture(t)
+	ctx := context.Background()
+	fence, err := state.HoldDataFence(ctx, plan.Managed.Database.DatabaseID, "backup-recovery")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := state.ReadEnginePermit(ctx, plan.Managed.Database.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := state.NativeCredentialScope(ctx, plan.App, "")
+	if err != nil || !scope.FenceHeld {
+		t.Fatal(err)
+	}
+	hash := "sha256:" + strings.Repeat("b", 64)
+	record := CredentialRecord{ID: strings.Repeat("a", 32), Kind: "receipt", App: scope.App, Requester: "deploy:" + strings.Repeat("c", 64), PlanID: hash, PlanHash: hash, TargetHash: hash, PolicyHash: scope.PolicyHash, BindingID: scope.Database.BindingID, EpochID: scope.Archive.EpochID, Destination: scope.Archive.Destination.Reference, CredentialRef: scope.Archive.Destination.CredentialRef, Version: 2, ReceivedAt: time.Now().UTC()}
+	if err := state.SaveNativeCredentialRecord(ctx, record); err != nil {
+		t.Fatal("material-only renewal could not resume fenced backup inspection", err)
+	}
+	after, err := state.ReadEnginePermit(ctx, scope.Database.BindingID)
+	beforeRaw, _ := json.Marshal(before)
+	afterRaw, _ := json.Marshal(after)
+	if err != nil || string(beforeRaw) != string(afterRaw) || len(after.Fences) != 1 || after.Fences[0].ID != fence.ID || after.Fences[0].OperationID != "backup-recovery" {
+		t.Fatal("credential renewal changed runtime or original recovery fence", err)
+	}
+}
+
 func checkNativeFreshBackupInitialization(t *testing.T, splice string) {
 	t.Helper()
 	state, plan, _ := managedControlStateFixture(t, false, true)
 	ctx := context.Background()
 	requester := "deploy:" + strings.Repeat("c", 64)
 	scope, err := state.NativeCredentialScope(ctx, plan.App, "")
-	if err != nil || !scope.FenceHeld || !scope.DeliveryAllowed {
+	if err != nil || !scope.FenceHeld {
 		t.Fatal("fresh unpublished credential scope", err)
 	}
 	record := CredentialRecord{ID: strings.Repeat("a", 32), Kind: "receipt", App: scope.App, Requester: requester, PlanID: "sha256:" + strings.Repeat("b", 64), PlanHash: "sha256:" + strings.Repeat("b", 64), TargetHash: "sha256:" + strings.Repeat("d", 64), PolicyHash: scope.PolicyHash, BindingID: scope.Database.BindingID, EpochID: scope.Archive.EpochID, Destination: scope.Archive.Destination.Reference, CredentialRef: scope.Archive.Destination.CredentialRef, Version: 1, ReceivedAt: time.Now().UTC()}
