@@ -292,8 +292,9 @@ func (w *nativePrepareWork) captureEmpty(ctx context.Context) (store.NativePrepa
 
 func (w *nativePrepareWork) close() error {
 	var err error
+	err = errors.Join(err, w.module.close())
 	if w.copied != nil {
-		err = w.copied.discard()
+		err = errors.Join(err, w.copied.discard())
 		w.copied = nil
 	}
 	if w.parent != nil {

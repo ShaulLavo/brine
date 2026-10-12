@@ -234,6 +234,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err != nil {
 		return nil, err
 	}
+	defer func() { taskErr = errors.Join(taskErr, module.close()) }()
 	confirmed, err := observeNativeConfirmed(ctx, permit, keys, module)
 	if err != nil || live.alive() != nil {
 		return nil, errEngineSource
