@@ -58,9 +58,15 @@ those byte limits and refuse. Returned bytes, names, rows and requirements do
 not expose mutable backing storage. No API accepts SQL, profile selection,
 expected caller rows or a proof digest that grants authority.
 
-The local source observer has been exercised against actual native 2.11.0
-instances for all three supported fixtures, empty and with ordinary/scheduled
-rows. Unit and race tests cover the retained codec, finite comparisons,
-preservation and initial-state refusals. Actual passive projection qualification
-and production host/journal composition remain separate gates until their
-observed acceptance evidence ships.
+The source observer has been exercised against actual native 2.11.0 instances
+for all three supported fixtures, empty and with ordinary/scheduled rows.
+Actual passive log and snapshot replays produced initial-data proofs and retained
+the source's confirmed tuples for all profiles. Two independently copied replays
+of each selection also passed finite and complete persisted-state comparison.
+These local checks used only private disposable copies and synthetic credentials.
+
+Unit and race tests cover the retained codec, finite comparisons, preservation
+and initial-state refusals. Actual typed private publications in separate copied
+stages established the native protocol. Staged passive preservation and the
+production host/journal composition remain separate acceptance gates. A private
+fixture publication does not prove a working migration command.
