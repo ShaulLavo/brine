@@ -121,6 +121,20 @@ func RecordEngineTransitionActivation(t EngineTransition, old EngineTransitionCu
 	return nextEngineTransitionEvent(t, old, EngineTransitionActivated, "activation", head)
 }
 
+func RecordEngineTransitionCompletion(t EngineTransition, old EngineTransitionCursor, proof EngineEvidenceRef) (EngineTransitionEvent, error) {
+	if !old.matches(t) || old.Stage != EngineTransitionFinishIntent || !proof.matches(t.common.Scope, t.common.NewEpochID, EngineCompletionEvidence) {
+		return EngineTransitionEvent{}, ErrInvalid
+	}
+	return nextEngineTransitionEvent(t, old, EngineTransitionCompleted, "completion", proof)
+}
+
+func RecordEngineTransitionAbandonment(t EngineTransition, old EngineTransitionCursor, proof EngineEvidenceRef) (EngineTransitionEvent, error) {
+	if !old.matches(t) || old.Stage != EngineTransitionAbandonIntent || !proof.matches(t.common.Scope, t.common.Base.epoch(), EngineAbandonEvidence) {
+		return EngineTransitionEvent{}, ErrInvalid
+	}
+	return nextEngineTransitionEvent(t, old, EngineTransitionAbandoned, "abandoned_current", proof)
+}
+
 func nextEngineTransitionEvent(t EngineTransition, old EngineTransitionCursor, next EngineTransitionStage, kind string, evidence any) (EngineTransitionEvent, error) {
 	cursor := EngineTransitionCursor{ID: old.ID, Sequence: old.Sequence + 1, Stage: next, InputSHA256: t.hash}
 	return encodeEngineTransitionEvent(cursor, old.EventSHA256, kind, evidence)

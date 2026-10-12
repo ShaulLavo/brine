@@ -91,9 +91,51 @@ func TestActivationReceiptBindsOneSuccessorHeadAndRejectsFabricatedTerminal(t *t
 			t.Fatal("generic advancement manufactured a terminal/runtime commit", stage)
 		}
 	}
-	advanceTransitionFixture(t, transition, event.Cursor(), EngineTransitionFinishIntent, EngineLayoutPromoted)
+	finish := advanceTransitionFixture(t, transition, event.Cursor(), EngineTransitionFinishIntent, EngineLayoutPromoted)
+	proof := transitionEvidence(c.Scope, c.NewEpochID, EngineCompletionEvidence, 11)
+	completed, err := RecordEngineTransitionCompletion(transition, finish.Cursor(), proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishCursor := finish.Cursor()
+	if decoded, err = DecodeEngineTransitionEvent(transition, &finishCursor, completed.Bytes()); err != nil || decoded.Cursor() != completed.Cursor() {
+		t.Fatal("completion reference changed through contextual decoding", err)
+	}
+	wrong := proof
+	wrong.EpochID = c.Base.epoch()
+	if _, err = RecordEngineTransitionCompletion(transition, finish.Cursor(), wrong); err == nil {
+		t.Fatal("old epoch supplied target completion")
+	}
 	if _, err := RecordEngineTransitionActivation(transition, event.Cursor(), head); err == nil {
 		t.Fatal("activation replayed after receipt")
+	}
+}
+
+func TestAbandonmentUsesOriginalEpochAndCannotResumeCursor(t *testing.T) {
+	transition := transitionFixture(t)
+	prepared, err := PrepareEngineTransition(transition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	abandon := advanceTransitionFixture(t, transition, prepared.Cursor(), EngineTransitionAbandonIntent, EngineLayoutPrepared)
+	c := transition.Common()
+	proof := transitionEvidence(c.Scope, c.Base.epoch(), EngineAbandonEvidence, 12)
+	terminal, err := RecordEngineTransitionAbandonment(transition, abandon.Cursor(), proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := abandon.Cursor()
+	decoded, err := DecodeEngineTransitionEvent(transition, &old, terminal.Bytes())
+	if err != nil || decoded.Cursor() != terminal.Cursor() {
+		t.Fatal(err)
+	}
+	wrong := proof
+	wrong.EpochID = c.NewEpochID
+	if _, err = RecordEngineTransitionAbandonment(transition, abandon.Cursor(), wrong); err == nil {
+		t.Fatal("target epoch replaced original abandonment proof")
+	}
+	if _, err = AdvanceEngineTransition(transition, terminal.Cursor(), EngineTransitionPreserveIntent, transitionLayout(t, transition, EngineLayoutPrepared)); err == nil {
+		t.Fatal("consumed abandoned attempt retried")
 	}
 }
 

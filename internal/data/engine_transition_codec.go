@@ -27,7 +27,7 @@ func knownEngineEvidence(kind EngineEvidenceKind) bool {
 	switch kind {
 	case EngineAllocationEvidence, EnginePreparedPointEvidence, EngineSourceWitnessEvidence, EngineTargetEvidence,
 		EngineCheckpointEvidence, EngineMaterialEvidence, EngineRecoveryEvidence, EngineDependenciesEvidence,
-		EnginePublicationEvidence, EngineRestorePointEvidence:
+		EnginePublicationEvidence, EngineRestorePointEvidence, EngineCompletionEvidence, EngineAbandonEvidence:
 		return true
 	default:
 		return false

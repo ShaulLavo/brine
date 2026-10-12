@@ -60,7 +60,23 @@ func decodeEngineEventEvidence(t EngineTransition, old *EngineTransitionCursor, 
 			return EngineTransitionEvent{}, ErrInvalid
 		}
 		return RecordEngineTransitionActivation(t, *old, head)
+	case "completion", "abandoned_current":
+		var proof EngineEvidenceRef
+		if json.Unmarshal(raw, &proof) != nil {
+			return EngineTransitionEvent{}, ErrInvalid
+		}
+		return decodeEngineTerminalEvent(t, *old, stage, kind, proof)
 	default:
 		return EngineTransitionEvent{}, ErrInvalid
 	}
+}
+
+func decodeEngineTerminalEvent(t EngineTransition, old EngineTransitionCursor, stage EngineTransitionStage, kind string, proof EngineEvidenceRef) (EngineTransitionEvent, error) {
+	if kind == "completion" && stage == EngineTransitionCompleted {
+		return RecordEngineTransitionCompletion(t, old, proof)
+	}
+	if kind == "abandoned_current" && stage == EngineTransitionAbandoned {
+		return RecordEngineTransitionAbandonment(t, old, proof)
+	}
+	return EngineTransitionEvent{}, ErrInvalid
 }

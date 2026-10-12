@@ -83,6 +83,8 @@ const (
 	EngineDependenciesEvidence  EngineEvidenceKind = "retained_dependencies"
 	EnginePublicationEvidence   EngineEvidenceKind = "publication_receipt"
 	EngineRestorePointEvidence  EngineEvidenceKind = "restore_point"
+	EngineCompletionEvidence    EngineEvidenceKind = "completion"
+	EngineAbandonEvidence       EngineEvidenceKind = "abandoned_current"
 )
 
 // EngineEvidenceRef locates evidence; valid syntax does not establish its authority.
