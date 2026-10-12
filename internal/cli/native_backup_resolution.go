@@ -41,6 +41,10 @@ func addNativeBackupResolutionCommands(root *cobra.Command, deps Dependencies, m
 			if !ok {
 				return result.New(result.TransportInvalidResponse, nil)
 			}
+			if view.UnitsState != "" {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Original operation %s: %s. Backup units %s. No write was repeated.\n", view.OperationID, view.State, view.UnitsState)
+				return err
+			}
 			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Original operation %s: %s. No write was repeated.\n", view.OperationID, view.State)
 			return err
 		}}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/restic"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -60,6 +61,14 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	state, plan, _ := managedControlStateFixtureAtRoot(t, false, true, t.TempDir())
 	ctx := context.Background()
 	requester := "deploy:" + strings.Repeat("c", 64)
+	status, err := state.NativeBackupStatus(ctx, plan.App, string(plan.Managed.Database.Name))
+	if err != nil || status.State != "inactive" || status.Loss != "unknown" || !status.Valid() {
+		t.Fatal("known no-policy status", status, err)
+	}
+	statusRaw, _ := json.Marshal(status)
+	if _, err = nativecapture.DecodeBackupStatus(statusRaw); err != nil {
+		t.Fatal("inactive status failed machine contract", err)
+	}
 	scope, err := state.NativeCredentialScope(ctx, plan.App, "")
 	if err != nil {
 		t.Fatal(err)
@@ -119,11 +128,18 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	if err = activation.AdmitRepository(ctx, material.Material.Scope, restic.CreateRepository, material.CreationGrantSHA256); err != nil {
 		t.Fatal(err)
 	}
+	if err = activation.BeginUnits(ctx); err != nil {
+		t.Fatal("actual original unit intent", err)
+	}
 	if err = activation.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err = state.CompleteTask(ctx, original.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.InternalError}); err != nil {
 		t.Fatal(err)
+	}
+	status, err = state.NativeBackupStatus(ctx, plan.App, string(plan.Managed.Database.Name))
+	if err != nil || status.State != "recovery_required" || status.PointID != "" || status.CaptureIntervalSeconds != 0 {
+		t.Fatal("unknown activation status hid recovery", status, err)
 	}
 	before, err := state.ReadTaskOutcome(ctx, original.ID)
 	if err != nil {
@@ -211,6 +227,20 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	actual, err := claim.Activation(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if stage, err := claim.ActivationStage(ctx); err != nil || stage != "units_issued" {
+		t.Fatal("original pending unit intent", stage, err)
+	}
+	if err = claim.BeginResolutionUnits(ctx); err != nil {
+		t.Fatal("resolver did not journal its own unit repair intent", err)
+	}
+	var repairIntent []byte
+	if err = state.db.QueryRowContext(ctx, "SELECT canonical FROM data_native_backup_resolution_events WHERE operation_id=? AND stage='units_issued'", resolve.ID).Scan(&repairIntent); err != nil {
+		t.Fatal(err)
+	}
+	reviewRaw, _ := json.Marshal(review)
+	if !bytes.Equal(repairIntent, reviewRaw) {
+		t.Fatal("repair intent not bound to exact review")
 	}
 	if err = actual.RecordInitialized(ctx, restic.InitializedRepository{}); err == nil {
 		t.Fatal("opaque initialization proof manufactured")

@@ -52,7 +52,13 @@ func (s BackupStatus) Valid() bool {
 	if s.MissedCaptureIntervals < 0 || s.VerifiedCaptureAgeSeconds != nil && *s.VerifiedCaptureAgeSeconds < 0 {
 		return false
 	}
-	if s.Engine != "spacetimedb" || !idPattern.MatchString(s.BindingID) || !idPattern.MatchString(s.EpochID) || s.Loss != "unknown" || s.CaptureIntervalSeconds <= 0 || s.VerificationIntervalSeconds <= 0 || s.MaintenanceBudgetSeconds <= 0 {
+	if s.Engine != "spacetimedb" || !idPattern.MatchString(s.BindingID) || !idPattern.MatchString(s.EpochID) || s.Loss != "unknown" {
+		return false
+	}
+	if s.State == "inactive" || s.State == "recovery_required" {
+		return s.CaptureIntervalSeconds == 0 && s.VerificationIntervalSeconds == 0 && s.MaintenanceBudgetSeconds == 0 && s.ModuleSHA256 == "" && s.SchemaSHA256 == "" && s.PointID == "" && s.PointSHA256 == "" && s.CapturedAt == nil && s.VerifiedAt == nil && s.VerifiedCaptureAgeSeconds == nil && s.MissedCaptureIntervals == 0 && !s.CredentialExpired
+	}
+	if s.CaptureIntervalSeconds <= 0 || s.VerificationIntervalSeconds <= 0 || s.MaintenanceBudgetSeconds <= 0 {
 		return false
 	}
 	if s.State != "unverified" && s.State != "verified" && s.State != "degraded" {

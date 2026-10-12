@@ -76,3 +76,21 @@ func nativeCommandHash(raw []byte) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
 }
+
+func TestNativeBackupNoPolicyStatusExplainsRecoveryWithoutActiveCadence(t *testing.T) {
+	var out, diagnostics bytes.Buffer
+	deps := testDependencies(t, &out, &diagnostics)
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, request dispatch.Request) (result.Envelope, error) {
+		if request.Op != "native_backup_status" {
+			t.Fatal("status performed another operation", request.Op)
+		}
+		return result.Success("brine host native_backup_status", nativecapture.BackupStatus{Engine: "spacetimedb", BindingID: strings.Repeat("a", 32), EpochID: strings.Repeat("b", 32), State: "recovery_required", Loss: "unknown", Fenced: true}), nil
+	})
+	if err := Execute(deps, []string{"backup", "status", "game", "--database", "game", "--target", "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "recovery_required. No active policy.") || strings.Contains(out.String(), "capture every") {
+		t.Fatal("no policy presented an active cadence", out.String())
+	}
+}

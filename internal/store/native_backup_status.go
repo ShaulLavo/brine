@@ -26,6 +26,13 @@ func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (n
 		return nativecapture.BackupStatus{}, err
 	}
 	policy, _, err := readNativeBackupPolicy(ctx, tx, binding)
+	if errors.Is(err, ErrNotFound) {
+		status, err := nativeBackupInactiveStatus(ctx, tx, permit)
+		if err != nil {
+			return nativecapture.BackupStatus{}, err
+		}
+		return status, tx.Commit()
+	}
 	if err != nil {
 		return nativecapture.BackupStatus{}, errors.Join(ErrConflict, err)
 	}
@@ -69,6 +76,22 @@ func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (n
 		return nativecapture.BackupStatus{}, &IntegrityError{}
 	}
 	return status, tx.Commit()
+}
+
+func nativeBackupInactiveStatus(ctx context.Context, q dataQuerier, permit EnginePermit) (nativecapture.BackupStatus, error) {
+	status := nativecapture.BackupStatus{Engine: "spacetimedb", BindingID: string(permit.Runtime.BindingID), EpochID: string(permit.Runtime.EpochID), State: "inactive", Loss: "unknown", Fenced: nativeHasHeldFence(permit.Fences)}
+	var pending int
+	err := q.QueryRowContext(ctx, "SELECT COUNT(*) FROM data_native_backup_revision_claims c JOIN data_native_backup_revision_plans p ON p.id=c.plan_id JOIN operations o ON o.id=c.operation_id WHERE p.binding_id=? AND p.epoch_id=? AND o.kind='native_backup_activate' AND o.state='recovery_required'", permit.Runtime.BindingID, permit.Runtime.EpochID).Scan(&pending)
+	if err != nil {
+		return nativecapture.BackupStatus{}, err
+	}
+	if pending > 0 {
+		status.State = "recovery_required"
+	}
+	if !status.Valid() {
+		return nativecapture.BackupStatus{}, &IntegrityError{}
+	}
+	return status, nil
 }
 
 func countUnresolvedNativeCaptures(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID) (int, error) {

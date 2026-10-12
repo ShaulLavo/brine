@@ -25,6 +25,7 @@ type NativeBackupInspectionView struct {
 	EpochID           string `json:"epoch_id"`
 	ObservationSHA256 string `json:"observation_sha256"`
 	State             string `json:"state"`
+	UnitsState        string `json:"units_state"`
 }
 type NativeBackupResolutionOperations interface {
 	InspectBackup(context.Context, NativeBackupInspectArgs) (NativeBackupInspectionView, error)
@@ -80,7 +81,7 @@ func (s *Server) nativeBackupResolution(ctx context.Context, args any) (any, err
 
 func DecodeNativeBackupInspectionView(raw []byte) (NativeBackupInspectionView, error) {
 	var v NativeBackupInspectionView
-	fields := []string{"operation_id", "kind", "binding_id", "epoch_id", "observation_sha256", "state"}
+	fields := []string{"operation_id", "kind", "binding_id", "epoch_id", "observation_sha256", "state", "units_state"}
 	if len(raw) == 0 || len(raw) > 4096 {
 		return v, strictjson.ErrObject
 	}
@@ -88,6 +89,13 @@ func DecodeNativeBackupInspectionView(raw []byte) (NativeBackupInspectionView, e
 		return v, err
 	}
 	if json.Unmarshal(raw, &v) != nil || !jobs.ValidID(v.OperationID) || v.Kind != "native_capture" && v.Kind != "native_prepare" && v.Kind != "native_backup_activate" || !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(v.BindingID) || !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(v.EpochID) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(v.ObservationSHA256) || v.State != "verified_remote" {
+		return v, strictjson.ErrObject
+	}
+	if v.Kind == "native_backup_activate" {
+		if v.UnitsState != "not_issued" && v.UnitsState != "issued_absent" && v.UnitsState != "verified" {
+			return v, strictjson.ErrObject
+		}
+	} else if v.UnitsState != "" {
 		return v, strictjson.ErrObject
 	}
 	return v, nil
