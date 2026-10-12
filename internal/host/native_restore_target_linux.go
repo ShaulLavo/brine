@@ -87,7 +87,7 @@ func copyNativeRestoreTarget(ctx context.Context, source *nativeRestoredSource, 
 }
 
 func copyNativeRestoreMember(ctx context.Context, source *nativeRestoredSource, target *os.Root, name string, size uint64, hash string) error {
-	if size > uint64(source.limits.Bytes) || engineMakePrivateDirectories(target, filepath.Dir(name)) != nil {
+	if source == nil || source.limits.Bytes <= 0 || size > uint64(source.limits.Bytes) || engineMakePrivateDirectories(target, filepath.Dir(name)) != nil {
 		return errEngineSource
 	}
 	file, err := engineOpenMember(source.root, name, unix.O_RDONLY, 0)
