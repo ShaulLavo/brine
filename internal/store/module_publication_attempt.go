@@ -29,6 +29,57 @@ type publicationAttemptState struct {
 	cursor datapublish.Cursor
 }
 
+func (a *PublicationAttempt) PlanID() string {
+	if a == nil {
+		return ""
+	}
+	return a.planID
+}
+
+func (a *PublicationAttempt) OperationID() string {
+	if a == nil {
+		return ""
+	}
+	return a.operationID
+}
+
+func (s *Store) ReadPublicationAttemptReview(ctx context.Context, attempt *PublicationAttempt) (datapublish.PrivateReview, error) {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return datapublish.PrivateReview{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	current, err := s.readPublicationAttemptTx(ctx, tx, attempt)
+	if err != nil {
+		return datapublish.PrivateReview{}, err
+	}
+	return current.review, tx.Commit()
+}
+
+func (s *Store) RecordPublicationIntent(ctx context.Context, attempt *PublicationAttempt, step datapublish.Step) (datapublish.Cursor, error) {
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
+	if err != nil {
+		return datapublish.Cursor{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	current, err := s.readPublicationAttemptTx(ctx, tx, attempt)
+	if err != nil {
+		return datapublish.Cursor{}, err
+	}
+	if step == datapublish.FinalTransition || checkNativePointCurrent(ctx, tx, current.point.view) != nil || checkPublicationPolicy(ctx, tx, current.review.Plan().Facts()) != nil {
+		return current.cursor, ErrConflict
+	}
+	next, err := current.cursor.Intend(step)
+	if err != nil {
+		return current.cursor, ErrConflict
+	}
+	if err = appendPublicationCursorTx(ctx, tx, current.review.Plan(), current.cursor, next); err != nil {
+		return current.cursor, err
+	}
+	return next, tx.Commit()
+}
+
 func (s *Store) BeginPublicationAttempt(ctx context.Context, preparation *EnginePreparation, planID, operationID string, now time.Time) (*PublicationAttempt, error) {
 	cursor, err := s.beginPublicationClaim(ctx, preparation, planID, operationID, now)
 	if err != nil {

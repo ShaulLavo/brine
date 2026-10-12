@@ -70,11 +70,13 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		disposeErr = descriptorProcessDisposed(cleanup, handle)
 	}
 	stop()
+	if disposeErr == nil && handle != nil {
+		handle.close()
+		lease.process, lease.containerID = nil, ""
+	}
 	if runErr != nil || disposeErr != nil || lease.sourceUnchanged(ctx) != nil {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
-	handle.close()
-	lease.process, lease.containerID = nil, ""
 	return decodeModuleStageObservation(result.Stdout)
 }
 
@@ -144,6 +146,12 @@ func publicationStageProcessBindings(process string, lease *publicationStageLeas
 			return false
 		}
 	}
+	if lease.artifact != nil {
+		actual, err := os.Stat(filepath.Join(process, "root", strings.TrimPrefix(moduleDescriptorArtifactPath, "/")))
+		if err != nil || !descriptorArtifactIdentity(actual, lease.artifact.member) {
+			return false
+		}
+	}
 	return true
 }
 
@@ -152,8 +160,12 @@ func ownedPublicationStage(lease *publicationStageLease, container engineContain
 	if container.Name != "brine-module-stage-"+lease.nonce || container.Image != lease.image.ImageID || container.Path != "/brine" || !slices.Equal(container.Args, []string{"host", "module-stage"}) || container.Config.Labels["BRINE_PRIVATE_VERIFY"] != lease.nonce || container.Config.Labels["BRINE_MODULE_STAGE"] != lease.nonce || !engineContainerSecurity(container, runtime, "none") {
 		return false
 	}
-	return engineContainerMounts(container.Mounts, map[string]engineMount{"/data": {Source: lease.empty.copy.path, Type: "bind", RW: engineBool(true)},
-		"/keys/private.pem": {Source: lease.material.privateKey, Type: "bind", RW: engineBool(false)}, "/keys/public.pem": {Source: lease.material.publicKey, Type: "bind", RW: engineBool(false)}, "/brine": {Source: "/usr/local/bin/brine", Type: "bind", RW: engineBool(false)}})
+	expected := map[string]engineMount{"/data": {Source: lease.stagePath, Type: "bind", RW: engineBool(true)},
+		"/keys/private.pem": {Source: lease.material.privateKey, Type: "bind", RW: engineBool(false)}, "/keys/public.pem": {Source: lease.material.publicKey, Type: "bind", RW: engineBool(false)}, "/brine": {Source: "/usr/local/bin/brine", Type: "bind", RW: engineBool(false)}}
+	if lease.artifact != nil {
+		expected[moduleDescriptorArtifactPath] = engineMount{Source: lease.artifact.path(), Type: "bind", RW: engineBool(false)}
+	}
+	return engineContainerMounts(container.Mounts, expected)
 }
 
 func disposePublicationStage(ctx context.Context, lease *publicationStageLease, session localexec.Session) error {
