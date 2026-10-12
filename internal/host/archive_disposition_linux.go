@@ -16,6 +16,12 @@ import (
 )
 
 func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archive.Operation, abandon bool) error {
+	if nativeArchiveCandidate(p.Candidate) {
+		if abandon {
+			return archive.ErrRefused
+		}
+		return h.recheckNativeArchive(ctx, p, o)
+	}
 	fresh, err := h.archiveFacts(ctx, p.Candidate.App, o.ID, !abandon)
 	if err != nil || !archiveDispositionFactsMatch(p, fresh, abandon) {
 		return archive.ErrRefused
@@ -64,6 +70,9 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 // Credentials, configs, journal history and remote epoch objects are retained.
 // An uncertain result is never retried by disposition execution.
 func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) error {
+	if nativeArchiveCandidate(p.Candidate) {
+		return h.retireNativeArchiveRuntime(ctx, p)
+	}
 	if err := h.VerifyArchiveRuntime(ctx, p); err != nil {
 		return err
 	}
@@ -154,6 +163,9 @@ func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) e
 }
 
 func (h archiveHost) ArchiveRuntimeStopped(ctx context.Context, p archive.Plan) (bool, error) {
+	if nativeArchiveCandidate(p.Candidate) {
+		return h.nativeArchiveRuntimeAbsent(ctx, p)
+	}
 	// The journaled cleanup phase requires affirmative absence. This observation
 	// changes no retained plan identity and grants no stop or startup authority.
 	observation := p
@@ -190,6 +202,9 @@ func archiveDispositionFactsMatch(planned, observed archive.Plan, abandon bool) 
 // VerifyArchiveRuntime is effect-free and requires every recorded runtime
 // artifact, including the route, still present before a safe cleanup exit.
 func (h archiveHost) VerifyArchiveRuntime(ctx context.Context, p archive.Plan) error {
+	if nativeArchiveCandidate(p.Candidate) {
+		return h.verifyNativeArchiveUnits(ctx, p.Candidate)
+	}
 	if p.Candidate.ReleaseID != "" {
 		if h.routes == nil || h.units == nil {
 			return archive.ErrRefused

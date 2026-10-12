@@ -54,6 +54,9 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"native_retire_plan":                    {Mutating, decodeNativeRetirePlan},
+	"native_retire":                         {Mutating, decodeNativeRetireApply},
+	"native_retire_inspect":                 {ReadOnly, decodeNativeRetireInspect},
 	"native_live_restore_review_resolution": {Mutating, decodeNativeRestoreResolutionReview},
 	"native_live_restore_resolve":           {Mutating, decodeNativeRestoreResolve},
 	"native_live_restore_plan":              {Mutating, decodeNativeLiveRestorePlan},
@@ -181,6 +184,7 @@ type Server struct {
 	NativeRecovery     NativeRecoveryOperations
 	NativeBackups      NativeBackupOperations
 	NativeLiveRestore  NativeLiveRestoreOperations
+	NativeRetire       NativeRetireOperations
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -236,6 +240,11 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs:
+		value, err = s.nativeRetire(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
 	case liverestore.PlanRequest, liverestore.ApplyRequest, liverestore.InspectRequest, liverestore.ResolveRequest, NativeRestoreResolutionReviewArgs:
 		value, err = s.nativeLiveRestore(ctx, args)
 		if err != nil {

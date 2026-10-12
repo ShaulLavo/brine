@@ -92,6 +92,9 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.json, "json", false, "Machine-readable JSON output")
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
+	archiveCommand := &cobra.Command{Use: "archive", Short: "Review and retire data archives"}
+	archiveCommand.AddCommand(newNativeRetireCmd(deps, &modes))
+	root.AddCommand(archiveCommand)
 	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes), newRestoreCmd(deps, &modes), newDataCmd(deps, &modes))
 	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp), newLifecycleCmd(deps, &modes, "remove", plan.RemoveApp))
 	root.AddCommand(newReconcileCmd(&jsonOutput, deps))

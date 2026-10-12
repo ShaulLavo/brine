@@ -1334,3 +1334,34 @@ keeps the original recovery-required outcome unchanged and completes known moves
 through observed layout and fsync adoption. It never repeats extraction or
 repository creation. Missing target preparation, uncertain extraction or an
 unexplained layout refuses resolution and retains the fence for manual inspection.
+
+### Native archive retirement
+
+`archive native plan APP` reads an existing exact prepared point protecting the
+current initialized native engine, every retained backup epoch and every terminal
+engine transition. Nonterminal transitions and unreserved incoming repositories
+refuse planning. The plan binds complete local transition-tree identities and
+retention evidence. `apply` submits `native_retire` through the existing task
+runner and uses the existing ordered archive service.
+
+Native retirement consumes the original prepared point once and keeps its original
+fence owner. A protected native archive verification row joins the actual stopped
+preparation, current head, authenticated extraction, passive replay, confirmed
+marker, signing/recovery bundle and known reader disposal. Coverage JSON alone
+cannot authorize retirement. The owned engine service is retained locally before
+retirement; recovery secrets and remote repositories are preserved.
+
+After the application tree moves, each complete terminal transition directory
+moves into the archive's `native-transitions` directory through a separate durable
+intent, rooted no-replace rename and parent fsync. Retained pending moves can only
+be adopted from positively observed destination identities. A pending source-side
+move is not blindly retried. Final retirement requires every transition move and
+sets the original thirty-day deadline only after all moves complete. SQLite
+archive records retain their original canonical encoding.
+
+The current command handles initialized native engines with existing owned runtime
+and a fresh exact prepared point. Native interrupted cleanup, archived repository
+read/replay, archive credential renewal, retention and purge still require their
+qualified native adapters; the existing SQLite-only adapters refuse native inputs.
+No physical native retirement, successful R2 restore, post-archive recovery or
+purge acceptance is claimed by these command and local filesystem tests.

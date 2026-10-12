@@ -193,8 +193,7 @@ func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest
 		}
 	}
 	for _, database := range p.Candidate.Databases {
-		sqlDatabase, sqlite := database.SQLite()
-		if !sqlite || sqlDatabase.Allocation == nil || data.VerifyArchiveAllocation(sqlDatabase.Binding, *sqlDatabase.Allocation) != nil {
+		if verifyDatabaseAllocation(database, p.ArchiveID, false) != nil {
 			return manifest, ErrRecovery
 		}
 	}

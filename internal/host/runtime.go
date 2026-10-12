@@ -21,6 +21,7 @@ type Runtime struct {
 	Runner             jobs.Runner
 	NativeRecovery     dispatch.NativeRecoveryOperations
 	NativeLiveRestore  dispatch.NativeLiveRestoreOperations
+	NativeRetire       dispatch.NativeRetireOperations
 	BackupCredentials  dispatch.BackupCredentialOperations
 	Config             dispatch.ConfigurationOperations
 	Secrets            dispatch.SecretOperations
