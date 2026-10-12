@@ -93,7 +93,7 @@ func descriptorSession(t *testing.T, executor *descriptorContainerExecutor) loca
 	return session
 }
 
-func TestDescriptorOuterBindsActualMetadataAndProvenDisposal(t *testing.T) {
+func TestDescriptorOuterCannotAcceptMetadataWithoutActualProcessBinding(t *testing.T) {
 	lease := descriptorLeaseFixture(t)
 	raw, err := os.ReadFile("../spacetimedb/testdata/descriptor-v1.json")
 	if err != nil {
@@ -101,12 +101,26 @@ func TestDescriptorOuterBindsActualMetadataAndProvenDisposal(t *testing.T) {
 	}
 	runner := &descriptorTestRunner{output: localexec.Output{Stdout: raw}}
 	executor := &descriptorContainerExecutor{container: descriptorContainerFixture(lease)}
-	candidate, retained, err := extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor))
-	if err != nil || candidate.WasmSHA256() != string(lease.artifact.artifact.WasmSHA256()) || candidate.ProgramWireHash() != string(lease.artifact.artifact.ProgramWireHash()) || candidate.Schema().SHA256() != "f10d1efcbbdcec34434fa257946ca8a562ba1ad5f6b1b22b17fca14ca7eacc45" || len(retained) == 0 || !executor.removed {
-		t.Fatal("descriptor evidence escaped artifact/schema/disposal binding", err)
+	_, retained, err := extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor))
+	if !errors.Is(err, datapublish.ErrRecord) || len(retained) != 0 || runner.command.Path != "" {
+		t.Fatal("synthetic container without actual process granted metadata", err)
 	}
-	if runner.command.Path != "/usr/bin/podman" || runner.command.OutputLimit != moduleDescriptorOutputLimit || !slices.Equal(runner.command.Args, descriptorArguments(lease)) {
-		t.Fatal("outer descriptor command lost fixed purpose or bounds")
+	args := descriptorArguments(lease)
+	if args[0] != "create" || args[len(args)-1] != "module-describe" || !slices.Contains(args, "--interactive") || !slices.Contains(args, lease.artifact.path()+":"+moduleDescriptorArtifactPath+":ro") {
+		t.Fatal("gated descriptor purpose lost its fixed artifact-only launch")
+	}
+}
+
+func TestDescriptorContainerInspectionCannotReplaceLiveProcBinding(t *testing.T) {
+	lease := descriptorLeaseFixture(t)
+	container := descriptorContainerFixture(lease)
+	*container.State.Running, *container.State.PID = true, os.Getpid()
+	container.State.CgroupPath = "/unrelated-scope"
+	if handle, err := bindDescriptorProcess(lease, container); !errors.Is(err, datapublish.ErrRecord) || handle != nil {
+		t.Fatal("caller-selected PID replaced independently owned cgroup", err)
+	}
+	if descriptorProcessDisposed(context.Background(), nil) != datapublish.ErrRecord {
+		t.Fatal("missing pidfd granted process disappearance")
 	}
 }
 

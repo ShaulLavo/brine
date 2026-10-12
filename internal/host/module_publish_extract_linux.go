@@ -90,10 +90,22 @@ func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, ru
 		return datapublish.Candidate{}, nil, datapublish.ErrRecord
 	}
 	wait, cancel := context.WithTimeout(ctx, descriptorTotalWait)
-	result, runErr := runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: descriptorArguments(lease), Stdin: input, Mutation: true, OutputLimit: moduleDescriptorOutputLimit})
+	id, handle, runErr := startDescriptorProcess(wait, lease, session)
+	var result localexec.Output
+	if runErr == nil && handle.alive() == nil && lease.artifact.unchanged(wait) == nil {
+		result, runErr = runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: []string{"attach", "--sig-proxy=false", id}, Stdin: input, Mutation: true, OutputLimit: moduleDescriptorOutputLimit})
+	} else {
+		runErr = datapublish.ErrRecord
+	}
 	cancel()
 	cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	disposeErr := disposeDescriptorProcess(cleanup, lease, session)
+	if disposeErr == nil {
+		disposeErr = descriptorProcessDisposed(cleanup, handle)
+	}
+	if handle != nil {
+		handle.close()
+	}
 	stop()
 	if disposeErr != nil || runErr != nil || lease.artifact.unchanged(ctx) != nil {
 		return datapublish.Candidate{}, nil, datapublish.ErrRecord
@@ -111,7 +123,7 @@ func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, ru
 
 func descriptorArguments(lease *descriptorLease) []string {
 	nonce := lease.artifact.nonce
-	return []string{"run", "--name", "brine-module-describe-" + nonce, "--label", "BRINE_PRIVATE_VERIFY=" + nonce,
+	return []string{"create", "--name", "brine-module-describe-" + nonce, "--label", "BRINE_PRIVATE_VERIFY=" + nonce,
 		"--label", "BRINE_MODULE_DESCRIPTOR=" + nonce, "--network", "none", "--pid", "private", "--sdnotify", "ignore", "--read-only",
 		"--userns", "keep-id:uid=1000,gid=1000", "--user", "1000:1000", "--umask", "0077", "--memory", "512m", "--memory-swap", "512m",
 		"--pids-limit", "48", "--cpus", "1", "--cap-drop", "ALL", "--security-opt", "no-new-privileges", "--stop-signal", "SIGINT",
