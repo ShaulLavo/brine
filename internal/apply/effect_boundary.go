@@ -17,6 +17,9 @@ func (e *boundaryRefusal) Unwrap() error { return e.cause }
 // Called after durable intent and immediately before the shared effect path.
 // A host lock excludes other Brine jobs, not systemd restart jobs or file changes.
 func (x *execution) verifyEffectBoundary(ctx context.Context, step string) error {
+	if x.plan.Managed != nil {
+		step = managedFrontendStep(step)
+	}
 	name := x.plan.App + ".container"
 	previous := x.previousUnitHash()
 	candidate := previous
@@ -63,6 +66,8 @@ func (x *execution) verifyEffectBoundary(ctx context.Context, step string) error
 		} else if x.plan.Lifecycle != "" {
 			hashes = []string{previous}
 		}
+	case "frontend_remove_reload", "managed_restore_removed_frontend":
+		hashes = []string{""}
 	case "remove_unit":
 		hashes = []string{previous, ""}
 	default:

@@ -82,6 +82,7 @@ type engineStartupProof struct {
 	copy     *engineSourceCopy
 	material engineMaterial
 	self     systemd.StarterProcess
+	desired  store.ManagedDesiredState
 }
 
 // EngineExec is a service-only foreground entry. Dispatcher/deploy admission is
@@ -101,10 +102,21 @@ func (r *EngineStartupRuntime) EngineExec(ctx context.Context, binding string) e
 		return err
 	}
 	defer func() { _ = guard.close() }()
+	initialDesired, err := currentManagedDesired(startup, r.state, permit.Runtime)
+	if err != nil || !initialDesired.EngineRunning {
+		return errEngineSource
+	}
 	proof, err := r.verifyEngineStart(startup, guard)
 	if err != nil {
 		return err
 	}
+	wanted, err := currentManagedDesired(startup, r.state, proof.permit.Runtime)
+	if err != nil || !wanted.EngineRunning || wanted != initialDesired {
+		proof.material.clear()
+		_ = proof.copy.discard()
+		return errEngineSource
+	}
+	proof.desired = wanted
 	defer proof.material.clear()
 	defer func() { _ = proof.copy.discard() }()
 	return r.launchEngine(ctx, startup, proof)
@@ -218,6 +230,10 @@ func (r *EngineStartupRuntime) finalEngineCheck(ctx context.Context, proof engin
 	}
 	current, err := r.state.ReadEnginePermit(ctx, proof.guard.binding)
 	if err != nil || !current.AllowsVerification(time.Now().UTC()) || !sameEnginePermit(current, proof.permit) || verifyEngineService(ctx, r.home, current) != nil {
+		return errEngineSource
+	}
+	wanted, err := currentManagedDesired(ctx, r.state, current.Runtime)
+	if err != nil || !wanted.EngineRunning || wanted != proof.desired {
 		return errEngineSource
 	}
 	material, err := readEngineMaterial(ctx, r.stateRoot, current)

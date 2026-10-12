@@ -29,7 +29,7 @@ func (x *execution) startWriter(ctx context.Context) error {
 }
 
 func (x *execution) clearWriterStart(ctx context.Context) error {
-	if x.plan.Lifecycle == plan.PrepareData || x.plan.Lifecycle == plan.ReviseReplica || x.desired.Stateless() {
+	if x.plan.Managed != nil || x.plan.Lifecycle == plan.PrepareData || x.plan.Lifecycle == plan.ReviseReplica || x.desired.Stateless() {
 		return nil
 	}
 	if x.executor.WriterStarts == nil {

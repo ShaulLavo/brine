@@ -16,6 +16,7 @@ type Site struct {
 	name    spec.Name
 	domains []spec.Domain
 	port    spec.Port
+	managed *managedSite
 }
 
 func NewSite(app spec.App, p policy.Policy, hostPort spec.Port) (Site, error) {
@@ -43,6 +44,9 @@ func CommittedSite(d policy.Desired, hostPort spec.Port) (Site, error) {
 func Render(site Site) ([]byte, error) {
 	if site.name == "" {
 		return nil, errors.New("caddy: site required")
+	}
+	if site.managed != nil {
+		return renderManagedClient(site.managed.desired, site.managed.enginePort, site.managed.appPort, site.managed.ingress, false)
 	}
 	domains := make([]string, len(site.domains))
 	for i, domain := range site.domains {

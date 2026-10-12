@@ -604,20 +604,35 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 	if err = ctx.Err(); err != nil {
 		return result, err
 	}
+	if err = admitManagedSites(ctx, sites); err != nil {
+		return result, err
+	}
 	if err = m.point(name, ".current-"+name, &result, ""); err != nil {
 		return result, err
 	}
 	result.Stage = "reload"
+	if err = admitManagedSites(ctx, sites); err != nil {
+		result.Outcome = RecoveryRequired
+		return result, err
+	}
 	if err = m.reload(ctx); err != nil {
 		if unknown(err) {
 			result.Outcome = Unknown
 			return result, &UnknownOutcomeError{Stage: result.Stage, Cause: err}
 		}
 		reloadErr := err
+		if err = admitManagedSites(ctx, expected.Sites); err != nil {
+			result.Outcome = RecoveryRequired
+			return result, errors.Join(reloadErr, err)
+		}
 		if err = m.point(gen(observed.Generation), ".rollback-"+name, &result, "rollback-"); err != nil {
 			return result, errors.Join(reloadErr, err)
 		}
 		result.Stage = "rollback-reload"
+		if err = admitManagedSites(ctx, expected.Sites); err != nil {
+			result.Outcome = RecoveryRequired
+			return result, errors.Join(reloadErr, err)
+		}
 		rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commandTimeout)
 		err = m.reload(rollbackCtx)
 		cancel()
@@ -628,8 +643,16 @@ func (m *Manager) Apply(ctx context.Context, main []byte, expected State, change
 		if err != nil {
 			return result, errors.Join(reloadErr, err)
 		}
+		if err = m.verifyLoaded(ctx, expected.Sites, sites); err != nil {
+			result.Outcome = Unknown
+			return result, &UnknownOutcomeError{Stage: "rollback-readback", Cause: err}
+		}
 		result.Outcome = RolledBack
 		return result, reloadErr
+	}
+	if err = m.verifyLoaded(ctx, sites, expected.Sites); err != nil {
+		result.Outcome = Unknown
+		return result, &UnknownOutcomeError{Stage: "loaded-readback", Cause: err}
 	}
 	result.Outcome = Applied
 	if err = m.step(&result, "reloaded"); err != nil {
@@ -746,13 +769,24 @@ func (m *Manager) Restore(ctx context.Context, main []byte, installed, previous 
 		}
 	}()
 	result := Result{Current: observed.Generation}
+	if err = admitManagedSites(ctx, sites); err != nil {
+		return err
+	}
 	if observed.Generation != previous.Generation {
 		if err = m.point(gen(previous.Generation), ".restore-"+gen(installed.Generation), &result, "restore-"); err != nil {
 			return err
 		}
 	}
+	if err = admitManagedSites(ctx, sites); err != nil {
+		return err
+	}
 	if err = m.reload(ctx); unknown(err) {
 		return &UnknownOutcomeError{Stage: "restore-reload", Cause: err}
+	}
+	if err == nil {
+		if readErr := m.verifyLoaded(ctx, sites, installed.Sites); readErr != nil {
+			return &UnknownOutcomeError{Stage: "restore-readback", Cause: readErr}
+		}
 	}
 	return err
 }
@@ -840,12 +874,18 @@ func (m *Manager) SettleWithdrawal(ctx context.Context, main []byte, before, obs
 	if err = m.syncDir("."); err != nil {
 		return err
 	}
+	if err = admitManagedSites(ctx, sites); err != nil {
+		return err
+	}
 	if err = m.reload(ctx); err != nil {
 		if unknown(err) {
 			m.stopped = true
 			return &UnknownOutcomeError{Stage: "settle-withdrawal", Cause: err}
 		}
 		return err
+	}
+	if err := m.verifyLoaded(ctx, sites, before.Sites); err != nil {
+		return &UnknownOutcomeError{Stage: "withdrawal-readback", Cause: err}
 	}
 	return nil
 }

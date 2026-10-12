@@ -13,7 +13,7 @@ import (
 
 func TestReportWireRejectsMalformedAndValueBearingFields(t *testing.T) {
 	digest := "sha256:" + strings.Repeat("a", 64)
-	report := Report{Apps: []Status{{App: "hello", Current: Release{ID: "current", PlanID: digest, ImageDigest: digest, Port: 20000, Domains: []spec.Domain{"hello.example.com"}}, Health: Health{UnitActive: target.Known(true), Direct: "healthy"}, Drift: Drift{State: "in_sync", Fields: []string{}}}}}
+	report := Report{Apps: []Status{{App: "hello", Current: &Release{ID: "current", PlanID: digest, ImageDigest: digest, Port: 20000, Domains: []spec.Domain{"hello.example.com"}}, Health: Health{UnitActive: target.Known(true), Direct: "healthy"}, Drift: Drift{State: "in_sync", Fields: []string{}}}}}
 	encoded, e := json.Marshal(report)
 	if e != nil {
 		t.Fatal(e)
