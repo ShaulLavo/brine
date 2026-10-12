@@ -6,9 +6,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -22,6 +24,23 @@ type descriptorTestRunner struct {
 	deadline time.Time
 	output   localexec.Output
 	err      error
+}
+
+type blockedDescriptorInput struct{}
+
+func (blockedDescriptorInput) Read([]byte) (int, error) { return 0, syscall.EAGAIN }
+
+func TestDescriptorReportsOnlyFixedInputRefusalStages(t *testing.T) {
+	for _, input := range []struct {
+		reader io.Reader
+		stage  string
+	}{{blockedDescriptorInput{}, "input_would_block"}, {strings.NewReader(""), "input_empty"}} {
+		_, err := readModuleDescriptorInput(input.reader)
+		var failure *moduleDescriptorFailure
+		if !errors.As(err, &failure) || failure.stage != input.stage || !errors.Is(err, datapublish.ErrRecord) || strings.Contains(err.Error(), "EAGAIN") {
+			t.Fatal("input refusal lacked fixed value-free classification", err)
+		}
+	}
 }
 
 func (r *descriptorTestRunner) RunInput(ctx context.Context, command localexec.Command) (localexec.Output, error) {
