@@ -22,6 +22,8 @@ type managedExecution struct {
 	previousFrontendPermit string
 	previousPlan           plan.Plan
 	frontendBound          bool
+	intentWritten          bool
+	routeRecorded          bool
 	engineService          systemd.Unit
 }
 
@@ -41,6 +43,7 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 	if err := run.setDesired(ctx, "managed_desired", Preparing, p.ManagedIntentRevision, plan.DesiredComponentsForDeployment(*p.Managed)); err != nil {
 		return run.fail(ctx, err)
 	}
+	run.intentWritten = true
 	if err := x.step(ctx, "engine_stage", Preparing, "unit_invalid", func(ctx context.Context) error {
 		if !managedChange(p, plan.StartManagedEngine) {
 			return e.Managed.VerifyEngineUnit(ctx, p)
@@ -114,6 +117,7 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 	if err := run.recordRoutes(ctx, p.ManagedRouteRevision, x.facts.Routing, x.route); err != nil {
 		return run.fail(ctx, err)
 	}
+	run.routeRecorded = true
 	if err := x.step(ctx, "managed_route_check", Checking, "health_failed", func(ctx context.Context) error {
 		if err := e.Managed.BeforeIngress(ctx, id, p, d); err != nil {
 			return err

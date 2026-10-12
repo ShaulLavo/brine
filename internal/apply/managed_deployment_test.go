@@ -33,6 +33,9 @@ func (f *managedRuntimeFake) call(name string) error {
 func (f *managedRuntimeFake) RecordRoutes(context.Context, string, plan.Plan, uint64, caddy.State, caddy.State) error {
 	return f.call("managed_route_receipt")
 }
+func (f *managedRuntimeFake) RestoreDesired(context.Context, string, plan.Plan) error {
+	return f.call("managed_restore_desired")
+}
 func (f *managedRuntimeFake) SetDesired(context.Context, string, plan.Plan, uint64, plan.ManagedLifecyclePlan) error {
 	return f.call("managed_desired")
 }
@@ -47,6 +50,9 @@ func (f *managedRuntimeFake) InstallEngine(context.Context, plan.Plan, ops.Relea
 }
 func (f *managedRuntimeFake) VerifyEngineUnit(context.Context, plan.Plan) error {
 	return f.call("engine_verify")
+}
+func (f *managedRuntimeFake) BeforeEngineStop(context.Context, plan.Plan) error {
+	return f.call("engine_stop_permit")
 }
 func (f *managedRuntimeFake) EngineStopped(context.Context, plan.Plan) error {
 	if err := f.call("engine_stopped"); err != nil {

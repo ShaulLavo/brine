@@ -60,6 +60,11 @@ func readManagedDesired(ctx context.Context, q dataQuerier, binding data.Replica
 	if err != nil {
 		return state, err
 	}
+	return decodeManagedDesired(binding, revision, plan, operation, raw)
+}
+
+func decodeManagedDesired(binding data.ReplicaBindingID, revision uint64, plan, operation string, raw []byte) (ManagedDesiredState, error) {
+	var state ManagedDesiredState
 	if len(raw) > 4096 || json.Unmarshal(raw, &state) != nil || !state.Valid() || state.BindingID != binding || state.Revision != revision || state.PlanID != plan || state.OperationID != operation {
 		return state, &IntegrityError{}
 	}
@@ -183,4 +188,90 @@ func managedDesiredAllowed(p plan.Plan, wanted ManagedDesiredState) bool {
 		return true
 	}
 	return p.Lifecycle == plan.RestartApp && matches(!flags.Engine && flags.EngineRunning, false, false)
+}
+
+// RestoreManagedDesired appends compensation intent from the protected prior
+// revision, only under the same current runtime and failed operation ownership.
+func (s *Store) RestoreManagedDesired(ctx context.Context, operation string, p plan.Plan) (ManagedDesiredState, error) {
+	if s.readOnly || p.Managed == nil || p.Managed.State != data.EngineInitialized || p.Lifecycle != "" {
+		return ManagedDesiredState{}, ErrInvalid
+	}
+	reserved, err := s.ReadReservedEngine(ctx, p.Managed.Database.BindingID)
+	if err != nil {
+		return ManagedDesiredState{}, err
+	}
+	guard, err := s.guardEngineDatabase(ctx, reserved.Database.DatabaseID)
+	if err != nil {
+		return ManagedDesiredState{}, err
+	}
+	defer func() { _ = guard.Release() }()
+	tx, cancel, err := s.beginWrite(ctx)
+	defer cancel()
+	if err != nil {
+		return ManagedDesiredState{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	stored, _, err := loadPlan(ctx, tx, p.Hash)
+	if err != nil {
+		return ManagedDesiredState{}, err
+	}
+	approved, _ := p.CanonicalBytes()
+	actual, _ := stored.CanonicalBytes()
+	if !bytes.Equal(approved, actual) || len(p.Conflicts) != 0 {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	var opPlan, app string
+	var state ops.State
+	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", operation).Scan(&opPlan, &app, &state); err != nil {
+		return ManagedDesiredState{}, err
+	}
+	if opPlan != p.Hash || app != p.App || state != ops.RollingBack {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	current, err := readManagedDesired(ctx, tx, p.Managed.Database.BindingID)
+	if err != nil || current.OperationID != operation || current.PlanID != p.Hash || !current.Current(p.Managed.Database.BindingID, p.Managed.Archive.EpochID, p.Managed.RuntimeSHA256) {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	wanted := current
+	wanted.Revision = p.ManagedIntentRevision + 2
+	wanted.FrontendRunning, wanted.IngressServing = false, false
+	if p.ManagedIntentRevision != 0 {
+		previous, err := readManagedDesiredRevision(ctx, tx, current.BindingID, p.ManagedIntentRevision)
+		if err != nil || !previous.Current(current.BindingID, current.EpochID, current.RuntimeSHA256) {
+			return ManagedDesiredState{}, ErrConflict
+		}
+		wanted.EngineRunning, wanted.FrontendRunning, wanted.IngressServing = previous.EngineRunning, previous.FrontendRunning, previous.IngressServing
+	} else if p.Kind != plan.Create {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	if !wanted.Valid() {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	if current == wanted {
+		return wanted, tx.Commit()
+	}
+	if current.Revision != p.ManagedIntentRevision+1 {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	permit, err := readEnginePermit(ctx, tx, current.BindingID)
+	runtime, _ := json.Marshal(permit.Runtime)
+	if err != nil || digest(runtime) != "sha256:"+wanted.RuntimeSHA256 || !permit.AllowsVerification(time.Now().UTC()) {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	raw, _ := json.Marshal(wanted)
+	if _, err := tx.ExecContext(ctx, "INSERT INTO data_engine_desired_states VALUES(?,?,?,?,?)", wanted.BindingID, wanted.Revision, wanted.PlanID, wanted.OperationID, raw); err != nil {
+		return ManagedDesiredState{}, err
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE data_engine_desired_heads SET revision=? WHERE binding_id=? AND revision=?", wanted.Revision, wanted.BindingID, current.Revision); err != nil {
+		return ManagedDesiredState{}, err
+	}
+	return wanted, tx.Commit()
+}
+func readManagedDesiredRevision(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID, revision uint64) (ManagedDesiredState, error) {
+	var raw []byte
+	var plan, operation string
+	if err := q.QueryRowContext(ctx, "SELECT plan_id,operation_id,canonical FROM data_engine_desired_states WHERE binding_id=? AND revision=?", binding, revision).Scan(&plan, &operation, &raw); err != nil {
+		return ManagedDesiredState{}, err
+	}
+	return decodeManagedDesired(binding, revision, plan, operation, raw)
 }

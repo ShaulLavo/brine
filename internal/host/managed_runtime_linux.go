@@ -280,3 +280,29 @@ func (r managedRuntime) RecordRoutes(ctx context.Context, operation string, p pl
 	}
 	return nil
 }
+
+func (r managedRuntime) RestoreDesired(ctx context.Context, operation string, p plan.Plan) error {
+	if _, err := r.expected(ctx, p); err != nil {
+		return err
+	}
+	wanted, err := r.state.RestoreManagedDesired(ctx, operation, p)
+	if err == nil {
+		return nil
+	}
+	if wanted.Valid() {
+		actual, readErr := r.state.ReadManagedDesired(ctx, wanted.BindingID)
+		if readErr == nil && actual == wanted {
+			return nil
+		}
+	}
+	return &localexec.Error{Kind: localexec.UnknownOutcome}
+}
+
+func (r managedRuntime) BeforeEngineStop(ctx context.Context, p plan.Plan) error {
+	permit, err := r.expected(ctx, p)
+	if err != nil {
+		return err
+	}
+	_, err = r.observer.ownedState(ctx, permit)
+	return err
+}

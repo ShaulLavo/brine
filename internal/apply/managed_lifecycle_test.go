@@ -74,7 +74,7 @@ func testManagedLifecycle(t *testing.T, frontend bool, action plan.ChangeKind) {
 		t.Fatal("lifecycle created a release", r.state)
 	}
 	for _, call := range runtime.calls {
-		if call == "engine_install" || call == "engine_stage" || call == "frontend_bind" || frontend && (call == "engine_stopped" || call == "engine_start_permit") {
+		if call == "engine_install" || call == "engine_stage" || call == "frontend_bind" || frontend && (call == "engine_stopped" || call == "engine_start_permit" || call == "engine_stop_permit") {
 			t.Fatal("component effects crossed", frontend, action, runtime.calls)
 		}
 	}

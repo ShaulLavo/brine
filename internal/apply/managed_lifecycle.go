@@ -103,6 +103,9 @@ func (r *managedExecution) stopManagedComponent(ctx context.Context) error {
 		if x.executor.Managed.EngineStopped(ctx, x.plan) == nil {
 			return nil
 		}
+		if err := x.executor.Managed.BeforeEngineStop(ctx, x.plan); err != nil {
+			return err
+		}
 		err := x.executor.Systemd.Stop(ctx, r.engineService)
 		if err != nil {
 			return err

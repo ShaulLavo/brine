@@ -187,3 +187,30 @@ func TestManagedRouteReceiptNeedsCurrentDesiredRuntimeAndImmutableCAS(t *testing
 		t.Fatal("failed receipt changed route head", err)
 	}
 }
+
+func TestManagedFailedCreateRestoresClientIntentWithoutStoppingNative(t *testing.T) {
+	s, p, op := managedControlFixture(t)
+	ctx := context.Background()
+	wanted := ManagedDesiredState{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, Revision: 1, PlanID: p.Hash, OperationID: op.ID, EngineRunning: true, IngressServing: true}
+	if _, err := s.CommitManagedDesired(ctx, op.ID, 0, wanted); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RestoreManagedDesired(ctx, op.ID, p); err == nil {
+		t.Fatal("compensation outside rollback granted")
+	}
+	if err := s.SetOperationState(ctx, op.ID, ops.RollingBack); err != nil {
+		t.Fatal(err)
+	}
+	restored, err := s.RestoreManagedDesired(ctx, op.ID, p)
+	if err != nil || !restored.EngineRunning || restored.FrontendRunning || restored.IngressServing || restored.Revision != 2 {
+		t.Fatal("native/client intent crossed", restored, err)
+	}
+	repeated, err := s.RestoreManagedDesired(ctx, op.ID, p)
+	if err != nil || repeated != restored {
+		t.Fatal("compensation idempotence", err)
+	}
+	original, err := readManagedDesiredRevision(ctx, s.db, wanted.BindingID, 1)
+	if err != nil || original != wanted {
+		t.Fatal("compensation mutated immutable intent", err)
+	}
+}

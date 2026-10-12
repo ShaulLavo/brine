@@ -13,7 +13,7 @@ func (r *managedExecution) compensate(ctx context.Context, cause error) error {
 	if errors.As(cause, &failure) && (failure.Code == "interrupted" || failure.Code == "reload_unknown" || failure.Code == "journal_failed" || failure.Code == "rollback_failed") {
 		return x.terminal(ctx, RecoveryRequired, cause)
 	}
-	if !x.installed && !x.quiesced && !x.published && !r.frontendBound {
+	if !x.installed && !x.quiesced && !x.published && !r.frontendBound && !r.intentWritten {
 		return x.terminal(ctx, Failed, cause)
 	}
 	rollback, cancel := context.WithTimeout(context.WithoutCancel(ctx), 12*e.effectTimeout()+3*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second)
@@ -28,6 +28,11 @@ func (r *managedExecution) compensate(ctx context.Context, cause error) error {
 	}
 	step := func(name string, effect func(context.Context) error) error {
 		return x.step(rollback, name, RollingBack, "rollback_failed", effect)
+	}
+	if r.intentWritten {
+		if err := step("managed_restore_desired", func(ctx context.Context) error { return e.Managed.RestoreDesired(ctx, x.id, x.plan) }); err != nil {
+			return x.terminal(ctx, RecoveryRequired, errors.Join(cause, err))
+		}
 	}
 	if x.started {
 		if err := step("rollback_quiesce", x.stop); err != nil {
@@ -77,6 +82,11 @@ func (r *managedExecution) compensate(ctx context.Context, cause error) error {
 			}
 			return e.Routes.Restore(ctx, x.route, x.facts.Routing)
 		}); err != nil {
+			return x.terminal(ctx, RecoveryRequired, errors.Join(cause, err))
+		}
+	}
+	if r.routeRecorded {
+		if err := r.recordRoutes(rollback, x.plan.ManagedRouteRevision+1, x.route, x.facts.Routing); err != nil {
 			return x.terminal(ctx, RecoveryRequired, errors.Join(cause, err))
 		}
 	}
