@@ -121,8 +121,9 @@ func (c *NativeOnlineCapture) check(ctx context.Context, tx *sql.Tx) (EnginePerm
 	}
 	permit, err := readEnginePermit(ctx, tx, input.BindingID)
 	before, _ := json.Marshal(c.permit)
-	after, _ := json.Marshal(permit)
-	if err != nil || !bytes.Equal(before, after) || nativeHasHeldFence(permit.Fences) {
+	identityPermit, identityErr := nativeCapturePermitIdentity(ctx, tx, c.operationID, permit)
+	after, _ := json.Marshal(identityPermit)
+	if err != nil || !bytes.Equal(before, after) || identityErr != nil || nativeHasHeldFence(identityPermit.Fences) {
 		return EnginePermit{}, ErrConflict
 	}
 	return permit, nil
@@ -187,6 +188,9 @@ func (c *NativeOnlineCapture) UploadIntent(ctx context.Context, source nativecap
 		return ErrConflict
 	}
 	if err := retainNativeUpload(ctx, tx, c.permit, c.operationID, c.pointID, source, manifest, retained); err != nil {
+		return err
+	}
+	if err := holdNativeCaptureFence(ctx, tx, c); err != nil {
 		return err
 	}
 	raw, _ := json.Marshal(struct {

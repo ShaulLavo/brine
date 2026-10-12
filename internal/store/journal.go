@@ -63,6 +63,11 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 			return Operation{}, false, e
 		}
 	}
+	if intent.Kind == ops.NativeBackupResolve {
+		if err = checkNativeBackupResolutionIntent(ctx, tx, intent, requester); err != nil {
+			return Operation{}, false, err
+		}
+	}
 	if intent.Kind == ops.ModulePublishResolve {
 		if err = checkPublicationResolutionIntentTx(ctx, tx, intent, requester); err != nil {
 			return Operation{}, false, err

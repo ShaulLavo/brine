@@ -59,6 +59,9 @@ CREATE TABLE data_native_prepared_frontend_stops(
  point_id TEXT NOT NULL REFERENCES data_native_preparations(id),stage TEXT NOT NULL CHECK(stage IN ('intent','stopped')),canonical BLOB NOT NULL CHECK(length(canonical)<=8192),PRIMARY KEY(point_id,stage));
 CREATE TRIGGER data_native_prepared_frontend_stops_no_update BEFORE UPDATE ON data_native_prepared_frontend_stops BEGIN SELECT RAISE(ABORT,'immutable prepared frontend stop'); END;
 CREATE TRIGGER data_native_prepared_frontend_stops_no_delete BEFORE DELETE ON data_native_prepared_frontend_stops BEGIN SELECT RAISE(ABORT,'retained prepared frontend stop'); END;
+CREATE TABLE data_native_capture_fences(operation_id TEXT PRIMARY KEY REFERENCES operations(id), binding_id TEXT NOT NULL REFERENCES data_replica_bindings(id), fence_id TEXT NOT NULL UNIQUE REFERENCES data_fences(id));
+CREATE TRIGGER data_native_capture_fences_no_update BEFORE UPDATE ON data_native_capture_fences BEGIN SELECT RAISE(ABORT,'immutable native capture fence'); END;
+CREATE TRIGGER data_native_capture_fences_no_delete BEFORE DELETE ON data_native_capture_fences BEGIN SELECT RAISE(ABORT,'retained native capture fence'); END;
 CREATE TABLE data_native_upload_descriptors(
  operation_id TEXT PRIMARY KEY REFERENCES operations(id), point_id TEXT NOT NULL UNIQUE,
  canonical BLOB NOT NULL CHECK(length(canonical)<=8388608),

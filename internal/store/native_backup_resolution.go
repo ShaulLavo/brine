@@ -3,7 +3,6 @@ package store
 import (
 	"bytes"
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -28,7 +27,6 @@ type NativeBackupInspection struct {
 	review         nativecapture.BackupResolutionReview
 	deadline       time.Time
 	activation     *NativeBackupActivation
-	capture        *NativeOnlineCapture
 }
 
 func (i *NativeBackupInspection) Close() error {
@@ -165,6 +163,9 @@ func (i *NativeBackupInspection) Upload(ctx context.Context) (NativeRetainedUplo
 		v.SourceEvidence, err = nativeevidence.Decode(d.SourceEvidence, nativeevidence.MaximumLimits())
 		v.ConfirmedBound, merr = spacetimedb.DecodeConfirmedPairsRecord(d.ConfirmedBound)
 		schema, serr := spacetimedb.DecodeDescriptorV10(descriptor, spacetimedb.DefaultSchemaLimits())
+		if serr != nil {
+			return NativeRetainedUpload{}, &IntegrityError{}
+		}
 		v.FinalPairs, serr = spacetimedb.RecoveryPairsFromPassive(v.SourceEvidence, schema)
 		if err != nil || merr != nil || serr != nil || !bytes.Equal(v.FinalPairs.Bytes(), d.FinalPairs) || spacetimedb.CheckConfirmedLowerBound(v.ConfirmedBound, v.FinalPairs) != nil {
 			return NativeRetainedUpload{}, &IntegrityError{}
@@ -191,6 +192,9 @@ func (i *NativeBackupInspection) CheckUploadWorkspace(ctx context.Context, paren
 }
 
 func (i *NativeBackupInspection) Material(ctx context.Context) (NativeRepositoryMaterial, error) {
+	if i == nil || i.state == nil {
+		return NativeRepositoryMaterial{}, ErrConflict
+	}
 	if err := i.check(ctx, i.state.db); err != nil {
 		return NativeRepositoryMaterial{}, err
 	}
@@ -224,7 +228,9 @@ func (i *NativeBackupInspection) AdmitRepository(ctx context.Context, scope rest
 	}
 	if i.original.Kind == ops.NativeBackupActivate && scope.RepositoryID == "" {
 		a, err := i.Activation(ctx)
-		if err != nil || grant != nativePointHash(a.claim) {
+		var stage string
+		stageErr := i.state.db.QueryRowContext(ctx, "SELECT stage FROM data_native_backup_initialization_events WHERE operation_id=? ORDER BY sequence DESC LIMIT 1", i.original.ID).Scan(&stage)
+		if err != nil || grant != nativePointHash(a.claim) || stageErr != nil || stage != "unknown" && stage != "initialized" {
 			return ErrConflict
 		}
 	} else if grant != "" {
@@ -386,4 +392,16 @@ func readNativeBackupResolvedReceipt(ctx context.Context, q dataQuerier, origina
 		return nil, errors.Join(&IntegrityError{}, err)
 	}
 	return r.Receipt, nil
+}
+
+func checkNativeBackupResolutionIntent(ctx context.Context, q dataQuerier, intent ops.Intent, requester string) error {
+	review, err := readNativeBackupResolutionReview(ctx, q, intent.SecretRef)
+	if err != nil || review.OriginalOperationID != intent.RecoveryOf || review.Requester != requester || !time.Now().UTC().Before(review.ExpiresAt) {
+		return ErrConflict
+	}
+	original, binding, hash, err := nativeBackupOriginal(ctx, q, intent.RecoveryOf, requester)
+	if err != nil || original.App != intent.App || string(binding) != review.BindingID || hash != review.OriginalSHA256 || string(original.Kind) != review.OriginalKind {
+		return ErrConflict
+	}
+	return nil
 }

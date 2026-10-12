@@ -92,7 +92,9 @@ func checkNativeRetainedUploadObservation(ctx context.Context, q dataQuerier, op
 	if observed.Source.Kind() == "initialized" && (!bytes.Equal(d.SourceEvidence, observed.SourceEvidence.Bytes()) || !bytes.Equal(d.ConfirmedBound, observed.ConfirmedBound.Bytes()) || !bytes.Equal(d.FinalPairs, observed.FinalPairs.Bytes())) {
 		return ErrConflict
 	}
-	if !sameNativeResolutionScope(d.Scope, observed.Transport.Scope) {
+	expectedScope := d.Scope
+	expectedScope.CredentialVersion = observed.Transport.Scope.CredentialVersion
+	if !sameNativeResolutionScope(expectedScope, observed.Transport.Scope) {
 		return ErrConflict
 	}
 	return nil

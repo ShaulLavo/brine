@@ -140,6 +140,14 @@ func checkEngineTransitionFence(ctx context.Context, q dataQuerier, input data.E
 }
 
 func refuseNonterminalEngineFence(ctx context.Context, q dataQuerier, fence data.FenceID) error {
+	var capture string
+	captureErr := q.QueryRowContext(ctx, "SELECT operation_id FROM data_native_capture_fences WHERE fence_id=?", fence).Scan(&capture)
+	if captureErr == nil {
+		return nativeCaptureFenceReceipt(ctx, q, capture)
+	}
+	if !errors.Is(captureErr, sql.ErrNoRows) {
+		return captureErr
+	}
 	rows, err := q.QueryContext(ctx, "SELECT id FROM data_engine_transition_inputs WHERE fence_id=?", fence)
 	if err != nil {
 		return err
