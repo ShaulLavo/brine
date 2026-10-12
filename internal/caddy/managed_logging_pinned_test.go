@@ -145,6 +145,8 @@ func TestManagedLoggingAdmissionAndLogsWithPinnedCaddy(t *testing.T) {
 		{"error shadow", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\n", "log shadow {\n include http.log.error\n format json\n}\n", false, true},
 		{"access shadow", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\n", "log shadow {\n include http.log.access\n format json\n}\n", false, true},
 		{"proxy debug shadow", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\n", "log shadow {\n include http.handlers.reverse_proxy\n level DEBUG\n format json\n}\n", false, true},
+		{"extra original URI field", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\nlog_append copied_uri {http.request.orig_uri}\n", "", false, true},
+		{"extra query token field", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\nlog_append querytoken {query.token}\n", "", false, true},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {

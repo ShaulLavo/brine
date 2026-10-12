@@ -120,8 +120,9 @@ default error logs.
 
 Host matches and logger mappings account for casing and wildcard matches;
 default fallback namespaces remain checked even when access skip rules exist.
-Unprotected shadow outputs, dynamic route logger names, credential logging,
-handler tracing, unknown filters, duplicate keys and ambiguous logging input
+Unprotected shadow outputs, dynamic route logger names or `log_append` handlers
+on matching routes, credential logging, handler tracing, unknown filters,
+duplicate keys and ambiguous logging input
 refuse without exposing input values. Unrelated logger namespaces remain
 allowed. The helper performs no mutation and grants no managed effects.
 

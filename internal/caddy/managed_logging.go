@@ -117,7 +117,7 @@ func VerifyManagedLogging(adapted []byte, domains []spec.Domain) error {
 	seen := map[spec.Domain]bool{}
 	for _, server := range config.Apps.HTTP.Servers {
 		matched, err := managedRouteDomains(server.Routes, domains)
-		if err != nil || len(matched) > 0 && managedLogOverrides(server.Routes) {
+		if err != nil || len(matched) > 0 && managedLogOverrides(server.Routes, domains) {
 			return ErrManagedLoggingUnsafe
 		}
 		if err := verifyManagedServerLogging(config.Logging.Logs, server.Logs, matched); err != nil {
@@ -319,8 +319,15 @@ func managedRouteHost(pattern, host string) bool {
 	return true
 }
 
-func managedLogOverrides(routes []json.RawMessage) bool {
+func managedLogOverrides(routes []json.RawMessage, domains []spec.Domain) bool {
 	for _, route := range routes {
+		var matchedRoute adaptedRoute
+		if json.Unmarshal(route, &matchedRoute) != nil {
+			return true
+		}
+		if len(managedRouteMatches(matchedRoute.Match, domains)) == 0 {
+			continue
+		}
 		var value any
 		if json.Unmarshal(route, &value) != nil || managedLogOverrideValue(value) {
 			return true
@@ -341,6 +348,9 @@ func managedLogOverrideValue(value any) bool {
 }
 
 func managedLogOverrideMap(value map[string]any) bool {
+	if value["handler"] == "log_append" {
+		return true
+	}
 	if _, ok := value["access_logger_names"]; ok {
 		return true
 	}

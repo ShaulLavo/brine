@@ -90,9 +90,24 @@ func TestManagedLoggingDefaultAndAccessRefusals(t *testing.T) {
 		"route logger override": func(v map[string]any) {
 			fixtureServer(v)["routes"] = []any{map[string]any{"handle": []any{map[string]any{"handler": "vars", "access_logger_names": []string{"other"}}}}}
 		},
+		"route extra log field": func(v map[string]any) {
+			fixtureServer(v)["routes"] = []any{map[string]any{"handle": []any{map[string]any{"handler": "log_append", "key": "copied_uri", "value": "{http.request.orig_uri}"}}}}
+		},
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) { checkLoggingRefusal(t, mutate) })
+	}
+}
+
+func TestManagedLoggingUnrelatedRouteDoesNotOverrideManagedLogging(t *testing.T) {
+	value := loggingFixture(t)
+	routes := fixtureServer(value)["routes"].([]any)
+	fixtureServer(value)["routes"] = append(routes, map[string]any{
+		"match":  []any{map[string]any{"host": []string{"unrelated.example.com"}}},
+		"handle": []any{map[string]any{"handler": "log_append", "key": "path", "value": "{http.request.orig_uri}"}},
+	})
+	if err := verifyLoggingFixture(t, value); err != nil {
+		t.Fatal("unrelated host route blocked managed logging", err)
 	}
 }
 
