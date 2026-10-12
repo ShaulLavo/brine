@@ -13,6 +13,7 @@ import (
 )
 
 type publicationStageEvidence struct {
+	lease       *publicationStageLease
 	source      *nativeRestoredSource
 	scope       datapublish.ProofScope
 	observation moduleStageObservation
@@ -70,7 +71,7 @@ func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLea
 			return publicationStageEvidence{}, datapublish.ErrInspection
 		}
 	}
-	return publicationStageEvidence{source: lease.restored, scope: cursor.Scope(), observation: observation, stageRoot: lease.rootMember}, nil
+	return publicationStageEvidence{lease: lease, source: lease.restored, scope: cursor.Scope(), observation: observation, stageRoot: lease.rootMember}, nil
 }
 
 func moduleStageResultMatches(observation moduleStageObservation, request moduleStageInput, reviewedPreflight []byte) bool {
