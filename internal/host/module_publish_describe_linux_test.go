@@ -6,15 +6,19 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
+	"golang.org/x/sys/unix"
 )
 
 type descriptorTestRunner struct {
@@ -22,6 +26,23 @@ type descriptorTestRunner struct {
 	deadline time.Time
 	output   localexec.Output
 	err      error
+}
+
+type blockedDescriptorInput struct{}
+
+func (blockedDescriptorInput) Read([]byte) (int, error) { return 0, syscall.EAGAIN }
+
+func TestDescriptorReportsOnlyFixedInputRefusalStages(t *testing.T) {
+	for _, input := range []struct {
+		reader io.Reader
+		stage  string
+	}{{blockedDescriptorInput{}, "input_would_block"}, {strings.NewReader(""), "input_empty"}} {
+		_, err := readModuleDescriptorInput(input.reader)
+		var failure *moduleDescriptorFailure
+		if !errors.As(err, &failure) || failure.stage != input.stage || !errors.Is(err, datapublish.ErrRecord) || strings.Contains(err.Error(), "EAGAIN") {
+			t.Fatal("input refusal lacked fixed value-free classification", err)
+		}
+	}
 }
 
 func (r *descriptorTestRunner) RunInput(ctx context.Context, command localexec.Command) (localexec.Output, error) {
@@ -45,8 +66,8 @@ func TestDescriptorPurposeKeepsActualNativeOutputAndFixedBounds(t *testing.T) {
 	if command.Path != engineNativePath || !slices.Equal(command.Args, []string{"extract-schema", moduleDescriptorArtifactPath, "--host-type", "wasm"}) || command.Dir != "/tmp" || len(command.Stdin) != 0 || command.OutputLimit != moduleDescriptorOutputLimit || runner.deadline.Before(started) || runner.deadline.After(started.Add(moduleDescriptorWait+time.Second)) {
 		t.Fatal("descriptor purpose escaped fixed arguments or bounds")
 	}
-	if !slices.Equal(command.Env, []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "TMPDIR=/tmp", "TOKIO_WORKER_THREADS=2"}) {
-		t.Fatal("descriptor inherited an ambient credential environment")
+	if len(command.Env) != 0 {
+		t.Fatal("descriptor supplied an override to the fixed guest environment")
 	}
 	raw[0] = 'x'
 	schema, err := spacetimedb.DecodeDescriptorV10(result, spacetimedb.DefaultSchemaLimits())
@@ -62,7 +83,7 @@ func TestDescriptorPurposeRefusesRawDiagnosticsAndUnqualifiedOutput(t *testing.T
 		}
 	}
 	for _, failure := range []error{context.DeadlineExceeded, localexec.ErrOutputLimit, errors.New("private diagnostic")} {
-		if _, err := extractModuleDescriptor(context.Background(), &descriptorTestRunner{err: failure}); err != datapublish.ErrRecord {
+		if _, err := extractModuleDescriptor(context.Background(), &descriptorTestRunner{err: failure}); !errors.Is(err, datapublish.ErrRecord) {
 			t.Fatal("native failure leaked diagnostics", err)
 		}
 	}
@@ -118,4 +139,63 @@ func TestDescriptorMountProfileHasOnlyArtifactAndHelperBindings(t *testing.T) {
 	if err := RunModuleDescriptor(context.Background(), strings.NewReader("{}"), &bytes.Buffer{}); !errors.Is(err, datapublish.ErrRecord) {
 		t.Fatal("ordinary host acquired descriptor container authority", err)
 	}
+}
+
+func TestModuleDescriptorNativeFailuresHaveClosedCodes(t *testing.T) {
+	cases := []struct {
+		err    error
+		output []byte
+		code   string
+	}{
+		{context.DeadlineExceeded, nil, "native_timeout"},
+		{context.Canceled, nil, "native_cancelled"},
+		{localexec.ErrOutputLimit, nil, "native_output_limit"},
+		{&localexec.Error{Kind: localexec.NotFound}, nil, "native_missing"},
+		{errors.New("private process diagnostic"), nil, "native_launch"},
+		{nil, nil, "native_output_empty"},
+		{nil, []byte("{}"), "native_output_shape"},
+		{nil, bytes.Repeat([]byte("x"), moduleDescriptorOutputLimit+1), "native_output_limit"},
+	}
+	for _, value := range cases {
+		t.Run(value.code, func(t *testing.T) {
+			testModuleDescriptorNativeFailure(t, value.err, value.output, value.code)
+		})
+	}
+	for _, mode := range []string{"exit", "arguments", "signal"} {
+		t.Run(mode, func(t *testing.T) { testModuleDescriptorNativeExit(t, mode) })
+	}
+}
+
+func testModuleDescriptorNativeFailure(t *testing.T, cause error, output []byte, code string) {
+	t.Helper()
+	_, err := extractModuleDescriptor(context.Background(), &descriptorTestRunner{err: cause, output: localexec.Output{Stdout: output}})
+	var failure *moduleDescriptorFailure
+	if !errors.Is(err, datapublish.ErrRecord) || !errors.As(err, &failure) || failure.stage != code || strings.Contains(err.Error(), "private process diagnostic") {
+		t.Fatal("native failure escaped closed classification", err)
+	}
+}
+
+func testModuleDescriptorNativeExit(t *testing.T, mode string) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := (localexec.ExecRunner{}).RunInput(ctx, localexec.Command{Path: os.Args[0], Args: []string{"-test.run=^TestModuleDescriptorNativeExitHelper$", "--", "BRINE_DESCRIPTOR_NATIVE_EXIT=" + mode}, Dir: t.TempDir(), OutputLimit: 1024})
+	code := map[string]string{"exit": "native_exit", "arguments": "native_arguments", "signal": "native_signal"}[mode]
+	if err == nil || moduleDescriptorNativeFailure(err, out.Stderr) != code {
+		t.Fatal("real native child status classified incorrectly", mode, err)
+	}
+}
+
+func TestModuleDescriptorNativeExitHelper(t *testing.T) {
+	if !strings.HasPrefix(os.Args[len(os.Args)-1], "BRINE_DESCRIPTOR_NATIVE_EXIT=") {
+		return
+	}
+	mode := strings.TrimPrefix(os.Args[len(os.Args)-1], "BRINE_DESCRIPTOR_NATIVE_EXIT=")
+	if mode == "arguments" {
+		_, _ = fmt.Fprintln(os.Stderr, "error: unexpected argument private diagnostic")
+	}
+	if mode == "signal" {
+		_ = unix.Kill(os.Getpid(), unix.SIGTERM)
+	}
+	os.Exit(3)
 }

@@ -31,6 +31,13 @@ type PrivateEndpoint struct {
 
 type PrivateServerEndpoint struct{ base string }
 
+func (e PrivateServerEndpoint) SHA256() string {
+	if e.base == "" {
+		return ""
+	}
+	return publicationBytesSHA256([]byte(e.base))
+}
+
 // NewPrivateServerEndpoint validates location only. Its caller proves the
 // delivered keys, process ownership, source scope and startup permission.
 func NewPrivateServerEndpoint(host string, port uint16) (PrivateServerEndpoint, error) {

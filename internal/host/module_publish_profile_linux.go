@@ -6,10 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
@@ -26,16 +28,18 @@ type descriptorMaskInspection struct {
 }
 
 type descriptorProfileInspection struct {
-	Purpose         string                     `json:"purpose"`
-	Authority       bool                       `json:"authority"`
-	Namespace       bool                       `json:"namespace"`
-	Network         bool                       `json:"network"`
-	ForbiddenAbsent bool                       `json:"forbidden_absent"`
-	Process         bool                       `json:"process"`
-	MountProfile    bool                       `json:"mount_profile"`
-	InputKind       string                     `json:"input_kind"`
-	InputHangup     bool                       `json:"input_hangup"`
-	MaskInspections []descriptorMaskInspection `json:"mask_inspections"`
+	Purpose            string                     `json:"purpose"`
+	Authority          bool                       `json:"authority"`
+	Namespace          bool                       `json:"namespace"`
+	Network            bool                       `json:"network"`
+	ForbiddenAbsent    bool                       `json:"forbidden_absent"`
+	Process            bool                       `json:"process"`
+	MountProfile       bool                       `json:"mount_profile"`
+	InputKind          string                     `json:"input_kind"`
+	InputHangup        bool                       `json:"input_hangup"`
+	DelayedInputKind   string                     `json:"delayed_input_kind"`
+	DelayedInputHangup bool                       `json:"delayed_input_hangup"`
+	MaskInspections    []descriptorMaskInspection `json:"mask_inspections"`
 }
 
 // RunModuleDescriptorProfile emits bounded fixed-path diagnostics only. It
@@ -62,6 +66,14 @@ func RunModuleDescriptorProfile(ctx context.Context, input io.Reader, output io.
 		inspection.MaskInspections = append(inspection.MaskInspections, inspectDescriptorMask(path, raw))
 	}
 	inspection.InputKind, inspection.InputHangup = inspectDescriptorInput(input)
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+	}
+	inspection.DelayedInputKind, inspection.DelayedInputHangup = inspectDescriptorInput(input)
 	return json.NewEncoder(output).Encode(inspection)
 }
 
@@ -88,7 +100,7 @@ func inspectDescriptorMask(path string, mounts []byte) descriptorMaskInspection 
 
 func inspectDescriptorInput(input io.Reader) (string, bool) {
 	file, ok := input.(*os.File)
-	if !ok {
+	if !ok || file.Fd() > math.MaxInt32 {
 		return "unavailable", false
 	}
 	var status unix.Stat_t
