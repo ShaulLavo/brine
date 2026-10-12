@@ -196,7 +196,8 @@ func verifyDeletionLocations(p Plan, reviewed MaintenancePlan, d Deletion, adopt
 }
 func verifyArchiveAllocations(p Plan) error {
 	for _, d := range p.Candidate.Databases {
-		if d.Allocation == nil || data.VerifyArchivedAllocation(d.Binding, *d.Allocation, p.ArchiveID) != nil {
+		sqlDatabase, sqlite := d.SQLite()
+		if !sqlite || sqlDatabase.Allocation == nil || data.VerifyArchivedAllocation(sqlDatabase.Binding, *sqlDatabase.Allocation, p.ArchiveID) != nil {
 			return ErrRefused
 		}
 	}

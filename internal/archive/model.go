@@ -23,7 +23,7 @@ var requesterName = regexp.MustCompile(`^deploy:[0-9a-f]{64}$`)
 const MaxManifestBytes = 1 << 20
 const MaxEvidenceAge = 5 * time.Minute
 
-type Database struct {
+type SQLiteDatabase struct {
 	Binding     data.SQLiteDatabaseBinding    `json:"binding"`
 	Epochs      []data.ReplicaBinding         `json:"epochs"`
 	Allocation  *data.AllocationReceipt       `json:"allocation,omitempty"`
@@ -80,10 +80,14 @@ func (p Plan) Valid() bool {
 	databases := map[data.DatabaseID]bool{}
 	bindings := map[data.ReplicaBindingID]bool{}
 	epochs := map[data.ReplicaEpochID]bool{}
-	for i, database := range p.Candidate.Databases {
+	for i, variant := range p.Candidate.Databases {
+		database, sqlite := variant.SQLite()
+		if !sqlite {
+			return false
+		}
 		b := database.Binding
 		relative, err := data.RelativeDirectory(b.IncarnationID, b.DatabaseID)
-		if err != nil || relative != b.RelativeDirectory || b.IncarnationID != p.Candidate.Incarnation || !roots[b.Root] || databases[b.DatabaseID] || bindings[b.ReplicaBindingID] || !data.ValidID(string(b.ReplicaBindingID)) || i > 0 && p.Candidate.Databases[i-1].Binding.DatabaseID >= b.DatabaseID || len(database.Epochs) == 0 || len(database.Epochs) != len(database.Retention) {
+		if err != nil || relative != b.RelativeDirectory || b.IncarnationID != p.Candidate.Incarnation || !roots[b.Root] || databases[b.DatabaseID] || bindings[b.ReplicaBindingID] || !data.ValidID(string(b.ReplicaBindingID)) || i > 0 && p.Candidate.Databases[i-1].Reference().DatabaseID >= b.DatabaseID || len(database.Epochs) == 0 || len(database.Epochs) != len(database.Retention) {
 			return false
 		}
 		declaration := data.SQLiteDatabase{Name: b.Name, PersistentRoot: b.Root, MountPath: b.MountPath, Filename: b.Filename, BackupDestination: database.Epochs[0].Destination.Reference}
@@ -120,7 +124,7 @@ func (p Plan) Valid() bool {
 	return len(usedRoots) == len(roots)
 }
 
-type Coverage struct {
+type SQLiteCoverage struct {
 	DatabaseID        data.DatabaseID              `json:"database_id"`
 	WritersQuiescedAt time.Time                    `json:"writers_quiesced_at"`
 	Empty             *data.AllocationReceipt      `json:"never_written,omitempty"`
@@ -129,7 +133,7 @@ type Coverage struct {
 	Receipt           *restore.SQLiteReceipt       `json:"restore_receipt,omitempty"`
 }
 
-func (c Coverage) Admits(p Plan, database Database, operation string, now time.Time) bool {
+func (c SQLiteCoverage) Admits(p Plan, database SQLiteDatabase, operation string, now time.Time) bool {
 	b := database.Binding
 	if c.DatabaseID != b.DatabaseID || c.WritersQuiescedAt.Before(p.CreatedAt) || now.Before(c.WritersQuiescedAt) || now.Sub(c.WritersQuiescedAt) > MaxEvidenceAge || c.Observation.DatabaseID != b.DatabaseID || c.Observation.ObservedAt.Before(c.WritersQuiescedAt) || now.Before(c.Observation.ObservedAt) || c.Observation.UnknownReason != "" {
 		return false
@@ -215,7 +219,7 @@ func (m Manifest) Valid() bool {
 		return false
 	}
 	for i, coverage := range m.Coverage {
-		if !coverage.Admits(m.Plan, m.Plan.Candidate.Databases[i], m.OperationID, m.PreparedAt) || m.QuiescedAt.Before(coverage.WritersQuiescedAt) {
+		if !coverage.Admits(m.Plan, m.Plan.Candidate.Databases[i], m.OperationID, m.PreparedAt) || m.QuiescedAt.Before(coverage.WritersQuiescedAt()) {
 			return false
 		}
 	}
