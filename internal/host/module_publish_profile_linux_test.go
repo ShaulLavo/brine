@@ -23,6 +23,27 @@ func TestModuleDescriptorProfileReadsNoInputAndGrantsNoAuthority(t *testing.T) {
 	}
 }
 
+func TestModuleDescriptorProfileReadsActualBoundedGuestMountInfo(t *testing.T) {
+	raw, err := readModuleGuestMountInfo()
+	if err != nil || len(raw) == 0 || len(raw) > 64<<10 || !bytes.Contains(raw, []byte(" - ")) {
+		t.Fatal("actual mountinfo was refused before the profile diagnostic", err)
+	}
+	var output bytes.Buffer
+	if err = RunModuleDescriptorProfile(context.Background(), strings.NewReader(""), &output); err != nil {
+		t.Fatal(err)
+	}
+	var inspection descriptorProfileInspection
+	if err = json.Unmarshal(output.Bytes(), &inspection); err != nil {
+		t.Fatal(err)
+	}
+	for _, mask := range inspection.MaskInspections {
+		expected := bytes.Contains(raw, []byte(" "+mask.Path+" "))
+		if mask.Present && mask.Mounted != expected {
+			t.Fatal("actual mounted mask was erased from diagnostic", mask.Path)
+		}
+	}
+}
+
 func TestModuleDescriptorProfileIdentifiesInputHangupWithoutReadingBytes(t *testing.T) {
 	reader, writer, err := os.Pipe()
 	if err != nil {

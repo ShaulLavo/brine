@@ -36,7 +36,7 @@ func readNativeModulePublishConsumerTx(ctx context.Context, tx *sql.Tx, pointID,
 	}
 	plan := review.Plan()
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", applyOperationID))
-	if err != nil || string(op.Kind) != "module_publish_apply" || op.SecretRef != planID || op.App != plan.Facts().App || op.Requester != plan.Requester().String() || op.State != ops.Preflight {
+	if err != nil || op.Kind != ops.ModulePublishApply || op.SecretRef != planID || op.App != plan.Facts().App || op.Requester != plan.Requester().String() || op.State != ops.Preflight {
 		return nativePointConsumer{}, errors.Join(ErrConflict, err)
 	}
 	return nativePointConsumer{kind: nativePointModulePublish, pointID: pointID, planID: planID, applyOperationID: op.ID, requester: op.Requester,

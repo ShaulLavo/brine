@@ -6,6 +6,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/restore"
@@ -30,6 +31,12 @@ func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 	case NativeLiveRestore, NativeLiveRestoreResolve:
 		receipt, err := liverestore.DecodeReceipt(raw)
 		if err != nil || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef || receipt.OriginalOperationID != op.RecoveryOf {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
+	case ModulePublishApply, ModulePublishResolve:
+		receipt, err := datapublish.DecodeTaskReceipt(raw)
+		if err != nil || receipt.Kind != string(op.Kind) || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef || op.Kind == ModulePublishResolve && receipt.ApplyOperationID != op.RecoveryOf {
 			return nil, strictjson.ErrObject
 		}
 		return receipt, nil

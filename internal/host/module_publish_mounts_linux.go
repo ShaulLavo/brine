@@ -2,7 +2,26 @@
 
 package host
 
-import "strings"
+import (
+	"io"
+	"os"
+	"strings"
+
+	"github.com/ShaulLavo/brine/internal/datapublish"
+)
+
+func readModuleGuestMountInfo() ([]byte, error) {
+	file, err := os.Open("/proc/self/mountinfo")
+	if err != nil {
+		return nil, datapublish.ErrRecord
+	}
+	defer func() { _ = file.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(file, (64<<10)+1))
+	if err != nil || len(raw) == 0 || len(raw) > 64<<10 {
+		return nil, datapublish.ErrRecord
+	}
+	return raw, nil
+}
 
 func moduleDescriptorMounts(raw []byte) bool {
 	if len(raw) == 0 || len(raw) > 64<<10 {
