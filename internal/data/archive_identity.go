@@ -3,15 +3,26 @@ package data
 import "path/filepath"
 
 func VerifyArchiveAllocation(b SQLiteDatabaseBinding, a AllocationReceipt) error {
-	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
-	if err != nil || !ValidRoot(string(b.Root)) || b.RelativeDirectory != relative || !a.Valid() || a.DatabaseID != b.DatabaseID || a.IncarnationID != b.IncarnationID {
+	return verifyArchiveAllocationIdentity(b.Root, b.IncarnationID, b.DatabaseID, b.RelativeDirectory, a)
+}
+
+func VerifyNativeArchiveAllocation(b SpacetimeDBBinding, a AllocationReceipt) error {
+	if b.Validate() != nil {
 		return ErrInvalid
 	}
-	directory := filepath.Join(string(b.Root), relative)
-	if err := verifyPrivateTree(string(b.Root), directory); err != nil {
+	return verifyArchiveAllocationIdentity(b.Root, b.IncarnationID, b.DatabaseID, b.RelativeDirectory, a)
+}
+
+func verifyArchiveAllocationIdentity(root PersistentRoot, incarnation AppIncarnationID, database DatabaseID, directoryName string, a AllocationReceipt) error {
+	relative, err := RelativeDirectory(incarnation, database)
+	if err != nil || !ValidRoot(string(root)) || directoryName != relative || !a.Valid() || a.DatabaseID != database || a.IncarnationID != incarnation {
+		return ErrInvalid
+	}
+	directory := filepath.Join(string(root), relative)
+	if err := verifyPrivateTree(string(root), directory); err != nil {
 		return err
 	}
-	rootDevice, rootInode, err := directoryIdentity(string(b.Root))
+	rootDevice, rootInode, err := directoryIdentity(string(root))
 	if err != nil {
 		return err
 	}

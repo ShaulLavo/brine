@@ -34,12 +34,20 @@ func (s *Store) ReadNativeRestoreTargetFacts(ctx context.Context, capability *Na
 	}
 	defer func() { _ = tx.Rollback() }()
 	retained, err := readNativeLiveRestoreAttempt(ctx, tx, capability.Attempt().OperationID)
-	if err != nil || retained.claim.Attempt() != capability.Attempt() || retained.current.Stage() != liverestore.Verified {
+	if err != nil || retained.claim.Attempt() != capability.Attempt() || retained.current.Stage() != liverestore.Verified && retained.current.Stage() != liverestore.TransitionIntent {
 		return NativeRestoreTargetFacts{}, errors.Join(ErrConflict, err)
 	}
 	if err = checkNativeLiveRestoreSourceTx(ctx, tx, capability.stopped, retained); err != nil {
 		return NativeRestoreTargetFacts{}, err
 	}
+	facts, err := readNativeRestoreTargetFactsTx(ctx, tx, retained)
+	if err != nil || !capability.stopped.active(s) {
+		return NativeRestoreTargetFacts{}, errors.Join(ErrConflict, err)
+	}
+	return facts, tx.Commit()
+}
+
+func readNativeRestoreTargetFactsTx(ctx context.Context, tx *sql.Tx, retained nativeLiveRestoreAttempt) (NativeRestoreTargetFacts, error) {
 	verified, _, err := readNativeLiveRestoreVerifiedTx(ctx, tx, retained)
 	if err != nil {
 		return NativeRestoreTargetFacts{}, err
@@ -48,7 +56,7 @@ func (s *Store) ReadNativeRestoreTargetFacts(ctx context.Context, capability *Na
 	if err != nil {
 		return NativeRestoreTargetFacts{}, err
 	}
-	permit, err := readEnginePermit(ctx, tx, retained.claim.Attempt().BindingID)
+	permit, err := readNativeRestoreSourcePermitTx(ctx, tx, retained)
 	if err != nil {
 		return NativeRestoreTargetFacts{}, err
 	}
@@ -71,10 +79,10 @@ func (s *Store) ReadNativeRestoreTargetFacts(ctx context.Context, capability *Na
 	checkpointRecord := bundle.checkpoint.Record()
 	checkpointRecord.Scope.EpochID, checkpointRecord.GenerationID = string(runtime.EpochID), retained.claim.Attempt().TransitionID
 	checkpoint, err := nativecapture.NewCheckpoint(checkpointRecord, nativecapture.DefaultLimits())
-	if err != nil || !capability.stopped.active(s) {
+	if err != nil {
 		return NativeRestoreTargetFacts{}, errors.Join(ErrConflict, err)
 	}
-	return NativeRestoreTargetFacts{Runtime: runtime, Checkpoint: checkpoint, VerifiedTree: verified.TargetTree}, tx.Commit()
+	return NativeRestoreTargetFacts{Runtime: runtime, Checkpoint: checkpoint, VerifiedTree: verified.TargetTree}, nil
 }
 
 func readNativeRestoreHistoricalRuntimeTx(ctx context.Context, tx *sql.Tx, bundle nativeVerifiedPointBundle) (data.EngineRuntime, error) {
@@ -115,4 +123,33 @@ func nativeRestoreRuntimeMatches(runtime data.EngineRuntime, bundle nativeVerifi
 	v, c := bundle.point.view, bundle.checkpoint.Record()
 	signing := runtime.Secrets.SigningPrivate
 	return runtime.State == data.EngineInitialized && runtime.BindingID == v.BindingID && runtime.EpochID == v.EpochID && string(runtime.Database) == c.DatabaseIdentity && string(runtime.Publisher) == c.PublisherIdentity && string(runtime.Module.Program) == c.RuntimeModuleHash && string(runtime.Module.Wasm) == c.ArtifactSHA256 && runtime.Module.Schema.SHA256 == c.SchemaSHA256 && signing.Reference == bundle.dependencies.signingRef && signing.Version == bundle.dependencies.signingVersion && signing.SHA256 == bundle.dependencies.signingSHA256
+}
+
+// Read the retained source commit, never the possibly activated target head.
+func readNativeRestoreSourcePermitTx(ctx context.Context, tx *sql.Tx, retained nativeLiveRestoreAttempt) (EnginePermit, error) {
+	spec := retained.plan.Spec()
+	var raw []byte
+	if err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_engine_runtime_commits WHERE binding_id=? AND version=?", spec.Facts.Head.BindingID, spec.Facts.Head.Version).Scan(&raw); err != nil {
+		return EnginePermit{}, err
+	}
+	runtime, err := decodeNativeRestoreRuntime(raw)
+	if err != nil || nativePointHash(raw) != spec.Facts.Head.RuntimeSHA256 || runtime.EpochID != spec.Facts.Head.EpochID {
+		return EnginePermit{}, errors.Join(&IntegrityError{}, err)
+	}
+	reserved, err := readReservedEngine(ctx, tx, runtime.BindingID)
+	if err != nil {
+		return EnginePermit{}, err
+	}
+	reserved, allocation, err := projectEngineEpoch(ctx, tx, reserved, spec.Facts.Head)
+	if err != nil {
+		return EnginePermit{}, err
+	}
+	if allocation == nil {
+		initial, readErr := readInitialEngineAllocation(ctx, tx, reserved)
+		if readErr != nil {
+			return EnginePermit{}, readErr
+		}
+		allocation = &initial
+	}
+	return EnginePermit{Reserved: reserved, Runtime: runtime, Allocation: allocation}, nil
 }

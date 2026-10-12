@@ -170,6 +170,15 @@ func cloneAllocationRoot(root *data.RootEvidence) *data.RootEvidence {
 }
 
 func verifyDatabaseAllocation(d Database, id data.ArchiveID, archived bool) error {
+	if native, ok := d.Native(); ok {
+		if native.Allocation == nil {
+			return ErrRefused
+		}
+		if archived {
+			return data.VerifyNativeArchivedAllocation(native.Binding, *native.Allocation, id)
+		}
+		return data.VerifyNativeArchiveAllocation(native.Binding, *native.Allocation)
+	}
 	concrete, sqlite := d.SQLite()
 	if !sqlite || concrete.Allocation == nil {
 		return ErrRefused

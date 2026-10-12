@@ -1279,3 +1279,29 @@ Residual same-identity filesystem race: pinned directory handles do not prevent 
 ## Managed engine startup primitives
 
 The owned SpacetimeDB store, secret versions, foreground service, launch guard, lifetime lock, and copied-native boot proof are specified in [Managed engine startup](managed-engine-startup.md). These internal primitives do not enable ordinary deployment, first publication, or live restore. Existing SQLite startup and canonical records retain their contract.
+
+Native live restore activation keeps the authenticated download intact. Under
+one retained restore intent, the host verifies the selected immutable point and
+reader disposal. Under the following transition intent, it copies only native
+checkpoint/history members into a separate staged tree and recovers the exact
+historical signing version through the existing immutable material writer. The
+protected target record binds the actual rooted staged inode, original inode,
+allocation, runtime, checkpoint, material readback and owned service readback.
+An existing partial staged tree is preserved and cannot be overwritten.
+
+The restore adapter derives its actual16 journal input from actual20 records;
+requests cannot supply a transition, proof, repository scope or target path.
+Preserve/promote moves use the existing rooted no-replace rename/fsync helpers.
+Recovery adopts a positively observed retained movement rather than repeating
+an unknown movement. Activation atomically settles actual20 progress and the
+new epoch without installing a live-start grant. Completion requires fresh
+original/target layout, owned material/service readback, compatible retained
+code and absence of engines, application writers, ingress and private readers.
+It completes actual16 and actual20 and releases only the original owned fence
+in the same transaction. Existing-transition resolution holds fresh real guards
+and validates the immutable original claim, consumer, fence and current16
+layout; it never reopens an expired stopped-source mutation permit.
+
+These are internal guarded effect contracts. Public native restore commands
+remain pending integration with the qualified backup runtime and operation
+adapter; storage/helper tests alone are not physical restore acceptance.

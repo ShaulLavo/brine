@@ -36,6 +36,9 @@ func (d *Database) UnmarshalJSON(raw []byte) error {
 	if exactArchiveObject(fields["spacetimedb"], []string{"binding", "head", "state", "allocation", "epochs", "retention", "dependencies", "transition_trees"}) != nil {
 		return ErrRefused
 	}
+	if strictNativeArchiveDatabase(fields["spacetimedb"]) != nil {
+		return ErrRefused
+	}
 	var record NativeDatabase
 	if json.Unmarshal(fields["spacetimedb"], &record) != nil {
 		return ErrRefused
@@ -71,6 +74,10 @@ func (c *Coverage) UnmarshalJSON(raw []byte) error {
 		return ErrRefused
 	}
 	if exactArchiveObject(fields["spacetimedb"], []string{"database_id", "head", "point", "fence_id", "fence_owner_op_id", "source_witness_sha256", "checkpoint_sha256", "restore_receipt_sha256", "stop_proof_sha256", "writers_quiesced_at", "verified_at", "expires_at"}) != nil {
+		return ErrRefused
+	}
+	var nested map[string]json.RawMessage
+	if json.Unmarshal(fields["spacetimedb"], &nested) != nil || strictNativeArchiveHead(nested["head"]) != nil {
 		return ErrRefused
 	}
 	var record NativeCoverage
