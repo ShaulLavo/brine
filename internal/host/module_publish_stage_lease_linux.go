@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strconv"
 	"syscall"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
@@ -32,6 +33,9 @@ type publicationStageLease struct {
 	containerID   string
 	attempted     bool
 	stopAttempted bool
+	disposed      bool
+	startedAt     time.Time
+	finishedAt    time.Time
 }
 
 func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource, images *podman.Client) (*publicationStageLease, error) {

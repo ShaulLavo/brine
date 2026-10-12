@@ -20,6 +20,7 @@ import (
 )
 
 type initialPublisherEvidence struct {
+	lease          *publicationStageLease
 	source         engineEmptySource
 	runtime        data.EngineRuntime
 	pointID        string
@@ -40,7 +41,7 @@ func runInitialPublisherStage(ctx context.Context, lease *publicationStageLease,
 	if err != nil || observation.Action != moduleStagePublisher || !data.ValidCatalogHash(observation.Publisher) || observation.CredentialSHA256 != lease.permit.Runtime.Secrets.Publisher.SHA256 || len(observation.PublisherProof) == 0 || !observation.ChildStopped || lease.sourceUnchanged(ctx) != nil {
 		return initialPublisherEvidence{}, datapublish.ErrRecord
 	}
-	return initialPublisherEvidence{source: lease.empty, runtime: lease.permit.Runtime.Clone(), pointID: lease.empty.stopped.PointID(), operationID: lease.empty.stopped.OperationID(), sourceSHA: lease.empty.source.SHA256(), stageRoot: lease.rootMember,
+	return initialPublisherEvidence{lease: lease, source: lease.empty, runtime: lease.permit.Runtime.Clone(), pointID: lease.empty.stopped.PointID(), operationID: lease.empty.stopped.OperationID(), sourceSHA: lease.empty.source.SHA256(), stageRoot: lease.rootMember,
 		publisher: observation.Publisher, credentialSHA: observation.CredentialSHA256, publisherProof: slices.Clone(observation.PublisherProof)}, nil
 }
 
@@ -55,6 +56,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	defer clear(input)
 	lease.attempted = true
 	startedAt := time.Now().UTC()
+	lease.startedAt = startedAt
 	wait, cancel := context.WithTimeout(ctx, time.Duration(request.Runtime.StartupSeconds+request.Runtime.StopSeconds+45)*time.Second)
 	id, handle, runErr := startPublicationStageProcess(wait, lease, session)
 	lease.containerID, lease.process = id, handle
@@ -74,11 +76,13 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	if disposeErr == nil && handle != nil {
 		handle.close()
 		lease.process, lease.containerID = nil, ""
+		lease.disposed = true
 	}
 	if runErr != nil || disposeErr != nil || lease.sourceUnchanged(ctx) != nil {
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
-	return decodeModuleStageObservation(result.Stdout, startedAt, time.Now().UTC())
+	lease.finishedAt = time.Now().UTC()
+	return decodeModuleStageObservation(result.Stdout, startedAt, lease.finishedAt)
 }
 
 func startPublicationStageProcess(ctx context.Context, lease *publicationStageLease, session localexec.Session) (string, *engineNativeHandle, error) {
