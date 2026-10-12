@@ -124,6 +124,28 @@ func TestDescriptorContainerInspectionCannotReplaceLiveProcBinding(t *testing.T)
 	}
 }
 
+func TestDescriptorArtifactBindingUsesRetainedInodeInsteadOfCurrentPath(t *testing.T) {
+	lease := descriptorLeaseFixture(t)
+	path := lease.artifact.path()
+	original, err := os.Stat(path)
+	if err != nil || !descriptorArtifactIdentity(original, lease.artifact.member) {
+		t.Fatal("owned staged inode lost", err)
+	}
+	if err = os.Rename(path, path+".original"); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(path, lease.artifact.artifact.Bytes(), 0600); err != nil {
+		t.Fatal(err)
+	}
+	replacement, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if descriptorArtifactIdentity(replacement, lease.artifact.member) {
+		t.Fatal("matching bytes at a replacement path replaced retained inode authority")
+	}
+}
+
 func TestDescriptorOuterCannotAdoptUnknownOrRemainingProcess(t *testing.T) {
 	for _, attack := range []string{"extra-mount", "foreign-image", "writable-artifact", "remain-after-remove", "unknown-stop", "missing-container"} {
 		t.Run(attack, func(t *testing.T) { testDescriptorDisposalAttack(t, attack) })

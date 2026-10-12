@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -77,13 +78,17 @@ func descriptorProcessBindings(process string, lease *descriptorLease) bool {
 		return false
 	}
 	actual, err := os.Stat(filepath.Join(process, "root", strings.TrimPrefix(moduleDescriptorArtifactPath, "/")))
-	wanted, wantErr := os.Stat(lease.artifact.path())
-	if err != nil || wantErr != nil || !os.SameFile(actual, wanted) {
+	if err != nil || !descriptorArtifactIdentity(actual, lease.artifact.member) {
 		return false
 	}
 	helper, err := os.Stat(filepath.Join(process, "exe"))
 	protected, protectedErr := os.Stat("/usr/local/bin/brine")
 	return err == nil && protectedErr == nil && os.SameFile(helper, protected)
+}
+
+func descriptorArtifactIdentity(info os.FileInfo, expected engineTreeMember) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && info.Mode().IsRegular() && uint64(stat.Dev) == expected.Device && stat.Ino == expected.Inode && stat.Uid == expected.UID && stat.Nlink == uint64(expected.Links) && stat.Size == expected.Size
 }
 
 func descriptorProcessDisposed(ctx context.Context, handle *engineNativeHandle) error {
