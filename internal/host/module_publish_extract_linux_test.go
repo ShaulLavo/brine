@@ -111,12 +111,12 @@ func TestDescriptorOuterCannotAcceptMetadataWithoutActualProcessBinding(t *testi
 	}
 	runner := &descriptorTestRunner{output: localexec.Output{Stdout: raw}}
 	executor := &descriptorContainerExecutor{container: descriptorContainerFixture(lease)}
-	_, retained, err := extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor))
-	if !errors.Is(err, datapublish.ErrRecord) || len(retained) != 0 || runner.command.Path != "" {
+	retained, err := extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor))
+	if !errors.Is(err, datapublish.ErrRecord) || len(retained.descriptor) != 0 || runner.command.Path != "" {
 		t.Fatal("synthetic container without actual process granted metadata", err)
 	}
 	commands := executor.commands
-	if _, _, err = extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor)); !errors.Is(err, datapublish.ErrRecord) || executor.commands != commands {
+	if _, err = extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor)); !errors.Is(err, datapublish.ErrRecord) || executor.commands != commands {
 		t.Fatal("consumed descriptor lease repeated pending effects", err)
 	}
 	args := descriptorArguments(lease)

@@ -31,6 +31,7 @@ type descriptorLease struct {
 	containerID   string
 	attempted     bool
 	stopAttempted bool
+	disposed      bool
 }
 
 func acquireDescriptorLease(ctx context.Context, state *store.Store, preparation *store.EnginePreparation, binding data.ReplicaBindingID, deploymentPlanID string, artifact datapublish.Artifact, images *podman.Client) (*descriptorLease, error) {
@@ -85,13 +86,13 @@ func descriptorImage(ctx context.Context, images *podman.Client, platform target
 	return observed, nil
 }
 
-func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, runner localexec.InputRunner, session localexec.Session) (datapublish.Candidate, []byte, error) {
+func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, runner localexec.InputRunner, session localexec.Session) (extractedPublicationCandidate, error) {
 	if lease == nil || lease.artifact == nil || lease.attempted || lease.artifact.unchanged(ctx) != nil {
-		return datapublish.Candidate{}, nil, datapublish.ErrRecord
+		return extractedPublicationCandidate{}, datapublish.ErrRecord
 	}
 	input, err := json.Marshal(moduleDescriptorInput{WasmSHA256: string(lease.artifact.artifact.WasmSHA256()), ProgramWireHash: string(lease.artifact.artifact.ProgramWireHash())})
 	if err != nil {
-		return datapublish.Candidate{}, nil, datapublish.ErrRecord
+		return extractedPublicationCandidate{}, datapublish.ErrRecord
 	}
 	wait, cancel := context.WithTimeout(ctx, descriptorTotalWait)
 	lease.attempted = true
@@ -113,20 +114,21 @@ func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, ru
 		handle.close()
 		lease.process = nil
 		lease.containerID = ""
+		lease.disposed = true
 	}
 	stop()
 	if disposeErr != nil || runErr != nil || lease.artifact.unchanged(ctx) != nil {
-		return datapublish.Candidate{}, nil, datapublish.ErrRecord
+		return extractedPublicationCandidate{}, datapublish.ErrRecord
 	}
 	schema, err := spacetimedb.DecodeDescriptorV10(result.Stdout, spacetimedb.DefaultSchemaLimits())
 	if err != nil {
-		return datapublish.Candidate{}, nil, datapublish.ErrRecord
+		return extractedPublicationCandidate{}, datapublish.ErrRecord
 	}
 	candidate, err := datapublish.NewCandidate(string(lease.artifact.artifact.WasmSHA256()), string(lease.artifact.artifact.ProgramWireHash()), schema)
 	if err != nil {
-		return datapublish.Candidate{}, nil, datapublish.ErrRecord
+		return extractedPublicationCandidate{}, datapublish.ErrRecord
 	}
-	return candidate, slices.Clone(result.Stdout), nil
+	return extractedPublicationCandidate{lease: lease, candidate: candidate, descriptor: slices.Clone(result.Stdout)}, nil
 }
 
 func descriptorArguments(lease *descriptorLease) []string {

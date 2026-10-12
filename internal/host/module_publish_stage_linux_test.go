@@ -31,6 +31,12 @@ func TestModuleStageRequiresActualEmptySourceAndBlocksOrdinaryHost(t *testing.T)
 	if handle, err := bindModuleStageNativeChild(nil, data.EngineRuntime{}); !errors.Is(err, datapublish.ErrRecord) || handle != nil {
 		t.Fatal("missing actual native child granted effect authority", err)
 	}
+	if err := (initialPublisherEvidence{}).unchanged(context.Background()); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("zero publisher record manufactured actual empty-source verification", err)
+	}
+	if err := (extractedPublicationCandidate{}).unchanged(context.Background()); !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("syntax manufactured actual descriptor execution", err)
+	}
 }
 
 func TestModuleStagePublisherInputCannotSelectDatabaseOrMutation(t *testing.T) {
