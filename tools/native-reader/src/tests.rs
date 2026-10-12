@@ -35,6 +35,10 @@ fn seed(snapshot: bool) -> Fixture {
 }
 
 fn seed_replica(snapshot: bool, replica_id: u64) -> Fixture {
+    seed_config(snapshot, replica_id, None)
+}
+
+fn seed_config(snapshot: bool, replica_id: u64, projection: Option<&str>) -> Fixture {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("replica");
     fs::create_dir(&root).unwrap();
@@ -92,6 +96,9 @@ fn seed_replica(snapshot: bool, replica_id: u64) -> Fixture {
     schema.table_name = spacetimedb_schema::table_name::TableName::for_test("reader_fixture");
     let table = db.create_table(&mut tx, schema).unwrap();
     db.commit_tx(tx).unwrap();
+    if let Some(variant) = projection {
+        seed_projection(&db, variant);
+    }
     for seq in 0..20u64 {
         let mut tx = db.begin_mut_tx(IsolationLevel::Serializable, Workload::Internal);
         db.insert(
@@ -143,6 +150,260 @@ fn seed_replica(snapshot: bool, replica_id: u64) -> Fixture {
             },
             limits: Limits::MAX,
         },
+    }
+}
+
+fn fixture_table(
+    db: &RelationalDB,
+    name: &str,
+    columns: Vec<(Option<&'static str>, AlgebraicType)>,
+) -> u32 {
+    let mut schema = spacetimedb_schema::schema::TableSchema::from_product_type(
+        columns.into_iter().collect::<ProductType>(),
+    );
+    schema.table_name = spacetimedb_schema::table_name::TableName::for_test(name);
+    let mut tx = db.begin_mut_tx(IsolationLevel::Serializable, Workload::Internal);
+    let table = db.create_table(&mut tx, schema).unwrap();
+    db.commit_tx(tx).unwrap();
+    table.0
+}
+
+fn fixture_row(db: &RelationalDB, table: u32, value: spacetimedb_sats::ProductValue) {
+    let mut tx = db.begin_mut_tx(IsolationLevel::Serializable, Workload::Internal);
+    db.insert(&mut tx, table.into(), &value.to_bsatn_vec().unwrap())
+        .unwrap();
+    db.commit_tx(tx).unwrap();
+}
+
+fn seed_projection(db: &RelationalDB, variant: &str) {
+    let rating = variant == "rating";
+    for name in ["recovery_left", "recovery_right"] {
+        if variant == "missing" && name == "recovery_right" {
+            continue;
+        }
+        let mut columns = vec![
+            (Some("sequence"), AlgebraicType::U64),
+            (Some("marker"), AlgebraicType::String),
+            (Some("commit_time"), AlgebraicType::timestamp()),
+            (Some("scheduled"), AlgebraicType::Bool),
+        ];
+        if variant == "shape" {
+            columns[0].0 = Some("renamed");
+        }
+        if rating {
+            columns.push((Some("rating"), AlgebraicType::U8));
+        }
+        let table = fixture_table(db, name, columns);
+        if variant == "initial" {
+            continue;
+        }
+        for sequence in [2u64, 1] {
+            fixture_row(db, table, projection_row(sequence, rating));
+        }
+    }
+    let marker = fixture_table(
+        db,
+        "schema_marker",
+        vec![
+            (Some("id"), AlgebraicType::U8),
+            (Some("revision"), AlgebraicType::String),
+        ],
+    );
+    fixture_row(db, marker, product![1u8, "brine-recovery-v1"]);
+    let publisher = fixture_table(
+        db,
+        "publisher",
+        vec![
+            (Some("id"), AlgebraicType::U8),
+            (Some("identity"), AlgebraicType::identity()),
+        ],
+    );
+    let owner = if variant == "identity" {
+        Identity::from_be_byte_array(std::array::from_fn(|index| index as u8))
+    } else {
+        id(2)
+    };
+    fixture_row(db, publisher, product![1u8, owner]);
+    let sequence = fixture_table(
+        db,
+        "sequence_state",
+        vec![
+            (Some("id"), AlgebraicType::U8),
+            (Some("sequence"), AlgebraicType::U64),
+        ],
+    );
+    fixture_row(
+        db,
+        sequence,
+        product![1u8, if variant == "initial" { 0u64 } else { 2u64 }],
+    );
+    if variant == "additive" {
+        fixture_table(
+            db,
+            "fixture_note",
+            vec![
+                (Some("id"), AlgebraicType::U8),
+                (Some("note"), AlgebraicType::String),
+            ],
+        );
+    }
+}
+
+fn projection_row(sequence: u64, rating: bool) -> spacetimedb_sats::ProductValue {
+    let timestamp = spacetimedb_sats::timestamp::Timestamp::from_micros_since_unix_epoch(
+        1_700_000_000_000_000 + sequence as i64,
+    );
+    let row = product![
+        sequence,
+        format!("brine-p09-{sequence:08}"),
+        timestamp,
+        sequence == 2
+    ];
+    if !rating {
+        return row;
+    }
+    row.elements
+        .into_vec()
+        .into_iter()
+        .chain([7u8.into()])
+        .collect::<Vec<_>>()
+        .into()
+}
+
+#[test]
+fn passive_projection_extracts_independent_native_values_without_starting_module() {
+    for variant in ["base", "additive", "rating"] {
+        let mut fixture = seed_config(true, 0, Some(variant));
+        let selected = observed(&fixture, |_| {}).unwrap();
+        let projection = selected.confirmed_pairs_projection.as_ref().unwrap();
+        assert_eq!(projection.format, crate::projection::FORMAT);
+        assert_eq!(projection.left.rows, projection.right.rows);
+        assert_eq!(projection.left.rows.len(), 2);
+        assert_eq!(projection.left.rows[0].sequence, 1);
+        assert_eq!(&*projection.left.rows[0].marker, "brine-p09-00000001");
+        assert_eq!(
+            projection.left.rows[0].commit_time_micros,
+            1_700_000_000_000_001
+        );
+        assert!(!projection.left.rows[0].scheduled);
+        assert!(projection.left.rows[1].scheduled);
+        assert_eq!(
+            projection.left.rows[0].rating,
+            (variant == "rating").then_some(7)
+        );
+        assert_eq!(projection.note.is_some(), variant == "additive");
+        assert_eq!(&*projection.marker.rows[0].revision, "brine-recovery-v1");
+        assert_eq!(
+            projection.publisher.rows[0].identity,
+            selected.observed_owner_identity
+        );
+        assert_eq!(projection.sequence.rows[0].sequence, 2);
+        fixture.request.history = History::Logs {};
+        assert_eq!(
+            observed(&fixture, |_| {})
+                .unwrap()
+                .confirmed_pairs_projection,
+            selected.confirmed_pairs_projection
+        );
+        fixture.request.history = History::Snapshot {
+            offset: fixture.selected_snapshot.unwrap(),
+            replica_id: 0,
+        };
+        assert_eq!(
+            observed(&fixture, |root| {
+                fs::remove_dir_all(root.join("clog")).unwrap();
+                fs::create_dir(root.join("clog")).unwrap();
+            })
+            .unwrap()
+            .confirmed_pairs_projection,
+            selected.confirmed_pairs_projection
+        );
+    }
+}
+
+#[test]
+fn publisher_identity_uses_native_hex_order_and_initial_values_remain_observed() {
+    let identity = observed(&seed_config(false, 1, Some("identity")), |_| {}).unwrap();
+    assert_eq!(
+        identity.confirmed_pairs_projection.unwrap().publisher.rows[0].identity,
+        "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    );
+    let initial = observed(&seed_config(true, 1, Some("initial")), |_| {}).unwrap();
+    let projection = initial.confirmed_pairs_projection.unwrap();
+    assert!(projection.left.rows.is_empty() && projection.right.rows.is_empty());
+    assert_eq!(
+        projection.publisher.rows[0].identity,
+        initial.observed_owner_identity
+    );
+    assert_eq!(projection.sequence.rows[0].sequence, 0);
+}
+
+#[test]
+fn projection_absence_shape_damage_and_budget_limits_are_explicit() {
+    assert!(
+        observed(&seed(false), |_| {})
+            .unwrap()
+            .confirmed_pairs_projection
+            .is_none()
+    );
+    for variant in ["missing", "shape"] {
+        assert!(
+            observed(&seed_config(false, 1, Some(variant)), |_| {})
+                .unwrap()
+                .confirmed_pairs_projection
+                .is_none()
+        );
+    }
+    let mut fixture = seed_config(false, 1, Some("base"));
+    assert!(matches!(
+        observed(&fixture, |root| {
+            let path = last_log(root);
+            let mut bytes = fs::read(&path).unwrap();
+            bytes.pop();
+            fs::write(path, bytes).unwrap();
+        }),
+        Err(Refusal::Framing)
+    ));
+    let baseline = observed(&fixture, |_| {}).unwrap();
+    fixture.request.limits.rows = baseline.tables.iter().map(|table| table.rows).sum();
+    assert!(matches!(
+        observed(&fixture, |_| {}),
+        Err(Refusal::StateLimit)
+    ));
+    fixture.request.limits = Limits::MAX;
+    fixture.request.limits.state_bytes =
+        baseline.tables.iter().map(|table| table.bsatn_bytes).sum();
+    assert!(matches!(
+        observed(&fixture, |_| {}),
+        Err(Refusal::StateLimit)
+    ));
+    fixture.request.limits = Limits::MAX;
+    fixture.request.limits.output_bytes = 256;
+    assert!(matches!(
+        observed(&fixture, |_| {}),
+        Err(Refusal::OutputLimit)
+    ));
+}
+
+#[test]
+fn emit_projection_cli_fixtures_when_requested() {
+    let Some(output) = std::env::var_os("BRINE_PROJECTION_READER_TEST_OUTPUT") else {
+        return;
+    };
+    let output = std::path::PathBuf::from(output);
+    fs::create_dir(&output).unwrap();
+    for variant in ["base", "additive", "rating"] {
+        let destination = output.join(variant);
+        fs::create_dir(&destination).unwrap();
+        let fixture = seed_config(true, 0, Some(variant));
+        copy_tree(&fixture.root, &destination.join("replica"));
+        select_snapshot_copy(&destination.join("replica"), fixture.selected_snapshot);
+        fs::write(
+            destination.join("request.json"),
+            serde_json::to_vec(&fixture.request).unwrap(),
+        )
+        .unwrap();
+        fs::write(destination.join("projection-variant"), variant).unwrap();
     }
 }
 
@@ -205,6 +466,24 @@ fn current_program_and_all_state_match_logs_snapshot_and_compression() {
         spacetimedb_lib::hash_bytes(b"initial-program").to_string()
     );
     assert_eq!(baseline.current_program_sha256, hex_sha(b"current-program"));
+    assert_eq!(
+        baseline
+            .tables
+            .iter()
+            .find(|table| table.name == "reader_fixture")
+            .unwrap()
+            .table_type,
+        "user"
+    );
+    assert_eq!(
+        baseline
+            .tables
+            .iter()
+            .find(|table| table.name == "st_module")
+            .unwrap()
+            .table_type,
+        "system"
+    );
     assert_eq!(
         baseline
             .tables

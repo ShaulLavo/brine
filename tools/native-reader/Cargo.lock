@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "brine-native-reader"
-version = "0.0.2"
+version = "0.0.4"
 dependencies = [
  "blake3",
  "libc",

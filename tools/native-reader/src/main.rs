@@ -1,6 +1,7 @@
 mod framing;
 mod input;
 mod memory;
+mod projection;
 mod protocol;
 mod snapshot;
 mod state;
@@ -152,6 +153,7 @@ fn inspect(
         evidence_algorithm: ALGORITHM,
         state_blake3: recovered.hash,
         tables: recovered.tables,
+        confirmed_pairs_projection: recovered.projection,
         input: totals,
         limits: request.limits,
     })

@@ -26,12 +26,22 @@ On success, exit status is zero and `outcome` is `observed`. On refusal, exit st
 | `snapshot` | Actual decoded snapshot database, replica ID and offset, or null in log mode. |
 | `persisted_connected_clients` | Clients retained in recovered native state. This is not proof of a live writer's absence. |
 | `tables`, `state_blake3` | Every recovered table, including persisted system catalog rows. |
+| `tables[].table_type` | Actual native `TableSchema::table_type`, exactly `system` or `user`. No table-name or ID inference. |
+| `confirmed_pairs_projection` | Fixed named-column facts read through the recovered Internal transaction, or null when required tables or exact column positions/names/types do not fit. |
 
 Bare logs contain no replica ID. Logical database names and control aliases are also absent. The caller must bind those through its sealed control checkpoint. Table state hashes are not `CanonicalSchemaV10` hashes. The runtime package owns canonical module/schema observation.
 
 `framing` is `complete-v1` for nonempty complete logs. A complete selected snapshot with an empty log suffix reports `snapshot-only-v1`, zero actual `input.commits`, and `committed_offset` equal to the observed snapshot offset. It does not invent a log transaction or a placeholder offset. Missing, torn, corrupt, orphaned or header-only log input cannot select this arm.
 
 Replica selectors require an explicit u64 field and equality with the actual reconstructed snapshot. Zero is valid in the pinned native snapshot format. The standalone allocator normally issues a database ID before its first replica ID, so an ordinary new standalone replica starts above zero. That allocation behavior does not make zero corrupt in a native snapshot. Missing or mismatched selectors still refuse.
+
+### Fixed passive projection
+
+`confirmed_pairs_projection` and every table's `table_type` are required output fields. The projection's format is `brine-confirmed-pairs-projection-v1`. It contains actual table IDs/names and independently extracted rows for `recovery_left`, `recovery_right`, `schema_marker`, `publisher` and `sequence_state`, plus `fixture_note` when present. Pair tables require exactly `sequence:U64, marker:String, commit_time:Timestamp, scheduled:Bool`, optionally followed by `rating:U8`. Their layout fact is `base-v1` or `rating-v1`; every row has an explicit nullable rating. Timestamps report signed native microseconds. Publisher identities use the native Identity hex representation, with its observed U256 byte order.
+
+The reader does not pair rows, require continuity or fixed markers, compare publisher values with ownership, qualify a module, or issue an eligibility flag. The SpacetimeDB domain package applies those rules against the actual program and registered schema. No caller SQL, profile, row list or Wasm registry enters the reader. Native module accessor aliases may exist; extraction still requires the exact stored column names and positions, and the complete catalog commitment binds their persisted aliases.
+
+Projection values are charged in addition to table commitments against the same row/state ceilings before collection. Each projected row's JSON bytes are counted before collection, and the complete output remains bounded by the existing output ceiling. Oversized projections refuse. The Go decoder checks strict required fields, table identity/name/count bindings and resource totals, then owns canonical bytes and SHA-256 for the complete decoded result. Returned bytes, rows and optional values are detached. Decoding or hashing these facts does not prove source ownership or authorize an operation.
 
 ### State hash format
 
@@ -64,13 +74,13 @@ A global Rust allocator enforces configured allocation ceilings before calling t
 
 ## Build and distribution
 
-`pins.json` fixes the upstream commit, source archive SHA-256, Rust version and actual multi-platform musl builder manifests. `prepare.py NEW_DIRECTORY` verifies the source archive, reduces workspace and development-only manifests, copies this tool and its lock, and leaves all upstream Rust code unchanged. `Cargo.lock` retains exact upstream runtime dependency versions.
+`pins.json` fixes the upstream commit, source archive SHA-256, Rust version and actual multi-platform musl builder manifests. `prepare.py NEW_DIRECTORY` verifies the source archive, reduces workspace and development-only manifests, copies this tool and its lock, and leaves all upstream Rust code unchanged. Native tool sources receive fresh copy times so a shared Cargo target cannot treat different earlier source bytes as an unchanged package. Local verification also clears only the owned reader package and checks expected test names and output fields before accepting its artifact. `Cargo.lock` retains exact upstream runtime dependency versions.
 
 The native reader workflow builds on matching amd64 and arm64 runners with the pinned Rust 1.96.1 Alpine builder. It checks the static ELF target, runs native tests and exercises the contained executable. Artifact bundles retain executable SHA-256, source head, source pins, license and CLI evidence. The main-only publisher uses those tested bytes to publish an immutable GHCR image. An enrolled host needs the verified executable, not Cargo or a compiler.
 
 Published hashes and platform compatibility must come from completed workflow receipts. A workstation glibc build is development evidence only.
 
-Native compilation layers use architecture-specific GHA cache scopes bound to the pinned builder and upstream source. Source and lockfile contents determine layer keys. The separate `native-tests` stage is forced fresh on every workflow run, and both normal and explicit-replica-zero fixtures receive fresh contained CLI checks. Cached layers never replace ELF, checksum, test or publication verification.
+Native compilation layers use architecture-specific GHA cache scopes bound to the pinned builder and upstream source. Source and lockfile contents determine layer keys. The separate `native-tests` stage is forced fresh on every workflow run. Normal, replica-zero and fixed base/additive/default-column fixtures receive fresh contained CLI checks. Cached layers never replace ELF, checksum, test or publication verification.
 
 ## Coverage limits
 
