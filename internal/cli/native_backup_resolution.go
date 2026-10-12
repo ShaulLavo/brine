@@ -12,8 +12,7 @@ import (
 	"regexp"
 )
 
-func newNativeBackupResolutionCmd(deps Dependencies, modes *machineModes) *cobra.Command {
-	root := &cobra.Command{Use: "recovery", Short: "Inspect and adopt interrupted native backups without repeating writes"}
+func addNativeBackupResolutionCommands(root *cobra.Command, deps Dependencies, modes *machineModes) {
 	for _, mode := range []string{"inspect", "review"} {
 		var flags operationFlags
 		command := &cobra.Command{Use: mode + " OPERATION_ID --target NAME", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
@@ -84,5 +83,4 @@ func newNativeBackupResolutionCmd(deps Dependencies, modes *machineModes) *cobra
 	}}
 	flags.register(resolve)
 	root.AddCommand(resolve)
-	return root
 }

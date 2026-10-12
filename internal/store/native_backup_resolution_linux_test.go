@@ -232,7 +232,7 @@ func TestNativeBackupResolutionUploadExclusionPreservesExistingPermitAndOtherBin
 	}
 	// This deliberately incomplete descriptor is refusal metadata, not evidence
 	// of a captured/uploaded archive. It must never admit a point or resolver.
-	descriptor := nativeUploadDescriptor{Format: "brine-native-upload-descriptor-v1", OperationID: original.ID, PointID: strings.Repeat("1", 32), Scope: restic.Scope{BindingID: string(binding), EpochID: string(before.Runtime.EpochID)}}
+	descriptor := nativeUploadDescriptor{Format: "brine-native-upload-descriptor-v1", OperationID: original.ID, PointID: strings.Repeat("1", 32), Directory: data.EngineDirectoryIdentity{Device: before.Allocation.DirectoryDevice, Inode: before.Allocation.DirectoryInode}, Scope: restic.Scope{BindingID: string(binding), EpochID: string(before.Runtime.EpochID)}}
 	raw, _ := json.Marshal(descriptor)
 	if _, err = state.db.ExecContext(ctx, "INSERT INTO data_native_upload_descriptors VALUES(?,?,?,?,?)", original.ID, descriptor.PointID, raw, []byte{}, []byte{}); err != nil {
 		t.Fatal(err)

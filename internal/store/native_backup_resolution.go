@@ -391,6 +391,9 @@ func readNativeBackupResolvedReceipt(ctx context.Context, q dataQuerier, origina
 	if _, err = ops.DecodeTaskReceipt(original, r.Receipt); err != nil {
 		return nil, errors.Join(&IntegrityError{}, err)
 	}
+	if err = checkNativeResolvedProducer(ctx, q, original, r.Receipt); err != nil {
+		return nil, err
+	}
 	return r.Receipt, nil
 }
 

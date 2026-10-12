@@ -55,6 +55,7 @@ func newNativeRecoveryCmd(deps Dependencies, modes *machineModes) *cobra.Command
 	flags.register(set)
 	set.Flags().StringVar(&planID, "deployment-plan", "", "Saved managed deployment plan selecting the recovery reference")
 	group.AddCommand(set)
+	addNativeBackupResolutionCommands(group, deps, modes)
 	return group
 }
 

@@ -1341,8 +1341,17 @@ and actual loaded timer properties precede active policy. Transport deadlines
 stay within both the caller budget and admitted material expiry. Enrollment
 installs the independently published main native-reader0.0.4 platform pin;
 reader execution pulls its fixed digest only after affirmative local absence.
-Unknown effects preserve their intents and partial files. Automatic backup
-resolution and physical phase acceptance remain pending.
+Unknown effects preserve their intents and partial files. Reference-only
+`native_backup_inspect`, `native_backup_review` and `native_backup_resolve` use
+fixed readback and an independent resolver task. Schema22 retains original upload
+source/workspace descriptors, fresh expiring reviews and resolver completion rows.
+Original outcomes remain immutable. Effective success requires the actual
+successful resolver outcome, exact original scope and real producer completion;
+a completion row or well-formed receipt alone is insufficient. Cleanup follows
+durable producer/resolution proof and precedes the success reply. Planned data
+mutations exclude unfinished uploads without asserting quiescence or stopping
+ordinary writers. Partial or unprovable effects refuse and retain their resources.
+Physical phase acceptance remains pending.
 ### Native live restore execution
 
 `restore native-live plan APP` selects one immutable verified remote point, one

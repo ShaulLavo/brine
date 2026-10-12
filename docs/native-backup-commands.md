@@ -132,11 +132,54 @@ capture and verification times. Loss remains `unknown`. A stale verification,
 expired credential, pending failed capture or held fence is degraded. Status
 never contacts the provider or refreshes a proof timestamp.
 
-## Unknown effects
+## Recover an interrupted effect
 
-An upload, repository initialization or unit change that loses its result remains
-recovery-required. Its retained intent and partial private files stay available.
-A new activation cannot bypass pending creation by using another plan. Automated
-resolution of these backup effects is still pending; inspect the existing
-operation and preserve its files and fence. Do not edit control records or retry
-an uncertain mutation to make the command report success.
+```sh
+brine backup recovery inspect ORIGINAL_OPERATION_ID --target TARGET --json
+brine backup recovery review ORIGINAL_OPERATION_ID --target TARGET --json
+brine backup recovery resolve REVIEW_ID --target TARGET --json
+```
+
+Inspection and review take only the original operation reference. Resolution
+submits a new `native_backup_resolve` task using the protected review reference
+and an idempotency key. The review expires after ten minutes. The host repeats
+readback under fresh guards and refuses a changed observation. The original
+operation and its recovery-required outcome stay immutable.
+
+Before an upload, the host retains its exact source, manifest, native state and
+confirmed-pair evidence, module and schema bytes, repository scope and physical
+workspace identity. Inspection reseals the retained bundle, selects its unique
+original capture tag and authenticates the exact remote snapshot. A fixed private
+native reader checks complete persisted-state equality and confirmed pairs. No
+upload is repeated. A completed original point lets a fresh resolver inspect its
+exact stored snapshot after interrupted cleanup, without inventing a replacement
+point or reopening an expired preparation permit.
+
+Repository creation uses encrypted configuration readback under the original
+issued creation grant. It never calls initialization again. Unit changes are
+checked through exact owned files and loaded timer state. A resolver may install
+units only when their original installation was affirmatively never issued.
+Missing, partial or uncertain issued units refuse automatic resolution.
+
+Prepared recovery also proves the original native/frontend stop, loaded ingress
+withdrawal, held original fence and unchanged original source under fresh launch
+and lifetime locks. Adopting an already completed prepared point preserves its
+original expiry. Online upload exclusion prevents new planned data mutations for
+the same binding. It does not create a quiescence fence, stop existing writers,
+withdraw ingress or change ordinary same-runtime restart behavior.
+
+Resolution retains its own durable completed record before removing its original
+task workspace. Cleanup checks exact held directory identity and actual process
+and container consumers; unrelated resources remain untouched. Only after
+cleanup succeeds does the task return a success receipt. A point or policy becomes
+effective through the actual successful resolver outcome joined to that completed
+record. A completed record alone is insufficient.
+
+If inspection refuses, preserve the original private files, operation and any
+existing fence. Use operation status and diagnosis to identify the refused stage.
+Check supplied credential validity and the original owned source, services and
+workspace. An expired credential needs externally supplied scoped renewal through
+the existing credential workflow; Brine does not mint credentials. Active or
+unidentifiable consumers, changed ownership, missing proof and partial issued
+units need a manual, target-specific review. Do not edit control records, delete
+remote objects or retry an uncertain mutation to produce a success response.
