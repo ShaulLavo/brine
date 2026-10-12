@@ -42,7 +42,10 @@ func TestManagedPortsReserveCommittedHeadWithoutInventingRuntimeAbsence(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	site, err := caddy.CommittedSite(in.Desired, spec.Port(created.HostPort))
+	if created.HostPort != 20000 {
+		t.Fatal("fixture selected a different initial port", created.HostPort)
+	}
+	site, err := caddy.CommittedSite(in.Desired, 20000)
 	if err != nil {
 		t.Fatal(err)
 	}
