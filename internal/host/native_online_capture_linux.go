@@ -240,6 +240,11 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err != nil || !nativeObservationMatches(before.permit.Runtime, after.metadata) {
 		return nil, errEngineSource
 	}
+	ctx, cancel, err := nativeTransportContext(ctx, material.Scope)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
 	client, repository, err := runtime.repositoryMaterial(ctx, material, claim, "")
 	if err != nil {
 		return nil, err

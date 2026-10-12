@@ -131,6 +131,15 @@ func (r nativeBackupRuntime) restorePrepared(ctx context.Context, stopped *store
 	if err != nil {
 		return nil, errEngineSource
 	}
+	metadata, err := admission.Material(ctx)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel, err := nativeTransportContext(ctx, metadata.Scope)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
 	client, repository, err := r.repository(ctx, admission)
 	if err != nil {
 		return nil, err
@@ -267,6 +276,15 @@ func (r nativeBackupRuntime) restoreVerifiedPoint(ctx context.Context, pointID s
 	if err != nil {
 		return nativeVerifiedRestore{}, errEngineSource
 	}
+	metadata, err := admission.Material(ctx)
+	if err != nil {
+		return nativeVerifiedRestore{}, err
+	}
+	ctx, cancel, err := nativeTransportContext(ctx, metadata.Scope)
+	if err != nil {
+		return nativeVerifiedRestore{}, err
+	}
+	defer cancel()
 	client, repository, err := r.repository(ctx, admission)
 	if err != nil {
 		return nativeVerifiedRestore{}, err
