@@ -175,3 +175,21 @@ func TestZeroLogCommitsRequireCompleteSelectedSnapshotFraming(t *testing.T) {
 		}
 	}
 }
+
+func TestExplicitReplicaZeroIsValidButAbsentReplicaStillRefuses(t *testing.T) {
+	value := validRecord()
+	value.Snapshot.Replica = 0
+	full := decoded(t, value)
+	snapshot, present := full.Snapshot()
+	if !present || snapshot.Replica != 0 {
+		t.Fatal("explicit persisted replica zero lost")
+	}
+	value.Framing = "snapshot-only-v1"
+	value.Input.Commits = 0
+	value.Offset = value.Snapshot.Offset
+	decoded(t, value)
+	raw := strings.Replace(string(encoded(t, value)), `,"observed_replica_id":0`, "", 1)
+	if _, err := Decode([]byte(raw), value.Limits); err == nil {
+		t.Fatal("missing replica selector became zero")
+	}
+}
