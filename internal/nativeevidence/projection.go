@@ -211,10 +211,10 @@ func validateProjection(value record, limits Limits) error {
 	if !validProjectionControls(*p, value.Tables) {
 		return ErrEvidence
 	}
-	rows := uint64(len(p.Left.Rows) + len(p.Right.Rows) + len(p.Marker.Rows) + len(p.Publisher.Rows) + uint64(len(p.Sequence.Rows)))
+	rows := uint64(len(p.Left.Rows) + len(p.Right.Rows) + len(p.Marker.Rows) + len(p.Publisher.Rows) + len(p.Sequence.Rows))
 	stateBytes := uint64(0)
 	if p.Note != nil {
-		rows += uint64(uint64(len(p.Note.Rows)))
+		rows += uint64(len(p.Note.Rows))
 	}
 	for _, table := range value.Tables {
 		if table.Rows > limits.Rows || rows > limits.Rows-table.Rows || table.BSATNBytes > limits.StateBytes || stateBytes > limits.StateBytes-table.BSATNBytes {
