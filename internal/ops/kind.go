@@ -51,7 +51,7 @@ var secretRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 var planID = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func ValidIntent(i Intent) bool {
-	if i.Kind != Resolve && i.Kind != ModulePublishResolve && i.Kind != NativeLiveRestoreResolve && i.Kind != NativeRetireResolve && i.Kind != NativeBackupResolve && i.Kind != ArchiveMaintenanceResolve && i.RecoveryOf != "" {
+	if !i.Kind.IsResolver() && i.RecoveryOf != "" {
 		return false
 	}
 	switch i.Kind {
@@ -78,7 +78,7 @@ func ValidIntent(i Intent) bool {
 	}
 }
 func ValidOperation(o Operation) bool {
-	if o.Kind != Resolve && o.Kind != ModulePublishResolve && o.Kind != NativeLiveRestoreResolve && o.Kind != NativeRetireResolve && o.Kind != NativeBackupResolve && o.Kind != ArchiveMaintenanceResolve && o.RecoveryOf != "" {
+	if !o.Kind.IsResolver() && o.RecoveryOf != "" {
 		return false
 	}
 	if !ValidState(o.State) {
@@ -193,4 +193,13 @@ func ValidateOperationEvent(op Operation, e Event) error {
 // IsTask identifies reference-only detached work; handlers own their host locking.
 func (k Kind) IsTask() bool {
 	return k == ArchiveMaintenanceApply || k == ArchiveMaintenanceResolve || k == NativeBackupResolve || k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve || k == NativeRetire || k == NativeRetireResolve
+}
+
+func (k Kind) IsResolver() bool {
+	switch k {
+	case Resolve, ModulePublishResolve, NativeLiveRestoreResolve, NativeRetireResolve, NativeBackupResolve, ArchiveMaintenanceResolve:
+		return true
+	default:
+		return false
+	}
 }
