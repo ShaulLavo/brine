@@ -59,7 +59,7 @@ func automaticNativePreflight() string {
 }
 
 func nativeUpdateReceipt() string {
-	return `{"Success":{"domain":null,"database_identity":{"__identity__":"0x` + databaseHex + `"},"op":"updated"}}`
+	return `{"Success":{"domain":null,"database_identity":"` + databaseHex + `","op":"updated"}}`
 }
 
 func TestNativePublicationUsesOneFixedPrivateTokenBoundUpdate(t *testing.T) {
@@ -120,7 +120,7 @@ func assertNativePublicationRequest(t *testing.T, request *http.Request, expecte
 }
 
 func TestNativePublicationUnknownEffectCannotRetryOrExposeResponse(t *testing.T) {
-	for _, outcome := range []string{"disconnect", "redirect", "forbidden", "oversized", "wrong-database", "created", "extra-field", "duplicate-field"} {
+	for _, outcome := range []string{"disconnect", "redirect", "forbidden", "oversized", "wrong-database", "metadata-identity", "prefixed-identity", "created", "extra-field", "duplicate-field"} {
 		t.Run(outcome, func(t *testing.T) { nativePublicationUnknown(t, outcome) })
 	}
 }
@@ -167,6 +167,10 @@ func writeNativePublicationUnknown(w http.ResponseWriter, outcome string) {
 		_, _ = io.WriteString(w, strings.Repeat("x", NativePublicationResponseLimit+1))
 	case "wrong-database":
 		_, _ = io.WriteString(w, strings.ReplaceAll(nativeUpdateReceipt(), databaseHex, publisherHex))
+	case "metadata-identity":
+		_, _ = io.WriteString(w, strings.Replace(nativeUpdateReceipt(), `"database_identity":"`+databaseHex+`"`, `"database_identity":{"__identity__":"0x`+databaseHex+`"}`, 1))
+	case "prefixed-identity":
+		_, _ = io.WriteString(w, strings.ReplaceAll(nativeUpdateReceipt(), databaseHex, "0x"+databaseHex))
 	case "created":
 		_, _ = io.WriteString(w, strings.ReplaceAll(nativeUpdateReceipt(), "updated", "created"))
 	case "extra-field":

@@ -180,8 +180,8 @@ func decodeNativePublicationReceipt(raw []byte, expected DatabaseIdentity) (Nati
 	if err != nil || row["domain"] != nil || row["op"] != "updated" {
 		return NativePublicationReceipt{}, ErrNativePublicationUnknown
 	}
-	database, err := nativeIdentity(row["database_identity"])
-	if err != nil || DatabaseIdentity(database) != expected {
+	database, valid := row["database_identity"].(string)
+	if !valid || !validHexIdentity(database) || DatabaseIdentity(database) != expected {
 		return NativePublicationReceipt{}, ErrNativePublicationUnknown
 	}
 	return NativePublicationReceipt{database: expected}, nil
