@@ -1309,7 +1309,7 @@ adapter; storage/helper tests alone are not physical restore acceptance.
 ### Native live restore execution
 
 `restore native-live plan APP` selects one immutable verified remote point, one
-fresh exact prepared current point and one compatible installed recovery release.
+fresh exact prepared current point and one compatible retained recovery release.
 The default-false live restore policy applies to both plan and execution. Apply
 submits `native_live_restore` through the existing detached task runner. Requests
 contain references only. The host reopens the completed original stop under actual
@@ -1324,8 +1324,14 @@ and promotion before epoch activation. Fresh loaded-route absence, service jobs,
 container/process absence, owned units, secret files and installed compatible code
 are checked before activation and completion. Completion retains the original
 whole tree, releases its original fence and leaves the new epoch stopped. The
-current installed release must equal the selected recovery release; installing a
-different historical code release is not yet supported by this path.
+restore retains an immutable code intent naming both the original current release
+and the reviewed recovery release. With the original fence and both host guards
+held, it verifies the recovery image and retained secret versions, then uses the
+existing Quadlet staging and replacement to install the reviewed frontend while
+preserving its predecessor. Engine-only recovery removes and retains the prior
+frontend. No service starts or route publication occur. Epoch activation selects
+the reviewed release head in the same transaction. An interrupted replacement
+can settle only an observed original or reviewed artifact under that same intent.
 
 `inspect` reads retained progress. `review-resolution` binds a fresh immutable
 review to the original operation, journal head, transition input and actual layout,

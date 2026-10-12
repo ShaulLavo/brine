@@ -48,6 +48,12 @@ CREATE TABLE data_native_live_restore_targets(
  checkpoint BLOB NOT NULL CHECK(length(checkpoint)<=2097152),
  canonical BLOB NOT NULL CHECK(length(canonical)<=65536)
 );
+CREATE TABLE data_native_live_restore_code_intents(
+ operation_id TEXT PRIMARY KEY REFERENCES data_native_live_restore_claims(operation_id),
+ canonical BLOB NOT NULL CHECK(length(canonical)<=4096)
+);
+CREATE TRIGGER data_native_live_restore_code_intents_no_update BEFORE UPDATE ON data_native_live_restore_code_intents BEGIN SELECT RAISE(ABORT,'immutable restore code intent'); END;
+CREATE TRIGGER data_native_live_restore_code_intents_no_delete BEFORE DELETE ON data_native_live_restore_code_intents BEGIN SELECT RAISE(ABORT,'retained restore code intent'); END;
 CREATE TRIGGER data_native_live_restore_plans_no_update BEFORE UPDATE ON data_native_live_restore_plans BEGIN SELECT RAISE(ABORT,'immutable live restore review'); END;
 CREATE TRIGGER data_native_live_restore_plans_no_delete BEFORE DELETE ON data_native_live_restore_plans BEGIN SELECT RAISE(ABORT,'immutable live restore review'); END;
 CREATE TRIGGER data_native_live_restore_claims_no_update BEFORE UPDATE ON data_native_live_restore_claims BEGIN SELECT RAISE(ABORT,'immutable live restore claim'); END;

@@ -58,10 +58,13 @@ replace a signing key or retry an uncertain mutation to make a check pass. Escal
 an unexplained state with the original operation ID and safe error code. Keep
 credential values, endpoint inventories and signing material out of reports.
 
-The current code requires the installed release to equal the reviewed recovery
-release. Installing a different historical code release during restoration is not
-yet implemented. Application rollback does not rewind data or select an older
-epoch.
+The restore code intent retains the original and reviewed recovery release IDs.
+The host installs the reviewed frontend through the existing Quadlet replacement
+and retains its predecessor. Engine-only recovery retains and removes the prior
+frontend. Both remain stopped and ingress stays closed during this work. An
+unexplained artifact refuses recovery. Application rollback does not rewind data
+or select an older epoch. Physical historical-code recovery remains a required
+acceptance drill.
 
 ## Inspect an interrupted archive
 
