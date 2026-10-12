@@ -52,9 +52,11 @@ type descriptorContainerExecutor struct {
 	keep      bool
 	stopErr   error
 	stops     int
+	commands  int
 }
 
 func (r *descriptorContainerExecutor) Execute(_ context.Context, command localexec.Command) (localexec.Result, error) {
+	r.commands++
 	args := command.Args
 	if slices.Equal(args, []string{"ps", "--all", "--quiet", "--no-trunc"}) {
 		if r.removed {
@@ -104,6 +106,10 @@ func TestDescriptorOuterCannotAcceptMetadataWithoutActualProcessBinding(t *testi
 	_, retained, err := extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor))
 	if !errors.Is(err, datapublish.ErrRecord) || len(retained) != 0 || runner.command.Path != "" {
 		t.Fatal("synthetic container without actual process granted metadata", err)
+	}
+	commands := executor.commands
+	if _, _, err = extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor)); !errors.Is(err, datapublish.ErrRecord) || executor.commands != commands {
+		t.Fatal("consumed descriptor lease repeated pending effects", err)
 	}
 	args := descriptorArguments(lease)
 	if args[0] != "create" || args[len(args)-1] != "module-describe" || !slices.Contains(args, "--interactive") || !slices.Contains(args, lease.artifact.path()+":"+moduleDescriptorArtifactPath+":ro") {
