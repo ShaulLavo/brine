@@ -134,24 +134,6 @@ func enginePrefixMetadata(actual, original engineTreeMember, boundary int64) boo
 	return actual == original
 }
 
-func engineOnlineCensusMatches(before, after engineOnlineCensus, candidate string, boundary int64) bool {
-	if before.root != after.root || len(before.members) != len(after.members) {
-		return false
-	}
-	found := candidate == ""
-	for i, original := range before.members {
-		current := after.members[i]
-		if original.Name != candidate && current != original {
-			return false
-		}
-		if original.Name == candidate && !enginePrefixMetadata(current, original, boundary) {
-			return false
-		}
-		found = found || original.Name == candidate
-	}
-	return found
-}
-
 func hashEngineCapturedPrefix(ctx context.Context, file *os.File, original engineTreeMember, boundary int64) (string, error) {
 	if file == nil || ctx.Err() != nil {
 		return "", errEngineSource

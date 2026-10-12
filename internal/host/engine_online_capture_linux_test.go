@@ -121,29 +121,6 @@ func TestEngineOnlineCensusRequiresCompleteOwnedAliases(t *testing.T) {
 	}
 }
 
-func TestEngineOnlineCensusRefusesWholeTailRotation(t *testing.T) {
-	root, _, original := onlineFileFixture(t)
-	ctx := context.Background()
-	limits := engineCopyLimits{Bytes: 1 << 20, Files: 16, Depth: 8}
-	before, err := scanEngineOnlineMetadata(ctx, root, limits)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := root.WriteFile("later-tail", []byte("later complete tail"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	after, err := scanEngineOnlineMetadata(ctx, root, limits)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if engineOnlineCensusMatches(before, after, "head", original.Size) {
-		t.Fatal("new complete tail ignored")
-	}
-	if engineOnlineCensusMatches(after, before, "head", original.Size) {
-		t.Fatal("removed complete tail ignored")
-	}
-}
-
 func TestEngineCapturedPrefixCopiesExactlyBoundary(t *testing.T) {
 	root, source, original := onlineFileFixture(t)
 	if err := root.WriteFile("head", []byte("captured prefix later bytes"), 0600); err != nil {

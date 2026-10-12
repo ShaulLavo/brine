@@ -9,7 +9,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
@@ -30,14 +29,6 @@ type managedSite struct {
 
 const subscriptionQueryNamePattern = "(t|%74)(o|%6[fF])(k|%6[bB])(e|%65)(n|%6[eE])"
 
-func NewManagedClientIngress(preview plan.ManagedRenderPreview) (ClientIngress, error) {
-	d, _, _, err := preview.Values()
-	if err != nil {
-		return ClientIngress{}, err
-	}
-	return ClientIngress{prefix: d.SpacetimeDB.ClientPrefix(), database: d.SpacetimeDB.Database}, nil
-}
-
 // Allows checks client route and credential presence. The engine validates JWTs.
 func (i ClientIngress) Allows(method, requestURI, authorization, upgrade string) bool {
 	if i.prefix == "" || i.database == "" {
@@ -57,19 +48,7 @@ func (i ClientIngress) Allows(method, requestURI, authorization, upgrade string)
 	return method == http.MethodPost && u.Path == i.prefix+"v1/identity/websocket-token" && strings.HasPrefix(authorization, "Bearer ") && len(authorization) > len("Bearer ")
 }
 
-func RenderManagedPreview(preview plan.ManagedRenderPreview) ([]byte, error) {
-	d, enginePort, appPort, err := preview.Values()
-	if err != nil {
-		return nil, err
-	}
-	i, err := NewManagedClientIngress(preview)
-	if err != nil {
-		return nil, err
-	}
-	return renderManagedClient(d, enginePort, appPort, i, true)
-}
-
-func renderManagedClient(d policy.Desired, enginePort, appPort spec.Port, i ClientIngress, preview bool) ([]byte, error) {
+func renderManagedClient(d policy.Desired, enginePort, appPort spec.Port, i ClientIngress) ([]byte, error) {
 	domains := make([]string, len(d.Domains))
 	for n, domain := range d.Domains {
 		domains[n] = string(domain)
@@ -78,11 +57,7 @@ func renderManagedClient(d policy.Desired, enginePort, appPort spec.Port, i Clie
 		return nil, errors.New("managed ingress preview: domains required")
 	}
 	var b strings.Builder
-	if preview {
-		b.WriteString("# Brine managed ingress preview; execution not admitted\n")
-	} else {
-		b.WriteString("# Brine-owned managed client ingress\n")
-	}
+	b.WriteString("# Brine-owned managed client ingress\n")
 	fmt.Fprintf(&b, "%s {\n\troute {\n", strings.Join(domains, ", "))
 	queryValid := "{http.request.orig_uri.query}.matches('^([^%;]|%[0-9a-fA-F]{2})*$')"
 	subscribePath := i.prefix + "v1/database/" + i.database + "/subscribe"

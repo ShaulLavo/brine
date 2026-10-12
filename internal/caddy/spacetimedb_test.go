@@ -11,12 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
 
-func managedPreview(t testing.TB, frontend bool) plan.ManagedRenderPreview {
+func managedTestSite(t testing.TB, frontend bool) Site {
 	t.Helper()
 	raw, err := os.ReadFile("../spec/testdata/managed.toml")
 	if err != nil {
@@ -45,17 +44,14 @@ func managedPreview(t testing.TB, frontend bool) plan.ManagedRenderPreview {
 	if frontend {
 		appPort = 20001
 	}
-	preview, err := plan.NewManagedRenderPreview(d, p, 20000, appPort)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return preview
+	ingress := ClientIngress{prefix: d.SpacetimeDB.ClientPrefix(), database: d.SpacetimeDB.Database}
+	return Site{name: d.Name, domains: d.Domains, port: 20000, managed: &managedSite{desired: d, enginePort: 20000, appPort: appPort, ingress: ingress}}
 }
 
-func TestManagedPreviewAdaptsWithPinnedCaddy(t *testing.T) {
+func TestManagedSiteAdaptsWithPinnedCaddy(t *testing.T) {
 	binary := pinnedCaddyVerifier(t)
 	for _, frontend := range []bool{false, true} {
-		raw, err := RenderManagedPreview(managedPreview(t, frontend))
+		raw, err := Render(managedTestSite(t, frontend))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -106,10 +102,7 @@ func caddyVerifierCommand(t *testing.T, ctx context.Context, binary string, args
 }
 
 func TestManagedClientRouteAllowlist(t *testing.T) {
-	ingress, err := NewManagedClientIngress(managedPreview(t, true))
-	if err != nil {
-		t.Fatal(err)
-	}
+	ingress := managedTestSite(t, true).managed.ingress
 	base := "/_brine/db/main/v1/"
 	if !ingress.Allows("GET", base+"database/game/subscribe?token=client", "", "websocket") || !ingress.Allows("POST", base+"identity/websocket-token", "Bearer client", "") {
 		t.Fatal("required official SDK route refused")
@@ -126,9 +119,9 @@ func TestManagedClientRouteAllowlist(t *testing.T) {
 	}
 }
 
-func TestManagedCaddyPreviewOrdersDenyBeforeFrontend(t *testing.T) {
+func TestManagedCaddySiteOrdersDenyBeforeFrontend(t *testing.T) {
 	for _, frontend := range []bool{false, true} {
-		raw, err := RenderManagedPreview(managedPreview(t, frontend))
+		raw, err := Render(managedTestSite(t, frontend))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -141,7 +134,7 @@ func TestManagedCaddyPreviewOrdersDenyBeforeFrontend(t *testing.T) {
 			t.Fatal("missing typed route/auth boundaries")
 		}
 	}
-	if _, err := RenderManagedPreview(plan.ManagedRenderPreview{}); err == nil {
-		t.Fatal("zero preview rendered")
+	if _, err := Render(Site{}); err == nil {
+		t.Fatal("zero site rendered")
 	}
 }

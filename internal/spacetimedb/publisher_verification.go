@@ -26,7 +26,6 @@ type NativePublisherVerification struct {
 
 func (v NativePublisherVerification) Publisher() PublisherIdentity { return v.publisher }
 func (v NativePublisherVerification) CredentialSHA256() string     { return v.credentialSHA }
-func (v NativePublisherVerification) VerifiedAt() time.Time        { return v.verifiedAt }
 func (v NativePublisherVerification) SHA256() string {
 	if len(v.encoded) == 0 {
 		return ""

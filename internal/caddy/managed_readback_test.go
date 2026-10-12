@@ -31,17 +31,9 @@ func (f *managedAuthorityFixture) CheckManagedIngress(context.Context, ManagedIn
 }
 
 func TestManagedReadbackRequiresActualLoadedLoggingRouteAndFreshFence(t *testing.T) {
-	preview := managedPreview(t, true)
-	d, engine, frontend, err := preview.Values()
-	if err != nil {
-		t.Fatal(err)
-	}
-	ingress, err := NewManagedClientIngress(preview)
-	if err != nil {
-		t.Fatal(err)
-	}
+	site := managedTestSite(t, true)
 	authority := &managedAuthorityFixture{}
-	site := Site{name: d.Name, domains: d.Domains, port: engine, managed: &managedSite{desired: d, enginePort: engine, appPort: frontend, ingress: ingress, authority: authority}}
+	site.managed.authority = authority
 	raw, err := os.ReadFile("testdata/managed-adapted.json")
 	if err != nil {
 		t.Fatal(err)
