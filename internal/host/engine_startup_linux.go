@@ -86,19 +86,23 @@ type engineStartupProof struct {
 
 // EngineExec is a service-only foreground entry. Dispatcher/deploy admission is
 // separate; no client can supply a command, image, mount, key or runtime port.
-func (r *EngineStartupRuntime) EngineExec(ctx context.Context, binding string) error {
+func (r *EngineStartupRuntime) EngineExec(ctx context.Context, binding string) (err error) {
 	if !data.ValidID(binding) {
 		return errEngineSource
 	}
+	defer func() { r.recordEngineRefusal(data.ReplicaBindingID(binding), err) }()
 	permit, err := r.state.ReadEnginePermit(ctx, data.ReplicaBindingID(binding))
-	if err != nil || !permit.AllowsVerification(time.Now().UTC()) {
-		return errEngineSource
+	if err != nil {
+		return engineRefusal(engineRefusalPermitRead, errEngineSource)
+	}
+	if !permit.AllowsVerification(time.Now().UTC()) {
+		return engineRefusal(engineRefusalAdmission, errEngineSource)
 	}
 	startup, cancel := context.WithTimeout(ctx, time.Duration(permit.Runtime.StartupSeconds)*time.Second)
 	defer cancel()
 	guard, err := acquireEngineStart(startup, r.stateRoot, data.ReplicaBindingID(binding))
 	if err != nil {
-		return err
+		return engineRefusal(engineRefusalLaunchGuard, err)
 	}
 	defer func() { _ = guard.close() }()
 	proof, err := r.verifyEngineStart(startup, guard)
@@ -112,38 +116,50 @@ func (r *EngineStartupRuntime) EngineExec(ctx context.Context, binding string) e
 
 func (r *EngineStartupRuntime) verifyEngineStart(ctx context.Context, guard *engineStartGuard) (engineStartupProof, error) {
 	if !guard.active() {
-		return engineStartupProof{}, errEngineSource
+		return engineStartupProof{}, engineRefusal(engineRefusalProofGuard, errEngineSource)
 	}
 	permit, err := r.state.ReadEnginePermit(ctx, guard.binding)
-	if err != nil || !permit.AllowsVerification(time.Now().UTC()) || verifyEngineService(ctx, r.home, permit) != nil {
-		return engineStartupProof{}, errEngineSource
+	if err != nil {
+		return engineStartupProof{}, engineRefusal(engineRefusalPermitRead, errEngineSource)
+	}
+	if !permit.AllowsVerification(time.Now().UTC()) {
+		return engineStartupProof{}, engineRefusal(engineRefusalAdmission, errEngineSource)
+	}
+	if verifyEngineService(ctx, r.home, permit) != nil {
+		return engineStartupProof{}, engineRefusal(engineRefusalUnit, errEngineSource)
 	}
 	self, err := engineStarterProcess()
-	if err != nil || r.starterOwned(ctx, permit, self) != nil {
-		return engineStartupProof{}, errEngineSource
+	if err != nil {
+		return engineStartupProof{}, engineRefusal(engineRefusalProcess, errEngineSource)
+	}
+	if r.starterOwned(ctx, permit, self) != nil {
+		return engineStartupProof{}, engineRefusal(engineRefusalManager, errEngineSource)
 	}
 	containers, err := listEngineContainers(ctx, r.session)
-	if err != nil || !engineBindingAbsent(containers, permit) {
-		return engineStartupProof{}, errEngineSource
+	if err != nil {
+		return engineStartupProof{}, engineRefusal(engineRefusalContainers, errEngineSource)
+	}
+	if !engineBindingAbsent(containers, permit) {
+		return engineStartupProof{}, engineRefusal(engineRefusalSourceLive, errEngineSource)
 	}
 	root, err := data.InspectRoot(string(permit.Reserved.Database.Root))
 	if err != nil || permit.Allocation == nil || root.Device != permit.Allocation.RootDevice || root.Inode != permit.Allocation.RootInode {
-		return engineStartupProof{}, errEngineSource
+		return engineStartupProof{}, engineRefusal(engineRefusalAllocation, errEngineSource)
 	}
 	material, err := readEngineMaterial(ctx, r.stateRoot, permit)
 	if err != nil {
-		return engineStartupProof{}, err
+		return engineStartupProof{}, engineRefusal(engineRefusalMaterial, err)
 	}
 	nonce, err := data.NewID()
 	if err != nil {
 		material.clear()
-		return engineStartupProof{}, errEngineSource
+		return engineStartupProof{}, engineRefusal(engineRefusalNonce, errEngineSource)
 	}
 	staging := filepath.Join(r.stateRoot, "engine-verification")
 	copy, err := copyEngineSource(ctx, permit.Reserved.Database, staging, nonce, engineCopyLimits{Bytes: permit.Runtime.CopyBytes, Files: permit.Runtime.CopyFiles, Depth: 64})
 	if err != nil {
 		material.clear()
-		return engineStartupProof{}, err
+		return engineStartupProof{}, engineRefusal(engineRefusalCopy, err)
 	}
 	proof := engineStartupProof{guard: guard, permit: permit, copy: copy, material: material, self: self}
 	if err = r.privateEngineProof(ctx, proof, nonce); err != nil {
@@ -154,7 +170,7 @@ func (r *EngineStartupRuntime) verifyEngineStart(ctx context.Context, guard *eng
 	material.clear()
 	if err = copy.disposeStage(); err != nil {
 		_ = copy.discard()
-		return engineStartupProof{}, errEngineSource
+		return engineStartupProof{}, engineRefusal(engineRefusalStageDisposal, errEngineSource)
 	}
 	return proof, nil
 }
@@ -175,23 +191,26 @@ func (r *EngineStartupRuntime) starterOwned(ctx context.Context, permit store.En
 }
 
 func (r *EngineStartupRuntime) privateEngineProof(ctx context.Context, proof engineStartupProof, nonce string) error {
-	if !proof.guard.active() || !engineModuleHTTPDisabled(proof.copy.root) {
-		return errEngineSource
+	if !proof.guard.active() {
+		return engineRefusal(engineRefusalProofGuard, errEngineSource)
+	}
+	if !engineModuleHTTPDisabled(proof.copy.root) {
+		return engineRefusal(engineRefusalPrivateConfig, errEngineSource)
 	}
 	allocation := proof.permit.Allocation
 	if allocation == nil || proof.copy.original.root.Inode != allocation.DirectoryInode || proof.copy.original.root.Device != allocation.DirectoryDevice {
-		return errEngineSource
+		return engineRefusal(engineRefusalAllocation, errEngineSource)
 	}
 	if err := proof.copy.root.RemoveAll("program-bytes"); err != nil {
-		return errEngineSource
+		return engineRefusal(engineRefusalPrivateBootstrap, errEngineSource)
 	}
 	args, err := privateEngineArguments(proof.permit, proof.material, proof.copy, nonce, "/usr/local/bin/brine")
 	if err != nil {
-		return err
+		return engineRefusal(engineRefusalPrivateArgv, err)
 	}
 	input, err := json.Marshal(engineReplayInput{Runtime: proof.permit.Runtime, Token: string(proof.material.publisher)})
 	if err != nil {
-		return errEngineSource
+		return engineRefusal(engineRefusalPrivateInput, errEngineSource)
 	}
 	defer clear(input)
 	result, runErr := (localexec.ExecRunner{}).Execute(ctx, localexec.Command{Path: "/usr/bin/podman", Args: args, Stdin: input, Timeout: time.Duration(proof.permit.Runtime.StartupSeconds) * time.Second, Mutation: true})
@@ -199,35 +218,64 @@ func (r *EngineStartupRuntime) privateEngineProof(ctx context.Context, proof eng
 	defer cancel()
 	disposeErr := privateEngineDisposed(cleanup, r.session, nonce)
 	if disposeErr != nil {
+		failure := engineRefusal(engineRefusalPrivateDisposal, errEngineSource)
+		r.recordEngineRefusal(proof.permit.Runtime.BindingID, failure)
 		r.retainEngineLifetime(ctx, proof.permit, nil)
-		return errEngineSource
+		return failure
 	}
-	if runErr != nil || result.Truncated {
-		return errEngineSource
+	if runErr != nil {
+		return engineRefusal(enginePrivateRunCode(runErr), errEngineSource)
+	}
+	if result.Truncated {
+		return engineRefusal(engineRefusalPrivateQuota, errEngineSource)
 	}
 	observed, err := decodeEngineReplayObservation([]byte(result.Stdout))
-	if err != nil || !observed.matches(proof.permit.Runtime) {
-		return errEngineSource
+	if err != nil {
+		return engineRefusal(engineRefusalPrivateDecode, errEngineSource)
 	}
-	return proof.copy.sourceUnchanged(ctx)
+	if !observed.matches(proof.permit.Runtime) {
+		return engineRefusal(engineRefusalPrivateMismatch, errEngineSource)
+	}
+	if err = proof.copy.sourceUnchanged(ctx); err != nil {
+		return engineRefusal(engineRefusalSourceChanged, err)
+	}
+	return nil
 }
 
 func (r *EngineStartupRuntime) finalEngineCheck(ctx context.Context, proof engineStartupProof) error {
-	if !proof.guard.active() || proof.copy.sourceUnchanged(ctx) != nil || r.starterOwned(ctx, proof.permit, proof.self) != nil {
-		return errEngineSource
+	if !proof.guard.active() {
+		return engineRefusal(engineRefusalProofGuard, errEngineSource)
+	}
+	if proof.copy.sourceUnchanged(ctx) != nil {
+		return engineRefusal(engineRefusalSourceChanged, errEngineSource)
+	}
+	if r.starterOwned(ctx, proof.permit, proof.self) != nil {
+		return engineRefusal(engineRefusalManager, errEngineSource)
 	}
 	current, err := r.state.ReadEnginePermit(ctx, proof.guard.binding)
-	if err != nil || !current.AllowsVerification(time.Now().UTC()) || !sameEnginePermit(current, proof.permit) || verifyEngineService(ctx, r.home, current) != nil {
-		return errEngineSource
+	if err != nil {
+		return engineRefusal(engineRefusalPermitRead, errEngineSource)
+	}
+	if !current.AllowsVerification(time.Now().UTC()) {
+		return engineRefusal(engineRefusalAdmission, errEngineSource)
+	}
+	if !sameEnginePermit(current, proof.permit) {
+		return engineRefusal(engineRefusalPermitChanged, errEngineSource)
+	}
+	if verifyEngineService(ctx, r.home, current) != nil {
+		return engineRefusal(engineRefusalUnit, errEngineSource)
 	}
 	material, err := readEngineMaterial(ctx, r.stateRoot, current)
 	if err != nil {
-		return err
+		return engineRefusal(engineRefusalMaterial, err)
 	}
 	material.clear()
 	containers, err := listEngineContainers(ctx, r.session)
-	if err != nil || !engineBindingAbsent(containers, current) {
-		return errEngineSource
+	if err != nil {
+		return engineRefusal(engineRefusalContainers, errEngineSource)
+	}
+	if !engineBindingAbsent(containers, current) {
+		return engineRefusal(engineRefusalSourceLive, errEngineSource)
 	}
 	return nil
 }
@@ -237,59 +285,69 @@ func (r *EngineStartupRuntime) launchEngine(ctx, startup context.Context, proof 
 		return err
 	}
 	if err := removeStoppedEngine(startup, r.session, proof.permit); err != nil {
-		return err
+		return engineRefusal(engineRefusalStoppedRemoval, err)
 	}
 	args, err := liveEngineArguments(proof.permit, proof.material)
 	if err != nil {
-		return err
+		return engineRefusal(engineRefusalNativeArguments, err)
 	}
 	command, err := localexec.StartForeground(context.WithoutCancel(ctx), localexec.ForegroundCommand{Path: "/usr/bin/podman", Args: args, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + r.home, "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(os.Geteuid()), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(os.Geteuid()) + "/bus", "LC_ALL=C"}, Dir: r.home})
 	if err != nil {
-		return errEngineSource
+		return engineRefusal(engineRefusalNativeStart, errEngineSource)
 	}
 	exited := command.Done()
 	native, err := r.waitEngineHandoff(startup, proof.permit, proof.material, exited)
 	if err != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
 		_ = command.KillGroup()
+		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeHandoff, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
-		return errEngineSource
+		return failure
 	}
 	defer native.close()
 	if !proof.guard.active() || native.alive() != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
+		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeGuard, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
-		return errEngineSource
+		return failure
 	}
 	if err = proof.guard.launch.Release(); err != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
+		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalGuardRelease, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
-		return errEngineSource
+		return failure
 	}
 	if err = engineReadyNotify(startup); err != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
+		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNotify, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
-		return errEngineSource
+		return failure
 	}
 	select {
 	case err = <-exited:
 	case <-ctx.Done():
 		if err = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit); err != nil {
+			failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeStop, err)
 			r.retainEngineLifetime(ctx, proof.permit, native)
-			return err
+			return failure
 		}
 		select {
 		case err = <-exited:
 		case <-time.After(time.Duration(proof.permit.Runtime.StopSeconds) * time.Second):
+			failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeWait, errEngineSource)
 			r.retainEngineLifetime(ctx, proof.permit, native)
-			return errEngineSource
+			return failure
 		}
 	}
 	if absenceErr := r.liveEngineAbsent(context.WithoutCancel(ctx), proof.permit); absenceErr != nil || !native.exited() {
+		failure := r.retainedEngineRefusal(proof.permit.Runtime.BindingID, engineRefusalNativeAbsence, errEngineSource)
 		r.retainEngineLifetime(ctx, proof.permit, native)
-		return errEngineSource
+		return failure
 	}
-	return err
+	if err != nil {
+		return engineRefusal(engineRefusalNativeExit, err)
+	}
+	return nil
 }
 
 // An unknown stop keeps the foreground supervisor and its lifetime descriptor.
