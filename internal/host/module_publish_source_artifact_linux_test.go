@@ -19,6 +19,9 @@ func checkpointArtifactFixture(t *testing.T) (*os.Root, nativecapture.Checkpoint
 	t.Helper()
 	artifact := publicationArtifactFixture(t)
 	directory := t.TempDir()
+	if err := os.Chmod(directory, 0700); err != nil { //nolint:gosec // Match the owned checkpoint's private root mode.
+		t.Fatal(err)
+	}
 	if err := os.Mkdir(filepath.Join(directory, "program-bytes"), 0700); err != nil {
 		t.Fatal(err)
 	}
