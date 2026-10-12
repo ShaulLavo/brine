@@ -31,6 +31,8 @@ Bare logs contain no replica ID. Logical database names and control aliases are 
 
 `framing` is `complete-v1` for nonempty complete logs. A complete selected snapshot with an empty log suffix reports `snapshot-only-v1`, zero actual `input.commits`, and `committed_offset` equal to the observed snapshot offset. It does not invent a log transaction or a placeholder offset. Missing, torn, corrupt, orphaned or header-only log input cannot select this arm.
 
+Replica selectors require an explicit u64 field and equality with the actual reconstructed snapshot. Zero is valid in the pinned native snapshot format. The standalone allocator normally issues a database ID before its first replica ID, so an ordinary new standalone replica starts above zero. That allocation behavior does not make zero corrupt in a native snapshot. Missing or mismatched selectors still refuse.
+
 ### State hash format
 
 `evidence_algorithm` is `bsatn-row-digest-multiset-blake3-v1`. Each row hash contains the domain `brine-native-row-v1\0`, the encoded byte length as little-endian u64, and the row's ordered native BSATN bytes. The helper counts and measures a row before serialization and stores only its 32-byte digest.
@@ -67,6 +69,8 @@ A global Rust allocator enforces configured allocation ceilings before calling t
 The native reader workflow builds on matching amd64 and arm64 runners with the pinned Rust 1.96.1 Alpine builder. It checks the static ELF target, runs native tests and exercises the contained executable. Artifact bundles retain executable SHA-256, source head, source pins, license and CLI evidence. The main-only publisher uses those tested bytes to publish an immutable GHCR image. An enrolled host needs the verified executable, not Cargo or a compiler.
 
 Published hashes and platform compatibility must come from completed workflow receipts. A workstation glibc build is development evidence only.
+
+Native compilation layers use architecture-specific GHA cache scopes bound to the pinned builder and upstream source. Source and lockfile contents determine layer keys. The separate `native-tests` stage is forced fresh on every workflow run, and both normal and explicit-replica-zero fixtures receive fresh contained CLI checks. Cached layers never replace ELF, checksum, test or publication verification.
 
 ## Coverage limits
 
