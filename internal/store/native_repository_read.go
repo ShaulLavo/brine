@@ -96,14 +96,14 @@ func readNativeRepositoryMaterial(ctx context.Context, q dataQuerier, point rest
 	}
 	d := archive.Destination
 	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
-	policy, _, err := readNativeBackupPolicyScope(ctx, q, binding, archive.EpochID, scope.RepositoryID, scope.CredentialVersion, scope.RecoveryVersion)
-	if err != nil || policy.RepositoryID != scope.RepositoryID || policy.EpochID != archive.EpochID || policy.CredentialVersion != scope.CredentialVersion || policy.RecoveryVersion != scope.RecoveryVersion || policy.CredentialReference != string(d.CredentialRef) || location.SHA256() != scope.DestinationSHA256 {
+	policy, _, err := readNativeBackupPolicyScope(ctx, q, binding, archive.EpochID, scope.RepositoryID, 0, scope.RecoveryVersion)
+	if err != nil || policy.RepositoryID != scope.RepositoryID || policy.EpochID != archive.EpochID || policy.RecoveryVersion != scope.RecoveryVersion || policy.CredentialReference != string(d.CredentialRef) || location.SHA256() != scope.DestinationSHA256 {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
 	var raw []byte
 	err = q.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE id=? AND kind='receipt'", policy.CredentialReceiptID).Scan(&raw)
 	var credential CredentialRecord
-	if err != nil || json.Unmarshal(raw, &credential) != nil || credential.BindingID != binding || credential.EpochID != archive.EpochID || credential.CredentialRef != policy.CredentialReference || credential.Version != scope.CredentialVersion || credential.ReceivedAt.IsZero() {
+	if err != nil || json.Unmarshal(raw, &credential) != nil || credential.BindingID != binding || credential.EpochID != archive.EpochID || credential.CredentialRef != policy.CredentialReference || credential.Version != policy.CredentialVersion || credential.ReceivedAt.IsZero() {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
 	credentialCanonical, marshalErr := json.Marshal(credential)
@@ -126,6 +126,7 @@ func readNativeRepositoryMaterial(ctx context.Context, q dataQuerier, point rest
 	if err := checkNativeMaterialOperation(ctx, q, recovery.OperationID, ops.NativeRecoverySet); err != nil {
 		return NativeRepositoryMaterial{}, err
 	}
+	scope.CredentialVersion = policy.CredentialVersion
 	scope.ExpiresAt = time.Now().UTC().Add(10 * time.Minute)
 	if credential.ExpiresAt != nil && scope.ExpiresAt.After(*credential.ExpiresAt) {
 		scope.ExpiresAt = *credential.ExpiresAt
@@ -150,11 +151,18 @@ func (r *NativeRepositoryRead) AdmitRepository(ctx context.Context, scope restic
 }
 
 func checkNativeMaterialOperation(ctx context.Context, q dataQuerier, id string, kind ops.Kind) error {
-	var actual ops.Kind
-	var state ops.State
-	err := q.QueryRowContext(ctx, "SELECT kind,state FROM operations WHERE id=?", id).Scan(&actual, &state)
-	if err != nil || actual != kind || state != ops.Succeeded {
+	op, err := scanOperation(q.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
+	if err != nil || op.Kind != kind || op.State != ops.Succeeded {
 		return errors.Join(ErrConflict, err)
+	}
+	var raw []byte
+	err = q.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", id).Scan(&raw)
+	if err != nil {
+		return errors.Join(ErrConflict, err)
+	}
+	outcome, err := ops.DecodeTaskOutcome(op, raw)
+	if err != nil || len(outcome.Receipt) == 0 {
+		return errors.Join(&IntegrityError{}, err)
 	}
 	return nil
 }

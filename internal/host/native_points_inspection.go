@@ -26,14 +26,14 @@ func (r nativePointInspection) InspectNativePoint(ctx context.Context, args disp
 		if err != nil {
 			return nativecapture.PointInspection{}, nativePointInspectionError(err)
 		}
-		return nativecapture.PointInspection{Kind: args.Kind, PointID: point.PointID, PointSHA256: point.PointSHA256, OperationID: point.OperationID, BindingID: string(point.BindingID), EpochID: string(point.EpochID), CheckpointSHA256: point.CheckpointSHA256, SourceSHA256: point.SourceSHA256, ObservedAt: point.VerifiedAt, RetainUntil: point.RetainUntil, Admission: "unavailable"}, nil
+		return nativecapture.PointInspection{Kind: args.Kind, PointID: point.PointID, PointSHA256: point.PointSHA256, OperationID: point.OperationID, BindingID: string(point.BindingID), EpochID: string(point.EpochID), CheckpointSHA256: point.CheckpointSHA256, SourceSHA256: point.SourceSHA256, ObservedAt: point.VerifiedAt, RetainUntil: point.RetainUntil, Admission: "reference_only"}, nil
 	}
 	point, err := state.ReadNativePreparedPoint(ctx, args.PointID)
 	if err != nil {
 		return nativecapture.PointInspection{}, nativePointInspectionError(err)
 	}
 	expires := point.ExpiresAt
-	return nativecapture.PointInspection{Kind: args.Kind, PointID: point.PointID, PointSHA256: point.PointSHA256, OperationID: point.PreparationOperationID, BindingID: string(point.BindingID), EpochID: string(point.EpochID), CheckpointSHA256: point.CheckpointSHA256, SourceSHA256: point.SourceSHA256, ObservedAt: point.PreparedAt, ExpiresAt: &expires, RetainUntil: point.RetainUntil, Admission: "unavailable"}, nil
+	return nativecapture.PointInspection{Kind: args.Kind, PointID: point.PointID, PointSHA256: point.PointSHA256, OperationID: point.PreparationOperationID, BindingID: string(point.BindingID), EpochID: string(point.EpochID), CheckpointSHA256: point.CheckpointSHA256, SourceSHA256: point.SourceSHA256, ObservedAt: point.PreparedAt, ExpiresAt: &expires, RetainUntil: point.RetainUntil, Admission: "reference_only"}, nil
 }
 
 func nativePointInspectionError(err error) error {

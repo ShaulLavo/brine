@@ -275,7 +275,11 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err != nil {
 		return nil, err
 	}
-	return json.Marshal(nativecapture.TaskReceipt{Kind: string(ops.NativeCapture), OperationID: op.ID, BindingID: string(point.BindingID), EpochID: string(point.EpochID), PointID: point.PointID, PointSHA256: point.PointSHA256, Outcome: "verified"})
+	backup, err := service.Store.ReadNativeBackupPolicy(ctx, point.BindingID)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(nativecapture.TaskReceipt{Kind: string(ops.NativeCapture), OperationID: op.ID, BindingID: string(point.BindingID), EpochID: string(point.EpochID), PointID: point.PointID, PointSHA256: point.PointSHA256, Outcome: "verified", Engine: "spacetimedb", ModuleSHA256: string(permit.Runtime.Module.Wasm), SchemaSHA256: permit.Runtime.Module.Schema.SHA256, CaptureIntervalSeconds: backup.Backup.CaptureIntervalSeconds, Loss: "unknown"})
 }
 func nativeCaptureLiveHandle(containers []engineContainer, permit store.EnginePermit, stateRoot string) (*engineNativeHandle, error) {
 	var selected *engineContainer

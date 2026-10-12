@@ -30,7 +30,7 @@ func newNativePointCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if modes.enabled() {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), point))
 		}
-		_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s native point %s in epoch %s. Native backup and data effects are unavailable.\n", point.Kind, point.PointID, point.EpochID)
+		_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s native point %s in epoch %s. This reference grants no effect authority.\n", point.Kind, point.PointID, point.EpochID)
 		return err
 	}}
 	cmd.Flags().StringVar(&kind, "kind", "verified", "Point reference kind: verified or prepared")

@@ -54,7 +54,11 @@ func nativeHistoricalRestoreTask(service Service, runtime nativeBackupRuntime) j
 		if err != nil || current.Point.PointSHA256 != bundle.Point.PointSHA256 {
 			return nil, result.New(result.PolicyRefused, nil)
 		}
-		return json.Marshal(nativecapture.TaskReceipt{Kind: string(ops.NativeRestoreTest), OperationID: op.ID, BindingID: string(bundle.Point.BindingID), EpochID: string(bundle.Point.EpochID), PointID: bundle.Point.PointID, PointSHA256: bundle.Point.PointSHA256, Outcome: "verified"})
+		backup, err := service.Store.ReadNativeBackupPolicy(ctx, bundle.Point.BindingID)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(nativecapture.TaskReceipt{Kind: string(ops.NativeRestoreTest), OperationID: op.ID, BindingID: string(bundle.Point.BindingID), EpochID: string(bundle.Point.EpochID), PointID: bundle.Point.PointID, PointSHA256: bundle.Point.PointSHA256, Outcome: "verified", Engine: "spacetimedb", ModuleSHA256: bundle.Checkpoint.Record().ArtifactSHA256, SchemaSHA256: bundle.Checkpoint.Record().SchemaSHA256, CaptureIntervalSeconds: backup.Backup.CaptureIntervalSeconds, Loss: "unknown"})
 	}
 }
 

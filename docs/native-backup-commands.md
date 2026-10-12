@@ -62,8 +62,12 @@ brine status --operation OPERATION_ID --target TARGET --json
 
 Use `--json` or `--jsonl` for the existing machine envelope. The successful native
 receipt has `kind`, `operation_id`, `binding_id`, `epoch_id`, `point_id`,
-`point_sha256` and `outcome: "verified"`. It exposes protected references,
-not source files or secret material. Human exact-preparation output states that
+`point_sha256`, `outcome: "verified"`, `engine`, `module_sha256`,
+`schema_sha256`, `capture_interval_seconds`, `maintenance_millis` and `loss`.
+Capture and restore-test report zero maintenance; exact preparation reports
+its measured operation interval. Unpublished preparation has empty module and
+schema hashes. Loss remains `unknown`. The receipt exposes protected references
+and observed facts, not source files or secret material. Human exact-preparation output states that
 the data fence remains held.
 
 ## Keep the request identity
