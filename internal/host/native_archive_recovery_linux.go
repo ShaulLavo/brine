@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/archive"
-	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"golang.org/x/sys/unix"
