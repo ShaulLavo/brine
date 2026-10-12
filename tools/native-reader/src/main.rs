@@ -254,7 +254,7 @@ fn contained() -> Result<()> {
             return Err(Refusal::Containment);
         }
         let point = fields[4];
-        if !allowed_mount(point) {
+        if !allowed_mount(point) && !readonly_empty_runtime_mask(point, fields[5], &fields) {
             return Err(Refusal::Containment);
         }
         if point == "/" {
@@ -309,6 +309,35 @@ fn allowed_mount(point: &str) -> bool {
         || point.starts_with("/proc/")
         || point == "/dev"
         || point.starts_with("/dev/")
+}
+
+fn runtime_mask_path(point: &str) -> bool {
+    if matches!(point, "/sys/firmware" | "/sys/devices/virtual/powercap") {
+        return true;
+    }
+    let Some(value) = point.strip_prefix("/sys/devices/system/cpu/cpu") else {
+        return false;
+    };
+    let Some(cpu) = value.strip_suffix("/thermal_throttle") else {
+        return false;
+    };
+    !cpu.is_empty() && cpu.len() <= 4 && cpu.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn readonly_empty_runtime_mask(point: &str, options: &str, fields: &[&str]) -> bool {
+    if !runtime_mask_path(point) || !options.split(',').any(|option| option == "ro") {
+        return false;
+    }
+    let Some(separator) = fields.iter().position(|field| *field == "-") else {
+        return false;
+    };
+    if fields.get(separator + 1) != Some(&"tmpfs") {
+        return false;
+    }
+    let Ok(mut entries) = std::fs::read_dir(point) else {
+        return false;
+    };
+    entries.next().is_none()
 }
 
 fn bounded_text(path: &str, maximum: u64) -> Result<String> {
