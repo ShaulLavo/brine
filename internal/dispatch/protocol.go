@@ -265,7 +265,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	var value any
 	switch args := args.(type) {
 	case ModulePlanArgs, ModuleApplyArgs, ModuleInspectArgs, ModuleResolveArgs:
-		publication, err := s.modulePublication(ctx, args)
+		publication, err := s.plannedNativeDataOperation(ctx, args)
 		if err != nil {
 			return fail(result.Classify(err))
 		}
@@ -316,7 +316,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		}
 		value = receipt
 	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs, NativeRetireResolveArgs:
-		value, err = s.nativeRetire(ctx, args)
+		value, err = s.plannedNativeDataOperation(ctx, args)
 		if err != nil {
 			return fail(result.Classify(err))
 		}

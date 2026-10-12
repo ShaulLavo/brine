@@ -3,7 +3,6 @@ package spacetimedb
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -91,10 +90,10 @@ func TestNativePublicationUsesOneFixedPrivateTokenBoundUpdate(t *testing.T) {
 	if _, err = PublishNativeUpdate(context.Background(), endpoint, credential, wasm, &copyOfPreflight); !errors.Is(err, ErrNativePublicationUnknown) || puts.Load() != 1 {
 		t.Fatal("copied native preflight replayed an already consumed update", err)
 	}
-	if _, err = json.Marshal(preflight); err == nil {
+	if _, err = marshalOpaqueNative(preflight); err == nil {
 		t.Fatal("private native token acquired a public JSON representation")
 	}
-	if _, err = json.Marshal(receipt); err == nil {
+	if _, err = marshalOpaqueNative(receipt); err == nil {
 		t.Fatal("private native receipt acquired a public JSON representation")
 	}
 	if strings.Contains(fmt.Sprintf("%v %+v %#v", preflight, preflight, copyOfPreflight), nativeTestMigrationToken) {

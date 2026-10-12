@@ -6,7 +6,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/jobs"
-	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
@@ -61,21 +60,4 @@ func decodeNativeRetireInspect(raw json.RawMessage) (any, error) {
 		return nil, strictjson.ErrObject
 	}
 	return a, nil
-}
-func (s *Server) nativeRetire(ctx context.Context, args any) (any, error) {
-	if s.NativeRetire == nil {
-		return nil, result.New(result.DependencyMissing, nil)
-	}
-	switch a := args.(type) {
-	case NativeRetirePlanArgs:
-		return s.NativeRetire.PlanNativeArchive(ctx, a)
-	case NativeRetireApplyArgs:
-		return s.NativeRetire.RetireNativeArchive(ctx, a)
-	case NativeRetireInspectArgs:
-		return s.NativeRetire.InspectNativeArchive(ctx, a)
-	case NativeRetireResolveArgs:
-		return s.NativeRetire.ResolveNativeArchive(ctx, a)
-	default:
-		return nil, result.New(result.DispatchInvalidRequest, nil)
-	}
 }

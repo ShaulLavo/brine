@@ -22,7 +22,7 @@ func TestOpaqueNativePublicationValuesHidePayloadAndHandleNil(t *testing.T) {
 		}
 	}
 	var preflight *NativePublicationPreflight
-	if raw, err := json.Marshal(preflight); err != nil || string(raw) != "null" {
+	if raw, err := marshalOpaqueNative(preflight); err != nil || string(raw) != "null" {
 		t.Fatal("nil native pointer supplied public fields", err)
 	}
 	if preflight.Automatic() || preflight.MajorUpgrade() || preflight.BreaksClients() || len(preflight.ResponseBytes()) != 0 || len(preflight.TokenBytes()) != 0 {
@@ -32,3 +32,5 @@ func TestOpaqueNativePublicationValuesHidePayloadAndHandleNil(t *testing.T) {
 		t.Fatal("nil opaque value manufactured native provenance")
 	}
 }
+
+func marshalOpaqueNative(value any) ([]byte, error) { return json.Marshal(value) }
