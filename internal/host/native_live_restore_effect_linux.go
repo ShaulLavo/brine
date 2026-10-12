@@ -240,7 +240,7 @@ func (r nativeBackupRuntime) nativeRestoreQuiescent(ctx context.Context, app str
 		return errEngineSource
 	}
 	if recovery.Release.Managed.Frontend != nil || recovery.SourceRelease.Managed.Frontend != nil {
-		stopped, err = host.serviceStopped(ctx, app+".service", true)
+		stopped, err = host.stoppedOrAbsentService(ctx, app+".service")
 		if err != nil || !stopped {
 			return errEngineSource
 		}
