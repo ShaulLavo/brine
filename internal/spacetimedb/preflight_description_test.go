@@ -1,7 +1,6 @@
 package spacetimedb
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -20,7 +19,7 @@ func TestNativePreflightDescriptionIsOwnedSyntaxOnly(t *testing.T) {
 	if string(parsed.TokenBytes()) != token || parsed.ResponseSHA256() != responseSHA {
 		t.Fatal("caller changed retained decoded token")
 	}
-	if _, err = json.Marshal(parsed); err == nil {
+	if _, err = marshalOpaqueNative(parsed); err == nil {
 		t.Fatal("private token description leaked through JSON", err)
 	}
 	if _, err = DescribeNativePreflight(raw); !errors.Is(err, ErrNativePreflight) {

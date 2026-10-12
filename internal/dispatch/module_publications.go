@@ -101,9 +101,18 @@ func decodeModuleResolve(raw json.RawMessage) (any, error) {
 	}
 	return args, nil
 }
-func (s *Server) modulePublication(ctx context.Context, input any) (any, error) {
-	if s.ModulePublications == nil {
-		return nil, result.New(result.DependencyMissing, nil)
+func (s *Server) plannedNativeDataOperation(ctx context.Context, input any) (any, error) {
+	switch input.(type) {
+	case ModulePlanArgs, ModuleApplyArgs, ModuleInspectArgs, ModuleResolveArgs:
+		if s.ModulePublications == nil {
+			return nil, result.New(result.DependencyMissing, nil)
+		}
+	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs, NativeRetireResolveArgs:
+		if s.NativeRetire == nil {
+			return nil, result.New(result.DependencyMissing, nil)
+		}
+	default:
+		return nil, result.New(result.DispatchInvalidRequest, nil)
 	}
 	switch args := input.(type) {
 	case ModulePlanArgs:
@@ -114,6 +123,14 @@ func (s *Server) modulePublication(ctx context.Context, input any) (any, error) 
 		return s.ModulePublications.Inspect(ctx, args)
 	case ModuleResolveArgs:
 		return s.ModulePublications.Resolve(ctx, args)
+	case NativeRetirePlanArgs:
+		return s.NativeRetire.PlanNativeArchive(ctx, args)
+	case NativeRetireApplyArgs:
+		return s.NativeRetire.RetireNativeArchive(ctx, args)
+	case NativeRetireInspectArgs:
+		return s.NativeRetire.InspectNativeArchive(ctx, args)
+	case NativeRetireResolveArgs:
+		return s.NativeRetire.ResolveNativeArchive(ctx, args)
 	default:
 		return nil, result.New(result.DispatchInvalidRequest, nil)
 	}

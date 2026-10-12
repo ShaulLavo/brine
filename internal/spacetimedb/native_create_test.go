@@ -3,7 +3,6 @@ package spacetimedb
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -65,7 +64,7 @@ func TestNativeCreateRetainsActualFixedRequestAndResponse(t *testing.T) {
 	if _, err = PublishNativeCreate(context.Background(), endpoint, credential, copyOfProof, nativeCreationName, wasm); !errors.Is(err, ErrNativePublicationUnknown) || puts.Load() != 1 {
 		t.Fatal("copied verification replayed initial publication", err)
 	}
-	if _, err = json.Marshal(receipt); err == nil || strings.Contains(fmt.Sprintf("%v %+v %#v", receipt, receipt, receipt), credential.bearer) {
+	if _, err = marshalOpaqueNative(receipt); err == nil || strings.Contains(fmt.Sprintf("%v %+v %#v", receipt, receipt, receipt), credential.bearer) {
 		t.Fatal("private initial publication acquired a public representation")
 	}
 	if (NativeCreateReceipt(nil)).BindingSHA256() != "" || (NativeCreateReceipt(nil)).At(endpoint) || (NativeCreateReceipt(nil)).SHA256() != "" {

@@ -12,11 +12,11 @@ import (
 // response. It grants no host, empty-stage, promotion or data authority.
 type NativeCreateReceipt func() nativeCreateReceipt
 
-func (value NativeCreateReceipt) value() nativeCreateReceipt {
-	if value == nil {
+func (r NativeCreateReceipt) value() nativeCreateReceipt {
+	if r == nil {
 		return nativeCreateReceipt{}
 	}
-	return value()
+	return r()
 }
 
 type nativeCreateReceipt struct {

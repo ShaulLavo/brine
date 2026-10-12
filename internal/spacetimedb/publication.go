@@ -131,11 +131,11 @@ func decodeNativePublicationPreflight(raw []byte) (*NativePublicationPreflight, 
 
 type NativePublicationReceipt func() nativePublicationReceipt
 
-func (value NativePublicationReceipt) value() nativePublicationReceipt {
-	if value == nil {
+func (r NativePublicationReceipt) value() nativePublicationReceipt {
+	if r == nil {
 		return nativePublicationReceipt{}
 	}
-	return value()
+	return r()
 }
 
 type nativePublicationReceipt struct {

@@ -6,11 +6,11 @@ import "slices"
 // PublishNativeUpdate and grants no native token or host effect authority.
 type NativePreflightDescription func() nativePreflightDescription
 
-func (value NativePreflightDescription) value() nativePreflightDescription {
-	if value == nil {
+func (d NativePreflightDescription) value() nativePreflightDescription {
+	if d == nil {
 		return nativePreflightDescription{}
 	}
-	return value()
+	return d()
 }
 
 type nativePreflightDescription struct {
