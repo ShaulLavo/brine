@@ -52,3 +52,15 @@ func (e initialPublisherEvidence) provenanceBytes(ctx context.Context) ([]byte, 
 func (initialPublisherEvidence) String() string               { return "[private initial publisher evidence]" }
 func (initialPublisherEvidence) GoString() string             { return "[private initial publisher evidence]" }
 func (initialPublisherEvidence) MarshalJSON() ([]byte, error) { return nil, datapublish.ErrRecord }
+
+func retainNativeInitialOwner(ctx context.Context, evidence initialPublisherEvidence) error {
+	raw, err := evidence.provenanceBytes(ctx)
+	if err != nil {
+		return err
+	}
+	var observed store.NativeInitialOwnerObservation
+	if json.Unmarshal(raw, &observed) != nil || evidence.unchanged(ctx) != nil {
+		return datapublish.ErrRecord
+	}
+	return evidence.source.state.RecordNativeInitialOwner(ctx, evidence.source.stopped, observed)
+}

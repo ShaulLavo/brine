@@ -161,11 +161,15 @@ func checkNativeBackupOnlyPlan(ctx context.Context, q dataQuerier, app string, d
 }
 
 func readNativeBackupPolicy(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID) (NativeBackupPolicy, []byte, error) {
+	return readNativeBackupPolicyScope(ctx, q, binding, "", "", 0, 0)
+}
+
+func readNativeBackupPolicyScope(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID, selectedEpoch data.ReplicaEpochID, repository string, credentialVersion, recoveryVersion uint64) (NativeBackupPolicy, []byte, error) {
 	var value NativeBackupPolicy
 	var revision uint64
 	var epoch data.ReplicaEpochID
 	var raw []byte
-	err := q.QueryRowContext(ctx, "SELECT revision,epoch_id,canonical FROM data_native_backup_policies WHERE binding_id=? ORDER BY revision DESC LIMIT 1", binding).Scan(&revision, &epoch, &raw)
+	err := q.QueryRowContext(ctx, "SELECT revision,epoch_id,canonical FROM data_native_backup_policies WHERE binding_id=? AND (?='' OR epoch_id=?) AND (?='' OR json_extract(canonical,'$.repository_id')=?) AND (?=0 OR json_extract(canonical,'$.credential_version')=?) AND (?=0 OR json_extract(canonical,'$.recovery_version')=?) ORDER BY revision DESC LIMIT 1", binding, selectedEpoch, selectedEpoch, repository, repository, credentialVersion, credentialVersion, recoveryVersion, recoveryVersion).Scan(&revision, &epoch, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return value, nil, ErrNotFound
 	}

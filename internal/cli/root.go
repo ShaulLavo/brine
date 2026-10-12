@@ -59,6 +59,7 @@ type Dependencies struct {
 	HostDataInitialization    dispatch.DataInitializationOperations
 	HostPermits               replication.LaunchReader
 	HostRestoreTests          dispatch.RestoreTestOperations
+	HostNativeBackups         dispatch.NativeBackupOperations
 }
 
 // NewRootCommand builds an independent command tree without executing it.

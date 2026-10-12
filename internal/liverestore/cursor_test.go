@@ -15,7 +15,7 @@ func attemptFixture(t *testing.T) (Plan, Event) {
 		t.Fatal(err)
 	}
 	s := p.Spec()
-	attempt := Attempt{PlanID: p.ID(), OperationID: "restore-apply-operation", ConsumerSHA256: strings.Repeat("d", 64),
+	attempt := Attempt{PlanID: p.ID(), OperationID: "restore-apply-operation", TransitionID: strings.Repeat("e", 32), ConsumerSHA256: strings.Repeat("d", 64),
 		PreparedPointID: s.Safety.PointID, SelectedPointID: s.Selected.PointID, FenceID: s.Safety.FenceID, FenceOwnerOpID: s.Safety.FenceOwnerOpID,
 		BindingID: s.Facts.Head.BindingID, SourceEpochID: s.Facts.Head.EpochID, IncomingEpochID: data.ReplicaEpochID(strings.Repeat("d", 32))}
 	event, err := BeginAttempt(p, attempt)
@@ -23,6 +23,23 @@ func attemptFixture(t *testing.T) (Plan, Event) {
 		t.Fatal(err)
 	}
 	return p, event
+}
+
+func TestLiveRestoreTransitionIDDoesNotReuseTheLongerTaskID(t *testing.T) {
+	p, event := attemptFixture(t)
+	a := event.Attempt()
+	a.OperationID = strings.Repeat("f", 44)
+	if _, err := BeginAttempt(p, a); err != nil {
+		t.Fatal("actual task ID shape refused", err)
+	}
+	a.TransitionID = a.OperationID
+	if _, err := BeginAttempt(p, a); err == nil {
+		t.Fatal("44-character task ID admitted as a32-character transition ID")
+	}
+	a.TransitionID = ""
+	if _, err := BeginAttempt(p, a); err == nil {
+		t.Fatal("missing retained transition identity admitted")
+	}
 }
 
 func TestLiveRestoreCrashBoundariesKeepOriginalPendingAttempt(t *testing.T) {
@@ -33,7 +50,7 @@ func TestLiveRestoreCrashBoundariesKeepOriginalPendingAttempt(t *testing.T) {
 		t.Fatal("claim did not round trip", err)
 	}
 	for _, pair := range []struct{ intent, done Stage }{
-		{RestoreIntent, Restored}, {VerifyIntent, Verified}, {TransitionIntent, Transitioned}, {FinishIntent, Completed},
+		{RestoreIntent, Verified}, {TransitionIntent, Transitioned}, {FinishIntent, Completed},
 	} {
 		previous := event
 		intent, err := RecordIntent(p, event, pair.intent)
@@ -101,7 +118,7 @@ func TestLiveRestoreAbandonmentIsUnavailableAfterMovement(t *testing.T) {
 		t.Fatal("known current-state abandonment refused", err)
 	}
 	for _, pair := range []struct{ intent, done Stage }{
-		{RestoreIntent, Restored}, {VerifyIntent, Verified}, {TransitionIntent, Transitioned},
+		{RestoreIntent, Verified}, {TransitionIntent, Transitioned},
 	} {
 		event, err = RecordIntent(p, event, pair.intent)
 		if err != nil {

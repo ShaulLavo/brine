@@ -12,6 +12,9 @@ type Loss struct {
 
 func deriveLoss(spec PlanSpec) (Loss, error) {
 	s, f := spec.Selected, spec.Facts
+	if !spec.Safety.CommittedOffsetKnown {
+		return Loss{Kind: "unknown", UnknownReason: "current committed offset has not been authenticated"}, nil
+	}
 	if s.EpochID != f.Head.EpochID || s.GenerationID != f.GenerationID {
 		return Loss{Kind: "unknown", UnknownReason: "selected point belongs to another native history"}, nil
 	}

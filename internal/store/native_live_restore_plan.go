@@ -27,8 +27,15 @@ func (s *Store) SaveNativeLiveRestorePlan(ctx context.Context, p liverestore.Pla
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	spec := p.Spec()
-	_, err = tx.ExecContext(ctx, "INSERT INTO data_native_live_restore_plans VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
+	if err = insertNativeLiveRestorePlanTx(ctx, tx, p); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func insertNativeLiveRestorePlanTx(ctx context.Context, tx *sql.Tx, p liverestore.Plan) error {
+	canonical, spec := p.Bytes(), p.Spec()
+	_, err := tx.ExecContext(ctx, "INSERT INTO data_native_live_restore_plans VALUES(?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
 		p.ID(), spec.Facts.Head.BindingID, spec.Safety.PointID, spec.Selected.PointID, canonical)
 	if err != nil {
 		return err
@@ -37,7 +44,7 @@ func (s *Store) SaveNativeLiveRestorePlan(ctx context.Context, p liverestore.Pla
 	if err != nil || !bytes.Equal(retained.Bytes(), canonical) {
 		return errors.Join(&IntegrityError{}, err)
 	}
-	return tx.Commit()
+	return nil
 }
 
 func readNativeLiveRestorePlanTx(ctx context.Context, q dataQuerier, id string) (liverestore.Plan, error) {

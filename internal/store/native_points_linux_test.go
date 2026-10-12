@@ -37,6 +37,11 @@ func nativeForeignRoot(t *testing.T) string {
 
 func dropNativeCaptureMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
+	for _, table := range []string{"data_native_initial_owners", "data_native_prepared_point_bundles", "data_native_recovery_inputs", "data_native_archive_tree_events", "data_native_archive_dependencies", "data_native_archive_trees", "data_native_live_restore_targets", "data_native_live_restore_completion_proofs", "data_native_live_restore_target_proofs", "data_native_live_restore_events", "data_native_live_restore_claims", "data_native_live_restore_plans"} {
+		if _, err := s.db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
+			t.Fatal(err)
+		}
+	}
 	dropManagedAndPublicationMigrationFixture(t, ctx, s)
 	for _, table := range []string{"data_native_repository_leases", "data_native_repository_init_events", "data_native_recovery_retentions", "data_native_recovery_deliveries", "data_native_backup_revision_events", "data_native_backup_revision_claims", "data_native_backup_revision_plans", "data_native_backup_policies", "data_native_capture_events", "data_native_capture_inputs", "data_native_checkpoints", "data_native_repository_results", "data_native_repository_intents", "data_native_verified_point_bundles", "data_native_verified_points", "data_native_point_consumers", "data_native_prepared_points", "data_native_preparation_events", "data_native_preparations", "data_native_task_inputs"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
