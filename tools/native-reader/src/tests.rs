@@ -186,7 +186,7 @@ fn seed_config(snapshot: bool, replica_id: u64, projection: Option<&str>) -> Fix
             db.insert(
                 &mut tx,
                 spacetimedb_datastore::system_tables::ST_MODULE_ID,
-                &row.to_bsatn_vec().unwrap(),
+                &spacetimedb_sats::bsatn::to_vec(&row).unwrap(),
             )
             .unwrap();
         }

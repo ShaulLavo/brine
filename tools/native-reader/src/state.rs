@@ -88,7 +88,8 @@ pub fn discover(
             (store, head.map_or(offset, |head| head.last), Some(database))
         }
     };
-    let history = LocalHistory::open(root.commit_log()).map_err(|_| Refusal::Framing)?;
+    let history = LocalHistory::<spacetimedb_sats::ProductValue, _>::open(root.commit_log())
+        .map_err(|_| Refusal::Framing)?;
     let mut replay = store.replay(|_| {}, ErrorBehavior::FailFast);
     history
         .fold_transactions_from(replay.next_tx_offset(), &mut replay)
@@ -162,7 +163,8 @@ pub fn observe(
         prepared.worker,
         Handle::tokio(runtime.handle().clone()),
     );
-    let history = LocalHistory::open(root.commit_log()).map_err(|_| Refusal::Framing)?;
+    let history = LocalHistory::<spacetimedb_sats::ProductValue, _>::open(root.commit_log())
+        .map_err(|_| Refusal::Framing)?;
     let (db, clients) = RelationalDB::open(database, owner, history, Some(persistence), None, pool)
         .map_err(|_| Refusal::Identity)?;
     if let Some(proof) = prepared.proof {
