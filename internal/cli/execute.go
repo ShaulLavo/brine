@@ -46,6 +46,15 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 	if lifecycle.OpenEngineStartup != nil {
 		deps.HostEngineExec = lazyEngineStartup{&runtime}.EngineExec
 	}
+	foregroundCompleted := false
+	if deps.HostEngineExec != nil {
+		execute := deps.HostEngineExec
+		deps.HostEngineExec = func(ctx context.Context, binding string) error {
+			err := execute(ctx, binding)
+			foregroundCompleted = err == nil
+			return err
+		}
+	}
 	// Forced-command requests cannot select presentation or options through argv.
 	if HostServeRequested(args) {
 		return executeHostServeFinalized(deps, func(err error) error { return runtime.finalize(deps, err) })
@@ -81,7 +90,7 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 			err = result.New(result.InvalidUsage, err)
 		}
 	}
-	if err == nil && deps.Context.Err() != nil && name != "brine host engine-exec" {
+	if err == nil && deps.Context.Err() != nil && !foregroundCompleted {
 		err = deps.Context.Err()
 	}
 	// Local recovery emits an envelope even without a presentation flag.
