@@ -41,3 +41,25 @@ func TestModuleDescriptorCannotAcceptCallerPathsOrFlags(t *testing.T) {
 		_ = Execute(deps, args)
 	}
 }
+
+func TestModuleDescriptorProfileHasOnlyItsReadOnlyDiagnosticPurpose(t *testing.T) {
+	var output bytes.Buffer
+	input := strings.NewReader("must not be read")
+	deps := Dependencies{Context: context.Background(), Stdin: input, Stdout: &output, Stderr: &bytes.Buffer{}, HostModuleDescribeProfile: func(_ context.Context, reader io.Reader, writer io.Writer) error {
+		if reader != input {
+			t.Fatal("diagnostic input resource changed")
+		}
+		_, err := io.WriteString(writer, `{"purpose":"module_descriptor_profile_diagnostic","authority":false}`)
+		return err
+	}}
+	lifecycle := RuntimeLifecycle{Open: func(context.Context, bool) (RuntimeServices, error) {
+		t.Fatal("profile inspection opened deployment runtime")
+		return RuntimeServices{}, nil
+	}, OpenEngineStartup: func(context.Context) (RuntimeServices, error) {
+		t.Fatal("profile inspection opened original engine runtime")
+		return RuntimeServices{}, nil
+	}}
+	if err := ExecuteWithRuntime(deps, []string{"host", "module-describe-profile"}, lifecycle); err != nil || !strings.Contains(output.String(), `"authority":false`) {
+		t.Fatal("fixed profile diagnostic failed", err)
+	}
+}
