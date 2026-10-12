@@ -80,7 +80,29 @@ func bindEngineNative(container engineContainer, permit store.EnginePermit, mate
 		handle.close()
 		return nil, errEngineSource
 	}
+	if !engineAllocatedSource(permit) {
+		handle.close()
+		return nil, errEngineSource
+	}
 	return handle, nil
+}
+
+func engineAllocatedSource(permit store.EnginePermit) bool {
+	if permit.Allocation == nil {
+		return false
+	}
+	root, err := engineOpenRoot(permit.Reserved.Database.SourcePath())
+	if err != nil {
+		return false
+	}
+	defer func() { _ = root.Close() }()
+	file, err := root.Open(".")
+	if err != nil {
+		return false
+	}
+	defer func() { _ = file.Close() }()
+	member, err := engineMember(file, ".")
+	return err == nil && member.Device == permit.Allocation.DirectoryDevice && member.Inode == permit.Allocation.DirectoryInode
 }
 
 func (h *engineNativeHandle) close() { _ = unix.Close(h.fd) }

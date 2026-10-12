@@ -255,7 +255,7 @@ func (r *EngineStartupRuntime) launchEngine(ctx, startup context.Context, proof 
 		return errEngineSource
 	}
 	defer native.close()
-	if native.alive() != nil {
+	if !proof.guard.active() || native.alive() != nil {
 		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
 		r.retainEngineLifetime(ctx, proof.permit, native)
 		return errEngineSource

@@ -389,3 +389,35 @@ func TestEnginePrivateMountContainmentRejectsExtraAndWritableKey(t *testing.T) {
 		}
 	}
 }
+
+func TestEngineHandoffStillBindsAllocatedDirectory(t *testing.T) {
+	permit, _ := engineStartupFixture(t)
+	root, err := engineOpenRoot(permit.Reserved.Database.SourcePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, err := root.Open(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := engineMember(file, ".")
+	_ = file.Close()
+	_ = root.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	permit.Allocation = &data.AllocationReceipt{DirectoryDevice: member.Device, DirectoryInode: member.Inode}
+	if !engineAllocatedSource(permit) {
+		t.Fatal("exact allocated source refused")
+	}
+	path := permit.Reserved.Database.SourcePath()
+	if err = os.Rename(path, path+"-preserved"); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Mkdir(path, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if engineAllocatedSource(permit) {
+		t.Fatal("replacement source inode earned live handoff")
+	}
+}
