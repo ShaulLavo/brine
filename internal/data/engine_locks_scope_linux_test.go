@@ -18,13 +18,13 @@ func TestEngineLocksRequireCurrentRootInodeAndHeldDescriptor(t *testing.T) {
 
 func checkEngineLockScope(t *testing.T, role string) {
 	t.Helper()
-	root, foreign := t.TempDir(), t.TempDir()
+	root, foreign := filepath.Join(t.TempDir(), "state"), filepath.Join(t.TempDir(), "state")
 	binding := ReplicaBindingID(strings.Repeat("a", 32))
 	ctx := context.Background()
-	if err := os.Chmod(root, 0700); err != nil {
+	if err := os.Mkdir(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(foreign, 0700); err != nil {
+	if err := os.Mkdir(foreign, 0700); err != nil {
 		t.Fatal(err)
 	}
 	if err := PrepareEngineLocks(ctx, root, binding); err != nil {

@@ -18,6 +18,34 @@ change an already hashed managed plan.
 These checks do not complete T37 or verify physical routing, startup, publishing,
 backup, fence handoff or reboot.
 
+## Managed ingress logging admission (P09-04)
+
+Pure checks use actual pinned adapted fixtures and refuse implicit default
+logging, unsafe error/access/proxy shadow outputs, dynamic logger names, query
+filters, extra-field appenders on matching routes, unknown encoder/wrapper/filter
+options, credential logging, handler tracing, malformed/duplicate JSON and absent
+managed host identity. Route checks cover primary routes, server error routes,
+named routes and nested subroute error containers. Unknown server fields,
+route-field aliases and null named routes refuse. Namespace
+tests cover longest include/exclude precedence, module-wide exclusion, host
+casing, wildcard mappings and protected default fallbacks despite access skips.
+
+With `BRINE_TEST_CADDY` selecting local Caddy 2.10.2,
+`TestManagedLoggingAdmissionAndLogsWithPinnedCaddy` compares the helper's
+decision with actual error/access/debug logs. Synthetic query and bearer
+sentinels cover allowed subscriptions, encoded token keys, denied escaped paths,
+malformed queries and malformed authority targets. Global and site full-field
+deletion and explicit discard must admit without sentinel exposure. Site-only
+deletion, query-only filtering, unsafe error/access/reverse-proxy shadows and
+extra fields copying the original URI or query token in primary and error routes
+must refuse and demonstrate the query leak.
+`TestManagedLoggingNamedRouteWithPinnedCaddy` proves an invoked named route's URI
+copy also refuses while actual logs expose the synthetic token. Unrelated
+primary host-route appenders remain allowed. Bearer header values stay redacted.
+All subprocesses and loopback sockets are closed. The helper does not mutate
+protected operator configuration. These local probes do not prove native JWT,
+WebSocket subscription, physical-host logging or managed deployment admission.
+
 | ID | Scenario | Required evidence | Phase |
 | --- | --- | --- | --- |
 | T01 | Human and JSON version/doctor output | Valid schema, no ANSI or prompts in machine output | 00 |

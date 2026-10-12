@@ -88,7 +88,7 @@ func TestTransitionRecordsOwnBytesAndSeparatePurpose(t *testing.T) {
 func TestUnpublishedIsExplicitAndNeverARestoreBase(t *testing.T) {
 	common := transitionCommonFixture(t)
 	base, err := UnpublishedEngineBase(EngineUnpublishedBase{
-		BindingID: common.Scope.BindingID, EpochID: common.Base.epoch(),
+		Head:       common.Base.Head(),
 		Allocation: transitionEvidence(common.Scope, common.Base.epoch(), EngineAllocationEvidence, 10),
 	})
 	if err != nil {
