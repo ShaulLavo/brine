@@ -68,6 +68,31 @@ exclude query tokens. Public client routes must deny native management, arbitrar
 SQL and publication access. Keep the publisher token out of browser assets and
 browser input.
 
+### Admit protected workspace observation
+
+Workspace teardown must prove that no process retains the private restore
+directory or its members. Systemd can keep descriptors through FDSTORE after
+the sender exits, so a manager role or stopped sender is insufficient.
+
+The observer requires the separate protected file
+`/etc/ssh/brine/workspace-observer.toml` with an explicit operator grant:
+
+```toml
+allow_workspace_observation = true
+```
+
+The default is false. Missing, omitted or false permission denies observation.
+This file does not alter the deployment operator-policy hash. Scope comes from
+the current protected policy's persistent roots and the enrolled runner identity.
+The private root service observes one actual runner-owned restore-directory
+descriptor; callers cannot supply a path, PID, command or absence proof. It has
+no signal, execution or deletion action.
+
+If the service is unavailable, a consumer remains or observation is unknown,
+retain the workspace and report recovery-required. Observation does not release
+a data fence. Source review and actual FDSTORE busy/closed qualification remain
+required before the physical drill can rely on this prerequisite.
+
 ## Allocate and deliver material
 
 Save the original connected preparation plan and apply it once:
@@ -284,11 +309,61 @@ brine archive native resolve ORIGINAL_OPERATION_ID --target TARGET --json
 ```
 
 Uncertain preparation without a manifest requires operator inspection with the
-original fence held. Archive credential renewal, retention verification and local
-expiry/purge currently have host-local implementation helpers, but no public
-restricted target command. Do not substitute raw host commands. This command
-boundary remains a P09-07/P09-09 blocker. Remote epochs and keys remain retained;
-local deletion never grants remote deletion authority.
+original fence held. Inspect retained credential and verification health:
+
+```sh
+brine archive status ARCHIVE_ID --target TARGET --json
+```
+
+To renew externally issued credentials, select the original archived binding
+and epoch, not a recreated app name:
+
+```sh
+brine archive credentials plan ARCHIVE_ID --binding BINDING_ID --epoch EPOCH_ID \
+	--expires-at ISSUER_EXPIRY --target TARGET --json
+brine archive credentials set ARCHIVE_ID --binding BINDING_ID --epoch EPOCH_ID \
+	--plan ARCHIVE_CREDENTIAL_PLAN_ID --target TARGET --json < private-credentials.json
+```
+
+Use the bounded private S3 packet and matching issuer expiry described above.
+Renewal activates no replica or engine and does not extend the original deadline.
+Run fresh remote retention verification under that retained scope:
+
+```sh
+brine archive maintain plan ARCHIVE_ID --kind verify_retention --target TARGET --json
+brine archive maintain apply ARCHIVE_ID --plan RETENTION_PLAN_ID --target TARGET --json
+```
+
+Require a matching receipt with `outcome: "verified"`, `evidence_sha256` and
+`completed_at`. Status preserves the last verification time without probing the
+provider. Failed verification does not refresh it.
+
+After the original thirty-day deadline, review local expiry:
+
+```sh
+brine archive maintain plan ARCHIVE_ID --kind expire_archive --target TARGET --json
+brine archive maintain apply ARCHIVE_ID --plan EXPIRY_PLAN_ID --target TARGET --json
+```
+
+Deliberate early local deletion instead requires `--kind purge_archive`, the
+separate `allow_archive_purge=true` operator grant and fresh independent retention
+proof. Review and execution recheck those conditions. Require `local_deleted`;
+remote epochs and keys remain retained. Neither operation deletes provider objects.
+
+For an interrupted journaled local deletion, resolve its original operation:
+
+```sh
+brine archive maintain resolve ORIGINAL_OPERATION_ID --target TARGET --json
+```
+
+The resolver derives the exact archive and plan from that operation. It adopts
+known original effects and finishes only that admitted deletion scope. It keeps
+the original outcome unchanged and returns its own matching receipt.
+Do not supply a replacement plan or use native
+retirement resolution for maintenance. Apply and resolve support
+`--idempotency-key` and `--no-wait`; acceptance still requires later status.
+Physical renewal, retention, purge/expiry and interruption acceptance remains
+pending.
 
 ## Finish the drill and requalify upgrades
 

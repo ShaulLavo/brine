@@ -1278,12 +1278,36 @@ Retained maintenance plans bind the original archive plan, immutable retirement 
 
 Renewable archive credentials have a distinct archive/binding/epoch scope and immutable private namespace, never an app-name or current-replica lookup. Their metadata records original destination/credential references, current authorization, version, received time and supplied expiry without secret values. The archive delivery service has no replica activation interface; it does not pretend a retained binding is unfenced. Unknown delivery adopts only exact sealed plan/scope metadata and identical private environment bytes. An environment without its receipt remains a reserved, unusable version. Renewal does not extend the original retirement deadline. Fresh retention verification must independently restore the original remote source and bound proof validity by the original deadline, credential lifetime and current protected destination-retention evidence. Failed checks preserve the timestamp of the previous proof rather than relabeling it fresh.
 
-The enrolled local runtime connects these services through machine-envelope host commands:
+The restricted enrolled dispatcher exposes the same services through public
+target commands:
 
-- `brine host archive-maintain ARCHIVE_ID --plan --kind verify_retention|purge_archive|expire_archive` records a reviewed plan without provider or deletion effects. Apply with `brine host archive-maintain ARCHIVE_ID --plan-id PLAN_ID`; another archive ID cannot select that plan.
-- `brine host archive-credentials ARCHIVE_ID BINDING_ID EPOCH_ID --plan [--expires-at UTC_TIME]` reviews renewal. Deliver the bounded private JSON packet on stdin with the same IDs and `--plan-id PLAN_ID`; no secrets are command arguments or output.
-- `brine host archive-status ARCHIVE_ID` reports unverified, verified, degraded, expired, deletion_pending or local_deleted and preserves the last verification timestamp. It never probes the provider or refreshes proof age. Missing/expired credentials, unknown current destination retention and stale verification are not reported healthy.
-- `brine host archive-purge-reconcile ARCHIVE_ID` inspects/adopts only an already journaled deletion, never deriving authority from a reviewed plan or missing path alone.
+- `brine archive maintain plan ARCHIVE_ID --kind KIND --target NAME` records
+  reviewed `verify_retention`, `purge_archive` or `expire_archive` intent without
+  provider or deletion effects. `maintain apply ARCHIVE_ID --plan PLAN_ID`
+  submits the exact plan; another archive ID cannot select it.
+- `brine archive credentials plan ARCHIVE_ID --binding BINDING_ID --epoch EPOCH_ID
+  --target NAME` reviews renewal with optional `--expires-at UTC_TIME`.
+  `credentials set` takes the same archive/binding/epoch selectors and
+  `--plan PLAN_ID`, with bounded private JSON on stdin. No replica activates and
+  no secret enters argv or output.
+- `brine archive status ARCHIVE_ID --target NAME` reports unverified, verified,
+  degraded, expired, deletion_pending or local_deleted and preserves the last
+  verification timestamp. It never probes the provider or refreshes proof age.
+  Missing/expired credentials, unknown current destination retention and stale
+  verification are not healthy.
+- `brine archive maintain resolve OPERATION_ID --target NAME` derives the exact
+  original archive and plan from the retained maintenance operation. It
+  inspects an already-journaled unknown local deletion, adopts known effects and
+  completes only its admitted original scope. The original operation outcome
+  stays unchanged. A reviewed plan or missing path alone supplies no deletion
+  authority.
+
+Maintenance apply and resolve use detached jobs with saved idempotency keys and
+operation IDs. `--no-wait` returns acceptance only. A terminal receipt binds
+`kind`, `operation_id`, `original_operation_id`, `plan_id`, `archive_id`,
+`maintenance_kind`, `outcome`, `evidence_sha256` and `completed_at`.
+Verification reports `verified`; purge/expiry report `local_deleted`.
+Native retirement keeps its separate `archive native inspect`/`resolve` flow.
 
 Maintenance admits the original prepared root, exact original held fence and current destination/target policy, checks the original replica managers and both source/archive mounts, and ignores a fresh unrelated app-name writer. Initialized verification independently restores the original source into a private isolated workspace. Original exact-version credentials remain usable until renewed; archive renewals select only their exact sealed original scope. Physical/provider acceptance remains required; P04-08 and T22 remain unchecked.
 
