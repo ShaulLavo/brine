@@ -3,8 +3,6 @@ package spacetimedb
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -12,11 +10,9 @@ import (
 	"net/url"
 	"slices"
 	"sync/atomic"
-	"time"
 )
 
 const NativePublicationResponseLimit = 64 << 10
-const nativePublicationWait = 15 * time.Second
 
 var ErrNativePreflight = errors.New("private native publication preflight refused")
 var ErrNativePublicationRefused = errors.New("private native publication refused before effect")
@@ -52,11 +48,6 @@ func (NativePublicationPreflight) String() string         { return "[private nat
 func (NativePublicationPreflight) GoString() string       { return "[private native publication preflight]" }
 func (NativePublicationPreflight) MarshalJSON() ([]byte, error) {
 	return nil, ErrPrivateCredential
-}
-
-func publicationBytesSHA256(raw []byte) string {
-	hash := sha256.Sum256(raw)
-	return hex.EncodeToString(hash[:])
 }
 
 // PreflightNativePublication uses only the private loopback endpoint and fixed
