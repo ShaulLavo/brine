@@ -13,6 +13,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
+	"github.com/ShaulLavo/brine/internal/nativematerial"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
@@ -84,6 +85,12 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
+		case "native_material_set", "native_material_status":
+			receipt, err := nativematerial.DecodeReceipt(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = receipt
 		case "native_point":
 			point, err := nativecapture.DecodePointInspection(fields["data"])
 			if err != nil {

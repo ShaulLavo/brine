@@ -178,6 +178,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	r.Runner.TaskHandlers[ops.NativeLiveRestore] = nativeRestore.task
 	r.Runner.TaskHandlers[ops.NativeLiveRestoreResolve] = nativeRestore.resolveTask
 	r.NativeRecovery = nativeRecoveryOperations{service: service, jobs: taskJobs}
+	r.NativeMaterial = nativeMaterialOperations{service: service}
 	r.Runner.TaskHandlers[ops.NativeRecoverySet] = nativeRecoveryTask(service)
 	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{}, engine.Routes.(apply.RemovalRoutes), units)
 	nativeRetire := nativeRetireOperations{workflow: r.Archives, jobs: taskJobs, state: state}
