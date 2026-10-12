@@ -9,7 +9,7 @@ import (
 
 // ClaimPublicationIncomingRepository opens the already reserved fresh prefix
 // only after real publication, passive validation and helper disposal. The
-// returned17 lease journals exactly one initialization; unknown results are
+// returned lease journals exactly one initialization; unknown results are
 // inspected through that lease and cannot reissue repository creation.
 func (s *Store) ClaimPublicationIncomingRepository(ctx context.Context, attempt *PublicationAttempt) (*NativeIncomingRepository, error) {
 	if !attempt.active(s) || attempt.restored.unchanged(ctx) != nil {

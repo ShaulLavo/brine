@@ -26,7 +26,7 @@ type publicationTargetIntent struct {
 }
 
 // PublicationTargetPreparation owns a fixed target location under the actual
-// binding root. Its24 intent is retained before creating that location.
+// binding root. Its intent is retained before creating that location.
 type PublicationTargetPreparation struct {
 	state     *Store
 	attempt   *PublicationAttempt
