@@ -28,6 +28,9 @@ func publicationCheckpointFixture(t *testing.T) (*os.Root, nativecapture.Checkpo
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
+	if err = root.Chmod(".", 0700); err != nil {
+		t.Fatal(err)
+	}
 	hash := sha256.Sum256(config)
 	configuration := hex.EncodeToString(hash[:])
 	digest := strings.Repeat("1", 64)
