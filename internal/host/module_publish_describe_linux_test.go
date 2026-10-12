@@ -158,15 +158,20 @@ func TestModuleDescriptorNativeFailuresHaveClosedCodes(t *testing.T) {
 	}
 	for _, value := range cases {
 		t.Run(value.code, func(t *testing.T) {
-			_, err := extractModuleDescriptor(context.Background(), &descriptorTestRunner{err: value.err, output: localexec.Output{Stdout: value.output}})
-			var failure *moduleDescriptorFailure
-			if !errors.Is(err, datapublish.ErrRecord) || !errors.As(err, &failure) || failure.stage != value.code || strings.Contains(err.Error(), "private process diagnostic") {
-				t.Fatal("native failure escaped closed classification", err)
-			}
+			testModuleDescriptorNativeFailure(t, value.err, value.output, value.code)
 		})
 	}
 	for _, mode := range []string{"exit", "arguments", "signal"} {
 		t.Run(mode, func(t *testing.T) { testModuleDescriptorNativeExit(t, mode) })
+	}
+}
+
+func testModuleDescriptorNativeFailure(t *testing.T, cause error, output []byte, code string) {
+	t.Helper()
+	_, err := extractModuleDescriptor(context.Background(), &descriptorTestRunner{err: cause, output: localexec.Output{Stdout: output}})
+	var failure *moduleDescriptorFailure
+	if !errors.Is(err, datapublish.ErrRecord) || !errors.As(err, &failure) || failure.stage != code || strings.Contains(err.Error(), "private process diagnostic") {
+		t.Fatal("native failure escaped closed classification", err)
 	}
 }
 
