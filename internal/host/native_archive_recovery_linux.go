@@ -15,22 +15,21 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/archive"
-	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"golang.org/x/sys/unix"
 )
 
 type nativeArchiveRuntimeState struct {
-	release         ops.Release
+	units           nativeArchiveUnitFacts
 	enginePresent   bool
 	frontendPresent bool
 }
 
 func (h archiveHost) nativeArchiveRecoveryRuntime(ctx context.Context, p archive.Plan) (nativeArchiveRuntimeState, error) {
 	var zero nativeArchiveRuntimeState
-	release, err := h.service.Store.CurrentRelease(ctx, p.Candidate.App)
+	facts, err := h.nativeArchiveOwnedUnits(ctx, p.Candidate)
 	d, _ := p.Candidate.Databases[0].Native()
-	if err != nil || release.ID != p.Candidate.ReleaseID || release.Managed == nil || release.Managed.BindingID != d.Binding.BindingID {
+	if err != nil {
 		return zero, archive.ErrRefused
 	}
 	if err = h.nativeArchiveMaintenanceQuiescent(ctx, p, d); err != nil {
@@ -44,7 +43,7 @@ func (h archiveHost) nativeArchiveRecoveryRuntime(ctx context.Context, p archive
 		return zero, err
 	}
 	defer func() { _ = units.Close() }()
-	name, hash := release.Managed.EngineUnit.Name, release.Managed.EngineUnit.Hash
+	name, hash := facts.engine.Name, facts.engine.Hash
 	active, present, err := units.read(ctx, filepath.Join(managedServiceDirectory, name))
 	if err != nil || present && "sha256:"+managedServiceHash(active) != hash {
 		return zero, archive.ErrRefused
@@ -53,9 +52,9 @@ func (h archiveHost) nativeArchiveRecoveryRuntime(ctx context.Context, p archive
 	if err != nil || retainedPresent && "sha256:"+managedServiceHash(retained) != hash || present == retainedPresent {
 		return zero, archive.ErrRefused
 	}
-	state := nativeArchiveRuntimeState{release: release, enginePresent: present}
-	if release.Managed.Frontend != nil {
-		front := release.Managed.Frontend.Unit
+	state := nativeArchiveRuntimeState{units: facts, enginePresent: present}
+	if facts.frontend != nil {
+		front := *facts.frontend
 		state.frontendPresent, err = quadlet.InspectArchiveRemove(ctx, h.home, front.Name, front.Hash)
 		if err != nil {
 			return zero, err
@@ -78,13 +77,13 @@ func (h archiveHost) reconcileNativeArchiveRuntime(ctx context.Context, p archiv
 		return err
 	}
 	if state.frontendPresent {
-		front := state.release.Managed.Frontend.Unit
+		front := *state.units.frontend
 		if h.units == nil || h.units.RemoveArchived(ctx, front.Name, front.Hash) != nil {
 			return archive.ErrRecovery
 		}
 	}
 	if state.enginePresent {
-		if err = h.retainNativeArchiveUnit(ctx, p, state.release); err != nil {
+		if err = h.retainNativeArchiveUnit(ctx, p, state.units.engine); err != nil {
 			return err
 		}
 	} else if err = h.syncNativeArchivedEngineUnit(ctx); err != nil {

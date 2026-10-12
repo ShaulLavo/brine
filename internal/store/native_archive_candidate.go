@@ -18,7 +18,10 @@ func readNativeArchiveDatabase(ctx context.Context, tx *sql.Tx, id data.Database
 		return zero, err
 	}
 	permit, err := readEnginePermit(ctx, tx, binding)
-	if err != nil || permit.Runtime.State != data.EngineInitialized {
+	if err != nil || permit.Runtime.State != data.EngineInitialized && permit.Runtime.State != data.EngineUnpublished {
+		return zero, ErrConflict
+	}
+	if permit.Runtime.State == data.EngineUnpublished && checkNativeUntouchedHistory(ctx, tx, permit.Runtime) != nil {
 		return zero, ErrConflict
 	}
 	head, _, err := readEngineHead(ctx, tx, binding)

@@ -41,8 +41,13 @@ func (h archiveHost) replayNativeArchivedSource(ctx context.Context, p archive.P
 		return out, expires, err
 	}
 	expires = material.Scope.ExpiresAt
+	transport, cancel, err := nativeTransportContext(ctx, material.Scope)
+	if err != nil {
+		return out, expires, err
+	}
+	defer cancel()
 	runtime := nativeBackupRuntime{state: h.service.Store, stateRoot: h.stateRoot, home: h.home, session: h.session}
-	client, repository, err := runtime.repository(ctx, admission)
+	client, repository, err := runtime.repository(transport, admission)
 	if err != nil {
 		return out, expires, err
 	}
@@ -57,7 +62,7 @@ func (h archiveHost) replayNativeArchivedSource(ctx context.Context, p archive.P
 		}
 		err = errors.Join(err, parent.Close())
 	}()
-	extracted, err := client.RestoreExact(ctx, repository, path, parent, "download", bundle.Transport(), bundle.Manifest())
+	extracted, err := client.RestoreExact(transport, repository, path, parent, "download", bundle.Transport(), bundle.Manifest())
 	if err != nil {
 		return out, expires, err
 	}

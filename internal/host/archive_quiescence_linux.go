@@ -93,11 +93,15 @@ func (h archiveHost) stopService(ctx context.Context, name string, allowAbsent b
 }
 func (h archiveHost) StopWriters(ctx context.Context, p archive.Plan) error {
 	if nativeArchiveCandidate(p.Candidate) {
-		r, err := h.service.Store.CurrentRelease(ctx, p.Candidate.App)
-		if err != nil || r.ID != p.Candidate.ReleaseID || r.Managed == nil {
+		facts, err := h.nativeArchiveOwnedUnits(ctx, p.Candidate)
+		if err != nil {
 			return archive.ErrRefused
 		}
-		if r.Managed.Frontend == nil {
+		if facts.frontend == nil {
+			stopped, err := h.nativeArchiveStopped(ctx, p)
+			if err != nil || !stopped {
+				return archive.ErrRefused
+			}
 			return nil
 		}
 	}
@@ -105,11 +109,11 @@ func (h archiveHost) StopWriters(ctx context.Context, p archive.Plan) error {
 }
 func (h archiveHost) WritersStopped(ctx context.Context, p archive.Plan) (bool, error) {
 	if nativeArchiveCandidate(p.Candidate) {
-		r, err := h.service.Store.CurrentRelease(ctx, p.Candidate.App)
-		if err != nil || r.ID != p.Candidate.ReleaseID || r.Managed == nil {
+		facts, err := h.nativeArchiveOwnedUnits(ctx, p.Candidate)
+		if err != nil {
 			return false, archive.ErrRefused
 		}
-		if r.Managed.Frontend == nil {
+		if facts.frontend == nil {
 			return h.nativeArchiveStopped(ctx, p)
 		}
 	}

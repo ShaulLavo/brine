@@ -74,20 +74,17 @@ func (h archiveHost) nativeArchiveFacts(ctx context.Context, c archive.Candidate
 }
 
 func (h archiveHost) verifyNativeArchiveUnits(ctx context.Context, c archive.Candidate) error {
-	if c.ReleaseID == "" {
-		return archive.ErrRefused
-	}
-	release, err := h.service.Store.CurrentRelease(ctx, c.App)
+	facts, err := h.nativeArchiveOwnedUnits(ctx, c)
 	d, _ := c.Databases[0].Native()
-	if err != nil || release.ID != c.ReleaseID || release.Managed == nil || release.Managed.BindingID != d.Binding.BindingID {
+	if err != nil {
 		return archive.ErrRefused
 	}
 	permit, err := h.service.Store.ReadEnginePermit(ctx, d.Binding.BindingID)
 	if err != nil || readNativeArchiveHead(permit.Runtime, d.Head) != nil || verifyEngineService(ctx, h.home, permit) != nil {
 		return archive.ErrRefused
 	}
-	if release.Managed.Frontend != nil {
-		unit := release.Managed.Frontend.Unit
+	if facts.frontend != nil {
+		unit := *facts.frontend
 		if quadlet.VerifyCurrent(ctx, h.home, unit.Name, unit.Hash) != nil {
 			return archive.ErrRefused
 		}
