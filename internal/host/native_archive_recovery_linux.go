@@ -35,6 +35,16 @@ func (h archiveHost) nativeArchiveRecoveryRuntime(ctx context.Context, p archive
 	if err = h.nativeArchiveMaintenanceQuiescent(ctx, p, d); err != nil {
 		return zero, err
 	}
+	if facts.frontend != nil {
+		stopped, err := h.nativeArchiveServiceStopped(ctx, p.Candidate.App+".service")
+		if err != nil || !stopped {
+			return zero, archive.ErrRefused
+		}
+	}
+	containers, err := listEngineContainers(ctx, h.session)
+	if err != nil || !nativeRestoreContainersAbsent(containers, d.Binding.BindingID, p.Candidate.App) {
+		return zero, archive.ErrRefused
+	}
 	if err = h.verifyNativeArchiveClosedRoute(ctx, p); err != nil {
 		return zero, err
 	}
