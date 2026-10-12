@@ -184,6 +184,15 @@ func checkNativeArchivedClaimTx(ctx context.Context, tx *sql.Tx, p archive.Plan,
 	if err != nil || point.view.FenceOwnerOpID != owner || point.view.BindingID != d.Binding.BindingID || point.view.EpochID != d.Head.EpochID || point.view.RuntimeVersion != d.Head.Version || point.view.RuntimeSHA256 != d.Head.RuntimeSHA256 {
 		return "", errors.Join(ErrConflict, err)
 	}
+	matched := false
+	for _, ref := range d.Dependencies {
+		if ref.Kind == data.EnginePreparedPointEvidence && ref.ID == pointID && ref.EpochID == point.view.EpochID {
+			matched = ref.SHA256 == point.hash
+		}
+	}
+	if !matched {
+		return "", ErrConflict
+	}
 	consumer := nativePointConsumer{kind: nativePointRetire, pointID: pointID, planID: p.ID, applyOperationID: task, requester: p.Requester, binding: d.Binding.BindingID, epoch: d.Head.EpochID, generation: p.Generation, generationID: point.view.GenerationID, policySHA256: strings.TrimPrefix(p.PolicyHash, "sha256:")}
 	expected, err := consumer.canonical()
 	if err != nil || !bytes.Equal(raw, expected) {

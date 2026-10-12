@@ -85,7 +85,7 @@ func readNativeArchiveCurrentPoint(ctx context.Context, tx *sql.Tx, head data.En
 }
 
 func readNativeArchiveDependencies(ctx context.Context, tx *sql.Tx, permit EnginePermit, point nativePreparedPoint, epochs []data.ArchiveBinding, closure []NativeArchiveTransition) ([]data.EngineEvidenceRef, error) {
-	refs := []data.EngineEvidenceRef{{Kind: data.EnginePreparedPointEvidence, ID: point.view.PointID, SHA256: point.view.CheckpointSHA256, DatabaseID: point.view.DatabaseID, BindingID: point.view.BindingID, EpochID: point.view.EpochID}}
+	refs := []data.EngineEvidenceRef{{Kind: data.EnginePreparedPointEvidence, ID: point.view.PointID, SHA256: point.hash, DatabaseID: point.view.DatabaseID, BindingID: point.view.BindingID, EpochID: point.view.EpochID}}
 	seen := map[string]bool{point.view.PointID: true}
 	for _, transition := range closure {
 		refs = appendNativeArchiveTransitionDependencies(refs, seen, transition)
