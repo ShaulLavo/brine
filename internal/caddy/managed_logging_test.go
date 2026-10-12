@@ -93,6 +93,25 @@ func TestManagedLoggingDefaultAndAccessRefusals(t *testing.T) {
 		"route extra log field": func(v map[string]any) {
 			fixtureServer(v)["routes"] = []any{map[string]any{"handle": []any{map[string]any{"handler": "log_append", "key": "copied_uri", "value": "{http.request.orig_uri}"}}}}
 		},
+		"server error log field": func(v map[string]any) {
+			fixtureServer(v)["errors"] = map[string]any{"routes": []any{map[string]any{"handle": []any{map[string]any{"handler": "log_append", "key": "copied_uri", "value": "{http.request.orig_uri}"}}}}}
+		},
+		"server error logger override": func(v map[string]any) {
+			fixtureServer(v)["errors"] = map[string]any{"routes": []any{map[string]any{"handle": []any{map[string]any{"handler": "vars", "access_logger_names": []string{"shadow"}}}}}}
+		},
+		"named route log field": func(v map[string]any) {
+			fixtureServer(v)["named_routes"] = map[string]any{"logging": map[string]any{"handle": []any{map[string]any{"handler": "log_append", "key": "copied_uri", "value": "{http.request.orig_uri}"}}}}
+		},
+		"named route logger override": func(v map[string]any) {
+			fixtureServer(v)["named_routes"] = map[string]any{"logging": map[string]any{"handle": []any{map[string]any{"handler": "vars", "access_logger_names": []string{"shadow"}}}}}
+		},
+		"nested subroute error log field": func(v map[string]any) {
+			fixtureServer(v)["routes"] = []any{map[string]any{"handle": []any{map[string]any{"handler": "subroute", "errors": map[string]any{"routes": []any{map[string]any{"handle": []any{map[string]any{"handler": "log_append", "key": "copied_uri", "value": "{http.request.orig_uri}"}}}}}}}}}
+		},
+		"unknown server field":     func(v map[string]any) { fixtureServer(v)["future_routes"] = []any{} },
+		"server route field alias": func(v map[string]any) { fixtureServer(v)["Errors"] = map[string]any{"routes": []any{}} },
+		"error route field alias":  func(v map[string]any) { fixtureServer(v)["errors"] = map[string]any{"Routes": []any{}} },
+		"null named route":         func(v map[string]any) { fixtureServer(v)["named_routes"] = map[string]any{"logging": nil} },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) { checkLoggingRefusal(t, mutate) })

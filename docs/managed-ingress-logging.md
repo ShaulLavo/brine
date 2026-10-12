@@ -61,6 +61,13 @@ filters and ambiguous logging input refuse with a value-free error. URI deletion
 cannot protect a credential copied to another field. Unrelated host routes do
 not override managed logging. The helper grants no route or deployment authority.
 
+The pinned server schema has three route roots: primary `routes`, server
+`errors.routes` and `named_routes`. Every error and named route on a server
+serving a managed domain is scanned. The scan follows all nested handler and
+error containers, including subroutes and proxy response handlers. Only primary
+routes whose host matcher excludes every managed domain are skipped. Unknown
+server fields and route-field aliases refuse.
+
 D4 reserves the root Caddyfile for the operator after enrollment. Routine Brine
 operations must refuse unsafe logging rather than editing that file. Enrollment
 or an explicitly authorized operator change may establish this prerequisite;
@@ -77,6 +84,7 @@ BRINE_TEST_CADDY=/absolute/path/to/caddy-2.10.2 \
 The probe uses loopback Caddy, unavailable private HTTP upstreams and non-secret
 sentinels. It compares admission with actual process/access logs for full-field
 deletion, site-only deletion, token-only query filtering, explicit discard,
-unprotected shadow outputs and copied request/query fields. It reaps all test
+unprotected shadow outputs and copied request/query fields in primary, error
+and invoked named routes. It reaps all test
 processes. This is local Caddy
 evidence, not native authentication, WebSocket or physical-host evidence.

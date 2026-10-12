@@ -147,6 +147,8 @@ func TestManagedLoggingAdmissionAndLogsWithPinnedCaddy(t *testing.T) {
 		{"proxy debug shadow", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\n", "log shadow {\n include http.handlers.reverse_proxy\n level DEBUG\n format json\n}\n", false, true},
 		{"extra original URI field", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\nlog_append copied_uri {http.request.orig_uri}\n", "", false, true},
 		{"extra query token field", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\nlog_append querytoken {query.token}\n", "", false, true},
+		{"error route original URI field", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\nhandle_errors {\n log_append copied_uri {http.request.orig_uri}\n respond 503\n}\n", "", false, true},
+		{"error route query token field", "log default {\n" + deleteEncoder + "}\n", "log {\n" + deleteEncoder + "}\nhandle_errors {\n log_append querytoken {query.token}\n respond 503\n}\n", "", false, true},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -164,6 +166,11 @@ func checkManagedLoggingProbe(t *testing.T, binary, global, site, shadow string,
 		t.Fatal(err)
 	}
 	config := managedLoggingProbeConfig(t, address, upstream.Addr().String(), global, site, shadow)
+	checkManagedLoggingProbeConfig(t, binary, config, address, upstream, admitted, leaks)
+}
+
+func checkManagedLoggingProbeConfig(t *testing.T, binary string, config []byte, address string, upstream net.Listener, admitted, leaks bool) {
+	t.Helper()
 	file := filepath.Join(t.TempDir(), "Caddyfile")
 	if err := os.WriteFile(file, config, 0o600); err != nil {
 		t.Fatal(err)
@@ -182,4 +189,19 @@ func checkManagedLoggingProbe(t *testing.T, binary, global, site, shadow string,
 	if bytes.Contains(logs, []byte("NON_SECRET_TOKEN_PROBE_HEADER")) {
 		t.Fatal("Caddy exposed the bearer-header sentinel")
 	}
+}
+
+func TestManagedLoggingNamedRouteWithPinnedCaddy(t *testing.T) {
+	binary := pinnedCaddyVerifier(t)
+	upstream, listener := managedLoggingProbeAddress(t), managedLoggingProbeAddress(t)
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	encoder := managedLogEncoder("delete")
+	global := "log default {\n" + encoder + "}\n"
+	site := "log {\n" + encoder + "}\ninvoke copied\n"
+	config := managedLoggingProbeConfig(t, address, upstream.Addr().String(), global, site, "")
+	config = append(config, []byte("\n&(copied) {\n log_append copied_uri {http.request.orig_uri}\n}\n")...)
+	checkManagedLoggingProbeConfig(t, binary, config, address, upstream, false, true)
 }

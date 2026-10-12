@@ -22,8 +22,11 @@ backup, fence handoff or reboot.
 
 Pure checks use actual pinned adapted fixtures and refuse implicit default
 logging, unsafe error/access/proxy shadow outputs, dynamic logger names, query
-filters, extra-field appenders on matching routes, unknown encoder/wrapper/filter options, credential logging, handler
-tracing, malformed/duplicate JSON and absent managed host identity. Namespace
+filters, extra-field appenders on matching routes, unknown encoder/wrapper/filter
+options, credential logging, handler tracing, malformed/duplicate JSON and absent
+managed host identity. Route checks cover primary routes, server error routes,
+named routes and nested subroute error containers. Unknown server fields,
+route-field aliases and null named routes refuse. Namespace
 tests cover longest include/exclude precedence, module-wide exclusion, host
 casing, wildcard mappings and protected default fallbacks despite access skips.
 
@@ -34,9 +37,11 @@ sentinels cover allowed subscriptions, encoded token keys, denied escaped paths,
 malformed queries and malformed authority targets. Global and site full-field
 deletion and explicit discard must admit without sentinel exposure. Site-only
 deletion, query-only filtering, unsafe error/access/reverse-proxy shadows and
-extra fields copying the original URI or query token must refuse and demonstrate
-the query leak. Unrelated host-route appenders remain allowed. Bearer header
-values stay redacted.
+extra fields copying the original URI or query token in primary and error routes
+must refuse and demonstrate the query leak.
+`TestManagedLoggingNamedRouteWithPinnedCaddy` proves an invoked named route's URI
+copy also refuses while actual logs expose the synthetic token. Unrelated
+primary host-route appenders remain allowed. Bearer header values stay redacted.
 All subprocesses and loopback sockets are closed. The helper does not mutate
 protected operator configuration. These local probes do not prove native JWT,
 WebSocket subscription, physical-host logging or managed deployment admission.

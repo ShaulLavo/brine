@@ -122,9 +122,17 @@ Host matches and logger mappings account for casing and wildcard matches;
 default fallback namespaces remain checked even when access skip rules exist.
 Unprotected shadow outputs, dynamic route logger names or `log_append` handlers
 on matching routes, credential logging, handler tracing, unknown filters,
-duplicate keys and ambiguous logging input
-refuse without exposing input values. Unrelated logger namespaces remain
+duplicate keys and ambiguous logging input refuse without exposing input values.
+Unrelated logger namespaces remain
 allowed. The helper performs no mutation and grants no managed effects.
+
+The pinned Caddy 2.10.2 server has three route roots: primary `routes`, server
+`errors.routes` and `named_routes`. For a server serving a managed domain, all
+error and named routes are checked, along with every nested handler/error tree.
+Only primary routes with a host matcher excluding all managed domains are
+skipped. Unknown server fields, route-field aliases and malformed route objects
+refuse. This includes error routes that inherit the original request without
+their own host matcher.
 
 The operator establishes protected global logging through enrollment or an
 explicitly authorized change. D4 still forbids routine Brine operations from

@@ -92,12 +92,52 @@ type managedLogConfig struct {
 	} `json:"logging"`
 	Apps struct {
 		HTTP struct {
-			Servers map[string]struct {
-				Routes []json.RawMessage  `json:"routes"`
-				Logs   *managedServerLogs `json:"logs"`
-			} `json:"servers"`
+			Servers map[string]managedLogServer `json:"servers"`
 		} `json:"http"`
 	} `json:"apps"`
+}
+
+type managedLogServer struct {
+	Routes      []json.RawMessage          `json:"routes"`
+	Errors      *managedLogErrorRoutes     `json:"errors"`
+	NamedRoutes map[string]json.RawMessage `json:"named_routes"`
+	Logs        *managedServerLogs         `json:"logs"`
+}
+
+func (server *managedLogServer) UnmarshalJSON(raw []byte) error {
+	_, err := managedLoggingObject(raw,
+		"listen", "listener_wrappers", "read_timeout", "read_header_timeout",
+		"write_timeout", "idle_timeout", "keepalive_interval", "max_header_bytes",
+		"enable_full_duplex", "routes", "errors", "named_routes", "tls_connection_policies",
+		"automatic_https", "strict_sni_host", "trusted_proxies", "client_ip_headers",
+		"trusted_proxies_strict", "logs", "protocols", "listen_protocols", "metrics")
+	if err != nil {
+		return err
+	}
+	type plain managedLogServer
+	var value plain
+	if json.Unmarshal(raw, &value) != nil {
+		return ErrManagedLoggingUnsafe
+	}
+	*server = managedLogServer(value)
+	return nil
+}
+
+type managedLogErrorRoutes struct {
+	Routes []json.RawMessage `json:"routes"`
+}
+
+func (routes *managedLogErrorRoutes) UnmarshalJSON(raw []byte) error {
+	if _, err := managedLoggingObject(raw, "routes"); err != nil {
+		return err
+	}
+	type plain managedLogErrorRoutes
+	var value plain
+	if json.Unmarshal(raw, &value) != nil {
+		return ErrManagedLoggingUnsafe
+	}
+	*routes = managedLogErrorRoutes(value)
+	return nil
 }
 
 // VerifyManagedLogging reads actual adapted configuration without granting any
@@ -117,7 +157,7 @@ func VerifyManagedLogging(adapted []byte, domains []spec.Domain) error {
 	seen := map[spec.Domain]bool{}
 	for _, server := range config.Apps.HTTP.Servers {
 		matched, err := managedRouteDomains(server.Routes, domains)
-		if err != nil || len(matched) > 0 && managedLogOverrides(server.Routes, domains) {
+		if err != nil || len(matched) > 0 && managedServerLogOverrides(server, domains) {
 			return ErrManagedLoggingUnsafe
 		}
 		if err := verifyManagedServerLogging(config.Logging.Logs, server.Logs, matched); err != nil {
@@ -273,6 +313,9 @@ func safeManagedLog(log managedLog) bool {
 func managedRouteDomains(routes []json.RawMessage, domains []spec.Domain) ([]spec.Domain, error) {
 	var matched []spec.Domain
 	for _, raw := range routes {
+		if _, err := managedLoggingObject(raw, "group", "match", "handle", "terminal"); err != nil {
+			return nil, err
+		}
 		var route adaptedRoute
 		if json.Unmarshal(raw, &route) != nil {
 			return nil, ErrManagedLoggingUnsafe
@@ -280,6 +323,25 @@ func managedRouteDomains(routes []json.RawMessage, domains []spec.Domain) ([]spe
 		matched = append(matched, managedRouteMatches(route.Match, domains)...)
 	}
 	return matched, nil
+}
+
+func managedServerLogOverrides(server managedLogServer, domains []spec.Domain) bool {
+	if managedLogOverrides(server.Routes, domains) {
+		return true
+	}
+	var errors []json.RawMessage
+	if server.Errors != nil {
+		errors = server.Errors.Routes
+	}
+	if slices.ContainsFunc(errors, managedLogRawOverrides) {
+		return true
+	}
+	for _, route := range server.NamedRoutes {
+		if managedLogRawOverrides(route) {
+			return true
+		}
+	}
+	return false
 }
 
 func managedRouteMatches(matches []map[string]json.RawMessage, domains []spec.Domain) []spec.Domain {
@@ -328,12 +390,19 @@ func managedLogOverrides(routes []json.RawMessage, domains []spec.Domain) bool {
 		if len(managedRouteMatches(matchedRoute.Match, domains)) == 0 {
 			continue
 		}
-		var value any
-		if json.Unmarshal(route, &value) != nil || managedLogOverrideValue(value) {
+		if managedLogRawOverrides(route) {
 			return true
 		}
 	}
 	return false
+}
+
+func managedLogRawOverrides(route json.RawMessage) bool {
+	if _, err := managedLoggingObject(route, "group", "match", "handle", "terminal"); err != nil {
+		return true
+	}
+	var value any
+	return json.Unmarshal(route, &value) != nil || managedLogOverrideValue(value)
 }
 
 func managedLogOverrideValue(value any) bool {
