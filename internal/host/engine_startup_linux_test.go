@@ -425,9 +425,9 @@ func TestEngineHandoffStillBindsAllocatedDirectory(t *testing.T) {
 func TestEngineServicePrivateUnitUnderTraversableHome(t *testing.T) {
 	permit, _ := engineStartupFixture(t)
 	home := t.TempDir()
-	if err := os.Chmod(home, 0755); err != nil {
+	if err := os.Chmod(home, 0755); err != nil { //nolint:gosec // Deliberately traversable enrolled home fixture.
 		t.Fatal(err)
-	} //nolint:gosec // Standard enrolled home is traversable; the unit root stays private.
+	}
 	directory := filepath.Join(home, ".config/systemd/user")
 	if err := os.MkdirAll(directory, 0700); err != nil {
 		t.Fatal(err)
@@ -445,9 +445,9 @@ func TestEngineServicePrivateUnitUnderTraversableHome(t *testing.T) {
 	if err = verifyEngineService(context.Background(), home, permit); err != nil {
 		t.Fatal("standard home blocked private owned service", err)
 	}
-	if err = os.Chmod(directory, 0755); err != nil {
+	if err = os.Chmod(directory, 0755); err != nil { //nolint:gosec // Deliberately unsafe private unit-root fixture.
 		t.Fatal(err)
-	} //nolint:gosec // Deliberately unsafe private unit-root mode.
+	}
 	if verifyEngineService(context.Background(), home, permit) == nil {
 		t.Fatal("public unit root admitted")
 	}
