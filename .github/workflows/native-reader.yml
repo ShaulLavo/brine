@@ -44,6 +44,7 @@ jobs:
           docker rm "$container"
           cd "$RUNNER_TEMP/reader-artifact"
           sha256sum --check SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > source-head
       - name: Verify static target and contained CLI
         env:
           MACHINE: ${{ matrix.machine }}
@@ -52,8 +53,8 @@ jobs:
           if readelf -l "$RUNNER_TEMP/reader-artifact/brine-native-reader" | grep -q INTERP; then exit 1; fi
           python3 tools/native-reader/verify_cli.py brine-native-reader:test "$RUNNER_TEMP/reader-artifact/fixture" "$RUNNER_TEMP/reader-cli-evidence"
           cp "$RUNNER_TEMP/reader-cli-evidence/receipt.json" "$RUNNER_TEMP/reader-artifact/cli-receipt.json"
-          printf '%s\n' "$GITHUB_SHA" > "$RUNNER_TEMP/reader-artifact/source-head"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: native-reader-${{ matrix.arch }}-${{ github.sha }}
           path: ${{ runner.temp }}/reader-artifact

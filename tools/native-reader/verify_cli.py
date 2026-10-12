@@ -81,7 +81,7 @@ def main():
     request = json.loads((fixture / 'request.json').read_text())
     initial = seal(fixture)
     exit_code, baseline = run(image, fixture, output, request)
-    assert exit_code == 0 and baseline['outcome'] == 'observed'
+    assert exit_code == 0 and baseline['outcome'] == 'observed', (exit_code, baseline)
     assert baseline['observed_database_identity'] == request['expected_database_identity']
     assert baseline['observed_owner_identity'] == request['expected_owner_identity']
     assert next(table for table in baseline['tables'] if table['name'] == 'reader_fixture')['rows'] == 20
