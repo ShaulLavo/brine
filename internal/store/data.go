@@ -143,6 +143,9 @@ func (s *Store) ReserveDatabase(ctx context.Context, req DataReservation) (Reser
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_databases VALUES(?,?,?,?,?,?)", database, incarnation, req.Database.Name, req.Database.PersistentRoot, relative, dbRaw); err != nil {
 		return ReservedDatabase{}, err
 	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO data_engine_kinds VALUES(?,'sqlite')", database); err != nil {
+		return ReservedDatabase{}, err
+	}
 	if err = registerSchema(ctx, tx, data.DatabaseID(database), data.EmptyMarker, data.EmptyCatalogSHA256); err != nil {
 		return ReservedDatabase{}, err
 	}
@@ -185,6 +188,16 @@ func (s *Store) CheckReplicaDestinationOwner(ctx context.Context, endpoint, buck
 }
 func readReplicaPermit(ctx context.Context, q dataQuerier, id data.DatabaseID) (ReplicaPermit, error) {
 	var p ReplicaPermit
+	var engine data.EngineKind
+	if err := q.QueryRowContext(ctx, "SELECT COALESCE(k.engine,'') FROM data_databases d LEFT JOIN data_engine_kinds k ON k.database_id=d.id WHERE d.id=?", id).Scan(&engine); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return p, ErrNotFound
+		}
+		return p, err
+	}
+	if engine != data.EngineSQLite {
+		return p, &IntegrityError{}
+	}
 	var dbRaw, raw []byte
 	err := q.QueryRowContext(ctx, "SELECT d.canonical,COALESCE((SELECT c.canonical FROM data_replica_commits c WHERE c.binding_id=b.id ORDER BY c.version DESC LIMIT 1),b.canonical) FROM data_databases d JOIN data_replica_bindings b ON b.database_id=d.id WHERE d.id=?", id).Scan(&dbRaw, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -304,29 +317,37 @@ func (s *Store) HoldDataFence(ctx context.Context, id data.DatabaseID, operation
 	if operation == "" || len(operation) > 128 {
 		return data.QuiescenceFence{}, ErrInvalid
 	}
+	guard, err := s.guardEngineDatabase(ctx, id)
+	if err != nil {
+		return data.QuiescenceFence{}, err
+	}
+	defer func() { _ = guard.Release() }()
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
 		return data.QuiescenceFence{}, err
 	}
 	defer tx.Rollback()
-	p, err := readReplicaPermit(ctx, tx, id)
+	incarnation, err := readFenceIdentity(ctx, tx, id)
 	if err != nil {
 		return data.QuiescenceFence{}, err
 	}
-	for _, f := range p.Fences {
-		if f.State == data.FenceHeld {
-			if f.OperationID != operation {
-				return f, ErrConflict
-			}
-			return f, tx.Commit()
+	var existing data.QuiescenceFence
+	err = tx.QueryRowContext(ctx, "SELECT id,incarnation_id,database_id,operation_id,state FROM data_fences WHERE database_id=? AND state='held'", id).Scan(&existing.ID, &existing.IncarnationID, &existing.DatabaseID, &existing.OperationID, &existing.State)
+	if err == nil {
+		if existing.OperationID != operation {
+			return existing, ErrConflict
 		}
+		return existing, tx.Commit()
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return data.QuiescenceFence{}, err
 	}
 	newID, err := data.NewID()
 	if err != nil {
 		return data.QuiescenceFence{}, err
 	}
-	f := data.QuiescenceFence{ID: data.FenceID(newID), DatabaseID: id, IncarnationID: p.Database.IncarnationID, OperationID: operation, State: data.FenceHeld}
+	f := data.QuiescenceFence{ID: data.FenceID(newID), DatabaseID: id, IncarnationID: incarnation, OperationID: operation, State: data.FenceHeld}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_fences VALUES(?,?,?,?,?)", f.ID, f.DatabaseID, f.IncarnationID, f.OperationID, f.State); err != nil {
 		return f, err
 	}
@@ -336,6 +357,11 @@ func (s *Store) HoldDataFence(ctx context.Context, id data.DatabaseID, operation
 // ReleaseDataFence must follow fresh schema/quiescence checks by the operation
 // owner. Reconciliation must not call it merely because an upload exists.
 func (s *Store) ReleaseDataFence(ctx context.Context, id data.FenceID, operation string) error {
+	guard, err := s.guardEngineFence(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = guard.Release() }()
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {

@@ -192,6 +192,11 @@ func (s *Store) ClaimInitialization(ctx context.Context, p datainit.Plan) (datai
 	if !p.Valid() {
 		return datainit.Operation{}, ErrInvalid
 	}
+	guard, err := s.guardEngineDatabase(ctx, p.Database.DatabaseID)
+	if err != nil {
+		return datainit.Operation{}, err
+	}
+	defer func() { _ = guard.Release() }()
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
@@ -240,6 +245,11 @@ func (s *Store) SetInitState(ctx context.Context, o datainit.Operation, state st
 	if !data.ValidID(o.ID) || !data.ValidID(string(o.Fence)) {
 		return o, ErrInvalid
 	}
+	guard, err := s.guardEngineFence(ctx, o.Fence)
+	if err != nil {
+		return o, err
+	}
+	defer func() { _ = guard.Release() }()
 	tx, cancel, err := s.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
