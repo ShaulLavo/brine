@@ -23,3 +23,7 @@ type ManagedLifecyclePlan struct {
 	FrontendRunning       bool   `json:"frontend_running"`
 	IngressServing        bool   `json:"ingress_serving"`
 }
+
+func DesiredComponentsForDeployment(m ManagedServicePlan) ManagedLifecyclePlan {
+	return ManagedLifecyclePlan{Engine: true, Frontend: m.Frontend != nil, Ingress: true, EngineRunning: true, FrontendRunning: m.Frontend != nil, IngressServing: true}
+}

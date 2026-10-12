@@ -44,6 +44,12 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 			return apply.Facts{}, result.New(result.Conflict, nil)
 		}
 		managed.Database, managed.Archive = &database, &archive
+		wanted, readErr := s.Store.ReadManagedDesired(ctx, database.BindingID)
+		if readErr == nil {
+			managed.Intent = &plan.ManagedIntentFacts{Revision: wanted.Revision, EpochID: wanted.EpochID, RuntimeSHA256: wanted.RuntimeSHA256}
+		} else if !errors.Is(readErr, store.ErrNotFound) {
+			return apply.Facts{}, readErr
+		}
 		if projection.Permit == nil {
 			preparation, readErr := s.Store.ReadManagedPreparation(ctx, database.BindingID)
 			if readErr == nil {
@@ -67,6 +73,9 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 		if projection.Permit != nil {
 			runtime := projection.Permit.Runtime.Clone()
 			managed.Runtime = &runtime
+			if managed.Intent != nil {
+				projectManagedIntent(managed.Intent, wanted, runtime)
+			}
 			managed.Fences = projection.Permit.Fences
 			if runtime.State == data.EngineInitialized && s.managedObserver != nil {
 				fingerprint, hashErr := managedRuntimeHash(runtime)
@@ -116,4 +125,13 @@ func managedRoutingFacts(state plan.BrineState, pol policy.Policy, snapshot targ
 		return caddy.State{}, result.New(result.Conflict, nil)
 	}
 	return routing, nil
+}
+
+func projectManagedIntent(into *plan.ManagedIntentFacts, wanted store.ManagedDesiredState, runtime data.EngineRuntime) {
+	fingerprint, err := managedRuntimeHash(runtime)
+	if err != nil || !wanted.Current(runtime.BindingID, runtime.EpochID, fingerprint) {
+		return
+	}
+	into.Current = true
+	into.EngineRunning, into.FrontendRunning, into.IngressServing = wanted.EngineRunning, wanted.FrontendRunning, wanted.IngressServing
 }

@@ -72,6 +72,7 @@ func (s *Store) ReadManagedApp(ctx context.Context, app string) (ManagedAppProje
 			return ManagedAppProjection{}, err
 		}
 		projection.Permit = &permit
+		projection.Reserved = permit.Reserved
 	}
 	return projection, tx.Commit()
 }

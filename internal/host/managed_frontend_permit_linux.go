@@ -69,8 +69,16 @@ func (r *ManagedFrontendRuntime) Permit(ctx context.Context, binding, app string
 	if err != nil || resolution.Pending && proof.permit.Runtime.EpochID != resolution.Permit.EpochID || resolution.Desired.SpacetimeDB == nil || !slices.Contains(resolution.Desired.SpacetimeDB.Module.Accepts, proof.permit.Runtime.Module.Schema.Marker) {
 		return errEngineSource
 	}
+	wanted, err := currentManagedDesired(ctx, runtime.state, proof.permit.Runtime)
+	if err != nil || !wanted.EngineRunning || !wanted.FrontendRunning {
+		return errEngineSource
+	}
 	final, err := runtime.state.ReadManagedFrontendPermit(ctx, app)
 	if err != nil || final.Permit != resolution.Permit || quadlet.VerifyCurrent(ctx, runtime.home, app+".container", resolution.Permit.UnitHash) != nil {
+		return errEngineSource
+	}
+	finalDesired, err := currentManagedDesired(ctx, runtime.state, proof.permit.Runtime)
+	if err != nil || finalDesired != wanted {
 		return errEngineSource
 	}
 	return ctx.Err()

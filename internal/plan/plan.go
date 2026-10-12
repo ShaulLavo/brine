@@ -192,11 +192,12 @@ type ReplicaPrevious struct {
 }
 
 type Plan struct {
-	ManagedPreview      *ManagedBlueprint     `json:"managed_preview,omitempty"`
-	SchemaArtifacts     []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
-	DatabaseEnvironment []policy.Environment  `json:"database_environment,omitempty"`
-	Managed             *ManagedServicePlan   `json:"managed,omitempty"`
-	ManagedLifecycle    *ManagedLifecyclePlan `json:"managed_lifecycle,omitempty"`
+	ManagedPreview        *ManagedBlueprint     `json:"managed_preview,omitempty"`
+	SchemaArtifacts       []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
+	DatabaseEnvironment   []policy.Environment  `json:"database_environment,omitempty"`
+	Managed               *ManagedServicePlan   `json:"managed,omitempty"`
+	ManagedLifecycle      *ManagedLifecyclePlan `json:"managed_lifecycle,omitempty"`
+	ManagedIntentRevision uint64                `json:"managed_intent_revision,omitempty"`
 
 	decisionInput      []byte
 	ReplicaPrevious    *ReplicaPrevious               `json:"replica_previous,omitempty"`

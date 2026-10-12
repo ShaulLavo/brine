@@ -165,6 +165,10 @@ func (r managedRuntime) CheckManagedIngress(ctx context.Context, claim caddy.Man
 	if claim.Pending && (claim.EpochID != current.EpochID || claim.RuntimeSHA256 != expected) {
 		return errEngineSource
 	}
+	wanted, err := currentManagedDesired(ctx, r.state, current)
+	if err != nil || !wanted.EngineRunning || !wanted.IngressServing || claim.Frontend && !wanted.FrontendRunning {
+		return errEngineSource
+	}
 	// Committed routes use current protected native state and their declared
 	// compatibility. Historical release runtime/epoch never grant route authority.
 	if !slices.Contains(claim.Accepts, current.Module.Schema.Marker) {
@@ -189,6 +193,10 @@ func (r managedRuntime) CheckManagedIngress(ctx context.Context, claim caddy.Man
 		if err != nil || !active {
 			return errEngineSource
 		}
+	}
+	finalDesired, err := currentManagedDesired(ctx, r.state, current)
+	if err != nil || finalDesired != wanted {
+		return errEngineSource
 	}
 	return ctx.Err()
 }

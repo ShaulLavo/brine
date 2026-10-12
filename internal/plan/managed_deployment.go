@@ -88,15 +88,21 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 		p.Secrets = slices.Clone(frontend.Secrets)
 	}
 	p.Managed = &managed
+	if facts.Intent != nil {
+		p.ManagedIntentRevision = facts.Intent.Revision
+	}
 	p.ConfigHash = configHash(in.Desired, p.Image, p.HostPort, p.Secrets)
 	if previous != nil {
 		p.Diff = configurationDiff(in.Desired, p.Image, p.HostPort, p.Secrets, previous)
 	}
-	if previous != nil && reflect.DeepEqual(previous.Desired.App(), in.Desired.App()) && (!reflect.DeepEqual(previous.Desired.SpacetimePolicy, in.Desired.SpacetimePolicy) || !reflect.DeepEqual(previous.Desired.BackupRetention, in.Desired.BackupRetention)) {
+	if previous != nil && ManagedBackupOnly(in.Desired, previous.Desired) {
 		add(ManagedBackupRevisionRequired, "managed.backup_policy")
 	}
 	if previous != nil && previous.Managed != nil && previous.Managed.RuntimeSHA256 == managed.RuntimeSHA256 && reflect.DeepEqual(previous.Managed.Frontend, managed.Frontend) && configHash(previous.Desired, previous.Image, previous.HostPort, previous.Secrets) == p.ConfigHash && facts.NativeState.Value != nil && *facts.NativeState.Value == "running" {
 		p.Kind = NoOp
+	}
+	if p.Kind == NoOp && (facts.Intent == nil || !facts.Intent.Current || !facts.Intent.EngineRunning || !facts.Intent.IngressServing || (managed.Frontend != nil) != facts.Intent.FrontendRunning) {
+		p.Kind = Update
 	}
 	if p.Kind != NoOp {
 		if facts.NativeState.Value != nil && *facts.NativeState.Value == "stopped" {
