@@ -52,14 +52,8 @@ func prospectiveManagedOverrides(server managedLogServer) bool {
 		}
 	}
 	for _, raw := range server.NamedRoutes {
-		var routes []json.RawMessage
-		if json.Unmarshal(raw, &routes) != nil {
+		if managedLogRawOverrides(raw) {
 			return true
-		}
-		for _, route := range routes {
-			if managedLogRawOverrides(route) {
-				return true
-			}
 		}
 	}
 	return false
