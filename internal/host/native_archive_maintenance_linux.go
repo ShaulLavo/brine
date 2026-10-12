@@ -52,7 +52,7 @@ func (h archiveHost) nativeArchiveMaintenanceAdmission(ctx context.Context, p ar
 }
 
 func (h archiveHost) nativeArchiveMaintenanceQuiescent(ctx context.Context, p archive.Plan, d archive.NativeDatabase) error {
-	stopped, err := h.serviceStopped(ctx, engineContainerName(d.Binding.BindingID)+".service", true)
+	stopped, err := h.nativeArchiveServiceStopped(ctx, engineContainerName(d.Binding.BindingID)+".service")
 	if err != nil || !stopped {
 		return archive.ErrRefused
 	}
