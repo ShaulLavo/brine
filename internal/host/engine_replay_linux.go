@@ -219,8 +219,8 @@ func stopEngineChild(ctx context.Context, command *localexec.ForegroundProcess, 
 	timer := time.NewTimer(budget)
 	defer timer.Stop()
 	select {
-	case <-exited:
-		return nil
+	case err := <-exited:
+		return err
 	case <-ctx.Done():
 	case <-timer.C:
 	}

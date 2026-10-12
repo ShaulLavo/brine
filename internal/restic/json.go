@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/strictjson"
@@ -56,24 +57,51 @@ func messages(raw []byte) ([]json.RawMessage, error) {
 	return nil, ErrLimit
 }
 
-func parseInit(raw []byte) error {
+func parseInit(raw []byte) (string, error) {
 	fields, err := wireObject(raw, []string{"message_type", "id", "repository"}, nil)
 	if err != nil {
-		return err
+		return "", err
 	}
 	kind, err := strictjson.Value[string](fields["message_type"])
 	if err != nil || kind != "initialized" {
-		return ErrIntegrity
+		return "", ErrIntegrity
 	}
 	id, err := strictjson.Value[string](fields["id"])
 	if err != nil || !hashPattern.MatchString(id) {
-		return ErrIntegrity
+		return "", ErrIntegrity
 	}
 	location, err := strictjson.Value[string](fields["repository"])
 	if err != nil || location == "" {
-		return ErrIntegrity
+		return "", ErrIntegrity
 	}
-	return nil
+	return id, nil
+}
+
+func parseRepositoryConfig(raw []byte) (string, error) {
+	if len(raw) == 0 || len(raw) > 4096 {
+		return "", ErrIntegrity
+	}
+	fields, err := wireObject(raw, []string{"version", "id", "chunker_polynomial"}, nil)
+	if err != nil {
+		return "", ErrIntegrity
+	}
+	version, err := strictjson.Value[uint64](fields["version"])
+	if err != nil || version != 2 {
+		return "", ErrIntegrity
+	}
+	id, err := strictjson.Value[string](fields["id"])
+	if err != nil || !hashPattern.MatchString(id) {
+		return "", ErrIntegrity
+	}
+	polynomial, err := strictjson.Value[string](fields["chunker_polynomial"])
+	if err != nil || len(polynomial) == 0 || len(polynomial) > 16 || strings.IndexFunc(polynomial, nonConfigHex) != -1 {
+		return "", ErrIntegrity
+	}
+	return id, nil
+}
+
+func nonConfigHex(value rune) bool {
+	return !(value >= '0' && value <= '9' || value >= 'a' && value <= 'f')
 }
 
 func parseBackup(raw []byte, archiveBytes int64) (string, error) {

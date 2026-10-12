@@ -56,7 +56,7 @@ func NewEmptySource(value EmptySource) (Source, error) {
 func NewCapturedSource(point CapturedPoint, schema spacetimedb.CanonicalSchema) (Source, error) {
 	if !identity(point.PointID) || !identity(point.FenceID) || !operationReference.MatchString(point.PreparationOpID) || !digest(point.RestoreReceiptSHA256) || !digest(point.BundleManifestSHA256) ||
 		!digest(point.SourceSealSHA256) || !digest(point.StateWitnessSHA256) || !digest(point.StopProofSHA256) || !digest(point.CheckpointSHA256) ||
-		!digest(point.NativeDatabase) || !digest(point.NativePublisher) || !digest(point.ProgramWireHash) || !confirmedSourceProfile(point.WasmSHA256, schema) {
+		!digest(point.NativeDatabase) || !digest(point.NativePublisher) || !digest(point.ProgramWireHash) || schema.Version() != spacetimedb.CanonicalizerVersion || !spacetimedb.SupportsConfirmedRecoveryPairs(point.WasmSHA256, schema.SHA256()) {
 		return Source{}, ErrRecord
 	}
 	if !validNames(point.Names) {
@@ -109,22 +109,4 @@ func validNames(names []string) bool {
 		}
 	}
 	return true
-}
-
-func confirmedSourceProfile(wasm string, schema spacetimedb.CanonicalSchema) bool {
-	if schema.Version() != spacetimedb.CanonicalizerVersion {
-		return false
-	}
-	var expected string
-	switch wasm {
-	case "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc":
-		expected = "f10d1efcbbdcec34434fa257946ca8a562ba1ad5f6b1b22b17fca14ca7eacc45"
-	case "5f1de728e240ff189fdb47fae0af5f18cfa3c772b86a198220115a6869215ffb":
-		expected = "23a8b7ac1656a127dbb519d45a0a35d88a114806e8933b554bede465b589cd7f"
-	case "40960700aea4b6dd4d201539e91ff6fc27fcd96c050c92e182bf4c0240a03269":
-		expected = "95ac506b0911df63146d79cdba646d1e059e122240c1f0349a34335e9749d07b"
-	default:
-		return false
-	}
-	return schema.SHA256() == expected
 }

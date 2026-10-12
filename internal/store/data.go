@@ -377,6 +377,9 @@ func (s *Store) ReleaseDataFence(ctx context.Context, id data.FenceID, operation
 	if err = refuseNonterminalEngineFence(ctx, tx, id); err != nil {
 		return err
 	}
+	if err = refuseConsumedNativeFence(ctx, tx, id); err != nil {
+		return err
+	}
 	result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND operation_id=? AND state='held'", id, operation)
 	if err != nil {
 		return err

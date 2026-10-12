@@ -31,10 +31,11 @@ type Manifest struct {
 	raw      []byte
 }
 
-func (m Manifest) Bytes() []byte     { return slices.Clone(m.raw) }
-func (m Manifest) Members() []Member { return slices.Clone(m.document.Members) }
-func (m Manifest) SHA256() string    { return digest(m.raw) }
-func digest(raw []byte) string       { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
+func (m Manifest) Bytes() []byte      { return slices.Clone(m.raw) }
+func (m Manifest) Members() []Member  { return slices.Clone(m.document.Members) }
+func (m Manifest) SHA256() string     { return digest(m.raw) }
+func (m Manifest) Identity() Identity { return m.document.Identity }
+func digest(raw []byte) string        { sum := sha256.Sum256(raw); return hex.EncodeToString(sum[:]) }
 
 func newManifest(identity Identity, members []Member, limits Limits) (Manifest, error) {
 	if !limits.valid() || !identity.valid() {
