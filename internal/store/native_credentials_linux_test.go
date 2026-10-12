@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -70,7 +71,7 @@ func checkNativeFreshBackupInitialization(t *testing.T, splice string) {
 	if err := state.CompleteTask(ctx, op.ID, ops.Succeeded, ops.TaskOutcome{Receipt: raw}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := state.ReadNativeBackupPolicy(ctx, scope.Database.BindingID); err != ErrNotFound {
+	if _, err := state.ReadNativeBackupPolicy(ctx, scope.Database.BindingID); !errors.Is(err, ErrNotFound) {
 		t.Fatal("test must have no already-active policy", err)
 	}
 	backup, err := state.SaveNativeBackupRevisionPlan(ctx, plan.Hash, requester)
