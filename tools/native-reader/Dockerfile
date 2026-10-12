@@ -17,7 +17,7 @@ COPY pins.json upstream-LICENSE.txt /artifact/
 FROM build AS native-tests
 ARG TARGETARCH
 RUN case "$TARGETARCH" in amd64) target=x86_64-unknown-linux-musl ;; arm64) target=aarch64-unknown-linux-musl ;; *) exit 64 ;; esac \
-    && BRINE_READER_TEST_OUTPUT=/artifact/fixture BRINE_ZERO_READER_TEST_OUTPUT=/artifact/replica-zero-fixture BRINE_PROJECTION_READER_TEST_OUTPUT=/artifact/projection-fixtures RUSTFLAGS='-C target-feature=+crt-static --remap-path-prefix=/build=/source' cargo test --locked --target "$target" -p brine-native-reader -j 2 -- --test-threads=1
+    && BRINE_DISCOVERY_READER_TEST_OUTPUT=/artifact/discovery-negative-fixtures BRINE_READER_TEST_OUTPUT=/artifact/fixture BRINE_ZERO_READER_TEST_OUTPUT=/artifact/replica-zero-fixture BRINE_PROJECTION_READER_TEST_OUTPUT=/artifact/projection-fixtures RUSTFLAGS='-C target-feature=+crt-static --remap-path-prefix=/build=/source' cargo test --locked --target "$target" -p brine-native-reader -j 2 -- --test-threads=1
 
 FROM scratch AS artifact
 COPY --from=native-tests /artifact/ /
