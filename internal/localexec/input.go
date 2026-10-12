@@ -45,7 +45,7 @@ func runInputCommand(ctx context.Context, path string, command Command, env []st
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	configureProcessGroup(cmd)
 	cmd.WaitDelay = 100 * time.Millisecond
-	err = cmd.Run()
+	err := cmd.Run()
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	} else if stdout.overflow || stderr.overflow {
