@@ -64,7 +64,7 @@ func testEngineStopOutcome(t *testing.T, outcome string) {
 	defer cancel()
 	directory := t.TempDir()
 	ready := filepath.Join(directory, "ready")
-	process, err := localexec.StartForeground(ctx, localexec.ForegroundCommand{Path: os.Args[0], Args: []string{"-test.run=^TestEngineStopChildHelper$"}, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + directory, "BRINE_ENGINE_STOP_READY=" + ready, "BRINE_ENGINE_STOP_OUTCOME=" + outcome}, Dir: directory})
+	process, err := localexec.StartForeground(ctx, localexec.ForegroundCommand{Path: os.Args[0], Args: []string{"-test.run=^TestEngineStopChildHelper$"}, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + directory, "GORACE=atexit_sleep_ms=0", "BRINE_ENGINE_STOP_READY=" + ready, "BRINE_ENGINE_STOP_OUTCOME=" + outcome}, Dir: directory})
 	if err != nil {
 		t.Fatal(err)
 	}
