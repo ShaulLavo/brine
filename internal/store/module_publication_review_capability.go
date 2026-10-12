@@ -27,6 +27,7 @@ type PublicationReviewPreparation struct {
 	policySHA   string
 	artifact    datapublish.Artifact
 	declaration *publicationReviewDeclaration
+	restore     *publicationReviewRestore
 }
 
 func (PublicationReviewPreparation) String() string {

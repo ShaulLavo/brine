@@ -9,7 +9,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
@@ -29,55 +28,6 @@ type publicationReviewBinding struct {
 func publicationStorageSHA256(raw []byte) string {
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:])
-}
-
-func (s *Store) recordPublicationReview(ctx context.Context, preparation *PublicationReviewPreparation, review datapublish.PrivateReview) error {
-	plan := review.Plan()
-	binding := data.ReplicaBindingID(plan.Facts().BindingID)
-	if !preparation.active(s) || preparation.binding != binding || plan.Requester().String() != preparation.requester || plan.Facts().App != preparation.app || plan.Facts().PolicySHA256 != preparation.policySHA || review.Artifact().WasmSHA256() != preparation.artifact.WasmSHA256() || review.Artifact().ProgramWireHash() != preparation.artifact.ProgramWireHash() {
-		return ErrConflict
-	}
-	raw, err := review.StorageBytes()
-	if err != nil {
-		return ErrInvalid
-	}
-	decoded, err := datapublish.DecodePrivateReview(raw)
-	if err != nil || decoded.Plan().ID() != plan.ID() {
-		return ErrInvalid
-	}
-	tx, cancel, err := s.beginWrite(ctx)
-	defer cancel()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = tx.Rollback() }()
-	point, err := s.readPublicationReviewPreparationTx(ctx, tx, preparation)
-	if err != nil || !publicationPlanMatchesPoint(plan, point.view) || !preparation.active(s) {
-		return errors.Join(ErrConflict, err)
-	}
-	if err = checkNativePointCurrent(ctx, tx, point.view); err != nil {
-		return err
-	}
-	if err = checkPublicationPolicy(ctx, tx, plan.Facts()); err != nil {
-		return err
-	}
-	var app string
-	if err = tx.QueryRowContext(ctx, "SELECT app FROM data_active_incarnations WHERE incarnation_id=?", point.view.IncarnationID).Scan(&app); err != nil || app != plan.Facts().App {
-		return errors.Join(ErrConflict, err)
-	}
-	now := time.Now().UTC()
-	if plan.CheckFreshness(plan.Requester(), plan.Facts(), plan.Source(), now) != nil || now.Before(point.view.PreparedAt) || !now.Before(point.view.ExpiresAt) || !now.Before(point.view.RetainUntil) || plan.ExpiresAt().After(point.view.ExpiresAt) {
-		return ErrConflict
-	}
-	index := publicationReviewBinding{pointID: point.view.PointID, binding: binding, requester: plan.Requester().String(), generation: point.view.Generation, generationID: point.view.GenerationID,
-		pointSHA: point.hash, runtimeVersion: point.view.RuntimeVersion, runtimeSHA: point.view.RuntimeSHA256}
-	if err = insertPublicationReview(ctx, tx, plan.ID(), index, raw); err != nil {
-		return err
-	}
-	if !preparation.active(s) {
-		return ErrConflict
-	}
-	return tx.Commit()
 }
 
 func publicationPlanMatchesPoint(plan datapublish.Plan, point NativePreparedPointView) bool {

@@ -31,6 +31,9 @@ func beginPublicationReviewWork(ctx context.Context, source *nativeRestoredSourc
 	if source == nil || source.unchanged(ctx) != nil || source.permit.Runtime.State != data.EngineInitialized || preparation == nil || source.state.CheckPublicationReviewPreparation(ctx, preparation) != nil || preparation.PointID() != source.pointID || extraction.unchanged(ctx) != nil || extraction.lease.artifact.preparation != source.preparation || preparation.Artifact().WasmSHA256() != extraction.lease.artifact.artifact.WasmSHA256() {
 		return nil, datapublish.ErrRecord
 	}
+	if err := source.state.BindPublicationReviewRestore(ctx, preparation, source.extracted, source.parent, source.evidence); err != nil {
+		return nil, err
+	}
 	return &publicationReviewWork{source: source, extraction: extraction, preparation: preparation}, nil
 }
 
@@ -83,4 +86,18 @@ func (p publicationReviewPreflight) unchanged(ctx context.Context) error {
 		return datapublish.ErrRecord
 	}
 	return checkModuleStagePublisherProof(p.observation, p.lease.startedAt, p.lease.finishedAt)
+}
+
+func (p publicationReviewPreflight) observationRecord(ctx context.Context) (store.PublicationReviewObservation, error) {
+	if p.unchanged(ctx) != nil {
+		return store.PublicationReviewObservation{}, datapublish.ErrRecord
+	}
+	extraction, err := p.work.extraction.provenance(ctx)
+	if err != nil {
+		return store.PublicationReviewObservation{}, err
+	}
+	lease, child := p.lease, p.lease.observation
+	return store.PublicationReviewObservation{Descriptor: slices.Clone(p.work.extraction.descriptor), Extraction: extraction, Preflight: slices.Clone(p.observation.Preflight), PublisherProof: slices.Clone(p.observation.PublisherProof),
+		Runtime: lease.permit.Runtime.Clone(), Publisher: child.Publisher, HelperPID: lease.helperPID, HelperStartTicks: lease.helperTicks, HelperCgroup: lease.helperCgroup,
+		ChildPID: child.ChildPID, ChildStartTicks: child.ChildStartTicks, StartedAt: lease.startedAt, FinishedAt: lease.finishedAt, Disposed: lease.disposed && child.ChildBound && child.ChildStopped}, nil
 }
