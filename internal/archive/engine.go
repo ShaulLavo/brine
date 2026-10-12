@@ -215,13 +215,15 @@ type NativeCoverage struct {
 }
 
 func SQLiteCoverageVariant(record SQLiteCoverage) Coverage {
-	return Coverage{engine: data.EngineSQLite, sqlite: record}
+	return Coverage{engine: data.EngineSQLite, sqlite: cloneSQLiteCoverage(record)}
 }
 func NativeCoverageVariant(record NativeCoverage) Coverage {
 	return Coverage{engine: data.EngineSpacetimeDB, native: record}
 }
-func (c Coverage) Engine() data.EngineKind        { return c.engine }
-func (c Coverage) SQLite() (SQLiteCoverage, bool) { return c.sqlite, c.engine == data.EngineSQLite }
+func (c Coverage) Engine() data.EngineKind { return c.engine }
+func (c Coverage) SQLite() (SQLiteCoverage, bool) {
+	return cloneSQLiteCoverage(c.sqlite), c.engine == data.EngineSQLite
+}
 func (c Coverage) Native() (NativeCoverage, bool) {
 	return c.native, c.engine == data.EngineSpacetimeDB
 }
