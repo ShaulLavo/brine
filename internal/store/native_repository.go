@@ -197,25 +197,6 @@ func checkFreshNativeRepositoryPrefix(ctx context.Context, q dataQuerier, archiv
 	return rows.Err()
 }
 
-func checkPendingNativeRepositoryOwner(ctx context.Context, q dataQuerier, endpoint, bucket, prefix string, owner data.ReplicaBindingID) error {
-	rows, err := q.QueryContext(ctx, "SELECT binding_id,prefix FROM data_native_repository_intents WHERE endpoint=? AND bucket=?", endpoint, bucket)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var binding data.ReplicaBindingID
-		var recorded string
-		if err := rows.Scan(&binding, &recorded); err != nil {
-			return err
-		}
-		if binding != owner && nativePrefixesOverlap(recorded, prefix) {
-			return ErrConflict
-		}
-	}
-	return rows.Err()
-}
-
 func checkPendingNativeTransitionRepository(ctx context.Context, q dataQuerier, archive data.ArchiveBinding, input data.EngineTransition, repositoryID string) error {
 	rows, err := q.QueryContext(ctx, "SELECT i.id,i.operation_id,i.binding_id,i.epoch_id,i.prefix,COALESCE(r.repository_id,'') FROM data_native_repository_intents i LEFT JOIN data_native_repository_results r ON r.intent_id=i.id WHERE i.endpoint=? AND i.bucket=?", archive.Destination.Endpoint, archive.Destination.Bucket)
 	if err != nil {
