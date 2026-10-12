@@ -108,16 +108,20 @@ convert source checks or accepted tasks into physical success claims.
 | P09-04, T37 | Original `plan`/`apply`, `data material set`, post-publication fresh `plan`/`apply`, `status` | Actual rootless service and frontend, app/server permits, HTTPS/WS subscriptions, supplied-key user auth and denied management/publisher routes; startup/reboot fence refusals |
 | P09-05, T38 | `backup recovery set`, `backup credentials plan`/`set`, `backup policy plan`/`activate`, `backup capture`, `backup status`, `restore native-test` | Real scoped S3 authenticated repository and complete extraction; signing-key recovery; isolated passive replay equal to confirmed source evidence while writers continue; missed cadence/expiry/outage and interrupted capture/activation resolution |
 | P09-06, T39 | `backup prepare`, `data module plan`/`apply`/`inspect`/`resolve`, fresh deployment | Genuine empty first publication with original preparation plan; additive/default preservation and matched clients; destructive/access-change refusals; stale artifact/source/review/role refusals; unknown publish and transition recovery without repeating effects |
-| P09-07, T40 | `restore native-live plan`/`apply`/`inspect`/`review-resolution`/`resolve`, `archive native plan`/`apply`/`inspect`/`resolve` | Historical data in a new epoch with compatible code, original-tree retention, default-denied live restore, interrupted swaps/reboot fences, full-binding archive/recreate safety and thirty-day retention; public archive maintenance/renewal commands remain a boundary blocker until delivered |
+| P09-07, T40 | `restore native-live plan`/`apply`/`inspect`/`review-resolution`/`resolve`, `archive native plan`/`apply`/`inspect`/`resolve`, `archive status`, `archive credentials plan`/`set`, `archive maintain plan`/`apply`/`resolve` | Historical data in a new epoch with compatible code, original-tree retention, default-denied live restore, interrupted swaps/reboot fences, full-binding archive/recreate safety, original-scoped credential renewal, thirty-day retention, purge grant/refusals, deadline-bound expiry and unknown deletion recovery |
 | P09-08, T41 | The complete runbook on authorized disposable targets | Actual arm64 Pi and amd64 execution, browser and confirmed markers, real S3 online capture/replay, code/module changes, reboot, exact stop/competitor/FDSTORE observer refusals, interruption and archive drills; actual resource measurements and host teardown |
-| P09-09, T42 | Runbook and command guides against actual CLI/API | Fresh-agent execution, machine envelope/receipt fields, authority refusals, archive maintenance boundary, cadence/maintenance/unknown-loss limits, current artifact pins and shared SQLite regression/physical recovery evidence |
+| P09-09, T42 | Runbook and command guides against actual CLI/API | Fresh-agent execution, machine envelope/receipt fields, authority refusals, original-scoped archive maintenance, cadence/maintenance/unknown-loss limits, current artifact pins and shared SQLite regression/physical recovery evidence |
 
 Exact-preparation and workspace cleanup also require an independently qualified
 protected-peer observation boundary. A manager or role exemption cannot prove
 workspace absence because systemd can retain descriptors through FDSTORE.
-Physical acceptance remains blocked until that boundary and its default-denied
-operator grant are implemented, reviewed and exercised. Keep all related phase
-checkboxes unchanged.
+The separate protected `/etc/ssh/brine/workspace-observer.toml` grant is
+`allow_workspace_observation`, default false. Missing, omitted or false permission
+denies observation without changing the deployment operator-policy hash.
+The private observer takes an actual owned directory descriptor, never a path,
+PID or caller proof. Missing service, busy consumers and unknown observations
+preserve the workspace. Source review and actual authorized FDSTORE busy/closed
+qualification remain required. Keep all related phase checkboxes unchanged.
 
 ## T35 qualified runtime prerequisites, admission pending
 
