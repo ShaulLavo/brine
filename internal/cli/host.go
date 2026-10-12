@@ -78,6 +78,7 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		server.NativeBackupStatus = deps.HostNativeBackupStatus
 		server.NativeBackupPolicy = deps.HostNativeBackupPolicy
 		server.NativeRecovery = deps.HostNativeRecovery
+		server.NativeMaterial = deps.HostNativeMaterial
 		server.NativeBackups = deps.HostNativeBackups
 		if deps.HostLogs != nil {
 			server.Logs = deps.HostLogs

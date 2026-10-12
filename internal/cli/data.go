@@ -51,6 +51,6 @@ func newDataCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		return err
 	}}
 	flags.register(prepare)
-	root.AddCommand(prepare, newDataInitCmd(deps, modes), newSchemaCmd(modes), newModulePublicationCmd(deps, modes))
+	root.AddCommand(prepare, newDataInitCmd(deps, modes), newSchemaCmd(modes), newModulePublicationCmd(deps, modes), newNativeMaterialCmd(deps, modes))
 	return root
 }

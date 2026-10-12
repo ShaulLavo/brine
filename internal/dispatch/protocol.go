@@ -62,6 +62,8 @@ var operations = map[string]operation{
 	"native_backup_status":      {ReadOnly, decodeNativeBackupStatus},
 	"native_backup_policy_plan": {Mutating, decodeNativeBackupPolicyPlan},
 	"native_backup_activate":    {Mutating, decodeNativeBackupPolicyActivate},
+	"native_material_set":       {Mutating, decodeNativeMaterial},
+	"native_material_status":    {ReadOnly, decodeNativeMaterialInspect},
 	"native_recovery_set":       {Mutating, decodeNativeRecovery},
 	"native_capture":            {Mutating, decodeNativeCapture},
 	"native_prepare":            {Mutating, decodeNativePrepare},
@@ -123,8 +125,12 @@ func DecodeRequest(data []byte) (Request, error) {
 	if !ok {
 		return Request{}, result.New(result.DispatchOperationRefused, nil)
 	}
-	if _, err := entry.decode(fields["args"]); err != nil {
+	decoded, err := entry.decode(fields["args"])
+	if err != nil {
 		return invalid()
+	}
+	if private, ok := decoded.(interface{ Clear() }); ok {
+		private.Clear()
 	}
 	request.Args = append(json.RawMessage(nil), fields["args"]...)
 	return request, nil
@@ -138,9 +144,12 @@ func EncodeRequest(request Request) ([]byte, error) {
 	if len(data)+1 > RequestLimit {
 		return nil, result.New(result.DispatchInvalidRequest, nil)
 	}
-	if _, err := DecodeRequest(data); err != nil {
+	checked, err := DecodeRequest(data)
+	if err != nil {
+		clear(data)
 		return nil, err
 	}
+	clear(checked.Args)
 	return append(data, '\n'), nil
 }
 
@@ -183,6 +192,7 @@ type Server struct {
 	NativeBackupStatus NativeBackupStatusOperations
 	NativeBackupPolicy NativeBackupPolicyOperations
 	NativeRecovery     NativeRecoveryOperations
+	NativeMaterial     NativeMaterialOperations
 	NativeBackups      NativeBackupOperations
 }
 
@@ -214,6 +224,9 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		return fail(err)
 	}
 	args, _ := operations[request.Op].decode(request.Args)
+	if private, ok := args.(interface{ Clear() }); ok {
+		defer private.Clear()
+	}
 	if preview, ok := args.(ReconcileArgs); ok && preview.DryRun {
 		ctx = context.WithValue(ctx, previewRequestKey{}, true)
 	}
@@ -272,6 +285,24 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = accepted
+	case NativeMaterialArgs:
+		if s.NativeMaterial == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		receipt, err := s.NativeMaterial.DeliverMaterial(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = receipt
+	case NativeMaterialInspectArgs:
+		if s.NativeMaterial == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		receipt, err := s.NativeMaterial.InspectMaterial(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = receipt
 	case NativeRecoveryArgs:
 		defer args.Clear()
 		if s.NativeRecovery == nil {
