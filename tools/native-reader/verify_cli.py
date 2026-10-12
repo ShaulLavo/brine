@@ -89,8 +89,8 @@ def main():
     initial = seal(fixture)
     exit_code, baseline = run(image, fixture, output, request)
     assert exit_code == 0 and baseline['outcome'] == 'observed', (exit_code, baseline)
-    assert baseline['observed_database_identity'] == request['expected_database_identity']
-    assert baseline['observed_owner_identity'] == request['expected_owner_identity']
+    assert baseline['observed_database_identity'] == request['identity']['database_identity']
+    assert baseline['observed_owner_identity'] == request['identity']['owner_identity']
     assert baseline['snapshot']['observed_replica_id'] == request['history']['replica_id']
     assert next(table for table in baseline['tables'] if table['name'] == 'reader_fixture')['rows'] == 20
     variant = fixture / 'projection-variant'
@@ -117,6 +117,7 @@ def main():
     logs = copy.deepcopy(request)
     logs['history'] = {'kind': 'logs'}
     exit_code, observed = run(image, fixture, output, logs)
+    log_baseline = observed
     assert exit_code == 0 and observed['state_blake3'] == baseline['state_blake3']
     assert observed['confirmed_pairs_projection'] == projection
     results.append({'case': 'logs_snapshot_equality', 'exit': exit_code})
@@ -153,9 +154,9 @@ def main():
         code, refusal = run(image, fixture, output, limited)
         assert code == 70 and refusal['outcome'] == 'refused', (name, code, refusal)
         results.append({'case': name, 'exit': code, 'refusal': refusal['code']})
-    for field in ['expected_database_identity', 'expected_owner_identity']:
+    for field in ['database_identity', 'owner_identity']:
         wrong = copy.deepcopy(logs)
-        wrong[field] = '09' * 32
+        wrong['identity'][field] = '09' * 32
         code, refusal = run(image, fixture, output, wrong)
         assert code == 70 and refusal['code'] == 'identity'
         results.append({'case': field, 'exit': code, 'refusal': refusal['code']})
@@ -165,6 +166,50 @@ def main():
     code, refusal = run(image, fixture, output, request, extra=['--env', 'AWS_SECRET_ACCESS_KEY=synthetic-denial-case'])
     assert code == 70 and refusal['code'] == 'containment'
     results.append({'case': 'credential_environment_refused', 'exit': code, 'refusal': refusal['code']})
+    for label, original, expected in [('snapshot', request, baseline), ('logs', logs, log_baseline)]:
+        discovery = copy.deepcopy(original)
+        discovery['identity'] = {'kind': 'discover', 'owner_identity': request['identity']['owner_identity']}
+        code, observed = run(image, fixture, output, discovery)
+        assert code == 0 and observed == expected, (label, code, observed)
+        results.append({'case': 'discovery_' + label + '_full_state', 'exit': code})
+        discovery['identity']['owner_identity'] = '09' * 32
+        code, refusal = run(image, fixture, output, discovery)
+        assert code == 70 and refusal['code'] == 'identity'
+        results.append({'case': 'discovery_' + label + '_wrong_owner', 'exit': code})
+    discovery = copy.deepcopy(logs)
+    discovery['identity'] = {'kind': 'discover', 'owner_identity': request['identity']['owner_identity']}
+    code, refusal = run(image, fixture, output, discovery, forged_length)
+    assert code == 70 and refusal['code'] == 'framing'
+    results.append({'case': 'discovery_torn_metadata', 'exit': code})
+    discovery_snapshot = copy.deepcopy(request)
+    discovery_snapshot['identity'] = {'kind': 'discover', 'owner_identity': request['identity']['owner_identity']}
+    code, observed = run(image, fixture, output, discovery_snapshot, empty_logs)
+    assert code == 0 and observed == snapshot
+    results.append({'case': 'discovery_snapshot_only_full_state', 'exit': code})
+    for damage in ['missing', 'torn', 'corrupt']:
+        code, refusal = run(image, fixture, output, discovery_snapshot,
+                            lambda root: damaged_snapshot_only(root, request, damage))
+        assert code == 70 and refusal['code'] == 'snapshot'
+        results.append({'case': 'discovery_snapshot_only_' + damage, 'exit': code})
+    for invalid_identity in [
+            {'kind': 'discover', 'owner_identity': request['identity']['owner_identity'], 'database_identity': request['identity']['database_identity']},
+            {'kind': 'known', 'owner_identity': request['identity']['owner_identity']},
+            {'kind': 'discover'}]:
+        invalid = copy.deepcopy(logs)
+        invalid['identity'] = invalid_identity
+        code, refusal = run(image, fixture, output, invalid)
+        assert code == 70 and refusal['code'] == 'request'
+        results.append({'case': 'closed_identity_request', 'exit': code})
+    if len(sys.argv) == 5:
+        negatives = pathlib.Path(sys.argv[4]).resolve()
+        negative_seal = seal(negatives)
+        for negative in sorted(negatives.iterdir()):
+            negative_request = json.loads((negative / 'request.json').read_text())
+            assert negative_request['identity']['kind'] == 'discover' and 'database_identity' not in negative_request['identity']
+            code, refusal = run(image, negative, output, negative_request)
+            assert code == 70 and refusal['outcome'] == 'refused', (negative.name, code, refusal)
+            results.append({'case': negative.name, 'exit': code, 'refusal': refusal['code']})
+        assert seal(negatives) == negative_seal
     assert seal(fixture) == initial
     (output / 'receipt.json').write_text(json.dumps({'passed': True, 'cases': results, 'source_unchanged': True}, indent=2) + '\n')
     print(json.dumps({'passed': True, 'cases': len(results), 'source_unchanged': True}))

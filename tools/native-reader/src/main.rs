@@ -67,17 +67,10 @@ fn run() -> Result<()> {
     }
     request.limits.validate()?;
     memory::configure(request.limits.memory_bytes, request.limits.allocation_bytes);
-    let database = identity(&request.expected_database_identity)?;
-    let owner = identity(&request.expected_owner_identity)?;
+    validate_identity(&request.identity)?;
     let deadline = Deadline::new(request.limits.deadline_ms);
     let done = watchdog(request.limits.deadline_ms)?;
-    let evidence = inspect(
-        Path::new("/copy/replica"),
-        &request,
-        database,
-        owner,
-        &deadline,
-    )?;
+    let evidence = inspect(Path::new("/copy/replica"), &request, &deadline)?;
     let mut writer = BoundedOutput {
         bytes: Vec::new(),
         maximum: request.limits.output_bytes as usize,
@@ -91,17 +84,12 @@ fn run() -> Result<()> {
     Ok(())
 }
 
-fn inspect(
-    root: &Path,
-    request: &Request,
-    database: Identity,
-    owner: Identity,
-    deadline: &Deadline,
-) -> Result<Evidence> {
+fn inspect(root: &Path, request: &Request, deadline: &Deadline) -> Result<Evidence> {
     shape(root)?;
     let before = input::files(root, &request.limits, deadline)?;
     let root = ReplicaDir::from_path_unchecked(root.to_path_buf());
     let head = framing::inspect(&root, &before, &request.limits, deadline)?;
+    let (database, owner) = requested_identity(&root, request, head.as_ref(), deadline)?;
     let recovered = state::observe(
         &root,
         database,
@@ -158,6 +146,48 @@ fn shape(root: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn validate_identity(value: &protocol::RequestedIdentity) -> Result<()> {
+    match value {
+        protocol::RequestedIdentity::Known {
+            database_identity,
+            owner_identity,
+        } => {
+            identity(database_identity)?;
+            identity(owner_identity)?;
+        }
+        protocol::RequestedIdentity::Discover { owner_identity } => {
+            identity(owner_identity)?;
+        }
+    }
+    Ok(())
+}
+
+fn requested_identity(
+    root: &ReplicaDir,
+    request: &Request,
+    head: Option<&framing::Head>,
+    deadline: &Deadline,
+) -> Result<(Identity, Identity)> {
+    match &request.identity {
+        protocol::RequestedIdentity::Known {
+            database_identity,
+            owner_identity,
+        } => Ok((identity(database_identity)?, identity(owner_identity)?)),
+        protocol::RequestedIdentity::Discover { owner_identity } => {
+            let owner = identity(owner_identity)?;
+            let database = state::discover(
+                root,
+                owner,
+                request.history,
+                head,
+                &request.limits,
+                deadline,
+            )?;
+            Ok((database, owner))
+        }
+    }
 }
 
 fn identity(text: &str) -> Result<Identity> {

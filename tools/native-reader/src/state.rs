@@ -56,6 +56,81 @@ pub struct State {
     pub snapshot: Option<SnapshotEvidence>,
 }
 
+pub fn discover(
+    root: &ReplicaDir,
+    owner: Identity,
+    history: History,
+    head: Option<&Head>,
+    limits: &Limits,
+    deadline: &Deadline,
+) -> Result<Identity> {
+    use spacetimedb_datastore::{
+        locking_tx_datastore::{ErrorBehavior, datastore::Locking},
+        traits::{Tx, TxDatastore},
+    };
+    use spacetimedb_durability::History as _;
+    let pool = PagePool::new(Some(8 << 20));
+    let (store, committed, snapshot_database) = match history {
+        History::Logs {} => {
+            let head = head.ok_or(Refusal::MissingHistory)?;
+            if head.first != 0 {
+                return Err(Refusal::MissingHistory);
+            }
+            // This identity labels only transient bootstrap metrics. No st_module row is created.
+            let store = Locking::bootstrap(Identity::ZERO, pool).map_err(|_| Refusal::Native)?;
+            (store, head.last, None)
+        }
+        History::Snapshot { offset, replica_id } => {
+            let snapshot = reconstruct_snapshot(root, offset, replica_id, head, &pool)?;
+            let database = snapshot.database_identity;
+            let store =
+                Locking::restore_from_snapshot(snapshot, pool).map_err(|_| Refusal::Snapshot)?;
+            (store, head.map_or(offset, |head| head.last), Some(database))
+        }
+    };
+    let history = LocalHistory::<spacetimedb_sats::ProductValue, _>::open(root.commit_log())
+        .map_err(|_| Refusal::Framing)?;
+    let mut replay = store.replay(|_| {}, ErrorBehavior::FailFast);
+    history
+        .fold_transactions_from(replay.next_tx_offset(), &mut replay)
+        .map_err(|_| Refusal::Native)?;
+    if replay.next_tx_offset().checked_sub(1) != Some(committed) {
+        return Err(Refusal::MissingHistory);
+    }
+    replay
+        .committed_state()
+        .rebuild_state_after_replay()
+        .map_err(|_| Refusal::Native)?;
+    drop(replay);
+    deadline.check()?;
+    let tx = store.begin_tx(Workload::Internal);
+    let mut modules = 0;
+    for row in store
+        .iter_tx(&tx, ST_MODULE_ID)
+        .map_err(|_| Refusal::Native)?
+    {
+        deadline.check()?;
+        add(&mut modules, 1, 1, Refusal::Program)?;
+        if bsatn::to_len(&row).map_err(|_| Refusal::Program)? as u64 > limits.program_bytes {
+            return Err(Refusal::Program);
+        }
+    }
+    if modules != 1 {
+        return Err(Refusal::MissingHistory);
+    }
+    let metadata = store
+        .metadata(&tx)
+        .map_err(|_| Refusal::Native)?
+        .ok_or(Refusal::MissingHistory)?;
+    let _ = store.release_tx(tx);
+    if metadata.owner_identity != owner
+        || snapshot_database.is_some_and(|database| database != metadata.database_identity)
+    {
+        return Err(Refusal::Identity);
+    }
+    Ok(metadata.database_identity)
+}
+
 pub fn observe(
     root: &ReplicaDir,
     database: Identity,
@@ -88,7 +163,8 @@ pub fn observe(
         prepared.worker,
         Handle::tokio(runtime.handle().clone()),
     );
-    let history = LocalHistory::open(root.commit_log()).map_err(|_| Refusal::Framing)?;
+    let history = LocalHistory::<spacetimedb_sats::ProductValue, _>::open(root.commit_log())
+        .map_err(|_| Refusal::Framing)?;
     let (db, clients) = RelationalDB::open(database, owner, history, Some(persistence), None, pool)
         .map_err(|_| Refusal::Identity)?;
     if let Some(proof) = prepared.proof {
@@ -193,29 +269,8 @@ fn snapshot(
             evidence: None,
         });
     };
-    if head.is_some_and(|head| offset > head.last || (head.first > 0 && offset < head.first - 1)) {
-        return Err(Refusal::Snapshot);
-    }
-    selected_directory(root, offset)?;
-    let repo = Arc::new(
-        SnapshotRepository::open(root.snapshots(), database, replica_id)
-            .map_err(|_| Refusal::Snapshot)?,
-    );
-    let offsets = repo
-        .all_snapshots()
-        .map_err(|_| Refusal::Snapshot)?
-        .collect::<Vec<_>>();
-    if offsets != [offset] {
-        return Err(Refusal::Snapshot);
-    }
-    let snapshot = repo
-        .read_snapshot(offset, pool)
-        .map_err(|_| Refusal::Snapshot)?;
-    if snapshot.database_identity != database
-        || snapshot.replica_id != replica_id
-        || snapshot.tx_offset != offset
-        || snapshot.module_abi_version != [7, 0]
-    {
+    let snapshot = reconstruct_snapshot(root, offset, replica_id, head, pool)?;
+    if snapshot.database_identity != database {
         return Err(Refusal::Snapshot);
     }
     let evidence = SnapshotEvidence {
@@ -234,6 +289,38 @@ fn snapshot(
         proof: Some(proof),
         evidence: Some(evidence),
     })
+}
+
+fn reconstruct_snapshot(
+    root: &ReplicaDir,
+    offset: u64,
+    replica_id: u64,
+    head: Option<&Head>,
+    pool: &PagePool,
+) -> Result<spacetimedb_snapshot::ReconstructedSnapshot> {
+    if head.is_some_and(|head| offset > head.last || (head.first > 0 && offset < head.first - 1)) {
+        return Err(Refusal::Snapshot);
+    }
+    selected_directory(root, offset)?;
+    let repo = SnapshotRepository::open(root.snapshots(), Identity::ZERO, replica_id)
+        .map_err(|_| Refusal::Snapshot)?;
+    let offsets = repo
+        .all_snapshots()
+        .map_err(|_| Refusal::Snapshot)?
+        .collect::<Vec<_>>();
+    if offsets != [offset] {
+        return Err(Refusal::Snapshot);
+    }
+    let snapshot = repo
+        .read_snapshot(offset, pool)
+        .map_err(|_| Refusal::Snapshot)?;
+    if snapshot.replica_id != replica_id
+        || snapshot.tx_offset != offset
+        || snapshot.module_abi_version != [7, 0]
+    {
+        return Err(Refusal::Snapshot);
+    }
+    Ok(snapshot)
 }
 
 fn selected_directory(root: &ReplicaDir, offset: u64) -> Result<()> {
