@@ -281,7 +281,7 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 	}
 	// Transitions are the current per-kind journal contract. Add new supported
 	// edges transactionally without changing durable operation identities.
-	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet, ops.Reconcile, ops.Resolve, ops.RestoreTest, ops.CredentialActivation, ops.DataInitApply, ops.NativeCapture, ops.NativeRestoreTest, ops.NativePrepare, ops.NativeRecoverySet, ops.NativeBackupActivate, ops.ModulePublishApply, ops.ModulePublishResolve, ops.NativeLiveRestore, ops.NativeLiveRestoreResolve, ops.NativeRetire, ops.NativeRetireResolve} {
+	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet, ops.Reconcile, ops.Resolve, ops.RestoreTest, ops.CredentialActivation, ops.DataInitApply, ops.NativeCapture, ops.NativeRestoreTest, ops.NativePrepare, ops.NativeRecoverySet, ops.NativeBackupActivate, ops.NativeBackupResolve, ops.ModulePublishApply, ops.ModulePublishResolve, ops.NativeLiveRestore, ops.NativeLiveRestoreResolve, ops.NativeRetire, ops.NativeRetireResolve} {
 		for from, tos := range ops.TransitionsFor(kind) {
 			for _, to := range tos {
 				if _, err = tx.ExecContext(ctx, "INSERT INTO transitions VALUES(?,?,?) ON CONFLICT DO NOTHING", kind, from, to); err != nil {

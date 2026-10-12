@@ -20,6 +20,7 @@ type NativePreparation struct {
 	preparation *EnginePreparation
 	intent      nativePreparationIntent
 	raw         []byte
+	inspection  *NativeBackupInspection
 }
 
 func (p *NativePreparation) PointID() string {
@@ -355,7 +356,12 @@ func checkNativePreparationCapability(ctx context.Context, tx *sql.Tx, capabilit
 		return errors.Join(ErrConflict, err)
 	}
 	var state ops.State
-	if err := tx.QueryRowContext(ctx, "SELECT state FROM operations WHERE id=?", i.OperationID).Scan(&state); err != nil || state != ops.Preflight {
+	if capability.inspection != nil {
+		if err := capability.inspection.check(ctx, tx); err != nil {
+			return err
+		}
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT state FROM operations WHERE id=?", i.OperationID).Scan(&state); err != nil || capability.inspection == nil && state != ops.Preflight || capability.inspection != nil && state != ops.RecoveryRequired {
 		return errors.Join(ErrConflict, err)
 	}
 	view := NativePreparedPointView{PointID: i.PointID, PreparationOperationID: i.OperationID, FenceOwnerOpID: i.OperationID, FenceID: i.FenceID, BindingID: i.BindingID, EpochID: i.EpochID, DatabaseID: i.DatabaseID, IncarnationID: i.IncarnationID, Generation: i.Generation, PolicySHA256: i.PolicySHA256, RuntimeVersion: i.RuntimeVersion, RuntimeSHA256: i.RuntimeSHA256, AllocationID: string(i.DatabaseID), AllocationSHA256: i.AllocationSHA256, SourceKind: i.SourceKind}

@@ -10,31 +10,32 @@ import (
 )
 
 type Runtime struct {
-	Archives           archive.Service
-	ArchiveMaintenance archive.MaintenanceService
-	ArchiveCredentials backupcredentials.ArchiveService
-	DataInitialization dispatch.DataInitializationOperations
-	previewStore       *store.Store
-	Reconciler         dispatch.ReconcileOperations
-	Inventory          dispatch.Inventory
-	Planner            dispatch.Planner
-	Jobs               dispatch.JobOperations
-	Runner             jobs.Runner
-	NativeCapture      func(context.Context, string) (jobs.Accepted, error)
-	NativeBackups      dispatch.NativeBackupOperations
-	NativeBackupStatus dispatch.NativeBackupStatusOperations
-	NativeBackupPolicy dispatch.NativeBackupPolicyOperations
-	NativeRecovery     dispatch.NativeRecoveryOperations
-	NativeLiveRestore  dispatch.NativeLiveRestoreOperations
-	NativeRetire       dispatch.NativeRetireOperations
-	BackupCredentials  dispatch.BackupCredentialOperations
-	Config             dispatch.ConfigurationOperations
-	Secrets            dispatch.SecretOperations
-	Apps               dispatch.AppOperations
-	Logs               dispatch.LogReader
-	Diagnose           dispatch.DiagnosticReader
-	Authorize          dispatch.Authorization
-	close              func() error
+	Archives               archive.Service
+	ArchiveMaintenance     archive.MaintenanceService
+	ArchiveCredentials     backupcredentials.ArchiveService
+	DataInitialization     dispatch.DataInitializationOperations
+	previewStore           *store.Store
+	Reconciler             dispatch.ReconcileOperations
+	Inventory              dispatch.Inventory
+	Planner                dispatch.Planner
+	Jobs                   dispatch.JobOperations
+	Runner                 jobs.Runner
+	NativeCapture          func(context.Context, string) (jobs.Accepted, error)
+	NativeBackups          dispatch.NativeBackupOperations
+	NativeBackupResolution dispatch.NativeBackupResolutionOperations
+	NativeBackupStatus     dispatch.NativeBackupStatusOperations
+	NativeBackupPolicy     dispatch.NativeBackupPolicyOperations
+	NativeRecovery         dispatch.NativeRecoveryOperations
+	NativeLiveRestore      dispatch.NativeLiveRestoreOperations
+	NativeRetire           dispatch.NativeRetireOperations
+	BackupCredentials      dispatch.BackupCredentialOperations
+	Config                 dispatch.ConfigurationOperations
+	Secrets                dispatch.SecretOperations
+	Apps                   dispatch.AppOperations
+	Logs                   dispatch.LogReader
+	Diagnose               dispatch.DiagnosticReader
+	Authorize              dispatch.Authorization
+	close                  func() error
 }
 
 func (r *Runtime) Close() error { return r.close() }

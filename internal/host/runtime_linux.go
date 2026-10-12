@@ -164,6 +164,9 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
 	nativeRuntime := nativeBackupRuntime{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session, routes: manager}
+	resolutionOperations := nativeBackupResolutionOperations{service: service, jobs: taskJobs, runtime: nativeRuntime}
+	r.NativeBackupResolution = resolutionOperations
+	r.Runner.TaskHandlers[ops.NativeBackupResolve] = resolutionOperations.task
 	r.Runner.TaskHandlers[ops.NativeCapture] = nativeOnlineCaptureTask(service, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativeRestoreTest] = nativeHistoricalRestoreTask(service, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativePrepare] = nativePrepareTask(service, stateDir, identity.HomeDir, nativeRuntime)

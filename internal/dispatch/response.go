@@ -116,12 +116,24 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_backup_activate", "native_capture", "native_prepare", "native_restore_test", "native_retire", "native_live_restore_resolve", "native_live_restore":
+		case "native_backup_resolve", "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_backup_activate", "native_capture", "native_prepare", "native_restore_test", "native_retire", "native_live_restore_resolve", "native_live_restore":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()
 			}
 			value = accepted
+		case "native_backup_inspect":
+			view, err := DecodeNativeBackupInspectionView(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = view
+		case "native_backup_review":
+			review, err := nativecapture.DecodeBackupResolutionReview(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = review
 		case "native_backup_status":
 			status, err := nativecapture.DecodeBackupStatus(fields["data"])
 			if err != nil {

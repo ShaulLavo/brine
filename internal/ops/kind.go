@@ -22,6 +22,7 @@ const (
 	NativePrepare            Kind = "native_prepare"
 	NativeRecoverySet        Kind = "native_recovery_set"
 	NativeBackupActivate     Kind = "native_backup_activate"
+	NativeBackupResolve      Kind = "native_backup_resolve"
 	ModulePublishApply       Kind = "module_publish_apply"
 	ModulePublishResolve     Kind = "module_publish_resolve"
 	NativeLiveRestore        Kind = "native_live_restore"
@@ -46,12 +47,14 @@ var secretRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 var planID = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func ValidIntent(i Intent) bool {
-	if i.Kind != Resolve && i.Kind != ModulePublishResolve && i.Kind != NativeLiveRestoreResolve && i.Kind != NativeRetireResolve && i.RecoveryOf != "" {
+	if i.Kind != Resolve && i.Kind != ModulePublishResolve && i.Kind != NativeLiveRestoreResolve && i.Kind != NativeRetireResolve && i.Kind != NativeBackupResolve && i.RecoveryOf != "" {
 		return false
 	}
 	switch i.Kind {
 	case ModulePublishApply, NativeLiveRestore, NativeRetire:
 		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef)
+	case NativeBackupResolve:
+		return i.PlanID == "" && appName.MatchString(i.App) && regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(i.SecretRef) && operationID.MatchString(i.RecoveryOf)
 	case ModulePublishResolve, NativeLiveRestoreResolve, NativeRetireResolve:
 		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef) && operationID.MatchString(i.RecoveryOf)
 	case Resolve:
@@ -69,7 +72,7 @@ func ValidIntent(i Intent) bool {
 	}
 }
 func ValidOperation(o Operation) bool {
-	if o.Kind != Resolve && o.Kind != ModulePublishResolve && o.Kind != NativeLiveRestoreResolve && o.Kind != NativeRetireResolve && o.RecoveryOf != "" {
+	if o.Kind != Resolve && o.Kind != ModulePublishResolve && o.Kind != NativeLiveRestoreResolve && o.Kind != NativeRetireResolve && o.Kind != NativeBackupResolve && o.RecoveryOf != "" {
 		return false
 	}
 	if !ValidState(o.State) {
@@ -93,7 +96,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy, Resolve:
 		return Transitions()
-	case Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve:
+	case NativeBackupResolve, Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
 	case SecretSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
@@ -171,5 +174,5 @@ func ValidateOperationEvent(op Operation, e Event) error {
 
 // IsTask identifies reference-only detached work; handlers own their host locking.
 func (k Kind) IsTask() bool {
-	return k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve || k == NativeRetire || k == NativeRetireResolve
+	return k == NativeBackupResolve || k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve || k == NativeRetire || k == NativeRetireResolve
 }

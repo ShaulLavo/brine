@@ -244,8 +244,12 @@ func (r *NativeRepositoryRead) AdmitRepository(ctx context.Context, scope restic
 
 func readNativeMaterialOperation(ctx context.Context, q dataQuerier, id string, kind ops.Kind) (ops.Operation, json.RawMessage, error) {
 	op, err := scanOperation(q.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
-	if err != nil || op.Kind != kind || op.State != ops.Succeeded {
+	if err != nil || op.Kind != kind || op.State != ops.Succeeded && op.State != ops.RecoveryRequired {
 		return ops.Operation{}, nil, errors.Join(ErrConflict, err)
+	}
+	if op.State == ops.RecoveryRequired {
+		resolved, err := readNativeBackupResolvedReceipt(ctx, q, op)
+		return op, resolved, err
 	}
 	var raw []byte
 	err = q.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", id).Scan(&raw)

@@ -57,7 +57,7 @@ type nativePreparedVerification struct {
 }
 
 func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *NativeStoppedPreparation, extracted restic.AuthenticatedRestore, observed NativePreparedObservation) (NativePreparedPointView, error) {
-	if s.readOnly || !stopped.active(s) || stopped.completedPointSHA256 != "" {
+	if s.readOnly || !stopped.active(s) || stopped.completedPointSHA256 != "" || stopped.preparation.inspection != nil && stopped.preparation.inspection.resolver == "" {
 		return NativePreparedPointView{}, ErrConflict
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -68,6 +68,11 @@ func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *Native
 	defer func() { _ = tx.Rollback() }()
 	if err := checkNativeStoppedCapability(ctx, tx, stopped); err != nil {
 		return NativePreparedPointView{}, err
+	}
+	if stopped.preparation.inspection != nil {
+		if err := checkNativeRetainedUploadObservation(ctx, tx, stopped.OperationID(), observed); err != nil {
+			return NativePreparedPointView{}, err
+		}
 	}
 	if checkNativePreparedSourceRuntime(ctx, tx, stopped, observed.Source) != nil {
 		return NativePreparedPointView{}, ErrConflict

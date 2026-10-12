@@ -56,6 +56,9 @@ type operation struct {
 var operations = map[string]operation{
 	"deploy_checkpoint":                     {ReadOnly, decodeDeploymentCheckpointArgs},
 	"native_point":                          {ReadOnly, decodeNativePoint},
+	"native_backup_inspect":                 {ReadOnly, decodeNativeBackupInspect},
+	"native_backup_review":                  {Mutating, decodeNativeBackupReview},
+	"native_backup_resolve":                 {Mutating, decodeNativeBackupResolve},
 	"native_backup_status":                  {ReadOnly, decodeNativeBackupStatus},
 	"native_backup_policy_plan":             {Mutating, decodeNativeBackupPolicyPlan},
 	"native_backup_activate":                {Mutating, decodeNativeBackupPolicyActivate},
@@ -168,28 +171,29 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
-	DataInitialization DataInitializationOperations
-	BackupCredentials  BackupCredentialOperations
-	Config             ConfigurationOperations
-	Secrets            SecretOperations
-	Reconciler         ReconcileOperations
-	Factory            Factory
-	Planner            Planner
-	Diagnose           DiagnosticReader
-	Apps               AppOperations
-	Logs               LogReader
-	version            string
-	inventory          Inventory
-	jobs               JobOperations
-	authorize          Authorization
-	RestoreTests       RestoreTestOperations
-	NativePoints       NativePointInspector
-	NativeBackupStatus NativeBackupStatusOperations
-	NativeBackupPolicy NativeBackupPolicyOperations
-	NativeRecovery     NativeRecoveryOperations
-	NativeBackups      NativeBackupOperations
-	NativeLiveRestore  NativeLiveRestoreOperations
-	NativeRetire       NativeRetireOperations
+	DataInitialization     DataInitializationOperations
+	BackupCredentials      BackupCredentialOperations
+	Config                 ConfigurationOperations
+	Secrets                SecretOperations
+	Reconciler             ReconcileOperations
+	Factory                Factory
+	Planner                Planner
+	Diagnose               DiagnosticReader
+	Apps                   AppOperations
+	Logs                   LogReader
+	version                string
+	inventory              Inventory
+	jobs                   JobOperations
+	authorize              Authorization
+	RestoreTests           RestoreTestOperations
+	NativePoints           NativePointInspector
+	NativeBackupResolution NativeBackupResolutionOperations
+	NativeBackupStatus     NativeBackupStatusOperations
+	NativeBackupPolicy     NativeBackupPolicyOperations
+	NativeRecovery         NativeRecoveryOperations
+	NativeBackups          NativeBackupOperations
+	NativeLiveRestore      NativeLiveRestoreOperations
+	NativeRetire           NativeRetireOperations
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -245,6 +249,12 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case NativeBackupInspectArgs, NativeBackupReviewArgs, NativeBackupResolveArgs:
+		next, err := s.nativeBackupResolution(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = next
 	case NativeBackupStatusArgs:
 		if s.NativeBackupStatus == nil {
 			return fail(result.New(result.DependencyMissing, nil))

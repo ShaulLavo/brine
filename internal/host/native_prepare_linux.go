@@ -338,7 +338,7 @@ func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source native
 		return store.NativePreparedPointView{}, err
 	}
 	defer func() { _ = bundle.Close() }()
-	if err := w.runtime.state.RecordNativePreparedUploadIntent(ctx, w.stopped, source, bundle.Manifest()); err != nil {
+	if err := w.runtime.state.RecordNativePreparedUploadIntent(ctx, w.stopped, source, bundle.Manifest(), store.NativeUploadRetention{Parent: w.parent, Workspace: w.path, SourceSealSHA256: w.copied.original.hash, SourceEvidence: evidence, ConfirmedBound: w.confirmed, FinalPairs: final, Artifact: w.module.artifact.Bytes(), Descriptor: w.module.descriptor}); err != nil {
 		return store.NativePreparedPointView{}, err
 	}
 	w.retainWorkspace = true

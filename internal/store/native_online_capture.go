@@ -23,6 +23,7 @@ type NativeOnlineCapture struct {
 	pointID     string
 	permit      EnginePermit
 	capturedAt  time.Time
+	inspection  *NativeBackupInspection
 }
 
 func (s *Store) BeginNativeOnlineCapture(ctx context.Context, operationID string) (*NativeOnlineCapture, error) {
@@ -106,8 +107,13 @@ func (c *NativeOnlineCapture) check(ctx context.Context, tx *sql.Tx) (EnginePerm
 		return EnginePermit{}, ErrConflict
 	}
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", c.operationID))
-	if err != nil || op.Kind != ops.NativeCapture || op.State != ops.Preflight {
+	if err != nil || op.Kind != ops.NativeCapture || c.inspection == nil && op.State != ops.Preflight || c.inspection != nil && op.State != ops.RecoveryRequired {
 		return EnginePermit{}, ErrConflict
+	}
+	if c.inspection != nil {
+		if err := c.inspection.check(ctx, tx); err != nil {
+			return EnginePermit{}, err
+		}
 	}
 	input, err := readNativeTaskInput(ctx, tx, op)
 	if err != nil || input.BindingID != c.permit.Runtime.BindingID {
@@ -122,6 +128,9 @@ func (c *NativeOnlineCapture) check(ctx context.Context, tx *sql.Tx) (EnginePerm
 	return permit, nil
 }
 func (c *NativeOnlineCapture) Material(ctx context.Context) (NativeRepositoryMaterial, error) {
+	if c != nil && c.inspection != nil {
+		return c.inspection.Material(ctx)
+	}
 	permit, err := c.Permit(ctx)
 	if err != nil {
 		return NativeRepositoryMaterial{}, err
@@ -156,7 +165,7 @@ func (c *NativeOnlineCapture) AdmitRepository(ctx context.Context, scope restic.
 	return nil
 }
 
-func (c *NativeOnlineCapture) UploadIntent(ctx context.Context, source nativecapture.Source, manifest restic.Manifest) error {
+func (c *NativeOnlineCapture) UploadIntent(ctx context.Context, source nativecapture.Source, manifest restic.Manifest, retained NativeUploadRetention) error {
 	if _, err := c.Permit(ctx); err != nil {
 		return err
 	}
@@ -177,6 +186,9 @@ func (c *NativeOnlineCapture) UploadIntent(ctx context.Context, source nativecap
 	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM data_native_capture_events WHERE capture_id=?", c.pointID).Scan(&count); err != nil || count != 0 {
 		return ErrConflict
 	}
+	if err := retainNativeUpload(ctx, tx, c.permit, c.operationID, c.pointID, source, manifest, retained); err != nil {
+		return err
+	}
 	raw, _ := json.Marshal(struct {
 		SourceSHA   string    `json:"source_sha256"`
 		ManifestSHA string    `json:"manifest_sha256"`
@@ -190,6 +202,9 @@ func (c *NativeOnlineCapture) UploadIntent(ctx context.Context, source nativecap
 }
 
 func (c *NativeOnlineCapture) Complete(ctx context.Context, extracted restic.AuthenticatedRestore, observed NativePreparedObservation) (NativeVerifiedPointView, error) {
+	if c.inspection != nil && c.inspection.resolver == "" {
+		return NativeVerifiedPointView{}, ErrConflict
+	}
 	if _, err := c.Permit(ctx); err != nil {
 		return NativeVerifiedPointView{}, err
 	}
@@ -224,6 +239,11 @@ func (c *NativeOnlineCapture) Complete(ctx context.Context, extracted restic.Aut
 	if _, err := c.check(ctx, tx); err != nil {
 		return NativeVerifiedPointView{}, err
 	}
+	if c.inspection != nil {
+		if err := checkNativeRetainedUploadObservation(ctx, tx, c.operationID, observed); err != nil {
+			return NativeVerifiedPointView{}, err
+		}
+	}
 	var intentRaw []byte
 	if err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_capture_events WHERE capture_id=? AND stage='upload_issued'", c.pointID).Scan(&intentRaw); err != nil {
 		return NativeVerifiedPointView{}, err
@@ -235,6 +255,22 @@ func (c *NativeOnlineCapture) Complete(ctx context.Context, extracted restic.Aut
 	}
 	if json.Unmarshal(intentRaw, &intent) != nil || intent.SourceSHA != observed.Source.SHA256() || intent.ManifestSHA != observed.Manifest.SHA256() {
 		return NativeVerifiedPointView{}, ErrConflict
+	}
+	if c.inspection != nil {
+		var existingRaw []byte
+		existingErr := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_verified_points WHERE id=? AND operation_id=?", c.pointID, c.operationID).Scan(&existingRaw)
+		if existingErr == nil {
+			existing, decodeErr := decodeNativeVerifiedPoint(existingRaw)
+			v := existing.view
+			if decodeErr != nil || v.SourceSHA256 != observed.Source.SHA256() || v.ManifestSHA256 != observed.Manifest.SHA256() || v.SourceEvidenceSHA256 != observed.SourceEvidence.SHA256() || v.RestoreEvidenceSHA256 != observed.RestoredEvidence.SHA256() {
+				return NativeVerifiedPointView{}, ErrConflict
+			}
+			v.PointSHA256 = existing.hash
+			return v, tx.Commit()
+		}
+		if !errors.Is(existingErr, sql.ErrNoRows) {
+			return NativeVerifiedPointView{}, existingErr
+		}
 	}
 	now := time.Now().UTC()
 	v := NativeVerifiedPointView{Format: "brine-native-verified-point-v1", PointID: c.pointID, OperationID: c.operationID, BindingID: runtime.BindingID, EpochID: runtime.EpochID, DatabaseID: c.permit.Reserved.Database.DatabaseID, IncarnationID: c.permit.Reserved.Database.IncarnationID, GenerationID: record.GenerationID, RepositoryID: metadata.Scope.RepositoryID, SourceSHA256: observed.Source.SHA256(), CheckpointSHA256: checkpoint.SHA256(), ManifestSHA256: observed.Manifest.SHA256(), TransportSHA256: nativePointHash(transportRaw), SourceEvidenceSHA256: observed.SourceEvidence.SHA256(), RestoreEvidenceSHA256: observed.RestoredEvidence.SHA256(), ConfirmedBoundSHA256: observed.ConfirmedBound.SHA256(), FinalPairsSHA256: final.SHA256(), PolicySHA256: metadata.CredentialRecord.PolicyHash, DestinationSHA256: metadata.Scope.DestinationSHA256, CredentialReference: metadata.CredentialReference, CredentialVersion: metadata.Scope.CredentialVersion, RecoveryReference: metadata.RecoveryReference, RecoveryVersion: metadata.Scope.RecoveryVersion, CommittedOffset: observed.SourceEvidence.Offset(), CapturedAt: c.capturedAt, VerifiedAt: now, RetainUntil: now.Add(30 * 24 * time.Hour), LaterLoss: "unknown"}
