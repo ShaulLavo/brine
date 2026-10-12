@@ -112,6 +112,7 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 
 type nativeBackupObserved struct {
 	material       store.NativeRepositoryMaterial
+	runtime        nativeBackupRuntime
 	inspection     *store.NativeBackupInspection
 	workspaceID    string
 	lifetime       *data.EngineLock
@@ -161,22 +162,28 @@ func (v *nativeBackupObserved) close() error {
 		v.originalParent = nil
 	}
 	if v.parent != nil {
-		cleanupErr := discardNativeWorkspace(v.parent, v.path)
+		ctx, cancel := context.WithTimeout(context.Background(), jobs.JournalTimeout)
+		cleanupErr := nativeUploadProcessesAbsent(ctx, v.path)
+		if cleanupErr == nil {
+			cleanupErr = (nativeBackupResolutionOperations{runtime: v.runtime}).disposeOriginalUploadReaders(ctx, v.path)
+		}
+		if cleanupErr == nil {
+			cleanupErr = discardNativeWorkspace(v.parent, v.path)
+		}
 		if cleanupErr != nil {
 			_ = v.parent.Close()
 		}
 		err = errors.Join(err, cleanupErr)
 		if cleanupErr == nil && v.workspaceID != "" {
-			ctx, cancel := context.WithTimeout(context.Background(), jobs.JournalTimeout)
 			err = errors.Join(err, v.inspection.DisposeWorkspace(ctx, v.workspaceID))
-			cancel()
 		}
+		cancel()
 		v.parent = nil
 	}
 	return err
 }
 func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.NativeBackupInspection) (observed *nativeBackupObserved, inspectErr error) {
-	v := &nativeBackupObserved{inspection: i}
+	v := &nativeBackupObserved{inspection: i, runtime: o.runtime}
 	complete := false
 	defer func() {
 		if !complete {
