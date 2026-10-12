@@ -25,6 +25,11 @@ func TestArchiveRefusesPhysicalTailAndCorruptMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	parent, err := os.OpenRoot(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = parent.Close() }()
 	for i, attack := range [][]byte{
 		append(append([]byte{}, raw...), make([]byte, 512)...),
 		raw[:len(raw)-512],
@@ -35,7 +40,7 @@ func TestArchiveRefusesPhysicalTailAndCorruptMember(t *testing.T) {
 		if err := os.WriteFile(file, attack, 0600); err != nil {
 			t.Fatal(err)
 		}
-		if err := extractEnvelope(context.Background(), file, filepath.Join(work, "output-"+string(rune('a'+i))), bundle.Manifest(), DefaultLimits()); !errors.Is(err, ErrIntegrity) {
+		if _, err := extractEnvelope(context.Background(), file, parent, "output-"+string(rune('a'+i)), bundle.Manifest(), DefaultLimits()); !errors.Is(err, ErrIntegrity) {
 			t.Fatal("unsafe physical archive admitted", err)
 		}
 	}
@@ -74,9 +79,16 @@ func TestArchiveRoundTripAndChangedSource(t *testing.T) {
 		t.Fatal("caller changed sealed evidence")
 	}
 	output := filepath.Join(work, "restored")
-	if err := extractEnvelope(context.Background(), bundle.path, output, manifest, DefaultLimits()); err != nil {
+	parent, err := os.OpenRoot(work)
+	if err != nil {
 		t.Fatal(err)
 	}
+	defer func() { _ = parent.Close() }()
+	root, err := extractEnvelope(context.Background(), bundle.path, parent, "restored", manifest, DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
 	// #nosec G304 -- Exact restored member under disposable test directory.
 	got, err := os.ReadFile(filepath.Join(output, "state"))
 	if err != nil || string(got) != "confirmed fixture state" {

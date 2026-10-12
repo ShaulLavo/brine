@@ -65,6 +65,29 @@ func openArchive(path string) (*os.File, error) {
 	return os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 }
 
+func openExtractedDirectory(parent *os.Root, name string, parentInfo os.FileInfo) (*os.Root, error) {
+	file, err := parent.OpenFile(name, os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return nil, ErrIntegrity
+	}
+	defer func() { _ = file.Close() }()
+	pinned, err := file.Stat()
+	if err != nil || !pinned.IsDir() || !safeNode(pinned, parentInfo) {
+		return nil, ErrIntegrity
+	}
+	root, err := parent.OpenRoot(name)
+	if err != nil {
+		return nil, ErrIntegrity
+	}
+	opened, err := root.Stat(".")
+	current, currentErr := parent.Lstat(name)
+	if err != nil || currentErr != nil || !current.IsDir() || !os.SameFile(pinned, opened) || !os.SameFile(pinned, current) {
+		_ = root.Close()
+		return nil, ErrIntegrity
+	}
+	return root, nil
+}
+
 func runnerUID(uid uint32) bool {
 	runner := os.Geteuid()
 	if runner < 0 {
