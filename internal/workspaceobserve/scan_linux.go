@@ -187,6 +187,13 @@ func (s scope) scanProcess(ctx context.Context, root *os.Root, pid, path string,
 			state = observed
 		}
 	}
+	after, err := processStart(root, pid)
+	if err != nil || after != start || ctx.Err() != nil {
+		return "unknown"
+	}
+	if state == "busy" {
+		return state
+	}
 	afterTasks, err := processTasks(root, pid)
 	if err != nil || len(afterTasks) != len(tasks) {
 		return "unknown"
@@ -195,10 +202,6 @@ func (s scope) scanProcess(ctx context.Context, root *os.Root, pid, path string,
 		if afterTasks[task] != ticks {
 			return "unknown"
 		}
-	}
-	after, err := processStart(root, pid)
-	if err != nil || after != start || ctx.Err() != nil {
-		return "unknown"
 	}
 	if incomplete && state != "busy" {
 		return "unknown"

@@ -85,8 +85,14 @@ func checkAbsent(ctx context.Context, socket string, directory *os.File, protect
 	if protect && protectedSocket(socket) != nil {
 		return ErrUnknown
 	}
-	connection, err := net.DialUnix("unixpacket", nil, &net.UnixAddr{Name: socket, Net: "unixpacket"})
+	dialer := net.Dialer{Timeout: observationTimeout}
+	connected, err := dialer.DialContext(ctx, "unixpacket", socket)
 	if err != nil {
+		return ErrUnknown
+	}
+	connection, ok := connected.(*net.UnixConn)
+	if !ok {
+		_ = connected.Close()
 		return ErrUnknown
 	}
 	defer func() { _ = connection.Close() }()

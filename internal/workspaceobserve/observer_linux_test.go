@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -82,8 +83,19 @@ func TestObserverHeldRootIsOnlyExactCallerSelfReference(t *testing.T) {
 	if err = file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if state := s.scanProcess(context.Background(), root, pid, path, held, currentPID(t)); state != "absent" {
-		t.Fatal("closed consumer not absent", state)
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	task := pid + "/task/" + strconv.Itoa(unix.Gettid())
+	start, startErr := processStart(root, task)
+	members, memberErr := workspaceMembers(context.Background(), mustDirectory(t, path), s.uid, held)
+	if startErr != nil || memberErr != nil {
+		t.Fatal("closed consumer census", startErr, memberErr)
+	}
+	if state := s.scanTask(context.Background(), root, task, start, path, held, members, currentPID(t)); state != "absent" {
+		t.Fatal("closed consumer remains busy", state)
+	}
+	if state := s.scanProcess(context.Background(), root, pid, path, held, currentPID(t)); state == "busy" {
+		t.Fatal("closed consumer remains in process view", state)
 	}
 }
 func TestObserverOutsideAliasIdentityRemainsBusyAfterAliasUnlink(t *testing.T) {
@@ -317,4 +329,45 @@ func mustDirectory(t *testing.T, path string) *os.File {
 	}
 	t.Cleanup(func() { _ = file.Close() })
 	return file
+}
+
+func TestObserverGrantAndReplyBoundariesRemainClosed(t *testing.T) {
+	for _, raw := range []string{"", DefaultGrant, "allow_workspace_observation = false\n"} {
+		allow, err := ParseGrant([]byte(raw))
+		if err != nil || allow {
+			t.Fatal("default grant not denied", err)
+		}
+	}
+	if allow, err := ParseGrant([]byte("allow_workspace_observation = true\n")); err != nil || !allow {
+		t.Fatal("explicit grant refused", err)
+	}
+	for _, raw := range []string{"allow_workspace_observation = \"true\"\n", "allow_workspace_observation = true\npath = \"/private\"\n"} {
+		if _, err := ParseGrant([]byte(raw)); err == nil {
+			t.Fatal("malformed grant accepted")
+		}
+	}
+	s, directory, _, _ := fixture(t)
+	credential := &unix.Ucred{Uid: s.uid, Pid: currentPID(t)}
+	denied := observeRequest(context.Background(), strings.Repeat("1", 32), directory, credential, func() (scope, error) { return scope{}, ErrUnknown })
+	if denied.State != "unknown" || denied.Identity != (directoryIdentity{}) {
+		t.Fatal("denied scope observed data")
+	}
+	credential.Uid++
+	foreign := observeRequest(context.Background(), strings.Repeat("1", 32), directory, credential, func() (scope, error) { return s, nil })
+	if foreign.State != "unknown" || foreign.Identity != (directoryIdentity{}) {
+		t.Fatal("foreign peer observed data")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := checkAbsent(ctx, "/unavailable", directory, false); !errors.Is(err, ErrUnknown) {
+		t.Fatal("cancelled client admitted absence", err)
+	}
+	regular, err := os.OpenFile(filepath.Join(t.TempDir(), "file"), os.O_CREATE|os.O_RDWR, 0600) // #nosec G304 -- Fixed file under this test-owned temporary directory.
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = regular.Close() }()
+	if _, _, err = identity(regular); err == nil {
+		t.Fatal("non-directory FD admitted")
+	}
 }
