@@ -279,7 +279,7 @@ func (r *EngineStartupRuntime) launchEngine(ctx, startup context.Context, proof 
 			return err
 		}
 		select {
-		case <-exited:
+		case err = <-exited:
 		case <-time.After(time.Duration(proof.permit.Runtime.StopSeconds) * time.Second):
 			r.retainEngineLifetime(ctx, proof.permit, native)
 			return errEngineSource
