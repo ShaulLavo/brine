@@ -87,3 +87,53 @@ func TestManagedRefusals(t *testing.T) {
 		})
 	}
 }
+
+func TestManagedRecoveryPasswordReferenceIsExplicitAndSeparate(t *testing.T) {
+	raw, err := os.ReadFile("testdata/managed.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := Parse(raw)
+	if err != nil || app.SpacetimeDB.RecoveryPasswordRef != "recovery-password" {
+		t.Fatal("native recovery dependency missing", err)
+	}
+	for _, changed := range []string{
+		strings.Replace(string(raw), "recovery_password_ref = \"recovery-password\"\n", "", 1),
+		strings.Replace(string(raw), "recovery_password_ref = \"recovery-password\"", "recovery_password_ref = \"signing-private\"", 1),
+		strings.Replace(string(raw), "recovery_password_ref = \"recovery-password\"", "recovery_password_ref = \"auth\"", 1),
+		strings.Replace(string(raw), "recovery-password", "Recovery_password", 1),
+		strings.Replace(string(raw), "recovery-password", strings.Repeat("a", 64), 1),
+	} {
+		if _, err := Parse([]byte(changed)); err == nil {
+			t.Fatal("missing or reused native recovery dependency admitted")
+		}
+	}
+	sqlite := []byte(strings.Replace(persistentSpec(t), "[[databases]]", "[[databases]]\nrecovery_password_ref=\"recovery-password\"", 1))
+	if _, err := Parse(sqlite); err == nil {
+		t.Fatal("SQLite accepted native recovery field")
+	}
+}
+
+func TestManagedStartupReferencesMatchProtectedRoleNames(t *testing.T) {
+	raw, err := os.ReadFile("testdata/managed.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, role := range []string{"publisher", "signing_private", "signing_public", "auth"} {
+		for _, ref := range []string{"Uppercase", "with_underscore", strings.Repeat("a", 64)} {
+			testManagedRoleReference(t, raw, role, ref)
+		}
+	}
+}
+func testManagedRoleReference(t *testing.T, raw []byte, role, ref string) {
+	t.Helper()
+	lines := strings.Split(string(raw), "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(line, role+" = ") {
+			lines[i] = role + " = \"" + ref + "\""
+		}
+	}
+	if _, err := Parse([]byte(strings.Join(lines, "\n"))); err == nil {
+		t.Fatal("unusable protected role reference admitted", role, ref)
+	}
+}

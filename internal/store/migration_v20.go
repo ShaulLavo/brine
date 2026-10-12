@@ -25,7 +25,7 @@ CREATE TABLE data_native_live_restore_claims(
 CREATE TABLE data_native_live_restore_events(
  operation_id TEXT NOT NULL REFERENCES data_native_live_restore_claims(operation_id),
  sequence INTEGER NOT NULL CHECK(sequence>0),
- stage TEXT NOT NULL CHECK(stage IN ('claimed','restore_intent','restored','verify_intent','verified','transition_intent','transitioned','finish_intent','completed','abandon_intent','abandoned_current')),
+ stage TEXT NOT NULL CHECK(stage IN ('claimed','restore_intent','verified','transition_intent','transitioned','finish_intent','completed','abandon_intent','abandoned_current')),
  canonical BLOB NOT NULL CHECK(length(canonical)<=65536),
  PRIMARY KEY(operation_id,sequence)
 );

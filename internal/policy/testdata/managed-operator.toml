@@ -25,7 +25,7 @@ memory_mb = 512
 pids_limit = 512
 
 [allowed_secrets]
-hello = ["publisher", "signing-private", "signing-public", "auth", "frontend-token"]
+hello = ["publisher", "signing-private", "signing-public", "auth", "frontend-token", "recovery-password"]
 
 [spacetimedb]
 license_use = "fixture"

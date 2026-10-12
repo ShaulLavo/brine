@@ -16,8 +16,6 @@ type Stage string
 const (
 	Claimed          Stage = "claimed"
 	RestoreIntent    Stage = "restore_intent"
-	Restored         Stage = "restored"
-	VerifyIntent     Stage = "verify_intent"
 	Verified         Stage = "verified"
 	TransitionIntent Stage = "transition_intent"
 	Transitioned     Stage = "transitioned"
@@ -79,7 +77,7 @@ func (e Event) Sequence() uint64 { return e.record.Sequence }
 func (e Event) SHA256() string   { return e.hash }
 func (e Event) Bytes() []byte    { return bytes.Clone(e.raw) }
 func (e Event) Pending() bool {
-	return e.record.Stage == RestoreIntent || e.record.Stage == VerifyIntent || e.record.Stage == TransitionIntent || e.record.Stage == FinishIntent || e.record.Stage == AbandonIntent
+	return e.record.Stage == RestoreIntent || e.record.Stage == TransitionIntent || e.record.Stage == FinishIntent || e.record.Stage == AbandonIntent
 }
 func (e Event) Terminal() bool {
 	return e.record.Stage == Completed || e.record.Stage == AbandonedCurrent
@@ -105,14 +103,13 @@ func Settle(p Plan, old Event, completed Stage, proofSHA256 string) (Event, erro
 
 func nextIntent(old, next Stage) bool {
 	if next == AbandonIntent {
-		return old == Claimed || old == Restored || old == Verified
+		return old == Claimed || old == Verified
 	}
-	return old == Claimed && next == RestoreIntent || old == Restored && next == VerifyIntent ||
-		old == Verified && next == TransitionIntent || old == Transitioned && next == FinishIntent
+	return old == Claimed && next == RestoreIntent || old == Verified && next == TransitionIntent || old == Transitioned && next == FinishIntent
 }
 
 func settles(intent, completed Stage) bool {
-	return intent == RestoreIntent && completed == Restored || intent == VerifyIntent && completed == Verified ||
+	return intent == RestoreIntent && completed == Verified ||
 		intent == TransitionIntent && completed == Transitioned || intent == FinishIntent && completed == Completed ||
 		intent == AbandonIntent && completed == AbandonedCurrent
 }

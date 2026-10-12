@@ -53,6 +53,11 @@ func appStatus(cmd *cobra.Command, deps Dependencies, flags operationFlags, mode
 		return err
 	}
 	for _, a := range report.Apps {
+		if a.Managed != nil {
+			if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s: managed engine %s; prepared=%t, fenced=%t; engine logs unavailable\n", a.App, a.Managed.State, a.Managed.Prepared, a.Managed.Fenced); err != nil {
+				return err
+			}
+		}
 		active := "not checked"
 		if a.Health.UnitActive.Value != nil {
 			if *a.Health.UnitActive.Value {
@@ -70,12 +75,19 @@ func appStatus(cmd *cobra.Command, deps Dependencies, flags operationFlags, mode
 			op = a.LastOperation.ID + " (" + string(a.LastOperation.State) + ")"
 		}
 		direct := strings.ReplaceAll(a.Health.Direct, "_", " ")
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n  Current: %s\n  Previous known-good: %s\n  Last operation: %s\n  Unit: %s; direct health: %s\n  Drift: %s%s\n", a.App, releaseText(a.Current), previous, op, active, direct, a.Drift.State, driftText(a.Drift.Fields)); err != nil {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n  Current: %s\n  Previous known-good: %s\n  Last operation: %s\n  Unit: %s; direct health: %s\n  Drift: %s%s\n", a.App, currentReleaseText(a.Current), previous, op, active, direct, a.Drift.State, driftText(a.Drift.Fields)); err != nil {
 			return err
 		}
 	}
 	return nil
 }
+func currentReleaseText(r *apps.Release) string {
+	if r == nil {
+		return "none"
+	}
+	return releaseText(*r)
+}
+
 func releaseText(r apps.Release) string {
 	digest := r.ImageDigest
 	if len(digest) > 19 {

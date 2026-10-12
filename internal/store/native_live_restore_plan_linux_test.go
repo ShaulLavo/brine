@@ -45,10 +45,10 @@ func storedNativeLiveRestoreFixture(t *testing.T) (nativeTransitionFixture, live
 		Generation: common.Scope.Generation, GenerationID: id, PolicySHA256: hash, TargetSHA256: hash, DesiredSHA256: hash}
 	safety := liverestore.Safety{PointID: common.PreparedPoint.ID, PointSHA256: common.PreparedPoint.SHA256, FenceID: common.FenceID,
 		FenceOwnerOpID: common.FenceOwnerOperationID, SourceSealSHA256: hash, SourceWitnessSHA256: hash, StopProofSHA256: hash,
-		CheckpointSHA256: hash, CommittedOffset: 21, PreparedAt: at.Add(-time.Minute), ExpiresAt: at.Add(10 * time.Minute)}
+		CheckpointSHA256: hash, CommittedOffset: 21, CommittedOffsetKnown: true, PreparedAt: at.Add(-time.Minute), ExpiresAt: at.Add(10 * time.Minute)}
 	selected := liverestore.SelectedPoint{IncarnationID: facts.IncarnationID, DatabaseID: facts.DatabaseID, BindingID: head.BindingID,
 		PointID: historical, PointSHA256: hash, EpochID: head.EpochID, GenerationID: id, CaptureID: historical, RepositoryID: hash,
-		RepositorySnapshot: hash, ManifestSHA256: hash, RestoreReceiptSHA256: hash, CheckpointSHA256: hash, StateWitnessSHA256: hash,
+		RepositorySnapshot: hash, ManifestSHA256: hash, RestoreEvidenceSHA256: hash, CheckpointSHA256: hash, StateWitnessSHA256: hash,
 		NativeDatabase: hash, NativePublisher: hash, ProgramWireHash: hash, ArtifactWasmSHA256: hash, SchemaSHA256: hash,
 		MaterialSHA256: hash, DependenciesSHA256: hash, CommittedOffset: 8, RecordedAt: at.Add(-time.Hour), RetainUntil: at.Add(30 * 24 * time.Hour)}
 	p, err := liverestore.NewPlan(liverestore.PlanSpec{Requester: requester, Facts: facts, Safety: safety, Selected: selected,

@@ -33,7 +33,7 @@ func TestLiveRestoreCrashBoundariesKeepOriginalPendingAttempt(t *testing.T) {
 		t.Fatal("claim did not round trip", err)
 	}
 	for _, pair := range []struct{ intent, done Stage }{
-		{RestoreIntent, Restored}, {VerifyIntent, Verified}, {TransitionIntent, Transitioned}, {FinishIntent, Completed},
+		{RestoreIntent, Verified}, {TransitionIntent, Transitioned}, {FinishIntent, Completed},
 	} {
 		previous := event
 		intent, err := RecordIntent(p, event, pair.intent)
@@ -101,7 +101,7 @@ func TestLiveRestoreAbandonmentIsUnavailableAfterMovement(t *testing.T) {
 		t.Fatal("known current-state abandonment refused", err)
 	}
 	for _, pair := range []struct{ intent, done Stage }{
-		{RestoreIntent, Restored}, {VerifyIntent, Verified}, {TransitionIntent, Transitioned},
+		{RestoreIntent, Verified}, {TransitionIntent, Transitioned},
 	} {
 		event, err = RecordIntent(p, event, pair.intent)
 		if err != nil {

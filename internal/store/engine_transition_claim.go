@@ -47,6 +47,9 @@ func (s *Store) insertEngineTransitionTx(ctx context.Context, tx *sql.Tx, prepar
 	if err = checkFreshNativePrefix(ctx, tx, archive); err != nil {
 		return zero, err
 	}
+	if err = checkPendingNativeTransitionRepository(ctx, tx, archive, input, repositoryID); err != nil {
+		return zero, err
+	}
 	archiveRaw, _ := json.Marshal(archive)
 	epoch, err := data.NewNativeEpoch(input, nativeCanonicalHash(archiveRaw), repositoryID, time.Now().UTC())
 	if err != nil {
