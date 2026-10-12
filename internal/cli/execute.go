@@ -81,7 +81,7 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 			err = result.New(result.InvalidUsage, err)
 		}
 	}
-	if err == nil && deps.Context.Err() != nil {
+	if err == nil && deps.Context.Err() != nil && name != "brine host engine-exec" {
 		err = deps.Context.Err()
 	}
 	// Local recovery emits an envelope even without a presentation flag.
