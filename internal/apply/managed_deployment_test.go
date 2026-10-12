@@ -103,3 +103,22 @@ func TestManagedEngineOnlyReleaseUsesCurrentRuntimeWithoutNativeMutation(t *test
 		}
 	}
 }
+
+func TestManagedOptionalFrontendLifecyclePreservesRunningEngine(t *testing.T) {
+	r := managedInitializedRig(t, true)
+	runtime := &managedRuntimeFake{rig: r}
+	r.executor.Managed = runtime
+	if err := r.executor.Run(context.Background(), "op", r.plan, r.desired); err != nil {
+		t.Fatal(err)
+	}
+	if r.state != Succeeded || !r.committed || r.release.Managed == nil || r.release.Managed.Frontend == nil || len(r.release.Units) != 2 || r.release.Managed.RuntimeSHA256 != r.plan.Managed.RuntimeSHA256 {
+		t.Fatal("optional frontend release components differ")
+	}
+	seen := map[string]bool{}
+	for _, call := range runtime.calls {
+		seen[call] = true
+	}
+	if !seen["frontend_bind"] || !seen["frontend_start_permit"] || !seen["route_permit"] || seen["engine_start_permit"] || seen["engine_install"] {
+		t.Fatal("frontend/client permits were mixed with engine start", runtime.calls)
+	}
+}
