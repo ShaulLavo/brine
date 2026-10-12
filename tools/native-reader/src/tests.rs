@@ -23,6 +23,7 @@ struct Fixture {
     _directory: tempfile::TempDir,
     root: std::path::PathBuf,
     request: Request,
+    selected_snapshot: Option<u64>,
 }
 
 fn id(byte: u8) -> Identity {
@@ -126,6 +127,7 @@ fn seed(snapshot: bool) -> Fixture {
     Fixture {
         _directory: directory,
         root,
+        selected_snapshot: snapshot.then_some(offset),
         request: Request {
             format: FORMAT.into(),
             expected_database_identity: id(1).to_string(),
@@ -162,6 +164,7 @@ fn observed(fixture: &Fixture, alter: impl FnOnce(&Path)) -> Result<Evidence> {
     let copy = tempfile::tempdir().unwrap();
     let root = copy.path().join("replica");
     copy_tree(&fixture.root, &root);
+    select_snapshot_copy(&root, fixture.selected_snapshot);
     alter(&root);
     let result = inspect(
         &root,
@@ -172,6 +175,18 @@ fn observed(fixture: &Fixture, alter: impl FnOnce(&Path)) -> Result<Evidence> {
     );
     assert!(before == input::files(&fixture.root, &Limits::MAX, &Deadline::new(60_000)).unwrap());
     result
+}
+
+fn select_snapshot_copy(root: &Path, selected: Option<u64>) {
+    let Some(offset) = selected else { return };
+    let expected = format!("{offset:020}.snapshot_dir");
+    for entry in fs::read_dir(root.join("snapshots")).unwrap() {
+        let entry = entry.unwrap();
+        if entry.file_name() == expected.as_str() {
+            continue;
+        }
+        fs::remove_dir_all(entry.path()).unwrap();
+    }
 }
 
 #[test]
@@ -353,6 +368,7 @@ fn emit_cli_fixture_when_requested() {
     fs::create_dir(&output).unwrap();
     let fixture = seed(true);
     copy_tree(&fixture.root, &output.join("replica"));
+    select_snapshot_copy(&output.join("replica"), fixture.selected_snapshot);
     fs::write(
         output.join("request.json"),
         serde_json::to_vec(&fixture.request).unwrap(),
