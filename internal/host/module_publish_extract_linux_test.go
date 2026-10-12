@@ -180,6 +180,11 @@ func testDescriptorDisposalAttack(t *testing.T, attack string) {
 	if err := disposeDescriptorProcess(context.Background(), lease, descriptorSession(t, executor)); !errors.Is(err, datapublish.ErrRecord) {
 		t.Fatal("unknown, absent or unowned container granted disposal proof", attack, err)
 	}
+	if attack == "unknown-stop" {
+		if err := disposeDescriptorProcess(context.Background(), lease, descriptorSession(t, executor)); !errors.Is(err, datapublish.ErrRecord) {
+			t.Fatal("unknown stop acquired automatic retry authority", err)
+		}
+	}
 	if executor.stops > 1 {
 		t.Fatal("unknown descriptor stop replayed")
 	}

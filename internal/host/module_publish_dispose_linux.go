@@ -29,6 +29,10 @@ func disposeDescriptorProcess(ctx context.Context, lease *descriptorLease, sessi
 		if !*container.State.Running && *container.State.PID == 0 {
 			continue
 		}
+		if lease.stopAttempted {
+			return datapublish.ErrRecord
+		}
+		lease.stopAttempted = true
 		if _, err = session.Execute(ctx, "/usr/bin/podman", []string{"stop", "--time", strconv.Itoa(descriptorStopSeconds), container.ID}, nil, true); err != nil {
 			return datapublish.ErrRecord
 		}

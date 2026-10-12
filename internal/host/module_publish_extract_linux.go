@@ -24,12 +24,13 @@ const descriptorStopSeconds = 2
 const descriptorTotalWait = 20 * time.Second
 
 type descriptorLease struct {
-	artifact    *publicationArtifact
-	image       podman.ImageInfo
-	imageRef    string
-	process     *engineNativeHandle
-	containerID string
-	attempted   bool
+	artifact      *publicationArtifact
+	image         podman.ImageInfo
+	imageRef      string
+	process       *engineNativeHandle
+	containerID   string
+	attempted     bool
+	stopAttempted bool
 }
 
 func acquireDescriptorLease(ctx context.Context, state *store.Store, preparation *store.EnginePreparation, binding data.ReplicaBindingID, deploymentPlanID string, artifact datapublish.Artifact, images *podman.Client) (*descriptorLease, error) {
