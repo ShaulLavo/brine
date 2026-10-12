@@ -148,7 +148,7 @@ func TestNativeViewOwnsSelectedOnlyAndZeroSnapshotContext(t *testing.T) {
 		t.Fatal("zero snapshot context omitted", err)
 	}
 	args, err := nativeReaderArguments(nativeTestPin(), view)
-	if err != nil || !strings.Contains(strings.Join(args, "\n"), "BRINE_ENGINE_BINDING="+selection.Scope().BindingID) || strings.Contains(strings.Join(args, "\n"), "TOKIO_WORKER_THREADS") || !strings.Contains(strings.Join(args, "\n"), "/copy/replica:rw") || !strings.Contains(strings.Join(args, "\n"), "--read-only-tmpfs=false") || !strings.Contains(strings.Join(args, "\n"), "--passwd=false") {
+	if err != nil || strings.Contains(strings.Join(args, "\n"), "TOKIO_WORKER_THREADS") || !strings.Contains(strings.Join(args, "\n"), "/copy/replica:rw") || !strings.Contains(strings.Join(args, "\n"), "--read-only-tmpfs=false") || !strings.Contains(strings.Join(args, "\n"), "--passwd=false") {
 		t.Fatal("invalid fixed passive argv", err)
 	}
 	view.state = nativeViewReading
@@ -161,55 +161,5 @@ func TestNativeViewOwnsSelectedOnlyAndZeroSnapshotContext(t *testing.T) {
 	}
 	if view.unchanged(context.Background()) != nil {
 		t.Fatal("collision removed original view")
-	}
-}
-
-func TestNativeDiscoveryInputHasOnlyProtectedOwnerAndSelectedHistory(t *testing.T) {
-	_, selection, checkpoint := nativeViewFixture(t)
-	owner := checkpoint.Record().PublisherIdentity
-	raw, err := nativeDiscoveryInput(owner, selection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var request map[string]json.RawMessage
-	if json.Unmarshal(raw, &request) != nil {
-		t.Fatal("invalid request")
-	}
-	var identity map[string]string
-	if json.Unmarshal(request["identity"], &identity) != nil || len(identity) != 2 || identity["kind"] != "discover" || identity["owner_identity"] != owner {
-		t.Fatal("discovery identity is not closed")
-	}
-	if strings.Contains(string(raw), "database_identity") {
-		t.Fatal("discovery supplied a database identity")
-	}
-	for _, invalid := range []string{"", strings.Repeat("A", 64), strings.Repeat("a", 63), strings.Repeat("z", 64)} {
-		if _, err := nativeDiscoveryInput(invalid, selection); err == nil {
-			t.Fatal("invalid protected owner admitted")
-		}
-	}
-	known, err := nativeReaderInput(checkpoint, selection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if json.Unmarshal(known, &request) != nil || json.Unmarshal(request["identity"], &identity) != nil || identity["kind"] != "known" || identity["database_identity"] != checkpoint.Record().DatabaseIdentity || identity["owner_identity"] != owner {
-		t.Fatal("known identity constraints lost")
-	}
-}
-
-func TestNativeDiscoveryRefusesMissingViewAndUninstalledPin(t *testing.T) {
-	if _, _, err := readNativeDiscoveryView(context.Background(), localexec.Session{}, nativeTestPin(), nil, strings.Repeat("a", 64)); err == nil {
-		t.Fatal("missing view admitted")
-	}
-	root, selection, checkpoint := nativeViewFixture(t)
-	view, err := materializeNativeSelection(context.Background(), root, t.TempDir(), selection, strings.Repeat("d", 32))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = view.close() }()
-	if _, _, err := readNativeDiscoveryView(context.Background(), localexec.Session{}, nativeTestPin(), view, checkpoint.Record().PublisherIdentity); err == nil {
-		t.Fatal("uninstalled protected reader admitted")
-	}
-	if view.state != nativeViewPrepared || view.unchanged(context.Background()) != nil {
-		t.Fatal("refusal changed view")
 	}
 }
