@@ -56,7 +56,7 @@ func RecoveryPairsFromPassive(evidence nativeevidence.Evidence, registered Canon
 	projection, present := evidence.ConfirmedPairsProjection()
 	if !present || !validHexIdentity(evidence.SHA256()) || program.Kind != "wasm" || registered.Version() != CanonicalizerVersion ||
 		!SupportsConfirmedRecoveryPairs(program.SHA256, registered.SHA256()) || validatePassivePairs(projection, registered) != nil ||
-		validatePassiveControls(projection, evidence.OwnerIdentity()) != nil {
+		validatePassiveControls(projection, evidence.OwnerIdentity()) != nil || validateRecoveryUserCensus(evidence.Tables(), registered) != nil {
 		return RecoveredPairs{}, ErrRecoveryPairs
 	}
 	rows := slices.Clone(projection.Left.Rows)
@@ -72,6 +72,28 @@ func RecoveryPairsFromPassive(evidence nativeevidence.Evidence, registered Canon
 	}
 	sum := sha256.Sum256(raw)
 	return RecoveredPairs{value: value, native: evidence, schema: registered, raw: raw, hash: hex.EncodeToString(sum[:])}, nil
+}
+
+func validateRecoveryUserCensus(tables []nativeevidence.Table, schema CanonicalSchema) error {
+	view, err := canonicalView(schema)
+	if err != nil {
+		return ErrRecoveryPairs
+	}
+	declared := namedRows(view["Tables"])
+	users := 0
+	for _, table := range tables {
+		if table.Type != "user" {
+			continue
+		}
+		if declared[table.Name] == nil {
+			return ErrRecoveryPairs
+		}
+		users++
+	}
+	if users != len(declared) {
+		return ErrRecoveryPairs
+	}
+	return nil
 }
 
 func validatePassiveControls(value nativeevidence.ConfirmedPairsProjection, owner string) error {

@@ -87,6 +87,10 @@ func passiveRecoveryFixture(t testing.TB, variant string) (map[string]any, Canon
 		projection.Note = &nativeevidence.NoteTable{ID: 17, Name: "fixture_note", Rows: []nativeevidence.NoteRow{}}
 		tables = append(tables, nativeevidence.Table{ID: 17, Name: "fixture_note", Blake3: strings.Repeat("10", 32)})
 	}
+	for index := range tables {
+		tables[index].Type = "user"
+	}
+	tables[0].Type, tables[1].Type = "system", "system"
 	return map[string]any{
 		"format": nativeevidence.Format, "outcome": "observed", "upstream_commit": nativeevidence.UpstreamCommit,
 		"observed_database_identity": databaseHex, "observed_owner_identity": publisherHex, "current_program_kind": "wasm",
@@ -97,6 +101,14 @@ func passiveRecoveryFixture(t testing.TB, variant string) (map[string]any, Canon
 		"input":  nativeevidence.Totals{Files: 3, StoredBytes: 1000, ExpandedBytes: 1000, Commits: 2},
 		"limits": nativeevidence.MaximumLimits(), "confirmed_pairs_projection": projection,
 	}, schema
+}
+
+func TestPassivePairsRejectAdditionalUserTables(t *testing.T) {
+	value, schema := passiveRecoveryFixture(t, "v1")
+	value["tables"] = append(value["tables"].([]nativeevidence.Table), nativeevidence.Table{ID: 18, Name: "st_foreign", Type: "user", Blake3: strings.Repeat("ff", 32)})
+	if _, err := RecoveryPairsFromPassive(decodePassiveRecoveryFixture(t, value), schema); !errors.Is(err, ErrRecoveryPairs) {
+		t.Fatal("additional user table hidden by system-name prefix")
+	}
 }
 
 func decodePassiveRecoveryFixture(t testing.TB, value map[string]any) nativeevidence.Evidence {
@@ -231,5 +243,57 @@ func TestFinitePairEqualityKeepsCompleteStateProofSeparate(t *testing.T) {
 	}
 	if sourceNative.SamePersistedState(otherNative) {
 		t.Fatal("finite marker equality substituted for complete persisted-state equality")
+	}
+}
+
+func initialRecoveryFixture(t testing.TB, variant string) (map[string]any, CanonicalSchema) {
+	t.Helper()
+	value, schema := passiveRecoveryFixture(t, variant)
+	projection := value["confirmed_pairs_projection"].(nativeevidence.ConfirmedPairsProjection)
+	projection.Left.Rows, projection.Right.Rows = []nativeevidence.PairRow{}, []nativeevidence.PairRow{}
+	projection.Sequence.Rows[0].Sequence = 0
+	value["confirmed_pairs_projection"] = projection
+	tables := value["tables"].([]nativeevidence.Table)
+	for index := range tables {
+		if tables[index].Type != "user" || initialRecoveryRowCount(tables[index].Name) != 0 {
+			continue
+		}
+		tables[index].Rows, tables[index].BSATNBytes = 0, 0
+	}
+	value["tables"] = tables
+	return value, schema
+}
+
+func TestInitialRecoveryProofUsesCandidateControlsAndCompleteEmptyCensus(t *testing.T) {
+	for _, variant := range []string{"v1", "additive", "default-column"} {
+		value, schema := initialRecoveryFixture(t, variant)
+		pairs, err := RecoveryPairsFromPassive(decodePassiveRecoveryFixture(t, value), schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		proof, err := CheckRecoveryPairsInitial(pairs)
+		if err != nil || proof.SHA256() == "" || !slices.Equal(proof.Requirements(), []SchemaRequirement{VerifyNewTableData}) {
+			t.Fatal("initial fixed data proof refused", variant, err)
+		}
+	}
+	if _, err := CheckRecoveryPairsInitial(recoveredPairFixture(t, "v1")); !errors.Is(err, ErrRecoveryPairs) {
+		t.Fatal("populated history relabeled as initial state")
+	}
+}
+
+func TestInitialRecoveryProofRefusesExistingWriterOrSchedule(t *testing.T) {
+	for _, name := range []string{"writer", "scheduled_write"} {
+		value, schema := initialRecoveryFixture(t, "v1")
+		tables := value["tables"].([]nativeevidence.Table)
+		index := slices.IndexFunc(tables, func(table nativeevidence.Table) bool { return table.Name == name })
+		tables[index].Rows, tables[index].BSATNBytes = 1, 32
+		value["tables"] = tables
+		pairs, err := RecoveryPairsFromPassive(decodePassiveRecoveryFixture(t, value), schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := CheckRecoveryPairsInitial(pairs); !errors.Is(err, ErrRecoveryPairs) {
+			t.Fatal("nonempty control table admitted initial state", name)
+		}
 	}
 }
