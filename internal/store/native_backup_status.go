@@ -8,6 +8,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
+	"github.com/ShaulLavo/brine/internal/ops"
 )
 
 func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (nativecapture.BackupStatus, error) {
@@ -54,8 +55,7 @@ func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (n
 	}
 	expires := material.CredentialRecord.ExpiresAt
 	status.CredentialExpired = expires != nil && !time.Now().UTC().Before(*expires)
-	var pending int
-	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM operations o JOIN data_native_task_inputs i ON i.id=o.secret_ref WHERE i.binding_id=? AND o.kind='native_capture' AND o.state IN ('launch_unknown','preflight','failed','recovery_required')", binding).Scan(&pending)
+	pending, err := countUnresolvedNativeCaptures(ctx, tx, binding)
 	if err != nil {
 		return nativecapture.BackupStatus{}, err
 	}
@@ -69,4 +69,38 @@ func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (n
 		return nativecapture.BackupStatus{}, &IntegrityError{}
 	}
 	return status, tx.Commit()
+}
+
+func countUnresolvedNativeCaptures(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID) (int, error) {
+	rows, err := q.QueryContext(ctx, "SELECT o.id FROM operations o JOIN data_native_task_inputs i ON i.id=o.secret_ref WHERE i.binding_id=? AND o.kind='native_capture' AND o.state IN ('launch_unknown','preflight','failed','recovery_required')", binding)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	ids := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return 0, err
+		}
+		ids = append(ids, id)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return 0, err
+	}
+	pending := 0
+	for _, id := range ids {
+		op, err := nativeResolutionOperation(ctx, q, id)
+		if err != nil {
+			return 0, err
+		}
+		if op.State != ops.RecoveryRequired {
+			pending++
+			continue
+		}
+		if _, err := readNativeBackupResolvedReceipt(ctx, q, op); err != nil {
+			pending++
+		}
+	}
+	return pending, nil
 }
