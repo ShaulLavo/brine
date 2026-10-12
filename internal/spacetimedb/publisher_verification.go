@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -20,6 +21,7 @@ type NativePublisherVerification struct {
 	credentialSHA string
 	verifiedAt    time.Time
 	encoded       []byte
+	createUsed    *atomic.Bool
 }
 
 func (v NativePublisherVerification) Publisher() PublisherIdentity { return v.publisher }
@@ -44,6 +46,7 @@ func (NativePublisherVerification) MarshalJSON() ([]byte, error) { return nil, E
 // VerifyNativePublisher authenticates an existing supplied-key JWT identity.
 // The signed hex_identity is an expectation until the owned private runtime
 // confirms it. This request never allocates an identity or mints a new token.
+// Copies share the one initial-create attempt; storage bytes cannot restore it.
 func VerifyNativePublisher(ctx context.Context, endpoint PrivateServerEndpoint, credential PublisherCredential) (NativePublisherVerification, error) {
 	publisher, err := claimedNativePublisher(credential)
 	if err != nil || endpoint.base == "" || ctx.Err() != nil {
@@ -72,7 +75,7 @@ func VerifyNativePublisher(ctx context.Context, endpoint PrivateServerEndpoint, 
 	if err != nil || len(raw) != 0 || wait.Err() != nil {
 		return NativePublisherVerification{}, ErrNativePublisherVerification
 	}
-	verified := NativePublisherVerification{endpoint: endpoint, publisher: publisher, credentialSHA: publicationBytesSHA256([]byte(credential.bearer)), verifiedAt: time.Now().UTC()}
+	verified := NativePublisherVerification{endpoint: endpoint, publisher: publisher, credentialSHA: publicationBytesSHA256([]byte(credential.bearer)), verifiedAt: time.Now().UTC(), createUsed: &atomic.Bool{}}
 	verified.encoded, err = json.Marshal(struct {
 		Purpose       string            `json:"purpose"`
 		EndpointSHA   string            `json:"endpoint_sha256"`
