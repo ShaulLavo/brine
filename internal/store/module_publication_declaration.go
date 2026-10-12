@@ -44,7 +44,7 @@ func readPublicationReviewDeclarationTx(ctx context.Context, tx *sql.Tx, cap *Pu
 	}
 	permit, err := readEnginePermit(ctx, tx, point.view.BindingID)
 	image := planned.Managed.EngineImage
-	if err != nil || image.Digest != strings.SplitN(permit.Runtime.Image, "@", 2)[1] || image.ManifestDigest.Status != target.KnownStatus || image.ManifestDigest.Value == nil || *image.ManifestDigest.Value != permit.Runtime.ManifestDigest {
+	if err != nil || planned.Managed.Database != permit.Reserved.Database || planned.Managed.Archive.Destination != permit.Reserved.Archive.Destination || image.Digest != strings.SplitN(permit.Runtime.Image, "@", 2)[1] || image.ManifestDigest.Status != target.KnownStatus || image.ManifestDigest.Value == nil || *image.ManifestDigest.Value != permit.Runtime.ManifestDigest {
 		return declaration, errors.Join(ErrConflict, err)
 	}
 	material, err := readNativeRepositoryMaterial(ctx, tx, bundle.transport)
