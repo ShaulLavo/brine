@@ -108,6 +108,9 @@ func (s *Store) CommitEngineRuntime(ctx context.Context, runtime data.EngineRunt
 	if err = admitEngineRuntimeCommit(ctx, tx, reserved, runtime, fence, operation); err != nil {
 		return err
 	}
+	if err = admitInitialEngineCommit(ctx, tx, reserved); err != nil {
+		return err
+	}
 	raw, _ := json.Marshal(runtime)
 	var old []byte
 	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_engine_runtime_commits WHERE binding_id=? ORDER BY version DESC LIMIT 1", runtime.BindingID).Scan(&old)
@@ -209,16 +212,14 @@ func readEnginePermit(ctx context.Context, tx *sql.Tx, binding data.ReplicaBindi
 	if err != nil {
 		return p, err
 	}
-	var raw []byte
-	if err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_engine_runtime_commits WHERE binding_id=? ORDER BY version DESC LIMIT 1", binding).Scan(&raw); err != nil {
+	head, runtime, err := readEngineHead(ctx, tx, binding)
+	if err != nil {
 		return p, err
 	}
-	if len(raw) > 65536 || json.Unmarshal(raw, &p.Runtime) != nil || p.Runtime.BindingID != binding || p.Runtime.EpochID != p.Reserved.Archive.EpochID {
-		return p, &IntegrityError{}
-	}
-	canonical, _ := json.Marshal(p.Runtime)
-	if !bytes.Equal(raw, canonical) {
-		return p, &IntegrityError{}
+	p.Runtime = runtime
+	p.Reserved, p.Allocation, err = projectEngineEpoch(ctx, tx, p.Reserved, head)
+	if err != nil {
+		return p, err
 	}
 	module, err := readEngineModule(ctx, tx, p.Reserved.Database.DatabaseID, p.Runtime.Module.Program)
 	if err != nil || module != p.Runtime.Module {
@@ -264,19 +265,16 @@ func readEnginePermitIdentity(ctx context.Context, tx *sql.Tx, p *EnginePermit) 
 	if err = errors.Join(rows.Err(), rows.Close()); err != nil {
 		return err
 	}
-	var raw []byte
-	if err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_allocations WHERE database_id=?", d.DatabaseID).Scan(&raw); err != nil {
-		return err
+	if p.Allocation == nil {
+		allocation, err := readInitialEngineAllocation(ctx, tx, p.Reserved)
+		if err != nil {
+			return err
+		}
+		p.Allocation = &allocation
 	}
-	var allocation data.AllocationReceipt
-	if len(raw) > 4096 || json.Unmarshal(raw, &allocation) != nil || !allocation.Valid() || allocation.RootProof == nil || allocation.MappingProof == nil || allocation.DatabaseID != d.DatabaseID || allocation.IncarnationID != d.IncarnationID || allocation.RootProof.Root != d.Root || allocation.MappingProof.Runtime != p.Runtime.Runtime {
+	if p.Allocation.MappingProof.Runtime != p.Runtime.Runtime {
 		return &IntegrityError{}
 	}
-	canonical, _ := json.Marshal(allocation)
-	if !bytes.Equal(raw, canonical) {
-		return &IntegrityError{}
-	}
-	p.Allocation = &allocation
 	p.Identity = data.StartupIdentity{Engine: data.EngineSpacetimeDB, IncarnationID: d.IncarnationID, DatabaseID: d.DatabaseID, BindingID: b.BindingID, EpochID: b.EpochID, Fence: fenceState, Ownership: data.DestinationLocal, SourceSettled: p.Runtime.State == data.EngineInitialized}
 	return nil
 }
