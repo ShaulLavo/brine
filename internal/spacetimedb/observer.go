@@ -29,13 +29,25 @@ type PrivateEndpoint struct {
 	database DatabaseIdentity
 }
 
+type PrivateServerEndpoint struct{ base string }
+
+// NewPrivateServerEndpoint validates location only. Its caller proves the
+// actual owned private runtime and protected key/credential before use.
+func NewPrivateServerEndpoint(host string, port uint16) (PrivateServerEndpoint, error) {
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() || port == 0 {
+		return PrivateServerEndpoint{}, ErrObservation
+	}
+	return PrivateServerEndpoint{base: "http://" + net.JoinHostPort(ip.String(), strconv.Itoa(int(port)))}, nil
+}
+
 // NewPrivateEndpoint validates loopback location, not runtime ownership or a startup permit.
 func NewPrivateEndpoint(host string, port uint16, database string) (PrivateEndpoint, error) {
-	ip := net.ParseIP(host)
-	if ip == nil || !ip.IsLoopback() || port == 0 || !validHexIdentity(database) {
+	server, err := NewPrivateServerEndpoint(host, port)
+	if err != nil || !validHexIdentity(database) {
 		return PrivateEndpoint{}, ErrObservation
 	}
-	return PrivateEndpoint{base: "http://" + net.JoinHostPort(ip.String(), strconv.Itoa(int(port))), database: DatabaseIdentity(database)}, nil
+	return PrivateEndpoint{base: server.base, database: DatabaseIdentity(database)}, nil
 }
 
 type PublisherCredential struct{ bearer string }
