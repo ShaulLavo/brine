@@ -55,15 +55,7 @@ func (o modulePublications) Plan(ctx context.Context, request ModuleReviewReques
 	var descriptor *descriptorLease
 	var stage *publicationStageLease
 	defer func() {
-		if publicationReviewProcessesKnown(descriptor, stage) {
-			if stage != nil {
-				stage.material.clear()
-			}
-			if descriptor != nil && descriptor.artifact != nil {
-				err = errors.Join(err, descriptor.artifact.discard())
-			}
-			err = errors.Join(err, opened.close())
-		}
+		err = errors.Join(err, finishPublicationReview(opened, descriptor, stage))
 	}()
 	preparation, err := o.service.Store.PreparePublicationReview(ctx, opened.preparation, requester, store.PublicationReviewRequest{App: request.App, PreparedPointID: request.PreparedPointID, TargetDeploymentPlanID: request.TargetDeploymentPlanID, Artifact: artifact, RecoveryReleaseIDs: request.RecoveryReleaseIDs})
 	if err != nil {
@@ -93,6 +85,20 @@ func (o modulePublications) Plan(ctx context.Context, request ModuleReviewReques
 		return datapublish.Plan{}, err
 	}
 	return preflight.complete(ctx)
+}
+
+func finishPublicationReview(opened *nativePreparedReopen, descriptor *descriptorLease, stage *publicationStageLease) error {
+	if !publicationReviewProcessesKnown(descriptor, stage) {
+		return nil
+	}
+	if stage != nil {
+		stage.material.clear()
+	}
+	var err error
+	if descriptor != nil && descriptor.artifact != nil {
+		err = descriptor.artifact.discard()
+	}
+	return errors.Join(err, opened.close())
 }
 
 func publicationReviewProcessesKnown(descriptor *descriptorLease, stage *publicationStageLease) bool {
