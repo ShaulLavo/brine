@@ -84,7 +84,8 @@ func TestNativePublicationUsesOneFixedPrivateTokenBoundUpdate(t *testing.T) {
 	preflight.TokenBytes()[0] = 'x'
 	copyOfPreflight := *preflight
 	receipt, err := PublishNativeUpdate(context.Background(), endpoint, credential, wasm, preflight)
-	if err != nil || receipt.Database() != DatabaseIdentity(databaseHex) || receipt.SHA256() != publicationBytesSHA256([]byte(nativeUpdateReceipt())) {
+	wasmSHA, programWire, _ := ModuleIdentities(wasm)
+	if err != nil || receipt.Database() != DatabaseIdentity(databaseHex) || receipt.SHA256() != publicationBytesSHA256([]byte(nativeUpdateReceipt())) || receipt.WasmSHA256() != wasmSHA || receipt.ProgramWireHash() != programWire || receipt.PreflightResponseSHA256() != preflight.ResponseSHA256() || receipt.PublisherCredentialSHA256() != publicationBytesSHA256([]byte(privateTestToken)) || !receipt.At(endpoint) || receipt.BindingSHA256() == "" {
 		t.Fatal("fixed native update receipt did not match", err)
 	}
 	if _, err = PublishNativeUpdate(context.Background(), endpoint, credential, wasm, &copyOfPreflight); !errors.Is(err, ErrNativePublicationUnknown) || puts.Load() != 1 {
@@ -99,6 +100,42 @@ func TestNativePublicationUsesOneFixedPrivateTokenBoundUpdate(t *testing.T) {
 	if strings.Contains(fmt.Sprintf("%s %#v %#v", preflight, preflight, copyOfPreflight), nativeTestMigrationToken) {
 		t.Fatal("native token entered formatting")
 	}
+}
+
+func TestNativePublicationReceiptBindsCandidateDespiteIdenticalSuccessBody(t *testing.T) {
+	wasm := nativePublicationWasm(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		_, _ = io.Copy(io.Discard, request.Body)
+		if request.Method == http.MethodPost {
+			_, _ = io.WriteString(w, automaticNativePreflight())
+			return
+		}
+		_, _ = io.WriteString(w, nativeUpdateReceipt())
+	}))
+	defer server.Close()
+	endpoint, credential := nativePublicationEndpoint(t, server.URL), nativePublicationCredential(t)
+	first := nativePublicationBoundReceipt(t, endpoint, credential, wasm)
+	wasm[len(wasm)-1] ^= 1
+	second := nativePublicationBoundReceipt(t, endpoint, credential, wasm)
+	if first.SHA256() != second.SHA256() || first.BindingSHA256() == second.BindingSHA256() || first.WasmSHA256() == second.WasmSHA256() || first.ProgramWireHash() == second.ProgramWireHash() {
+		t.Fatal("identical native success bodies erased candidate provenance")
+	}
+	if (NativePublicationReceipt{}).BindingSHA256() != "" || (NativePublicationReceipt{}).At(endpoint) {
+		t.Fatal("zero receipt manufactured native request provenance")
+	}
+}
+
+func nativePublicationBoundReceipt(t *testing.T, endpoint PrivateEndpoint, credential PublisherCredential, wasm []byte) NativePublicationReceipt {
+	t.Helper()
+	preflight, err := PreflightNativePublication(context.Background(), endpoint, credential, wasm)
+	if err != nil {
+		t.Fatal(err)
+	}
+	receipt, err := PublishNativeUpdate(context.Background(), endpoint, credential, wasm, preflight)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return receipt
 }
 
 func assertNativePublicationRequest(t *testing.T, request *http.Request, expected []byte) {

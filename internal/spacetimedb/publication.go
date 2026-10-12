@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -127,13 +128,47 @@ func decodeNativePublicationPreflight(raw []byte) (*NativePublicationPreflight, 
 }
 
 type NativePublicationReceipt struct {
-	database DatabaseIdentity
-	response []byte
+	endpoint     PrivateEndpoint
+	database     DatabaseIdentity
+	wasm         WasmSHA256
+	program      RuntimeModuleHash
+	preflightSHA string
+	publisherSHA string
+	response     []byte
 }
 
-func (r NativePublicationReceipt) Database() DatabaseIdentity { return r.database }
-func (r NativePublicationReceipt) ResponseBytes() []byte      { return slices.Clone(r.response) }
-func (r NativePublicationReceipt) SHA256() string             { return publicationBytesSHA256(r.response) }
+func (r NativePublicationReceipt) Database() DatabaseIdentity         { return r.database }
+func (r NativePublicationReceipt) ResponseBytes() []byte              { return slices.Clone(r.response) }
+func (r NativePublicationReceipt) SHA256() string                     { return publicationBytesSHA256(r.response) }
+func (r NativePublicationReceipt) WasmSHA256() WasmSHA256             { return r.wasm }
+func (r NativePublicationReceipt) ProgramWireHash() RuntimeModuleHash { return r.program }
+func (r NativePublicationReceipt) PreflightResponseSHA256() string    { return r.preflightSHA }
+func (r NativePublicationReceipt) PublisherCredentialSHA256() string  { return r.publisherSHA }
+
+// BindingSHA256 binds the actual request as well as its response. Native success
+// bodies for different candidates can have identical bytes.
+func (r NativePublicationReceipt) BindingSHA256() string {
+	if r.endpoint.base == "" || r.database != r.endpoint.database || !validHexIdentity(string(r.wasm)) || !validHexIdentity(string(r.program)) || !validHexIdentity(r.preflightSHA) || !validHexIdentity(r.publisherSHA) || len(r.response) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(struct {
+		Purpose      string            `json:"purpose"`
+		Database     DatabaseIdentity  `json:"database"`
+		Wasm         WasmSHA256        `json:"wasm_sha256"`
+		Program      RuntimeModuleHash `json:"program_wire_hash"`
+		PreflightSHA string            `json:"preflight_response_sha256"`
+		PublisherSHA string            `json:"publisher_credential_sha256"`
+		ResponseSHA  string            `json:"response_sha256"`
+	}{"native_module_update", r.database, r.wasm, r.program, r.preflightSHA, r.publisherSHA, r.SHA256()})
+	if err != nil {
+		return ""
+	}
+	return publicationBytesSHA256(raw)
+}
+
+func (r NativePublicationReceipt) At(endpoint PrivateEndpoint) bool {
+	return r.BindingSHA256() != "" && r.endpoint == endpoint
+}
 func (NativePublicationReceipt) String() string               { return "[private native publication receipt]" }
 func (NativePublicationReceipt) GoString() string             { return "[private native publication receipt]" }
 func (NativePublicationReceipt) MarshalJSON() ([]byte, error) { return nil, ErrPrivateCredential }
@@ -161,7 +196,8 @@ func PublishNativeUpdate(ctx context.Context, endpoint PrivateEndpoint, credenti
 		clear(raw)
 		return NativePublicationReceipt{}, ErrNativePublicationUnknown
 	}
-	receipt.response = raw
+	receipt.endpoint, receipt.wasm, receipt.program = endpoint, sha, program
+	receipt.preflightSHA, receipt.publisherSHA, receipt.response = preflight.ResponseSHA256(), preflight.publisherSHA, raw
 	return receipt, nil
 }
 
