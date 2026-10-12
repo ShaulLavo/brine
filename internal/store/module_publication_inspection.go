@@ -11,6 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
 func (s *Store) PublicationDeclarationID(ctx context.Context, planID, requester string) (string, error) {
@@ -163,6 +164,9 @@ func publicationCompletionReceiptTx(ctx context.Context, tx *sql.Tx, current pub
 	if !bytes.Equal(canonical, raw) || completed.Format != "brine-publication-completion-v1" || completed.ObservedAt.Location() != time.UTC || completed.ObservedAt.Before(current.review.Plan().ExpiresAt().Add(-datapublish.MaxReviewLifetime)) || completed.ObservedAt.After(time.Now().UTC()) {
 		return datapublish.TaskReceipt{}, &IntegrityError{}
 	}
+	if err = checkPublicationCompletionJoinTx(ctx, tx, current, input, cursor, completed, hash); err != nil {
+		return datapublish.TaskReceipt{}, err
+	}
 	candidate := current.review.Plan().Candidate()
 	scope := current.cursor.Scope()
 	operation, kind := current.claim.ApplyOpID, ops.ModulePublishApply
@@ -175,4 +179,39 @@ func publicationCompletionReceiptTx(ctx context.Context, tx *sql.Tx, current pub
 		return datapublish.TaskReceipt{}, &IntegrityError{}
 	}
 	return receipt, nil
+}
+
+func checkPublicationCompletionJoinTx(ctx context.Context, tx *sql.Tx, current publicationAttemptState, input data.EngineTransition, cursor data.EngineTransitionCursor, completed publicationCompletionRecord, hash string) error {
+	target, err := readPublicationTargetTx(ctx, tx, current)
+	if err != nil || completed.TargetSHA256 != target.hash || completed.UnitSHA256 != target.runtime.UnitSHA256 || completed.MaterialSHA256 != target.record.MaterialSHA256 || completed.ObservedAt.Before(target.record.ObservedAt) {
+		return errors.Join(&IntegrityError{}, err)
+	}
+	var previousRaw []byte
+	var previousHash string
+	err = tx.QueryRowContext(ctx, "SELECT r.record_sha256,r.canonical FROM data_module_publication_cursors h JOIN data_module_publication_cursor_records r ON r.plan_id=h.plan_id AND r.revision=h.revision-1 WHERE h.plan_id=?", current.claim.PlanID).Scan(&previousHash, &previousRaw)
+	previous, decodeErr := datapublish.DecodeCursor(previousRaw, current.review.Plan(), previousHash)
+	if err != nil || decodeErr != nil || completed.CursorSHA256 != previousHash || previous.IntendedStep() != datapublish.FinalTransition || previous.Scope() != current.cursor.Scope() {
+		return errors.Join(&IntegrityError{}, err, decodeErr)
+	}
+	var terminalRaw, finishRaw []byte
+	if err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_engine_transition_events WHERE transition_id=? AND sequence=?", cursor.ID, cursor.Sequence).Scan(&terminalRaw); err != nil {
+		return err
+	}
+	if err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_engine_transition_events WHERE transition_id=? AND sequence=?", cursor.ID, cursor.Sequence-1).Scan(&finishRaw); err != nil {
+		return err
+	}
+	terminal, err := strictjson.Object(terminalRaw, "format", "id", "sequence", "stage", "input_sha256", "previous_sha256", "evidence_kind", "evidence")
+	finish, finishErr := strictjson.Object(finishRaw, "format", "id", "sequence", "stage", "input_sha256", "previous_sha256", "evidence_kind", "evidence")
+	var proof data.EngineEvidenceRef
+	common := input.Common()
+	expected := data.EngineEvidenceRef{Kind: data.EngineCompletionEvidence, ID: common.Scope.ID, SHA256: hash, DatabaseID: common.Scope.DatabaseID, BindingID: common.Scope.BindingID, EpochID: common.NewEpochID}
+	if err != nil || finishErr != nil || json.Unmarshal(terminal["evidence"], &proof) != nil || proof != expected || publicationStorageSHA256(finish["evidence"]) != completed.LayoutSHA256 {
+		return errors.Join(&IntegrityError{}, err, finishErr)
+	}
+	var released int
+	err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_fences WHERE id=? AND operation_id=? AND database_id=? AND incarnation_id=? AND state='released'", common.FenceID, common.FenceOwnerOperationID, common.Scope.DatabaseID, common.Scope.IncarnationID).Scan(&released)
+	if err != nil || released != 1 {
+		return errors.Join(&IntegrityError{}, err)
+	}
+	return nil
 }

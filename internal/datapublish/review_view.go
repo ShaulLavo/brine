@@ -25,6 +25,9 @@ func (p Plan) ReviewView() ReviewView {
 }
 
 func (v ReviewView) Valid() bool {
+	if v.SourceKind != CreateSource && v.SourceKind != CapturedSource {
+		return false
+	}
 	if !planID(v.PlanID) || !appName.MatchString(v.App) || !identity(v.PointID) || !digest(v.WasmSHA256) || !digest(v.ProgramWireHash) || !digest(v.SchemaSHA256) || !utc(v.ExpiresAt) || !v.Recovery.valid(v.SourceKind, v.SchemaSHA256) || len(v.Requirements) == 0 || len(v.Requirements) > 16 {
 		return false
 	}

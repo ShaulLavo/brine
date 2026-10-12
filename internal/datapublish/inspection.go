@@ -27,6 +27,14 @@ func (v Inspection) Valid() bool {
 	if !operationReference.MatchString(v.OperationID) {
 		return false
 	}
+	if v.TransitionState != "" && v.State != Finished && v.State != SourcePreserved && v.Step != FinalTransition {
+		return false
+	}
+	switch v.TransitionState {
+	case "", "prepared", "preserve_intent", "original_preserved", "promote_intent", "target_promoted", "activation_intent", "activated", "finish_intent", "completed", "abandon_intent", "abandoned_current", "not_admitted":
+	default:
+		return false
+	}
 	switch v.State {
 	case Ready, IntentRecorded, InspectRequired, Finished, AttemptFailed, SourcePreserved:
 	default:
