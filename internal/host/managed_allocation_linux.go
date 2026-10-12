@@ -14,6 +14,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/target"
 	"golang.org/x/sys/unix"
 )
 
@@ -151,14 +152,14 @@ func (p DataPreparation) ManagedPrepared(ctx context.Context, operation string, 
 	if err != nil {
 		return false, err
 	}
-	if recorded.PlanID != planned.Hash || recorded.OperationID != operation || recorded.ConfigSHA256 != managedServiceHash([]byte(managedEmptyConfig)) || recorded.EnginePort != uint16(m.EnginePort) {
+	if recorded.PlanID != planned.Hash || recorded.OperationID != operation || recorded.ConfigSHA256 != managedServiceHash([]byte(managedEmptyConfig)) || target.Port(recorded.EnginePort) != m.EnginePort {
 		return false, data.ErrInvalid
 	}
-	frontend := uint16(0)
+	frontend := target.Port(0)
 	if m.Frontend != nil {
-		frontend = uint16(m.Frontend.Port)
+		frontend = m.Frontend.Port
 	}
-	if recorded.FrontendPort != frontend {
+	if target.Port(recorded.FrontendPort) != frontend {
 		return false, data.ErrInvalid
 	}
 	if err := p.managedObserver.sourceAbsent(ctx, m.Database); err != nil {

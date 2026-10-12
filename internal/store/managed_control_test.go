@@ -19,31 +19,23 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-// This installs only the pending control tables for isolated CAS tests. It is
-// not a schema19 migration/admission or native process/source acceptance proof.
+// This uses the actual schema19 migration for control-store CAS tests.
+// It does not claim native process/source or physical deployment acceptance.
 func managedControlFixture(t *testing.T) (*Store, plan.Plan, ops.Operation) {
+	t.Helper()
+	return managedControlFrontendFixture(t, false)
+}
+
+func managedControlFrontendFixture(t *testing.T, frontend bool) (*Store, plan.Plan, ops.Operation) {
 	t.Helper()
 	ctx := context.Background()
 	s := openTest(t)
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = migrateManagedDesired(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if err = migrateManagedRoutes(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if err = migrateManagedFrontendPermits(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if err = tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
 	raw, err := os.ReadFile("../spec/testdata/managed.toml")
 	if err != nil {
 		t.Fatal(err)
+	}
+	if frontend {
+		raw = append([]byte("image=\"registry.example.com:5000/team/frontend@sha256:"+strings.Repeat("a", 64)+"\"\ncontainer_port=8080\nresources={memory_mb=128,pids_limit=128}\n"), raw...)
 	}
 	a, err := spec.Parse(raw)
 	if err != nil {
@@ -104,6 +96,9 @@ func managedControlFixture(t *testing.T) (*Store, plan.Plan, ops.Operation) {
 	in.Desired = desired
 	in.Snapshot.Versions.Caddy = target.Known("2.10.2")
 	image := plan.Image{Digest: strings.Split(runtime.Image, "@")[1], Platform: target.Platform{OS: "linux", Arch: in.Snapshot.Arch}, ManifestDigest: target.Known(data.SpacetimeDBARM64Manifest)}
+	if frontend {
+		in.Image = plan.Image{Digest: strings.Split(string(desired.Image), "@")[1], Platform: image.Platform, ManifestDigest: target.Known("sha256:" + strings.Repeat("a", 64))}
+	}
 	in.Managed = &plan.ManagedFacts{Database: &reserved.Database, Archive: &reserved.Archive, Runtime: &runtime, EngineImage: image, Fences: []data.QuiescenceFence{}, NativeState: target.Known("running"), LoggingPrerequisite: target.Known(true), LoggingRootSHA256: strings.Repeat("a", 64), LoggingConfigSHA256: strings.Repeat("b", 64)}
 	p, err := plan.Build(in)
 	if err != nil || p.Kind != plan.Create {

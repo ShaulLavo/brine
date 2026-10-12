@@ -10,8 +10,8 @@ import (
 	"github.com/ShaulLavo/brine/internal/systemd"
 )
 
-func (run *managedExecution) preflight(ctx context.Context) error {
-	x := run.x
+func (r *managedExecution) preflight(ctx context.Context) error {
+	x := r.x
 	e, p, d := x.executor, x.plan, x.desired
 
 	if e.Managed == nil || e.Facts == nil || e.Releases == nil || e.Systemd == nil || e.Routes == nil || p.Managed == nil || !p.Managed.Valid() || p.Managed.State != data.EngineInitialized || !desiredMatches(p, d) || p.Kind != plan.Create && p.Kind != plan.Update && p.Kind != plan.NoOp || len(p.Conflicts) != 0 {
@@ -37,31 +37,31 @@ func (run *managedExecution) preflight(ctx context.Context) error {
 		return errors.Join(err, errors.New("managed plan drift"), ops.RecordPlanDrift(ctx, e.Journal, x.id, p, fresh))
 	}
 	x.facts = facts
-	x.previous, run.hadRelease, err = e.Releases.CurrentRelease(ctx, p.App)
+	x.previous, r.hadRelease, err = e.Releases.CurrentRelease(ctx, p.App)
 	if err != nil {
 		return err
 	}
-	if p.Kind == plan.Create && run.hadRelease || p.Kind != plan.Create && !run.hadRelease {
+	if p.Kind == plan.Create && r.hadRelease || p.Kind != plan.Create && !r.hadRelease {
 		return errors.New("managed release drift")
 	}
-	if run.hadRelease {
+	if r.hadRelease {
 		if x.previous.Managed == nil || e.Plans == nil {
 			return errors.New("managed previous release required")
 		}
-		run.previousPlan, x.previousDesired, err = e.Plans.LoadPlan(ctx, x.previous.PlanID)
+		r.previousPlan, x.previousDesired, err = e.Plans.LoadPlan(ctx, x.previous.PlanID)
 		if err != nil {
 			return err
 		}
 		x.hasPrevious = x.previous.Managed.Frontend != nil
-		run.previousFrontendRunning = x.hasPrevious && facts.Input.Managed != nil && facts.Input.Managed.Intent != nil && facts.Input.Managed.Intent.Current && facts.Input.Managed.Intent.FrontendRunning
+		r.previousFrontendRunning = x.hasPrevious && facts.Input.Managed != nil && facts.Input.Managed.Intent != nil && facts.Input.Managed.Intent.Current && facts.Input.Managed.Intent.FrontendRunning
 	}
 	if p.Managed.Frontend != nil || x.hasPrevious {
-		run.previousFrontendPermit, err = e.Managed.FrontendPermitOwner(ctx, p.App)
+		r.previousFrontendPermit, err = e.Managed.FrontendPermitOwner(ctx, p.App)
 		if err != nil {
 			return err
 		}
 	}
-	run.engineService, err = systemd.ParseUnit("brine-engine-" + string(p.Managed.Database.BindingID) + ".service")
+	r.engineService, err = systemd.ParseUnit("brine-engine-" + string(p.Managed.Database.BindingID) + ".service")
 	if err != nil {
 		return err
 	}

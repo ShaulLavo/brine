@@ -70,3 +70,15 @@ func (r GenerationRoutes) SettleWithdrawal(ctx context.Context, before, observed
 	}
 	return r.Manager.SettleWithdrawal(ctx, main, before, observed, spec.Name(app))
 }
+
+func (r GenerationRoutes) InspectManagedLoaded(ctx context.Context, observed caddy.State, p plan.Plan, d policy.Desired) error {
+	if r.Manager == nil || r.ManagedSite == nil || p.Managed == nil {
+		return errors.New("managed loaded inspection required")
+	}
+	site, err := r.ManagedSite(ctx, d, *p.Managed)
+	if err != nil {
+		return err
+	}
+	previous := caddy.State{Sites: map[string]caddy.Site{p.App + ".caddy": site}}
+	return r.Manager.InspectLoadedChange(ctx, observed, previous)
+}

@@ -15,7 +15,7 @@ import (
 )
 
 func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
-	backup := &cobra.Command{Use: "backup", Short: "Manage backup credential delivery"}
+	backup := &cobra.Command{Use: "backup", Short: "Capture native backups and manage private backup credentials"}
 	credentials := &cobra.Command{Use: "credentials", Short: "Plan and deliver externally issued S3 credentials"}
 	var planFlags, setFlags operationFlags
 	var expiryText, planID, planDatabase, setDatabase string
@@ -126,6 +126,7 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	set.Flags().StringVar(&planID, "plan-id", "", "Confirmed credential plan identity")
 	setFlags.register(set)
 	credentials.AddCommand(planned, set)
-	backup.AddCommand(credentials)
+	backup.AddCommand(newNativeRecoveryCmd(deps, modes), credentials)
+	backup.AddCommand(newNativeBackupCmd(deps, modes, ops.NativeCapture), newNativeBackupCmd(deps, modes, ops.NativePrepare))
 	return backup
 }

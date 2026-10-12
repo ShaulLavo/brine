@@ -274,42 +274,6 @@ func (m *managedUnits) retain(ctx context.Context, change managedServiceChange, 
 	return m.write(ctx, path, raw, "")
 }
 
-func (m *managedUnits) restore(ctx context.Context, change managedServiceChange) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if err := m.verify(ctx, change, change.previous, change.wanted); err != nil {
-		return err
-	}
-	active := filepath.Join(managedServiceDirectory, change.name)
-	raw, present, err := m.read(ctx, active)
-	if err != nil || !present && change.previous != "" {
-		return errManagedService
-	}
-	if !present || managedServiceHash(raw) == change.previous {
-		return nil
-	}
-	if change.previous == "" {
-		if err := m.root.Remove(active); err != nil {
-			return errManagedServiceUnknown
-		}
-		if err := m.syncDirectory(managedServiceDirectory); err != nil {
-			return err
-		}
-		return m.verify(ctx, change, "")
-	}
-	retained, exists, err := m.read(ctx, filepath.Join(managedServiceStaging, change.name+"."+change.previous))
-	if err != nil || !exists || managedServiceHash(retained) != change.previous {
-		return errManagedService
-	}
-	if err := m.write(ctx, active, retained, change.wanted); err != nil {
-		return err
-	}
-	if err := m.verify(ctx, change, change.previous); err != nil {
-		return errManagedServiceUnknown
-	}
-	return nil
-}
-
 func (m *managedUnits) write(ctx context.Context, path string, raw []byte, expected string) error {
 	if ctx.Err() != nil || len(raw) == 0 || len(raw) > managedServiceLimit {
 		return errManagedService

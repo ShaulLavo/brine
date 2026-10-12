@@ -83,7 +83,7 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "data_init_apply", "restore_test", "backup_credentials_set":
+		case "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_capture", "native_prepare", "native_restore_test":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()

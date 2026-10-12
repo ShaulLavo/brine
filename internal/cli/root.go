@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.12-dev"
+const Version = "0.1.13-dev"
 
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
@@ -51,6 +51,7 @@ type Dependencies struct {
 	HostEngineCopyObserve     func(context.Context, io.Reader, io.Writer) error
 	HostModuleDescribe        func(context.Context, io.Reader, io.Writer) error
 	HostModuleDescribeProfile func(context.Context, io.Reader, io.Writer) error
+	HostModuleStage           func(context.Context, io.Reader, io.Writer) error
 	HostBackupCredentials     dispatch.BackupCredentialOperations
 	HostArchives              ArchiveOperations
 	HostArchiveMaintenance    ArchiveMaintenanceOperations
@@ -58,6 +59,8 @@ type Dependencies struct {
 	HostDataInitialization    dispatch.DataInitializationOperations
 	HostPermits               replication.LaunchReader
 	HostRestoreTests          dispatch.RestoreTestOperations
+	HostNativeRecovery        dispatch.NativeRecoveryOperations
+	HostNativeBackups         dispatch.NativeBackupOperations
 }
 
 // NewRootCommand builds an independent command tree without executing it.

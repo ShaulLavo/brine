@@ -37,6 +37,12 @@ func nativeForeignRoot(t *testing.T) string {
 
 func dropNativeCaptureMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
+	for _, table := range []string{"data_native_initial_owners", "data_native_prepared_point_bundles", "data_native_recovery_inputs", "data_native_archive_tree_events", "data_native_archive_dependencies", "data_native_archive_trees", "data_native_live_restore_targets", "data_native_live_restore_completion_proofs", "data_native_live_restore_target_proofs", "data_native_live_restore_events", "data_native_live_restore_claims", "data_native_live_restore_plans"} {
+		if _, err := s.db.ExecContext(ctx, "DROP TABLE IF EXISTS "+table); err != nil {
+			t.Fatal(err)
+		}
+	}
+	dropManagedAndPublicationMigrationFixture(t, ctx, s)
 	for _, table := range []string{"data_native_repository_leases", "data_native_repository_init_events", "data_native_recovery_retentions", "data_native_recovery_deliveries", "data_native_backup_revision_events", "data_native_backup_revision_claims", "data_native_backup_revision_plans", "data_native_backup_policies", "data_native_capture_events", "data_native_capture_inputs", "data_native_checkpoints", "data_native_repository_results", "data_native_repository_intents", "data_native_verified_point_bundles", "data_native_verified_points", "data_native_point_consumers", "data_native_prepared_points", "data_native_preparation_events", "data_native_preparations", "data_native_task_inputs"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatal(err)
@@ -196,6 +202,8 @@ func nativeCompletedPointLocksFixture(t *testing.T) (*Store, *NativePreparation,
 	stopRaw, _ := json.Marshal(stop)
 	verified := []byte(`{"fixture":"synthetic verification"}`)
 	v := NativePreparedPointView{Format: nativePreparedPointFormat, PointID: i.PointID, PreparationOperationID: i.OperationID, FenceOwnerOpID: i.OperationID, FenceID: i.FenceID, BindingID: i.BindingID, EpochID: i.EpochID, DatabaseID: i.DatabaseID, IncarnationID: i.IncarnationID, Generation: i.Generation, GenerationID: strings.Repeat("e", 32), PolicySHA256: i.PolicySHA256, RuntimeVersion: i.RuntimeVersion, RuntimeSHA256: i.RuntimeSHA256, AllocationID: string(i.DatabaseID), AllocationSHA256: i.AllocationSHA256, SourceKind: i.SourceKind, SourceSHA256: strings.Repeat("1", 64), SourceSealSHA256: strings.Repeat("2", 64), SourceWitnessSHA256: strings.Repeat("3", 64), CheckpointSHA256: strings.Repeat("4", 64), StopProofSHA256: nativePointHash(stopRaw), RestoreReceiptSHA256: nativePointHash(verified), BundleManifestSHA256: strings.Repeat("5", 64), TransportPointSHA256: strings.Repeat("6", 64), ConfigSHA256: strings.Repeat("7", 64), SigningRecoverySHA256: strings.Repeat("8", 64), Names: []string{}, PreparedAt: now, ExpiresAt: now.Add(10 * time.Minute), RetainUntil: now.Add(30 * 24 * time.Hour)}
+	verified, _ = json.Marshal(nativePreparedVerification{Format: "brine-native-prepared-verification-v1", PointID: v.PointID, SourceSHA256: v.SourceSHA256, SourceNativeSHA256: nativePointHash(nil), RestoredNativeSHA256: nativePointHash(nil), FinalPairsSHA256: nativePointHash(nil), ConfirmedBoundSHA256: nativePointHash(nil), ManifestSHA256: v.BundleManifestSHA256, TransportSHA256: v.TransportPointSHA256, VerifiedAt: now})
+	v.RestoreReceiptSHA256 = nativePointHash(verified)
 	raw, err := json.Marshal(v)
 	if err != nil || !validNativePreparedPoint(v) {
 		t.Fatal("invalid point fixture", err)

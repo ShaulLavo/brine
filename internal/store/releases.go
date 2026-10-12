@@ -223,6 +223,10 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 	if err != nil {
 		return result, err
 	}
+	result.ManagedReservations, err = readManagedReservations(ctx, tx)
+	if err != nil {
+		return result, err
+	}
 	for _, h := range heads {
 		r, err := readRelease(ctx, tx, h.app, h.id)
 		if err != nil {
@@ -254,6 +258,6 @@ func (s *Store) ReleaseByID(ctx context.Context, app, id string) (Release, error
 // Replaying a commit does not advance it; plans and queued jobs do not affect it.
 func (s *Store) Generation(ctx context.Context) (uint64, error) {
 	var n uint64
-	err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)").Scan(&n)
+	err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)+(SELECT COUNT(*) FROM data_engine_preparations)+(SELECT COUNT(*) FROM data_engine_desired_states)+(SELECT COUNT(*) FROM data_engine_route_states)").Scan(&n)
 	return n, err
 }

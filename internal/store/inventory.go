@@ -23,7 +23,11 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 		return result, err
 	}
 	defer tx.Rollback()
-	if err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)").Scan(&result.Generation); err != nil {
+	if err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)+(SELECT COUNT(*) FROM data_engine_preparations)+(SELECT COUNT(*) FROM data_engine_desired_states)+(SELECT COUNT(*) FROM data_engine_route_states)").Scan(&result.Generation); err != nil {
+		return result, err
+	}
+	result.ManagedReservations, err = readManagedReservations(ctx, tx)
+	if err != nil {
 		return result, err
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT app,EXISTS(SELECT 1 FROM release_heads h WHERE h.app=r.app),(SELECT id FROM releases latest WHERE latest.app=r.app ORDER BY rowid DESC LIMIT 1) FROM releases r GROUP BY app`)

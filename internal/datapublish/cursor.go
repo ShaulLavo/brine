@@ -100,6 +100,12 @@ func NewCursor(plan Plan, applyOpID, consumerClaimSHA256, newEpochID string) (Cu
 func (c Cursor) Scope() ProofScope      { return c.scope }
 func (c Cursor) State() CursorState     { return c.state }
 func (c Cursor) NativeDatabase() string { return c.nativeDatabase }
+func (c Cursor) IntendedStep() Step {
+	if c.state != IntentRecorded && c.state != InspectRequired {
+		return ""
+	}
+	return c.step
+}
 func (c Cursor) NextStep() (Step, bool) {
 	if c.state != Ready {
 		return "", false
