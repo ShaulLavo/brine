@@ -477,3 +477,53 @@ fn logs_history_is_an_exact_empty_object() {
         assert!(serde_json::from_value::<Request>(request.clone()).is_err());
     }
 }
+#[test]
+fn native_selected_snapshot_with_empty_required_log_suffix() {
+    let fixture = seed(true);
+    let baseline = observed(&fixture, |_| {}).unwrap();
+    let copy = tempfile::tempdir().unwrap();
+    let root = copy.path().join("replica");
+    copy_tree(&fixture.root, &root);
+    select_snapshot_copy(&root, fixture.selected_snapshot);
+    fs::remove_dir_all(root.join("clog")).unwrap();
+    fs::create_dir(root.join("clog")).unwrap();
+    let History::Snapshot { offset, replica_id } = fixture.request.history else {
+        panic!()
+    };
+    let replica = ReplicaDir::from_path_unchecked(root.clone());
+    let repository =
+        spacetimedb_snapshot::SnapshotRepository::open(replica.snapshots(), id(1), replica_id)
+            .unwrap();
+    let actual = repository
+        .read_snapshot(offset, &PagePool::new(Some(8 << 20)))
+        .unwrap();
+    let actual_head = framing::Head {
+        first: 0,
+        last: actual.tx_offset,
+        commits: 0,
+    };
+    assert_eq!(actual_head.last, baseline.committed_offset);
+    let before = input::files(&root, &Limits::MAX, &Deadline::new(60_000)).unwrap();
+    let state = state::observe(
+        &replica,
+        id(1),
+        id(2),
+        fixture.request.history,
+        &actual_head,
+        &Limits::MAX,
+        &Deadline::new(60_000),
+    )
+    .unwrap();
+    assert_eq!(state.database, baseline.observed_database_identity);
+    assert_eq!(state.owner, baseline.observed_owner_identity);
+    assert_eq!(state.program_digest, baseline.current_program_digest);
+    assert_eq!(state.program_wire, baseline.current_program_hash);
+    assert_eq!(state.program_sha256, baseline.current_program_sha256);
+    assert_eq!(state.hash, baseline.state_blake3);
+    assert_eq!(
+        serde_json::to_vec(&state.tables).unwrap(),
+        serde_json::to_vec(&baseline.tables).unwrap()
+    );
+    assert_eq!(state.snapshot.unwrap().offset, actual_head.last);
+    assert!(before == input::files(&root, &Limits::MAX, &Deadline::new(60_000)).unwrap());
+}

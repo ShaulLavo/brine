@@ -45,6 +45,24 @@ def forged_length(root):
     path.write_bytes(data)
 
 
+def selected_object(root, request):
+    selected = root / 'snapshots' / (f"{request['history']['offset']:020}.snapshot_dir")
+    return next(path for path in sorted((selected / 'objects').rglob('*')) if path.is_file())
+
+
+def damage_snapshot(root, request, action):
+    path = selected_object(root, request)
+    if action == 'missing':
+        path.unlink()
+        return
+    value = bytearray(path.read_bytes())
+    if action == 'torn':
+        value.pop()
+    else:
+        value[-1] ^= 1
+    path.write_bytes(value)
+
+
 def main():
     image, fixture, output = sys.argv[1:]
     fixture = pathlib.Path(fixture)
@@ -63,6 +81,17 @@ def main():
     exit_code, observed = run(image, fixture, output, logs)
     assert exit_code == 0 and observed['state_blake3'] == baseline['state_blake3']
     results.append({'case': 'logs_snapshot_equality', 'exit': exit_code})
+    for damage in ['missing', 'torn', 'corrupt']:
+        code, refusal = run(image, fixture, output, request,
+                            lambda root: damage_snapshot(root, request, damage))
+        assert code == 70 and refusal['code'] == 'snapshot', (damage, code, refusal)
+        results.append({'case': 'selected_snapshot_' + damage, 'exit': code, 'refusal': refusal['code']})
+    for extra in [{'foreign': 1}, {'offset': request['history']['offset'], 'replica_id': 1}]:
+        invalid = copy.deepcopy(logs)
+        invalid['history'].update(extra)
+        code, refusal = run(image, fixture, output, invalid)
+        assert code == 70 and refusal['code'] == 'request'
+        results.append({'case': 'logs_foreign_fields', 'exit': code, 'refusal': refusal['code']})
     for name, maximum in [('files', 1), ('stored_bytes', 1), ('expanded_bytes', 1), ('rows', 1),
                           ('row_bytes', 1), ('tables', 1), ('program_bytes', 1), ('output_bytes', 256),
                           ('allocation_bytes', 4096), ('deadline_ms', 1)]:
