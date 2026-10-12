@@ -9,8 +9,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"golang.org/x/sys/unix"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -121,13 +123,13 @@ func nativeBackupUnitBytes(metadata store.NativeBackupActivationMetadata) ([]byt
 }
 
 func installNativeBackupUnits(ctx context.Context, home string, session localexec.Session, metadata store.NativeBackupActivationMetadata, unit, timer []byte) error {
-	root, err := engineOpenRoot(home)
+	root, err := nativeBackupConfigRoot(home)
 	if err != nil {
 		return errEngineSource
 	}
 	defer func() { _ = root.Close() }()
 	name := nativeBackupUnitName(metadata)
-	if err := engineMakePrivateDirectories(root, ".config/systemd/user"); err != nil {
+	if err := engineMakePrivateDirectories(root, "systemd/user"); err != nil {
 		return err
 	}
 	if err := replaceNativeBackupUnit(ctx, root, name+".service", unit, metadata.Previous.UnitSHA256); err != nil {
@@ -157,8 +159,35 @@ func installNativeBackupUnits(ctx context.Context, home string, session localexe
 	return checkNativeBackupTimerProperties(observed.Stdout, expected)
 }
 
+func nativeBackupConfigRoot(home string) (*os.Root, error) {
+	if !filepath.IsAbs(home) || filepath.Clean(home) != home {
+		return nil, errManagedService
+	}
+	if err := managedHomeAncestors(home); err != nil {
+		return nil, err
+	}
+	homeRoot, err := engineOpenRoot(home)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = homeRoot.Close() }()
+	file, err := engineOpenMember(homeRoot, ".config", unix.O_RDONLY|unix.O_DIRECTORY, 0)
+	if err != nil {
+		return nil, errEngineSource
+	}
+	defer func() { _ = file.Close() }()
+	if _, err = engineMember(file, ".config"); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot("/proc/self/fd/" + strconv.FormatUint(uint64(file.Fd()), 10))
+	if err != nil {
+		return nil, errEngineSource
+	}
+	return root, nil
+}
+
 func replaceNativeBackupUnit(ctx context.Context, root *os.Root, name string, raw []byte, previous string) error {
-	path := filepath.Join(".config/systemd/user", name)
+	path := filepath.Join("systemd/user", name)
 	if _, err := root.Lstat(path); err == nil {
 		if previous == "" {
 			return errEngineSource
@@ -182,7 +211,7 @@ func replaceNativeBackupUnit(ctx context.Context, root *os.Root, name string, ra
 }
 
 func verifyNativeBackupUnit(ctx context.Context, root *os.Root, name string, expected []byte) error {
-	raw, err := readEnginePrivateFile(ctx, root, filepath.Join(".config/systemd/user", name), nativeBackupBytesHash(expected), 16<<10)
+	raw, err := readEnginePrivateFile(ctx, root, filepath.Join("systemd/user", name), nativeBackupBytesHash(expected), 16<<10)
 	defer clear(raw)
 	if err != nil || !bytes.Equal(raw, expected) {
 		return errEngineSource

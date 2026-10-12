@@ -146,7 +146,7 @@ func (v *nativeBackupObserved) hash() string {
 	return nativeBackupBytesHash(raw)
 }
 func (v *nativeBackupObserved) view(i *store.NativeBackupInspection) dispatch.NativeBackupInspectionView {
-	return dispatch.NativeBackupInspectionView{OperationID: i.OriginalOperationID(), Kind: string(i.OriginalKind()), BindingID: string(i.BindingID()), EpochID: v.material.Scope.EpochID, ObservationSHA256: v.hash(), State: "verified_remote"}
+	return dispatch.NativeBackupInspectionView{OperationID: i.OriginalOperationID(), Kind: string(i.OriginalKind()), BindingID: string(i.BindingID()), EpochID: v.material.Scope.EpochID, ObservationSHA256: v.hash(), State: "verified_remote", UnitsState: v.unitsState}
 }
 func (v *nativeBackupObserved) close(ctx context.Context) error {
 	var err error
@@ -251,7 +251,7 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 	return v, nil
 }
 func (o nativeBackupResolutionOperations) verifyUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata) error {
-	root, err := engineOpenRoot(o.runtime.home)
+	root, err := nativeBackupConfigRoot(o.runtime.home)
 	if err != nil {
 		return err
 	}
@@ -267,6 +267,51 @@ func (o nativeBackupResolutionOperations) verifyUnits(ctx context.Context, metad
 	}
 	return checkNativeBackupTimerProperties(observed.Stdout, map[string]string{"LoadState": "loaded", "ActiveState": "active", "UnitFileState": "enabled", "FragmentPath": filepath.Join(o.runtime.home, ".config/systemd/user", name+".timer")})
 }
+func (o nativeBackupResolutionOperations) absentUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata) error {
+	root, err := nativeBackupConfigRoot(o.runtime.home)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	name := nativeBackupUnitName(metadata)
+	for _, directory := range []string{"systemd", "systemd/user"} {
+		if _, err := root.Lstat(directory); os.IsNotExist(err) {
+			break
+		} else if err != nil {
+			return errEngineSource
+		}
+		if err := engineDirectoryChain(root, directory); err != nil {
+			return err
+		}
+	}
+	for _, suffix := range []string{".service", ".timer", ".service.new", ".timer.new"} {
+		if _, err := root.Lstat(filepath.Join("systemd/user", name+suffix)); !os.IsNotExist(err) {
+			return errEngineSource
+		}
+	}
+	for _, suffix := range []string{".service", ".timer"} {
+		if err := o.absentManagerUnit(ctx, name+suffix); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (o nativeBackupResolutionOperations) absentManagerUnit(ctx context.Context, name string) error {
+	properties := []string{"--property=LoadState", "--property=ActiveState", "--property=UnitFileState", "--property=FragmentPath", "--property=Job"}
+	expected := map[string]string{"LoadState": "not-found", "ActiveState": "inactive", "UnitFileState": "", "FragmentPath": "", "Job": ""}
+	if filepath.Ext(name) == ".service" {
+		properties = append(properties, "--property=MainPID", "--property=ControlPID", "--property=ControlGroup")
+		expected["MainPID"], expected["ControlPID"], expected["ControlGroup"] = "0", "0", ""
+	}
+	args := append([]string{"--user", "show", name, "--no-pager"}, properties...)
+	observed, err := o.runtime.session.Execute(ctx, "/usr/bin/systemctl", args, nil, false)
+	if err != nil {
+		return err
+	}
+	return checkNativeBackupTimerProperties(observed.Stdout, expected)
+}
+
 func (o nativeBackupResolutionOperations) adopt(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved) (json.RawMessage, error) {
 	if i.OriginalKind() == ops.NativeBackupActivate {
 		return o.adoptActivation(ctx, i, v)
@@ -311,12 +356,19 @@ func (o nativeBackupResolutionOperations) inspectActivation(ctx context.Context,
 		return err
 	}
 	if stage == "prepared" {
-		v.unitsState = "not_issued"
-	} else {
-		if err = o.verifyUnits(ctx, v.activation); err != nil {
+		if err = o.absentUnits(ctx, v.activation); err != nil {
 			return err
 		}
+		v.unitsState = "not_issued"
+	} else if err = o.verifyUnits(ctx, v.activation); err == nil {
 		v.unitsState = "verified"
+	} else if stage == "units_issued" {
+		if err = o.absentUnits(ctx, v.activation); err != nil {
+			return err
+		}
+		v.unitsState = "issued_absent"
+	} else {
+		return err
 	}
 	return nil
 }
@@ -397,12 +449,14 @@ func (o nativeBackupResolutionOperations) adoptActivation(ctx context.Context, i
 		}
 	}
 	unit, timer := nativeBackupUnitBytes(v.activation)
-	if v.unitsState == "not_issued" {
+	if v.unitsState == "not_issued" || v.unitsState == "issued_absent" {
 		if err = i.BeginResolutionUnits(ctx); err != nil {
 			return nil, err
 		}
-		if err = activation.BeginUnits(ctx); err != nil {
-			return nil, err
+		if v.unitsState == "not_issued" {
+			if err = activation.BeginUnits(ctx); err != nil {
+				return nil, err
+			}
 		}
 		if err = installNativeBackupUnits(ctx, o.runtime.home, o.runtime.session, v.activation, unit, timer); err != nil {
 			return nil, err

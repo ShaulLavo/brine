@@ -28,6 +28,10 @@ func newNativeBackupStatusCmd(deps Dependencies, modes *machineModes) *cobra.Com
 		if modes.enabled() {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), status))
 		}
+		if status.State == "inactive" || status.State == "recovery_required" {
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "SpacetimeDB backups %s. No active policy. Loss unknown.\n", status.State)
+			return err
+		}
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "SpacetimeDB backups %s, capture every %d seconds, loss unknown.\n", status.State, status.CaptureIntervalSeconds)
 		return err
 	}}

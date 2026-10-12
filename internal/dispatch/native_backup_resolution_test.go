@@ -26,3 +26,25 @@ func TestNativeBackupResolutionDispatchRefusesPathsKeysAndEvidence(t *testing.T)
 		t.Fatal("raw repository admitted")
 	}
 }
+func TestNativeBackupInspectionReportsOnlyQualifiedUnitStates(t *testing.T) {
+	view := NativeBackupInspectionView{OperationID: "original-operation", Kind: "native_backup_activate", BindingID: strings.Repeat("a", 32), EpochID: strings.Repeat("b", 32), ObservationSHA256: strings.Repeat("c", 64), State: "verified_remote"}
+	for _, state := range []string{"not_issued", "issued_absent", "verified"} {
+		view.UnitsState = state
+		raw, _ := json.Marshal(view)
+		if _, err := DecodeNativeBackupInspectionView(raw); err != nil {
+			t.Fatal("actual unit observation refused", state, err)
+		}
+	}
+	for _, state := range []string{"", "unknown", "active", "initialized"} {
+		view.UnitsState = state
+		raw, _ := json.Marshal(view)
+		if _, err := DecodeNativeBackupInspectionView(raw); err == nil {
+			t.Fatal("unqualified unit observation accepted", state)
+		}
+	}
+	view.Kind, view.UnitsState = "native_capture", "issued_absent"
+	raw, _ := json.Marshal(view)
+	if _, err := DecodeNativeBackupInspectionView(raw); err == nil {
+		t.Fatal("unit observation joined to capture")
+	}
+}

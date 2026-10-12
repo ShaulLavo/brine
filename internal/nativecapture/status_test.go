@@ -35,3 +35,22 @@ func TestBackupStatusCountsFirstMissedCaptureFromActivation(t *testing.T) {
 		t.Fatal("never-verified policy hid overdue captures", err)
 	}
 }
+
+func TestInactiveBackupStatusCannotClaimActiveCadenceOrVerifiedPoint(t *testing.T) {
+	for _, state := range []string{"inactive", "recovery_required"} {
+		status := BackupStatus{Engine: "spacetimedb", BindingID: strings.Repeat("a", 32), EpochID: strings.Repeat("b", 32), State: state, Loss: "unknown", Fenced: true}
+		raw, _ := json.Marshal(status)
+		if _, err := DecodeBackupStatus(raw); err != nil {
+			t.Fatal("no-policy status refused", err)
+		}
+		status.CaptureIntervalSeconds = 30
+		if status.Valid() {
+			t.Fatal("inactive policy claimed active cadence")
+		}
+		status.CaptureIntervalSeconds = 0
+		status.PointID = strings.Repeat("c", 32)
+		if status.Valid() {
+			t.Fatal("inactive policy claimed a verified point")
+		}
+	}
+}
