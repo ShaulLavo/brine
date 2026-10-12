@@ -2,6 +2,22 @@
 
 **This is a test plan, not a report of passing deployments.** No real VPS is authorized by this file. Unit tests use synthetic fixtures and fake adapters; destructive integration tests require an explicitly named disposable target and clean test credentials.
 
+P09-04B pure preview checks cover shared managed database syntax, paired optional
+frontend, normalized ENGINE/URL/NAME/ACCEPTS, module SHA-256 versus executed native
+Keccak/API-wire pilot witness, bounded confined client module/schema resolution,
+production v2 schema hashing without marker authority, explicit license/cadence/loss facts, resource ceilings,
+secret-purpose separation, independent ports and typed client-route denies.
+Managed plans must remain conflict-only with zero executable changes. Renderer
+checks cover the typed Podman supervisor service and optional frontend Quadlet;
+an explicit pinned local Caddy CLI can independently adapt both route previews.
+Optional actual Caddy routing probes compare the pure checker with forwarding
+to private HTTP stubs, covering literal/escaped/cleaned paths, duplicate and
+encoded token keys, SDK query fields, malformed encoding and terminal original
+managed-prefix denial before frontend fallback. Caller input mutation must not
+change an already hashed managed plan.
+These checks do not complete T37 or verify physical routing, startup, publishing,
+backup, fence handoff or reboot.
+
 | ID | Scenario | Required evidence | Phase |
 | --- | --- | --- | --- |
 | T01 | Human and JSON version/doctor output | Valid schema, no ANSI or prompts in machine output | 00 |

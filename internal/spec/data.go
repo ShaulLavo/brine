@@ -13,15 +13,16 @@ type rawRuntime struct {
 	GID any `toml:"gid"`
 }
 type rawDatabase struct {
-	Engine            any `toml:"engine"`
-	Schema            any `toml:"schema"`
-	Marker            any `toml:"marker"`
-	Name              any `toml:"name"`
-	PersistentRoot    any `toml:"persistent_root"`
-	MountPath         any `toml:"mount_path"`
-	Filename          any `toml:"filename"`
-	BackupDestination any `toml:"backup_destination"`
-	SyncInterval      any `toml:"sync_interval"`
+	SpacetimeDB       *rawSpacetimeDB `toml:"spacetimedb"`
+	Engine            any             `toml:"engine"`
+	Schema            any             `toml:"schema"`
+	Marker            any             `toml:"marker"`
+	Name              any             `toml:"name"`
+	PersistentRoot    any             `toml:"persistent_root"`
+	MountPath         any             `toml:"mount_path"`
+	Filename          any             `toml:"filename"`
+	BackupDestination any             `toml:"backup_destination"`
+	SyncInterval      any             `toml:"sync_interval"`
 }
 type rawCompatibility struct {
 	Database any `toml:"database"`
@@ -30,6 +31,9 @@ type rawCompatibility struct {
 }
 
 func validatePersistence(raw rawApp, app *App) error {
+	if db := managedRawDatabase(raw); db != nil {
+		return validateManaged(raw, db, app)
+	}
 	bad := func(field string) error {
 		return refusal("spec.invalid_persistence", field, "invalid persistent database declaration")
 	}
@@ -55,6 +59,9 @@ func validatePersistence(raw rawApp, app *App) error {
 	for _, r := range raw.Databases {
 		if r == nil {
 			return bad("databases")
+		}
+		if r.SpacetimeDB != nil {
+			return bad("databases.spacetimedb")
 		}
 		if r.Engine != nil {
 			engine, err := text(r.Engine, "databases.engine")
@@ -133,11 +140,21 @@ func validatePersistence(raw rawApp, app *App) error {
 		app.Databases = append(app.Databases, d)
 	}
 	slices.SortFunc(app.Databases, func(a, b Database) int { return strings.Compare(string(a.Name), string(b.Name)) })
-	if len(raw.SchemaCompatibility) > 16 {
+	if err := validateCompatibility(raw.SchemaCompatibility, names, app); err != nil {
+		return err
+	}
+	return validateRestoreInvariants(raw, app)
+}
+
+func validateCompatibility(rows []*rawCompatibility, names map[DatabaseName]bool, app *App) error {
+	bad := func(field string) error {
+		return refusal("spec.invalid_persistence", field, "invalid persistent database declaration")
+	}
+	if len(rows) > 16 {
 		return bad("schema_compatibility")
 	}
 	seen := map[DatabaseName]bool{}
-	for _, r := range raw.SchemaCompatibility {
+	for _, r := range rows {
 		if r == nil {
 			return bad("schema_compatibility")
 		}
@@ -175,5 +192,5 @@ func validatePersistence(raw rawApp, app *App) error {
 		app.SchemaCompatibility = append(app.SchemaCompatibility, c)
 	}
 	slices.SortFunc(app.SchemaCompatibility, func(a, b SchemaCompatibility) int { return strings.Compare(string(a.Database), string(b.Database)) })
-	return validateRestoreInvariants(raw, app)
+	return nil
 }
