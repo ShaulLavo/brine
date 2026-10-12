@@ -26,6 +26,24 @@ type NativeArchivedSource struct {
 
 func (*NativeArchivedSource) MarshalJSON() ([]byte, error) { return nil, ErrInvalid }
 
+// AcquireNativeArchivePreparation uses the retained archive identity after its
+// incarnation has retired. Ordinary live preparation still requires an active
+// incarnation and cannot use this archive-only admission.
+func (s *Store) AcquireNativeArchivePreparation(ctx context.Context, id data.ArchiveID, binding data.ReplicaBindingID, lifetime *data.EngineLock) (*EnginePreparation, error) {
+	if s.readOnly || !data.ValidID(string(id)) || !lifetime.HoldsLifetime(s.dir, binding) {
+		return nil, ErrConflict
+	}
+	guard, err := data.AcquireEngineLaunchGuard(ctx, s.dir, binding)
+	if err != nil {
+		return nil, err
+	}
+	preparation := &EnginePreparation{root: s.dir, binding: binding, guard: guard}
+	if _, err = s.NativeArchivedSource(ctx, id, binding, preparation, lifetime); err != nil {
+		return nil, errors.Join(err, preparation.Close())
+	}
+	return preparation, nil
+}
+
 func (s *Store) NativeArchivedSource(ctx context.Context, id data.ArchiveID, binding data.ReplicaBindingID, preparation *EnginePreparation, lifetime *data.EngineLock) (*NativeArchivedSource, error) {
 	capability := &NativeArchivedSource{state: s, archiveID: id, binding: binding, preparation: preparation, lifetime: lifetime}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
