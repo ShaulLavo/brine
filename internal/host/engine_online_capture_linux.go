@@ -130,6 +130,7 @@ func enginePrefixMetadata(actual, original engineTreeMember, boundary int64) boo
 		return false
 	}
 	actual.Size = original.Size
+	actual.SHA256, original.SHA256 = "", ""
 	return actual == original
 }
 

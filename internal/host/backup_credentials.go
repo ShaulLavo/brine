@@ -213,7 +213,7 @@ func credentialTaskHandler(service Service, dir string, rotator backupcredential
 
 func nativeBackupCredentialScope(ctx context.Context, service Service, pol policy.Policy, app, database string) (backupcredentials.Scope, error) {
 	scope, err := service.Store.NativeCredentialScope(ctx, app, database)
-	if err != nil || scope.FenceHeld || scope.PolicyHash != pol.Hash() {
+	if err != nil || !scope.DeliveryAllowed || scope.PolicyHash != pol.Hash() {
 		return backupcredentials.Scope{}, backupcredentials.ErrAdmissionRefresh
 	}
 	destination, allowed := pol.BackupDestination(scope.Archive.Destination.Reference)

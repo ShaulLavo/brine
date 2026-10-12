@@ -130,7 +130,7 @@ func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *Native
 	}
 	var credentialRaw, recoveryRaw []byte
 	d := reserved.Archive.Destination
-	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE binding_id=? AND epoch_id=? AND kind='receipt' AND json_extract(canonical,'$.credential_ref')=? ORDER BY json_extract(canonical,'$.version') DESC LIMIT 1", plan.BindingID, plan.EpochID, d.CredentialRef).Scan(&credentialRaw)
+	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE binding_id=? AND json_extract(canonical,'$.epoch_id')=? AND kind='receipt' AND json_extract(canonical,'$.credential_ref')=? ORDER BY json_extract(canonical,'$.version') DESC LIMIT 1", plan.BindingID, plan.EpochID, d.CredentialRef).Scan(&credentialRaw)
 	var credential CredentialRecord
 	if err != nil || json.Unmarshal(credentialRaw, &credential) != nil {
 		return NativeBackupActivationMetadata{}, errors.Join(ErrConflict, err)
@@ -141,7 +141,7 @@ func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *Native
 	}
 	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_recovery_deliveries WHERE binding_id=? AND epoch_id=? AND reference=? ORDER BY version DESC LIMIT 1", plan.BindingID, plan.EpochID, plan.RecoveryReference).Scan(&recoveryRaw)
 	var recovery nativeRecoveryDeliveryRecord
-	if err != nil || json.Unmarshal(recoveryRaw, &recovery) != nil || recovery.BindingID != plan.BindingID || recovery.EpochID != plan.EpochID || recovery.Reference != plan.RecoveryReference || checkNativeMaterialOperation(ctx, tx, recovery.OperationID, ops.NativeRecoverySet) != nil {
+	if err != nil || json.Unmarshal(recoveryRaw, &recovery) != nil || recovery.BindingID != plan.BindingID || recovery.EpochID != plan.EpochID || recovery.Reference != plan.RecoveryReference || checkNativeRecoveryMaterialOperation(ctx, tx, recovery) != nil {
 		return NativeBackupActivationMetadata{}, errors.Join(ErrConflict, err)
 	}
 	canonical, _ = json.Marshal(recovery)

@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 
@@ -16,7 +17,7 @@ import (
 )
 
 func nativeHistoricalRestoreTask(service Service, runtime nativeBackupRuntime) jobs.TaskHandler {
-	return func(ctx context.Context, op ops.Operation) (json.RawMessage, error) {
+	return func(ctx context.Context, op ops.Operation) (receipt json.RawMessage, taskErr error) {
 		claim, err := service.Store.ClaimNativeHistoricalRestore(ctx, op.ID)
 		if err != nil {
 			return nil, err
@@ -40,7 +41,7 @@ func nativeHistoricalRestoreTask(service Service, runtime nativeBackupRuntime) j
 		if err != nil {
 			return nil, err
 		}
-		defer func() { _ = parent.Close() }()
+		defer func() { taskErr = errors.Join(taskErr, discardNativeWorkspace(parent, path)) }()
 		extracted, err := client.RestoreExact(ctx, repository, path, parent, "download", bundle.Transport, bundle.Manifest)
 		if err != nil {
 			return nil, err

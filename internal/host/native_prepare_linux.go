@@ -23,28 +23,29 @@ import (
 )
 
 type nativePrepareWork struct {
-	runtime     nativeBackupRuntime
-	input       store.NativeTaskInput
-	operation   ops.Operation
-	fence       data.QuiescenceFence
-	preparation *store.EnginePreparation
-	lifetime    *data.EngineLock
-	native      *store.NativePreparation
-	stopped     *store.NativeStoppedPreparation
-	permit      store.EnginePermit
-	copied      *engineSourceCopy
-	parent      *os.Root
-	path        string
-	module      nativeCurrentModule
-	confirmed   spacetimedb.ConfirmedPairsRecord
-	observed    nativeOwnedObservation
-	withdrawn   caddy.State
-	prior       caddy.State
-	startedAt   time.Time
+	runtime         nativeBackupRuntime
+	input           store.NativeTaskInput
+	operation       ops.Operation
+	fence           data.QuiescenceFence
+	preparation     *store.EnginePreparation
+	lifetime        *data.EngineLock
+	native          *store.NativePreparation
+	stopped         *store.NativeStoppedPreparation
+	permit          store.EnginePermit
+	copied          *engineSourceCopy
+	parent          *os.Root
+	path            string
+	module          nativeCurrentModule
+	confirmed       spacetimedb.ConfirmedPairsRecord
+	observed        nativeOwnedObservation
+	withdrawn       caddy.State
+	prior           caddy.State
+	startedAt       time.Time
+	retainWorkspace bool
 }
 
 func nativePrepareTask(service Service, stateRoot, home string, session nativeBackupRuntime) jobs.TaskHandler {
-	return func(ctx context.Context, op ops.Operation) (json.RawMessage, error) {
+	return func(ctx context.Context, op ops.Operation) (receipt json.RawMessage, taskErr error) {
 		input, err := service.Store.ReadNativeTaskInput(ctx, op.ID)
 		if err != nil || input.Kind != ops.NativePrepare {
 			return nil, result.New(result.PolicyRefused, nil)
@@ -62,7 +63,7 @@ func nativePrepareTask(service Service, stateRoot, home string, session nativeBa
 		}
 		defer func() { _ = lock.Release() }()
 		work := &nativePrepareWork{runtime: session, input: input, operation: op, startedAt: time.Now()}
-		defer func() { _ = work.close() }()
+		defer func() { taskErr = errors.Join(taskErr, work.close()) }()
 		if err := work.acquire(ctx); err != nil {
 			return nil, err
 		}
@@ -296,7 +297,11 @@ func (w *nativePrepareWork) close() error {
 		w.copied = nil
 	}
 	if w.parent != nil {
-		err = errors.Join(err, w.parent.Close())
+		if w.retainWorkspace {
+			err = errors.Join(err, w.parent.Close())
+		} else {
+			err = errors.Join(err, discardNativeWorkspace(w.parent, w.path))
+		}
 		w.parent = nil
 	}
 	if w.lifetime != nil {
@@ -336,6 +341,7 @@ func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source native
 	if err := w.runtime.state.RecordNativePreparedUploadIntent(ctx, w.stopped, source, bundle.Manifest()); err != nil {
 		return store.NativePreparedPointView{}, err
 	}
+	w.retainWorkspace = true
 	transport, err := client.Backup(ctx, repository, w.path, bundle)
 	if err != nil {
 		return store.NativePreparedPointView{}, err
@@ -357,7 +363,11 @@ func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source native
 	if w.copied.sourceUnchanged(ctx) != nil {
 		return store.NativePreparedPointView{}, errEngineSource
 	}
-	return w.runtime.state.CompleteNativePreparedPoint(ctx, w.stopped, extracted, observation)
+	point, err := w.runtime.state.CompleteNativePreparedPoint(ctx, w.stopped, extracted, observation)
+	if err == nil {
+		w.retainWorkspace = false
+	}
+	return point, err
 }
 
 func (w *nativePrepareWork) maintenanceMillis() uint64 {

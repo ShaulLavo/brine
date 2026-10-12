@@ -42,7 +42,7 @@ func checkNativeMaterialTaskOutcome(t *testing.T, outcome string) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := checkNativeMaterialOperation(ctx, state.db, op.ID, ops.NativeRecoverySet); err == nil {
+		if _, _, err := readNativeMaterialOperation(ctx, state.db, op.ID, ops.NativeRecoverySet); err == nil {
 			t.Fatal("terminal state admitted material without a successful typed receipt")
 		}
 		return
@@ -55,10 +55,10 @@ func checkNativeMaterialTaskOutcome(t *testing.T, outcome string) {
 	if err := state.CompleteTask(ctx, op.ID, ops.Succeeded, ops.TaskOutcome{Receipt: raw}); err != nil {
 		t.Fatal(err)
 	}
-	if err := checkNativeMaterialOperation(ctx, state.db, op.ID, ops.NativeRecoverySet); err != nil {
+	if _, _, err := readNativeMaterialOperation(ctx, state.db, op.ID, ops.NativeRecoverySet); err != nil {
 		t.Fatal("successful typed task outcome refused", err)
 	}
-	if err := checkNativeMaterialOperation(ctx, state.db, op.ID, ops.NativeBackupActivate); err == nil {
+	if _, _, err := readNativeMaterialOperation(ctx, state.db, op.ID, ops.NativeBackupActivate); err == nil {
 		t.Fatal("different material operation kind admitted")
 	}
 }
