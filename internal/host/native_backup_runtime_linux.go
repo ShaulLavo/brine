@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/enroll"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -26,6 +27,7 @@ type nativeBackupRuntime struct {
 	stateRoot string
 	home      string
 	session   localexec.Session
+	routes    *caddy.Manager
 }
 
 func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.NativeRepositoryRead) (*restic.Client, restic.Repository, error) {
@@ -33,6 +35,10 @@ func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.Na
 	if err != nil {
 		return nil, restic.Repository{}, errEngineSource
 	}
+	return r.repositoryMaterial(ctx, material, admission, "")
+}
+
+func (r nativeBackupRuntime) repositoryMaterial(ctx context.Context, material store.NativeRepositoryMaterial, admission restic.RepositoryAdmission, grant string) (*restic.Client, restic.Repository, error) {
 	files := backupcredentials.Files{Root: filepath.Join(r.stateRoot, "credentials")}
 	receipt, err := files.Receipt(material.CredentialReference, material.Scope.CredentialVersion)
 	if err != nil || !nativeCredentialReceiptMatches(material, receipt) {
@@ -53,7 +59,7 @@ func (r nativeBackupRuntime) repository(ctx context.Context, admission *store.Na
 		return nil, restic.Repository{}, errEngineSource
 	}
 	defer clear(password)
-	repository, err := restic.NewS3Repository(material.Scope, material.Location, password, packet, "")
+	repository, err := restic.NewS3Repository(material.Scope, material.Location, password, packet, grant)
 	if err != nil {
 		return nil, restic.Repository{}, errEngineSource
 	}

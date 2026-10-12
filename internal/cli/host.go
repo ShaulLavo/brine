@@ -21,7 +21,7 @@ import (
 func newHostCmd(deps Dependencies) *cobra.Command {
 	host := &cobra.Command{Use: "host", Hidden: true}
 	serve := &cobra.Command{Use: "serve", Hidden: true, DisableFlagParsing: true, RunE: func(_ *cobra.Command, _ []string) error { return executeHostServe(deps) }}
-	host.AddCommand(serve, newHostEnrollmentCmd(deps), newHostRunOpCmd(deps), newHostReconcileCmd(deps))
+	host.AddCommand(newHostNativeCaptureCmd(deps), serve, newHostEnrollmentCmd(deps), newHostRunOpCmd(deps), newHostReconcileCmd(deps))
 	host.AddCommand(newHostPermitCommands(deps)...)
 	host.AddCommand(newHostManagedFrontendPermit(deps))
 	host.AddCommand(newHostEngineCommands(deps)...)
@@ -75,6 +75,8 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		server.BackupCredentials = deps.HostBackupCredentials
 		server.DataInitialization = deps.HostDataInitialization
 		server.RestoreTests = deps.HostRestoreTests
+		server.NativeBackupStatus = deps.HostNativeBackupStatus
+		server.NativeBackupPolicy = deps.HostNativeBackupPolicy
 		server.NativeRecovery = deps.HostNativeRecovery
 		server.NativeBackups = deps.HostNativeBackups
 		if deps.HostLogs != nil {
@@ -114,7 +116,7 @@ func HostServeRequested(args []string) bool {
 func HostRuntimeRequested(args []string) bool {
 	root := NewRootCommand(Dependencies{Context: context.Background()})
 	command, _, err := root.Find(args)
-	return err == nil && command != nil && (command.CommandPath() == "brine host serve" || command.CommandPath() == "brine host run-op" || command.CommandPath() == "brine host reconcile" || archiveCommandPath(command.CommandPath()))
+	return err == nil && command != nil && (command.CommandPath() == "brine host serve" || command.CommandPath() == "brine host native-capture" || command.CommandPath() == "brine host run-op" || command.CommandPath() == "brine host reconcile" || archiveCommandPath(command.CommandPath()))
 }
 
 // HostStartupRequested selects only the startup service bundle, never deployment managers.

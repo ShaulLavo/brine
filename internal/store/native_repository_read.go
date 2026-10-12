@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -28,6 +29,7 @@ type NativeRepositoryMaterial struct {
 	CredentialReference string
 	CredentialRecord    CredentialRecord
 	CredentialReceiptID string
+	RecoveryDeliveryID  string
 	RecoveryReference   string
 	RecoverySHA256      string
 }
@@ -93,7 +95,7 @@ func readNativeRepositoryMaterial(ctx context.Context, q dataQuerier, point rest
 		}
 	}
 	d := archive.Destination
-	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: archive.RemotePrefix, Region: d.Region, PathStyle: d.PathStyle}
+	location := restic.S3Location{Endpoint: d.Endpoint, Bucket: d.Bucket, Prefix: strings.TrimSuffix(archive.RemotePrefix, "/"), Region: d.Region, PathStyle: d.PathStyle}
 	policy, _, err := readNativeBackupPolicyScope(ctx, q, binding, archive.EpochID, scope.RepositoryID, scope.CredentialVersion, scope.RecoveryVersion)
 	if err != nil || policy.RepositoryID != scope.RepositoryID || policy.EpochID != archive.EpochID || policy.CredentialVersion != scope.CredentialVersion || policy.RecoveryVersion != scope.RecoveryVersion || policy.CredentialReference != string(d.CredentialRef) || location.SHA256() != scope.DestinationSHA256 {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
@@ -131,7 +133,7 @@ func readNativeRepositoryMaterial(ctx context.Context, q dataQuerier, point rest
 	if !scope.ExpiresAt.After(time.Now().UTC().Add(time.Minute)) {
 		return NativeRepositoryMaterial{}, ErrConflict
 	}
-	return NativeRepositoryMaterial{Scope: scope, Location: location, CredentialReference: policy.CredentialReference, CredentialReceiptID: policy.CredentialReceiptID, CredentialRecord: credential, RecoveryReference: policy.RecoveryReference, RecoverySHA256: policy.RecoverySHA256}, nil
+	return NativeRepositoryMaterial{Scope: scope, Location: location, CredentialReference: policy.CredentialReference, CredentialReceiptID: policy.CredentialReceiptID, CredentialRecord: credential, RecoveryReference: policy.RecoveryReference, RecoveryDeliveryID: policy.RecoveryDeliveryID, RecoverySHA256: policy.RecoverySHA256}, nil
 }
 
 func (r *NativeRepositoryRead) AdmitRepository(ctx context.Context, scope restic.Scope, action restic.RepositoryAction, grant string) error {
