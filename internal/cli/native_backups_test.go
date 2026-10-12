@@ -73,6 +73,14 @@ func checkNativeCommandInput(t *testing.T, kind ops.Kind, request dispatch.Reque
 	}
 }
 
+func checkNativeCommandPoll(t *testing.T, request dispatch.Request, operationID string) {
+	t.Helper()
+	var input dispatch.OperationArgs
+	if json.Unmarshal(request.Args, &input) != nil || input.OperationID != operationID {
+		t.Fatal("native command polled another operation")
+	}
+}
+
 func TestNativeCommandsWaitForTheExactTaggedReceipt(t *testing.T) {
 	for _, kind := range []ops.Kind{ops.NativeCapture, ops.NativePrepare, ops.NativeRestoreTest} {
 		checkNativeCommandModes(t, kind)
@@ -97,10 +105,7 @@ func checkNativeCommandReceipt(t *testing.T, kind ops.Kind, mode string) {
 	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, request dispatch.Request) (result.Envelope, error) {
 		if request.Op == "operation" {
 			polls++
-			var input dispatch.OperationArgs
-			if json.Unmarshal(request.Args, &input) != nil || input.OperationID != receipt.OperationID {
-				t.Fatal("native command polled another operation")
-			}
+			checkNativeCommandPoll(t, request, receipt.OperationID)
 			return nativeCommandStatus(kind, nativeCommandJSON(t, receipt)), nil
 		}
 		submitted++
