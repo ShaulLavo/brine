@@ -39,9 +39,6 @@ func (s *Store) CompleteTask(ctx context.Context, id string, state ops.State, ou
 	if _, err = appendEvent(ctx, tx, id, ops.Event{Kind: "state", State: state}); err != nil {
 		return err
 	}
-	if err = completeNativeCaptureFence(ctx, tx, op, outcome); err != nil {
-		return err
-	}
 	return tx.Commit()
 }
 

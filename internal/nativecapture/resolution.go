@@ -57,6 +57,9 @@ func DecodeBackupResolutionReceipt(raw []byte) (BackupResolutionReceipt, error) 
 			return r, ErrInvalid
 		}
 	}
+	if r.CompletionSHA256 != sourceDigest(r.Receipt) {
+		return r, ErrInvalid
+	}
 	return r, nil
 }
 

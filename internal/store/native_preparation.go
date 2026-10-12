@@ -52,6 +52,9 @@ func (s *Store) BeginNativePreparation(ctx context.Context, preparation *EngineP
 	if err != nil || input.BindingID != preparation.binding {
 		return nil, errors.Join(ErrConflict, err)
 	}
+	if err := refusePendingNativeCaptureMutation(ctx, tx, input.BindingID, op.ID); err != nil {
+		return nil, err
+	}
 	intent, err := buildNativePreparationIntent(ctx, tx, op, input.BindingID)
 	if err != nil {
 		return nil, err

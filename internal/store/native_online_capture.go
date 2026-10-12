@@ -56,6 +56,9 @@ func (s *Store) BeginNativeOnlineCapture(ctx context.Context, operationID string
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := refusePendingNativeCaptureMutation(ctx, tx, input.BindingID, operationID); err != nil {
+		return nil, err
+	}
 	if _, err := capability.check(ctx, tx); err != nil {
 		return nil, err
 	}
@@ -121,9 +124,8 @@ func (c *NativeOnlineCapture) check(ctx context.Context, tx *sql.Tx) (EnginePerm
 	}
 	permit, err := readEnginePermit(ctx, tx, input.BindingID)
 	before, _ := json.Marshal(c.permit)
-	identityPermit, identityErr := nativeCapturePermitIdentity(ctx, tx, c.operationID, permit)
-	after, _ := json.Marshal(identityPermit)
-	if err != nil || !bytes.Equal(before, after) || identityErr != nil || nativeHasHeldFence(identityPermit.Fences) {
+	after, _ := json.Marshal(permit)
+	if err != nil || !bytes.Equal(before, after) || nativeHasHeldFence(permit.Fences) {
 		return EnginePermit{}, ErrConflict
 	}
 	return permit, nil
@@ -190,9 +192,6 @@ func (c *NativeOnlineCapture) UploadIntent(ctx context.Context, source nativecap
 	if err := retainNativeUpload(ctx, tx, c.permit, c.operationID, c.pointID, source, manifest, retained); err != nil {
 		return err
 	}
-	if err := holdNativeCaptureFence(ctx, tx, c); err != nil {
-		return err
-	}
 	raw, _ := json.Marshal(struct {
 		SourceSHA   string    `json:"source_sha256"`
 		ManifestSHA string    `json:"manifest_sha256"`
@@ -206,7 +205,7 @@ func (c *NativeOnlineCapture) UploadIntent(ctx context.Context, source nativecap
 }
 
 func (c *NativeOnlineCapture) Complete(ctx context.Context, extracted restic.AuthenticatedRestore, observed NativePreparedObservation) (NativeVerifiedPointView, error) {
-	if c.inspection != nil && c.inspection.resolver == "" {
+	if c == nil || c.state == nil || c.inspection != nil && c.inspection.resolver == "" {
 		return NativeVerifiedPointView{}, ErrConflict
 	}
 	if _, err := c.Permit(ctx); err != nil {
@@ -264,9 +263,13 @@ func (c *NativeOnlineCapture) Complete(ctx context.Context, extracted restic.Aut
 		var existingRaw []byte
 		existingErr := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_verified_points WHERE id=? AND operation_id=?", c.pointID, c.operationID).Scan(&existingRaw)
 		if existingErr == nil {
+			retainedTransport, transportErr := nativeResolvedTransportMatches(ctx, tx, c.pointID, "online", observed.Transport)
+			if transportErr != nil {
+				return NativeVerifiedPointView{}, transportErr
+			}
 			existing, decodeErr := decodeNativeVerifiedPoint(existingRaw)
 			v := existing.view
-			if decodeErr != nil || v.SourceSHA256 != observed.Source.SHA256() || v.ManifestSHA256 != observed.Manifest.SHA256() || v.SourceEvidenceSHA256 != observed.SourceEvidence.SHA256() || v.RestoreEvidenceSHA256 != observed.RestoredEvidence.SHA256() {
+			if decodeErr != nil || v.TransportSHA256 != nativePointHash(retainedTransport) || v.SourceSHA256 != observed.Source.SHA256() || v.ManifestSHA256 != observed.Manifest.SHA256() || v.SourceEvidenceSHA256 != observed.SourceEvidence.SHA256() || v.RestoreEvidenceSHA256 != observed.RestoredEvidence.SHA256() {
 				return NativeVerifiedPointView{}, ErrConflict
 			}
 			v.PointSHA256 = existing.hash

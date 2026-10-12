@@ -98,11 +98,15 @@ func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *Native
 		var retainedRaw []byte
 		retainedErr := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_prepared_points WHERE id=?", i.PointID).Scan(&retainedRaw)
 		if retainedErr == nil {
+			retainedTransport, transportErr := nativeResolvedTransportMatches(ctx, tx, i.PointID, "prepared", observed.Transport)
+			if transportErr != nil {
+				return NativePreparedPointView{}, transportErr
+			}
 			retained, decodeErr := decodeNativePreparedPoint(retainedRaw)
 			if decodeErr != nil || retained.view.SourceSHA256 != observed.Source.SHA256() || retained.view.BundleManifestSHA256 != observed.Manifest.SHA256() || retained.view.SourceSealSHA256 != observed.SourceSealSHA256 || retained.view.StopProofSHA256 != stopped.stopSHA256 {
 				return NativePreparedPointView{}, ErrConflict
 			}
-			if _, err := decodeNativePreparedBundle(ctx, tx, retained, sourceRaw, observed.Manifest.Bytes(), transportRaw, observed.SourceEvidence.Bytes(), observed.RestoredEvidence.Bytes(), observed.ConfirmedBound.Bytes(), observed.FinalPairs.Bytes()); err != nil {
+			if _, err := decodeNativePreparedBundle(ctx, tx, retained, sourceRaw, observed.Manifest.Bytes(), retainedTransport, observed.SourceEvidence.Bytes(), observed.RestoredEvidence.Bytes(), observed.ConfirmedBound.Bytes(), observed.FinalPairs.Bytes()); err != nil {
 				return NativePreparedPointView{}, err
 			}
 			retained.view.PointSHA256 = retained.hash

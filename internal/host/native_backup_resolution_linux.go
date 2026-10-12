@@ -102,6 +102,11 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 	if err != nil {
 		return nil, err
 	}
+	if i.OriginalKind() != ops.NativeBackupActivate {
+		if err = o.cleanupOriginalUpload(ctx, observed); err != nil {
+			return nil, err
+		}
+	}
 	return json.Marshal(completed)
 }
 
@@ -240,21 +245,36 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 		if err != nil {
 			return nil, err
 		}
-		v.originalParent, err = engineOpenRoot(v.retained.Workspace)
-		if err != nil || i.CheckUploadWorkspace(ctx, v.originalParent) != nil {
-			return nil, errEngineSource
-		}
-		bundle, err := restic.Seal(ctx, filepath.Join(v.retained.Workspace, "bundle"), v.path, v.retained.Manifest.Identity(), restic.DefaultLimits())
+		point, known, err := i.CompletedTransport(ctx)
 		if err != nil {
 			return nil, err
 		}
-		defer func() { _ = bundle.Close() }()
-		if !bytes.Equal(bundle.Manifest().Bytes(), v.retained.Manifest.Bytes()) {
+		if _, statErr := os.Lstat(v.retained.Workspace); statErr == nil {
+			v.originalParent, err = engineOpenRoot(v.retained.Workspace)
+			if err != nil || i.CheckUploadWorkspace(ctx, v.originalParent) != nil {
+				return nil, errEngineSource
+			}
+		} else if !os.IsNotExist(statErr) || !known {
 			return nil, errEngineSource
 		}
-		point, err := client.InspectCapture(ctx, repository, v.path, bundle)
-		if err != nil {
-			return nil, err
+		if known {
+			point.Scope = material.Scope
+			if err = client.InspectExact(ctx, repository, v.path, point); err != nil {
+				return nil, err
+			}
+		} else {
+			bundle, err := restic.Seal(ctx, filepath.Join(v.retained.Workspace, "bundle"), v.path, v.retained.Manifest.Identity(), restic.DefaultLimits())
+			if err != nil {
+				return nil, err
+			}
+			defer func() { _ = bundle.Close() }()
+			if !bytes.Equal(bundle.Manifest().Bytes(), v.retained.Manifest.Bytes()) {
+				return nil, errEngineSource
+			}
+			point, err = client.InspectCapture(ctx, repository, v.path, bundle)
+			if err != nil {
+				return nil, err
+			}
 		}
 		v.extracted, err = client.RestoreExact(ctx, repository, v.path, v.parent, "download", point, v.retained.Manifest)
 		if err != nil {
@@ -276,8 +296,10 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 			v.observation.ReaderImageID = disposal.imageID
 			v.observation.ReaderDisposedAt = disposal.at
 		}
-		if err = i.CheckUploadWorkspace(ctx, v.originalParent); err != nil {
-			return nil, err
+		if v.originalParent != nil {
+			if err = i.CheckUploadWorkspace(ctx, v.originalParent); err != nil {
+				return nil, err
+			}
 		}
 	}
 	complete = true
