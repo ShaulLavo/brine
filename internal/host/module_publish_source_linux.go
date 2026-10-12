@@ -26,6 +26,7 @@ type nativeSourceSchema struct {
 	candidate  datapublish.Candidate
 	descriptor []byte
 	schemaV10  []byte
+	extraction extractedPublicationCandidate
 }
 
 func acquireNativeSourceDescriptor(ctx context.Context, source engineSealedCheckpoint, witness nativeLocalWitness, images *podman.Client) (*nativeSourceDescriptor, error) {
@@ -80,10 +81,11 @@ func (d *nativeSourceDescriptor) extract(ctx context.Context, runner localexec.I
 	if d == nil || d.lease == nil || d.source.unchanged(ctx) != nil || !d.witness.matches(d.source) {
 		return nativeSourceSchema{}, datapublish.ErrRecord
 	}
-	candidate, descriptor, err := extractPublicationCandidate(ctx, d.lease, runner, session)
+	extraction, err := extractPublicationCandidate(ctx, d.lease, runner, session)
 	if err != nil || d.source.unchanged(ctx) != nil || !d.witness.matches(d.source) {
 		return nativeSourceSchema{}, datapublish.ErrRecord
 	}
+	candidate, descriptor := extraction.candidate, extraction.descriptor
 	expected := d.source.checkpoint.Record()
 	if candidate.WasmSHA256() != expected.ArtifactSHA256 || candidate.ProgramWireHash() != expected.RuntimeModuleHash || candidate.Schema().SHA256() != expected.SchemaSHA256 || candidate.Schema().Version() != expected.SchemaVersion {
 		return nativeSourceSchema{}, datapublish.ErrRecord
@@ -92,11 +94,15 @@ func (d *nativeSourceDescriptor) extract(ctx context.Context, runner localexec.I
 	if err != nil {
 		return nativeSourceSchema{}, datapublish.ErrRecord
 	}
-	return nativeSourceSchema{source: d.source, witness: d.witness, candidate: candidate, descriptor: slices.Clone(descriptor), schemaV10: slices.Clone(fields["V10"])}, nil
+	return nativeSourceSchema{source: d.source, witness: d.witness, candidate: candidate, descriptor: slices.Clone(descriptor), schemaV10: slices.Clone(fields["V10"]), extraction: extraction}, nil
 }
 
 func (s nativeSourceSchema) unchanged(ctx context.Context) error {
-	if s.source.unchanged(ctx) != nil || !s.witness.matches(s.source) || len(s.descriptor) == 0 || len(s.schemaV10) == 0 {
+	if s.source.unchanged(ctx) != nil || !s.witness.matches(s.source) || len(s.descriptor) == 0 || len(s.schemaV10) == 0 || s.extraction.unchanged(ctx) != nil || !slices.Equal(s.descriptor, s.extraction.descriptor) {
+		return datapublish.ErrRecord
+	}
+	fields, err := strictjson.Object(s.descriptor, "V10")
+	if err != nil || !slices.Equal(fields["V10"], s.schemaV10) {
 		return datapublish.ErrRecord
 	}
 	r := s.source.checkpoint.Record()

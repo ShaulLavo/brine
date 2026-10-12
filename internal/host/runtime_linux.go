@@ -163,6 +163,12 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		}
 		return p.MinimumFreeDiskBytes(), nil
 	}}}
+	nativeRestore := nativeLiveRestoreOperations{service: service, jobs: taskJobs, runtime: nativeBackupRuntime{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session}, routes: manager}
+	r.NativeLiveRestore = nativeRestore
+	r.Runner.TaskHandlers[ops.NativeLiveRestore] = nativeRestore.task
+	r.Runner.TaskHandlers[ops.NativeLiveRestoreResolve] = nativeRestore.resolveTask
+	r.NativeRecovery = nativeRecoveryOperations{service: service, jobs: taskJobs}
+	r.Runner.TaskHandlers[ops.NativeRecoverySet] = nativeRecoveryTask(service)
 	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{}, engine.Routes.(apply.RemovalRoutes), units)
 	archiveAdapter := r.Archives.Host.(archiveHost)
 	r.ArchiveMaintenance = archive.MaintenanceService{Journal: state, Host: archiveAdapter, Requester: requester, Authorize: r.Archives.Authorize, Lock: r.Archives.Lock}

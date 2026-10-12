@@ -162,3 +162,41 @@ func TestManagedFailedDeploymentPreservesDeliberatelyPausedFrontendAndRoute(t *t
 		}
 	}
 }
+
+func TestManagedLifecycleCompletedRecoveryInspectsWithoutRepeatingEffects(t *testing.T) {
+	for _, frontend := range []bool{false, true} {
+		for _, action := range []plan.ChangeKind{plan.StopApp, plan.StartApp, plan.RestartApp} {
+			testManagedLifecycleRecovery(t, frontend, action)
+		}
+	}
+}
+func testManagedLifecycleRecovery(t *testing.T, frontend bool, action plan.ChangeKind) {
+	t.Helper()
+	r, runtime := managedLifecycleRig(t, frontend, action)
+	if err := r.executor.Run(context.Background(), "lifecycle", r.plan, r.desired); err != nil {
+		t.Fatal(err)
+	}
+	r.state, r.effects = Checking, nil
+	files := map[string]string{}
+	if action != plan.StopApp {
+		files[r.plan.App+".caddy"] = r.release.CaddyFile.Hash
+	}
+	r.facts.Routing = caddy.State{Generation: r.release.CaddyGeneration + 1, Files: files}
+	if frontend && action != plan.StopApp {
+		front := r.plan.Managed.Frontend
+		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: r.plan.App, Image: target.Known(target.Image{Digest: front.Image.Digest, Platform: front.Image.Platform}), AllocatedHostPort: target.Known(front.Port)}})
+	}
+	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
+	recovery, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "lifecycle", PlanID: r.plan.Hash, Kind: "deploy", App: r.plan.App, State: Checking}, r.plan, r.desired, r.events)
+	if err != nil || recovery.Action != FinishSucceeded {
+		t.Fatal(frontend, action, err, recovery.Action, recovery.Step)
+	}
+	if err := r.executor.Recover(context.Background(), recovery); err != nil || r.state != Succeeded || len(r.effects) != 0 {
+		t.Fatal("lifecycle replayed effects", err, r.effects)
+	}
+	runtime.failure = "managed_completed"
+	refused, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "lifecycle", PlanID: r.plan.Hash, Kind: "deploy", App: r.plan.App, State: Checking}, r.plan, r.desired, r.events)
+	if err != nil || refused.Action != RequireRecovery {
+		t.Fatal("stale lifecycle observation granted completion", err, refused.Action)
+	}
+}

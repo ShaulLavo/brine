@@ -45,14 +45,15 @@ Pi drill.
 
 ## Command surface
 
-### Managed SpacetimeDB previews (P09-04B)
+### Managed SpacetimeDB deployment and lifecycle (P09-04)
 
 The app declaration accepts one `[[databases]]` entry with
 `engine = "spacetimedb"`, the existing alias/root/backup-destination fields and
 a nested `[databases.spacetimedb]` service declaration. The payload binds a
 digest-pinned image, pinned runtime version, logical database name, module Wasm
 and schema-v10 sidecar paths, runtime identity, bounded resources and distinct
-publisher/signing/auth references. Shared `[[schema_compatibility]]` selects
+publisher/signing/auth references. The database entry also requires a distinct
+`recovery_password_ref` for encrypted native backup recovery. Shared `[[schema_compatibility]]` selects
 accepted markers for the alias with `startup = "preserve"`. The current marker
 is the default accepted marker. Mixed SQLite and SpacetimeDB declarations are
 refused in this first delivery. Existing SQLite canonical records are unchanged.
@@ -73,18 +74,53 @@ An omitted frontend resource request uses the remaining memory and PID ceilings
 after the engine request, and refuses when either remaining budget is empty.
 Engine credentials cannot be reused as app secrets.
 
-Managed planning returns `managed_engine_not_admitted` and no executable
-changes. Renderer previews describe independent loopback ports, a typed Podman
-supervisor `.service` and optional ordinary frontend Quadlet. The engine service
-invokes only `brine host engine-exec BINDING`; authenticated runtime configuration,
-Podman arguments, startup serialization and supervision are later integration.
-Preview values cannot authorize installation, start, publication or proxy changes.
+Connected managed planning separates fresh preparation from initialized service deployment.
+Fresh preparation reserves the app incarnation, database, archive destination, and
+loopback ports. Apply creates the owned private native directory and disabled
+module-HTTP configuration. It records an unpublished database with no serving
+release, native runtime, frontend permit, or client route. Preparation never
+uploads Wasm or starts a database or frontend.
 
-Ingress preview allows selected-database WebSocket subscription and temporary
+Initialized deployment requires the current protected native runtime, module,
+schema, secret versions, owned unit, source observation, and unfenced serving
+scope. The optional frontend uses an ordinary Quadlet with independent ownership.
+An engine-only release has no frontend component. Frontend deployment and removal
+preserve the current database, module, keys, and epoch. Application rollback
+restores only compatible frontend artifacts and reviewed component intent.
+
+Start, stop, and restart use the existing operation engine. With a frontend,
+these actions affect the frontend and client route. For an engine-only app, they
+affect the native service and client route. Durable desired and route revisions
+record deliberate pause and resume independently of release history. Stopping
+requires owned process and file evidence. Serving requires current live permits.
+Every native start, frontend boot, and route publication checks current intent.
+
+Initialized recovery inspects completed boundaries without repeating effects.
+A committed deployment requires its immutable release plus fresh native, desired,
+route, frontend unit, manager-job, container, image, port, and loaded-Caddy proof.
+Completed lifecycle recovery requires its ordered component journal and current
+intent and route receipts. An unknown or incomplete boundary remains recovery
+required. Resolve retains the original receipt and uses a bounded same-plan
+successor chain. A successful successor grants serving only when adopted steps,
+current scope, and immutable artifact ownership agree before terminal success.
+
+After a compatible native change, historical recovery proof grants no new scope.
+A fresh ordinary lifecycle plan can authorize the existing compatible frontend
+under the current runtime. Failed deployment compensation uses that exact prior
+desired revision, completed restoration journal, and restored route and unit.
+The failed attempt remains distinct from the prior serving authority.
+
+Backup-only configuration changes return `managed_backup_revision_required` and
+cannot silently restart components or activate a new backup policy through deploy.
+Whole managed removal remains refused without the separate exact-native-archive
+consumer. These local orchestration and filesystem checks do not establish a
+working native browser connection, restart drill, or R2 restore.
+
+Ingress permits selected-database WebSocket subscription and temporary
 WebSocket-token exchange with credential presence. It denies other managed
-requests before frontend fallback. The engine must authenticate JWTs; Caddy
-does not validate them. Real forwarding and boot/fence qualification remain
-P09-04 integration acceptance.
+requests before frontend fallback. The engine authenticates JWTs; Caddy does not
+validate them. Native forwarding and boot/fence qualification require the
+separate physical acceptance drill.
 
 The executable route guard matches the original literal client path, so escaped
 and cleaned path aliases cannot pass the allowlist. Subscription queries retain
@@ -1269,3 +1305,32 @@ layout; it never reopens an expired stopped-source mutation permit.
 These are internal guarded effect contracts. Public native restore commands
 remain pending integration with the qualified backup runtime and operation
 adapter; storage/helper tests alone are not physical restore acceptance.
+
+### Native live restore execution
+
+`restore native-live plan APP` selects one immutable verified remote point, one
+fresh exact prepared current point and one compatible installed recovery release.
+The default-false live restore policy applies to both plan and execution. Apply
+submits `native_live_restore` through the existing detached task runner. Requests
+contain references only. The host reopens the completed original stop under actual
+launch and lifetime locks, copies and checks its retained checkpoint, records one
+download intent and verifies the authenticated extraction with the pinned passive
+reader. Any uncertain download retains its stage and fence and cannot be retried.
+
+Target preparation preserves the download, exact signing versions and original
+owner. The shared incoming repository lease records one initialization attempt,
+then authenticated config readback. Rooted no-replace moves journal preservation
+and promotion before epoch activation. Fresh loaded-route absence, service jobs,
+container/process absence, owned units, secret files and installed compatible code
+are checked before activation and completion. Completion retains the original
+whole tree, releases its original fence and leaves the new epoch stopped. The
+current installed release must equal the selected recovery release; installing a
+different historical code release is not yet supported by this path.
+
+`inspect` reads retained progress. `review-resolution` binds a fresh immutable
+review to the original operation, journal head, transition input and actual layout,
+material and code observations. `resolve` uses its own task operation and guards,
+keeps the original recovery-required outcome unchanged and completes known moves
+through observed layout and fsync adoption. It never repeats extraction or
+repository creation. Missing target preparation, uncertain extraction or an
+unexplained layout refuses resolution and retains the fence for manual inspection.

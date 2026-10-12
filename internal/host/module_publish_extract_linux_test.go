@@ -96,7 +96,7 @@ func (r *descriptorContainerExecutor) Execute(_ context.Context, command localex
 
 func descriptorSession(t *testing.T, executor *descriptorContainerExecutor) localexec.Session {
 	t.Helper()
-	session, err := localexec.NewSession(executor, uint32(os.Geteuid()), t.TempDir(), 5*time.Second)
+	session, err := localexec.NewSession(executor, uint32(os.Geteuid()), t.TempDir(), 5*time.Second) //nolint:gosec // Linux geteuid returns the unsigned 32-bit syscall identity.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,12 +111,12 @@ func TestDescriptorOuterCannotAcceptMetadataWithoutActualProcessBinding(t *testi
 	}
 	runner := &descriptorTestRunner{output: localexec.Output{Stdout: raw}}
 	executor := &descriptorContainerExecutor{container: descriptorContainerFixture(lease)}
-	_, retained, err := extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor))
-	if !errors.Is(err, datapublish.ErrRecord) || len(retained) != 0 || runner.command.Path != "" {
+	retained, err := extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor))
+	if !errors.Is(err, datapublish.ErrRecord) || len(retained.descriptor) != 0 || runner.command.Path != "" {
 		t.Fatal("synthetic container without actual process granted metadata", err)
 	}
 	commands := executor.commands
-	if _, _, err = extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor)); !errors.Is(err, datapublish.ErrRecord) || executor.commands != commands {
+	if _, err = extractPublicationCandidate(context.Background(), lease, runner, descriptorSession(t, executor)); !errors.Is(err, datapublish.ErrRecord) || executor.commands != commands {
 		t.Fatal("consumed descriptor lease repeated pending effects", err)
 	}
 	args := descriptorArguments(lease)
@@ -133,7 +133,7 @@ func TestDescriptorContainerInspectionCannotReplaceLiveProcBinding(t *testing.T)
 	if handle, err := bindDescriptorProcess(lease, container); !errors.Is(err, datapublish.ErrRecord) || handle != nil {
 		t.Fatal("caller-selected PID replaced independently owned cgroup", err)
 	}
-	if descriptorProcessDisposed(context.Background(), nil) != datapublish.ErrRecord {
+	if !errors.Is(descriptorProcessDisposed(context.Background(), nil), datapublish.ErrRecord) {
 		t.Fatal("missing pidfd granted process disappearance")
 	}
 }

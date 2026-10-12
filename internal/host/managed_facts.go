@@ -133,7 +133,11 @@ func managedRoutingFacts(ctx context.Context, state plan.BrineState, pol policy.
 				site, err = caddy.WithManagedAuthority(site, authority)
 			}
 		} else {
-			site, err = caddy.NewSite(release.Desired.App(), pol, spec.Port(release.HostPort))
+			port := release.HostPort
+			if port > 65535 {
+				return caddy.State{}, result.New(result.Conflict, nil)
+			}
+			site, err = caddy.NewSite(release.Desired.App(), pol, spec.Port(port))
 		}
 		if err != nil {
 			return caddy.State{}, err

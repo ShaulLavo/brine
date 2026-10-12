@@ -27,6 +27,7 @@ func newHostCmd(deps Dependencies) *cobra.Command {
 	host.AddCommand(newHostEngineCommands(deps)...)
 	host.AddCommand(newHostModuleDescribe(deps))
 	host.AddCommand(newHostModuleDescribeProfile(deps))
+	host.AddCommand(newHostModuleStage(deps))
 	host.AddCommand(newArchivePrepareCmd(deps), newArchiveDispositionCmd(deps, false), newArchiveDispositionCmd(deps, true), newArchiveReconcileCmd(deps))
 	host.AddCommand(newArchiveMaintainCmd(deps), newArchiveMaintenanceReadCmd(deps, false), newArchiveMaintenanceReadCmd(deps, true), newArchiveCredentialsCmd(deps))
 	return host
@@ -74,6 +75,8 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		server.BackupCredentials = deps.HostBackupCredentials
 		server.DataInitialization = deps.HostDataInitialization
 		server.RestoreTests = deps.HostRestoreTests
+		server.NativeRecovery = deps.HostNativeRecovery
+		server.NativeBackups = deps.HostNativeBackups
 		if deps.HostLogs != nil {
 			server.Logs = deps.HostLogs
 		}

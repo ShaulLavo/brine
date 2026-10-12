@@ -9,6 +9,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/diagnose"
+	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -53,30 +54,39 @@ type operation struct {
 }
 
 var operations = map[string]operation{
-	"deploy_checkpoint":       {ReadOnly, decodeDeploymentCheckpointArgs},
-	"native_point":            {ReadOnly, decodeNativePoint},
-	"deploy_operation":        {ReadOnly, decodeDeploymentOperationQuery},
-	"deploy_state":            {ReadOnly, decodeDeployment},
-	"data_init_plan":          {Mutating, decodeDataInitPlan},
-	"data_init_apply":         {Mutating, decodeDataInitApply},
-	"restore_test":            {ReadOnly, decodeRestoreTest},
-	"backup_credentials_plan": {Mutating, decodeBackupCredentialPlan},
-	"backup_credentials_set":  {Mutating, decodeBackupCredentialSet},
-	"config_set":              {Mutating, decodeConfig},
-	"lifecycle":               {Mutating, decodeLifecycle},
-	"secret_set":              {Mutating, decodeSecret},
-	"reconcile":               {Mutating, decodeReconcile},
-	"resolve":                 {Mutating, decodeResolve},
-	"diagnose":                {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
-	"status":                  {ReadOnly, decodeAppStatus},
-	"rollback":                {Mutating, decodeRollback},
-	"logs":                    {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
-	"ping":                    {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
-	"inventory":               {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
-	"apply":                   {Mutating, decodeApply},
-	"plan":                    {Mutating, decodePlan},
-	"data_prepare_plan":       {Mutating, decodePreparation},
-	"operation":               {ReadOnly, decodeOperation},
+	"native_live_restore_review_resolution": {Mutating, decodeNativeRestoreResolutionReview},
+	"native_live_restore_resolve":           {Mutating, decodeNativeRestoreResolve},
+	"native_live_restore_plan":              {Mutating, decodeNativeLiveRestorePlan},
+	"native_live_restore":                   {Mutating, decodeNativeLiveRestoreApply},
+	"native_live_restore_inspect":           {ReadOnly, decodeNativeLiveRestoreInspect},
+	"deploy_checkpoint":                     {ReadOnly, decodeDeploymentCheckpointArgs},
+	"native_point":                          {ReadOnly, decodeNativePoint},
+	"native_recovery_set":                   {Mutating, decodeNativeRecovery},
+	"native_capture":                        {Mutating, decodeNativeCapture},
+	"native_prepare":                        {Mutating, decodeNativePrepare},
+	"native_restore_test":                   {ReadOnly, decodeNativeRestoreTest},
+	"deploy_operation":                      {ReadOnly, decodeDeploymentOperationQuery},
+	"deploy_state":                          {ReadOnly, decodeDeployment},
+	"data_init_plan":                        {Mutating, decodeDataInitPlan},
+	"data_init_apply":                       {Mutating, decodeDataInitApply},
+	"restore_test":                          {ReadOnly, decodeRestoreTest},
+	"backup_credentials_plan":               {Mutating, decodeBackupCredentialPlan},
+	"backup_credentials_set":                {Mutating, decodeBackupCredentialSet},
+	"config_set":                            {Mutating, decodeConfig},
+	"lifecycle":                             {Mutating, decodeLifecycle},
+	"secret_set":                            {Mutating, decodeSecret},
+	"reconcile":                             {Mutating, decodeReconcile},
+	"resolve":                               {Mutating, decodeResolve},
+	"diagnose":                              {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
+	"status":                                {ReadOnly, decodeAppStatus},
+	"rollback":                              {Mutating, decodeRollback},
+	"logs":                                  {ReadOnly, func(raw json.RawMessage) (any, error) { return logs.DecodeRequest(raw) }},
+	"ping":                                  {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return PingArgs{}, err }},
+	"inventory":                             {ReadOnly, func(raw json.RawMessage) (any, error) { _, err := strictjson.Object(raw); return InventoryArgs{}, err }},
+	"apply":                                 {Mutating, decodeApply},
+	"plan":                                  {Mutating, decodePlan},
+	"data_prepare_plan":                     {Mutating, decodePreparation},
+	"operation":                             {ReadOnly, decodeOperation},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
@@ -168,6 +178,9 @@ type Server struct {
 	authorize          Authorization
 	RestoreTests       RestoreTestOperations
 	NativePoints       NativePointInspector
+	NativeRecovery     NativeRecoveryOperations
+	NativeBackups      NativeBackupOperations
+	NativeLiveRestore  NativeLiveRestoreOperations
 }
 
 func NewServer(version string, inventory Inventory) *Server {
@@ -223,6 +236,27 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case liverestore.PlanRequest, liverestore.ApplyRequest, liverestore.InspectRequest, liverestore.ResolveRequest, NativeRestoreResolutionReviewArgs:
+		value, err = s.nativeLiveRestore(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+	case NativeRecoveryArgs:
+		defer args.Clear()
+		if s.NativeRecovery == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		accepted, err := s.NativeRecovery.SetRecovery(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
+	case NativeCaptureArgs, NativePrepareArgs, NativeRestoreTestArgs:
+		accepted, err := s.submitNativeBackup(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
 	case NativePointArgs:
 		if s.NativePoints == nil {
 			return fail(result.New(result.DependencyMissing, nil))

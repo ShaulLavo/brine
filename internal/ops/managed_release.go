@@ -2,7 +2,6 @@ package ops
 
 import (
 	"encoding/json"
-	"slices"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -29,21 +28,8 @@ type ManagedFrontend struct {
 	Secrets []plan.SecretBinding `json:"secrets"`
 }
 
-func (r ManagedRelease) Clone() ManagedRelease {
-	if r.Frontend != nil {
-		frontend := *r.Frontend
-		frontend.Secrets = slices.Clone(frontend.Secrets)
-		if frontend.Image.ManifestDigest.Value != nil {
-			value := *frontend.Image.ManifestDigest.Value
-			frontend.Image.ManifestDigest.Value = &value
-		}
-		r.Frontend = &frontend
-	}
-	return r
-}
-
 func (r ManagedRelease) Valid() bool {
-	if !data.ValidID(string(r.BindingID)) || !data.ValidID(string(r.EpochID)) || !data.ValidCatalogHash(r.RuntimeSHA256) || r.EnginePort < 1024 || r.EngineUnit.Name != "brine-engine-"+string(r.BindingID)+".service" || !planID.MatchString(r.EngineUnit.Hash) {
+	if !data.ValidID(string(r.BindingID)) || !data.ValidID(string(r.EpochID)) || !data.ValidCatalogHash(r.RuntimeSHA256) || r.EnginePort < 1024 || r.EnginePort > 65535 || r.EngineUnit.Name != "brine-engine-"+string(r.BindingID)+".service" || !planID.MatchString(r.EngineUnit.Hash) {
 		return false
 	}
 	return r.Frontend == nil || r.Frontend.valid(r.EnginePort)
@@ -110,6 +96,6 @@ func (r *ManagedRelease) UnmarshalJSON(raw []byte) error {
 	if err != nil || !ManagedRelease(value).Valid() {
 		return strictjson.ErrObject
 	}
-	*r = ManagedRelease(value).Clone()
+	*r = ManagedRelease(value)
 	return nil
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/diagnose"
+	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/reconcile"
@@ -51,6 +52,24 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "native_live_restore_review_resolution":
+			r, err := liverestore.DecodeResolution(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = r
+		case "native_live_restore_plan":
+			p, err := liverestore.DecodePlan(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "native_live_restore_inspect":
+			p, err := liverestore.DecodeProgress(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
 		case "native_point":
 			point, err := nativecapture.DecodePointInspection(fields["data"])
 			if err != nil {
@@ -83,7 +102,7 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "data_init_apply", "restore_test", "backup_credentials_set":
+		case "data_init_apply", "restore_test", "backup_credentials_set", "native_live_restore_resolve", "native_live_restore", "native_recovery_set", "native_capture", "native_prepare", "native_restore_test":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()

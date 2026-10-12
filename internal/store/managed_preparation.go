@@ -31,8 +31,7 @@ func migrateManagedPreparations(ctx context.Context, tx *sql.Tx) error {
 	_, err := tx.ExecContext(ctx, `CREATE TABLE data_engine_preparations(binding_id TEXT PRIMARY KEY REFERENCES data_replica_bindings(id),plan_id TEXT NOT NULL REFERENCES plans(id),operation_id TEXT NOT NULL REFERENCES operations(id),engine_port INTEGER NOT NULL UNIQUE CHECK(engine_port BETWEEN 1024 AND 65535),frontend_port INTEGER,canonical BLOB NOT NULL CHECK(length(canonical)<=4096));
  CREATE UNIQUE INDEX data_engine_preparations_frontend ON data_engine_preparations(frontend_port) WHERE frontend_port IS NOT NULL;
  CREATE TRIGGER data_engine_preparations_no_update BEFORE UPDATE ON data_engine_preparations BEGIN SELECT RAISE(ABORT,'immutable engine preparation'); END;
- CREATE TRIGGER data_engine_preparations_no_delete BEFORE DELETE ON data_engine_preparations BEGIN SELECT RAISE(ABORT,'immutable engine preparation'); END;
- UPDATE schema_version SET version=19;`)
+ CREATE TRIGGER data_engine_preparations_no_delete BEFORE DELETE ON data_engine_preparations BEGIN SELECT RAISE(ABORT,'immutable engine preparation'); END;`)
 	return err
 }
 
@@ -41,9 +40,17 @@ func (s *Store) ReserveManagedPreparation(ctx context.Context, operation string,
 	if s.readOnly || m == nil || !m.Valid() || m.State != data.EngineUnpublished || len(planned.Conflicts) != 0 || planned.Kind != plan.Create || len(planned.Changes) != 1 || planned.Changes[0].Kind != plan.PrepareManagedEngine {
 		return ManagedPreparation{}, ErrInvalid
 	}
-	request := ManagedPreparation{BindingID: m.Database.BindingID, PlanID: planned.Hash, OperationID: operation, EnginePort: uint16(m.EnginePort), ConfigSHA256: configSHA256}
+	enginePort := m.EnginePort
+	if enginePort > 65535 {
+		return ManagedPreparation{}, ErrInvalid
+	}
+	request := ManagedPreparation{BindingID: m.Database.BindingID, PlanID: planned.Hash, OperationID: operation, EnginePort: uint16(enginePort), ConfigSHA256: configSHA256}
 	if m.Frontend != nil {
-		request.FrontendPort = uint16(m.Frontend.Port)
+		port := m.Frontend.Port
+		if port > 65535 {
+			return ManagedPreparation{}, ErrInvalid
+		}
+		request.FrontendPort = uint16(port)
 	}
 	if !request.Valid() {
 		return request, ErrInvalid

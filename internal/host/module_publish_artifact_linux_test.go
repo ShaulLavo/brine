@@ -86,7 +86,7 @@ func TestPublicationStagingRequiresActualOwnedPreparation(t *testing.T) {
 	if err = preparation.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if staged.path() != "" || staged.unchanged(context.Background()) != datapublish.ErrRecord {
+	if staged.path() != "" || !errors.Is(staged.unchanged(context.Background()), datapublish.ErrRecord) {
 		t.Fatal("released preparation retained extraction authority")
 	}
 	if err = staged.discard(); err != nil {
@@ -114,7 +114,7 @@ func testPublicationArtifactSubstitution(t *testing.T, attack string) {
 	path := staged.path()
 	switch attack {
 	case "bytes":
-		file, err := os.OpenFile(path, os.O_WRONLY, 0600)
+		file, err := os.OpenFile(path, os.O_WRONLY, 0600) //nolint:gosec // Test mutates the exact owned artifact path to verify refusal.
 		if err != nil {
 			t.Fatal(err)
 		}

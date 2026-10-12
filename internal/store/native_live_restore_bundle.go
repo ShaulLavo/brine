@@ -6,6 +6,7 @@ import (
 	"errors"
 
 	"github.com/ShaulLavo/brine/internal/nativecapture"
+	"github.com/ShaulLavo/brine/internal/nativeevidence"
 	"github.com/ShaulLavo/brine/internal/restic"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 )
@@ -20,6 +21,9 @@ type NativeLiveRestoreBundle struct {
 	Manifest           restic.Manifest
 	Transport          restic.TransportPoint
 	Schema             spacetimedb.CanonicalSchema
+	SourceEvidence     nativeevidence.Evidence
+	ConfirmedBound     spacetimedb.ConfirmedPairsRecord
+	FinalPairs         spacetimedb.RecoveredPairs
 	DependenciesSHA256 string
 	SigningReference   string
 	SigningVersion     uint64
@@ -55,6 +59,6 @@ func (s *Store) ReadNativeLiveRestoreBundle(ctx context.Context, capability *Nat
 	}
 	point := bundle.point.view
 	point.PointSHA256 = bundle.point.hash
-	result := NativeLiveRestoreBundle{Point: point, Source: bundle.source, Checkpoint: bundle.checkpoint, Selection: bundle.selection, Manifest: bundle.manifest, Transport: bundle.transport, Schema: schema, DependenciesSHA256: deps.hash, SigningReference: deps.signingRef, SigningVersion: deps.signingVersion, SigningSHA256: deps.signingSHA256}
+	result := NativeLiveRestoreBundle{Point: point, Source: bundle.source, Checkpoint: bundle.checkpoint, Selection: bundle.selection, Manifest: bundle.manifest, Transport: bundle.transport, Schema: schema, SourceEvidence: bundle.sourceEvidence, ConfirmedBound: bundle.confirmedBound, FinalPairs: bundle.finalPairs, DependenciesSHA256: deps.hash, SigningReference: deps.signingRef, SigningVersion: deps.signingVersion, SigningSHA256: deps.signingSHA256}
 	return result, tx.Commit()
 }

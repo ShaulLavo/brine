@@ -29,11 +29,6 @@ func TestNativePointInspectionWireIsReferenceOnlyAndReadOnly(t *testing.T) {
 			t.Fatal("point inspection accepted authority or path input")
 		}
 	}
-	for _, op := range []string{"native_capture", "native_restore_test", "native_prepare"} {
-		if _, ok := ClassOf(op); ok {
-			t.Fatal("unfinished native effect dispatch admitted")
-		}
-	}
 }
 
 func TestNativePointInspectionResponseIsClosedAndDoesNotGrantEffects(t *testing.T) {

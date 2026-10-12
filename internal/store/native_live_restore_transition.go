@@ -24,6 +24,7 @@ type NativeRestoreTransition struct {
 	attempt            liverestore.Attempt
 	inputSHA256        string
 	resolveOperationID string
+	inspectOriginal    bool
 }
 
 func (NativeRestoreTransition) MarshalJSON() ([]byte, error) { return nil, ErrInvalid }
@@ -184,7 +185,11 @@ func checkNativeRestoreTransitionClaimTx(ctx context.Context, tx *sql.Tx, capabi
 	if err != nil || op.Kind != ops.NativeLiveRestore || op.SecretRef != a.PlanID || op.Requester != spec.Requester.String() || op.App != spec.Facts.App {
 		return errors.Join(ErrConflict, err)
 	}
-	if capability.resolveOperationID == "" {
+	if capability.inspectOriginal {
+		if op.State != ops.RecoveryRequired {
+			return ErrConflict
+		}
+	} else if capability.resolveOperationID == "" {
 		if op.State != ops.Preflight {
 			return ErrConflict
 		}
@@ -212,9 +217,5 @@ func checkNativeRestoreTransitionClaimTx(ctx context.Context, tx *sql.Tx, capabi
 }
 
 func checkNativeRestoreResolverTx(ctx context.Context, tx *sql.Tx, id string, original ops.Operation) error {
-	resolve, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
-	if err != nil || original.State != ops.RecoveryRequired || resolve.Kind != ops.NativeLiveRestoreResolve || resolve.State != ops.Preflight || resolve.RecoveryOf != original.ID || resolve.SecretRef != original.SecretRef || resolve.Requester != original.Requester || resolve.App != original.App {
-		return errors.Join(ErrConflict, err)
-	}
-	return nil
+	return checkNativeRestoreResolutionOperation(ctx, tx, id, original)
 }

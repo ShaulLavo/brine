@@ -56,6 +56,7 @@ type engineContainer struct {
 		CgroupManager  string   `json:"CgroupManager"`
 		CgroupMode     string   `json:"CgroupMode"`
 		Memory         *int64   `json:"Memory"`
+		MemorySwap     *int64   `json:"MemorySwap"`
 		PidsLimit      *int64   `json:"PidsLimit"`
 		NanoCpus       *int64   `json:"NanoCpus"`
 	} `json:"HostConfig"`

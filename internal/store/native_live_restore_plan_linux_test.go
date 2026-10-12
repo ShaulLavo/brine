@@ -18,18 +18,6 @@ func storedNativeLiveRestoreFixture(t *testing.T) (nativeTransitionFixture, live
 	t.Helper()
 	f := newNativeTransitionFixture(t)
 	ctx := context.Background()
-	tx, cancel, err := f.store.beginWrite(ctx)
-	defer cancel()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	if err = migrateNativeLiveRestore(ctx, tx); err != nil {
-		t.Fatal(err)
-	}
-	if err = tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
 	head, _, err := f.store.ReadEngineHead(ctx, f.runtime.BindingID)
 	if err != nil {
 		t.Fatal(err)

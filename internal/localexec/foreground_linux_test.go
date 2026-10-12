@@ -45,6 +45,9 @@ func testForegroundTermination(t *testing.T, terminate string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if process.PID() <= 0 || process.PID() == os.Getpid() {
+		t.Fatal("foreground PID does not identify its own child")
+	}
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
 	for {
