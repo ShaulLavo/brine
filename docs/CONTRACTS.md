@@ -107,6 +107,31 @@ the sidecar creates no schema registration or initializer. Host dispatch never
 opens the client paths. Reviewed private staging must prove actual module/schema and
 register its marker before startup authority exists. A sidecar cannot grant it.
 
+### Managed ingress logging admission (P09-04)
+
+The pure `caddy.VerifyManagedLogging` helper reads complete adapted JSON before
+managed route admission. It requires an explicit protected default logger and
+checks every output receiving relevant error, enabled access and reverse-proxy
+logs. A qualifying output uses the exact filter/JSON encoder with
+`request>uri delete`, with only deletion filters, or an explicit `discard`
+writer. Token-only query filtering refuses because malformed request targets
+can bypass Caddy's query parser. Access logging being disabled does not protect
+default error logs.
+
+Host matches and logger mappings account for casing and wildcard matches;
+default fallback namespaces remain checked even when access skip rules exist.
+Unprotected shadow outputs, dynamic route logger names, credential logging,
+handler tracing, unknown filters, duplicate keys and ambiguous logging input
+refuse without exposing input values. Unrelated logger namespaces remain
+allowed. The helper performs no mutation and grants no managed effects.
+
+The operator establishes protected global logging through enrollment or an
+explicitly authorized change. D4 still forbids routine Brine operations from
+editing the root Caddyfile after enrollment. See the
+[operator logging prerequisite](managed-ingress-logging.md) for the pinned
+snippet and local admission/log probe. Production caller wiring and physical
+ingress qualification remain separate P09-04 gates.
+
 ~~~text
 brine init [directory]
 brine validate ./brine.toml --policy ./policy.toml
