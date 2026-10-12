@@ -17,11 +17,15 @@ func TestModulePublicationReviewCapabilityRequiresActualCompletedPointAndRetaine
 	if err != nil {
 		t.Fatal(err)
 	}
+	retained, err := state.ReadNativePreparedPoint(ctx, point.PointID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	review, err := state.BeginPublicationReview(ctx, preparation.preparation, point.PointID, artifact)
 	if err != nil || state.CheckPublicationReviewPreparation(ctx, review) != nil {
 		t.Fatal("actual protected completed point and held guard could not begin review", err)
 	}
-	if review.pointSHA != point.PointSHA256 || review.requester == "" || review.binding != point.BindingID || review.artifact.WasmSHA256() != artifact.WasmSHA256() {
+	if review.pointSHA != retained.PointSHA256 || review.requester == "" || review.binding != point.BindingID || review.artifact.WasmSHA256() != artifact.WasmSHA256() {
 		t.Fatal("review capability did not derive actual protected point/candidate bindings")
 	}
 	if err = state.CheckPublicationReviewPreparation(ctx, &PublicationReviewPreparation{}); !errors.Is(err, ErrConflict) {
