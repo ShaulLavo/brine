@@ -131,7 +131,7 @@ func extractPublicationCandidate(ctx context.Context, lease *descriptorLease, ru
 
 func descriptorArguments(lease *descriptorLease) []string {
 	nonce := lease.artifact.nonce
-	return []string{"create", "--name", "brine-module-describe-" + nonce, "--label", "BRINE_PRIVATE_VERIFY=" + nonce,
+	return []string{"run", "--detach", "--name", "brine-module-describe-" + nonce, "--label", "BRINE_PRIVATE_VERIFY=" + nonce,
 		"--label", "BRINE_MODULE_DESCRIPTOR=" + nonce, "--network", "none", "--pid", "private", "--sdnotify", "ignore", "--read-only",
 		"--read-only-tmpfs=false", "--passwd=false",
 		"--userns", "keep-id:uid=1000,gid=1000", "--user", "1000:1000", "--umask", "0077", "--memory", "512m", "--memory-swap", "512m",

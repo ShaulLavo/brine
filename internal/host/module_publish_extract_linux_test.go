@@ -53,11 +53,19 @@ type descriptorContainerExecutor struct {
 	stopErr   error
 	stops     int
 	commands  int
+	starts    int
 }
 
 func (r *descriptorContainerExecutor) Execute(_ context.Context, command localexec.Command) (localexec.Result, error) {
 	r.commands++
 	args := command.Args
+	if len(args) > 0 && args[0] == "run" {
+		return localexec.Result{Stdout: r.container.ID}, nil
+	}
+	if len(args) > 0 && args[0] == "start" {
+		r.starts++
+		return localexec.Result{}, errors.New("descriptor must use its fixed supported launch")
+	}
 	if slices.Equal(args, []string{"ps", "--all", "--quiet", "--no-trunc"}) {
 		if r.removed {
 			return localexec.Result{}, nil
@@ -112,7 +120,7 @@ func TestDescriptorOuterCannotAcceptMetadataWithoutActualProcessBinding(t *testi
 		t.Fatal("consumed descriptor lease repeated pending effects", err)
 	}
 	args := descriptorArguments(lease)
-	if args[0] != "create" || args[len(args)-1] != "module-describe" || !slices.Contains(args, "--interactive") || !slices.Contains(args, lease.artifact.path()+":"+moduleDescriptorArtifactPath+":ro") {
+	if args[0] != "run" || !slices.Contains(args, "--detach") || args[len(args)-1] != "module-describe" || !slices.Contains(args, "--interactive") || !slices.Contains(args, "--passwd=false") || !slices.Contains(args, "--read-only-tmpfs=false") || !slices.Contains(args, lease.artifact.path()+":"+moduleDescriptorArtifactPath+":ro") || executor.starts != 0 {
 		t.Fatal("gated descriptor purpose lost its fixed artifact-only launch")
 	}
 }

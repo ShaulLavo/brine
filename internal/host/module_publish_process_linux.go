@@ -20,13 +20,10 @@ import (
 )
 
 func startDescriptorProcess(ctx context.Context, lease *descriptorLease, session localexec.Session) (string, *engineNativeHandle, error) {
-	created, err := session.Execute(ctx, "/usr/bin/podman", descriptorArguments(lease), nil, true)
-	id := strings.TrimSpace(created.Stdout)
-	if err != nil || created.Truncated || !data.ValidCatalogHash(id) {
+	started, err := session.Execute(ctx, "/usr/bin/podman", descriptorArguments(lease), nil, true)
+	id := strings.TrimSpace(started.Stdout)
+	if err != nil || started.Truncated || !data.ValidCatalogHash(id) {
 		return "", nil, datapublish.ErrRecord
-	}
-	if _, err = session.Execute(ctx, "/usr/bin/podman", []string{"start", id}, nil, true); err != nil {
-		return id, nil, datapublish.ErrRecord
 	}
 	containers, err := listEngineContainers(ctx, session)
 	if err != nil {
