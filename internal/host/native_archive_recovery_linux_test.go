@@ -18,6 +18,11 @@ func TestNativeArchiveDataSealSurvivesMoveAndDetectsRetainedChanges(t *testing.T
 	}
 	defer func() { _ = base.Close() }()
 	ctx := context.Background()
+	observer := engineTransitionTree{limits: nativeArchiveTreeLimits()}
+	location, err := observer.inspectLocation(ctx, base, binding.RelativeDirectory)
+	if _, present := location.Tree(); err != nil || !present {
+		t.Fatal("production archive tree limits refused an owned tree", err)
+	}
 	original, present, err := sealNativeArchiveLocation(ctx, base, binding.RelativeDirectory)
 	if err != nil || !present {
 		t.Fatal("owned source seal refused", err)

@@ -87,7 +87,7 @@ func (h archiveHost) moveNativeArchiveTree(ctx context.Context, p archive.Plan, 
 	}
 	source := filepath.Join("transitions", expected.TransitionID)
 	destination := filepath.Join(destinationParent, expected.TransitionID)
-	observer := engineTransitionTree{limits: engineCopyLimits{Bytes: 256 << 20, Files: 65536, Depth: 20}}
+	observer := engineTransitionTree{limits: nativeArchiveTreeLimits()}
 	before, err := observer.inspectLocation(ctx, base, source)
 	if err != nil {
 		return err
