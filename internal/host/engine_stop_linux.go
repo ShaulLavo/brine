@@ -54,6 +54,7 @@ func (r *EngineStartupRuntime) stopPostOwned(ctx context.Context, permit store.E
 func (r *EngineStartupRuntime) stopOwnedNative(ctx, lifetime context.Context, permit store.EnginePermit, self systemd.StarterProcess) error {
 	containers, err := listEngineContainers(ctx, r.session)
 	if err != nil {
+		r.retainEngineLifetime(lifetime, permit, nil)
 		return err
 	}
 	if engineBindingAbsent(containers, permit) {
