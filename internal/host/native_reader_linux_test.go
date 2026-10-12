@@ -148,7 +148,7 @@ func TestNativeViewOwnsSelectedOnlyAndZeroSnapshotContext(t *testing.T) {
 		t.Fatal("zero snapshot context omitted", err)
 	}
 	args, err := nativeReaderArguments(nativeTestPin(), view)
-	if err != nil || strings.Contains(strings.Join(args, "\n"), "TOKIO_WORKER_THREADS") || !strings.Contains(strings.Join(args, "\n"), "/copy/replica:rw") {
+	if err != nil || strings.Contains(strings.Join(args, "\n"), "TOKIO_WORKER_THREADS") || !strings.Contains(strings.Join(args, "\n"), "/copy/replica:rw") || !strings.Contains(strings.Join(args, "\n"), "--read-only-tmpfs=false") || !strings.Contains(strings.Join(args, "\n"), "--passwd=false") {
 		t.Fatal("invalid fixed passive argv", err)
 	}
 	view.state = nativeViewReading
