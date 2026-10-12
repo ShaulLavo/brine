@@ -6,6 +6,9 @@ import (
 )
 
 func migrateModulePublicationRecords(ctx context.Context, tx *sql.Tx) error {
+	if err := migrateModulePublicationOperations(ctx, tx); err != nil {
+		return err
+	}
 	const migration = `
 CREATE TABLE data_module_publication_reviews(
  plan_id TEXT PRIMARY KEY, point_id TEXT NOT NULL REFERENCES data_native_prepared_points(id),
@@ -51,6 +54,7 @@ CREATE TABLE data_module_publication_resolutions(
  canonical BLOB NOT NULL CHECK(length(canonical)<=65536));
 CREATE TRIGGER data_module_publication_resolutions_no_update BEFORE UPDATE ON data_module_publication_resolutions BEGIN SELECT RAISE(ABORT,'immutable module publication resolution'); END;
 CREATE TRIGGER data_module_publication_resolutions_no_delete BEFORE DELETE ON data_module_publication_resolutions BEGIN SELECT RAISE(ABORT,'retained module publication resolution'); END;
+UPDATE schema_version SET version=18;
 `
 	_, err := tx.ExecContext(ctx, migration)
 	return err
