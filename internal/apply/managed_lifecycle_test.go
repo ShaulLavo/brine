@@ -150,7 +150,8 @@ func TestManagedFailedDeploymentPreservesDeliberatelyPausedFrontendAndRoute(t *t
 		t.Fatal("paused deployment", p.Conflicts, err)
 	}
 	r.plan = p
-	runtime.failure = "route_permit"
+	runtime.failure = ""
+	r.failStep = "managed_route_check"
 	err = r.executor.Run(context.Background(), "resume-attempt", p, r.desired)
 	if err == nil || r.state != RolledBack || r.active || r.committed {
 		t.Fatal("paused state not preserved", err, r.state, r.active)
