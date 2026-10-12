@@ -291,6 +291,11 @@ class Probe:
         assert appended['schemaMarker'] == 'brine-recovery-v1'
         assert self.client('v1', 'verify', self.writer_token, sequence + 1) == appended
         denied = self.client('v1', 'denied', self.outsider_token)
+        self.admin('schedule', 1)
+        time.sleep(2)
+        scheduled = self.client('v1', 'verify', self.writer_token, sequence + 2)
+        assert scheduled['rows'][:-1] == appended['rows']
+        assert scheduled['rows'][-1]['scheduled'] is True
         self.result['logic-only'] = {
             'before_program_hash': original['runtime_module_hash'],
             'after_program_hash': changed['runtime_module_hash'],
@@ -298,6 +303,7 @@ class Probe:
             'preflight': scrub_preflight(preflight),
             'before_rejection': previous_error, 'after_rejection': new_error,
             'preserved_confirmed_rows': sequence, 'next_confirmed_write': appended,
+            'scheduled_after_update': scheduled,
             'denied_writer': denied, 'client_variant': 'v1',
         }
 

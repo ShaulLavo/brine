@@ -2,25 +2,30 @@
   "rust": "1.96.1",
   "spacetimedb": "2.11.0",
   "modules": {
-    "v1": "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc",
-    "additive": "5f1de728e240ff189fdb47fae0af5f18cfa3c772b86a198220115a6869215ffb",
-    "destructive": "2002870aaf07f3381defb11a0ecd975264f4bb348d06e7bd39cca0f69d66d3b6",
-    "observer-hooks": "884d158694eeb0dfe9e973e357aca18d24998b14fb26dc33223ca928550dbd83",
-    "default-column": "40960700aea4b6dd4d201539e91ff6fc27fcd96c050c92e182bf4c0240a03269",
-    "access-change": "7647ef3ff8f90bb7f1839a9ebd8ea17e493b6a3803acf6462009262701d3a516"
+    "v1": "5f27a1c57f24e1d682233dc122ed85b041826a081cd2bcfc428217be18722bd8",
+    "logic-only": "7cc9e994314a20c0a38f6b3cfc72c2ab937fcd05d47ae6ff1c6a258f7457e3db",
+    "additive": "95e91b07e63ec82ac66528091bc245dfd10f94da69186eb90bfefc4ef4b386eb",
+    "destructive": "3ac8a3876641fe5ec7ca48d8b4cbedd2478854df1e9bc37db13cefc33cadbff2",
+    "observer-hooks": "8103117cc670e8d60d95f618cdf212da869dd3e07b7d5c520c29a2d9acb9e14d",
+    "default-column": "354d3d4a607063d08956c84ba476589814861eedcabf6b762cd38b457eac9852",
+    "access-change": "2b0c7f73f4247030a13bd3423193524649f90633d59d4a69d90cedd704c9bb86"
   },
   "clients": {
     "v1": {
       "browser_sha256": "af3bb9da1fb28fa807d3fee9b12b85ed564c66915bdc8d79a79d48dc312b1217",
-      "module_sha256": "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc"
+      "module_sha256": "5f27a1c57f24e1d682233dc122ed85b041826a081cd2bcfc428217be18722bd8"
     },
     "additive": {
       "browser_sha256": "84b65b4cc2f43e4f6f1d66188fb4e61157716fb342c2168e611fd4dc6911fe24",
-      "module_sha256": "5f1de728e240ff189fdb47fae0af5f18cfa3c772b86a198220115a6869215ffb"
+      "module_sha256": "95e91b07e63ec82ac66528091bc245dfd10f94da69186eb90bfefc4ef4b386eb"
     },
     "default-column": {
       "browser_sha256": "b644f35a6f0092bb42ed467f90251be5d4c673228e2ea0efb8658e53d5b3682d",
-      "module_sha256": "40960700aea4b6dd4d201539e91ff6fc27fcd96c050c92e182bf4c0240a03269"
+      "module_sha256": "354d3d4a607063d08956c84ba476589814861eedcabf6b762cd38b457eac9852"
+    },
+    "logic-only": {
+      "browser_sha256": "af3bb9da1fb28fa807d3fee9b12b85ed564c66915bdc8d79a79d48dc312b1217",
+      "module_sha256": "7cc9e994314a20c0a38f6b3cfc72c2ab937fcd05d47ae6ff1c6a258f7457e3db"
     }
   }
 }
