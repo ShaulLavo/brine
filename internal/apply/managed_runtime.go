@@ -17,6 +17,7 @@ type ManagedRuntime interface {
 	EngineReady(context.Context, plan.Plan) error
 	BeforeEngineStart(context.Context, plan.Plan) error
 	BindFrontend(context.Context, string, plan.Plan, string) error
+	FrontendPermitOwner(context.Context, string) (string, error)
 	RestoreFrontendPermit(context.Context, string, string) error
 	BeforeFrontendStart(context.Context, string, plan.Plan, policy.Desired, string) error
 	BeforeIngress(context.Context, string, plan.Plan, policy.Desired) error

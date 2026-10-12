@@ -114,3 +114,14 @@ func (r managedRuntime) BeforeIngress(ctx context.Context, operation string, p p
 	}
 	return ctx.Err()
 }
+
+func (r managedRuntime) FrontendPermitOwner(ctx context.Context, app string) (string, error) {
+	permit, err := r.state.ReadManagedFrontendPermit(ctx, app)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return permit.Permit.OperationID, nil
+}

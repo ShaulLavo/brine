@@ -22,6 +22,8 @@ type managedExecution struct {
 	x                      *execution
 	hadRelease             bool
 	previousFrontendPermit string
+	previousPlan           plan.Plan
+	frontendBound          bool
 	engineService          systemd.Unit
 }
 
@@ -63,11 +65,17 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 			if x.previous.Managed == nil || e.Plans == nil {
 				return errors.New("managed previous release required")
 			}
-			_, x.previousDesired, err = e.Plans.LoadPlan(ctx, x.previous.PlanID)
+			run.previousPlan, x.previousDesired, err = e.Plans.LoadPlan(ctx, x.previous.PlanID)
 			if err != nil {
 				return err
 			}
 			x.hasPrevious = x.previous.Managed.Frontend != nil
+		}
+		if p.Managed.Frontend != nil {
+			run.previousFrontendPermit, err = e.Managed.FrontendPermitOwner(ctx, p.App)
+			if err != nil {
+				return err
+			}
 		}
 		run.engineService, err = systemd.ParseUnit("brine-engine-" + string(p.Managed.Database.BindingID) + ".service")
 		if err != nil {
@@ -268,7 +276,13 @@ func (r *managedExecution) startFrontend(ctx context.Context) error {
 			return e.Units.Install(ctx, x.unit, x.previousUnitHash())
 		}},
 		{"frontend_reload", Starting, "unit_failed", e.Systemd.DaemonReload},
-		{"frontend_bind", Starting, "unit_failed", func(ctx context.Context) error { return e.Managed.BindFrontend(ctx, x.id, p, x.unit.Hash()) }},
+		{"frontend_bind", Starting, "unit_failed", func(ctx context.Context) error {
+			err := e.Managed.BindFrontend(ctx, x.id, p, x.unit.Hash())
+			if err == nil {
+				r.frontendBound = true
+			}
+			return err
+		}},
 		{"frontend_start", Starting, "start_failed", func(ctx context.Context) error {
 			if err := e.Managed.BeforeFrontendStart(ctx, x.id, p, d, x.unit.Hash()); err != nil {
 				return err
@@ -303,7 +317,5 @@ func verifyManagedFrontendSecrets(ctx context.Context, e *Executor, p plan.Plan)
 }
 
 func (r *managedExecution) fail(ctx context.Context, cause error) error {
-	// Engine state is never compensated from an application release. Until the
-	// frontend/route-only compensation is proven, preserve all attempted effects.
-	return r.x.terminal(ctx, RecoveryRequired, cause)
+	return r.compensate(ctx, cause)
 }

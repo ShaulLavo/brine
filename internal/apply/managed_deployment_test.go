@@ -122,3 +122,30 @@ func TestManagedOptionalFrontendLifecyclePreservesRunningEngine(t *testing.T) {
 		t.Fatal("frontend/client permits were mixed with engine start", runtime.calls)
 	}
 }
+func (f *managedRuntimeFake) FrontendPermitOwner(context.Context, string) (string, error) {
+	return "", nil
+}
+
+func TestManagedOptionalFrontendFailureCompensatesOnlyClientArtifacts(t *testing.T) {
+	r := managedInitializedRig(t, true)
+	runtime := &managedRuntimeFake{rig: r, failure: "route_permit"}
+	r.executor.Managed = runtime
+	if err := r.executor.Run(context.Background(), "op", r.plan, r.desired); err == nil {
+		t.Fatal("route refusal did not fail operation")
+	}
+	if r.state != RolledBack || r.active || r.committed {
+		t.Fatal("known frontend effects were not compensated", r.state, r.active, r.committed)
+	}
+	restored := false
+	for _, call := range runtime.calls {
+		if call == "frontend_restore_permit" {
+			restored = true
+		}
+		if call == "engine_install" || call == "engine_start_permit" {
+			t.Fatal("client compensation changed native engine")
+		}
+	}
+	if !restored {
+		t.Fatal("frontend permit head was not restored")
+	}
+}
