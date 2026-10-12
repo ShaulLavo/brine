@@ -3,8 +3,11 @@ package enroll
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 )
+
+const productionEnrollmentStepOrder = "ssh-layout mask packages litestream restic native-reader user layout linger binary polkit caddy-tree caddy-import caddy-validate unmask caddy-enable caddy-start caddy-writable inventory-key operator-policy workspace-observer requester key ssh-policy bypass boot-reconcile"
 
 type memoryStore struct {
 	fail   bool
@@ -19,7 +22,7 @@ func (s *memoryStore) Save(Journal) error {
 	return nil
 }
 func TestEveryFailureConverges(t *testing.T) {
-	names := []string{"ssh-layout", "mask", "packages", "litestream", "restic", "user", "layout", "linger", "binary", "polkit", "caddy-tree", "caddy-import", "caddy-validate", "unmask", "caddy-enable", "caddy-start", "caddy-writable", "inventory-key", "operator-policy", "workspace-observer", "requester", "key", "ssh-policy", "bypass", "boot-reconcile"}
+	names := strings.Fields(productionEnrollmentStepOrder)
 	for _, failAt := range names {
 		for _, after := range []bool{false, true} {
 			t.Run(failAt+map[bool]string{false: "-before", true: "-after"}[after], func(t *testing.T) {
