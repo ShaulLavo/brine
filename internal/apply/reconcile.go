@@ -42,6 +42,16 @@ func (x *execution) reconcileUnknown(ctx context.Context, step string) resolutio
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), budget)
 	defer cancel()
+	if step == "prepare_managed_engine" {
+		if x.executor.ManagedPreparation == nil {
+			return unresolved
+		}
+		prepared, err := x.executor.ManagedPreparation.ManagedPrepared(ctx, x.id, x.plan, x.desired)
+		if err == nil && prepared && ctx.Err() == nil {
+			return applied
+		}
+		return unresolved
+	}
 	if step == "prepare_data" {
 		if x.executor.PersistentData == nil || x.desired.Stateless() {
 			return unresolved

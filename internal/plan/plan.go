@@ -92,10 +92,11 @@ type Input struct {
 // binds committed releases to the snapshot identity and control generation.
 // Releases must be non-nil; [] affirmatively records no committed releases.
 type BrineState struct {
-	Target           target.Identity   `json:"target"`
-	Generation       uint64            `json:"generation"`
-	Releases         []CurrentRelease  `json:"releases"`
-	DataIncarnations []DataIncarnation `json:"data_incarnations,omitempty"`
+	Target              target.Identity                 `json:"target"`
+	Generation          uint64                          `json:"generation"`
+	Releases            []CurrentRelease                `json:"releases"`
+	DataIncarnations    []DataIncarnation               `json:"data_incarnations,omitempty"`
+	ManagedReservations []target.ManagedPortReservation `json:"managed_reservations,omitempty"`
 }
 
 // DataIncarnation records live persistent ownership independently of releases.
@@ -293,6 +294,11 @@ func Build(in Input) (Plan, error) {
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
 	}
+	for _, reservation := range in.State.ManagedReservations {
+		if reservation.App == p.App {
+			add(ArtifactDrift, "managed_engine_ownership")
+		}
+	}
 	for _, release := range in.State.Releases {
 		if release.App == p.App && CadenceOnly(in.Desired, release.Desired) && reflect.DeepEqual(in.Image, release.Image) {
 			p.Lifecycle = ReviseReplica
@@ -442,6 +448,10 @@ func Build(in Input) (Plan, error) {
 		for _, committed := range in.State.Releases {
 			reserved[committed.App] = committed.HostPort
 			busy[committed.HostPort] = true
+		}
+		for _, reservation := range in.State.ManagedReservations {
+			busy[reservation.EnginePort] = true
+			busy[reservation.FrontendPort] = true
 		}
 		for _, a := range *in.Snapshot.Apps.Value {
 			_, committed := reserved[a.Name]
@@ -722,6 +732,9 @@ func canonicalState(state BrineState) ([]byte, error) {
 	state = BrineState{}
 	if e = json.Unmarshal(raw, &state); e != nil {
 		return nil, e
+	}
+	if err := canonicalManagedReservations(state.ManagedReservations); err != nil {
+		return nil, err
 	}
 	slices.SortFunc(state.DataIncarnations, func(a, b DataIncarnation) int { return strings.Compare(a.App, b.App) })
 	incarnations := make(map[string]bool, len(state.DataIncarnations))

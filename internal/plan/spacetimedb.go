@@ -161,6 +161,10 @@ func previewPorts(in Input) ([]target.Port, bool) {
 	for _, release := range in.State.Releases {
 		busy[release.HostPort] = true
 	}
+	for _, reservation := range in.State.ManagedReservations {
+		busy[reservation.EnginePort] = true
+		busy[reservation.FrontendPort] = true
+	}
 	available := []target.Port{}
 	for port := uint32(in.Desired.AppPorts.Min); port <= uint32(in.Desired.AppPorts.Max); port++ {
 		if !busy[target.Port(port)] {

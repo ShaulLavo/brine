@@ -71,7 +71,12 @@ func (s Service) Plan(ctx context.Context, app spec.App) (dispatch.Planned, erro
 	if err != nil {
 		return dispatch.Planned{}, err
 	}
-	p, err := plan.Build(facts.Input)
+	var p plan.Plan
+	if facts.Input.Desired.SpacetimeDB != nil && facts.Input.Managed != nil && facts.Input.Managed.Runtime == nil {
+		p, err = s.managedPreparationPlan(ctx, facts)
+	} else {
+		p, err = plan.Build(facts.Input)
+	}
 	if err != nil {
 		return dispatch.Planned{}, err
 	}

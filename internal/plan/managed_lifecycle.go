@@ -56,7 +56,10 @@ func (m ManagedServicePlan) Valid() bool {
 	if m.State != data.EngineUnpublished && m.State != data.EngineInitialized {
 		return false
 	}
-	if !data.ValidCatalogHash(m.EngineUnitHash) || m.State == data.EngineInitialized && !data.ValidCatalogHash(m.RuntimeSHA256) {
+	if m.State == data.EngineInitialized && (!data.ValidCatalogHash(m.EngineUnitHash) || !data.ValidCatalogHash(m.RuntimeSHA256)) {
+		return false
+	}
+	if m.State == data.EngineUnpublished && (m.RuntimeSHA256 != "" || m.EngineUnitHash != "") {
 		return false
 	}
 	if m.RuntimeSHA256 != "" && !data.ValidCatalogHash(m.RuntimeSHA256) {
