@@ -81,7 +81,7 @@ func readNativeLiveRestoreAdmissionTx(ctx context.Context, tx *sql.Tx, stopped *
 		return p, nativePointConsumer{}, err
 	}
 	spec := p.Spec()
-	if stopped.PointID() != spec.Safety.PointID || stopped.OperationID() != spec.Safety.FenceOwnerOpID || !pol.AllowsLiveRestore() || strings.TrimPrefix(pol.Hash(), "sha256:") != spec.Facts.PolicySHA256 {
+	if stopped.PointID() != spec.Safety.PointID || stopped.FenceOwnerOperationID() != spec.Safety.FenceOwnerOpID || !pol.AllowsLiveRestore() || strings.TrimPrefix(pol.Hash(), "sha256:") != spec.Facts.PolicySHA256 {
 		return p, nativePointConsumer{}, ErrConflict
 	}
 	point, err := readNativePreparedPointTx(ctx, tx, spec.Safety.PointID)

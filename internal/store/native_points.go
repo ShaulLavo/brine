@@ -79,7 +79,7 @@ func nativePointHash(raw []byte) string {
 }
 
 func validNativePreparedPoint(v NativePreparedPointView) bool {
-	if v.Format != nativePreparedPointFormat || v.PointSHA256 != "" || !data.ValidID(v.PointID) || !nativePointOperationID.MatchString(v.PreparationOperationID) || v.FenceOwnerOpID != v.PreparationOperationID || !data.ValidID(string(v.FenceID)) || !data.ValidID(string(v.BindingID)) || !data.ValidID(string(v.EpochID)) || !data.ValidID(string(v.DatabaseID)) || !data.ValidID(string(v.IncarnationID)) || !data.ValidID(v.GenerationID) || !data.ValidID(v.AllocationID) || v.RuntimeVersion == 0 || v.Generation > 1<<63-1 || v.RuntimeVersion > 1<<63-1 {
+	if v.Format != nativePreparedPointFormat || v.PointSHA256 != "" || !data.ValidID(v.PointID) || !nativePointOperationID.MatchString(v.PreparationOperationID) || !nativePointOperationID.MatchString(v.FenceOwnerOpID) || v.SourceKind == "initialized" && v.FenceOwnerOpID != v.PreparationOperationID || !data.ValidID(string(v.FenceID)) || !data.ValidID(string(v.BindingID)) || !data.ValidID(string(v.EpochID)) || !data.ValidID(string(v.DatabaseID)) || !data.ValidID(string(v.IncarnationID)) || !data.ValidID(v.GenerationID) || !data.ValidID(v.AllocationID) || v.RuntimeVersion == 0 || v.Generation > 1<<63-1 || v.RuntimeVersion > 1<<63-1 {
 		return false
 	}
 	for _, digest := range []string{v.PolicySHA256, v.RuntimeSHA256, v.AllocationSHA256, v.SourceSHA256, v.SourceSealSHA256, v.SourceWitnessSHA256, v.CheckpointSHA256, v.StopProofSHA256, v.RestoreReceiptSHA256, v.BundleManifestSHA256, v.TransportPointSHA256, v.ConfigSHA256, v.SigningRecoverySHA256} {
