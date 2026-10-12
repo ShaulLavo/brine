@@ -108,7 +108,12 @@ func projectEngineEpoch(ctx context.Context, q dataQuerier, reserved ReservedEng
 
 func nativeActivationExists(ctx context.Context, q dataQuerier, transitionID string, head data.EngineHeadRef) error {
 	transition, cursor, err := readEngineTransition(ctx, q, transitionID)
-	if err != nil || transition.Common().TargetRuntimeSHA256 != head.RuntimeSHA256 || transition.Common().NewEpochID != head.EpochID {
+	common := transition.Common()
+	version := uint64(1)
+	if base, committed := common.Base.Committed(); committed {
+		version = base.Version + 1
+	}
+	if err != nil || head.BindingID != common.Scope.BindingID || head.Version != version || common.TargetRuntimeSHA256 != head.RuntimeSHA256 || common.NewEpochID != head.EpochID {
 		return &IntegrityError{}
 	}
 	switch cursor.Stage {
