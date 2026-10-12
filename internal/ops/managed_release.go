@@ -3,6 +3,7 @@ package ops
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -45,7 +46,39 @@ func (r ManagedRelease) Valid() bool {
 	if !data.ValidID(string(r.BindingID)) || !data.ValidID(string(r.EpochID)) || !data.ValidCatalogHash(r.RuntimeSHA256) || r.EnginePort < 1024 || r.EngineUnit.Name != "brine-engine-"+string(r.BindingID)+".service" || !planID.MatchString(r.EngineUnit.Hash) {
 		return false
 	}
-	return r.Frontend == nil || r.Frontend.Port >= 1024 && r.Frontend.Port != r.EnginePort && planID.MatchString(r.Frontend.Unit.Hash) && r.Frontend.Secrets != nil
+	return r.Frontend == nil || r.Frontend.valid(r.EnginePort)
+}
+
+func (f ManagedFrontend) valid(enginePort target.Port) bool {
+	name, container := strings.CutSuffix(f.Unit.Name, ".container")
+	planned := plan.ManagedFrontendPlan{Image: f.Image, Port: f.Port, Secrets: f.Secrets}
+	return container && appName.MatchString(name) && planID.MatchString(f.Unit.Hash) && planned.Valid(enginePort)
+}
+
+func (f *ManagedFrontend) UnmarshalJSON(raw []byte) error {
+	if len(raw) > 64<<10 {
+		return strictjson.ErrObject
+	}
+	fields, err := strictjson.Object(raw, "image", "port", "unit", "secrets")
+	if err != nil {
+		return err
+	}
+	if _, err := strictjson.Object(fields["unit"], "name", "hash"); err != nil {
+		return err
+	}
+	// Reuse the closed frontend planning codec for image and secret validation.
+	plannedRaw, err := json.Marshal(map[string]json.RawMessage{"image": fields["image"], "port": fields["port"], "secrets": fields["secrets"]})
+	var planned plan.ManagedFrontendPlan
+	if err != nil || json.Unmarshal(plannedRaw, &planned) != nil {
+		return strictjson.ErrObject
+	}
+	type record ManagedFrontend
+	value, err := strictjson.Value[record](raw)
+	if err != nil || !ManagedFrontend(value).valid(0) {
+		return strictjson.ErrObject
+	}
+	*f = ManagedFrontend(value)
+	return nil
 }
 
 func (r *ManagedRelease) UnmarshalJSON(raw []byte) error {

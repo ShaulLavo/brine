@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -61,7 +62,7 @@ func (m ManagedServicePlan) Valid() bool {
 	if m.RuntimeSHA256 != "" && !data.ValidCatalogHash(m.RuntimeSHA256) {
 		return false
 	}
-	return m.Frontend == nil || m.Frontend.valid(m.EnginePort)
+	return m.Frontend == nil || m.Frontend.Valid(m.EnginePort)
 }
 
 func managedImageVerified(image Image) bool {
@@ -80,18 +81,31 @@ func managedEngineImageVerified(image Image) bool {
 	return *image.ManifestDigest.Value == manifest
 }
 
-func (f ManagedFrontendPlan) valid(enginePort target.Port) bool {
+func (f ManagedFrontendPlan) Valid(enginePort target.Port) bool {
 	if f.Port < 1024 || f.Port == enginePort || !managedImageVerified(f.Image) || f.Secrets == nil || len(f.Secrets) > 128 {
 		return false
 	}
 	seen := map[string]bool{}
 	for _, secret := range f.Secrets {
-		if secret.Environment == "" || seen[secret.Environment] || secret.Reference == "" || secret.ID == "" || secret.VersionName == "" {
+		if !spec.ValidEnvironmentName(secret.Environment) || seen[secret.Environment] || secret.Reference == "" || secret.ID == "" || secret.VersionName == "" {
 			return false
 		}
 		seen[secret.Environment] = true
 	}
 	return true
+}
+
+func (f *ManagedFrontendPlan) UnmarshalJSON(raw []byte) error {
+	if len(raw) > 64<<10 || managedFrontendFields(raw) != nil {
+		return strictjson.ErrObject
+	}
+	type record ManagedFrontendPlan
+	value, err := strictjson.Value[record](raw)
+	if err != nil || !ManagedFrontendPlan(value).Valid(0) {
+		return strictjson.ErrObject
+	}
+	*f = ManagedFrontendPlan(value)
+	return nil
 }
 
 func (m *ManagedServicePlan) UnmarshalJSON(raw []byte) error {

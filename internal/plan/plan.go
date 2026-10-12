@@ -83,8 +83,9 @@ type Input struct {
 	Desired  policy.Desired
 	Snapshot target.Snapshot
 	// Image is manifest metadata supplied by the caller, never looked up by Build.
-	Image Image
-	State BrineState
+	Image   Image
+	State   BrineState
+	Managed *ManagedFacts
 }
 
 // BrineState comes from the target control database, not host observation. It

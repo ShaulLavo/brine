@@ -107,6 +107,9 @@ func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
 	if err != nil {
 		return out, err
 	}
+	if d.SpacetimeDB != nil {
+		return s.managedFacts(ctx, d, pol, snap, state)
+	}
 	image, err := s.Images.Resolve(ctx, d.Image, target.Platform{OS: "linux", Arch: snap.Arch})
 	if err != nil {
 		return out, err

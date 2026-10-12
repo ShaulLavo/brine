@@ -74,7 +74,10 @@ func openManagedUnits(home string) (*managedUnits, error) {
 	if !filepath.IsAbs(home) || filepath.Clean(home) != home {
 		return nil, errManagedService
 	}
-	root, err := os.OpenRoot(home)
+	if err := managedHomeAncestors(home); err != nil {
+		return nil, err
+	}
+	root, err := engineOpenRoot(home)
 	if err != nil {
 		return nil, errManagedService
 	}
@@ -90,7 +93,7 @@ func (m *managedUnits) Close() error { return m.root.Close() }
 
 func (m *managedUnits) directories(create bool) error {
 	info, err := m.root.Stat(".")
-	if err != nil || !managedServiceNode(info, true) {
+	if err != nil || !managedAncestorNode(info, false) {
 		return errManagedService
 	}
 	for _, directory := range []string{managedServiceDirectory, managedServiceStaging} {
@@ -105,14 +108,14 @@ func (m *managedUnits) directory(relative string, create bool) error {
 	current := ""
 	for _, part := range strings.Split(relative, string(filepath.Separator)) {
 		current = filepath.Join(current, part)
-		if err := m.directoryEntry(current, create); err != nil {
+		if err := m.directoryEntry(current, create, current == relative); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (m *managedUnits) directoryEntry(relative string, create bool) error {
+func (m *managedUnits) directoryEntry(relative string, create, private bool) error {
 	info, err := m.root.Lstat(relative)
 	if errors.Is(err, os.ErrNotExist) && create {
 		if err = m.root.Mkdir(relative, 0700); err != nil {
@@ -123,10 +126,29 @@ func (m *managedUnits) directoryEntry(relative string, create bool) error {
 		}
 		info, err = m.root.Lstat(relative)
 	}
-	if err != nil || !managedServiceNode(info, true) {
+	if err != nil || !managedAncestorNode(info, false) || private && !managedServiceNode(info, true) {
 		return errManagedService
 	}
 	return nil
+}
+
+func managedHomeAncestors(home string) error {
+	current := home
+	for {
+		info, err := os.Lstat(current)
+		if err != nil || !managedAncestorNode(info, current != home) {
+			return errManagedService
+		}
+		if current == string(filepath.Separator) {
+			return nil
+		}
+		current = filepath.Dir(current)
+	}
+}
+
+func managedAncestorNode(info os.FileInfo, allowRoot bool) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && info.IsDir() && info.Mode()&os.ModeSymlink == 0 && info.Mode().Perm()&0022 == 0 && (int(stat.Uid) == os.Geteuid() || allowRoot && stat.Uid == 0)
 }
 
 func managedServiceNode(info os.FileInfo, directory bool) bool {

@@ -87,6 +87,19 @@ func buildManagedPreview(in Input, desired []byte) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
+	if in.Managed != nil {
+		managed, err := in.Managed.CanonicalBytes()
+		if err != nil {
+			return Plan{}, err
+		}
+		snapshot, err = json.Marshal(struct {
+			Snapshot json.RawMessage `json:"snapshot"`
+			Managed  json.RawMessage `json:"managed"`
+		}{snapshot, managed})
+		if err != nil {
+			return Plan{}, err
+		}
+	}
 	d := in.Desired
 	image := in.Image
 	if d.App().HasAppContainer() && (!image.validManifest() || !validHash(image.Digest) || !strings.HasSuffix(string(d.Image), "@"+image.Digest)) {

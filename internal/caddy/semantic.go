@@ -30,6 +30,13 @@ func boundSites(state State, files map[string][]byte) (map[string]Site, error) {
 }
 
 func expectedRoute(site Site) map[string]any {
+	if site.managed != nil {
+		return expectedManagedRoute(site)
+	}
+	return expectedPlainRoute(site)
+}
+
+func expectedPlainRoute(site Site) map[string]any {
 	hosts := make([]any, len(site.domains))
 	for i, domain := range site.domains {
 		hosts[i] = string(domain)
@@ -151,7 +158,11 @@ func checkAdapted(data []byte, next, previous map[string]Site) error {
 
 		if file != "" {
 			var actual map[string]any
-			if err := json.Unmarshal(raw, &actual); err != nil || seen[file] || !reflect.DeepEqual(actual, expected[file]) {
+			if err := json.Unmarshal(raw, &actual); err != nil || seen[file] {
+				return refused
+			}
+			canonicalRouteGroups(actual)
+			if !reflect.DeepEqual(actual, expected[file]) {
 				return refused
 			}
 			seen[file] = true

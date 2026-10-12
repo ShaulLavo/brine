@@ -12,7 +12,17 @@ import (
 
 func managedUnitsFixture(t *testing.T) (*managedUnits, string, managedServiceChange) {
 	t.Helper()
-	home := t.TempDir()
+	// A world-writable temporary ancestor is deliberately refused in production.
+	// Keep this artifact fixture under the owned checkout and remove it afterwards.
+	directory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	home, err := os.MkdirTemp(directory, ".managed-units-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(home) })
 	if err := os.Chmod(home, 0700); err != nil {
 		t.Fatal(err)
 	}
@@ -63,6 +73,42 @@ func TestManagedUnitsInstallPreserveAndRestoreOwnedPredecessor(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, managedServiceDirectory, first.name)); !os.IsNotExist(err) {
 		t.Fatal("fresh service not removed by owned compensation")
+	}
+}
+
+func TestManagedUnitsPrivateDirectoryUnderTraversableHome(t *testing.T) {
+	units, home, change := managedUnitsFixture(t)
+	for _, path := range []string{home, filepath.Join(home, ".config"), filepath.Join(home, ".config/systemd")} {
+		if err := os.Chmod(path, 0755); err != nil { //nolint:gosec // Owned traversable ancestor fixture.
+			t.Fatal(err)
+		}
+	}
+	ctx := context.Background()
+	if err := units.stage(ctx, change); err != nil {
+		t.Fatal(err)
+	}
+	if err := units.install(ctx, change); err != nil {
+		t.Fatal(err)
+	}
+	if err := units.verify(ctx, change, change.wanted); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(home, managedServiceDirectory), 0755); err != nil { //nolint:gosec // Unsafe private directory fixture.
+		t.Fatal(err)
+	}
+	if units.verify(ctx, change, change.wanted) == nil {
+		t.Fatal("public unit directory accepted")
+	}
+}
+
+func TestManagedUnitsRefuseWritableHomeAncestor(t *testing.T) {
+	_, home, _ := managedUnitsFixture(t)
+	if err := os.Chmod(home, 0770); err != nil { //nolint:gosec // Deliberately writable ancestor fixture.
+		t.Fatal(err)
+	}
+	if units, err := openManagedUnits(home); err == nil {
+		_ = units.Close()
+		t.Fatal("writable home accepted")
 	}
 }
 

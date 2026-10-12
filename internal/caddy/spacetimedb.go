@@ -9,9 +9,18 @@ import (
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/spec"
 )
 
 type ClientIngress struct{ prefix, database string }
+
+type managedSite struct {
+	desired    policy.Desired
+	enginePort spec.Port
+	appPort    spec.Port
+	ingress    ClientIngress
+}
 
 const subscriptionQueryNamePattern = "(t|%74)(o|%6[fF])(k|%6[bB])(e|%65)(n|%6[eE])"
 
@@ -51,6 +60,10 @@ func RenderManagedPreview(preview plan.ManagedRenderPreview) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return renderManagedClient(d, enginePort, appPort, i, true)
+}
+
+func renderManagedClient(d policy.Desired, enginePort, appPort spec.Port, i ClientIngress, preview bool) ([]byte, error) {
 	domains := make([]string, len(d.Domains))
 	for n, domain := range d.Domains {
 		domains[n] = string(domain)
@@ -59,7 +72,12 @@ func RenderManagedPreview(preview plan.ManagedRenderPreview) ([]byte, error) {
 		return nil, errors.New("managed ingress preview: domains required")
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Brine managed ingress preview; execution not admitted\n%s {\n\troute {\n", strings.Join(domains, ", "))
+	if preview {
+		b.WriteString("# Brine managed ingress preview; execution not admitted\n")
+	} else {
+		b.WriteString("# Brine-owned managed client ingress\n")
+	}
+	fmt.Fprintf(&b, "%s {\n\troute {\n", strings.Join(domains, ", "))
 	queryValid := "{http.request.orig_uri.query}.matches('^([^%;]|%[0-9a-fA-F]{2})*$')"
 	subscribePath := i.prefix + "v1/database/" + i.database + "/subscribe"
 	tokenPath := i.prefix + "v1/identity/websocket-token"
