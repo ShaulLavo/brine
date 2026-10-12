@@ -10,6 +10,9 @@ func migrateNativeArchive(ctx context.Context, tx *sql.Tx) error {
 CREATE TABLE data_native_archive_verifications(archive_id TEXT NOT NULL REFERENCES data_archive_plans(archive_id),point_id TEXT NOT NULL REFERENCES data_native_prepared_points(id),canonical BLOB NOT NULL CHECK(length(canonical)<=65536),PRIMARY KEY(archive_id,point_id));
 CREATE TRIGGER data_native_archive_verifications_no_update BEFORE UPDATE ON data_native_archive_verifications BEGIN SELECT RAISE(ABORT,'immutable native archive replay'); END;
 CREATE TRIGGER data_native_archive_verifications_no_delete BEFORE DELETE ON data_native_archive_verifications BEGIN SELECT RAISE(ABORT,'retained native archive replay'); END;
+CREATE TABLE data_native_archive_replays(id TEXT PRIMARY KEY,archive_id TEXT NOT NULL REFERENCES data_archive_plans(archive_id),canonical BLOB NOT NULL CHECK(length(canonical)<=65536));
+CREATE TRIGGER data_native_archive_replays_no_update BEFORE UPDATE ON data_native_archive_replays BEGIN SELECT RAISE(ABORT,'immutable native archive replay'); END;
+CREATE TRIGGER data_native_archive_replays_no_delete BEFORE DELETE ON data_native_archive_replays BEGIN SELECT RAISE(ABORT,'retained native archive replay'); END;
 CREATE TABLE data_native_archive_claims(
  archive_id TEXT NOT NULL REFERENCES data_archive_plans(archive_id),
  archive_operation_id TEXT NOT NULL REFERENCES data_archive_operations(id),

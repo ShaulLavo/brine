@@ -143,6 +143,9 @@ func (h archiveHost) recoveryRuntime(ctx context.Context, p archive.Plan) (out r
 	return out, nil
 }
 func (h archiveHost) InspectArchiveRuntime(ctx context.Context, p archive.Plan) (archive.RuntimeInspection, error) {
+	if nativeArchiveCandidate(p.Candidate) {
+		return h.inspectNativeArchiveRuntime(ctx, p)
+	}
 	r, err := h.recoveryRuntime(ctx, p)
 	if err != nil {
 		return archive.RuntimeInspection{}, err
@@ -154,6 +157,9 @@ func (h archiveHost) InspectArchiveRuntime(ctx context.Context, p archive.Plan) 
 	return archive.RuntimeInspection{Complete: complete}, nil
 }
 func (h archiveHost) ReconcileArchiveRuntime(ctx context.Context, p archive.Plan) (err error) {
+	if nativeArchiveCandidate(p.Candidate) {
+		return h.reconcileNativeArchiveRuntime(ctx, p)
+	}
 	// Inspect every artifact before any cleanup effect, including partial cleanup.
 	r, err := h.recoveryRuntime(ctx, p)
 	if err != nil {
@@ -283,6 +289,9 @@ func (h archiveHost) recoveryQuiescent(ctx context.Context, p archive.Plan) erro
 	return nil
 }
 func (h archiveHost) CheckArchiveRecovery(ctx context.Context, p archive.Plan, o archive.Operation, m archive.Manifest) error {
+	if nativeArchiveCandidate(p.Candidate) {
+		return h.checkNativeArchiveRecovery(ctx, p, o, m)
+	}
 	pol, err := h.service.Policy.Load(ctx)
 	if err != nil {
 		return archive.ErrRefused

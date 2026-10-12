@@ -91,11 +91,14 @@ var operations = map[string]operation{
 	"native_retire_plan":                    {Mutating, decodeNativeRetirePlan},
 	"native_retire":                         {Mutating, decodeNativeRetireApply},
 	"native_retire_inspect":                 {ReadOnly, decodeNativeRetireInspect},
+	"native_retire_resolve":                 {Mutating, decodeNativeRetireResolve},
 	"native_live_restore_review_resolution": {Mutating, decodeNativeRestoreResolutionReview},
 	"native_live_restore_resolve":           {Mutating, decodeNativeRestoreResolve},
 	"native_live_restore_plan":              {Mutating, decodeNativeLiveRestorePlan},
 	"native_live_restore":                   {Mutating, decodeNativeLiveRestoreApply},
 	"native_live_restore_inspect":           {ReadOnly, decodeNativeLiveRestoreInspect},
+	"native_material_set":                   {Mutating, decodeNativeMaterial},
+	"native_material_status":                {ReadOnly, decodeNativeMaterialInspect},
 }
 
 func ClassOf(op string) (Class, bool) { entry, ok := operations[op]; return entry.class, ok }
@@ -131,8 +134,12 @@ func DecodeRequest(data []byte) (Request, error) {
 	if !ok {
 		return Request{}, result.New(result.DispatchOperationRefused, nil)
 	}
-	if _, err := entry.decode(fields["args"]); err != nil {
+	decoded, err := entry.decode(fields["args"])
+	if err != nil {
 		return invalid()
+	}
+	if private, ok := decoded.(interface{ Clear() }); ok {
+		private.Clear()
 	}
 	request.Args = append(json.RawMessage(nil), fields["args"]...)
 	return request, nil
@@ -146,9 +153,12 @@ func EncodeRequest(request Request) ([]byte, error) {
 	if len(data)+1 > RequestLimit {
 		return nil, result.New(result.DispatchInvalidRequest, nil)
 	}
-	if _, err := DecodeRequest(data); err != nil {
+	checked, err := DecodeRequest(data)
+	if err != nil {
+		clear(data)
 		return nil, err
 	}
+	clear(checked.Args)
 	return append(data, '\n'), nil
 }
 
@@ -190,6 +200,7 @@ type Server struct {
 	NativeBackupResolution NativeBackupResolutionOperations
 	NativeBackupStatus     NativeBackupStatusOperations
 	NativeBackupPolicy     NativeBackupPolicyOperations
+	NativeMaterial         NativeMaterialOperations
 	NativeRecovery         NativeRecoveryOperations
 	NativeBackups          NativeBackupOperations
 	NativeLiveRestore      NativeLiveRestoreOperations
@@ -224,6 +235,9 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		return fail(err)
 	}
 	args, _ := operations[request.Op].decode(request.Args)
+	if private, ok := args.(interface{ Clear() }); ok {
+		defer private.Clear()
+	}
 	if preview, ok := args.(ReconcileArgs); ok && preview.DryRun {
 		ctx = context.WithValue(ctx, previewRequestKey{}, true)
 	}
@@ -282,7 +296,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = accepted
-	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs:
+	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs, NativeRetireResolveArgs:
 		value, err = s.nativeRetire(ctx, args)
 		if err != nil {
 			return fail(result.Classify(err))
@@ -292,6 +306,24 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		if err != nil {
 			return fail(result.Classify(err))
 		}
+	case NativeMaterialArgs:
+		if s.NativeMaterial == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		receipt, err := s.NativeMaterial.DeliverMaterial(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = receipt
+	case NativeMaterialInspectArgs:
+		if s.NativeMaterial == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		receipt, err := s.NativeMaterial.InspectMaterial(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = receipt
 	case NativeRecoveryArgs:
 		defer args.Clear()
 		if s.NativeRecovery == nil {

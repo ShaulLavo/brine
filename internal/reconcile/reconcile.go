@@ -221,7 +221,7 @@ func (r Reconciler) inspect(ctx context.Context, op ops.Operation) (Outcome, *co
 	out := Outcome{OperationID: op.ID, Before: op.State, After: ops.RecoveryRequired, Action: "recovery_required", Code: "recovery_required"}
 	// Synchronous secret assignments are not detached deployment jobs and have
 	// no plan. Never replay them through systemd or the deployment executor.
-	if op.Kind == ops.SecretSet {
+	if op.Kind == ops.SecretSet || op.Kind == ops.NativeMaterialSet {
 		if op.State == ops.Queued {
 			out.After, out.Action, out.Code = op.State, "unchanged", ""
 		}

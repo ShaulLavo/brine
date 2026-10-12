@@ -22,7 +22,7 @@ func readNativeInheritedRepositoryMaterial(ctx context.Context, q dataQuerier, p
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
 	common := transition.Common()
-	intent, err := readNativeRepositoryIntentTx(ctx, q, common.Scope.ID)
+	intent, err := readNativeRepositoryIntentByOperation(ctx, q, common.Scope.ApplyOperationID)
 	if err != nil || intent.record.OperationID != common.Scope.ApplyOperationID || intent.record.EpochID != archive.EpochID || intent.record.SourceEpochID != epoch.Record().PredecessorEpochID || intent.record.PointID != common.PreparedPoint.ID || intent.record.Archive != archive {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}

@@ -200,7 +200,11 @@ func (r nativeBackupRuntime) restorePrepared(ctx context.Context, stopped *store
 }
 
 func newNativePreparedRestoreParent(ctx context.Context, permit store.EnginePermit) (*os.Root, string, error) {
-	base, err := engineOpenRoot(string(permit.Reserved.Database.Root))
+	return newNativeRestoreParent(ctx, string(permit.Reserved.Database.Root))
+}
+
+func newNativeRestoreParent(ctx context.Context, rootPath string) (*os.Root, string, error) {
+	base, err := engineOpenRoot(rootPath)
 	if err != nil {
 		return nil, "", errEngineSource
 	}
@@ -226,7 +230,7 @@ func newNativePreparedRestoreParent(ctx context.Context, permit store.EnginePerm
 		}
 		return nil, "", errEngineSource
 	}
-	return parent, filepath.Join(string(permit.Reserved.Database.Root), name), nil
+	return parent, filepath.Join(rootPath, name), nil
 }
 
 func engineMakePrivateDirectoriesForRestore(base *os.Root) error {

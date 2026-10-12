@@ -13,6 +13,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
+	"github.com/ShaulLavo/brine/internal/nativematerial"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
@@ -84,6 +85,12 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
+		case "native_material_set", "native_material_status":
+			receipt, err := nativematerial.DecodeReceipt(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = receipt
 		case "native_point":
 			point, err := nativecapture.DecodePointInspection(fields["data"])
 			if err != nil {
@@ -116,7 +123,7 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "native_backup_resolve", "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_backup_activate", "native_capture", "native_prepare", "native_restore_test", "native_retire", "native_live_restore_resolve", "native_live_restore":
+		case "native_backup_resolve", "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_backup_activate", "native_capture", "native_prepare", "native_restore_test", "native_retire", "native_retire_resolve", "native_live_restore_resolve", "native_live_restore":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()

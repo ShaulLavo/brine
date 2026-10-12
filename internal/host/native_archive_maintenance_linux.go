@@ -35,21 +35,8 @@ func (h archiveHost) nativeArchiveMaintenanceAdmission(ctx context.Context, p ar
 	if err != nil || point.BindingID != d.Binding.BindingID || point.FenceID != coverage.FenceID || point.FenceOwnerOpID != coverage.FenceOwnerOpID {
 		return false, archive.ErrRefused
 	}
-	permit, err := h.service.Store.ReadEnginePermit(ctx, d.Binding.BindingID)
-	if err != nil || permit.Reserved.Database != d.Binding {
-		return false, archive.ErrRefused
-	}
-	held := 0
-	for _, fence := range permit.Fences {
-		if fence.State != data.FenceHeld {
-			continue
-		}
-		if fence.ID != point.FenceID || fence.OperationID != point.FenceOwnerOpID || fence.DatabaseID != d.Binding.DatabaseID || fence.IncarnationID != p.Candidate.Incarnation {
-			return false, archive.ErrRefused
-		}
-		held++
-	}
-	if held != 1 {
+	fence, err := h.service.Store.ReadNativeArchiveFence(ctx, p.ArchiveID, d.Binding.BindingID)
+	if err != nil || fence.ID != point.FenceID || fence.OperationID != point.FenceOwnerOpID || fence.DatabaseID != d.Binding.DatabaseID || fence.IncarnationID != p.Candidate.Incarnation || fence.State != data.FenceHeld {
 		return false, archive.ErrRefused
 	}
 	admitted := true
@@ -92,4 +79,23 @@ func (h archiveHost) nativeArchiveMaintenanceQuiescent(ctx context.Context, p ar
 		}
 	}
 	return ctx.Err()
+}
+
+func nativeArchiveRetentionDeadline(pol policy.Policy, d archive.NativeDatabase, deadline time.Time) (time.Time, error) {
+	for _, epoch := range d.Epochs {
+		retention, known := pol.BackupRetention(epoch.Destination.Reference)
+		if !known || !retention.Admits(epoch.Destination, time.Now().UTC()) {
+			return time.Time{}, archive.ErrRefused
+		}
+		verified, err := time.Parse(time.RFC3339Nano, retention.VerifiedAt)
+		if err != nil {
+			return time.Time{}, archive.ErrRefused
+		}
+		// Admits bounds freshness to thirty days before this conversion.
+		until := verified.Add(time.Duration(retention.FreshnessSeconds) * time.Second) //nolint:gosec // Bounded by retention admission above.
+		if until.Before(deadline) {
+			deadline = until
+		}
+	}
+	return deadline, nil
 }

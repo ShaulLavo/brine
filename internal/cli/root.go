@@ -64,6 +64,7 @@ type Dependencies struct {
 	HostNativeBackupResolution dispatch.NativeBackupResolutionOperations
 	HostNativeBackupStatus     dispatch.NativeBackupStatusOperations
 	HostNativeBackupPolicy     dispatch.NativeBackupPolicyOperations
+	HostNativeMaterial         dispatch.NativeMaterialOperations
 	HostNativeRecovery         dispatch.NativeRecoveryOperations
 	HostNativeBackups          dispatch.NativeBackupOperations
 }

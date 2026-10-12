@@ -20,6 +20,10 @@ func nativeArchiveCandidate(c archive.Candidate) bool {
 	return len(c.Databases) == 1 && c.Databases[0].Engine() == data.EngineSpacetimeDB
 }
 
+func nativeArchiveTreeLimits() engineCopyLimits {
+	return engineCopyLimits{Bytes: 256 << 20, Files: 16384, Depth: 20}
+}
+
 func (h archiveHost) nativeArchiveFacts(ctx context.Context, c archive.Candidate, requireRetention bool) (archive.Plan, error) {
 	var zero archive.Plan
 	if !nativeArchiveCandidate(c) {
@@ -41,7 +45,7 @@ func (h archiveHost) nativeArchiveFacts(ctx context.Context, c archive.Candidate
 		}
 		d.Retention = append(d.Retention, evidence)
 	}
-	limits := engineCopyLimits{Bytes: 256 << 20, Files: 65536, Depth: 20}
+	limits := nativeArchiveTreeLimits()
 	base, err := engineOpenRoot(string(d.Binding.Root))
 	if err != nil {
 		return zero, archive.ErrRefused

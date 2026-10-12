@@ -1408,3 +1408,21 @@ policy grant. Omission and explicit false preserve the previous canonical policy
 bytes and deny purge. Live restore does not grant purge. Plan and execution both
 recheck the grant; revocation prevents new deletion effects. Expiry remains bound
 to the original thirty-day deadline. Neither purpose deletes remote objects.
+
+## Native material delivery
+
+`native_material_set` is a synchronous, mutating, private-stdin operation with
+closed app/preparation-plan/idempotency selectors and four fixed roles. It is
+not a detached task and cannot queue plaintext. Schema 23 retains immutable
+metadata-only material reservations and terminal receipts through the existing
+operation/event journal. Host failures retain their candidate files and versions
+for inspection, never overwrite or resume an unknown write. `native_material_status`
+is read-only and bound to the server-established requester.
+
+The first delivery requires the genuine never-started managed allocation under
+its positively existing original fence. It commits only configured-unpublished
+runtime expectations: native database/publisher identities stay empty and names
+remain empty. Signed JWT claims and desired module metadata grant no native
+initialized authority. Later deliveries remain unreferenced by the active head;
+material activation is a separate reviewed operation. See
+[native material commands](native-material-commands.md) for the packet and flow.
