@@ -94,7 +94,7 @@ func checkNativeLiveRestoreExecutionTx(ctx context.Context, tx *sql.Tx, stopped 
 		return ErrConflict
 	}
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", a.OperationID))
-	if err != nil || string(op.Kind) != "native_live_restore" || op.SecretRef != a.PlanID || op.Requester != spec.Requester.String() || op.App != spec.Facts.App || op.State != ops.Preflight {
+	if err != nil || op.Kind != ops.NativeLiveRestore || op.SecretRef != a.PlanID || op.Requester != spec.Requester.String() || op.App != spec.Facts.App || op.State != ops.Preflight {
 		return errors.Join(ErrConflict, err)
 	}
 	point, err := readNativePreparedPointTx(ctx, tx, a.PreparedPointID)
