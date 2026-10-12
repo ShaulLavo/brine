@@ -121,7 +121,15 @@ denies observation without changing the deployment operator-policy hash.
 The private observer takes an actual owned directory descriptor, never a path,
 PID or caller proof. Missing service, busy consumers and unknown observations
 preserve the workspace. Source review and actual authorized FDSTORE busy/closed
-qualification remain required. Keep all related phase checkboxes unchanged.
+qualification are distinct gates. The observer source is independently reviewed;
+actual authorized FDSTORE and installed-sandbox qualification remains pending.
+Fresh enrollment records actual runner identity before listener installation;
+requests require completed `enrolled` phase and the explicit grant. Cleanup
+records an owned retirement intent after absence proof, adopts a missing directory
+only under that exact issued intent, and returns inspection/review cleanup
+failures. Required negatives include no-intent disappearance, replaced identity,
+missing/false grant, busy FDSTORE and unknown metadata. Keep all related phase
+checkboxes unchanged.
 
 ## T35 qualified runtime prerequisites, admission pending
 

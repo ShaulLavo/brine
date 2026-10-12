@@ -81,17 +81,26 @@ The observer requires the separate protected file
 allow_workspace_observation = true
 ```
 
-The default is false. Missing, omitted or false permission denies observation.
-This file does not alter the deployment operator-policy hash. Scope comes from
-the current protected policy's persistent roots and the enrolled runner identity.
-The private root service observes one actual runner-owned restore-directory
-descriptor; callers cannot supply a path, PID, command or absence proof. It has
-no signal, execution or deletion action.
+Fresh enrollment records the actual runner UID/GID before installing and starting
+`brine-workspace-observer.service`. It creates the protected grant with false
+permission when absent and preserves a valid existing operator-edited grant.
+The listener can start during enrollment; requests remain denied until the
+protected enrollment phase is exactly `enrolled`.
+
+Missing, omitted or false permission denies observation. This file does not
+alter the deployment operator-policy hash. Scope comes from the current
+protected policy's persistent roots and enrolled runner identity. The private
+root service observes one actual runner-owned `0700` directory descriptor under
+`native-restores/ID`, where `ID` is lowercase 32-character hex. Callers cannot
+supply a path, PID, command or absence proof. The service has only read-only
+process-consumer observation authority, with no signal, execution or deletion
+action.
 
 If the service is unavailable, a consumer remains or observation is unknown,
 retain the workspace and report recovery-required. Observation does not release
-a data fence. Source review and actual FDSTORE busy/closed qualification remain
-required before the physical drill can rely on this prerequisite.
+a data fence. The observer source is independently reviewed. Actual FDSTORE
+busy/closed behavior and installed-service sandbox qualification remain pending
+before the physical drill can rely on this prerequisite.
 
 ## Allocate and deliver material
 
@@ -269,6 +278,13 @@ brine backup recovery resolve REVIEW_ID --target TARGET --json
 Use the review within ten minutes. Resolution rereads actual remote and local
 state and never repeats upload or repository initialization. Its completed record
 alone is insufficient; successful task outcome and cleanup must also join.
+
+Cleanup proves absence through the protected observer, then records an owned
+retirement intent before deleting that exact workspace. After a crash, a missing
+directory is adopted only with its matching retained intent and descriptor
+identity. Missing without an issued intent, a replacement tree or unknown
+consumers refuses. Inspection and review also report their stage-cleanup failures;
+a verified remote read cannot hide a failed cleanup or return a success view.
 
 For module publication:
 
