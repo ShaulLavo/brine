@@ -155,7 +155,10 @@ func previewPorts(in Input) ([]target.Port, bool) {
 			busy[*app.AllocatedHostPort.Value] = true
 		}
 		if app.AllocatedHostPort.Status == target.Unknown {
-			return nil, false
+			if !committedPortReserved(in, app) {
+				return nil, false
+			}
+			busy[app.CommittedPortReservation.Port] = true
 		}
 	}
 	for _, release := range in.State.Releases {
@@ -175,4 +178,22 @@ func previewPorts(in Input) ([]target.Port, bool) {
 		}
 	}
 	return available, true
+}
+
+func committedPortReserved(in Input, app target.App) bool {
+	r := app.CommittedPortReservation
+	if r == nil || !app.UnitsAbsent() || in.State.Target != in.Snapshot.Identity || in.Snapshot.Generation.Value == nil || in.Snapshot.Generation.Status != target.KnownStatus || in.State.Generation != *in.Snapshot.Generation.Value {
+		return false
+	}
+	for _, reservation := range in.State.ManagedReservations {
+		if reservation.App == app.Name {
+			return false
+		}
+	}
+	for _, release := range in.State.Releases {
+		if release.App == app.Name && release.ID == r.ReleaseID && release.HostPort == r.Port && release.Managed == nil {
+			return true
+		}
+	}
+	return false
 }

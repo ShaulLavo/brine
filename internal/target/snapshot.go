@@ -70,12 +70,13 @@ type Runner struct {
 }
 
 type App struct {
-	UnitActive        *Observation[bool]    `json:"unit_active,omitempty"`
-	Name              string                `json:"name"`
-	Image             Observation[Image]    `json:"image"`
-	AllocatedHostPort Observation[Port]     `json:"allocated_host_port"`
-	QuadletUnits      Observation[[]Unit]   `json:"quadlet_units"`
-	Secrets           Observation[[]Secret] `json:"secrets"`
+	CommittedPortReservation *CommittedPortReservation `json:"committed_port_reservation,omitempty"`
+	UnitActive               *Observation[bool]        `json:"unit_active,omitempty"`
+	Name                     string                    `json:"name"`
+	Image                    Observation[Image]        `json:"image"`
+	AllocatedHostPort        Observation[Port]         `json:"allocated_host_port"`
+	QuadletUnits             Observation[[]Unit]       `json:"quadlet_units"`
+	Secrets                  Observation[[]Secret]     `json:"secrets"`
 }
 
 // UnitsAbsent requires measured absence of all owned units, not an unknown list.
@@ -391,6 +392,11 @@ func (s Snapshot) validateShape() error {
 }
 
 func (a App) validate() error {
+	if r := a.CommittedPortReservation; r != nil {
+		if validToken(r.ReleaseID) != nil || r.Port < 1024 || validPort(r.Port) != nil || a.AllocatedHostPort.Status != Unknown || !a.UnitsAbsent() {
+			return fmt.Errorf("invalid committed port reservation")
+		}
+	}
 	if a.UnitActive != nil {
 		if err := observe("unit_active", *a.UnitActive, false, nil); err != nil {
 			return err
