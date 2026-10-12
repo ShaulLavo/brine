@@ -8,6 +8,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
+	"github.com/ShaulLavo/brine/internal/ops"
 )
 
 // PublicationAttempt keeps the actual held preparation attached to one retained
@@ -118,6 +119,11 @@ func (s *Store) readPublicationAttemptTx(ctx context.Context, tx *sql.Tx, attemp
 		return current, &IntegrityError{}
 	}
 	current.index = index
+	if attempt.resolverID == "" {
+		if err = checkPublicationActiveOperationTx(ctx, tx, attempt, current.review); err != nil {
+			return current, err
+		}
+	}
 	current.claim, err = readPublicationClaimTx(ctx, tx, attempt.planID)
 	if err != nil || current.claim.ApplyOpID != attempt.operationID || current.claim.BindingID != attempt.binding || current.claim.PointID != index.pointID {
 		return current, errors.Join(ErrConflict, err)
@@ -131,6 +137,15 @@ func (s *Store) readPublicationAttemptTx(ctx context.Context, tx *sql.Tx, attemp
 		return current, errors.Join(ErrConflict, err)
 	}
 	return current, nil
+}
+
+func checkPublicationActiveOperationTx(ctx context.Context, tx *sql.Tx, attempt *PublicationAttempt, review datapublish.PrivateReview) error {
+	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", attempt.operationID))
+	plan := review.Plan()
+	if err != nil || op.Kind != ops.ModulePublishApply || op.State != ops.Preflight || op.SecretRef != plan.ID() || op.App != plan.Facts().App || op.Requester != plan.Requester().String() || op.RecoveryOf != "" {
+		return errors.Join(ErrConflict, err)
+	}
+	return nil
 }
 
 func (s *Store) ReadPublicationAttemptCursor(ctx context.Context, attempt *PublicationAttempt) (datapublish.Cursor, error) {
