@@ -2,6 +2,22 @@
 
 **This is a test plan, not a report of passing deployments.** No real VPS is authorized by this file. Unit tests use synthetic fixtures and fake adapters; destructive integration tests require an explicitly named disposable target and clean test credentials.
 
+P09-04B pure preview checks cover shared managed database syntax, paired optional
+frontend, normalized ENGINE/URL/NAME/ACCEPTS, module SHA-256 versus executed native
+Keccak/API-wire pilot witness, bounded confined client module/schema resolution,
+production v2 schema hashing without marker authority, explicit license/cadence/loss facts, resource ceilings,
+secret-purpose separation, independent ports and typed client-route denies.
+Managed plans must remain conflict-only with zero executable changes. Renderer
+checks cover the typed Podman supervisor service and optional frontend Quadlet;
+an explicit pinned local Caddy CLI can independently adapt both route previews.
+Optional actual Caddy routing probes compare the pure checker with forwarding
+to private HTTP stubs, covering literal/escaped/cleaned paths, duplicate and
+encoded token keys, SDK query fields, malformed encoding and terminal original
+managed-prefix denial before frontend fallback. Caller input mutation must not
+change an already hashed managed plan.
+These checks do not complete T37 or verify physical routing, startup, publishing,
+backup, fence handoff or reboot.
+
 | ID | Scenario | Required evidence | Phase |
 | --- | --- | --- | --- |
 | T01 | Human and JSON version/doctor output | Valid schema, no ANSI or prompts in machine output | 00 |
@@ -49,7 +65,19 @@
 
 Detailed setup, task dependencies and acceptance requirements for T25-T33 live in the [Phase 08 plan](plans/08-webtransport.md). Initial direct-UDP full-app support and shared-port/preview support have separate exit gates.
 
-T34 has local typed-boundary acceptance evidence. Phase 09 cases T35-T42 are **required acceptance, not shipped evidence**. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
+T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequisite slice below; its complete acceptance and T36-T42 remain **required acceptance, not shipped admission**. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
+
+## T35 qualified runtime prerequisites, admission pending
+
+[P09 runtime evidence](evidence/p09-runtime.md) records the actual cases and [tools/spacetime-runtime](../tools/spacetime-runtime/README.md) supplies the finite repository gate. The shared Go production primitives are used by the gate; no duplicate schema renderer or mock runtime replaces native replay.
+
+- Canonical v2 tests use real before/restart schema-v10 payloads. Declaration and correctly rebound Typespace permutations preserve evidence; ordered columns/params/index lists, defaults and access changes remain different. Unsupported sections, duplicate names/JSON, recursion, invalid references and resource overflow refuse.
+- Fixed private metadata tests verify current environment hash rather than immutable initial_program, exact owner/database/names, module-read bracketing, immutable outputs, no SQL/WS paths, private credentials, scrubbed errors, redirects and byte/deadline limits.
+- The repository's native amd64 core gate records 180 explicitly confirmed paired rows, a 135-row closed-only point, and an exact 180-row active-prefix replay. Missing historical replicas can falsely reconstruct initial metadata with bootstrap available; withholding bootstrap in an isolated copy refuses. Source seals and verifier disappearance are checked. Source SIGINT exit 1 is unknown and earns no exact receipt.
+- The earlier physical arm64 cases cover torn tails, missing logs/snapshot objects, twelve rotation/finalization captures, mutable completed segments, low-rate tail exposure, metadata-generation drift, ACK-only loss on exit 0, confirmed-read survival, active WS, scheduled writes, SIGTERM/kill/timeout/OOM and rootless UID/entrypoint SIGINT forwarding.
+- Supplied-key JWT ingress denies missing/forged/signed-expired credentials and reserved management paths; valid ordinary user WS/exchange passes. External OIDC is unexecuted. Native preflight binding/default backfill passed; AutoMigrate's destructive/access-changing results are not authority.
+
+Remaining T35 predicates are production startup ownership/quiescence/fence composition and independent exact native framing/high-water coverage qualification. The public spec and engine dispatch remain unsupported. Full protected Brine/S3 capture, restore and interruption admission belongs to T37-T41 and the physical exit drill.
 
 ## T16 schema policy acceptance, physical completion pending
 
@@ -382,3 +410,38 @@ Closed engine records reject unknown, missing, null, duplicate and mismatched ta
 `internal/data/ownership_test.go` and `internal/restore/ownership_test.go` mutate caller/getter evidence and prove retained source, barrier, declared invariants, coverage, sentinel and nested allocation proofs stay unchanged. The verifier still enforces a two-row requirement after the caller changes its original slice to one row. Null negatives cover every required concrete binding/source/barrier field and invalid binding/epoch tokens. Independent overlay reproductions pass after these fixes.
 
 `internal/plan/testdata/sqlite-allocated-*.json`, `sqlite-unknown-*.json` and `internal/restore/testdata/sqlite-engine-receipt.json` preserve actual pre-extraction bytes. Independent review compiled the actual base with the same fixtures and confirmed all five outputs. `scripts/check-engine-boundary.sh` forces golden regeneration off even under inherited update settings. Full regression tests, Linux/darwin vet, CLI build, static authority/dead-code/clone gates and focused race tests pass. T34 claims local SQLite preservation and fail-closed typed dispatch only; physical SpacetimeDB acceptance remains T35-T42.
+
+### T36 fixture artifact, client and publication cases
+
+Run `fixtures/spacetimedb-app/build.sh` with a new private build directory and
+`smoke.py` against its pinned runtime. The latter imports the shared production
+observer through `tools/spacetime-runtime`; it does not reproduce its renderer.
+
+- Distinct mutually exclusive module variants and identical independent v1
+  builds. Retain artifact SHA-256 and explicit module/client pairing; the native
+  program identity uses its own Keccak and wire representation.
+- Base and additive module clients decode the same paired rows. A defaulted
+  column uses regenerated official bindings, preserves prior column order and
+  default seven, and is not accepted by the published base client image.
+- An outsider's write refuses, excess schedules refuse, and client writes
+  refuse while the bounded scheduler writes without connected clients.
+- An actual browser receives an explicitly confirmed WebSocket subscription
+  and records a write only after the matching confirmed marker. Its user input
+  is cleared and browser storage stays empty. An unconfirmed acknowledgement
+  cannot construct recovery evidence.
+- A stopped private tree copy replays identical paired sequence/marker/time
+  values and the complete shared canonical/module/owner/name observation.
+  A marker read on the base fixture does not change rows. A separate lifecycle
+  candidate changes the marker during connection and is refused by the fixture
+  invariant reader.
+- Preflight keeps source rows unchanged. Nonempty table removal and access
+  changes require independent Brine review even when native preflight says
+  automatic. Uncertain or merely clean candidate shutdown supplies no exact
+  capture receipt by itself.
+- Public app configuration has only endpoint/name fields. Publisher/signing/S3
+  material never enters Wasm, browser assets, app layers or retained workflow
+  evidence. App startup never publishes a module.
+- The main-only publication job consumes verified bytes, records actual GHCR
+  index and both platform digests, and binds the source revision and retained
+  module digest. Execute the published amd64 and arm64 images; cross-builds
+  alone do not establish either container runtime or remote restore acceptance.

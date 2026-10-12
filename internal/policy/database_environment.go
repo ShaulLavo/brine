@@ -11,6 +11,17 @@ import (
 // DatabaseEnvironmentValues derives public app connection settings from desired input.
 // CanonicalBytes regenerates these values so both sources and settings are hash material.
 func (d Desired) DatabaseEnvironmentValues() []Environment {
+	if d.SpacetimeDB != nil {
+		engine := d.SpacetimeDB
+		if len(d.Domains) == 0 {
+			return nil
+		}
+		domains := slices.Clone(d.Domains)
+		slices.Sort(domains)
+		prefix := engine.EnvironmentPrefix()
+		accepts := compatibilityAccepts(d.SchemaCompatibility, engine.Name)
+		return []Environment{{Name: prefix + "_ACCEPTS", Value: accepts}, {Name: prefix + "_ENGINE", Value: "spacetimedb"}, {Name: prefix + "_NAME", Value: engine.Database}, {Name: prefix + "_URL", Value: "https://" + string(domains[0]) + engine.ClientPrefix()}}
+	}
 	var environment []Environment
 	compatibility := make(map[data.DatabaseName][]string, len(d.SchemaCompatibility))
 	for _, c := range d.SchemaCompatibility {
@@ -28,4 +39,16 @@ func (d Desired) DatabaseEnvironmentValues() []Environment {
 	}
 	slices.SortFunc(environment, func(a, b Environment) int { return strings.Compare(a.Name, b.Name) })
 	return environment
+}
+
+func compatibilityAccepts(sets []data.SQLiteSchemaCompatibility, name data.DatabaseName) string {
+	for _, c := range sets {
+		if c.Database != name {
+			continue
+		}
+		values := slices.Clone(c.Accepts)
+		slices.Sort(values)
+		return strings.Join(values, ",")
+	}
+	return ""
 }

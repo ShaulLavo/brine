@@ -45,6 +45,68 @@ Pi drill.
 
 ## Command surface
 
+### Managed SpacetimeDB previews (P09-04B)
+
+The app declaration accepts one `[[databases]]` entry with
+`engine = "spacetimedb"`, the existing alias/root/backup-destination fields and
+a nested `[databases.spacetimedb]` service declaration. The payload binds a
+digest-pinned image, pinned runtime version, logical database name, module Wasm
+and schema-v10 sidecar paths, runtime identity, bounded resources and distinct
+publisher/signing/auth references. Shared `[[schema_compatibility]]` selects
+accepted markers for the alias with `startup = "preserve"`. The current marker
+is the default accepted marker. Mixed SQLite and SpacetimeDB declarations are
+refused in this first delivery. Existing SQLite canonical records are unchanged.
+
+Application `image` and `container_port` remain a pair. Both may be omitted for
+an engine-only declaration. Such a declaration has no frontend port, container,
+data mount or application secret input. When present, the app receives
+`BRINE_DB_<NAME>_ENGINE=spacetimedb`, `_URL`, `_NAME` and sorted `_ACCEPTS`.
+The URL uses the first sorted owned domain and fixed managed prefix
+`/_brine/db/<alias>/`, including its trailing slash. It has no SQLite `_PATH`.
+Browser assets obtain only public URL/name settings through their app's config.
+
+Protected operator `[spacetimedb]` policy supplies license-use authority and
+explicit capture/verification intervals, maintenance and remote-loss budgets.
+The 24-hour/seven-day proposals are not automatic admission or a durability
+guarantee. Combined engine and frontend resource requests fit operator ceilings.
+An omitted frontend resource request uses the remaining memory and PID ceilings
+after the engine request, and refuses when either remaining budget is empty.
+Engine credentials cannot be reused as app secrets.
+
+Managed planning returns `managed_engine_not_admitted` and no executable
+changes. Renderer previews describe independent loopback ports, a typed Podman
+supervisor `.service` and optional ordinary frontend Quadlet. The engine service
+invokes only `brine host engine-exec BINDING`; authenticated runtime configuration,
+Podman arguments, startup serialization and supervision are later integration.
+Preview values cannot authorize installation, start, publication or proxy changes.
+
+Ingress preview allows selected-database WebSocket subscription and temporary
+WebSocket-token exchange with credential presence. It denies other managed
+requests before frontend fallback. The engine must authenticate JWTs; Caddy
+does not validate them. Real forwarding and boot/fence qualification remain
+P09-04 integration acceptance.
+
+The executable route guard matches the original literal client path, so escaped
+and cleaned path aliases cannot pass the allowlist. Subscription queries retain
+SDK fields such as `confirmed`, `compression` and `connection_id`, but require
+one nonempty token and reject duplicate token keys, including encoded aliases.
+Malformed query encoding refuses. Both original decoded and normalized managed
+namespaces terminate before frontend fallback, including traversal out of the
+reserved prefix. Optional local checks drive the actual pinned Caddy config
+against private HTTP stubs. They qualify route selection, not native JWT or
+WebSocket subscription behavior.
+
+Wasm artifact SHA-256 and native runtime identity are distinct. The pinned
+runtime hashes program bytes with Keccak-256; API JSON encodes a little-endian
+u256, unlike its display digest. Client `ParseFile` reads confined regular files
+relative to the app declaration, refuses symlink components, and bounds Wasm to
+64 MiB and schema-v10 JSON to 1 MiB. It uses the production v2 canonicalizer and
+retains both program identities and the canonical schema hash as untrusted
+desired input. The explicit app marker and shared accepted markers stay intact;
+the sidecar creates no schema registration or initializer. Host dispatch never
+opens the client paths. Reviewed private staging must prove actual module/schema and
+register its marker before startup authority exists. A sidecar cannot grant it.
+
 ~~~text
 brine init [directory]
 brine validate ./brine.toml --policy ./policy.toml
@@ -523,6 +585,12 @@ Current database declarations, bindings, schema definitions/observations, restor
 The existing TOML declaration defaults to SQLite at parsing. An explicit `engine = "sqlite"` produces the same normalized input and canonical desired/plan bytes. `engine = "spacetimedb"` and unknown engines remain refused until their runtime, identity, schema, capture and authority gates ship.
 
 Existing observation calls use bounded engine dispatch to the fixed SQLite observer. Archive snapshot capture uses bounded engine dispatch to the SQLite snapshot primitive. The operation owner retains fence, writer-quiescence, journal and source-identity checks. Host initialization, archive and restore checks use engine dispatch for isolated verification. SpacetimeDB observation, capture and verification currently refuse before binding/credential access, staging or runtime effects. Its admitted backup capabilities remain false.
+
+P09-02 adds the qualified `internal/spacetimedb` primitives without enabling that dispatch. `CanonicalSchemaV10` returns immutable bounded schema evidence using `spacetimedb-v10-expanded-v2`. Named declaration sets are sorted after positional type-reference expansion; ordered columns, variants, parameters, index columns and default bytes remain ordered. Unknown sections, recursive or invalid graphs, duplicate declarations and budget overflow refuse. Its versioned schema hash supplies the derived engine marker independently of a game's marker table.
+
+`ObserveCurrent` accepts a validated literal-loopback location, privately resolved publisher credential, expected native database/publisher/name binding and bounded deadline. Location validation is not ownership or startup authority. It performs fixed info/names/environment/schema-v10/environment GETs, requires matching current module wire identities and returns no credentials or raw headers. SQL/WS hooks are not an observer substitute. Host callers retain control serialization and establish actual runtime ownership. The module wire identity is native Keccak-256 represented through little-endian u256, distinct from Wasm SHA-256 and native digest display.
+
+Initialized startup verification must recover current persisted `st_module` in a private stopped-source copy with external bootstrap `program-bytes` inaccessible. Historical control plus missing replicas can otherwise reconstruct matching initial metadata and empty data. The original stays stopped and unchanged; verifier effects stay contained. Host/store ownership, process/job/lifetime absence, source seals, fences, epoch and startup serialization construct the future opaque startup proof. The P09-02 manual experiment does not construct that production proof or enable live starts. Exact data coverage also requires independently qualified native framing/high-water and replay evidence, not metadata equality or native `Complete` alone. See [the pinned runtime contract](evidence/p09-runtime.md).
 
 Shared startup proof binds explicit engine, incarnation, database, binding and epoch IDs, local destination ownership, settled source state and an affirmative unfenced/released state. The SQLite runtime then independently verifies the exact Litestream configuration and hash. A common identity proof is not an engine-service permit by itself. Missing/unknown engine, fence or ownership and cross-engine evidence refuse startup. Existing durable-fence, credential, reboot and archive rules remain in force.
 

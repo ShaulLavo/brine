@@ -29,7 +29,9 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
-	DatabaseEnvironment []Environment `json:"database_environment,omitempty"`
+	SpacetimeDB         *spec.SpacetimeDB `json:"spacetimedb,omitempty"`
+	SpacetimePolicy     *SpacetimePolicy  `json:"spacetime_policy,omitempty"`
+	DatabaseEnvironment []Environment     `json:"database_environment,omitempty"`
 
 	RestoreInvariants    []data.RestoreInvariant          `json:"restore_invariants,omitempty"`
 	BackupRetention      []data.RetentionEvidence         `json:"backup_retention,omitempty"`
@@ -57,6 +59,16 @@ type Desired struct {
 }
 
 func (d Desired) CanonicalBytes() ([]byte, error) {
+	if d.SpacetimeDB == nil && d.SpacetimePolicy != nil {
+		return nil, data.ErrInvalid
+	}
+	if d.SpacetimeDB != nil {
+		if err := ValidateManagedDesired(d); err != nil {
+			return nil, err
+		}
+		d.SpacetimeDB = d.SpacetimeDB.Clone()
+		slices.Sort(d.SpacetimeDB.Module.Accepts)
+	}
 	d.DatabaseEnvironment = d.DatabaseEnvironmentValues()
 	if d.MinimumFreeDiskBytes == 0 {
 		d.MinimumFreeDiskBytes = DefaultMinimumFreeDiskBytes
@@ -105,6 +117,9 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 func Normalize(input spec.App, p Policy) (Desired, error) {
 	if p.config == nil {
 		return Desired{}, refuse("policy.required", "$", "explicit operator policy is required")
+	}
+	if input.SpacetimeDB != nil {
+		return normalizeManaged(input, p)
 	}
 	// Branded primitives and App are public Go values. Reuse the spec boundary to
 	// refuse forged or mutated values rather than trusting a cast as validation.
@@ -273,11 +288,14 @@ func (p Policy) CheckSecret(app spec.Name, ref spec.SecretReference) error {
 
 // Stateless is affirmative only when no persistence declaration is present.
 func (d Desired) Stateless() bool {
-	return len(d.RestoreInvariants) == 0 && len(d.BackupRetention) == 0 && len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0 && len(d.SchemaArtifacts) == 0
+	return d.SpacetimeDB == nil && d.SpacetimePolicy == nil && len(d.RestoreInvariants) == 0 && len(d.BackupRetention) == 0 && len(d.PersistentRoots) == 0 && d.Backup == nil && len(d.BackupDestinations) == 0 && d.SchemaVersion == 1 && d.Runtime == nil && len(d.Databases) == 0 && len(d.SchemaCompatibility) == 0 && len(d.SchemaDefinitions) == 0 && len(d.SchemaArtifacts) == 0
 }
 
 // App reconstructs a detached spec input. It grants no policy authorization.
 func (d Desired) App() spec.App {
+	if d.SpacetimeDB != nil {
+		return managedApp(d)
+	}
 	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}, Databases: slices.Clone(d.Databases), SchemaCompatibility: slices.Clone(d.SchemaCompatibility), SchemaDefinitions: slices.Clone(d.SchemaDefinitions), SchemaArtifacts: slices.Clone(d.SchemaArtifacts), RestoreInvariants: slices.Clone(d.RestoreInvariants)}
 	if d.Runtime != nil {
 		r := *d.Runtime

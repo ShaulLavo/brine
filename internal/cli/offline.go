@@ -43,12 +43,28 @@ func newValidateCmd(machine *bool) *cobra.Command {
 				}{desired, keys}
 				return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), projection))
 			}
-			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Valid app %s\nImage: %s\nDomains: %s\nContainer port: %d\nPolicy: %s\nEnvironment: %d keys (values hidden), secrets: %d references\n", desired.Name, desired.Image, joinDomains(desired), desired.ContainerPort, desired.PolicyVersion, len(desired.Environment), len(desired.Secrets))
-			return err
+			return printValidatedApp(cmd.OutOrStdout(), desired)
 		},
 	}
 	cmd.Flags().StringVar(&policyPath, "policy", "", "Explicit operator policy TOML file")
 	return cmd
+}
+
+func printValidatedApp(output io.Writer, desired policy.Desired) error {
+	if desired.SpacetimeDB == nil {
+		_, err := fmt.Fprintf(output, "Valid app %s\nImage: %s\nDomains: %s\nContainer port: %d\nPolicy: %s\nEnvironment: %d keys (values hidden), secrets: %d references\n", desired.Name, desired.Image, joinDomains(desired), desired.ContainerPort, desired.PolicyVersion, len(desired.Environment), len(desired.Secrets))
+		return err
+	}
+	db := desired.SpacetimeDB
+	if _, err := fmt.Fprintf(output, "Valid app %s\nManaged engine: SpacetimeDB %s\nEngine image: %s\nDatabase: %s\nEngine resources: %d MiB memory, %d PIDs\n", desired.Name, db.Version, db.Image, db.Database, db.Resources.MemoryMB, db.Resources.PIDsLimit); err != nil {
+		return err
+	}
+	frontend := "Frontend: none\n"
+	if desired.App().HasAppContainer() {
+		frontend = fmt.Sprintf("Frontend image: %s\nFrontend container port: %d\nFrontend resources: %d MiB memory, %d PIDs\n", desired.Image, desired.ContainerPort, desired.Resources.MemoryMB, desired.Resources.PIDsLimit)
+	}
+	_, err := fmt.Fprintf(output, "%sDomains: %s\nPolicy: %s\nEnvironment: %d keys (values hidden), secrets: %d references\n", frontend, joinDomains(desired), desired.PolicyVersion, len(desired.Environment), len(desired.Secrets))
+	return err
 }
 
 func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command {
@@ -132,15 +148,7 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 				// empty committed state. Installed releases must come from --state.
 				state.Target = snapshot.Identity
 			}
-			image := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: strings.SplitN(string(desired.Image), "@", 2)[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}}
-			if snapshot.Apps.Status == target.KnownStatus {
-				for _, app := range *snapshot.Apps.Value {
-					if app.Name == string(desired.Name) && app.Image.Status == target.KnownStatus && app.Image.Value.Digest == image.Digest {
-						image.Platform = app.Image.Value.Platform
-						break
-					}
-				}
-			}
+			image := offlineImage(desired, snapshot)
 			input := plan.Input{Desired: desired, Snapshot: snapshot, Image: image, State: state}
 			intent, err := plan.Build(input)
 			if err != nil {
@@ -189,6 +197,24 @@ func newPlanCmd(machine *bool, version string, deps Dependencies) *cobra.Command
 	cmd.Flags().StringVar(&statePath, "state", "", "Committed Brine release state JSON file (required for installed apps)")
 	cmd.Flags().StringVar(&outDir, "out", "", "Existing directory for the private, hash-named offline plan file")
 	return cmd
+}
+
+func offlineImage(desired policy.Desired, snapshot target.Snapshot) plan.Image {
+	reference := desired.Image
+	if reference == "" && desired.SpacetimeDB != nil {
+		reference = desired.SpacetimeDB.Image
+	}
+	image := plan.Image{ManifestDigest: target.Observation[string]{Status: target.Unknown}, Digest: strings.SplitN(string(reference), "@", 2)[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}}
+	if snapshot.Apps.Status != target.KnownStatus {
+		return image
+	}
+	for _, app := range *snapshot.Apps.Value {
+		if app.Name == string(desired.Name) && app.Image.Status == target.KnownStatus && app.Image.Value.Digest == image.Digest {
+			image.Platform = app.Image.Value.Platform
+			return image
+		}
+	}
+	return image
 }
 
 func offlineSpecArg(_ *cobra.Command, args []string) error {
