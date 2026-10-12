@@ -29,6 +29,12 @@ func ParseFile(ctx context.Context, filename string, raw []byte) (App, error) {
 	if err != nil {
 		return App{}, err
 	}
+	if app.SpacetimeDB != nil {
+		if err := app.resolveManagedFiles(filepath.Dir(filename)); err != nil {
+			return App{}, err
+		}
+		return app, nil
+	}
 	artifacts := make([]data.SchemaArtifact, 0, len(app.SchemaFiles))
 	for _, file := range app.SchemaFiles {
 		raw, err := readSchemaFile(filepath.Dir(filename), filepath.FromSlash(file.Path))
@@ -53,6 +59,13 @@ func ParseFile(ctx context.Context, filename string, raw []byte) (App, error) {
 }
 
 func readSchemaFile(directory, filename string) ([]byte, error) {
+	return readRelativeFile(directory, filename, 1<<20)
+}
+
+func readRelativeFile(directory, filename string, limit int) ([]byte, error) {
+	if !validSchemaPath(filepath.ToSlash(filename)) || limit < 1 {
+		return nil, data.ErrInvalid
+	}
 	root, err := os.OpenRoot(directory)
 	if err != nil {
 		return nil, err
@@ -70,7 +83,7 @@ func readSchemaFile(directory, filename string) ([]byte, error) {
 		if info.Mode()&os.ModeSymlink != 0 || (i < len(components)-1 && !info.IsDir()) {
 			return nil, data.ErrInvalid
 		}
-		if i == len(components)-1 && (!info.Mode().IsRegular() || info.Size() > 1<<20) {
+		if i == len(components)-1 && (!info.Mode().IsRegular() || info.Size() > int64(limit)) {
 			return nil, data.ErrInvalid
 		}
 	}
@@ -83,11 +96,11 @@ func readSchemaFile(directory, filename string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+	if !info.Mode().IsRegular() || info.Size() > int64(limit) {
 		return nil, data.ErrInvalid
 	}
-	raw, err := io.ReadAll(io.LimitReader(f, (1<<20)+1))
-	if err != nil || len(raw) > 1<<20 {
+	raw, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil || len(raw) > limit {
 		return nil, data.ErrInvalid
 	}
 	return raw, nil

@@ -1,0 +1,38 @@
+schema_version = 1
+name = "hello"
+domains = ["web.example.com", "other.example.net"]
+
+[[databases]]
+engine = "spacetimedb"
+name = "main"
+persistent_root = "/srv/brine-data"
+backup_destination = "primary"
+
+[databases.spacetimedb]
+image = "registry.example.com:5000/team/engine@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+version = "2.11.0"
+database = "game"
+publisher = "publisher"
+signing_private = "signing-private"
+signing_public = "signing-public"
+auth = "auth"
+
+[databases.spacetimedb.module]
+file = "module/game.wasm"
+schema = "module/schema-v10.json"
+marker = "game-v1"
+
+[databases.spacetimedb.runtime]
+uid = 1000
+gid = 1000
+
+[databases.spacetimedb.resources]
+memory_mb = 128
+pids_limit = 128
+page_pool_mb = 64
+stop_timeout_seconds = 30
+
+[[schema_compatibility]]
+database = "main"
+accepts = ["game-v2", "game-v1"]
+startup = "preserve"
