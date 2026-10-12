@@ -15,6 +15,17 @@ import (
 	"github.com/ShaulLavo/brine/internal/nativeevidence"
 )
 
+type publicationDisposalRecord struct {
+	Scope              datapublish.ProofScope `json:"scope"`
+	VerificationSHA256 string                 `json:"verification_sha256"`
+	Publication        json.RawMessage        `json:"publication"`
+	Preflight          json.RawMessage        `json:"preflight"`
+	ReaderNonce        string                 `json:"reader_nonce"`
+	ReaderViewSHA256   string                 `json:"reader_view_sha256"`
+	ReaderImageID      string                 `json:"reader_image_id"`
+	ReaderDisposedAt   time.Time              `json:"reader_disposed_at"`
+}
+
 func checkPublicationStageDisposedTx(ctx context.Context, tx *sql.Tx, attempt *PublicationAttempt, cursor datapublish.Cursor, step datapublish.Step, process PublicationReviewObservation) ([]byte, error) {
 	var nonce string
 	if err := tx.QueryRowContext(ctx, "SELECT nonce FROM data_module_publication_effects WHERE plan_id=? AND operation_id=? AND step=?", attempt.planID, attempt.operationID, step).Scan(&nonce); err != nil {
@@ -79,16 +90,7 @@ func (s *Store) RecordPublicationDisposed(ctx context.Context, attempt *Publicat
 	if err != nil {
 		return current.cursor, err
 	}
-	raw, err := json.Marshal(struct {
-		Scope              datapublish.ProofScope `json:"scope"`
-		VerificationSHA256 string                 `json:"verification_sha256"`
-		Publication        json.RawMessage        `json:"publication"`
-		Preflight          json.RawMessage        `json:"preflight"`
-		ReaderNonce        string                 `json:"reader_nonce"`
-		ReaderViewSHA256   string                 `json:"reader_view_sha256"`
-		ReaderImageID      string                 `json:"reader_image_id"`
-		ReaderDisposedAt   time.Time              `json:"reader_disposed_at"`
-	}{current.cursor.Scope(), verifiedSHA, publication, preflight, verified.ReaderNonce, verified.ReaderViewSHA256, verified.ReaderImageID, verified.ReaderDisposedAt})
+	raw, err := json.Marshal(publicationDisposalRecord{current.cursor.Scope(), verifiedSHA, publication, preflight, verified.ReaderNonce, verified.ReaderViewSHA256, verified.ReaderImageID, verified.ReaderDisposedAt})
 	if err != nil {
 		return current.cursor, ErrInvalid
 	}
@@ -103,6 +105,29 @@ func (s *Store) RecordPublicationDisposed(ctx context.Context, attempt *Publicat
 		return current.cursor, errors.Join(ErrConflict, err)
 	}
 	return next, tx.Commit()
+}
+
+func readPublicationDisposalTx(ctx context.Context, tx *sql.Tx, attempt *PublicationAttempt, current publicationAttemptState) (publicationDisposalRecord, string, error) {
+	var record publicationDisposalRecord
+	raw, hash, err := readPublicationProofTx(ctx, tx, attempt.planID, "disposal", "staging_disposal")
+	if err != nil || json.Unmarshal(raw, &record) != nil {
+		return record, "", errors.Join(&IntegrityError{}, err)
+	}
+	canonical, _ := json.Marshal(record)
+	verified, verifiedSHA, err := readPublicationVerificationTx(ctx, tx, attempt, current)
+	if err != nil || !bytes.Equal(raw, canonical) || record.Scope != current.cursor.Scope() || record.VerificationSHA256 != verifiedSHA || record.ReaderNonce != verified.ReaderNonce || record.ReaderViewSHA256 != verified.ReaderViewSHA256 || record.ReaderImageID != verified.ReaderImageID || !record.ReaderDisposedAt.Equal(verified.ReaderDisposedAt) {
+		return record, "", errors.Join(&IntegrityError{}, err)
+	}
+	published, _, err := readPublicationPublishedTx(ctx, tx, current.cursor)
+	if err != nil {
+		return record, "", err
+	}
+	publication, err := checkPublicationStageDisposedTx(ctx, tx, attempt, current.cursor, datapublish.PublishStage, published.Process)
+	preflight, preflightErr := readPublicationPreflightDisposalTx(ctx, tx, attempt, current)
+	if err != nil || preflightErr != nil || !bytes.Equal(record.Publication, publication) || !bytes.Equal(record.Preflight, preflight) {
+		return record, "", errors.Join(&IntegrityError{}, err, preflightErr)
+	}
+	return record, hash, nil
 }
 
 func readPublicationPreflightDisposalTx(ctx context.Context, tx *sql.Tx, attempt *PublicationAttempt, current publicationAttemptState) ([]byte, error) {
