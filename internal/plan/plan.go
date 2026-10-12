@@ -237,6 +237,9 @@ func (p Plan) CanonicalBytes() ([]byte, error) {
 	if p.Managed != nil && (!p.Managed.Valid() || len(p.SchemaArtifacts) != 0 || len(p.DataAllocations) != 0 || len(p.DataMounts) != 0 || len(p.DataSchemas) != 0 || len(p.DataCredentials) != 0 || p.Backup != nil || p.Runtime != nil || p.ReplicaPrevious != nil) {
 		return nil, fmt.Errorf("managed plan contains foreign data payload")
 	}
+	if p.ManagedLifecycle != nil && (p.Managed == nil || !p.ManagedLifecycle.Valid(p.Lifecycle, *p.Managed, p.ManagedIntentRevision)) {
+		return nil, fmt.Errorf("invalid managed lifecycle intent")
+	}
 	b, e := json.Marshal(p)
 	if e != nil {
 		return nil, e

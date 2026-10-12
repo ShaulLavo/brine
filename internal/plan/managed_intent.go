@@ -27,3 +27,14 @@ type ManagedLifecyclePlan struct {
 func DesiredComponentsForDeployment(m ManagedServicePlan) ManagedLifecyclePlan {
 	return ManagedLifecyclePlan{Engine: true, Frontend: m.Frontend != nil, Ingress: true, EngineRunning: true, FrontendRunning: m.Frontend != nil, IngressServing: true}
 }
+
+func (m ManagedLifecyclePlan) Valid(action ChangeKind, service ManagedServicePlan, revision uint64) bool {
+	frontend := service.Frontend != nil
+	if service.State != data.EngineInitialized || m.Engine == frontend || m.Frontend != frontend || !m.Ingress || m.DesiredBeforeRevision != revision {
+		return false
+	}
+	if action == StopApp {
+		return !m.FrontendRunning && !m.IngressServing && (!m.Engine || !m.EngineRunning)
+	}
+	return (action == StartApp || action == RestartApp) && m.EngineRunning && m.FrontendRunning == frontend && m.IngressServing
+}

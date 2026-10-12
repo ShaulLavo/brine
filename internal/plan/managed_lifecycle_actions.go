@@ -46,16 +46,14 @@ func buildManagedLifecycle(in Input, action ChangeKind) (Plan, error) {
 	p.Lifecycle = action
 	p.Diff = nil
 	p.Changes = []Change{}
-	intent := &ManagedLifecyclePlan{Engine: current.Managed.Frontend == nil, Frontend: current.Managed.Frontend != nil, Ingress: action == StopApp, EngineRunning: true, FrontendRunning: current.Managed.Frontend != nil, IngressServing: true}
+	intent := &ManagedLifecyclePlan{Engine: current.Managed.Frontend == nil, Frontend: current.Managed.Frontend != nil, Ingress: true, EngineRunning: true, FrontendRunning: current.Managed.Frontend != nil, IngressServing: true}
 	if in.Managed.Intent != nil {
 		intent.DesiredBeforeRevision = in.Managed.Intent.Revision
 	}
 	if action == StopApp {
 		intent.FrontendRunning = false
 		intent.IngressServing = false
-		if intent.Engine {
-			intent.EngineRunning = false
-		}
+		intent.EngineRunning = !intent.Engine && in.Managed.Intent != nil && in.Managed.Intent.Current && in.Managed.Intent.EngineRunning
 	}
 	p.ManagedLifecycle = intent
 	if p.Kind != Conflict {
