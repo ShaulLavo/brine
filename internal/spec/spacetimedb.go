@@ -228,9 +228,6 @@ func (d SpacetimeDB) Validate() error {
 	if !seen[d.Module.Marker] {
 		return data.ErrInvalid
 	}
-	if !engineSecretReference.MatchString(string(d.RecoveryPasswordRef)) {
-		return data.ErrInvalid
-	}
 	refs := d.References()
 	seenRefs := map[SecretReference]bool{}
 	for _, ref := range refs {
