@@ -11,11 +11,13 @@ import (
 const ProjectionFormat = "brine-confirmed-pairs-projection-v1"
 
 type ConfirmedPairsProjection struct {
-	Format string      `json:"format"`
-	Left   PairTable   `json:"left"`
-	Right  PairTable   `json:"right"`
-	Marker MarkerTable `json:"marker"`
-	Note   *NoteTable  `json:"note"`
+	Format    string         `json:"format"`
+	Left      PairTable      `json:"left"`
+	Right     PairTable      `json:"right"`
+	Marker    MarkerTable    `json:"marker"`
+	Note      *NoteTable     `json:"note"`
+	Publisher PublisherTable `json:"publisher"`
+	Sequence  SequenceTable  `json:"sequence"`
 }
 
 type PairTable struct {
@@ -55,6 +57,28 @@ type NoteRow struct {
 	Note string `json:"note"`
 }
 
+type PublisherTable struct {
+	ID   uint32         `json:"table_id"`
+	Name string         `json:"name"`
+	Rows []PublisherRow `json:"rows"`
+}
+
+type PublisherRow struct {
+	ID       uint8  `json:"id"`
+	Identity string `json:"identity"`
+}
+
+type SequenceTable struct {
+	ID   uint32        `json:"table_id"`
+	Name string        `json:"name"`
+	Rows []SequenceRow `json:"rows"`
+}
+
+type SequenceRow struct {
+	ID       uint8  `json:"id"`
+	Sequence uint64 `json:"sequence"`
+}
+
 func (e Evidence) ConfirmedPairsProjection() (ConfirmedPairsProjection, bool) {
 	if e.value.Projection == nil {
 		return ConfirmedPairsProjection{}, false
@@ -78,6 +102,8 @@ func cloneProjection(value ConfirmedPairsProjection) ConfirmedPairsProjection {
 	value.Left = clonePairTable(value.Left)
 	value.Right = clonePairTable(value.Right)
 	value.Marker.Rows = slices.Clone(value.Marker.Rows)
+	value.Publisher.Rows = slices.Clone(value.Publisher.Rows)
+	value.Sequence.Rows = slices.Clone(value.Sequence.Rows)
 	if value.Note != nil {
 		note := *value.Note
 		note.Rows = slices.Clone(note.Rows)
@@ -134,8 +160,11 @@ func projectionNested(raw json.RawMessage, requested Limits) error {
 	if nullable(raw) {
 		return nil
 	}
-	fields, err := projectionObject(raw, "note", "format", "left", "right", "marker", "note")
+	fields, err := projectionObject(raw, "note", "format", "left", "right", "marker", "note", "publisher", "sequence")
 	if err != nil || pairObject(fields["left"], requested) != nil || pairObject(fields["right"], requested) != nil || textObject(fields["marker"], requested, "revision") != nil {
+		return ErrEvidence
+	}
+	if textObject(fields["publisher"], requested, "identity") != nil || textObject(fields["sequence"], requested, "sequence") != nil {
 		return ErrEvidence
 	}
 	if !nullable(fields["note"]) {
@@ -144,9 +173,9 @@ func projectionNested(raw json.RawMessage, requested Limits) error {
 	return nil
 }
 
-func matchesSummary(tables []Table, id uint32, name string, rows int) bool {
+func matchesSummary(tables []Table, id uint32, name string, rows uint64) bool {
 	for _, table := range tables {
-		if table.ID == id && table.Name == name && table.Rows == uint64(rows) {
+		if table.ID == id && table.Name == name && table.Rows == rows {
 			return true
 		}
 	}
@@ -154,7 +183,7 @@ func matchesSummary(tables []Table, id uint32, name string, rows int) bool {
 }
 
 func validPairTable(value PairTable, name string, tables []Table, limits Limits) bool {
-	if value.Name != name || !matchesSummary(tables, value.ID, name, len(value.Rows)) || value.Layout != "base-v1" && value.Layout != "rating-v1" {
+	if value.Name != name || !matchesSummary(tables, value.ID, name, uint64(len(value.Rows))) || value.Layout != "base-v1" && value.Layout != "rating-v1" {
 		return false
 	}
 	for _, row := range value.Rows {
@@ -170,19 +199,22 @@ func validateProjection(value record, limits Limits) error {
 	if p == nil {
 		return nil
 	}
-	if p.Format != ProjectionFormat || !validPairTable(p.Left, "recovery_left", value.Tables, limits) || !validPairTable(p.Right, "recovery_right", value.Tables, limits) || p.Marker.Name != "schema_marker" || !matchesSummary(value.Tables, p.Marker.ID, p.Marker.Name, len(p.Marker.Rows)) {
+	if p.Format != ProjectionFormat || !validPairTable(p.Left, "recovery_left", value.Tables, limits) || !validPairTable(p.Right, "recovery_right", value.Tables, limits) || p.Marker.Name != "schema_marker" || !matchesSummary(value.Tables, p.Marker.ID, p.Marker.Name, uint64(len(p.Marker.Rows))) {
 		return ErrEvidence
 	}
-	if p.Note != nil && (p.Note.Name != "fixture_note" || !matchesSummary(value.Tables, p.Note.ID, p.Note.Name, len(p.Note.Rows))) {
+	if p.Note != nil && (p.Note.Name != "fixture_note" || !matchesSummary(value.Tables, p.Note.ID, p.Note.Name, uint64(len(p.Note.Rows)))) {
 		return ErrEvidence
 	}
 	if p.Note == nil && slices.ContainsFunc(value.Tables, func(table Table) bool { return table.Name == "fixture_note" }) {
 		return ErrEvidence
 	}
-	rows := uint64(len(p.Left.Rows) + len(p.Right.Rows) + len(p.Marker.Rows))
+	if !validProjectionControls(*p, value.Tables) {
+		return ErrEvidence
+	}
+	rows := uint64(len(p.Left.Rows) + len(p.Right.Rows) + len(p.Marker.Rows) + len(p.Publisher.Rows) + uint64(len(p.Sequence.Rows)))
 	stateBytes := uint64(0)
 	if p.Note != nil {
-		rows += uint64(len(p.Note.Rows))
+		rows += uint64(uint64(len(p.Note.Rows)))
 	}
 	for _, table := range value.Tables {
 		if table.Rows > limits.Rows || rows > limits.Rows-table.Rows || table.BSATNBytes > limits.StateBytes || stateBytes > limits.StateBytes-table.BSATNBytes {
@@ -192,6 +224,18 @@ func validateProjection(value record, limits Limits) error {
 		stateBytes += table.BSATNBytes
 	}
 	return projectionBytes(*p, stateBytes, limits)
+}
+
+func validProjectionControls(p ConfirmedPairsProjection, tables []Table) bool {
+	if p.Publisher.Name != "publisher" || !matchesSummary(tables, p.Publisher.ID, p.Publisher.Name, uint64(len(p.Publisher.Rows))) || p.Sequence.Name != "sequence_state" || !matchesSummary(tables, p.Sequence.ID, p.Sequence.Name, uint64(len(p.Sequence.Rows))) {
+		return false
+	}
+	for _, row := range p.Publisher.Rows {
+		if !hash(row.Identity) {
+			return false
+		}
+	}
+	return true
 }
 
 func pairBytes(row PairRow) uint64 {
@@ -218,6 +262,16 @@ func projectionBytes(p ConfirmedPairsProjection, total uint64, limits Limits) er
 	}
 	for _, row := range p.Marker.Rows {
 		if err := chargeProjectionBytes(&total, uint64(len(row.Revision))+5, limits); err != nil {
+			return err
+		}
+	}
+	for range p.Publisher.Rows {
+		if err := chargeProjectionBytes(&total, 33, limits); err != nil {
+			return err
+		}
+	}
+	for range p.Sequence.Rows {
+		if err := chargeProjectionBytes(&total, 9, limits); err != nil {
 			return err
 		}
 	}
