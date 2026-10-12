@@ -119,7 +119,7 @@ fn inspect(
         database,
         owner,
         request.history,
-        &head,
+        head.as_ref(),
         &request.limits,
         deadline,
     )?;
@@ -128,7 +128,7 @@ fn inspect(
         return Err(Refusal::ChangedCopy);
     }
     let mut totals = input::totals(&before);
-    totals.commits = head.commits;
+    totals.commits = head.as_ref().map_or(0, |head| head.commits);
     Ok(Evidence {
         format: FORMAT,
         outcome: "observed",
@@ -141,8 +141,12 @@ fn inspect(
         current_program_hash: recovered.program_wire,
         current_program_sha256: recovered.program_sha256,
         program_bytes: recovered.program_bytes,
-        committed_offset: head.last,
-        framing: "complete-v1",
+        committed_offset: recovered.offset,
+        framing: if head.is_some() {
+            "complete-v1"
+        } else {
+            "snapshot-only-v1"
+        },
         snapshot: recovered.snapshot,
         persisted_connected_clients: recovered.connected,
         evidence_algorithm: ALGORITHM,

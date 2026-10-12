@@ -8,7 +8,7 @@ The operation owner creates a fresh copy while holding the source locks and fenc
 
 The executable accepts no arguments. It reads one JSON request, at most 8 KiB, from stdin and requires `/copy/replica` inside a read-only root filesystem with isolated networking. It rejects foreign mounts, inherited non-stdio descriptors, credential environment variables, symlinks, hard links, special files, foreign owners and an unrestricted host invocation. The launcher must create filesystem and PID namespaces, give the helper only the private replica mount, clear its environment and impose process and memory limits. The helper's filesystem checks supplement that launcher contract. They cannot distinguish an original deliberately mounted as `/copy` from a correctly materialized copy.
 
-`format` must equal `brine-native-reader-v1`. `expected_database_identity` and `expected_owner_identity` are equality constraints, not observed evidence. Unknown, repeated, absent or mistyped request fields refuse. `history` is either `{"kind":"logs"}` or `{"kind":"snapshot","offset":N,"replica_id":N}`. Snapshot mode requires exactly the selected complete snapshot, its verified native identity and a connected log suffix. Log mode requires history beginning at zero.
+`format` must equal `brine-native-reader-v1`. `expected_database_identity` and `expected_owner_identity` are equality constraints, not observed evidence. Unknown, repeated, absent or mistyped request fields refuse. `history` is either `{"kind":"logs"}` or `{"kind":"snapshot","offset":N,"replica_id":N}`. Snapshot mode requires exactly the selected complete snapshot, its verified native identity and a connected log suffix. The suffix may be empty when the selected snapshot itself supplies the recovered head. The required `clog` directory must then contain no entries. Log mode requires nonempty history beginning at zero.
 
 On success, exit status is zero and `outcome` is `observed`. On refusal, exit status is 70 and a bounded object identifies the refusal code when the output pipe permits it. A killed process, partial output, unexpected status, invalid JSON or missing evidence must refuse. A refusal is never a restore receipt.
 
@@ -20,12 +20,14 @@ On success, exit status is zero and `outcome` is `observed`. On refusal, exit st
 | `current_program_digest` | Keccak-256 digest recomputed from persisted current program bytes. |
 | `current_program_hash` | Native JSON API u256 wire representation, the digest bytes reversed. |
 | `current_program_sha256`, `program_bytes` | Actual persisted program bytes. They are separate from the native runtime hash. |
-| `committed_offset` | Complete physical framing and continuity, compared with the recovered transaction offset. |
+| `committed_offset` | Complete physical framing and continuity, compared with the recovered transaction offset. With an empty suffix, the actual reconstructed and consumed snapshot supplies the offset. |
 | `snapshot` | Actual decoded snapshot database, replica ID and offset, or null in log mode. |
 | `persisted_connected_clients` | Clients retained in recovered native state. This is not proof of a live writer's absence. |
 | `tables`, `state_blake3` | Every recovered table, including persisted system catalog rows. |
 
 Bare logs contain no replica ID. Logical database names and control aliases are also absent. The caller must bind those through its sealed control checkpoint. Table state hashes are not `CanonicalSchemaV10` hashes. The runtime package owns canonical module/schema observation.
+
+`framing` is `complete-v1` for nonempty complete logs. A complete selected snapshot with an empty log suffix reports `snapshot-only-v1`, zero actual `input.commits`, and `committed_offset` equal to the observed snapshot offset. It does not invent a log transaction or a placeholder offset. Missing, torn, corrupt, orphaned or header-only log input cannot select this arm.
 
 ### State hash format
 

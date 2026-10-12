@@ -19,9 +19,16 @@ pub fn inspect(
     files: &[FileSeal],
     limits: &Limits,
     deadline: &Deadline,
-) -> Result<Head> {
+) -> Result<Option<Head>> {
     let repo = Fs::new(root.commit_log(), None).map_err(|_| Refusal::Native)?;
     let offsets = repo.existing_offsets().map_err(|_| Refusal::Native)?;
+    if offsets.is_empty() {
+        let mut entries = std::fs::read_dir(root.commit_log()).map_err(|_| Refusal::Framing)?;
+        if entries.next().is_some() {
+            return Err(Refusal::Framing);
+        }
+        return Ok(None);
+    }
     let first = *offsets.first().ok_or(Refusal::MissingHistory)?;
     let mut next = first;
     let mut commits = 0;
@@ -53,11 +60,11 @@ pub fn inspect(
         Some(CommittedMeta::Complete { metadata }) if metadata.tx_range.end == next => {}
         _ => return Err(Refusal::Framing),
     }
-    Ok(Head {
+    Ok(Some(Head {
         first,
         last: next - 1,
         commits,
-    })
+    }))
 }
 
 fn segment(

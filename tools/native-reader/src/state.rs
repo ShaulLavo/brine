@@ -41,6 +41,7 @@ impl Durability for Frozen {
 }
 
 pub struct State {
+    pub offset: u64,
     pub database: String,
     pub owner: String,
     pub program_kind: &'static str,
@@ -59,7 +60,7 @@ pub fn observe(
     database: Identity,
     owner: Identity,
     history: History,
-    head: &Head,
+    head: Option<&Head>,
     limits: &Limits,
     deadline: &Deadline,
 ) -> Result<State> {
@@ -69,7 +70,17 @@ pub fn observe(
         .map_err(|_| Refusal::Native)?;
     let pool = PagePool::new(Some(8 << 20));
     let prepared = snapshot(root, database, history, head, &runtime, &pool)?;
-    let (sender, _) = tokio::sync::watch::channel(Some(head.last));
+    let committed = match head {
+        Some(head) => head.last,
+        None => {
+            prepared
+                .evidence
+                .as_ref()
+                .ok_or(Refusal::MissingHistory)?
+                .offset
+        }
+    };
+    let (sender, _) = tokio::sync::watch::channel(Some(committed));
     let persistence = Persistence::new(
         Frozen { sender },
         || Ok(Default::default()),
@@ -93,7 +104,7 @@ pub fn observe(
     }
     let (program, offset) = db.program_with_tx_offset().map_err(|_| Refusal::Native)?;
     let program = program.ok_or(Refusal::MissingHistory)?;
-    if offset != head.last || program.bytes.len() as u64 > limits.program_bytes {
+    if offset != committed || program.bytes.len() as u64 > limits.program_bytes {
         return Err(Refusal::Program);
     }
     if spacetimedb_lib::hash_bytes(&program.bytes) != program.hash
@@ -118,6 +129,7 @@ pub fn observe(
         hash.update(table.multiset_blake3.as_bytes());
     }
     Ok(State {
+        offset,
         database: metadata.database_identity.to_string(),
         owner: metadata.owner_identity.to_string(),
         program_kind: kind,
@@ -163,11 +175,12 @@ fn snapshot(
     root: &ReplicaDir,
     database: Identity,
     history: History,
-    head: &Head,
+    head: Option<&Head>,
     runtime: &tokio::runtime::Runtime,
     pool: &PagePool,
 ) -> Result<PreparedSnapshot> {
     let History::Snapshot { offset, replica_id } = history else {
+        let head = head.ok_or(Refusal::MissingHistory)?;
         if head.first != 0 {
             return Err(Refusal::Snapshot);
         }
@@ -177,7 +190,10 @@ fn snapshot(
             evidence: None,
         });
     };
-    if replica_id == 0 || offset > head.last || (head.first > 0 && offset < head.first - 1) {
+    if replica_id == 0
+        || head
+            .is_some_and(|head| offset > head.last || (head.first > 0 && offset < head.first - 1))
+    {
         return Err(Refusal::Snapshot);
     }
     selected_directory(root, offset)?;

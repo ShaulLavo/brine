@@ -63,6 +63,16 @@ def damage_snapshot(root, request, action):
     path.write_bytes(value)
 
 
+def empty_logs(root):
+    shutil.rmtree(root / 'clog')
+    (root / 'clog').mkdir()
+
+
+def damaged_snapshot_only(root, request, action):
+    empty_logs(root)
+    damage_snapshot(root, request, action)
+
+
 def main():
     image, fixture, output = sys.argv[1:]
     fixture = pathlib.Path(fixture)
@@ -81,11 +91,25 @@ def main():
     exit_code, observed = run(image, fixture, output, logs)
     assert exit_code == 0 and observed['state_blake3'] == baseline['state_blake3']
     results.append({'case': 'logs_snapshot_equality', 'exit': exit_code})
+    code, snapshot = run(image, fixture, output, request, empty_logs)
+    assert code == 0 and snapshot['framing'] == 'snapshot-only-v1' and snapshot['input']['commits'] == 0
+    assert snapshot['committed_offset'] == snapshot['snapshot']['offset'] == baseline['committed_offset']
+    for field in ['state_blake3', 'tables', 'current_program_hash', 'current_program_sha256',
+                  'observed_database_identity', 'observed_owner_identity']:
+        assert snapshot[field] == baseline[field], field
+    results.append({'case': 'selected_snapshot_empty_log_suffix', 'exit': code, 'log_commits': 0})
+    code, refusal = run(image, fixture, output, logs, empty_logs)
+    assert code == 70 and refusal['code'] == 'missing_history'
+    results.append({'case': 'empty_log_only_refused', 'exit': code, 'refusal': refusal['code']})
     for damage in ['missing', 'torn', 'corrupt']:
         code, refusal = run(image, fixture, output, request,
                             lambda root: damage_snapshot(root, request, damage))
         assert code == 70 and refusal['code'] == 'snapshot', (damage, code, refusal)
         results.append({'case': 'selected_snapshot_' + damage, 'exit': code, 'refusal': refusal['code']})
+        code, refusal = run(image, fixture, output, request,
+                            lambda root: damaged_snapshot_only(root, request, damage))
+        assert code == 70 and refusal['code'] == 'snapshot', (damage, code, refusal)
+        results.append({'case': 'snapshot_only_' + damage, 'exit': code, 'refusal': refusal['code']})
     for extra in [{'foreign': 1}, {'offset': request['history']['offset'], 'replica_id': 1}]:
         invalid = copy.deepcopy(logs)
         invalid['history'].update(extra)

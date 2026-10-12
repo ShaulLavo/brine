@@ -138,13 +138,40 @@ func TestNestedUnknownDuplicateNullAndAliasesRefuse(t *testing.T) {
 		strings.Replace(raw, `"format":`, `"Format":`, 1),
 		strings.Replace(raw, `"format":`, `"format":"duplicate","format":`, 1),
 		strings.Replace(raw, `"table_id":1`, `"table_id":1,"table_id":1`, 1),
-		strings.Replace(raw, `"replica_id":`, `"replica_id":`, 1) + "{}",
+		raw + "{}",
 		strings.Replace(raw, `"files":8192`, `"files":8192,"unknown":1`, 1),
 		strings.Replace(raw, `"name":"st_table"`, `"name":null`, 1),
 	}
 	for index, value := range negatives {
 		if _, err := Decode([]byte(value), MaximumLimits()); err == nil {
 			t.Fatalf("accepted wire case %d", index)
+		}
+	}
+}
+
+func TestZeroLogCommitsRequireCompleteSelectedSnapshotFraming(t *testing.T) {
+	value := validRecord()
+	value.Framing = "snapshot-only-v1"
+	value.Input.Commits = 0
+	value.Offset = value.Snapshot.Offset
+	baseline := decoded(t, value)
+	if baseline.InputTotals().Commits != 0 || baseline.Offset() != value.Snapshot.Offset {
+		t.Fatal("snapshot-only evidence fabricated log facts")
+	}
+	mutations := []func(*record){
+		func(value *record) { value.Snapshot = nil },
+		func(value *record) { value.Input.Commits = 1 },
+		func(value *record) { value.Offset++ },
+		func(value *record) { value.Framing = "complete-v1" },
+	}
+	for index, change := range mutations {
+		invalid := validRecord()
+		invalid.Framing = "snapshot-only-v1"
+		invalid.Input.Commits = 0
+		invalid.Offset = invalid.Snapshot.Offset
+		change(&invalid)
+		if _, err := Decode(encoded(t, invalid), invalid.Limits); err == nil {
+			t.Fatalf("accepted unsupported zero-log case %d", index)
 		}
 	}
 }

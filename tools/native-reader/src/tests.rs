@@ -509,7 +509,7 @@ fn native_selected_snapshot_with_empty_required_log_suffix() {
         id(1),
         id(2),
         fixture.request.history,
-        &actual_head,
+        Some(&actual_head),
         &Limits::MAX,
         &Deadline::new(60_000),
     )
@@ -526,4 +526,54 @@ fn native_selected_snapshot_with_empty_required_log_suffix() {
     );
     assert_eq!(state.snapshot.unwrap().offset, actual_head.last);
     assert!(before == input::files(&root, &Limits::MAX, &Deadline::new(60_000)).unwrap());
+}
+
+fn empty_logs(root: &Path) {
+    fs::remove_dir_all(root.join("clog")).unwrap();
+    fs::create_dir(root.join("clog")).unwrap();
+}
+
+#[test]
+fn snapshot_only_inspection_uses_actual_snapshot_and_zero_log_commits() {
+    let mut fixture = seed(true);
+    let baseline = observed(&fixture, |_| {}).unwrap();
+    let snapshot = observed(&fixture, empty_logs).unwrap();
+    assert_eq!(snapshot.committed_offset, baseline.committed_offset);
+    assert_eq!(snapshot.state_blake3, baseline.state_blake3);
+    assert_eq!(
+        snapshot.current_program_digest,
+        baseline.current_program_digest
+    );
+    assert_eq!(
+        snapshot.observed_database_identity,
+        baseline.observed_database_identity
+    );
+    assert_eq!(
+        snapshot.observed_owner_identity,
+        baseline.observed_owner_identity
+    );
+    assert_eq!(snapshot.input.commits, 0);
+    assert_eq!(snapshot.framing, "snapshot-only-v1");
+    assert_eq!(snapshot.snapshot.unwrap().offset, snapshot.committed_offset);
+    assert!(matches!(
+        observed(&fixture, |root| {
+            empty_logs(root);
+            fs::write(root.join("clog/orphan.ofs"), []).unwrap();
+        }),
+        Err(Refusal::Framing)
+    ));
+    assert!(matches!(
+        observed(&fixture, |root| {
+            let path = last_log(root);
+            let header = fs::read(path).unwrap()[..10].to_vec();
+            empty_logs(root);
+            fs::write(root.join("clog/00000000000000000000.stdb.log"), header).unwrap();
+        }),
+        Err(Refusal::MissingHistory)
+    ));
+    fixture.request.history = History::Logs {};
+    assert!(matches!(
+        observed(&fixture, empty_logs),
+        Err(Refusal::MissingHistory)
+    ));
 }

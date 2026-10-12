@@ -1,3 +1,4 @@
+// Package nativeevidence decodes bounded passive SpacetimeDB state evidence.
 package nativeevidence
 
 import (
@@ -221,7 +222,7 @@ func hash(value string) bool {
 }
 
 func validate(value record, requested Limits) error {
-	if value.Format != Format || value.Outcome != "observed" || value.Upstream != UpstreamCommit || value.ProgramAlgo != "keccak-256" || value.Algorithm != Algorithm || value.Framing != "complete-v1" || value.Limits != requested {
+	if value.Format != Format || value.Outcome != "observed" || value.Upstream != UpstreamCommit || value.ProgramAlgo != "keccak-256" || value.Algorithm != Algorithm || value.Limits != requested {
 		return ErrEvidence
 	}
 	if value.Kind != "wasm" && value.Kind != "js" {
@@ -240,7 +241,7 @@ func validate(value record, requested Limits) error {
 	if value.ProgramBytes > requested.ProgramBytes || value.Clients > requested.Rows || !boundedInput(value.Input, requested) {
 		return ErrEvidence
 	}
-	if value.Offset < value.Input.Commits-1 {
+	if !validFraming(value) {
 		return ErrEvidence
 	}
 	if value.Snapshot != nil && (value.Snapshot.Database != value.Database || value.Snapshot.Replica == 0 || value.Snapshot.Offset > value.Offset) {
@@ -250,7 +251,18 @@ func validate(value record, requested Limits) error {
 }
 
 func boundedInput(value Totals, limits Limits) bool {
-	return value.Files > 0 && value.Files <= limits.Files && value.StoredBytes > 0 && value.StoredBytes <= limits.StoredBytes && value.StoredBytes <= value.Files*limits.FileBytes && value.ExpandedBytes > 0 && value.ExpandedBytes <= limits.ExpandedBytes && value.ExpandedBytes <= value.Files*limits.ExpandedFileBytes && value.Commits > 0 && value.Commits <= limits.Commits
+	return value.Files > 0 && value.Files <= limits.Files && value.StoredBytes > 0 && value.StoredBytes <= limits.StoredBytes && value.StoredBytes <= value.Files*limits.FileBytes && value.ExpandedBytes > 0 && value.ExpandedBytes <= limits.ExpandedBytes && value.ExpandedBytes <= value.Files*limits.ExpandedFileBytes && value.Commits <= limits.Commits
+}
+
+func validFraming(value record) bool {
+	switch value.Framing {
+	case "complete-v1":
+		return value.Input.Commits > 0 && value.Offset >= value.Input.Commits-1
+	case "snapshot-only-v1":
+		return value.Input.Commits == 0 && value.Snapshot != nil && value.Offset == value.Snapshot.Offset
+	default:
+		return false
+	}
 }
 
 func validTables(tables []Table, limits Limits) error {
