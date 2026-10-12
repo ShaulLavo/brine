@@ -32,12 +32,16 @@ func (r AllocationReceipt) Valid() bool {
 	return ValidID(string(r.DatabaseID)) && ValidID(string(r.IncarnationID)) && r.RootDevice != 0 && r.RootInode != 0 && r.DirectoryDevice == r.RootDevice && r.DirectoryInode != 0 && !r.AllocatedAt.IsZero()
 }
 func CaptureAllocation(b SQLiteDatabaseBinding) (AllocationReceipt, error) {
-	relative, err := RelativeDirectory(b.IncarnationID, b.DatabaseID)
-	if err != nil || relative != b.RelativeDirectory {
+	return captureDirectoryAllocation(b.Root, b.RelativeDirectory, b.IncarnationID, b.DatabaseID)
+}
+
+func captureDirectoryAllocation(root PersistentRoot, relative string, incarnation AppIncarnationID, database DatabaseID) (AllocationReceipt, error) {
+	wanted, err := RelativeDirectory(incarnation, database)
+	if err != nil || relative != wanted {
 		return AllocationReceipt{}, ErrInvalid
 	}
-	source := filepath.Join(string(b.Root), relative)
-	if err = verifyPrivateTree(string(b.Root), source); err != nil {
+	source := filepath.Join(string(root), relative)
+	if err = verifyPrivateTree(string(root), source); err != nil {
 		return AllocationReceipt{}, err
 	}
 	entries, err := os.ReadDir(source)
@@ -47,7 +51,7 @@ func CaptureAllocation(b SQLiteDatabaseBinding) (AllocationReceipt, error) {
 	if len(entries) != 0 {
 		return AllocationReceipt{}, ErrInvalid
 	}
-	rootDevice, rootInode, err := directoryIdentity(string(b.Root))
+	rootDevice, rootInode, err := directoryIdentity(string(root))
 	if err != nil {
 		return AllocationReceipt{}, err
 	}
@@ -55,7 +59,7 @@ func CaptureAllocation(b SQLiteDatabaseBinding) (AllocationReceipt, error) {
 	if err != nil {
 		return AllocationReceipt{}, err
 	}
-	r := AllocationReceipt{DatabaseID: b.DatabaseID, IncarnationID: b.IncarnationID, RootDevice: rootDevice, RootInode: rootInode, DirectoryDevice: device, DirectoryInode: inode, AllocatedAt: time.Now().UTC()}
+	r := AllocationReceipt{DatabaseID: database, IncarnationID: incarnation, RootDevice: rootDevice, RootInode: rootInode, DirectoryDevice: device, DirectoryInode: inode, AllocatedAt: time.Now().UTC()}
 	if !r.Valid() {
 		return AllocationReceipt{}, ErrInvalid
 	}
