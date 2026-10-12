@@ -32,7 +32,7 @@ lifetime locks must belong to the protected store root and binding. Decoded
 records, a matching pathname or a lock from another state root supply no
 capability.
 
-Enrollment now plans and installs official restic0.19.1 for the target
+Enrollment now plans and installs official restic 0.19.1 for the target
 architecture. It authenticates both the compressed release and executable,
 stages the binary, checks its exact version and records root-owned files and
 dedicated directories for undo. Undo preserves shared `/opt/brine` and refuses
@@ -79,11 +79,11 @@ directory and preserves both the original and replacement for reconciliation.
 Actual Podman qualification found that inspect.Args includes argv0 for the
 entrypoint-only image. The launcher now requires the exact singleton form. The
 fixed profile also disables automatic writable `/run` and `/var/tmp` mounts and
-passwd/group shims, retaining explicit private `/tmp`. The remaining generated
-`/run/.containerenv` file still needs the reader's narrow qualified mask support.
-The first two actual arm64 probes refused containment, preserved their stopped
-containers/views and left all selected input hashes unchanged. They are refusal
-evidence, not a successful reader or backup drill.
+passwd/group shims, retaining explicit private `/tmp`. The published reader now includes a narrow read-only empty-file mask for the
+generated `/run/.containerenv` file. Actual qualification with this pin is
+pending. The first two arm64 probes refused containment, preserved their stopped
+containers and views, and left every selected input hash unchanged. Those probes
+are refusal evidence, not a successful reader or backup drill.
 
 ## Verification and required consumers
 
@@ -91,7 +91,7 @@ The protected storage/enrollment/root-guard tree passed `go test ./...`,
 `go vet ./...`, the CLI build, focused race tests, formatting and diff checks.
 New-code lint passed. Independent review reproduced the replacement-directory
 cleanup defect and verified its repair. It also checked the enrollment and
-repository-identity source boundaries. Actual official restic0.19.1 ran in a
+repository-identity source boundaries. Actual official restic 0.19.1 ran in a
 private disposable local repository; initialization and encrypted config
 readback returned the same ID. That probe was a local process/codec check, not a
 protected installation or S3 acceptance test.
