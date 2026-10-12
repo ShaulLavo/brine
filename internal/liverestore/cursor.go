@@ -28,6 +28,7 @@ const (
 type Attempt struct {
 	PlanID          string                `json:"plan_id"`
 	OperationID     string                `json:"operation_id"`
+	TransitionID    string                `json:"transition_id"`
 	ConsumerSHA256  string                `json:"consumer_sha256"`
 	PreparedPointID string                `json:"prepared_point_id"`
 	SelectedPointID string                `json:"selected_point_id"`
@@ -40,7 +41,7 @@ type Attempt struct {
 
 func (a Attempt) matches(p Plan) bool {
 	s := p.spec
-	return planID(p.id) && a.PlanID == p.id && operationID.MatchString(a.OperationID) && a.OperationID != s.Safety.FenceOwnerOpID &&
+	return planID(p.id) && a.PlanID == p.id && operationID.MatchString(a.OperationID) && data.ValidID(a.TransitionID) && a.OperationID != s.Safety.FenceOwnerOpID &&
 		digest(a.ConsumerSHA256) && a.PreparedPointID == s.Safety.PointID && a.SelectedPointID == s.Selected.PointID &&
 		a.FenceID == s.Safety.FenceID && a.FenceOwnerOpID == s.Safety.FenceOwnerOpID && a.BindingID == s.Facts.Head.BindingID &&
 		a.SourceEpochID == s.Facts.Head.EpochID && data.ValidID(string(a.IncomingEpochID)) && a.IncomingEpochID != a.SourceEpochID && a.IncomingEpochID != s.Selected.EpochID
@@ -142,7 +143,7 @@ func DecodeEvent(p Plan, previous *Event, raw []byte) (Event, error) {
 	if err != nil {
 		return Event{}, ErrRecord
 	}
-	if _, err = strictjson.Object(fields["attempt"], "plan_id", "operation_id", "consumer_sha256", "prepared_point_id", "selected_point_id", "fence_id", "fence_owner_op_id", "binding_id", "source_epoch_id", "incoming_epoch_id"); err != nil {
+	if _, err = strictjson.Object(fields["attempt"], "plan_id", "operation_id", "transition_id", "consumer_sha256", "prepared_point_id", "selected_point_id", "fence_id", "fence_owner_op_id", "binding_id", "source_epoch_id", "incoming_epoch_id"); err != nil {
 		return Event{}, ErrRecord
 	}
 	var r eventRecord

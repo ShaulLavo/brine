@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/policy"
@@ -51,12 +52,16 @@ func (s *Store) BeginNativeLiveRestore(ctx context.Context, stopped *NativeStopp
 	if err != nil {
 		return liverestore.Event{}, ErrInvalid
 	}
-	a := liverestore.Attempt{PlanID: p.ID(), OperationID: operationID, ConsumerSHA256: nativePointHash(raw), PreparedPointID: point.view.PointID, SelectedPointID: p.Spec().Selected.PointID, FenceID: point.view.FenceID, FenceOwnerOpID: point.view.FenceOwnerOpID, BindingID: point.view.BindingID, SourceEpochID: point.view.EpochID, IncomingEpochID: incoming.epochID}
+	transitionID, err := data.NewID()
+	if err != nil {
+		return liverestore.Event{}, err
+	}
+	a := liverestore.Attempt{PlanID: p.ID(), OperationID: operationID, TransitionID: transitionID, ConsumerSHA256: nativePointHash(raw), PreparedPointID: point.view.PointID, SelectedPointID: p.Spec().Selected.PointID, FenceID: point.view.FenceID, FenceOwnerOpID: point.view.FenceOwnerOpID, BindingID: point.view.BindingID, SourceEpochID: point.view.EpochID, IncomingEpochID: incoming.epochID}
 	event, err := liverestore.BeginAttempt(p, a)
 	if err != nil {
 		return liverestore.Event{}, ErrInvalid
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO data_native_live_restore_claims VALUES(?,?,?,?,?,?)", operationID, p.ID(), a.PreparedPointID, a.BindingID, a.IncomingEpochID, event.Bytes())
+	_, err = tx.ExecContext(ctx, "INSERT INTO data_native_live_restore_claims VALUES(?,?,?,?,?,?,?)", operationID, p.ID(), a.PreparedPointID, a.BindingID, a.IncomingEpochID, a.TransitionID, event.Bytes())
 	if err != nil {
 		return liverestore.Event{}, err
 	}

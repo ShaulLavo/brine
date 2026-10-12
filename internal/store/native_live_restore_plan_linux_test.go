@@ -50,7 +50,7 @@ func storedNativeLiveRestoreFixture(t *testing.T) (nativeTransitionFixture, live
 		PointID: historical, PointSHA256: hash, EpochID: head.EpochID, GenerationID: id, CaptureID: historical, RepositoryID: hash,
 		RepositorySnapshot: hash, ManifestSHA256: hash, RestoreEvidenceSHA256: hash, CheckpointSHA256: hash, StateWitnessSHA256: hash,
 		NativeDatabase: hash, NativePublisher: hash, ProgramWireHash: hash, ArtifactWasmSHA256: hash, SchemaSHA256: hash,
-		MaterialSHA256: hash, DependenciesSHA256: hash, CommittedOffset: 8, RecordedAt: at.Add(-time.Hour), RetainUntil: at.Add(30 * 24 * time.Hour)}
+		MaterialSHA256: hash, DependenciesSHA256: hash, CommittedOffset: 8, CapturedAt: at.Add(-time.Hour), RetainUntil: at.Add(30 * 24 * time.Hour)}
 	p, err := liverestore.NewPlan(liverestore.PlanSpec{Requester: requester, Facts: facts, Safety: safety, Selected: selected,
 		Recovery: liverestore.RecoveryRelease{ReleaseID: "recovery-code", CodeSHA256: hash, CompatibilitySHA256: hash, ProgramWireHash: hash, SchemaSHA256: hash},
 		IssuedAt: at, ExpiresAt: at.Add(5 * time.Minute)})

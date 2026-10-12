@@ -42,7 +42,7 @@ func newNativeRestoreStage(ctx context.Context, state *store.Store, claim *store
 	if err != nil {
 		return nil, err
 	}
-	stage = &nativeRestoreStage{state: state, claim: claim, source: source, base: base, parentName: filepath.Join("transitions", claim.Attempt().OperationID), downloadName: "download", stagedName: "staged", nonce: claim.IntentSHA256(), pointID: claim.Attempt().SelectedPointID}
+	stage = &nativeRestoreStage{state: state, claim: claim, source: source, base: base, parentName: filepath.Join("transitions", claim.Attempt().TransitionID), downloadName: "download", stagedName: "staged", nonce: claim.IntentSHA256(), pointID: claim.Attempt().SelectedPointID}
 	complete := false
 	defer func() {
 		if !complete {

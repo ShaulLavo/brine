@@ -18,11 +18,11 @@ type nativeLiveRestoreAttempt struct {
 
 func readNativeLiveRestoreAttempt(ctx context.Context, q dataQuerier, operationID string) (nativeLiveRestoreAttempt, error) {
 	var retained nativeLiveRestoreAttempt
-	var planID, pointID string
+	var planID, pointID, transitionID string
 	var binding data.ReplicaBindingID
 	var epoch data.ReplicaEpochID
 	var raw []byte
-	err := q.QueryRowContext(ctx, "SELECT plan_id,prepared_point_id,binding_id,incoming_epoch_id,canonical FROM data_native_live_restore_claims WHERE operation_id=?", operationID).Scan(&planID, &pointID, &binding, &epoch, &raw)
+	err := q.QueryRowContext(ctx, "SELECT plan_id,prepared_point_id,binding_id,incoming_epoch_id,transition_id,canonical FROM data_native_live_restore_claims WHERE operation_id=?", operationID).Scan(&planID, &pointID, &binding, &epoch, &transitionID, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return retained, ErrNotFound
 	}
@@ -35,7 +35,7 @@ func readNativeLiveRestoreAttempt(ctx context.Context, q dataQuerier, operationI
 	}
 	retained.claim, err = liverestore.DecodeEvent(retained.plan, nil, raw)
 	attempt := retained.claim.Attempt()
-	if err != nil || attempt.OperationID != operationID || attempt.PlanID != planID || attempt.PreparedPointID != pointID || attempt.BindingID != binding || attempt.IncomingEpochID != epoch {
+	if err != nil || attempt.OperationID != operationID || attempt.PlanID != planID || attempt.PreparedPointID != pointID || attempt.BindingID != binding || attempt.IncomingEpochID != epoch || attempt.TransitionID != transitionID {
 		return retained, &IntegrityError{}
 	}
 	retained.current, err = readNativeLiveRestoreEvents(ctx, q, retained)

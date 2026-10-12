@@ -91,14 +91,14 @@ type SelectedPoint struct {
 	MaterialSHA256        string                `json:"material_sha256"`
 	DependenciesSHA256    string                `json:"dependencies_sha256"`
 	CommittedOffset       uint64                `json:"committed_offset"`
-	RecordedAt            time.Time             `json:"recorded_at"`
+	CapturedAt            time.Time             `json:"captured_at"`
 	RetainUntil           time.Time             `json:"retain_until"`
 }
 
 func (s SelectedPoint) valid() bool {
 	if !data.ValidID(string(s.IncarnationID)) || !data.ValidID(string(s.DatabaseID)) || !data.ValidID(string(s.BindingID)) ||
 		!data.ValidID(s.PointID) || !data.ValidID(string(s.EpochID)) || !data.ValidID(s.GenerationID) || !data.ValidID(s.CaptureID) ||
-		!utc(s.RecordedAt) || !utc(s.RetainUntil) || !s.RetainUntil.After(s.RecordedAt) {
+		!utc(s.CapturedAt) || !utc(s.RetainUntil) || !s.RetainUntil.After(s.CapturedAt) {
 		return false
 	}
 	for _, value := range []string{s.PointSHA256, s.RepositoryID, s.RepositorySnapshot, s.ManifestSHA256, s.RestoreEvidenceSHA256,
@@ -145,7 +145,7 @@ func NewPlan(spec PlanSpec) (Plan, error) {
 	if !spec.Requester.Valid() || !spec.Facts.valid() || !spec.Safety.valid() || !spec.Selected.valid() ||
 		!spec.Recovery.validFor(spec.Selected) || !lifetime(spec.IssuedAt, spec.ExpiresAt) ||
 		spec.Safety.PreparedAt.After(spec.IssuedAt) || spec.Safety.ExpiresAt.Before(spec.ExpiresAt) ||
-		spec.Selected.RecordedAt.After(spec.Safety.PreparedAt) || spec.Selected.RetainUntil.Before(spec.ExpiresAt) || spec.Selected.PointID == spec.Safety.PointID ||
+		spec.Selected.CapturedAt.After(spec.Safety.PreparedAt) || spec.Selected.RetainUntil.Before(spec.ExpiresAt) || spec.Selected.PointID == spec.Safety.PointID ||
 		spec.Selected.IncarnationID != spec.Facts.IncarnationID || spec.Selected.DatabaseID != spec.Facts.DatabaseID || spec.Selected.BindingID != spec.Facts.Head.BindingID {
 		return Plan{}, ErrRecord
 	}

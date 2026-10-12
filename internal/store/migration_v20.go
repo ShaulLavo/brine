@@ -20,6 +20,7 @@ CREATE TABLE data_native_live_restore_claims(
  prepared_point_id TEXT NOT NULL UNIQUE,
  binding_id TEXT NOT NULL REFERENCES data_replica_bindings(id),
  incoming_epoch_id TEXT NOT NULL UNIQUE,
+ transition_id TEXT NOT NULL UNIQUE,
  canonical BLOB NOT NULL CHECK(length(canonical)<=65536)
 );
 CREATE TABLE data_native_live_restore_events(
