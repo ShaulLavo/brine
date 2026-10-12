@@ -2,13 +2,6 @@ package data
 
 import "encoding/json"
 
-func (e EngineTransitionEvent) MarshalJSON() ([]byte, error) {
-	if len(e.encoded) == 0 || !engineDigest(e.cursor.EventSHA256) {
-		return nil, ErrInvalid
-	}
-	return e.Bytes(), nil
-}
-
 func DecodeEngineTransitionEvent(t EngineTransition, previous *EngineTransitionCursor, raw []byte) (EngineTransitionEvent, error) {
 	if len(raw) == 0 || len(raw) > MaxEngineTransitionBytes || t.hash == "" {
 		return EngineTransitionEvent{}, ErrInvalid

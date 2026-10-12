@@ -14,7 +14,7 @@ func TestNativeEpochDerivesStableIdentityAndOwnsEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	decoded, err := DecodeNativeEpoch(epoch.Bytes())
-	if err != nil || decoded.SHA256() != epoch.SHA256() || !bytes.Equal(decoded.Bytes(), epoch.Bytes()) {
+	if err != nil || !bytes.Equal(decoded.Bytes(), epoch.Bytes()) {
 		t.Fatal("native reservation round trip drifted", err)
 	}
 	returned := epoch.Record()

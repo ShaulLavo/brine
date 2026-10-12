@@ -4,9 +4,13 @@ package host
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -101,7 +105,25 @@ func (t *engineTransitionTree) inspectLocation(ctx context.Context, root *os.Roo
 	if err != nil || sealed.root.MountID != rootMember.MountID || sealed.root.Device != rootMember.Device {
 		return data.EngineLocation{}, errEngineSource
 	}
-	return data.PresentEngineLocation(data.EngineTreeSeal{Root: rootID, Parent: parentID, Directory: engineTransitionDirectory(sealed.root), ContentsSHA256: sealed.hash})
+	return data.PresentEngineLocation(data.EngineTreeSeal{Root: rootID, Parent: parentID, Directory: engineTransitionDirectory(sealed.root), ContentsSHA256: engineTransitionSealDigest(sealed)})
+}
+
+func engineTransitionSealDigest(sealed engineTreeSeal) string {
+	root := sealed.root
+	root.Size = 0
+	members := slices.Clone(sealed.members)
+	for i := range members {
+		if members[i].Mode&unix.S_IFMT == unix.S_IFDIR {
+			members[i].Size = 0
+		}
+	}
+	raw, _ := json.Marshal(struct {
+		Version string             `json:"version"`
+		Root    engineTreeMember   `json:"root"`
+		Members []engineTreeMember `json:"members"`
+	}{"brine-engine-transition-tree-v1", root, members})
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func engineTransitionDirectory(member engineTreeMember) data.EngineDirectoryIdentity {

@@ -39,9 +39,6 @@ func finishEngineTreeTransitionFixture(t *testing.T, binding data.SpacetimeDBBin
 	// A real store preparation is required; create its separate private state here.
 	ctx := context.Background()
 	stateRoot := t.TempDir()
-	if err := os.Chmod(stateRoot, 0700); err != nil {
-		t.Fatal(err)
-	}
 	state, err := store.Open(stateRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -285,5 +282,27 @@ func TestEngineTransitionChangedParentAndSymlinkCannotRedirectMovement(t *testin
 	}
 	if _, err = root.Stat(tree.binding.RelativeDirectory); err != nil {
 		t.Fatal("refusal removed original source", err)
+	}
+}
+
+func TestEngineTransitionDigestIgnoresDirectoryStorageSizeOnly(t *testing.T) {
+	tree := engineTreeTransitionFixture(t)
+	before := transitionActualSeal(t, tree, tree.binding.RelativeDirectory)
+	expected := engineTransitionSealDigest(before)
+	changed := before
+	changed.root.Size += 8
+	changed.members = append([]engineTreeMember(nil), before.members...)
+	changed.members[0].Size += 8
+	if engineTransitionSealDigest(changed) != expected {
+		t.Fatal("directory storage layout changed content evidence")
+	}
+	changed.members[1].Size++
+	if engineTransitionSealDigest(changed) == expected {
+		t.Fatal("file size disappeared from content evidence")
+	}
+	changed = before
+	changed.root.Inode++
+	if engineTransitionSealDigest(changed) == expected {
+		t.Fatal("directory identity disappeared from content evidence")
 	}
 }

@@ -51,20 +51,15 @@ UPDATE schema_version SET version=16;
 }
 
 func nativeTransitionImmutability(ctx context.Context, tx *sql.Tx) error {
-	for _, table := range []string{"data_engine_transition_inputs", "data_native_epochs", "data_engine_transition_events", "data_native_epoch_materials"} {
-		if err := nativeTransitionTriggers(ctx, tx, table); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func nativeTransitionTriggers(ctx context.Context, tx *sql.Tx, table string) error {
-	for _, action := range []string{"UPDATE", "DELETE"} {
-		statement := "CREATE TRIGGER " + table + "_no_" + action + " BEFORE " + action + " ON " + table + " BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;"
-		if _, err := tx.ExecContext(ctx, statement); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := tx.ExecContext(ctx, `
+CREATE TRIGGER data_engine_transition_inputs_no_update BEFORE UPDATE ON data_engine_transition_inputs BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;
+CREATE TRIGGER data_engine_transition_inputs_no_delete BEFORE DELETE ON data_engine_transition_inputs BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;
+CREATE TRIGGER data_native_epochs_no_update BEFORE UPDATE ON data_native_epochs BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;
+CREATE TRIGGER data_native_epochs_no_delete BEFORE DELETE ON data_native_epochs BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;
+CREATE TRIGGER data_engine_transition_events_no_update BEFORE UPDATE ON data_engine_transition_events BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;
+CREATE TRIGGER data_engine_transition_events_no_delete BEFORE DELETE ON data_engine_transition_events BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;
+CREATE TRIGGER data_native_epoch_materials_no_update BEFORE UPDATE ON data_native_epoch_materials BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;
+CREATE TRIGGER data_native_epoch_materials_no_delete BEFORE DELETE ON data_native_epoch_materials BEGIN SELECT RAISE(ABORT,'immutable native transition'); END;
+`)
+	return err
 }

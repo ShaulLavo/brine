@@ -59,7 +59,6 @@ type EngineTransitionEvent struct {
 }
 
 func (e EngineTransitionEvent) Cursor() EngineTransitionCursor { return e.cursor }
-func (e EngineTransitionEvent) PreviousSHA256() string         { return e.previous }
 func (e EngineTransitionEvent) Bytes() []byte                  { return bytes.Clone(e.encoded) }
 
 func PrepareEngineTransition(t EngineTransition) (EngineTransitionEvent, error) {

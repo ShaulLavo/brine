@@ -54,7 +54,6 @@ func NewNativeEpoch(t EngineTransition, archiveBindingSHA256, repositoryID strin
 }
 
 func (e NativeEpoch) Record() NativeEpochRecord { return e.record }
-func (e NativeEpoch) SHA256() string            { return e.hash }
 func (e NativeEpoch) Bytes() []byte             { return bytes.Clone(e.encoded) }
 
 func (e NativeEpoch) Matches(t EngineTransition) bool {
@@ -78,13 +77,6 @@ func encodeNativeEpoch(record NativeEpochRecord) (NativeEpoch, error) {
 	return NativeEpoch{record: record, encoded: raw, hash: hex.EncodeToString(sum[:])}, nil
 }
 
-func (e NativeEpoch) MarshalJSON() ([]byte, error) {
-	if e.hash == "" {
-		return nil, ErrInvalid
-	}
-	return e.Bytes(), nil
-}
-
 func DecodeNativeEpoch(raw []byte) (NativeEpoch, error) {
 	if len(raw) == 0 || len(raw) > MaxEngineTransitionBytes {
 		return NativeEpoch{}, ErrInvalid
@@ -106,13 +98,4 @@ func DecodeNativeEpoch(raw []byte) (NativeEpoch, error) {
 		return NativeEpoch{}, ErrInvalid
 	}
 	return encodeNativeEpoch(record)
-}
-
-func (e *NativeEpoch) UnmarshalJSON(raw []byte) error {
-	decoded, err := DecodeNativeEpoch(raw)
-	if err != nil {
-		return err
-	}
-	*e = decoded
-	return nil
 }
