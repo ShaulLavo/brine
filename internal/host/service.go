@@ -8,6 +8,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/caddy"
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -82,7 +83,11 @@ func (s Service) Plan(ctx context.Context, app spec.App) (dispatch.Planned, erro
 		return dispatch.Planned{}, err
 	}
 	id, err := s.Store.SavePlan(ctx, p, facts.Input.Desired)
-	return dispatch.Planned{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts, SchemaArtifacts: p.SchemaArtifacts}, err
+	summary := dispatch.Planned{PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts, SchemaArtifacts: p.SchemaArtifacts}
+	if p.Managed != nil {
+		summary.Managed = &dispatch.ManagedPlanSummary{State: p.Managed.State, Frontend: p.Managed.Frontend != nil}
+	}
+	return summary, err
 }
 
 func (s Service) facts(ctx context.Context, app spec.App) (apply.Facts, error) {
@@ -154,6 +159,9 @@ type Executor struct {
 }
 
 func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
+	if p.Managed != nil && p.Managed.State == data.EngineUnpublished {
+		return e.runManagedPreparation(ctx, id, p, d)
+	}
 	if p.Lifecycle == plan.PrepareData {
 		return e.runDataPreparation(ctx, id, p, d)
 	}

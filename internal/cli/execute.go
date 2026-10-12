@@ -46,6 +46,9 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 	if lifecycle.OpenEngineStartup != nil {
 		deps.HostEngineExec = lazyEngineStartup{&runtime}.EngineExec
 	}
+	if lifecycle.OpenManagedFrontendPermit != nil {
+		deps.HostManagedFrontendPermit = lazyManagedFrontend{&runtime}.Permit
+	}
 	foregroundCompleted := false
 	if deps.HostEngineExec != nil {
 		execute := deps.HostEngineExec
@@ -148,22 +151,24 @@ func validEnvelopeStream(data []byte, command string) bool {
 }
 
 type RuntimeServices struct {
-	Archives           archive.Service
-	ArchiveMaintenance archive.MaintenanceService
-	ArchiveCredentials backupcredentials.ArchiveService
-	Permits            replication.LaunchReader
-	WriterAttempt      func(context.Context, string) error
-	EngineExec         func(context.Context, string) error
-	Runner             OperationRunner
-	Reconciler         dispatch.ReconcileOperations
-	Close              func() error
+	Archives              archive.Service
+	ArchiveMaintenance    archive.MaintenanceService
+	ArchiveCredentials    backupcredentials.ArchiveService
+	Permits               replication.LaunchReader
+	WriterAttempt         func(context.Context, string) error
+	EngineExec            func(context.Context, string) error
+	ManagedFrontendPermit func(context.Context, string, string) error
+	Runner                OperationRunner
+	Reconciler            dispatch.ReconcileOperations
+	Close                 func() error
 }
 type RuntimeLifecycle struct {
-	OpenPermits       func(context.Context) (RuntimeServices, error)
-	OpenWriterAttempt func(context.Context) (RuntimeServices, error)
-	OpenEngineStartup func(context.Context) (RuntimeServices, error)
-	Open              func(context.Context, bool) (RuntimeServices, error)
-	Close             func() error
+	OpenPermits               func(context.Context) (RuntimeServices, error)
+	OpenWriterAttempt         func(context.Context) (RuntimeServices, error)
+	OpenEngineStartup         func(context.Context) (RuntimeServices, error)
+	OpenManagedFrontendPermit func(context.Context) (RuntimeServices, error)
+	Open                      func(context.Context, bool) (RuntimeServices, error)
+	Close                     func() error
 }
 
 type invocationRuntime struct {

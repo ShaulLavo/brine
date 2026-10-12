@@ -78,6 +78,8 @@ func managedFrontend(in Input, previous *CurrentRelease, enginePort target.Port)
 		if current == nil || current.QuadletUnits.Status != target.KnownStatus || current.QuadletUnits.Value == nil || !slices.Equal(*current.QuadletUnits.Value, expected) {
 			add(ArtifactDrift, "managed.frontend_unit")
 		}
+	} else if current != nil && (current.Image.Status == target.KnownStatus || current.QuadletUnits.Status == target.KnownStatus && current.QuadletUnits.Value != nil && len(*current.QuadletUnits.Value) != 0) {
+		add(ArtifactDrift, "managed.frontend_ownership")
 	}
 	return frontend, conflicts
 }
