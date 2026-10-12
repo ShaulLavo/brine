@@ -8,8 +8,8 @@ import (
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 )
 
-type WasmSHA256 string
-type RuntimeModuleHash string
+type WasmSHA256 = spacetimedb.WasmSHA256
+type RuntimeModuleHash = spacetimedb.RuntimeModuleHash
 
 // ModuleMetadata is untrusted desired input, never observation or startup proof.
 type ModuleMetadata struct {
