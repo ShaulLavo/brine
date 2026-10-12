@@ -1,11 +1,18 @@
 package datapublish
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 )
+
+func recordSHA256(raw []byte) string {
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
+}
 
 func cursorFixture(t *testing.T, create bool) Cursor {
 	t.Helper()
@@ -87,7 +94,7 @@ func TestUnknownPublicationCannotRepublishOrSkipDataProof(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := DecodeCursor(raw, unknown.plan)
+	restored, err := DecodeCursor(raw, unknown.plan, recordSHA256(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +147,7 @@ func TestCursorOwnsProofsAndDefersFinalTransition(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := DecodeCursor(raw, verified.plan)
+	decoded, err := DecodeCursor(raw, verified.plan, recordSHA256(raw))
 	if err != nil {
 		t.Fatal("caller changed retained proof references", err)
 	}

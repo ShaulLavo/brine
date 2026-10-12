@@ -534,6 +534,18 @@ Shared startup proof binds explicit engine, incarnation, database, binding and e
 
 Persistent allocated/unknown desired and plan goldens, a historical SQLite restore-receipt golden, engine-tag refusal tests and store/permit tests establish this local boundary. No physical SpacetimeDB behavior is claimed. D13 and Phase 09 require routine online native snapshot/log archival with existing encrypted tooling and separately fenced exact data operations.
 
+### Candidate schema and publication records (P09-06 core)
+
+`spacetimedb.DecodeDescriptorV10` requires exactly one `V10` envelope and delegates body validation to `CanonicalSchemaV10`. It accepts metadata, not proof that a Wasm artifact produced it. Pinned native `extract-schema` executes guest initialization and description code; protected extraction must contain those effects and establish the artifact/schema binding. The six captured native descriptors and their content pins are retained with [the core evidence](evidence/p09-schema-publication.md).
+
+`CompareSchemas` returns immutable changes and required checks. Every update, including equal schemas with changed code, requires guest review and preserved-data verification. New tables require independent new-table data evidence. Appended U8 defaults require old-column projection and default-value evidence. Removal, rename, reordering, type/access changes and changes to existing keys, indexes, constraints, sequences or defaults require a separate operator procedure. Unqualified appended defaults refuse. Callable, lifecycle and scheduler changes add explicit effects qualification. No result says an update is safe to apply.
+
+`datapublish.Plan` binds requester, current target/policy/desired/generation, app/incarnation/database/binding/epoch, source point/fence/preparation owner, candidate Wasm/native-program/schema, review and recovery releases, native preflight references and a bounded UTC expiry. Its closed source arms distinguish a recovered empty owned server bundle from initialized captured history. The empty arm has no native database, module, replica or history placeholders. Captured history is restricted to the fixed supported artifact/schema pairs under `brine-recovery-pairs-confirmed-v1`; a supplied contract label cannot widen it. Requirements derive from opaque canonical schemas during construction and private decoding. Secret references must belong to the app and be distinct across roles. Operator-selected key names and equal numeric versions across different roles are valid. Protected host lookups must independently bind those exact references to their required roles before effects.
+
+The private cursor separates immutable preparation ownership from the apply operation and consumer claim. It sequences restore, preflight, publication, data verification, disposal and an external final-transition receipt. Unknown outcomes permit inspection and matching observation only. A proven unperformed publication still consumes that attempt. `DecodeCursor` requires an exact record hash loaded independently from protected retained state. Computing the expected hash from supplied cursor bytes does not prevent rewinding history. Store composition must atomically retain each record/hash and compare-and-swap its head, authenticate proof references and enforce one consumer per point/plan.
+
+These records grant no mutation, swap, epoch activation or fence-release authority. Protected extraction, exact-point consumption, staged data/projection/effects evidence, store/jobs/host wiring and physical acceptance remain required. P09-06 and T39 remain unchecked.
+
 ### Definition and typed identities
 
 ~~~toml

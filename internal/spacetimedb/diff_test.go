@@ -76,19 +76,49 @@ func TestOrderedProductsAndExistingConstraintsCannotBeDowngraded(t *testing.T) {
 }
 
 func TestImplicitExistingNameCannotBecomeReviewedAddition(t *testing.T) {
+	for _, kind := range []string{"Table", "Function"} {
+		t.Run(kind, func(t *testing.T) { assertImplicitNameRequiresProcedure(t, kind) })
+	}
+}
+
+func assertImplicitNameRequiresProcedure(t *testing.T, kind string) {
+	t.Helper()
 	source := schemaObject(t)
 	names := sectionObject(source, "ExplicitNames").(map[string]any)
 	entries := names["entries"].([]any)
-	kind, value, _ := variant(entries[0])
+	index := slices.IndexFunc(entries, func(entry any) bool {
+		entryKind, _, _ := variant(entry)
+		return entryKind == kind
+	})
+	if index < 0 {
+		t.Fatal("native fixture has no explicit mapping", kind)
+	}
+	_, value, _ := variant(entries[index])
 	mapping := value.(map[string]any)
 	name := mapping["source_name"].(string)
-	names["entries"] = entries[1:]
+	names["entries"] = slices.Delete(entries, index, index+1)
 	before := mustSchemaValue(t, source)
 	names["entries"] = append(names["entries"].([]any), map[string]any{kind: map[string]any{"source_name": name, "canonical_name": "renamed_existing"}})
 	after := mustSchemaValue(t, source)
 	diff, err := CompareSchemas(before, after)
 	if err != nil || diff.Decision() != OperatorProcedureRequired {
 		t.Fatal("existing implicit name gained unreviewed alias", diff.Decision(), diff.Changes(), err)
+	}
+}
+
+func TestExistingNativeIndexNameCannotBecomeReviewedAddition(t *testing.T) {
+	source := descriptorSchema(t, "v1")
+	if source.SHA256() != "f10d1efcbbdcec34434fa257946ca8a562ba1ad5f6b1b22b17fca14ca7eacc45" {
+		t.Fatal("source is not the unchanged native baseline")
+	}
+	next := schemaObject(t)
+	names := sectionObject(next, "ExplicitNames").(map[string]any)
+	names["entries"] = append(names["entries"].([]any), map[string]any{"Index": map[string]any{
+		"source_name": "recovery_left_sequence_idx_btree", "canonical_name": "renamed_existing_index",
+	}})
+	diff, err := CompareSchemas(source, mustSchemaValue(t, next))
+	if err != nil || diff.Decision() != OperatorProcedureRequired {
+		t.Fatal("existing native index gained unreviewed alias", diff.Decision(), diff.Changes(), err)
 	}
 }
 

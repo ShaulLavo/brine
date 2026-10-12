@@ -5,6 +5,7 @@ package datapublish
 import (
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -28,8 +29,8 @@ func identity(value string) bool { return data.ValidID(value) }
 func planID(value string) bool {
 	return strings.HasPrefix(value, "sha256:") && digest(strings.TrimPrefix(value, "sha256:"))
 }
-func secretReference(value string) bool {
-	return len(value) <= 253 && versionReference.MatchString(value)
+func secretReference(value, app string) bool {
+	return len(value) <= 253 && versionReference.MatchString(value) && strings.HasPrefix(value, "brine."+app+".")
 }
 func utc(value time.Time) bool { return !value.IsZero() && value.Location() == time.UTC }
 
@@ -51,8 +52,14 @@ type SecretReferences struct {
 	RecoveryPassword string `json:"recovery_password"`
 }
 
-func (s SecretReferences) valid() bool {
-	return secretReference(s.Publisher) && secretReference(s.SigningPublic) && secretReference(s.SigningPrivate) && secretReference(s.RecoveryPassword)
+func (s SecretReferences) valid(app string) bool {
+	refs := []string{s.Publisher, s.SigningPublic, s.SigningPrivate, s.RecoveryPassword}
+	for i, ref := range refs {
+		if !secretReference(ref, app) || slices.Contains(refs[:i], ref) {
+			return false
+		}
+	}
+	return true
 }
 
 type BindingFacts struct {
@@ -71,5 +78,5 @@ type BindingFacts struct {
 
 func (f BindingFacts) valid() bool {
 	return appName.MatchString(f.App) && identity(f.IncarnationID) && identity(f.DatabaseID) && identity(f.BindingID) && identity(f.EpochID) &&
-		digest(f.TargetSHA256) && digest(f.PolicySHA256) && digest(f.DesiredSHA256) && digest(f.ConfigSHA256) && f.SecretVersions.valid()
+		digest(f.TargetSHA256) && digest(f.PolicySHA256) && digest(f.DesiredSHA256) && digest(f.ConfigSHA256) && f.SecretVersions.valid(f.App)
 }

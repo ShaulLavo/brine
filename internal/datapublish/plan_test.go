@@ -37,6 +37,42 @@ func testFacts() BindingFacts {
 		SecretVersions: SecretReferences{Publisher: "brine.example.publisher.v1", SigningPublic: "brine.example.public.v1", SigningPrivate: "brine.example.private.v1", RecoveryPassword: "brine.example.recovery.v1"}} // #nosec G101 -- Immutable version names checked by secretReference, never credential values.
 }
 
+func TestSecretVersionsStayInTheirAppAndSeparateRoles(t *testing.T) {
+	for _, mutate := range []func(*SecretReferences){
+		func(refs *SecretReferences) {
+			refs.Publisher = strings.Replace(refs.Publisher, ".example.", ".other.", 1)
+		},
+		func(refs *SecretReferences) {
+			refs.SigningPublic = strings.Replace(refs.SigningPublic, ".example.", ".other.", 1)
+		},
+		func(refs *SecretReferences) {
+			refs.SigningPrivate = strings.Replace(refs.SigningPrivate, ".example.", ".other.", 1)
+		},
+		func(refs *SecretReferences) {
+			refs.RecoveryPassword = strings.Replace(refs.RecoveryPassword, ".example.", ".other.", 1)
+		},
+		func(refs *SecretReferences) { refs.SigningPrivate = refs.SigningPublic },
+	} {
+		spec := planFixture(t, false)
+		mutate(&spec.Facts.SecretVersions)
+		if _, err := NewPlan(spec); !errors.Is(err, ErrRecord) {
+			t.Fatal("foreign app or identical role reference accepted", err)
+		}
+	}
+	if _, err := NewPlan(planFixture(t, false)); err != nil {
+		t.Fatal("distinct roles with the same version number refused", err)
+	}
+	spec := planFixture(t, false)
+	refs := &spec.Facts.SecretVersions
+	refs.Publisher = strings.Replace(refs.Publisher, "publisher", "owner-token", 1)
+	refs.SigningPublic = strings.Replace(refs.SigningPublic, "public", "verification-key", 1)
+	refs.SigningPrivate = strings.Replace(refs.SigningPrivate, "private", "issuer-key", 1)
+	refs.RecoveryPassword = strings.Replace(refs.RecoveryPassword, "recovery", "archive-pass", 1)
+	if _, err := NewPlan(spec); err != nil {
+		t.Fatal("operator-selected app-bound names refused", err)
+	}
+}
+
 func capturedFixture(t *testing.T) Source {
 	t.Helper()
 	point := CapturedPoint{PointID: strings.Repeat("5", 32), FenceID: strings.Repeat("6", 32), PreparationOpID: "prepared-fixture",

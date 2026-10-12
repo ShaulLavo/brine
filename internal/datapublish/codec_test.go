@@ -123,8 +123,47 @@ func assertCursorRecordRefused(t *testing.T, record map[string]any, plan Plan) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = DecodeCursor(raw, plan); !errors.Is(err, ErrRecord) {
+	if _, err = DecodeCursor(raw, plan, recordSHA256(raw)); !errors.Is(err, ErrRecord) {
 		t.Fatal("cursor invented continuation", err)
+	}
+}
+
+func TestCursorCodecCannotRewindTheRetainedRecordHead(t *testing.T) {
+	ready := readyToPublish(t, false)
+	pending, err := ready.Intend(PublishStage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unknown, err := pending.MarkUnknown()
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(unknown)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retainedSHA := recordSHA256(raw)
+	if _, err = DecodeCursor(raw, unknown.plan, retainedSHA); err != nil {
+		t.Fatal("exact retained record refused", err)
+	}
+	var record cursorRecord
+	if err = json.Unmarshal(raw, &record); err != nil {
+		t.Fatal(err)
+	}
+	record.Events = record.Events[:4]
+	record.State = Ready
+	record.Next = PublishStage
+	truncated, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = DecodeCursor(truncated, unknown.plan, retainedSHA); !errors.Is(err, ErrRecord) {
+		t.Fatal("coherent truncation erased a retained publication intent", err)
+	}
+	for _, anchor := range []string{"", "not-a-hash", strings.Repeat("0", 64)} {
+		if _, err = DecodeCursor(raw, unknown.plan, anchor); !errors.Is(err, ErrRecord) {
+			t.Fatal("missing or changed retained-record head accepted", err)
+		}
 	}
 }
 

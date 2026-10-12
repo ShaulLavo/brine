@@ -74,12 +74,6 @@ func (s Source) Captured() (CapturedPoint, bool) {
 	return point, s.kind == CapturedSource
 }
 func (s Source) Schema() spacetimedb.CanonicalSchema { return s.schema }
-func (s Source) Contract() CoverageContract {
-	if s.kind == CapturedSource {
-		return ConfirmedRecoveryPairsV1
-	}
-	return ""
-}
 func (s Source) FenceID() string {
 	if s.kind == CreateSource {
 		return s.empty.FenceID

@@ -1,6 +1,8 @@
 package datapublish
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"slices"
 )
@@ -45,8 +47,14 @@ func (c Cursor) MarshalJSON() ([]byte, error) {
 	return raw, nil
 }
 
-func DecodeCursor(raw []byte, plan Plan) (Cursor, error) {
-	if len(raw) == 0 || len(raw) > RecordLimit {
+// DecodeCursor requires the exact record hash from independently retained private
+// state. Computing retainedSHA256 from raw cannot prevent a coherent rewind.
+func DecodeCursor(raw []byte, plan Plan, retainedSHA256 string) (Cursor, error) {
+	if len(raw) == 0 || len(raw) > RecordLimit || !digest(retainedSHA256) {
+		return Cursor{}, ErrRecord
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != retainedSHA256 {
 		return Cursor{}, ErrRecord
 	}
 	if _, err := objectValues(raw, "version", "scope", "state", "next", "events"); err != nil {

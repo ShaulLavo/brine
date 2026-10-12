@@ -63,6 +63,14 @@ T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequi
 
 Remaining T35 predicates are production startup ownership/quiescence/fence composition and independent exact native framing/high-water coverage qualification. The public spec and engine dispatch remain unsupported. Full protected Brine/S3 capture, restore and interruption admission belongs to T37-T41 and the physical exit drill.
 
+## T39 schema/publication core, admission pending
+
+[Core evidence](evidence/p09-schema-publication.md) retains six actual final native descriptor payloads and their artifact/schema/content pins. Tests cover strict V10 envelopes and shared budgets, preserved declaration order, actual default bytes, access/removal/default/constraint changes, explicit names on existing tables/functions/indexes, required effect reviews and immutable returned evidence. Same-schema code updates still require guest review and data verification.
+
+Pure publication tests cover disjoint recovered-empty versus captured-history records, supported source artifact/schema pairs, derived projection requirements, requester/source/expiry freshness, app-bound distinct secret roles with custom key names, private codec refusal of extra/null/duplicate/mixed fields and immutable review/proof slices. Cursor tests cover unknown-effect inspection, no repeat after matching observation or known nonperformance, delayed creation identity adoption, every required verification proof, verifier disposal and an external transition receipt. Coherent journal truncation cannot reopen publication when decoded against the independently retained record hash. Malformed-record tests supply matching hashes to exercise shape/state refusal separately from the retention check.
+
+These are metadata/domain regressions. Actual protected extraction, independently authenticated journal/claim and role lookups, exact remote point, staged publication/data projections, bundle swap/new epoch/fence release, jobs/dispatch and physical T41 remain open. Neither P09-06 nor T39 is completed by this source unit.
+
 ## T16 schema policy acceptance, physical completion pending
 
 D12 and the [Schema migrations contract](CONTRACTS.md#schema-migrations) define these gates. P04-07's policy documents alone are not passing behavioral evidence. Connected declaration/current-schema admission, fresh writer permits and reviewed first initialization now exist, but existing-schema migration and the physical incompatible-rollback drill remain open.
