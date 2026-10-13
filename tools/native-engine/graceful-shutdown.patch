@@ -35,11 +35,125 @@
  }
 --- a/crates/core/src/host/host_controller.rs
 +++ b/crates/core/src/host/host_controller.rs
-@@ -819,6 +819,7 @@
-                 "replica={replica_id} shutdown timed out after {}s",
-                 start.elapsed().as_secs_f32()
-             );
-+            return Err(anyhow::anyhow!("module host shutdown timed out"));
-         }
+@@ -795,7 +795,7 @@
+         let shutdown = tokio::time::timeout(timeout, async {
+             let mut guard = lock.write_owned().await;
+             let Some(host) = guard.take() else {
+-                return;
++                return Ok::<(), anyhow::Error>(());
+             };
+             let module = host.module.borrow().clone();
+             let info = module.info();
+@@ -810,18 +810,22 @@
+             module.exit().await;
+             info!("replica={replica_id} database={database_identity} exiting database");
+             module.relational_db().shutdown().await;
++            module.relational_db().shutdown_snapshots().await?;
+             info!("replica={replica_id} database={database_identity} module host exited");
++            Ok(())
+         })
+         .await;
  
-         Ok(())
+-        if shutdown.is_err() {
+-            warn!(
+-                "replica={replica_id} shutdown timed out after {}s",
+-                start.elapsed().as_secs_f32()
+-            );
+-        }
+-
+-        Ok(())
++        match shutdown {
++            Ok(result) => result,
++            Err(_) => {
++                warn!(
++                    "replica={replica_id} shutdown timed out after {}s",
++                    start.elapsed().as_secs_f32()
++                );
++                Err(anyhow::anyhow!("module host shutdown timed out"))
++            }
++        }
+     }
+ 
+     /// Get the [`ModuleHost`] identified by `replica_id` or return an error
+--- a/crates/engine/src/snapshot.rs
++++ b/crates/engine/src/snapshot.rs
+@@ -7,7 +7,11 @@
+ };
+ 
+ use anyhow::Context as _;
+-use futures::{channel::mpsc, StreamExt as _};
++use futures::{
++    channel::mpsc,
++    future::{BoxFuture, Shared},
++    FutureExt as _, StreamExt as _,
++};
+ use log::{info, warn};
+ use parking_lot::RwLock;
+ use prometheus::{Histogram, IntGauge};
+@@ -21,6 +25,8 @@
+ use spacetimedb_runtime::Handle;
+ 
+ pub type SnapshotDatabaseState = Arc<RwLock<CommittedState>>;
++
++type SnapshotCompletion = Shared<BoxFuture<'static, Result<(), Arc<spacetimedb_runtime::JoinError>>>>;
+ 
+ /// Whether the [SnapshotWorker] should compress historical snapshots.
+ #[derive(Clone, Copy, Debug)]
+@@ -62,6 +68,7 @@
+     snapshot_created: watch::Sender<Option<TxOffset>>,
+     request_snapshot: mpsc::UnboundedSender<Request>,
+     snapshot_repository: Arc<DynSnapshotRepo>,
++    worker_done: SnapshotCompletion,
+ }
+ 
+ impl SnapshotWorker {
+@@ -89,12 +96,17 @@
+                 rt: rt.clone(),
+             }),
+         };
+-        rt.spawn(actor.run());
++        let worker_done = rt
++            .spawn(actor.run())
++            .map(|result| result.map_err(Arc::new))
++            .boxed()
++            .shared();
+ 
+         Self {
+             snapshot_created,
+             request_snapshot: request_tx,
+             snapshot_repository,
++            worker_done,
+         }
+     }
+ 
+@@ -111,6 +123,14 @@
+         self.request_snapshot
+             .unbounded_send(Request::ReplaceState(state))
+             .expect("snapshot worker panicked");
++    }
++
++    pub async fn shutdown(&self) -> anyhow::Result<()> {
++        self.request_snapshot.close_channel();
++        self.worker_done
++            .clone()
++            .await
++            .map_err(|error| anyhow::anyhow!("snapshot worker failed: {error}"))
+     }
+ 
+     /// Get the snapshot repo this worker is operating on.
+--- a/crates/engine/src/relational_db.rs
++++ b/crates/engine/src/relational_db.rs
+@@ -383,6 +383,13 @@
+         None
+     }
+ 
++    pub async fn shutdown_snapshots(&self) -> anyhow::Result<()> {
++        if let Some(worker) = &self.snapshot_worker {
++            worker.shutdown().await?;
++        }
++        Ok(())
++    }
++
+     /// Create any system tables that are missing from the datastore.
+     ///
+     /// This runs during database startup, *after* `restore_from_snapshot` and `apply_history`
