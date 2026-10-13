@@ -97,7 +97,14 @@ func TestGolden(t *testing.T) {
 // ExecStart's systemd specifier and dollar expansion, not a shell parser.
 func parseEnvironment(unit []byte) (map[string]string, error) {
 	out := map[string]string{}
+	section := ""
 	for _, line := range strings.Split(string(unit), "\n") {
+		if strings.HasPrefix(line, "[") {
+			section = line
+		}
+		if section != "[Container]" {
+			continue
+		}
 		if !strings.HasPrefix(line, "Environment=") {
 			continue
 		}

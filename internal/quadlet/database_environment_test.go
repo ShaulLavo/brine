@@ -46,8 +46,12 @@ func TestDatabaseEnvironmentGolden(t *testing.T) {
 				t.Fatal(err)
 			}
 			var lines []string
+			section := ""
 			for _, line := range strings.Split(string(u.Bytes()), "\n") {
-				if strings.HasPrefix(line, "Environment=") {
+				if strings.HasPrefix(line, "[") {
+					section = line
+				}
+				if section == "[Container]" && strings.HasPrefix(line, "Environment=") {
 					lines = append(lines, line)
 				}
 			}

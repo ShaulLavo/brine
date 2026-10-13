@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-const productionEnrollmentStepOrder = "ssh-layout mask packages litestream restic native-reader user layout linger binary polkit caddy-tree caddy-import caddy-validate unmask caddy-enable caddy-start caddy-writable inventory-key operator-policy workspace-observer requester key ssh-policy bypass boot-reconcile"
+const productionEnrollmentStepOrder = "ssh-layout mask packages litestream restic native-reader user layout runner-storage linger binary polkit caddy-tree caddy-import caddy-validate unmask caddy-enable caddy-start caddy-writable inventory-key operator-policy workspace-observer requester key ssh-policy bypass boot-reconcile"
 
 type memoryStore struct {
 	fail   bool

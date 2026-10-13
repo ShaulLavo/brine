@@ -18,6 +18,7 @@ LogOpt=max-size=10485760
 Restart=on-failure
 SuccessExitStatus=143
 RestartForceExitStatus=143
+Environment=CONTAINERS_STORAGE_CONF=/etc/brine/runner-storage.conf
 
 [Install]
 WantedBy=default.target

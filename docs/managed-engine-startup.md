@@ -58,3 +58,35 @@ The fixed live command uses the committed image, original data mount, two read-o
 The supervisor releases the launch guard and sends `READY=1` from its service main process after this handoff. Stop uses `podman stop --time N ID` and its inspected `StopSignal=SIGINT`; the reference Podman has no `stop --signal` option. Container absence and the retained native pidfd must agree before lifetime authority is released. Unknown private disposal, launch, or stop retains the supervisor and its locks while it inspects. A manager-forced supervisor kill can release flock descriptors; the next start still requires actual source and binding absence.
 
 Numeric job, notification, and foreground behavior were observed with a disposable discovery helper. Production supervisor qualification remains a separate physical gate. Mock tests and the discovery helper do not satisfy that gate.
+
+## Protected runner storage
+
+Enrollment installs the root-owned canonical `/etc/brine/runner-storage.conf`
+with the overlay driver and `/usr/bin/fuse-overlayfs` mount program. The required
+Debian `fuse-overlayfs` package uses the reviewed 1.14 package family. Its
+qualified binary reports `fuse-overlayfs: version 1.13-dev`. Package installation
+and file ownership follow the existing enrollment journal.
+
+Every Brine runner subprocess selects this fixed profile through
+`CONTAINERS_STORAGE_CONF`. Generated Podman services set it in `[Service]`,
+not the application's environment. Foreground engine launches use the same
+profile. Startup and host inventory refuse missing or changed canonical bytes,
+unprotected parents or helper, unavailable `/dev/fuse`, an unqualified helper
+version, or a Podman store without dynamic UID mapping. Metadata-only operation
+status remains available without opening the runtime.
+
+The runner keeps UID and GID 1000 inside the native container. FUSE maps image
+ownership dynamically. Native overlay without ID-mapped mounts instead copies
+and changes ownership across the image tree before launching a child. On the
+authorized test host, that work exceeded a 300-second diagnostic cap for the
+2.54 GB image. A fresh isolated FUSE store borrowed the same image read-only,
+verified its index, platform and image ID, and created its container in 0.26
+seconds within the unchanged 60-second deadline. That test did not start native
+code or prove a successful deployment.
+
+Selecting FUSE marks the store with `.has-mount-program`. Later FUSE layers
+can use different whiteout metadata from native overlay. Removing the profile
+is not a safe rollback after those layers exist. Existing enrolled hosts need a
+separately authorized operator baseline with no runtime consumers, recorded
+original state and verified image, layer and source preservation. Replaying an
+old enrollment transaction does not install this dependency.

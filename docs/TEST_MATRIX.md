@@ -549,3 +549,23 @@ observer through `tools/spacetime-runtime`; it does not reproduce its renderer.
   index and both platform digests, and binds the source revision and retained
   module digest. Execute the published amd64 and arm64 images; cross-builds
   alone do not establish either container runtime or remote restore acceptance.
+
+### Protected runner storage qualification
+
+Local tests refuse arbitrary storage-profile paths, ambient profile redirection,
+missing or unprotected configuration, a changed canonical enrollment hash,
+unqualified FUSE package and binary versions, a store without dynamic UID
+mapping, additional image stores, and a character device other than Linux FUSE
+10:229. Enrollment order and its interruption matrix include the protected
+profile before rootless queries. Undo converges after directory removal and
+still removes a validated pending empty directory. Rendered application tests
+read `[Container]` environment separately from the fixed Podman `[Service]`
+profile.
+
+The authorized isolated-driver probe used the actual source command runner and
+local index/platform/image verification. Native overlay CREATE exceeded its
+300-second diagnostic cap. FUSE CREATE of the same image succeeded in 0.26
+seconds with its unchanged 60-second deadline, then exact cleanup preserved the
+original image/layer metadata and payload identities. This proves the storage
+mechanism, not a native child, deployment, backup, restore or production profile
+transition. Those require the separately authorized physical CLI flow.
