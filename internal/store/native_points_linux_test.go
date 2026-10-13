@@ -16,6 +16,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/result"
 )
 
 func migrateNativePointFixture(t *testing.T, s *Store) {
@@ -199,6 +200,10 @@ func nativeCompletedPointFixture(t *testing.T) (*Store, *NativePreparation, Nati
 }
 
 func nativeCompletedPointLocksFixture(t *testing.T) (*Store, *NativePreparation, *data.EngineLock, NativePreparedPointView) {
+	return nativeCompletedPointStateFixture(t, ops.Succeeded)
+}
+
+func nativeCompletedPointStateFixture(t *testing.T, terminal ops.State) (*Store, *NativePreparation, *data.EngineLock, NativePreparedPointView) {
 	t.Helper()
 	s, preparation, lifetime, _ := nativePreparationFixture(t)
 	ctx, stop := context.Background(), nativeAbsentStopFixture()
@@ -246,7 +251,13 @@ func nativeCompletedPointLocksFixture(t *testing.T) (*Store, *NativePreparation,
 	if _, err := s.ReadNativePreparedPoint(ctx, i.PointID); err == nil {
 		t.Fatal("nonterminal preparation operation supplied exact point")
 	}
-	if err := s.SetOperationState(ctx, i.OperationID, ops.Succeeded); err != nil {
+	if terminal == ops.RecoveryRequired {
+		if err := s.CompleteTask(ctx, i.OperationID, terminal, ops.TaskOutcome{Error: result.InternalError}); err != nil {
+			t.Fatal(err)
+		}
+		return s, preparation, lifetime, v
+	}
+	if err := s.SetOperationState(ctx, i.OperationID, terminal); err != nil {
 		t.Fatal(err)
 	}
 	return s, preparation, lifetime, v
