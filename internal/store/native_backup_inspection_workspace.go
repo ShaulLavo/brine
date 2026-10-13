@@ -103,6 +103,14 @@ func (i *NativeBackupInspection) DisposeWorkspace(ctx context.Context, id string
 	if err != nil || json.Unmarshal(raw, &v) != nil || v.BindingID != i.binding || v.OriginalSHA256 != i.originalSHA256 {
 		return ErrConflict
 	}
+	target, err := i.workspaceRetirementTarget(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	issued, err := i.workspaceRetirementIssued(ctx, tx, target)
+	if err != nil || !issued {
+		return ErrConflict
+	}
 	reserved, err := readReservedEngine(ctx, tx, i.binding)
 	if err != nil {
 		return err

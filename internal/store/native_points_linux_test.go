@@ -369,10 +369,61 @@ func TestNativePointCodecRejectsUnknownNullAndOnlineArms(t *testing.T) {
 		strings.Replace(string(raw), `"format":`, `"unknown":true,"format":`, 1),
 		strings.Replace(string(raw), `"generation":0`, `"generation":null`, 1),
 		strings.Replace(string(raw), `"unpublished"`, `"online"`, 1),
-		strings.Replace(string(raw), v.FenceOwnerOpID, "forged-owner", 1),
+		strings.Replace(string(raw), `"fence_owner_operation_id":"`+v.FenceOwnerOpID+`"`, `"fence_owner_operation_id":"invalid owner"`, 1),
 	} {
 		if _, err := decodeNativePreparedPoint([]byte(invalid)); err == nil {
 			t.Fatal("invalid exact point admitted")
 		}
+	}
+}
+
+func TestNativePointReadbackRejectsForgedOperationAndFenceOwner(t *testing.T) {
+	for _, field := range []string{"preparation_operation_id", "fence_owner_operation_id"} {
+		t.Run(field, func(t *testing.T) { checkNativePointForgedOwnerReadback(t, field) })
+	}
+}
+
+func checkNativePointForgedOwnerReadback(t *testing.T, field string) {
+	t.Helper()
+	ctx := context.Background()
+	s, _, view := nativeCompletedPointFixture(t)
+	if _, err := s.ReadNativePreparedPoint(ctx, view.PointID); err != nil {
+		t.Fatal("actual original point refused", err)
+	}
+	forged := view
+	switch field {
+	case "preparation_operation_id":
+		forged.PreparationOperationID = "forged-owner"
+	case "fence_owner_operation_id":
+		forged.FenceOwnerOpID = "forged-owner"
+	}
+	canonical, err := json.Marshal(forged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Distinct valid labels are structural facts. Only the protected intent and
+	// fence records can prove which operations own the preparation and fence.
+	if _, err := decodeNativePreparedPoint(canonical); err != nil {
+		t.Fatal("codec unexpectedly supplied contextual ownership authority", err)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE data_native_prepared_points SET canonical=? WHERE id=?", canonical, view.PointID); err == nil {
+		t.Fatal("forged ownership overwrote an immutable point")
+	}
+	// Corrupt only this disposable fixture to check protected readback separately
+	// from the immutable-row write barrier.
+	if _, err := s.db.ExecContext(ctx, "DROP TRIGGER data_native_prepared_points_no_update"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE data_native_prepared_points SET canonical=? WHERE id=?", canonical, view.PointID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.ReadNativePreparedPoint(ctx, view.PointID)
+	var integrity *IntegrityError
+	if !errors.As(err, &integrity) {
+		t.Fatal("protected point read admitted caller-selected operation ownership", err)
+	}
+	var actualOwner string
+	if err := s.db.QueryRowContext(ctx, "SELECT operation_id FROM data_fences WHERE id=?", view.FenceID).Scan(&actualOwner); err != nil || actualOwner != view.FenceOwnerOpID {
+		t.Fatal("forged read changed actual fence owner", err)
 	}
 }

@@ -235,7 +235,14 @@ withdraw ingress or change ordinary same-runtime restart behavior.
 
 Resolution retains its own durable completed record before removing its original
 task workspace. Cleanup checks exact held directory identity and actual process
-and container consumers; unrelated resources remain untouched. Only after
+and container consumers through the
+[protected observer prerequisite](runbooks/spacetimedb.md#admit-protected-workspace-observation).
+Unrelated resources remain untouched. After known absence, cleanup records an
+owned retirement intent before deleting that exact directory. A missing directory
+after a crash is adopted only with its matching issued intent and descriptor
+identity. Missing without that intent, replacement identities and unknown
+consumers refuse. Inspection and review propagate cleanup failures even when
+their remote read verified successfully. Only after
 cleanup succeeds does the task return a success receipt. A point or policy becomes
 effective through the actual successful resolver outcome joined to that completed
 record. A completed record alone is insufficient.

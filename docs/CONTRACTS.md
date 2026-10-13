@@ -653,15 +653,32 @@ Current database declarations, bindings, schema definitions/observations, restor
 
 `data.EngineDeclaration` and `data.EngineObservation`, and `restore.Source`, have closed `sqlite` and `spacetimedb` variants. Their tagged JSON requires `engine` plus exactly that engine's payload. Unknown, duplicate, missing, null, case-aliased and mismatched fields refuse. Concrete SQLite decoders also refuse foreign engine tags. The SpacetimeDB declaration names an owned engine tree and backup reference without a SQLite filename or mount path. Its schema evidence binds native module identity and schema hash without a SQLite catalog. Its restore source names an encrypted repository snapshot and member manifest without LTX positions or SQLite checks. These are structural records, not deployment or mutation admission.
 
-The existing TOML declaration defaults to SQLite at parsing. An explicit `engine = "sqlite"` produces the same normalized input and canonical desired/plan bytes. `engine = "spacetimedb"` and unknown engines remain refused until their runtime, identity, schema, capture and authority gates ship.
+The existing TOML declaration defaults to SQLite at parsing. An explicit
+`engine = "sqlite"` produces the same normalized input and canonical desired/plan
+bytes. Managed `engine = "spacetimedb"` declarations use the separate
+[managed deployment contract](#managed-spacetimedb-deployment-and-lifecycle-p09-04)
+and protected native operations. Unknown engines refuse before effects.
 
-Existing observation calls use bounded engine dispatch to the fixed SQLite observer. Archive snapshot capture uses bounded engine dispatch to the SQLite snapshot primitive. The operation owner retains fence, writer-quiescence, journal and source-identity checks. Host initialization, archive and restore checks use engine dispatch for isolated verification. SpacetimeDB observation, capture and verification currently refuse before binding/credential access, staging or runtime effects. Its admitted backup capabilities remain false.
+SQLite observation, snapshot capture and isolated verification use bounded
+engine dispatch to their fixed adapters. The operation owner retains fence,
+writer-quiescence, journal and source-identity checks. SpacetimeDB uses the
+[protected native capture flow](#native-backup-command-execution), whose
+capabilities require actual owned source, repository, material and replay proof.
+The original P09-01 extraction did not admit those native effects; subsequent
+composition does not complete their physical acceptance.
 
-P09-02 adds the qualified `internal/spacetimedb` primitives without enabling that dispatch. `CanonicalSchemaV10` returns immutable bounded schema evidence using `spacetimedb-v10-expanded-v2`. Named declaration sets are sorted after positional type-reference expansion; ordered columns, variants, parameters, index columns and default bytes remain ordered. Unknown sections, recursive or invalid graphs, duplicate declarations and budget overflow refuse. Its versioned schema hash supplies the derived engine marker independently of a game's marker table.
+P09-02 supplies the qualified `internal/spacetimedb` primitives consumed by the
+native composition. `CanonicalSchemaV10` returns immutable bounded schema
+evidence using `spacetimedb-v10-expanded-v2`. Named declaration sets are sorted
+after positional type-reference expansion; ordered columns, variants, parameters,
+index columns and default bytes remain ordered. Unknown sections, recursive or
+invalid graphs, duplicate declarations and budget overflow refuse. Its versioned
+schema hash supplies the derived engine marker independently of a game's marker
+table.
 
 `ObserveCurrent` accepts a validated literal-loopback location, privately resolved publisher credential, expected native database/publisher/name binding and bounded deadline. Location validation is not ownership or startup authority. It performs fixed info/names/environment/schema-v10/environment GETs, requires matching current module wire identities and returns no credentials or raw headers. SQL/WS hooks are not an observer substitute. Host callers retain control serialization and establish actual runtime ownership. The module wire identity is native Keccak-256 represented through little-endian u256, distinct from Wasm SHA-256 and native digest display.
 
-Initialized startup verification must recover current persisted `st_module` in a private stopped-source copy with external bootstrap `program-bytes` inaccessible. Historical control plus missing replicas can otherwise reconstruct matching initial metadata and empty data. The original stays stopped and unchanged; verifier effects stay contained. Host/store ownership, process/job/lifetime absence, source seals, fences, epoch and startup serialization construct the future opaque startup proof. The P09-02 manual experiment does not construct that production proof or enable live starts. Exact data coverage also requires independently qualified native framing/high-water and replay evidence, not metadata equality or native `Complete` alone. See [the pinned runtime contract](evidence/p09-runtime.md).
+Initialized startup verification must recover current persisted `st_module` in a private stopped-source copy with external bootstrap `program-bytes` inaccessible. Historical control plus missing replicas can otherwise reconstruct matching initial metadata and empty data. The original stays stopped and unchanged; verifier effects stay contained. Host/store ownership, process/job/lifetime absence, source seals, fences, epoch and startup serialization construct the opaque startup proof. The P09-02 manual experiment does not construct that production proof or enable live starts. Exact data coverage also requires independently qualified native framing/high-water and replay evidence, not metadata equality or native `Complete` alone. See [the pinned runtime contract](evidence/p09-runtime.md).
 
 Shared startup proof binds explicit engine, incarnation, database, binding and epoch IDs, local destination ownership, settled source state and an affirmative unfenced/released state. The SQLite runtime then independently verifies the exact Litestream configuration and hash. A common identity proof is not an engine-service permit by itself. Missing/unknown engine, fence or ownership and cross-engine evidence refuse startup. Existing durable-fence, credential, reboot and archive rules remain in force.
 
@@ -1261,12 +1278,36 @@ Retained maintenance plans bind the original archive plan, immutable retirement 
 
 Renewable archive credentials have a distinct archive/binding/epoch scope and immutable private namespace, never an app-name or current-replica lookup. Their metadata records original destination/credential references, current authorization, version, received time and supplied expiry without secret values. The archive delivery service has no replica activation interface; it does not pretend a retained binding is unfenced. Unknown delivery adopts only exact sealed plan/scope metadata and identical private environment bytes. An environment without its receipt remains a reserved, unusable version. Renewal does not extend the original retirement deadline. Fresh retention verification must independently restore the original remote source and bound proof validity by the original deadline, credential lifetime and current protected destination-retention evidence. Failed checks preserve the timestamp of the previous proof rather than relabeling it fresh.
 
-The enrolled local runtime connects these services through machine-envelope host commands:
+The restricted enrolled dispatcher exposes the same services through public
+target commands:
 
-- `brine host archive-maintain ARCHIVE_ID --plan --kind verify_retention|purge_archive|expire_archive` records a reviewed plan without provider or deletion effects. Apply with `brine host archive-maintain ARCHIVE_ID --plan-id PLAN_ID`; another archive ID cannot select that plan.
-- `brine host archive-credentials ARCHIVE_ID BINDING_ID EPOCH_ID --plan [--expires-at UTC_TIME]` reviews renewal. Deliver the bounded private JSON packet on stdin with the same IDs and `--plan-id PLAN_ID`; no secrets are command arguments or output.
-- `brine host archive-status ARCHIVE_ID` reports unverified, verified, degraded, expired, deletion_pending or local_deleted and preserves the last verification timestamp. It never probes the provider or refreshes proof age. Missing/expired credentials, unknown current destination retention and stale verification are not reported healthy.
-- `brine host archive-purge-reconcile ARCHIVE_ID` inspects/adopts only an already journaled deletion, never deriving authority from a reviewed plan or missing path alone.
+- `brine archive maintain plan ARCHIVE_ID --kind KIND --target NAME` records
+  reviewed `verify_retention`, `purge_archive` or `expire_archive` intent without
+  provider or deletion effects. `maintain apply ARCHIVE_ID --plan PLAN_ID`
+  submits the exact plan; another archive ID cannot select it.
+- `brine archive credentials plan ARCHIVE_ID --binding BINDING_ID --epoch EPOCH_ID
+  --target NAME` reviews renewal with optional `--expires-at UTC_TIME`.
+  `credentials set` takes the same archive/binding/epoch selectors and
+  `--plan PLAN_ID`, with bounded private JSON on stdin. No replica activates and
+  no secret enters argv or output.
+- `brine archive status ARCHIVE_ID --target NAME` reports unverified, verified,
+  degraded, expired, deletion_pending or local_deleted and preserves the last
+  verification timestamp. It never probes the provider or refreshes proof age.
+  Missing/expired credentials, unknown current destination retention and stale
+  verification are not healthy.
+- `brine archive maintain resolve OPERATION_ID --target NAME` derives the exact
+  original archive and plan from the retained maintenance operation. It
+  inspects an already-journaled unknown local deletion, adopts known effects and
+  completes only its admitted original scope. The original operation outcome
+  stays unchanged. A reviewed plan or missing path alone supplies no deletion
+  authority.
+
+Maintenance apply and resolve use detached jobs with saved idempotency keys and
+operation IDs. `--no-wait` returns acceptance only. A terminal receipt binds
+`kind`, `operation_id`, `original_operation_id`, `plan_id`, `archive_id`,
+`maintenance_kind`, `outcome`, `evidence_sha256` and `completed_at`.
+Verification reports `verified`; purge/expiry report `local_deleted`.
+Native retirement keeps its separate `archive native inspect`/`resolve` flow.
 
 Maintenance admits the original prepared root, exact original held fence and current destination/target policy, checks the original replica managers and both source/archive mounts, and ignores a fresh unrelated app-name writer. Initialized verification independently restores the original source into a private isolated workspace. Original exact-version credentials remain usable until renewed; archive renewals select only their exact sealed original scope. Physical/provider acceptance remains required; P04-08 and T22 remain unchecked.
 
@@ -1307,6 +1348,44 @@ qualified backup runtime and existing operation adapter. Storage/helper tests
 alone are not physical restore acceptance.
 
 
+## Protected workspace consumer observation
+
+Fresh enrollment retains the actual runner UID/GID before installing
+`brine-workspace-observer.service`. The fixed service may establish its private
+listener during enrollment, but every request requires a protected record whose
+phase is exactly `enrolled`, matching kernel peer/message credentials and the
+current protected persistent roots. Listener startup supplies no request grant.
+
+The separate root-owned `/etc/ssh/brine/workspace-observer.toml` accepts only the
+boolean `allow_workspace_observation`, default false. Missing, omitted, false,
+malformed or unprotected permission denies observation. Enrollment installs false
+when absent and preserves a valid existing grant. It changes no deployment
+operator-policy hash. The fixed root:brine service uses the private AF_UNIX
+`unixpacket` socket `/run/brine-workspace-observer/observe.sock`; public dispatch
+cannot start or configure it.
+
+One passed runner-owned `0700` directory descriptor selects
+`native-restores/<32 lowercase hex>` under the current admitted root. A fresh
+nonce and actual device/inode/mount bind the `absent`, `busy` or `unknown` result.
+No request selects a path, PID, policy, command or caller-supplied proof. The
+service preserves mount-namespace identity and bounds capabilities to
+`CAP_SYS_PTRACE` and `CAP_DAC_READ_SEARCH` for read-only process metadata.
+The fixed syscall sandbox denies `ptrace`, `process_vm_readv`,
+`process_vm_writev`, `kcmp`, `kill` and `pidfd_send_signal`, plus mount/reboot and
+namespace changes. It has no execution or deletion action.
+Actual installed sandbox and FDSTORE qualification remains pending; source
+review does not establish those physical results.
+
+Backup inspection/resolution cleanup disposes only identified stopped private
+readers, independently proves process-consumer absence, and records an owned
+retirement intent before deleting the held original workspace. Intent binds the
+original operation, canonical descriptor and directory identity. A later missing
+directory can settle an issued retirement; missing without that matching intent
+or a replacement directory remains unknown. The intent itself is not an absence
+proof. Inspection and review join cleanup errors into their returned error, even
+after remote verification. Only actual successful cleanup can support a success
+view or resolver outcome.
+
 ## Native backup command execution
 
 The reference-only native backup commands are described in
@@ -1331,6 +1410,17 @@ observations, withdraws hash-owned ingress under the host lock, and holds the
 native lifetime lock. Its completed source reloads the retained generation and
 exact bundle, not a newly generated checkpoint. The actual initial-owner helper
 supplies unpublished publisher provenance; JWT syntax does not supply it.
+Unpublished preparation adopts only the exact original allocation fence, proven
+by the successful managed preparation, immutable plan and allocation, and
+completed initial material delivery matching the protected runtime. The new
+preparation operation owns its effects; the original allocation operation still
+owns the fence. Every stopped-source, completed-point, publication and resolver
+read keeps those identities separate. Deriving ownership from protected records
+preserves existing canonical journal bytes. Missing material, foreign or replaced
+fences, and unresolved preparation claims refuse a new action. A terminal failed
+operation without a preparation claim remains failed and supplies no success
+evidence. Initialized preparation still acquires its own new fence.
+
 Historical restore-test reads the exact retained point and verifies in private
 isolation without starting or replacing live data.
 

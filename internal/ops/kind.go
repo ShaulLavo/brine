@@ -11,26 +11,28 @@ import (
 type Kind string
 
 const (
-	Deploy                   Kind = "deploy"
-	Resolve                  Kind = "resolve"
-	SecretSet                Kind = "secret_set"
-	NativeMaterialSet        Kind = "native_material_set"
-	Reconcile                Kind = "reconcile"
-	RestoreTest              Kind = "restore_test"
-	CredentialActivation     Kind = "credential_activation" // #nosec G101 -- A closed operation name, not credential material.
-	DataInitApply            Kind = "data_init_apply"
-	NativeCapture            Kind = "native_capture"
-	NativeRestoreTest        Kind = "native_restore_test"
-	NativePrepare            Kind = "native_prepare"
-	NativeRecoverySet        Kind = "native_recovery_set"
-	NativeBackupActivate     Kind = "native_backup_activate"
-	NativeBackupResolve      Kind = "native_backup_resolve"
-	ModulePublishApply       Kind = "module_publish_apply"
-	ModulePublishResolve     Kind = "module_publish_resolve"
-	NativeLiveRestore        Kind = "native_live_restore"
-	NativeLiveRestoreResolve Kind = "native_live_restore_resolve"
-	NativeRetire             Kind = "native_retire"
-	NativeRetireResolve      Kind = "native_retire_resolve"
+	Deploy                    Kind = "deploy"
+	Resolve                   Kind = "resolve"
+	SecretSet                 Kind = "secret_set"
+	NativeMaterialSet         Kind = "native_material_set"
+	Reconcile                 Kind = "reconcile"
+	RestoreTest               Kind = "restore_test"
+	CredentialActivation      Kind = "credential_activation" // #nosec G101 -- A closed operation name, not credential material.
+	DataInitApply             Kind = "data_init_apply"
+	NativeCapture             Kind = "native_capture"
+	NativeRestoreTest         Kind = "native_restore_test"
+	NativePrepare             Kind = "native_prepare"
+	NativeRecoverySet         Kind = "native_recovery_set"
+	NativeBackupActivate      Kind = "native_backup_activate"
+	NativeBackupResolve       Kind = "native_backup_resolve"
+	ModulePublishApply        Kind = "module_publish_apply"
+	ModulePublishResolve      Kind = "module_publish_resolve"
+	NativeLiveRestore         Kind = "native_live_restore"
+	NativeLiveRestoreResolve  Kind = "native_live_restore_resolve"
+	NativeRetire              Kind = "native_retire"
+	NativeRetireResolve       Kind = "native_retire_resolve"
+	ArchiveMaintenanceApply   Kind = "archive_maintenance_apply"
+	ArchiveMaintenanceResolve Kind = "archive_maintenance_resolve"
 )
 
 // Intent contains identity and references only. Secret values cannot be stored.
@@ -49,15 +51,15 @@ var secretRef = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 var planID = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 func ValidIntent(i Intent) bool {
-	if i.Kind != Resolve && i.Kind != ModulePublishResolve && i.Kind != NativeLiveRestoreResolve && i.Kind != NativeRetireResolve && i.Kind != NativeBackupResolve && i.RecoveryOf != "" {
+	if !i.Kind.IsResolver() && i.RecoveryOf != "" {
 		return false
 	}
 	switch i.Kind {
-	case ModulePublishApply, NativeLiveRestore, NativeRetire:
+	case ModulePublishApply, NativeLiveRestore, NativeRetire, ArchiveMaintenanceApply:
 		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef)
 	case NativeBackupResolve:
 		return i.PlanID == "" && appName.MatchString(i.App) && regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(i.SecretRef) && operationID.MatchString(i.RecoveryOf)
-	case ModulePublishResolve, NativeLiveRestoreResolve, NativeRetireResolve:
+	case ModulePublishResolve, NativeLiveRestoreResolve, NativeRetireResolve, ArchiveMaintenanceResolve:
 		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef) && operationID.MatchString(i.RecoveryOf)
 	case Resolve:
 		return operationID.MatchString(i.RecoveryOf) && (planID.MatchString(i.PlanID) && i.App == "" && i.SecretRef == "" || i.PlanID == "" && ValidIntent(Intent{Kind: SecretSet, App: i.App, SecretRef: i.SecretRef}))
@@ -76,7 +78,7 @@ func ValidIntent(i Intent) bool {
 	}
 }
 func ValidOperation(o Operation) bool {
-	if o.Kind != Resolve && o.Kind != ModulePublishResolve && o.Kind != NativeLiveRestoreResolve && o.Kind != NativeRetireResolve && o.Kind != NativeBackupResolve && o.RecoveryOf != "" {
+	if !o.Kind.IsResolver() && o.RecoveryOf != "" {
 		return false
 	}
 	if !ValidState(o.State) {
@@ -100,7 +102,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy, Resolve:
 		return Transitions()
-	case NativeBackupResolve, Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve:
+	case NativeBackupResolve, Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve, ArchiveMaintenanceApply, ArchiveMaintenanceResolve:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
 	case SecretSet, NativeMaterialSet:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
@@ -190,5 +192,14 @@ func ValidateOperationEvent(op Operation, e Event) error {
 
 // IsTask identifies reference-only detached work; handlers own their host locking.
 func (k Kind) IsTask() bool {
-	return k == NativeBackupResolve || k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve || k == NativeRetire || k == NativeRetireResolve
+	return k == ArchiveMaintenanceApply || k == ArchiveMaintenanceResolve || k == NativeBackupResolve || k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve || k == NativeRetire || k == NativeRetireResolve
+}
+
+func (k Kind) IsResolver() bool {
+	switch k {
+	case Resolve, ModulePublishResolve, NativeLiveRestoreResolve, NativeRetireResolve, NativeBackupResolve, ArchiveMaintenanceResolve:
+		return true
+	default:
+		return false
+	}
 }

@@ -172,7 +172,7 @@ func (h archiveHost) archiveCredentialScope(ctx context.Context, id, binding, ep
 		return out, archive.ErrRefused
 	}
 	p, err := h.service.Store.LoadArchivePlanByArchive(ctx, data.ArchiveID(id))
-	if err != nil {
+	if err != nil || !p.Valid() || p.Requester != h.service.Requester {
 		return out, archive.ErrRefused
 	}
 	d, exists, err := h.service.Store.ReadArchiveDisposition(ctx, p.ArchiveID)

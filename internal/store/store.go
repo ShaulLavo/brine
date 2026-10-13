@@ -34,7 +34,7 @@ type Release = ops.Release
 
 const MaxEventBytes = ops.MaxEventBytes
 const MaxPlanBytes = 16 << 20
-const SchemaVersion = 24
+const SchemaVersion = 25
 
 var ErrNotFound = errors.New("control record not found")
 var ErrConflict = errors.New("conflicting control record")
@@ -289,9 +289,14 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 			return err
 		}
 	}
+	if version < 25 {
+		if err = migrateArchiveMaintenanceTasks(ctx, tx); err != nil {
+			return err
+		}
+	}
 	// Transitions are the current per-kind journal contract. Add new supported
 	// edges transactionally without changing durable operation identities.
-	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet, ops.NativeMaterialSet, ops.Reconcile, ops.Resolve, ops.RestoreTest, ops.CredentialActivation, ops.DataInitApply, ops.NativeCapture, ops.NativeRestoreTest, ops.NativePrepare, ops.NativeRecoverySet, ops.NativeBackupActivate, ops.NativeBackupResolve, ops.ModulePublishApply, ops.ModulePublishResolve, ops.NativeLiveRestore, ops.NativeLiveRestoreResolve, ops.NativeRetire, ops.NativeRetireResolve} {
+	for _, kind := range []ops.Kind{ops.Deploy, ops.SecretSet, ops.NativeMaterialSet, ops.ArchiveMaintenanceApply, ops.ArchiveMaintenanceResolve, ops.Reconcile, ops.Resolve, ops.RestoreTest, ops.CredentialActivation, ops.DataInitApply, ops.NativeCapture, ops.NativeRestoreTest, ops.NativePrepare, ops.NativeRecoverySet, ops.NativeBackupActivate, ops.NativeBackupResolve, ops.ModulePublishApply, ops.ModulePublishResolve, ops.NativeLiveRestore, ops.NativeLiveRestoreResolve, ops.NativeRetire, ops.NativeRetireResolve} {
 		for from, tos := range ops.TransitionsFor(kind) {
 			for _, to := range tos {
 				if _, err = tx.ExecContext(ctx, "INSERT INTO transitions VALUES(?,?,?) ON CONFLICT DO NOTHING", kind, from, to); err != nil {

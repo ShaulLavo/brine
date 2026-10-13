@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.14-dev"
+const Version = "0.1.15-dev"
 
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
@@ -99,7 +99,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
 	archiveCommand := &cobra.Command{Use: "archive", Short: "Review and retire data archives"}
-	archiveCommand.AddCommand(newNativeRetireCmd(deps, &modes))
+	archiveCommand.AddCommand(newNativeRetireCmd(deps, &modes), newPublicArchiveStatusCmd(deps, &modes), newPublicArchiveMaintainCmd(deps, &modes), newPublicArchiveCredentialsCmd(deps, &modes))
 	root.AddCommand(archiveCommand)
 	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes), newRestoreCmd(deps, &modes), newDataCmd(deps, &modes))
 	root.AddCommand(newConfigCmd(deps, &modes), newSecretCmd(deps, &modes), newLifecycleCmd(deps, &modes, "restart", plan.RestartApp), newLifecycleCmd(deps, &modes, "stop", plan.StopApp), newLifecycleCmd(deps, &modes, "start", plan.StartApp), newLifecycleCmd(deps, &modes, "remove", plan.RemoveApp))

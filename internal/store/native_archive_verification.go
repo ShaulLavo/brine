@@ -62,7 +62,7 @@ func (s *Store) RecordNativeArchiveVerified(ctx context.Context, id data.Archive
 		return zero, ErrConflict
 	}
 	point, err := readNativePreparedPointTx(ctx, tx, stopped.PointID())
-	if err != nil || point.view.StopProofSHA256 != stopped.stopSHA256 || point.view.FenceOwnerOpID != stopped.OperationID() || checkNativePointCurrent(ctx, tx, point.view) != nil {
+	if err != nil || point.view.StopProofSHA256 != stopped.stopSHA256 || point.view.FenceOwnerOpID != stopped.FenceOwnerOperationID() || checkNativePointCurrent(ctx, tx, point.view) != nil {
 		return zero, ErrConflict
 	}
 	if checkNativeArchiveFenceOwner(ctx, tx, o, data.QuiescenceFence{DatabaseID: point.view.DatabaseID, OperationID: point.view.FenceOwnerOpID}) != nil {

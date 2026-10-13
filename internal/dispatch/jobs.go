@@ -97,7 +97,7 @@ func decodeStatus(raw json.RawMessage) (jobs.Status, error) {
 		return bad()
 	}
 	keys := []string{"id", "plan_id", "kind", "app", "secret_ref", "state", "created_at", "updated_at"}
-	if identity.Kind == ops.Resolve {
+	if identity.Kind.IsResolver() {
 		keys = append(keys, "recovery_of")
 	}
 	opFields, err := strictjson.Object(f["operation"], keys...)

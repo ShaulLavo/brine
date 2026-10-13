@@ -8,6 +8,13 @@ An experiment for running personal applications on enrolled Linux servers. Routi
 
 > **Status: deployment and reviewed first-database initialization implemented.** Brine supports enrollment, connected planning, detached deployment, app and operation status, logs, diagnosis, reconciliation, recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical test](docs/evidence/p03-pi.md) passed on the authorized test host. This is not a production-readiness, zero-downtime or R2-restore claim. The one-command SQLite workflow is implemented; the remaining Phase 04 backup, migration, removal and recovery acceptance gates are still open. The Charm TUI is currently a welcome screen.
 
+Managed SpacetimeDB commands implement stopped allocation, private role delivery,
+backup activation, online capture and isolated restore tests, reviewed module
+publication, separately gated live restore and whole-binding archive retirement.
+The [operator runbook](docs/runbooks/spacetimedb.md) gives their required order.
+Phase 09 physical recovery, browser, interruption and archive acceptance remains
+incomplete.
+
 ## Components
 
 | Responsibility | Component | Current scope |
@@ -17,7 +24,9 @@ An experiment for running personal applications on enrolled Linux servers. Routi
 | Service lifecycle | Quadlet + systemd | Owned app units, detached jobs and boot reconciliation |
 | Control state | SQLite | Durable plans, releases and operation records |
 | Persistent app databases | SQLite | Prepared storage, reviewed first initialization and schema-preserving releases |
+| Managed data engine | Standalone SpacetimeDB | Private roles, reviewed publication, fenced data operations and separate service/frontend permits; Phase 09 acceptance remains open |
 | App backups | Litestream to S3-compatible storage, including R2 | Credential delivery, replication units and isolated restore checks; full Phase 04 acceptance remains open |
+| Native engine backups | Encrypted native snapshot/log archives to S3-compatible storage | Online capture, exact preparation, passive restore tests and status; full Phase 09 acceptance remains open |
 | Private administration | Tailscale | Operator-managed access, not a deployment prerequisite |
 | Reference cloud host | Hetzner | Deployment is limited to enrolled Linux servers, not one provider |
 | Human UI | Charm | Welcome screen now; full operation UI planned |
@@ -128,6 +137,7 @@ No success here claims that a physical deployment or full R2 recovery drill ran.
 ## Next work
 
 - Remaining Phase 04 backup, recovery and persistent removal acceptance drills.
+- Phase 09 Pi/browser and amd64 recovery, interruption and archive acceptance.
 - Separate, policy-gated application schema changes.
 - A full Charm TUI sharing the command API's operation engine.
 - Later drops, git previews and approved WebTransport support.
@@ -142,6 +152,8 @@ For app-owned SQLite, start with [Using a database](docs/using-a-database.md).
 It covers the schema file, one-command first deployment and ordinary driver
 examples. See [initialization and recovery](docs/data-initialization.md) for the
 operation guarantees, and [Architecture](docs/ARCHITECTURE.md) for the system.
+For managed SpacetimeDB, use the [operator runbook](docs/runbooks/spacetimedb.md)
+and its separate native backup, publication and recovery commands.
 
 ## License
 

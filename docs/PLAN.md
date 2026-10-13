@@ -10,7 +10,21 @@
 
 ## Current baseline
 
-The Go/Cobra CLI implements validation, offline and connected planning, enrollment, detached stateless deployment through Podman/Quadlet/systemd and Caddy, a SQLite control store with durable operation records, app and operation status, logs, diagnosis, reconciliation, supported terminal recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical exit gate](evidence/p03-pi.md) passed. The welcome TUI uses Bubble Tea **v2** and Lip Gloss **v2**; the full operation UI remains later work. Persistent app data, Litestream backup/restore and schema-change operations are not shipped. No production-readiness, zero-downtime or verified R2-restore claim is made.
+The Go/Cobra CLI implements validation, offline and connected planning,
+enrollment, detached deployment through Podman/Quadlet/systemd and Caddy, a SQLite
+control store with durable operations, status, logs, diagnosis, recovery,
+configuration and secret changes, lifecycle plans, rollback and stateless removal.
+The [Phase 03 physical exit gate](evidence/p03-pi.md) passed. Persistent SQLite
+commands implement allocation, private backup credentials, reviewed first
+initialization, schema-preserving deployment and isolated restore checks.
+Managed SpacetimeDB commands implement private roles, backup policy, online
+capture, exact preparation, passive restore tests, reviewed publication, gated
+live restore and archive retirement. Use the
+[operator runbook](runbooks/spacetimedb.md) for their required sequence.
+Phase 04 and Phase 09 acceptance remains incomplete. The welcome TUI uses
+Bubble Tea **v2** and Lip Gloss **v2**; the full operation UI remains later work.
+No production-readiness, zero-downtime or verified R2-restore claim follows from
+these implementations.
 
 ## Default architecture
 

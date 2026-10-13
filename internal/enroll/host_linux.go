@@ -603,6 +603,7 @@ func (h *host) steps() []Step {
 			return h.file(ctx, sshIdentityPath, h.identityKey, 0644, false)
 		}, Undo: func(context.Context) error { return h.restoreFile(sshIdentityPath) }},
 		operatorPolicyStep(diskOperatorPolicy{h}),
+		{Name: "workspace-observer", Check: h.checkWorkspaceObserver, Apply: h.installWorkspaceObserver, Undo: h.undoWorkspaceObserver},
 		{Name: "requester", Check: func(context.Context) (bool, error) {
 			return h.fileMatches(requesterPath, hash([]byte("deploy:"+hash([]byte(h.r.Key))+"\n")))
 		}, Apply: func(ctx context.Context) error {

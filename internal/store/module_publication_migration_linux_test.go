@@ -44,8 +44,8 @@ UPDATE schema_version SET version=23;`); err != nil {
 		t.Fatal("registered23-to24 migration refused actual retained point", err)
 	}
 	var version int
-	if err = state.db.QueryRowContext(ctx, "SELECT version FROM schema_version").Scan(&version); err != nil || version != 24 {
-		t.Fatal("actual24 was not registered", version, err)
+	if err = state.db.QueryRowContext(ctx, "SELECT version FROM schema_version").Scan(&version); err != nil || version != SchemaVersion {
+		t.Fatal("current schema was not registered after publication migration", version, err)
 	}
 	var after []byte
 	if err = state.db.QueryRowContext(ctx, "SELECT canonical FROM data_native_prepared_points WHERE id=?", point.PointID).Scan(&after); err != nil || !bytes.Equal(before, after) {

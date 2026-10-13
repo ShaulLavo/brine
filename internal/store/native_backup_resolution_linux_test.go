@@ -192,6 +192,12 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 		_ = parent.Close()
 		t.Fatal("existing inspection directory declared removed")
 	}
+	if err = inspection.BeginWorkspaceRetirement(ctx, workspaceID, parent); err != nil {
+		t.Fatal("actual held-inode retirement intent", err)
+	}
+	if err = inspection.BeginWorkspaceRetirement(ctx, workspaceID, parent); err != nil {
+		t.Fatal("retirement issue not idempotent", err)
+	}
 	if err = parent.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -204,6 +210,29 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	owned, err = inspection.Workspaces(ctx)
 	if err != nil || len(owned) != 0 {
 		t.Fatal("removed workspace still pending", err)
+	}
+	external := filepath.Join(string(permitBeforeWorkspace.Reserved.Database.Root), "native-restores", strings.Repeat("e", 32))
+	if err = os.Mkdir(external, 0700); err != nil {
+		t.Fatal(err)
+	}
+	externalParent, err := os.OpenRoot(external)
+	if err != nil {
+		t.Fatal(err)
+	}
+	externalID, err := inspection.RecordWorkspace(ctx, externalParent, external)
+	if err != nil {
+		_ = externalParent.Close()
+		t.Fatal(err)
+	}
+	_ = externalParent.Close()
+	if err = os.Remove(external); err != nil {
+		t.Fatal(err)
+	}
+	if issued, err := inspection.WorkspaceRetirementIssued(ctx, externalID); err != nil || issued {
+		t.Fatal("external removal manufactured owned retirement", err)
+	}
+	if err = inspection.DisposeWorkspace(ctx, externalID); err == nil {
+		t.Fatal("external removal adopted without retirement intent")
 	}
 	review, err := inspection.Review(ctx, strings.Repeat("1", 64))
 	if err != nil {
@@ -261,6 +290,15 @@ func TestNativeBackupResolutionRequiresOriginalClaimAndPreservesTerminalOutcome(
 	}
 	if _, err = readNativeBackupResolvedReceipt(ctx, state.db, ops.Operation{ID: original.ID, Requester: requester, App: original.App, Kind: ops.NativeBackupActivate, State: ops.RecoveryRequired}); err == nil {
 		t.Fatal("nonterminal resolver admitted effective success")
+	}
+	if err = refusePendingNativeBackupActivation(ctx, state.db, scope.Database.BindingID, "future-activation"); err == nil {
+		t.Fatal("nonterminal resolver admitted future activation")
+	}
+	if err = refusePendingNativeBackupActivation(ctx, state.db, scope.Database.BindingID, original.ID); err != nil {
+		t.Fatal("original claim excluded itself", err)
+	}
+	if err = refusePendingNativeBackupActivation(ctx, state.db, data.ReplicaBindingID(strings.Repeat("9", 32)), "future-activation"); err != nil {
+		t.Fatal("unresolved activation excluded another binding", err)
 	}
 	permit, err := state.ReadEnginePermit(ctx, scope.Database.BindingID)
 	fences := permit.Fences
