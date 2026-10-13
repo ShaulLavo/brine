@@ -127,7 +127,7 @@ fn write(ctx: &ReducerContext, sequence: u64, scheduled: bool) -> Result<(), Str
         .find(1)
         .ok_or("missing sequence state")?;
     if sequence != state.sequence + 1 || sequence > MAX_ROWS {
-        return Err("expected next sequence within row limit".into());
+        return Err(sequence_error(sequence, state.sequence).into());
     }
     let marker = format!("brine-p09-{sequence:08}");
     ctx.db.recovery_left().insert(RecoveryLeft {
@@ -150,6 +150,13 @@ fn write(ctx: &ReducerContext, sequence: u64, scheduled: bool) -> Result<(), Str
     state.sequence = sequence;
     ctx.db.sequence_state().id().update(state);
     Ok(())
+}
+
+fn sequence_error(sequence: u64, committed: u64) -> &'static str {
+    if cfg!(feature = "logic-only") && sequence <= committed {
+        return "sequence already committed";
+    }
+    "expected next sequence within row limit"
 }
 
 #[spacetimedb::reducer]
@@ -234,7 +241,8 @@ pub fn observer_negative(ctx: &ReducerContext) {
 }
 
 const _: () = assert!(
-    cfg!(feature = "additive") as u8
+    cfg!(feature = "logic-only") as u8
+        + cfg!(feature = "additive") as u8
         + cfg!(feature = "destructive") as u8
         + cfg!(feature = "observer-hooks") as u8
         + cfg!(feature = "default-column") as u8
