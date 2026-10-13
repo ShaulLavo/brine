@@ -29,7 +29,7 @@ func (r nativeBackupRuntime) reopenPreparedSource(ctx context.Context, pointID s
 	if err != nil || !data.ValidID(pointID) || app == "" || routes == nil {
 		return nil, errEngineSource
 	}
-	preparation, err := r.state.AcquireEnginePreparation(ctx, point.BindingID, point.FenceID, point.PreparationOperationID)
+	preparation, err := r.acquirePreparedReopenGuard(ctx, point)
 	if err != nil {
 		return nil, err
 	}
@@ -82,6 +82,10 @@ func (r nativeBackupRuntime) reopenPreparedSource(ctx context.Context, pointID s
 	}
 	complete = true
 	return held, nil
+}
+
+func (r nativeBackupRuntime) acquirePreparedReopenGuard(ctx context.Context, point store.NativePreparedPointView) (*store.EnginePreparation, error) {
+	return r.state.AcquireEnginePreparation(ctx, point.BindingID, point.FenceID, point.FenceOwnerOpID)
 }
 
 func (r nativeBackupRuntime) inspectPreparedStop(ctx context.Context, app string, permit store.EnginePermit, expected store.NativeStopObservation, routes *caddy.Manager, withdrawn, previous caddy.State) (store.NativeStopObservation, error) {

@@ -660,3 +660,14 @@ and refuse a missing resolver or changed completion proof. The ordinary
 succeeded producer remains covered. Point expiry and all other review scope
 checks remain unchanged. This is review admission evidence, not publication or
 deployment success.
+
+### Prepared point fence owner
+
+The captured fresh CLI23 point has a succeeded producer and the allocation's
+retained held fence. The source reopen query using the producer as fence owner
+matches zero rows; the validated point's recorded fence owner matches one.
+Local tests exercise that acquisition boundary with real allocation/material
+state and a distinct succeeded fresh producer. They require the retained owner,
+refuse a wrong owner, fence or binding, and preserve allocation, runtime and
+fence records. Earlier point provenance checks still run before reopening.
+No helper, native program or remote call is needed for this proof.
