@@ -115,9 +115,9 @@ func TestEngineStopDiagnosticIgnoreInterruptHelper(t *testing.T) {
 		return
 	}
 	signal.Ignore(os.Interrupt)
-	if err := os.WriteFile(ready, []byte("ready"), 0600); err != nil {
+	if err := os.WriteFile(ready, []byte("ready"), 0600); err != nil { //nolint:gosec // Parent-owned closed fixture readiness path.
 		t.Fatal(err)
-	} //nolint:gosec // Parent-owned closed fixture readiness path.
+	}
 	time.Sleep(10 * time.Second)
 }
 
