@@ -276,8 +276,8 @@ automatic reverse data swap.
 Read the original operation status first. Keep its fence, private stages, journal,
 original trees and recovery versions while inspecting the actual effect.
 
-For capture, preparation or backup-policy activation whose remote effect can be
-verified, inspect the original operation:
+For interrupted capture, preparation or backup-policy activation, inspect the
+original operation:
 
 ```sh
 brine backup recovery inspect ORIGINAL_OPERATION_ID --target TARGET --json
@@ -285,21 +285,27 @@ brine backup recovery review ORIGINAL_OPERATION_ID --target TARGET --json
 brine backup recovery resolve REVIEW_ID --target TARGET --json
 ```
 
-Proceed to review only when inspection returns `state: "verified_remote"` and
-the expected original operation, binding, epoch and observation hash. For backup
-activation, inspect also reports the actual `units_state`. Resolve selects the
-returned review ID, not the original operation ID. Use the review within ten
-minutes. Require `native_backup_resolve` with `outcome: "adopted"` and its matching
-nested original receipt. The original task outcome remains unchanged.
+Proceed to review when inspection returns `state: "verified_remote"` or the
+qualified preparation state `stopped_unpublished`, with the expected original
+operation, binding, epoch and observation hash. For backup activation, inspect
+also reports the actual `units_state`. Resolve selects the returned review ID.
+Use the review within ten minutes. Require `native_backup_resolve` with
+`outcome: "adopted"` and its matching nested original receipt. The original task
+outcome remains unchanged.
 
-Resolution rereads actual remote and local state and never repeats upload or
-repository initialization. Its completed record alone is insufficient; successful task outcome and cleanup must also join.
+Resolution rereads actual remote and local state. It never repeats an issued
+upload or repository initialization. Require both successful task completion and
+verified cleanup before using its completed record.
 
-If preparation stopped before an issued remote effect exists, this verified-remote
-flow cannot continue that preparation. Keep its original fence, outcome and
-source. Do not submit a new preparation key or release the fence to bypass the
-refusal. Use target-specific operator recovery until a supported continuation
-can prove that original state.
+For an unpublished preparation stopped before capture or upload, inspection can
+return `state: "stopped_unpublished"` and `units_state: "absent"`. Brine must prove
+the original stop, fence, configuration and material, an unchanged empty source,
+settled initial-helper attempts, and absence of consumers throughout the staging
+parent and source. Missing journal rows alone cannot prove absence. Reviewed
+resolution continues that original preparation and PointID, captures only
+unissued work, and returns its nested `native_prepare` receipt. Keep the original
+fence and operation if inspection refuses. Do not submit another preparation key
+to bypass the refusal.
 
 Cleanup proves absence through the protected observer, then records an owned
 retirement intent before deleting that exact workspace. After a crash, a missing
