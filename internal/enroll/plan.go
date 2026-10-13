@@ -58,17 +58,22 @@ func MakePlan(f Facts) (Plan, error) {
 			return fail()
 		}
 	}
-	for name, pattern := range map[string]string{"podman": `^(?:[0-9]+:)?5\.4(?:\.|-|$)`, "caddy": `^(?:[0-9]+:)?2\.6(?:\.|-|$)`, "passt": `^(?:[0-9]+:)?0\.0~git20250503\.`, "uidmap": `^(?:[0-9]+:)?4\.17\.4(?:-|$)`} {
+	for _, candidate := range []struct{ name, pattern string }{
+		{"podman", `^(?:[0-9]+:)?5\.4(?:\.|-|$)`},
+		{"caddy", `^(?:[0-9]+:)?2\.6(?:\.|-|$)`},
+		{"passt", `^(?:[0-9]+:)?0\.0~git20250503\.`},
+		{"uidmap", `^(?:[0-9]+:)?4\.17\.4(?:-|$)`},
+	} {
 		count := 0
 		for _, pkg := range f.PackageInstall {
-			if strings.Split(pkg.Name, ":")[0] == name {
+			if strings.Split(pkg.Name, ":")[0] == candidate.name {
 				count++
-				if !regexp.MustCompile(pattern).MatchString(pkg.Version) {
+				if !regexp.MustCompile(candidate.pattern).MatchString(pkg.Version) {
 					return fail()
 				}
 			}
 		}
-		if count > 1 || (f.Packages[name] == "" && count != 1) {
+		if count > 1 || (f.Packages[candidate.name] == "" && count != 1) {
 			return fail()
 		}
 	}
