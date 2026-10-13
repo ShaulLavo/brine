@@ -5,6 +5,9 @@ package host
 import (
 	"bytes"
 	"context"
+	"errors"
+	"github.com/ShaulLavo/brine/internal/datapublish"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +30,42 @@ func TestModuleStageDiagnosticsAreClosedAndNeverOwnerProof(t *testing.T) {
 	for _, raw := range []string{`{"format":"brine-module-stage-refusal-v1","code":"PRIVATE_SECRET"}`, `{"format":"brine-module-stage-refusal-v1","code":"guest_listener","details":"PRIVATE_SECRET"}`, `{"format":"brine-module-stage-refusal-v1","code":"guest_listener","code":"guest_publisher"}`} {
 		if decodeModuleStageDiagnostic([]byte(raw)) != "" {
 			t.Fatal("untrusted diagnostics admitted")
+		}
+	}
+}
+
+func TestModuleStageAttachSuccessPreservesClosedGuestRefusal(t *testing.T) {
+	var output bytes.Buffer
+	if err := emitModuleStageDiagnostic(&output, "guest_child_bind"); err != nil {
+		t.Fatal(err)
+	}
+	err := moduleStageRunFailure(nil, output.Bytes())
+	if err == nil || !errors.Is(err, datapublish.ErrRecord) {
+		t.Fatal("attach exit0 concealed guest exit1")
+	}
+	lease := &publicationStageLease{initialStage: &nativeInitialStageWork{failureCode: "input_attach"}}
+	primary := initialPublisherFailureCode(lease, err, output.Bytes())
+	lease.initialStage.failureCode = "helper_stop"
+	setInitialPublisherFailure(lease, err, datapublish.ErrRecord, primary)
+	if lease.initialStage.failureCode != "guest_child_bind" {
+		t.Fatal("cleanup replaced guest refusal")
+	}
+	if _, err := decodeModuleStageObservation(output.Bytes(), time.Now().UTC(), time.Now().UTC()); err == nil {
+		t.Fatal("refusal became initial owner")
+	}
+	typed := &localexec.Error{Kind: localexec.UnknownOutcome}
+	wrapped := moduleStageRunFailure(typed, output.Bytes())
+	if !errors.Is(wrapped, typed) {
+		t.Fatal("guest diagnosis replaced typed command failure")
+	}
+	raw := []byte(`{"format":"brine-module-stage-refusal-v1","code":"guest_child_bind","secret":"PRIVATE_VALUE"}`)
+	if moduleStageRunFailure(nil, raw) != nil {
+		t.Fatal("untrusted output became closed diagnosis")
+	}
+	for _, attack := range []string{string(raw), `{"format":"brine-module-stage-refusal-v1","code":"PRIVATE_CODE"}`, `{"format":"brine-module-stage-refusal-v1","code":"guest_child_bind","code":"guest_input"}`, `malformed PRIVATE_VALUE`} {
+		failure := moduleStageRunFailure(typed, []byte(attack))
+		if !errors.Is(failure, typed) || moduleStageFailureCode(failure, "fallback") != "fallback" {
+			t.Fatal("untrusted stdout replaced primary failure or supplied a code")
 		}
 	}
 }

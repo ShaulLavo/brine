@@ -89,6 +89,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	} else if runErr == nil {
 		runErr = datapublish.ErrRecord
 	}
+	runErr = moduleStageRunFailure(runErr, result.Stdout)
 	primaryFailure := initialPublisherFailureCode(lease, runErr, result.Stdout)
 	cancel()
 	cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Duration(request.Runtime.StopSeconds+10)*time.Second)

@@ -1631,3 +1631,17 @@ The final inspection rechecks process and descriptor lifetime before any
 credential input. A live engine carries the same pinned read-only `/brine`
 helper mount as private verification containers. Unknown or mismatched evidence
 refuses binding without retry, root namespace entry or weakened guards.
+
+A private module-stage refusal frame remains a refusal when `podman attach`
+exits successfully but the contained helper exits unsuccessfully. The controller
+recognizes only the existing strict value-free diagnostic enum before cleanup
+and preserves it as the primary failure. Malformed output grants no observation
+or owner proof and cannot replace the original typed execution error.
+
+When the CLI has validated an accepted asynchronous task and waiting later
+fails, its error envelope keeps `data.status="accepted"` and the original
+`data.operation_id`. `ok` remains false, and the original error code and exit
+status remain unchanged. Human diagnostics also include that operation ID.
+Acceptance is only a locator for status and recovery; the CLI never resubmits
+work, emits remote diagnostics or trusts an operation ID from a crossed poll
+response.

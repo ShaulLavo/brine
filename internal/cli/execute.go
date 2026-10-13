@@ -109,6 +109,11 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 	if errors.As(err, &deployment) {
 		failureData = deployment.machineFailureData()
 	}
+	var task *acceptedTaskFailure
+	if errors.As(err, &task) {
+		failureData = task.accepted
+		_, _ = fmt.Fprintf(deps.Stderr, "operation_id=%s\n", task.accepted.OperationID)
+	}
 	if err != nil {
 		err = result.Classify(err)
 	}
