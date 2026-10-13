@@ -74,8 +74,8 @@ WebSocket subscription, physical-host logging or managed deployment admission.
 | T23 | Secrets in logs, plans, TUI or JSON errors | Redaction tests and audit of subprocess output paths | 00-06 |
 | T24 | Release binary from fresh environment | Go tests, vet, build and version metadata pass | 06 |
 | T25 | Optional WebTransport protocol health, bidi/uni streams and datagrams | P08-01 real local Go echo and HTTP/3-only refusal; named browser evidence for optional-probe/application qualification, not default admission | 08 |
-| T26 | WebTransport spec/policy admission and stale plans | Denied by default; no-effects refusals; hashes bind protocol/bind/domain/cert/ingress | 08 |
-| T27 | UDP publish and scoped app TLS secrets | Actual rootless mapping/mounts match; no added privilege or cross-app/Caddy credential access | 08 |
+| T26 | UDP spec/policy admission and stale plans | Denied by default; no-effects refusals; hashes bind protocol/bind/exposure/incarnation. Optional TLS binds domain/cert identity | 08 |
+| T27 | UDP publish and optional scoped app TLS secrets | Actual rootless mapping matches; no added privilege. Optional TLS delivery also proves exact mounts and cross-app/Caddy denial | 08 |
 | T28 | UDP ownership, collisions and drift | TCP/UDP distinction, dual-stack/wildcard overlap and race tests; unknown owners refuse | 08 |
 | T29 | Default readiness versus protocol/remote reachability | HTTP health plus exact UDP ownership can be locally ready; protocol/remote facts stay unverified unless probed; opt-in TLS/Origin/settings/blocked-UDP negatives; no network mutation | 08 |
 | T30 | Interrupted transport deployment, rollback and removal | Every new effect boundary, SIGKILL, unknown outcome and read-back; no port leak or data rewind | 08 |
@@ -92,7 +92,10 @@ WebSocket subscription, physical-host logging or managed deployment admission.
 | T41 | Physical SpacetimeDB gate | Actual arm64 Pi Quadlet/Caddy/browser/encrypted S3 drill plus amd64 runtime; online capture while writing, partial heads/metadata drift and fenced mutation/reboot recovery | 09 |
 | T42 | Engine operation contracts and runbooks | JSON/CLI goldens, authority refusals, online cadence and exact-preparation downtime/loss/license limits, recovery procedure and SQLite regression evidence | 09 |
 
-Detailed setup, task dependencies and acceptance requirements for T25-T33 live in the [Phase 08 plan](plans/08-webtransport.md). Initial direct-UDP full-app support and shared-port/preview support have separate exit gates.
+Direct-UDP setup, dependencies and acceptance requirements for T26-T30 live in
+the [UDP game-server plan](plans/08-udp.md). Optional protocol/TLS qualification
+and shared-port/preview requirements live in the [WebTransport extension plan](plans/08-webtransport.md).
+Plain UDP delivery has its own exit gate and requires no browser or certificate test.
 
 T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequisite slice below; complete T35-T42 acceptance remains required. Implemented command admission does not establish physical acceptance. Exact dependencies, negative cases and physical requirements live in the [SpacetimeDB plan](plans/09-spacetimedb.md). The gate includes the pinned engine version/image/module digests, online snapshot/log completeness, durable offsets and partial active-head limits, metadata coordination, exact quiesced coverage, protected signing-key recovery and real generic S3 restore. A running server or internal snapshot alone cannot pass.
 

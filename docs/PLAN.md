@@ -74,7 +74,7 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 | 05 | [Charm and agents](plans/05-charm-and-agents.md) | Usable TUI and stable machine workflows calling same API | Equivalent operations and outcomes across both UIs |
 | 06 | [Release hardening](plans/06-release-and-ops.md) | Policy gates, disaster drills, binaries and runbooks | End-to-end checklist passes on reference host |
 | 07 | [Drops and previews](plans/07-drops-and-previews.md) | Temporary websites with short links, git branch/PR previews (D9) | One-command drop with pill controls; pull request gets a preview URL |
-| 08 | [WebTransport apps](plans/08-webtransport.md) | Policy-approved UDP publishing, app TLS delivery/ownership and HTTP-plus-UDP readiness (D10); optional protocol health | UDP mapping/reachability, certificate lifecycle and recovery on both architectures; shared UDP 443 and previews gated separately |
+| 08 | [UDP game servers](plans/08-udp.md), then [WebTransport extensions](plans/08-webtransport.md) | Direct UDP publishing, inventory and lifecycle; optional TLS/protocol health later (D10) | Remote UDP, exact ownership and interruption recovery on both architectures; previews and shared UDP 443 are separate |
 | 09 | [Managed SpacetimeDB](plans/09-spacetimedb.md) | Shared engine boundary, standalone service, reviewed module publish and encrypted online S3 backups (D13) | Published amd64/arm64 fixture, Pi/browser drill, verified remote restore and no SQLite regression |
 | 10 | [Easy app data](plans/10-easy-data.md) | `BRINE_DB_*` environment contract, schema files in the app repo, reviewed init without manual install, one-command first deploy | New app with a database deploys with one command; custom SQLite builds pass restore tests |
 
@@ -82,7 +82,12 @@ Phase 10 makes data easy to use without an SDK: apps read `BRINE_DB_*` variables
 
 Phase 09 begins with a behavior-preserving engine boundary after the merged Phase 04 foundations. Runtime probes and the multiarch fixture precede engine admission; exact remote restore precedes module publishing and live replacement. Production scope remains the owner's enrolled servers with externally supplied scoped S3 credentials. The pinned SpacetimeDB license limits an application/service to one production instance unless alternative rights are recorded.
 
-Phase 08 research starts while Phase 03 finishes. Its initial full-app implementation follows Phase 03's physical exit gate and can run beside Phase 04. Shared-port ingress coordinates with P07-01; WebTransport drops/previews wait for both phases' authorization and isolation gates. See Phase 08 for the unmerged Caddy session-proxy blocker and the direct-UDP first delivery.
+Phase 08's [UDP-only delivery](plans/08-udp.md) runs now against the completed
+Phase 02/03 foundations, independently of previews and Phase 09 completion. It
+prepares game-server networking while SpacetimeDB progresses separately. Optional
+TLS delivery, WebTransport probes, shared UDP 443 and transport previews follow
+under the [extension plan](plans/08-webtransport.md). Shared ingress still
+coordinates with P07-01; transport previews retain both phases' authorization gates.
 
 **Start with P00-01.** Phases are intended as small, reviewable pull requests, not a single mega-implementation. TUI styling can be prototyped against fake data after phase 00, but must not be represented as a working deployment engine.
 
