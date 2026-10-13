@@ -1685,6 +1685,14 @@ can differ from the later preparation producer. The guard verifies the exact
 binding, fence and held owner. It does not substitute the producer or another
 owner when they differ.
 
+State-root source copies and publication reader views create their fixed private
+`staging` parent through the protected directory writer before use. Existing
+owner, mode, symlink and filesystem checks remain required. Each consumer keeps
+the held parent identity. After disposing its own copy or view, it removes a
+parent it created only when that same directory is empty. Pre-existing parents
+and replacement directories are preserved; unknown consumer cleanup cannot
+retire the parent.
+
 When the CLI has validated an accepted asynchronous task and waiting later
 fails, its error envelope keeps `data.status="accepted"` and the original
 `data.operation_id`. `ok` remains false, and the original error code and exit

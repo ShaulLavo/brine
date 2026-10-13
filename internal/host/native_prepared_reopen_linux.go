@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -60,7 +59,7 @@ func (r nativeBackupRuntime) reopenPreparedSource(ctx context.Context, pointID s
 	if err != nil {
 		return nil, err
 	}
-	held.copy, err = copyEngineSource(ctx, permit.Reserved.Database, filepath.Join(r.stateRoot, "staging"), name, engineCopyLimits{Bytes: permit.Runtime.CopyBytes, Files: permit.Runtime.CopyFiles, Depth: 16})
+	held.copy, err = copyEngineStateSource(ctx, permit.Reserved.Database, r.stateRoot, name, engineCopyLimits{Bytes: permit.Runtime.CopyBytes, Files: permit.Runtime.CopyFiles, Depth: 16})
 	if err != nil {
 		return nil, err
 	}

@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -151,7 +150,7 @@ func (w *publicationPrivateInspectionWork) inspectModule(ctx context.Context, ob
 	if err != nil {
 		return err
 	}
-	w.view, err = materializeNativeSelection(ctx, w.working, filepath.Join(w.operations.runtime.stateRoot, "staging"), selection, nonce)
+	w.view, err = materializeNativeStateSelection(ctx, w.working, w.operations.runtime.stateRoot, selection, nonce)
 	if err != nil {
 		return err
 	}

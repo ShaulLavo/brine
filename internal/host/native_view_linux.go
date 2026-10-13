@@ -36,6 +36,7 @@ type nativeReadView struct {
 	seal      engineTreeSeal
 	limits    engineCopyLimits
 	state     nativeViewState
+	staging   *engineStagingParent
 }
 
 func materializeNativeSelection(ctx context.Context, source *os.Root, staging string, selection nativecapture.Selection, nonce string) (view *nativeReadView, err error) {
@@ -146,7 +147,7 @@ func (v *nativeReadView) close() error {
 		err = errors.Join(err, v.parent.Close())
 		v.parent = nil
 	}
-	return err
+	return errors.Join(err, v.staging.close())
 }
 
 func (v *nativeReadView) currentDirectory() bool {
