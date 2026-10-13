@@ -62,15 +62,23 @@ type moduleStageObservation struct {
 
 // RunModuleStage operates only on the privately mounted copy. The enclosing
 // controller proves source, roles and exact live process ownership before stdin.
-func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) error {
+func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) (stageErr error) {
+	code := "guest_containment"
+	defer func() {
+		if stageErr != nil {
+			_ = emitModuleStageDiagnostic(output, code)
+		}
+	}()
 	if moduleStageContained() != nil {
 		return datapublish.ErrRecord
 	}
+	code = "guest_input"
 	request, err := readModuleStageInput(input)
 	if err != nil {
 		return err
 	}
 	defer func() { request.Token = "" }()
+	code = "guest_source"
 	root, err := os.OpenRoot("/data")
 	if err != nil {
 		return datapublish.ErrRecord
@@ -80,37 +88,46 @@ func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) erro
 	if !disabled {
 		return datapublish.ErrRecord
 	}
+	code = "guest_credential"
 	credential, err := spacetimedb.NewPublisherCredential([]byte(request.Token))
 	if err != nil {
 		return datapublish.ErrRecord
 	}
 	wait, cancel := context.WithTimeout(ctx, time.Duration(request.Runtime.StartupSeconds+request.Runtime.StopSeconds+35)*time.Second)
 	defer cancel()
+	code = "guest_child_start"
 	child, err := localexec.StartForeground(wait, localexec.ForegroundCommand{Path: engineNativePath, Args: engineNativeArguments(request.Runtime, privateEnginePort),
 		Env: []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "TMPDIR=/tmp", "TOKIO_WORKER_THREADS=2"}, Dir: "/tmp"})
 	if err != nil {
 		return datapublish.ErrRecord
 	}
 	exited := child.Done()
+	code = "guest_child_bind"
 	handle, bindErr := bindModuleStageNativeChild(child, request.Runtime)
 	var observation moduleStageObservation
 	observeErr := bindErr
 	if bindErr == nil {
+		code = "guest_operation"
 		defer handle.close()
 		observation, observeErr = executeModuleStage(wait, request, credential)
+		code = moduleStageFailureCode(observeErr, code)
 	}
 	stopErr := stopEngineChild(wait, child, exited, time.Duration(request.Runtime.StopSeconds)*time.Second)
 	if observeErr != nil || stopErr != nil || wait.Err() != nil || handle == nil || !handle.exited() || !engineReplayAlone(request.Runtime.PIDsLimit) {
+		if stopErr != nil {
+			code = "guest_child_stop"
+		}
 		return datapublish.ErrRecord
 	}
 	observation.ChildStopped = true
 	observation.ChildBound, observation.ChildPID, observation.ChildStartTicks = true, handle.pid, handle.ticks
+	code = "guest_output"
 	return json.NewEncoder(output).Encode(observation)
 }
 
 func executeModuleStage(ctx context.Context, request moduleStageInput, credential spacetimedb.PublisherCredential) (moduleStageObservation, error) {
 	if err := waitModuleStageListener(ctx); err != nil {
-		return moduleStageObservation{}, err
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_listener"}
 	}
 	server, err := spacetimedb.NewPrivateServerEndpoint("127.0.0.1", privateEnginePort)
 	if err != nil {
@@ -118,7 +135,7 @@ func executeModuleStage(ctx context.Context, request moduleStageInput, credentia
 	}
 	verified, err := spacetimedb.VerifyNativePublisher(ctx, server, credential)
 	if err != nil || !verified.At(server) {
-		return moduleStageObservation{}, datapublish.ErrRecord
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_publisher"}
 	}
 	observation := moduleStageObservation{Action: request.Action, CredentialSHA256: verified.CredentialSHA256(), Publisher: string(verified.Publisher()), PublisherProof: verified.StorageBytes()}
 	if request.Action == moduleStagePublisher {
