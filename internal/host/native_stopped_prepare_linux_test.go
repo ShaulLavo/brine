@@ -181,3 +181,42 @@ func TestStoppedUnpublishedOriginalInspectionDoesNotRequireUpload(t *testing.T) 
 		t.Fatal("resolution rewrote original failure outcome", err)
 	}
 }
+
+func TestStoppedOriginalWithUnknownInitialStageCannotQualifyForContinuation(t *testing.T) {
+	w, f := stoppedUnpublishedPrepareFixture(t)
+	ctx := context.Background()
+	source, err := openEngineSource(w.permit.Reserved.Database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seal, err := sealOwnedEngineSource(ctx, source, engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16})
+	closeErr := source.Close()
+	if err != nil || closeErr != nil {
+		t.Fatal(err, closeErr)
+	}
+	stage, err := f.service.Store.BeginNativeInitialStage(ctx, w.stopped, strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32), seal.hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := stage.Record(ctx, store.NativeInitialStageObservation{Stage: "unknown", Code: "workspace_create", At: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.service.Store.CompleteTask(ctx, w.operation.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.InternalError}); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.close(); err != nil {
+		t.Fatal(err)
+	}
+	inspection, err := f.service.Store.OpenNativeBackupInspection(ctx, w.operation.ID, f.service.Requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = inspection.Close() }()
+	stages, err := inspection.InitialStages(ctx)
+	if err != nil || len(stages) != 1 || stages[0].IsDisposed() {
+		t.Fatal("unknown initial-stage provenance lost", err)
+	}
+	if err := inspection.RequireInitialStagesSettled(ctx); err == nil {
+		t.Fatal("unknown initial stage supplied continuation authority")
+	}
+}

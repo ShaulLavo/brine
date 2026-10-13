@@ -149,7 +149,7 @@ func inspectNativeStageParentAbsent(ctx context.Context, rootPath string) (strin
 	return seal.hash, nil
 }
 
-func (o nativeBackupResolutionOperations) continueStoppedUnpublished(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved, stopped *store.NativeStoppedPreparation) (store.NativePreparedPointView, error) {
+func (o nativeBackupResolutionOperations) continueStoppedUnpublished(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved, stopped *store.NativeStoppedPreparation) (point store.NativePreparedPointView, err error) {
 	input, err := o.service.Store.ReadNativeTaskInput(ctx, i.OriginalOperationID())
 	if err != nil || input.Kind != ops.NativePrepare || !v.needsCapture {
 		return store.NativePreparedPointView{}, errEngineSource
@@ -159,6 +159,6 @@ func (o nativeBackupResolutionOperations) continueStoppedUnpublished(ctx context
 		return store.NativePreparedPointView{}, errEngineSource
 	}
 	work := nativePrepareWork{runtime: o.runtime, input: input, operation: original, stopped: stopped, permit: v.preparedPermit, startedAt: time.Now()}
-	point, err := work.capture(ctx)
-	return point, errors.Join(err, work.close())
+	defer func() { err = errors.Join(err, work.close()) }()
+	return work.capture(ctx)
 }
