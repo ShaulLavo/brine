@@ -758,3 +758,25 @@ inspection capability with no native effects and preserved the original failure.
 That is Store admission evidence only. The actual public resolver subsequently
 failed without completing source preservation; its cursor and claimed workspace
 remain retained. No successful publication or resolution is claimed here.
+
+### Source-preservation proof migration
+
+Both fixed read-only host checks for the failed CLI28 resolver passed. The exact
+captured-store preservation proof INSERT then reproduced SQLite CHECK error 275:
+the proof-kind list admitted no `source_preservation`, which the current resolver
+writes before changing its cursor or fence.
+
+Schema 27 adds that one proof kind through normal writable Store.Open migration.
+Local schema-26 fixtures require prior rejection, unchanged earned proof bytes
+and identity/count, then successful insertion after migration. Tests retain
+unknown-kind refusal, primary/foreign keys, hash/byte limits and update/delete
+refusal. A failed final foreign-key check rolls the migration back to schema 26,
+preserves retained bytes and restores foreign-key enforcement. Canceled opening
+leaves the schema unchanged. Read-only opening refuses schema 26 and accepts 27
+without granting writes.
+
+On a disposable copy of the actual post-resolver snapshot, normal Store.Open
+preserves both earned proof records exactly. The real proof insertion, cursor
+append, stopped-desired record and fence-release transaction substeps pass and
+roll back. This verifies the database boundaries; no host source-preservation
+completion, resolver success or publication is claimed.
