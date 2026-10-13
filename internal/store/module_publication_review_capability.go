@@ -59,7 +59,7 @@ func (s *Store) beginPublicationReview(ctx context.Context, preparation *EngineP
 		return nil, ErrConflict
 	}
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", point.view.PreparationOperationID))
-	if err != nil || op.Kind != ops.NativePrepare || op.State != ops.Succeeded {
+	if err != nil || op.Kind != ops.NativePrepare {
 		return nil, errors.Join(ErrConflict, err)
 	}
 	var app, policySHA string
@@ -139,7 +139,7 @@ func (s *Store) readPublicationReviewPreparationTx(ctx context.Context, tx *sql.
 		return nativePreparedPoint{}, err
 	}
 	var requester, app, policySHA string
-	err = tx.QueryRowContext(ctx, "SELECT o.requester,a.app FROM operations o JOIN data_active_incarnations a ON a.incarnation_id=? WHERE o.id=? AND o.kind=? AND o.state=?", point.view.IncarnationID, point.view.PreparationOperationID, ops.NativePrepare, ops.Succeeded).Scan(&requester, &app)
+	err = tx.QueryRowContext(ctx, "SELECT o.requester,a.app FROM operations o JOIN data_active_incarnations a ON a.incarnation_id=? WHERE o.id=? AND o.kind=?", point.view.IncarnationID, point.view.PreparationOperationID, ops.NativePrepare).Scan(&requester, &app)
 	if err != nil || requester != preparation.requester || app != preparation.app {
 		return nativePreparedPoint{}, errors.Join(ErrConflict, err)
 	}

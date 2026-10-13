@@ -648,3 +648,15 @@ capture admission without another initial stage or helper. Its new workspace is
 journaled; unknown cleanup observation preserves that journal rather than
 claiming disposal. These tests and the read-only diagnostic do not prove a
 successful remote upload or prepared point.
+
+### Publication review of a resolved preparation
+
+The captured physical store contains a verified prepared point and succeeded
+resolver receipt while preserving the original failed preparation. Exact source
+validation passes that provenance; a review query requiring the original
+operation to be `succeeded` returns no row. Local Store tests now begin and
+recheck review from the validated resolved point, preserve the original failure
+and refuse a missing resolver or changed completion proof. The ordinary
+succeeded producer remains covered. Point expiry and all other review scope
+checks remain unchanged. This is review admission evidence, not publication or
+deployment success.
