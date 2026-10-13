@@ -85,3 +85,22 @@ func TestNativeInitialStageReadRejectsCoherentForeignScope(t *testing.T) {
 		t.Fatal("coherently encoded foreign epoch admitted")
 	}
 }
+
+func TestNativeInitialStagePartialLaunchRetainsUnboundProcessForStop(t *testing.T) {
+	stage, _ := initialStageFixture(t)
+	ctx := context.Background()
+	observation := NativeInitialStageObservation{Parent: &data.EngineDirectoryIdentity{Device: 1, Inode: 2}, Directory: &data.EngineDirectoryIdentity{Device: 1, Inode: 3}, SourceSHA256: strings.Repeat("a", 64)}
+	for _, step := range []string{"workspace_created", "copy_ready", "source_ready", "image_inspect", "image_ready", "material_ready", "lease_ready", "launch_intent"} {
+		observation.Stage, observation.At = step, time.Now().UTC()
+		if err := stage.Record(ctx, observation); err != nil {
+			t.Fatal(step, err)
+		}
+	}
+	observation.Stage, observation.ContainerID, observation.At = "stop_intent", strings.Repeat("b", 64), time.Now().UTC()
+	if err := stage.Record(ctx, observation); err != nil {
+		t.Fatal("owned partial creation could not issue stop intent", err)
+	}
+	if observation.PID != 0 || observation.StartTicks != 0 || observation.Cgroup != "" {
+		t.Fatal("stop fabricated bound process")
+	}
+}

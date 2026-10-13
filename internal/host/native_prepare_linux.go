@@ -328,6 +328,9 @@ func (w *nativePrepareWork) captureEmpty(ctx context.Context) (store.NativePrepa
 
 func (w *nativePrepareWork) close() error {
 	var err error
+	if w.initialStage != nil && w.initialStage.lease != nil {
+		defer w.initialStage.lease.material.clear()
+	}
 	err = errors.Join(err, w.module.close())
 	if w.initialStage != nil {
 		ctx, cancel := initialPublisherCleanupContext()
