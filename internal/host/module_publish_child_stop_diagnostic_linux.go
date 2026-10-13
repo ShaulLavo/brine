@@ -5,9 +5,9 @@ package host
 import (
 	"bytes"
 	"errors"
-	"os/exec"
 	"sync"
-	"syscall"
+
+	"github.com/ShaulLavo/brine/internal/localexec"
 )
 
 type moduleNativeDiagnostics struct {
@@ -54,23 +54,15 @@ func moduleChildStopFailureCode(err error, panicMarker bool) string {
 	case "budget":
 		return "guest_child_stop_budget"
 	}
-	var exited *exec.ExitError
-	if !errors.As(err, &exited) {
+	switch localexec.InspectExitReason(err) {
+	case localexec.ExitUnknown:
 		return "guest_child_stop"
-	}
-	status, ok := exited.Sys().(syscall.WaitStatus)
-	if !ok {
-		return "guest_child_stop"
-	}
-	if status.Signaled() {
-		switch status.Signal() {
-		case syscall.SIGINT:
-			return "guest_child_stop_sigint"
-		case syscall.SIGKILL:
-			return "guest_child_stop_sigkill"
-		default:
-			return "guest_child_stop_signal"
-		}
+	case localexec.ExitInterrupt:
+		return "guest_child_stop_sigint"
+	case localexec.ExitKilled:
+		return "guest_child_stop_sigkill"
+	case localexec.ExitSignal:
+		return "guest_child_stop_signal"
 	}
 	if panicMarker {
 		return "guest_child_stop_panic"
