@@ -64,7 +64,7 @@ func nativePrepareTask(service Service, stateRoot, home string, session nativeBa
 		}
 		defer func() { _ = lock.Release() }()
 		work := &nativePrepareWork{runtime: session, input: input, operation: op, startedAt: time.Now()}
-		defer func() { taskErr = errors.Join(taskErr, work.close()) }()
+		defer func() { taskErr = errors.Join(taskErr, work.close(ctx)) }()
 		if err := work.acquire(ctx); err != nil {
 			return nil, err
 		}
@@ -326,14 +326,14 @@ func (w *nativePrepareWork) captureEmpty(ctx context.Context) (store.NativePrepa
 	return w.uploadAndComplete(ctx, empty.source, w.copied.source, nativeevidence.Evidence{}, spacetimedb.RecoveredPairs{})
 }
 
-func (w *nativePrepareWork) close() error {
+func (w *nativePrepareWork) close(ctx context.Context) error {
 	var err error
 	if w.initialStage != nil && w.initialStage.lease != nil {
 		defer w.initialStage.lease.material.clear()
 	}
 	err = errors.Join(err, w.module.close())
 	if w.initialStage != nil {
-		ctx, cancel := initialPublisherCleanupContext()
+		ctx, cancel := initialPublisherCleanupContext(ctx)
 		err = errors.Join(err, w.closeInitialPublisher(ctx))
 		cancel()
 		if err != nil {
