@@ -20,6 +20,7 @@ type publicationReviewRestore struct {
 	sourceEvidenceSHA string
 	download          restic.AuthenticatedRestore
 	working           bool
+	workingPath       string
 }
 
 // BindPublicationReviewRestore consumes a real exact encrypted download before
@@ -67,6 +68,9 @@ func (r *publicationReviewRestore) unchanged(ctx context.Context) error {
 	name := "download"
 	if r.working {
 		name = "working"
+		if err := checkPublicationWorkingPath(r.parent, r.root, r.identity, r.workingPath); err != nil {
+			return err
+		}
 		if !r.download.Matches(ctx, r.parent, "download", r.download.Point(), r.download.Manifest()) {
 			return ErrConflict
 		}
@@ -78,30 +82,30 @@ func (r *publicationReviewRestore) unchanged(ctx context.Context) error {
 	return nil
 }
 
-func (r *publicationReviewRestore) bindWorking(ctx context.Context, root *os.Root) error {
+func (r *publicationReviewRestore) bindWorking(ctx context.Context, root *os.Root, physicalPath string) error {
 	if r == nil || r.working || r.unchanged(ctx) != nil || !r.download.MatchesWorkingCopy(ctx, r.parent, "working", root) {
 		return ErrConflict
 	}
 	identity, err := root.Stat(".")
-	if err != nil {
-		return err
+	if err != nil || checkPublicationWorkingPath(r.parent, root, identity, physicalPath) != nil {
+		return errors.Join(ErrConflict, err)
 	}
-	r.root, r.identity, r.working = root, identity, true
+	r.root, r.identity, r.working, r.workingPath = root, identity, true, physicalPath
 	return r.unchanged(ctx)
 }
 
 // BindPublicationReviewWorkingRoot admits only a complete separately copied
 // authenticated envelope before the private native preflight starts.
-func (s *Store) BindPublicationReviewWorkingRoot(ctx context.Context, preparation *PublicationReviewPreparation, root *os.Root) error {
+func (s *Store) BindPublicationReviewWorkingRoot(ctx context.Context, preparation *PublicationReviewPreparation, root *os.Root, physicalPath string) error {
 	if !preparation.active(s) || s.CheckPublicationReviewPreparation(ctx, preparation) != nil {
 		return ErrConflict
 	}
-	return preparation.restore.bindWorking(ctx, root)
+	return preparation.restore.bindWorking(ctx, root, physicalPath)
 }
 
 // BindPublicationAttemptWorkingRoot preserves the authenticated download and
 // binds the distinct private root before any publication effect is admitted.
-func (s *Store) BindPublicationAttemptWorkingRoot(ctx context.Context, attempt *PublicationAttempt, root *os.Root) error {
+func (s *Store) BindPublicationAttemptWorkingRoot(ctx context.Context, attempt *PublicationAttempt, root *os.Root, physicalPath string) error {
 	if !attempt.active(s) {
 		return ErrConflict
 	}
@@ -110,5 +114,5 @@ func (s *Store) BindPublicationAttemptWorkingRoot(ctx context.Context, attempt *
 	if err != nil || !ready || step != datapublish.CheckPreflight {
 		return errors.Join(ErrConflict, err)
 	}
-	return attempt.restored.bindWorking(ctx, root)
+	return attempt.restored.bindWorking(ctx, root, physicalPath)
 }
