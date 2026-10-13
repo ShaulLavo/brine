@@ -4,8 +4,10 @@ package dispatch
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"regexp"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/diagnose"
@@ -224,17 +226,21 @@ func NewServer(version string, inventory Inventory) *Server {
 }
 
 func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, error) {
+	started := time.Now()
 	command := "brine host serve"
 	fail := func(err error) (result.Envelope, error) { return result.Failure(command, err), err }
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
-	data, err := io.ReadAll(io.LimitReader(stdin, RequestLimit+1))
+	data, err := readRequest(ctx, stdin)
 	defer clear(data)
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
 	if err != nil {
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return fail(err)
+		}
 		return fail(result.New(result.DispatchInvalidRequest, err))
 	}
 	request, err := DecodeRequest(data)
@@ -243,6 +249,12 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	defer clear(request.Args)
 	command = "brine host " + request.Op
+	deadline := started.Add(RequestTimeout)
+	if OperationTimeout(request.Op) != RequestTimeout {
+		deadline = time.Now().Add(OperationTimeout(request.Op))
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return fail(err)
 	}
@@ -613,4 +625,19 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		return fail(result.New(result.InternalError, err))
 	}
 	return response, nil
+}
+
+func readRequest(parent context.Context, stdin io.Reader) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(parent, RequestTimeout)
+	defer cancel()
+	if closer, ok := stdin.(io.Closer); ok {
+		stopClose := context.AfterFunc(ctx, func() { _ = closer.Close() })
+		defer stopClose()
+	}
+	data, err := io.ReadAll(io.LimitReader(stdin, RequestLimit+1))
+	if ctx.Err() != nil {
+		clear(data)
+		return nil, ctx.Err()
+	}
+	return data, err
 }

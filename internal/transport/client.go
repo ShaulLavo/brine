@@ -7,14 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"time"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/result"
 )
 
-const CallTimeout = 15 * time.Second
+const CallTimeout = dispatch.RequestTimeout
 
 type Client struct {
 	KnownHostsDir string
@@ -68,7 +67,7 @@ func (c Client) call(ctx context.Context, t Target, request dispatch.Request, re
 	if runner == nil {
 		runner = localexec.ExecRunner{}
 	}
-	ctx, cancel := context.WithTimeout(ctx, CallTimeout)
+	ctx, cancel := context.WithTimeout(ctx, dispatch.CallTimeout(request.Op))
 	defer cancel()
 	var env []string
 	if agent := os.Getenv("SSH_AUTH_SOCK"); agent != "" {

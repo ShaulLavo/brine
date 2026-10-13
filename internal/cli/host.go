@@ -4,11 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/user"
 	"path/filepath"
-	"time"
 
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/dispatch"
@@ -50,12 +48,7 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		err = result.New(result.DispatchRootRefused, nil)
 		envelope = result.Failure("brine host serve", err)
 	} else {
-		ctx, cancel := context.WithTimeout(deps.Context, 15*time.Second)
-		defer cancel()
-		if closer, ok := deps.Stdin.(io.Closer); ok {
-			stopClose := context.AfterFunc(ctx, func() { _ = closer.Close() })
-			defer stopClose()
-		}
+		ctx := deps.Context
 		collector := deps.HostInventory
 		if collector == nil {
 			identity, e := user.LookupId(fmt.Sprint(uid()))

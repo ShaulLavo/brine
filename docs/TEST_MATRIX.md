@@ -683,3 +683,21 @@ contents, unsafe modes or types, symlinks, foreign-owned roots and replacement
 directory contents are preserved. Canceled setup and failed consumers leave no
 new empty parent. These are local filesystem proofs; they do not claim a module
 plan, publication or deployment succeeded.
+
+
+### Synchronous review budgets
+
+The CLI25 physical module plan restored its remote point and started descriptor
+extraction, then the enclosing SSH observer expired at 15.038 seconds. No review
+or apply record existed. The retained task resources were reconciled and cleaned
+without retrying the plan.
+
+Local dispatcher tests check the nine-minute budget for exact-point review,
+earlier parent deadlines, parent cancellation and cancellation during request
+reading. An ordinary host request spends time reading its input and still uses
+the original fifteen-second deadline. Fake SSH tests assert the complete ten
+minute thirty second review budget, the ordinary fifteen-second budget, earlier
+parent deadlines and one call without retries. A real filesystem fixture invokes
+publication review cleanup after cancellation, removes the owned copied source
+and newly created empty staging parent, and preserves the original source. These
+checks do not establish a successful remote module plan or publication.
