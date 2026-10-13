@@ -36,7 +36,7 @@ func beginPublicationWorkingStage(ctx context.Context, source *nativeRestoredSou
 	if err = preparePublicationWorkingCopy(ctx, source); err != nil {
 		return nil, err
 	}
-	if err = source.state.BindPublicationAttemptWorkingRoot(ctx, attempt, source.root); err != nil {
+	if err = source.state.BindPublicationAttemptWorkingRoot(ctx, attempt, source.root, source.path); err != nil {
 		return nil, err
 	}
 	return &publicationWorkingStage{source: source, attempt: attempt, artifact: artifact, scope: cursor.Scope()}, nil

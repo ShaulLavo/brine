@@ -734,3 +734,27 @@ requesters, both task kinds, isolated service copies and foreign job/review
 bindings. Captured-state checks exercise the full protected-store boundary and
 current policy refusal. Original failed operations and the no-claim resolver
 limitation remain unchanged. This is admission evidence, not publication success.
+
+### Publication working path provenance
+
+CLI28 earned a real claim, restored-stage proof and initial-create preflight
+observation. Its publish-stage intent became inspection-required before an
+effect row or container launch. The protected restore constructor opens through
+a descriptor, so its Root.Name contains a proc-fd spelling. Effect admission
+inferred a working pathname from that name; its named-path checks refused it.
+A local real-constructor diagnostic reproduced this exact refusal and showed the
+constructor's explicit physical path matched the held inode and protected root
+inspection.
+
+Both publication review and attempt working-root binding now retain that
+explicit physical path after authenticated-copy, parent-child, named-root and
+held-inode checks. The capability rechecks it before effect admission. Local
+real Root tests accept the physical path and refuse proc-fd inference, a foreign
+inode, directory replacement and symlink while preserving the held original.
+Existing authenticated-download refusal and process-effect disposal tests pass.
+
+A copied actual claimed Store admitted the existing resolver and private
+inspection capability with no native effects and preserved the original failure.
+That is Store admission evidence only. The actual public resolver subsequently
+failed without completing source preservation; its cursor and claimed workspace
+remain retained. No successful publication or resolution is claimed here.

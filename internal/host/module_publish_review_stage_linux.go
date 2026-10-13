@@ -37,7 +37,7 @@ func beginPublicationReviewWork(ctx context.Context, source *nativeRestoredSourc
 	if err := preparePublicationWorkingCopy(ctx, source); err != nil {
 		return nil, err
 	}
-	if err := source.state.BindPublicationReviewWorkingRoot(ctx, preparation, source.root); err != nil {
+	if err := source.state.BindPublicationReviewWorkingRoot(ctx, preparation, source.root, source.path); err != nil {
 		return nil, err
 	}
 	return &publicationReviewWork{source: source, extraction: extraction, preparation: preparation}, nil

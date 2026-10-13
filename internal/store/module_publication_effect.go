@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -56,7 +55,7 @@ func (s *Store) RecordPublicationEffect(ctx context.Context, attempt *Publicatio
 	if err != nil {
 		return err
 	}
-	effect := PublicationEffect{Scope: current.cursor.Scope(), Nonce: nonce, Step: step, RootPath: filepath.Join(attempt.restored.parent.Name(), "working"), Runtime: permit.Runtime.Clone(), RecordedAt: time.Now().UTC()}
+	effect := PublicationEffect{Scope: current.cursor.Scope(), Nonce: nonce, Step: step, RootPath: attempt.restored.workingPath, Runtime: permit.Runtime.Clone(), RecordedAt: time.Now().UTC()}
 	if !data.ValidRoot(effect.RootPath) || attempt.restored.unchanged(ctx) != nil {
 		return ErrConflict
 	}
