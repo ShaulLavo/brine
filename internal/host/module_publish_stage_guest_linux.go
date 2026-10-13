@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -95,6 +96,8 @@ func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) (sta
 	}
 	wait, cancel := context.WithTimeout(ctx, time.Duration(request.Runtime.StartupSeconds+request.Runtime.StopSeconds+35)*time.Second)
 	defer cancel()
+	startup, stopStartup := context.WithTimeout(wait, time.Duration(request.Runtime.StartupSeconds)*time.Second)
+	defer stopStartup()
 	code = "guest_child_start"
 	child, err := localexec.StartForeground(wait, localexec.ForegroundCommand{Path: engineNativePath, Args: engineNativeArguments(request.Runtime, privateEnginePort),
 		Env: []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "TMPDIR=/tmp", "TOKIO_WORKER_THREADS=2"}, Dir: "/tmp"})
@@ -103,20 +106,18 @@ func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) (sta
 	}
 	exited := child.Done()
 	code = "guest_child_bind"
-	handle, bindErr := bindModuleStageNativeChild(child, request.Runtime)
+	handle, bindErr := bindModuleStageNativeChild(startup, child, request.Runtime)
 	var observation moduleStageObservation
 	observeErr := bindErr
 	if bindErr == nil {
 		code = "guest_operation"
 		defer handle.close()
-		observation, observeErr = executeModuleStage(wait, request, credential)
+		observation, observeErr = observeBoundModuleStage(wait, startup, handle, request, credential)
 		code = moduleStageFailureCode(observeErr, code)
 	}
 	stopErr := stopEngineChild(wait, child, exited, time.Duration(request.Runtime.StopSeconds)*time.Second)
 	if observeErr != nil || stopErr != nil || wait.Err() != nil || handle == nil || !handle.exited() || !engineReplayAlone(request.Runtime.PIDsLimit) {
-		if stopErr != nil {
-			code = "guest_child_stop"
-		}
+		code = moduleStageTerminalCode(code, observeErr, stopErr)
 		return datapublish.ErrRecord
 	}
 	observation.ChildStopped = true
@@ -125,10 +126,22 @@ func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) (sta
 	return json.NewEncoder(output).Encode(observation)
 }
 
-func executeModuleStage(ctx context.Context, request moduleStageInput, credential spacetimedb.PublisherCredential) (moduleStageObservation, error) {
-	if err := waitModuleStageListener(ctx); err != nil {
+func observeBoundModuleStage(ctx, startup context.Context, handle *engineNativeHandle, request moduleStageInput, credential spacetimedb.PublisherCredential) (moduleStageObservation, error) {
+	if err := waitModuleStageListener(startup); err != nil {
 		return moduleStageObservation{}, moduleStageStepError{code: "guest_listener"}
 	}
+	process := "/proc/" + strconv.FormatUint(uint64(handle.pid), 10)
+	if handle.alive() != nil || !moduleStageChildBindings(process, handle.pid, request.Runtime) || handle.alive() != nil || startup.Err() != nil {
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_child_bind"}
+	}
+	observed, err := executeModuleStage(ctx, request, credential)
+	if err != nil {
+		return moduleStageObservation{}, moduleStageStepError{code: moduleStageFailureCode(err, "guest_operation")}
+	}
+	return observed, nil
+}
+
+func executeModuleStage(ctx context.Context, request moduleStageInput, credential spacetimedb.PublisherCredential) (moduleStageObservation, error) {
 	server, err := spacetimedb.NewPrivateServerEndpoint("127.0.0.1", privateEnginePort)
 	if err != nil {
 		return moduleStageObservation{}, datapublish.ErrRecord
@@ -236,6 +249,9 @@ func waitModuleStageListener(ctx context.Context) error {
 		connection, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(ctx, "tcp", "127.0.0.1:23991")
 		if err == nil {
 			_ = connection.Close()
+			if ctx.Err() != nil {
+				return datapublish.ErrRecord
+			}
 			return nil
 		}
 		select {

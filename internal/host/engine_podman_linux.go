@@ -306,7 +306,7 @@ func (r *EngineStartupRuntime) waitEngineHandoff(ctx context.Context, permit sto
 			if container.Name != engineContainerName(permit.Runtime.BindingID) || !*container.State.Running {
 				continue
 			}
-			return bindEngineNative(ctx, r.session, container, permit, material)
+			return bindStartingEngineNative(ctx, r.session, container, permit, material)
 		}
 		select {
 		case <-exited:

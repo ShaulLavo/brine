@@ -60,6 +60,13 @@ func moduleStageFailureCode(err error, fallback string) string {
 	return fallback
 }
 
+func moduleStageTerminalCode(primary string, observeErr, stopErr error) string {
+	if observeErr == nil && stopErr != nil {
+		return "guest_child_stop"
+	}
+	return primary
+}
+
 func moduleStageRunFailure(err error, output []byte) error {
 	if code := decodeModuleStageDiagnostic(output); code != "" {
 		return errors.Join(err, moduleStageStepError{code: code})

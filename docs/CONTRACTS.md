@@ -1638,6 +1638,22 @@ recognizes only the existing strict value-free diagnostic enum before cleanup
 and preserves it as the primary failure. Malformed output grants no observation
 or owner proof and cannot replace the original typed execution error.
 
+The directly spawned native child can still be changing its executable or
+arguments when process creation returns. The guest retains its PIDfd, start
+ticks and cgroup while waiting for the exact pinned command. Binding and
+listener readiness consume one configured startup deadline. The child keeps
+the enclosing lifetime context, so ending readiness does not kill it. Before
+any publisher or module API call, the guest rechecks the original process,
+parent, namespace and data/key identities and final process lifetime. An exited
+child, changed identity or expired deadline cannot supply native evidence.
+The live engine's initial handoff uses the same command wait while retaining
+its first owned container and process identity. It holds the host descriptors
+and namespaces throughout, checks every other binding predicate before the
+wait, and repeats full binding after the command matches. Routine live
+observation and stop still require an immediate exact command match.
+An earlier binding or observation refusal remains the primary phase if stopping
+the child also fails.
+
 When the CLI has validated an accepted asynchronous task and waiting later
 fails, its error envelope keeps `data.status="accepted"` and the original
 `data.operation_id`. `ok` remains false, and the original error code and exit

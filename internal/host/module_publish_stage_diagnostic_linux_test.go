@@ -34,6 +34,17 @@ func TestModuleStageDiagnosticsAreClosedAndNeverOwnerProof(t *testing.T) {
 	}
 }
 
+func TestModuleStageCleanupKeepsFirstFailurePhase(t *testing.T) {
+	for _, phase := range []string{"guest_child_bind", "guest_listener", "guest_publisher", "guest_operation"} {
+		if got := moduleStageTerminalCode(phase, datapublish.ErrRecord, datapublish.ErrRecord); got != phase {
+			t.Fatal("cleanup replaced first failure", phase, got)
+		}
+	}
+	if got := moduleStageTerminalCode("guest_operation", nil, datapublish.ErrRecord); got != "guest_child_stop" {
+		t.Fatal("sole stop failure was lost", got)
+	}
+}
+
 func TestModuleStageAttachSuccessPreservesClosedGuestRefusal(t *testing.T) {
 	var output bytes.Buffer
 	if err := emitModuleStageDiagnostic(&output, "guest_child_bind"); err != nil {

@@ -55,6 +55,13 @@ type engineProfileIdentity struct {
 	executable  string
 }
 
+type engineProfileCommandMode uint8
+
+const (
+	engineProfileStableCommand engineProfileCommandMode = iota
+	engineProfileStartingCommand
+)
+
 func (p engineMountProfile) boundTo(identity engineProfileIdentity) bool {
 	return p.PrimaryTicks == identity.ticks && p.UserNamespace == identity.user && p.MountNamespace == identity.mount
 }
@@ -303,6 +310,10 @@ func (f engineProfileFiles) helperUnchanged() bool {
 }
 
 func verifyEngineMountProfile(ctx context.Context, session localexec.Session, container engineContainer, handle *engineNativeHandle, files engineProfileFiles) error {
+	return verifyEngineMountProfileCommand(ctx, session, container, handle, files, engineProfileStableCommand)
+}
+
+func verifyEngineMountProfileCommand(ctx context.Context, session localexec.Session, container engineContainer, handle *engineNativeHandle, files engineProfileFiles, mode engineProfileCommandMode) error {
 	if !data.ValidCatalogHash(container.ID) || handle == nil || handle.alive() != nil || !files.helperUnchanged() {
 		return errEngineSource
 	}
@@ -323,15 +334,17 @@ func verifyEngineMountProfile(ctx context.Context, session localexec.Session, co
 	if err != nil {
 		return err
 	}
-	command, err := engineProcessFile(process, "cmdline")
-	if err != nil {
-		return err
+	identity := engineProfileIdentity{ticks: handle.ticks, user: user, mount: mount}
+	if mode == engineProfileStableCommand {
+		identity.command, err = engineProcessFile(process, "cmdline")
+		if err != nil {
+			return err
+		}
+		identity.executable, err = os.Readlink(filepath.Join(process, "exe"))
+		if err != nil {
+			return errEngineSource
+		}
 	}
-	executable, err := os.Readlink(filepath.Join(process, "exe"))
-	if err != nil {
-		return errEngineSource
-	}
-	identity := engineProfileIdentity{ticks: handle.ticks, user: user, mount: mount, command: command, executable: executable}
 	result, err := session.Execute(ctx, "/usr/bin/podman", []string{"exec", "--user", "1000:1000", container.ID, "/brine", "host", "engine-mount-profile"}, nil, false)
 	if err != nil || result.Truncated {
 		return errEngineSource
@@ -367,7 +380,11 @@ func verifyEngineMountProfile(ctx context.Context, session localexec.Session, co
 		if !reflect.DeepEqual(current, container) {
 			return errEngineSource
 		}
-		if !engineProfileStillBound(process, handle, identity) || !files.helperUnchanged() {
+		bound := engineProfileLifetimeBound(process, handle, identity)
+		if mode != engineProfileStartingCommand {
+			bound = engineProfileStillBound(process, handle, identity)
+		}
+		if !bound || !files.helperUnchanged() {
 			return errEngineSource
 		}
 		final, err := files.snapshot()
@@ -380,6 +397,18 @@ func verifyEngineMountProfile(ctx context.Context, session localexec.Session, co
 }
 
 func engineProfileStillBound(process string, handle *engineNativeHandle, identity engineProfileIdentity) bool {
+	if !engineProfileLifetimeBound(process, handle, identity) {
+		return false
+	}
+	command, err := engineProcessFile(process, "cmdline")
+	if err != nil || !bytes.Equal(command, identity.command) {
+		return false
+	}
+	executable, err := os.Readlink(filepath.Join(process, "exe"))
+	return err == nil && executable == identity.executable
+}
+
+func engineProfileLifetimeBound(process string, handle *engineNativeHandle, identity engineProfileIdentity) bool {
 	if handle.alive() != nil || !engineNativeOwnership(process, handle.pid) {
 		return false
 	}
@@ -391,10 +420,5 @@ func engineProfileStillBound(process string, handle *engineNativeHandle, identit
 	if err != nil || mount != identity.mount {
 		return false
 	}
-	command, err := engineProcessFile(process, "cmdline")
-	if err != nil || !bytes.Equal(command, identity.command) {
-		return false
-	}
-	executable, err := os.Readlink(filepath.Join(process, "exe"))
-	return err == nil && executable == identity.executable
+	return true
 }

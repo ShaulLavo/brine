@@ -3,6 +3,7 @@
 package host
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,7 +16,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func bindModuleStageNativeChild(child *localexec.ForegroundProcess, runtime data.EngineRuntime) (*engineNativeHandle, error) {
+func bindModuleStageNativeChild(ctx context.Context, child *localexec.ForegroundProcess, runtime data.EngineRuntime) (*engineNativeHandle, error) {
 	if child == nil || child.PID() <= 1 {
 		return nil, datapublish.ErrRecord
 	}
@@ -34,7 +35,12 @@ func bindModuleStageNativeChild(child *localexec.ForegroundProcess, runtime data
 		return nil, datapublish.ErrRecord
 	}
 	handle := &engineNativeHandle{pid: pid, ticks: ticks, cgroup: group, fd: fd}
-	if handle.alive() != nil || !moduleStageChildBindings(process, pid, runtime) {
+	if handle.alive() != nil || !moduleStageChildOwned(process, pid) || !moduleStageChildMounts(process) {
+		handle.close()
+		return nil, datapublish.ErrRecord
+	}
+	guard := func() bool { return moduleStageChildOwned(process, pid) && moduleStageChildMounts(process) }
+	if waitEngineProcessCommand(ctx, handle, engineNativePath, engineNativeArguments(runtime, privateEnginePort), guard) != nil || !moduleStageChildBindings(process, pid, runtime) || handle.alive() != nil {
 		handle.close()
 		return nil, datapublish.ErrRecord
 	}
@@ -56,15 +62,20 @@ func moduleStageChildGroup(process string) (string, error) {
 }
 
 func moduleStageChildBindings(process string, pid uint32, runtime data.EngineRuntime) bool {
-	fields, err := engineProcessStatus(process)
-	if err != nil || !engineProcessOwned(fields) || fields["PPid"] != "1" || !slices.Equal(strings.Fields(fields["NSpid"]), []string{strconv.FormatUint(uint64(pid), 10)}) {
+	if !moduleStageChildOwned(process, pid) {
 		return false
 	}
 	private := runtime.Clone()
 	private.HostPort = privateEnginePort
-	if !engineNativeCommand(process, private) {
-		return false
-	}
+	return engineNativeCommand(process, private) && moduleStageChildMounts(process)
+}
+
+func moduleStageChildOwned(process string, pid uint32) bool {
+	fields, err := engineProcessStatus(process)
+	return err == nil && engineProcessOwned(fields) && fields["PPid"] == "1" && slices.Equal(strings.Fields(fields["NSpid"]), []string{strconv.FormatUint(uint64(pid), 10)})
+}
+
+func moduleStageChildMounts(process string) bool {
 	for _, member := range []string{"data", "keys/private.pem", "keys/public.pem"} {
 		actual, err := os.Stat(filepath.Join(process, "root", member))
 		expected, protectedErr := os.Stat("/" + member)
