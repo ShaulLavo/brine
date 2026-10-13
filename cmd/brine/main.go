@@ -78,6 +78,7 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 	deps.HostModuleDescribe = host.RunModuleDescriptor
 	deps.HostModuleDescribeProfile = host.RunModuleDescriptorProfile
 	deps.HostModuleStage = host.RunModuleStage
+	deps.HostEngineMountProfile = host.RunEngineMountProfile
 	if cli.HostServeRequested(args) {
 		factory := host.NewServerFactory(deps.Version, authenticated)
 		deps.HostServerFactory = factory.Build

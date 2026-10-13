@@ -203,13 +203,13 @@ func startPublicationStageProcess(ctx context.Context, lease *publicationStageLe
 		if !ownedPublicationStage(lease, container) || !*container.State.Running || *container.State.PID <= 0 {
 			return id, nil, datapublish.ErrRecord
 		}
-		handle, err := bindPublicationStageProcess(lease, container)
+		handle, err := bindPublicationStageProcess(ctx, session, lease, container)
 		return id, handle, err
 	}
 	return id, nil, datapublish.ErrRecord
 }
 
-func bindPublicationStageProcess(lease *publicationStageLease, container engineContainer) (*engineNativeHandle, error) {
+func bindPublicationStageProcess(ctx context.Context, session localexec.Session, lease *publicationStageLease, container engineContainer) (*engineNativeHandle, error) {
 	if lease == nil || container.State.Running == nil || !*container.State.Running || container.State.PID == nil || *container.State.PID <= 0 || !ownedPublicationStage(lease, container) {
 		return nil, datapublish.ErrRecord
 	}
@@ -229,30 +229,37 @@ func bindPublicationStageProcess(lease *publicationStageLease, container engineC
 		return nil, datapublish.ErrRecord
 	}
 	handle := &engineNativeHandle{pid: pid, ticks: ticks, cgroup: scope + "/container", fd: fd}
-	if handle.alive() != nil || !engineNativeOwnership(process, pid) || !publicationStageProcessBindings(process, lease) {
+	if handle.alive() != nil || !engineNativeOwnership(process, pid) || !publicationStageProcessBindings(ctx, session, container, handle, process, lease) {
 		handle.close()
 		return nil, datapublish.ErrRecord
 	}
 	return handle, nil
 }
 
-func publicationStageProcessBindings(process string, lease *publicationStageLease) bool {
+func publicationStageProcessBindings(ctx context.Context, session localexec.Session, container engineContainer, handle *engineNativeHandle, process string, lease *publicationStageLease) bool {
 	raw, err := engineProcessFile(process, "cmdline")
-	if err != nil || !bytes.HasSuffix(raw, []byte{0}) || !slices.Equal(strings.Split(string(raw[:len(raw)-1]), "\x00"), []string{"/brine", "host", "module-stage"}) || !publicationStageMountedRoot(process, lease) {
+	if err != nil || !bytes.HasSuffix(raw, []byte{0}) || !slices.Equal(strings.Split(string(raw[:len(raw)-1]), "\x00"), []string{"/brine", "host", "module-stage"}) {
 		return false
 	}
-	for mounted, protected := range map[string]string{"exe": "/usr/local/bin/brine", "root/keys/private.pem": lease.material.privateKey, "root/keys/public.pem": lease.material.publicKey} {
-		actual, err := os.Stat(filepath.Join(process, mounted))
-		expected, protectedErr := os.Stat(protected)
-		if err != nil || protectedErr != nil || !os.SameFile(actual, expected) {
-			return false
-		}
+	files, err := openEngineProfileFiles(lease.stagePath, lease.material, lease.artifact)
+	if err != nil {
+		return false
 	}
-	if lease.artifact != nil {
-		actual, err := os.Stat(filepath.Join(process, "root", strings.TrimPrefix(moduleDescriptorArtifactPath, "/")))
-		if err != nil || !descriptorArtifactIdentity(actual, lease.artifact.member) {
-			return false
-		}
+	defer files.close()
+	helper, err := os.Stat(filepath.Join(process, "exe"))
+	expected, expectedErr := files.helper.Stat()
+	if err != nil || expectedErr != nil || !os.SameFile(helper, expected) {
+		return false
+	}
+	root, err := files.data.Stat()
+	if err != nil || !publicationStageRootIdentity(root, lease.rootMember) {
+		return false
+	}
+	if verifyEngineMountProfile(ctx, session, container, handle, files) != nil {
+		return false
+	}
+	if lease.artifact != nil && lease.artifact.unchanged(ctx) != nil {
+		return false
 	}
 	return true
 }

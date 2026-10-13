@@ -4,6 +4,7 @@ package host
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"math"
 	"os"
@@ -11,8 +12,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/store"
 	"golang.org/x/sys/unix"
 )
@@ -51,7 +54,7 @@ type engineNativeHandle struct {
 	fd     int
 }
 
-func bindEngineNative(container engineContainer, permit store.EnginePermit, material engineMaterial) (*engineNativeHandle, error) {
+func bindEngineNative(ctx context.Context, session localexec.Session, container engineContainer, permit store.EnginePermit, material engineMaterial) (*engineNativeHandle, error) {
 	if !ownedLiveEngine(container, permit, material) || !*container.State.Running || *container.State.PID <= 0 || !data.ValidCatalogHash(container.ID) {
 		return nil, errEngineSource
 	}
@@ -74,9 +77,19 @@ func bindEngineNative(container engineContainer, permit store.EnginePermit, mate
 		handle.close()
 		return nil, errEngineSource
 	}
-	actual, err := os.Stat(filepath.Join(process, "root/data"))
-	want, wantErr := os.Stat(permit.Reserved.Database.SourcePath())
-	if err != nil || wantErr != nil || !os.SameFile(actual, want) {
+	files, err := openEngineProfileFiles(permit.Reserved.Database.SourcePath(), material, nil)
+	if err != nil {
+		handle.close()
+		return nil, errEngineSource
+	}
+	defer files.close()
+	root, err := files.data.Stat()
+	if err != nil || permit.Allocation == nil {
+		handle.close()
+		return nil, errEngineSource
+	}
+	stat, ok := root.Sys().(*syscall.Stat_t)
+	if !ok || uint64(stat.Dev) != permit.Allocation.DirectoryDevice || stat.Ino != permit.Allocation.DirectoryInode || verifyEngineMountProfile(ctx, session, container, handle, files) != nil {
 		handle.close()
 		return nil, errEngineSource
 	}

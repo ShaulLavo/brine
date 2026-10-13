@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -49,7 +50,7 @@ func ownedEngineFixture(t *testing.T) (engineContainer, store.EnginePermit, engi
 	c.HostConfig.SecurityOpt = []string{"no-new-privileges"}
 	mem, pids, cpus := int64(permit.Runtime.MemoryMB)<<20, int64(permit.Runtime.PIDsLimit), int64(1_000_000_000)
 	c.HostConfig.Memory, c.HostConfig.PidsLimit, c.HostConfig.NanoCpus = &mem, &pids, &cpus
-	c.Mounts = []engineMount{{Source: permit.Reserved.Database.SourcePath(), Destination: "/data", Type: "bind", RW: engineBool(true)}, {Source: material.privateKey, Destination: "/keys/private.pem", Type: "bind", RW: engineBool(false)}, {Source: material.publicKey, Destination: "/keys/public.pem", Type: "bind", RW: engineBool(false)}}
+	c.Mounts = []engineMount{{Source: permit.Reserved.Database.SourcePath(), Destination: "/data", Type: "bind", RW: engineBool(true)}, {Source: material.privateKey, Destination: "/keys/private.pem", Type: "bind", RW: engineBool(false)}, {Source: material.publicKey, Destination: "/keys/public.pem", Type: "bind", RW: engineBool(false)}, {Source: engineProfileHelper, Destination: "/brine", Type: "bind", RW: engineBool(false)}}
 	return c, permit, material
 }
 
@@ -450,5 +451,29 @@ func TestEngineServicePrivateUnitUnderTraversableHome(t *testing.T) {
 	}
 	if verifyEngineService(context.Background(), home, permit) == nil {
 		t.Fatal("public unit root admitted")
+	}
+}
+
+func TestLiveEngineRequiresExactlyPinnedReadonlyProfileHelper(t *testing.T) {
+	container, permit, material := ownedEngineFixture(t)
+	if !ownedLiveEngine(container, permit, material) {
+		t.Fatal("exact helper mount refused")
+	}
+	for _, attack := range []string{"missing", "writable", "foreign", "duplicate"} {
+		c := container
+		c.Mounts = slices.Clone(container.Mounts)
+		switch attack {
+		case "missing":
+			c.Mounts = c.Mounts[:3]
+		case "writable":
+			c.Mounts[3].RW = engineBool(true)
+		case "foreign":
+			c.Mounts[3].Source = "/caller/brine"
+		case "duplicate":
+			c.Mounts = append(c.Mounts, c.Mounts[3])
+		}
+		if ownedLiveEngine(c, permit, material) {
+			t.Fatal("unqualified profile helper admitted", attack)
+		}
 	}
 }

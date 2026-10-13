@@ -569,3 +569,24 @@ seconds with its unchanged 60-second deadline, then exact cleanup preserved the
 original image/layer metadata and payload identities. This proves the storage
 mechanism, not a native child, deployment, backup, restore or production profile
 transition. Those require the separately authorized physical CLI flow.
+
+### Namespace-local native binding
+
+The authorized metadata-only probes showed a live owned helper with valid
+PIDfd, cgroup, process identity and executable. Host traversal of its FUSE root
+failed for the runner and root observer. A fixed no-argument program executed
+as UID and GID 1000 inside the same container reported the exact host data, key
+and executable device/inode identities with the correct namespace owner view.
+All disposable processes, containers, mounts and files were removed; original
+control and image payload evidence remained intact. Shared container metadata
+mtime changes were recorded rather than restored to force equality.
+
+Local tests refuse overlapping or overflowing UID/GID maps, forged namespace
+lifetimes, foreign device/inode/type/mode/owners, unmapped-owner claims when a
+map actually covers that owner, regular size or link-count drift, missing or
+extra members, malformed and duplicate frame fields, arbitrary helper arguments,
+and missing, duplicate, foreign or writable helper mounts. Held-descriptor tests
+reject regular-file drift while directory size/link changes from ordinary live
+writes retain the existing directory identity contract. This is binding-source
+and mechanism evidence; actual native initialization, publication and remote
+recovery still require the authorized physical command flow.

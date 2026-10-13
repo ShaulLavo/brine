@@ -1616,3 +1616,18 @@ Enrollment previews and journals the required FUSE package and protected file;
 undo preserves its existing unknown-data and ownership refusal rules. A native
 store cannot safely revert after FUSE layers are written. No startup, capture,
 maintenance or general subprocess deadline changes with this dependency.
+
+Owned native process binding uses the fixed no-input contained
+`engine-mount-profile` helper to verify namespace-local mount identities when
+the runner's namespace cannot traverse a FUSE root. This internal helper is not
+a dispatcher operation and accepts no image, path, command, role or input.
+PIDfd lifetime, start ticks, process command and executable, cgroup, exact
+container identity and policy remain mandatory. A bounded strict frame binds
+PID 1 and its namespace identities to fixed member metadata. Held host
+descriptors, authoritative kernel UID and GID maps, and kernel overflow IDs
+establish the exact corresponding namespace view. Regular-file identity and
+size remain stable; directory size and link count can change with live writes.
+The final inspection rechecks process and descriptor lifetime before any
+credential input. A live engine carries the same pinned read-only `/brine`
+helper mount as private verification containers. Unknown or mismatched evidence
+refuses binding without retry, root namespace entry or weakened guards.

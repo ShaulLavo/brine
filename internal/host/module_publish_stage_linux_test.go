@@ -168,7 +168,6 @@ func TestModuleStageIndependentlyRequiresNoSwap(t *testing.T) {
 	container.Config.Labels = map[string]string{"BRINE_PRIVATE_VERIFY": lease.nonce, "BRINE_MODULE_STAGE": lease.nonce}
 	container.HostConfig.NetworkMode = "none"
 	container.Mounts[0].Source = lease.stagePath
-	container.Mounts = append(container.Mounts, engineMount{Source: "/usr/local/bin/brine", Destination: "/brine", Type: "bind", RW: engineBool(false)})
 	if ownedPublicationStage(lease, container) {
 		t.Fatal("missing MemorySwap observation admitted")
 	}

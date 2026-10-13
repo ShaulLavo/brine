@@ -47,7 +47,7 @@ func bindNativeStopAttempt(ctx context.Context, session localexec.Session, state
 	if selected == nil {
 		return nil, errEngineSource
 	}
-	native, err := bindEngineNative(*selected, permit, engineMaterialPaths(stateRoot, permit.Runtime))
+	native, err := bindEngineNative(ctx, session, *selected, permit, engineMaterialPaths(stateRoot, permit.Runtime))
 	if err != nil {
 		return nil, err
 	}
