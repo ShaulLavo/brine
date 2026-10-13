@@ -280,7 +280,7 @@ func (c Client) Run(ctx context.Context, o Options) error {
 	if _, err = MakePlan(verified); err != nil {
 		return err
 	}
-	if len(verified.Packages) != 3 {
+	if len(verified.Packages) != len(requiredPackages) {
 		return errors.New("post-enrollment runtime packages are missing")
 	}
 	if !verified.OwnedRunner || verified.Snapshot.Runner.Linger.Value == nil || !*verified.Snapshot.Runner.Linger.Value {

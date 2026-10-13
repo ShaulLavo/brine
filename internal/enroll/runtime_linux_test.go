@@ -111,6 +111,9 @@ func TestEmptyRuntimeChecksEveryResourceWithRunnerEnvironment(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			f := &fakeAdmin{handle: func(c localexec.Command) (localexec.Result, error) {
+				if c.Path == "/usr/bin/test" {
+					return localexec.Result{}, nil
+				}
 				argv := strings.Join(c.Args, " ")
 				if c.Path != "/usr/sbin/runuser" || c.Mutation || !strings.Contains(argv, "-u brine -- /usr/bin/env XDG_CONFIG_HOME=/home/brine/.config") || !strings.Contains(argv, "XDG_RUNTIME_DIR=/run/user/1234") || !strings.Contains(argv, "--root /home/brine/.local/share/containers/storage --runroot /run/user/1234/containers") {
 					t.Fatalf("unsafe runtime command: %+v", c)
@@ -122,7 +125,7 @@ func TestEmptyRuntimeChecksEveryResourceWithRunnerEnvironment(t *testing.T) {
 			if (err != nil) != tt.wantFailure {
 				t.Fatalf("error=%v", err)
 			}
-			if !tt.wantFailure && len(f.commands) != 4 {
+			if !tt.wantFailure && len(f.commands) != 6 {
 				t.Fatal("did not check containers, images, volumes and secrets")
 			}
 		})
