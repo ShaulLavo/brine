@@ -93,7 +93,7 @@ func (o nativeBackupResolutionOperations) inspectStoppedUnpublished(ctx context.
 	}
 	_, config, err := nativeEmptyMembers(seal)
 	preparation, prepErr := o.service.Store.ReadManagedPreparation(ctx, i.BindingID())
-	if err != nil || prepErr != nil || config != preparation.ConfigSHA256 {
+	if err != nil || prepErr != nil || config != preparation.ConfigSHA256 || observeNativeWorkspaceAbsent(ctx, source) != nil {
 		return errEngineSource
 	}
 	material, err := readEngineMaterial(ctx, o.runtime.stateRoot, expected.Permit)
