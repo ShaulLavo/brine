@@ -1443,7 +1443,12 @@ and failed outcome. A `stopped_unpublished` observation requires the exact
 original allocation, config, material, held fence and closed routes/units, plus
 a complete empty staging parent with no process, mount or descriptor consumers.
 Retained initial-stage journals must be disposed. Journal absence alone supplies
-no authority. A reviewed resolver continues that original point and preparation
+no authority. A fresh stopped observation also binds each previous failed
+resolver's exact immutable operation, failure outcome and claimed review under
+the same producer, requester and app. Active, foreign or unsettled claims refuse.
+Only the currently checked opaque claimant excludes itself, keeping the reviewed
+hash stable after task claim. Previous failures and claims remain historical;
+a new independently reviewed resolver cannot rewrite or replay them. A reviewed resolver continues that original point and preparation
 operation through newly journaled private staging and capture; it never creates
 another preparation, repeats a recorded upload, or rewrites the failed outcome.
 Actual remote verification and original producer completion still precede an
