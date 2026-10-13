@@ -104,3 +104,20 @@ func TestNativeInitialStagePartialLaunchRetainsUnboundProcessForStop(t *testing.
 		t.Fatal("stop fabricated bound process")
 	}
 }
+
+func TestNativeInitialStagePersistsClosedLaunchFailure(t *testing.T) {
+	for _, code := range []string{"container_start_failed", "container_start_unknown", "container_start_output"} {
+		t.Run(code, func(t *testing.T) {
+			stage, s := initialStageFixture(t)
+			ctx := context.Background()
+			observation := NativeInitialStageObservation{Stage: "unknown", Code: code, At: time.Now().UTC()}
+			if err := stage.Record(ctx, observation); err != nil {
+				t.Fatal(err)
+			}
+			journal, _, err := readNativeInitialStage(ctx, s.db, stage.intent.Nonce)
+			if err != nil || len(journal.Events) != 1 || journal.Events[0].Observation.Code != code {
+				t.Fatal("immutable journal lost launch diagnosis", err)
+			}
+		})
+	}
+}

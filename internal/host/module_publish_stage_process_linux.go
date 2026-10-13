@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -85,9 +86,10 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		if runErr == nil {
 			result, runErr = runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: []string{"attach", "--sig-proxy=false", id}, Stdin: input, Mutation: true, OutputLimit: 1 << 20})
 		}
-	} else {
+	} else if runErr == nil {
 		runErr = datapublish.ErrRecord
 	}
+	primaryFailure := initialPublisherFailureCode(lease, runErr, result.Stdout)
 	cancel()
 	cleanup, stop := context.WithTimeout(context.WithoutCancel(ctx), time.Duration(request.Runtime.StopSeconds+10)*time.Second)
 	disposeErr := disposePublicationStage(cleanup, lease, session)
@@ -104,10 +106,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		lease.disposed = true
 	}
 	if runErr != nil || disposeErr != nil || lease.sourceUnchanged(ctx) != nil {
-		setInitialPublisherFailure(lease, runErr, result.Stdout)
-		if lease.initialStage != nil && disposeErr != nil {
-			lease.initialStage.failureCode = "helper_disposal"
-		}
+		setInitialPublisherFailure(lease, runErr, disposeErr, primaryFailure)
 		_ = recordPublicationStageEvent(context.WithoutCancel(ctx), lease, "unknown")
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
@@ -138,12 +137,38 @@ func recordInitialPublisherInput(ctx context.Context, lease *publicationStageLea
 	return lease.initialStage.record(ctx, "input_issued")
 }
 
-func setInitialPublisherFailure(lease *publicationStageLease, err error, output []byte) {
+func initialPublisherFailureCode(lease *publicationStageLease, err error, output []byte) string {
 	if lease.initialStage == nil || err == nil {
-		return
+		return ""
 	}
 	if code := decodeModuleStageDiagnostic(output); code != "" {
+		return code
+	}
+	return lease.initialStage.failureCode
+}
+
+func setInitialPublisherFailure(lease *publicationStageLease, primary, disposal error, code string) {
+	if lease.initialStage == nil {
+		return
+	}
+	if primary != nil {
 		lease.initialStage.failureCode = code
+		return
+	}
+	lease.initialStage.failureCode = "source_changed"
+	if disposal != nil {
+		lease.initialStage.failureCode = "helper_disposal"
+	}
+}
+
+func classifyInitialPublisherLaunch(lease *publicationStageLease, err error) {
+	if lease.initialStage == nil {
+		return
+	}
+	lease.initialStage.failureCode = "container_start_failed"
+	var command *localexec.Error
+	if errors.As(err, &command) && (command.Kind == localexec.UnknownOutcome || command.Kind == localexec.Timeout) {
+		lease.initialStage.failureCode = "container_start_unknown"
 	}
 }
 
@@ -154,7 +179,14 @@ func startPublicationStageProcess(ctx context.Context, lease *publicationStageLe
 	}
 	started, err := session.Execute(ctx, "/usr/bin/podman", args, nil, true)
 	id := strings.TrimSpace(started.Stdout)
-	if err != nil || started.Truncated || !data.ValidCatalogHash(id) {
+	if err != nil {
+		classifyInitialPublisherLaunch(lease, err)
+		return "", nil, errors.Join(datapublish.ErrRecord, err)
+	}
+	if started.Truncated || !data.ValidCatalogHash(id) {
+		if lease.initialStage != nil {
+			lease.initialStage.failureCode = "container_start_output"
+		}
 		return "", nil, datapublish.ErrRecord
 	}
 	if lease.initialStage != nil {
