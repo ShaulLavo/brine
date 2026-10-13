@@ -852,3 +852,27 @@ A private captured-review fixture exercises the real candidate/owner acceptance
 boundary with syntactic evidence under production reader limits and rejects a
 foreign owner. It does not fabricate native data, physical anchors, a completed
 preservation transaction or receipt. No new reader or native helper ran.
+
+### Native child shutdown reasons
+
+The fresh CLI33 preparation and review succeeded. Its new publication effect
+retained `guest_child_stop` after successful create/observation, then failed
+without a live transition. The helper's lifetime was 5.367 seconds and attach to
+exit was 2.254 seconds against a 30-second stop budget. These facts do not locate
+the child wait error. Native stdout and stderr were previously discarded.
+
+Shutdown diagnostics now distinguish interrupt refusal, caller cancellation,
+stop-budget exhaustion, nonzero exit and signal categories. The module helper's
+bounded stderr sink keeps at most 64 bytes of transient overlap and reports only
+a fixed panic marker. It detects markers across writes and late in a stream;
+no native text enters the journal. Clean stops still succeed, every failed stop
+still refuses, and original wait errors unwrap unchanged. The existing SIGINT,
+budgets and forced cleanup remain.
+
+Focused real subprocess tests cover clean/nonzero waits, SIGINT/SIGKILL/other
+signal categories and forced stop after the budget or canceled context. Tests
+also cover split/late panic markers, bounded retention, redacted frames and
+observation-first failure precedence. These diagnostics do not prove the actual
+shutdown cause or a successful publication. The new CLI33 claim was separately
+preserved by its supported public resolver; its working copy remains retained
+for the next diagnostic consumer.

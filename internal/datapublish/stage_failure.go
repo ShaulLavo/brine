@@ -22,7 +22,8 @@ func (f StageFailure) Valid() bool {
 
 func GuestStageFailureCode(code string) bool {
 	switch code {
-	case "guest_containment", "guest_input", "guest_source", "guest_credential", "guest_child_start", "guest_child_bind", "guest_listener", "guest_publisher", "guest_operation", "guest_child_stop", "guest_output", "guest_create_artifact", "guest_create_publish", "guest_create_endpoint", "guest_create_expected", "guest_create_observe":
+	case "guest_containment", "guest_input", "guest_source", "guest_credential", "guest_child_start", "guest_child_bind", "guest_listener", "guest_publisher", "guest_operation", "guest_child_stop", "guest_output", "guest_create_artifact", "guest_create_publish", "guest_create_endpoint", "guest_create_expected", "guest_create_observe",
+		"guest_child_stop_interrupt", "guest_child_stop_context", "guest_child_stop_budget", "guest_child_stop_panic", "guest_child_stop_exit", "guest_child_stop_sigint", "guest_child_stop_sigkill", "guest_child_stop_signal":
 		return true
 	default:
 		return false

@@ -214,24 +214,37 @@ func stopEngineChild(ctx context.Context, command *localexec.ForegroundProcess, 
 		return errEngineSource
 	}
 	if err := command.Interrupt(); err != nil && !errors.Is(err, os.ErrProcessDone) {
-		return errEngineSource
+		return engineChildStopError{phase: "interrupt", cause: errEngineSource}
 	}
 	timer := time.NewTimer(budget)
 	defer timer.Stop()
+	phase := "budget"
 	select {
 	case err := <-exited:
-		return err
+		if err != nil {
+			return engineChildStopError{phase: "wait", cause: err}
+		}
+		return nil
 	case <-ctx.Done():
+		phase = "context"
 	case <-timer.C:
 	}
 	_ = command.KillGroup()
 	select {
 	case <-exited:
-		return errEngineSource
+		return engineChildStopError{phase: phase, cause: errEngineSource}
 	case <-time.After(time.Second):
-		return errEngineSource
+		return engineChildStopError{phase: phase, cause: errEngineSource}
 	}
 }
+
+type engineChildStopError struct {
+	phase string
+	cause error
+}
+
+func (e engineChildStopError) Error() string { return "native child did not stop cleanly" }
+func (e engineChildStopError) Unwrap() error { return e.cause }
 
 func decodeEngineReplayObservation(raw []byte) (engineReplayObservation, error) {
 	if len(raw) > 64<<10 {
