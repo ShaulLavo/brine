@@ -54,10 +54,16 @@ func (s *Store) HoldNativePreparationFence(ctx context.Context, binding data.Rep
 			held = append(held, fence)
 		}
 	}
-	if len(held) != 1 || held[0].OperationID != authority.operation || held[0].ID != authority.fence {
+	if len(held) == 1 && held[0].OperationID == authority.operation && held[0].ID == authority.fence {
+		return held[0], tx.Commit()
+	}
+	if len(held) > 1 || len(held) == 1 && held[0].OperationID != operation {
 		return data.QuiescenceFence{}, ErrConflict
 	}
-	return held[0], tx.Commit()
+	if err = tx.Commit(); err != nil {
+		return data.QuiescenceFence{}, err
+	}
+	return s.holdPreservedUnpublishedPreparationFence(ctx, binding, operation)
 }
 
 type unpublishedPreparationAuthority struct {
