@@ -106,9 +106,13 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		lease.process, lease.containerID = nil, ""
 		lease.disposed = true
 	}
-	if runErr != nil || disposeErr != nil || lease.sourceUnchanged(ctx) != nil {
+	var sourceErr error
+	if runErr == nil && disposeErr == nil {
+		sourceErr = lease.sourceUnchanged(ctx)
+	}
+	if runErr != nil || disposeErr != nil || sourceErr != nil {
 		setInitialPublisherFailure(lease, runErr, disposeErr, primaryFailure)
-		_ = recordPublicationStageEvent(context.WithoutCancel(ctx), lease, "unknown")
+		_ = recordPublicationStageFailure(context.WithoutCancel(ctx), lease, request.Action, publicationStageFailureCode(runErr, disposeErr, sourceErr))
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	lease.finishedAt = time.Now().UTC()
@@ -117,6 +121,8 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		if lease.initialStage != nil {
 			lease.initialStage.failureCode = "helper_result"
 			_ = lease.initialStage.record(context.WithoutCancel(ctx), "unknown")
+		} else {
+			_ = recordPublicationStageFailure(context.WithoutCancel(ctx), lease, request.Action, "stage_result_decode")
 		}
 		return moduleStageObservation{}, err
 	}
@@ -341,5 +347,36 @@ func recordPublicationStageEvent(ctx context.Context, lease *publicationStageLea
 	if lease.working == nil || lease.restored == nil {
 		return datapublish.ErrRecord
 	}
-	return lease.restored.state.RecordPublicationEffectEvent(ctx, lease.working.attempt, store.PublicationEffectEvent{Nonce: lease.nonce, Stage: stage, ContainerID: lease.containerID, PID: lease.helperPID, StartTicks: lease.helperTicks, Cgroup: lease.helperCgroup})
+	event := store.PublicationEffectEvent{Nonce: lease.nonce, Stage: stage, ContainerID: lease.containerID, PID: lease.helperPID, StartTicks: lease.helperTicks, Cgroup: lease.helperCgroup}
+	if stage == "unknown" {
+		event.Failure = lease.failure
+	}
+	return lease.restored.state.RecordPublicationEffectEvent(ctx, lease.working.attempt, event)
+}
+
+func recordPublicationStageFailure(ctx context.Context, lease *publicationStageLease, action moduleStageAction, code string) error {
+	if !lease.effectRecorded {
+		return recordPublicationStageEvent(ctx, lease, "unknown")
+	}
+	failure := datapublish.StageFailure{Action: string(action), Code: code}
+	if !failure.Valid() {
+		return datapublish.ErrRecord
+	}
+	if lease.failure == nil {
+		lease.failure = &failure
+	}
+	return recordPublicationStageEvent(ctx, lease, "unknown")
+}
+
+func publicationStageFailureCode(primary, disposal, source error) string {
+	if primary != nil {
+		return moduleStageFailureCode(primary, "stage_run_failed")
+	}
+	if disposal != nil {
+		return "stage_disposal_failed"
+	}
+	if source != nil {
+		return "stage_source_changed"
+	}
+	return ""
 }

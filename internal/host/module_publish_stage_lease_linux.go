@@ -41,6 +41,7 @@ type publicationStageLease struct {
 	helperCgroup   string
 	observation    moduleStageObservation
 	effectRecorded bool
+	failure        *datapublish.StageFailure
 	initialStage   *nativeInitialStageWork
 }
 

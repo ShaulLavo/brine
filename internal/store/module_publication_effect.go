@@ -24,13 +24,14 @@ type PublicationEffect struct {
 }
 
 type PublicationEffectEvent struct {
-	Nonce       string    `json:"nonce"`
-	Stage       string    `json:"stage"`
-	ContainerID string    `json:"container_id"`
-	PID         uint32    `json:"pid"`
-	StartTicks  uint64    `json:"start_ticks"`
-	Cgroup      string    `json:"cgroup"`
-	RecordedAt  time.Time `json:"recorded_at"`
+	Nonce       string                    `json:"nonce"`
+	Stage       string                    `json:"stage"`
+	ContainerID string                    `json:"container_id"`
+	PID         uint32                    `json:"pid"`
+	StartTicks  uint64                    `json:"start_ticks"`
+	Cgroup      string                    `json:"cgroup"`
+	RecordedAt  time.Time                 `json:"recorded_at"`
+	Failure     *datapublish.StageFailure `json:"failure,omitempty"`
 }
 
 func (s *Store) RecordPublicationEffect(ctx context.Context, attempt *PublicationAttempt, nonce string, step datapublish.Step) error {
@@ -161,6 +162,9 @@ func readPublicationEffectEventsTx(ctx context.Context, tx *sql.Tx, effect Publi
 }
 
 func checkPublicationEffectEvent(effect PublicationEffect, prior []PublicationEffectEvent, next PublicationEffectEvent) error {
+	if next.Failure != nil && (next.Stage != "unknown" || !next.Failure.Valid() || next.Failure.Action == "preflight" && effect.Step != datapublish.CheckPreflight || next.Failure.Action != "preflight" && effect.Step != datapublish.PublishStage) {
+		return ErrConflict
+	}
 	if next.Nonce != effect.Nonce || next.RecordedAt.Location() != time.UTC || next.RecordedAt.Before(effect.RecordedAt) || next.RecordedAt.After(time.Now().UTC()) || next.Stage != "started" && next.Stage != "stop_intent" && next.Stage != "disposed" && next.Stage != "unknown" {
 		return ErrConflict
 	}

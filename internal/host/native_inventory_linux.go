@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"strconv"
@@ -31,6 +32,9 @@ func nativeOwnedInventory(ctx context.Context, root *os.Root, seal engineTreeSea
 		if !strings.Contains(member.Name, "/clog/") && !strings.Contains(member.Name, "/snapshots/") {
 			continue
 		}
+		if nativeOffsetCacheMember(member, prefix, seal) {
+			continue
+		}
 		if member.Size <= 0 || member.Size > 32<<20 {
 			return nativecapture.Inventory{}, errEngineSource
 		}
@@ -41,6 +45,25 @@ func nativeOwnedInventory(ctx context.Context, root *os.Root, seal engineTreeSea
 		members = append(members, nativecapture.Member{Path: member.Name, Bytes: uint64(member.Size), ExpandedBytes: expanded, SHA256: member.SHA256, Device: member.Device, Inode: member.Inode, MountID: member.MountID, UID: member.UID, Mode: 0600, Links: uint64(member.Links)})
 	}
 	return nativecapture.NewInventory(scope, members, nativecapture.DefaultLimits())
+}
+
+func nativeOffsetCacheMember(member engineTreeMember, prefix string, seal engineTreeSeal) bool {
+	name, found := strings.CutPrefix(member.Name, prefix+"clog/")
+	if !found || !strings.HasSuffix(name, ".stdb.ofs") || member.Mode != unix.S_IFREG|0600 || member.UID != seal.root.UID || member.Links != 1 || member.Size < 0 || member.Size > 32<<20 || member.Device != seal.root.Device || member.MountID != seal.root.MountID {
+		return false
+	}
+	number := strings.TrimSuffix(name, ".stdb.ofs")
+	offset, err := strconv.ParseUint(number, 10, 64)
+	if err != nil || len(number) != 20 || fmt.Sprintf("%020d", offset) != number {
+		return false
+	}
+	logPath := strings.TrimSuffix(member.Name, ".ofs") + ".log"
+	for _, sibling := range seal.members {
+		if sibling.Name == logPath {
+			return sibling.Mode == unix.S_IFREG|0600 && sibling.Size > 0 && sibling.UID == member.UID && sibling.Links == 1 && sibling.Device == member.Device && sibling.MountID == member.MountID
+		}
+	}
+	return false
 }
 
 func nativeSoleReplica(seal engineTreeSeal) (uint64, error) {

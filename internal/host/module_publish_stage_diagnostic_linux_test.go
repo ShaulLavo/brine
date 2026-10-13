@@ -80,3 +80,25 @@ func TestModuleStageAttachSuccessPreservesClosedGuestRefusal(t *testing.T) {
 		}
 	}
 }
+
+func TestPublicationEffectDiagnosisKeepsPrimaryAndClosedCode(t *testing.T) {
+	primary := moduleStageStepError{code: "guest_create_observe", cause: datapublish.ErrInspection}
+	if got := publicationStageFailureCode(primary, datapublish.ErrRecord, datapublish.ErrRecord); got != "guest_create_observe" || !errors.Is(primary, datapublish.ErrInspection) {
+		t.Fatal("primary fixed phase or underlying cause changed", got)
+	}
+	if got := publicationStageFailureCode(nil, datapublish.ErrRecord, datapublish.ErrRecord); got != "stage_disposal_failed" {
+		t.Fatal("disposal boundary lost", got)
+	}
+	if got := publicationStageFailureCode(nil, nil, datapublish.ErrRecord); got != "stage_source_changed" {
+		t.Fatal("source boundary lost", got)
+	}
+	for _, code := range []string{"guest_create_artifact", "guest_create_publish", "guest_create_endpoint", "guest_create_expected", "guest_create_observe"} {
+		var output bytes.Buffer
+		if err := emitModuleStageDiagnostic(&output, code); err != nil || decodeModuleStageDiagnostic(output.Bytes()) != code {
+			t.Fatal("closed create phase lost", code, err)
+		}
+		if _, err := decodeModuleStageObservation(output.Bytes(), time.Now().UTC(), time.Now().UTC()); err == nil {
+			t.Fatal("fixed refusal became publication evidence")
+		}
+	}
+}

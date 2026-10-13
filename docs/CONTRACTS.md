@@ -1724,3 +1724,18 @@ status remain unchanged. Human diagnostics also include that operation ID.
 Acceptance is only a locator for status and recovery; the CLI never resubmits
 work, emits remote diagnostics or trusts an operation ID from a crossed poll
 response.
+
+Publication effect `unknown` events may carry `failure` with only a closed
+`action` and fixed `code`. Codes identify contained guest or controller result,
+disposal and source-check boundaries. They carry no subprocess text, credential
+or module content and grant no publication or recovery authority. The primary
+failure remains selected through cleanup. Events without failure metadata keep
+their canonical bytes.
+
+Native recovery inventory excludes only pinned-layout, runner-owned mode-0600,
+single-link `<20-digit-offset>.stdb.ofs` files in the sole replica's `clog`
+directory when the same offset has a supported nonempty `.stdb.log`. The full
+source seal still includes the offset index. It is an optional upstream seek
+index, not selected recovery data. Orphan, malformed, unknown or unsafe entries
+retain the existing refusal behavior; log-tail and snapshot selection limits
+are unchanged.
