@@ -4,12 +4,13 @@ import (
 	"context"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/restic"
 )
 
 func nativeTransportContext(ctx context.Context, scope restic.Scope) (context.Context, context.CancelFunc, error) {
 	deadline := scope.ExpiresAt.Add(-time.Second)
-	maximum := time.Now().UTC().Add(9 * time.Minute)
+	maximum := time.Now().UTC().Add(dispatch.ReviewWorkTimeout)
 	if deadline.After(maximum) {
 		deadline = maximum
 	}
