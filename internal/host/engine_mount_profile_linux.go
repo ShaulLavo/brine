@@ -361,19 +361,20 @@ func verifyEngineMountProfile(ctx context.Context, session localexec.Session, co
 		return errEngineSource
 	}
 	for _, current := range containers {
-		if current.ID == container.ID {
-			if !reflect.DeepEqual(current, container) {
-				return errEngineSource
-			}
-			if !engineProfileStillBound(process, handle, identity) || !files.helperUnchanged() {
-				return errEngineSource
-			}
-			final, err := files.snapshot()
-			if err != nil || !engineProfileStable(before, final) || ctx.Err() != nil {
-				return errEngineSource
-			}
-			return nil
+		if current.ID != container.ID {
+			continue
 		}
+		if !reflect.DeepEqual(current, container) {
+			return errEngineSource
+		}
+		if !engineProfileStillBound(process, handle, identity) || !files.helperUnchanged() {
+			return errEngineSource
+		}
+		final, err := files.snapshot()
+		if err != nil || !engineProfileStable(before, final) || ctx.Err() != nil {
+			return errEngineSource
+		}
+		return nil
 	}
 	return errEngineSource
 }
