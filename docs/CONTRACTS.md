@@ -4,7 +4,19 @@
 
 ## App-owned UDP and WebTransport (D10, Phase 08; implementation pending)
 
-Brine owns policy-approved UDP allocation/publishing, scoped TLS file delivery when requested, inventory and lifecycle recovery. The app owns WebTransport, its browser/draft interoperability and its game/session protocol. The planned endpoint selects TLS ownership explicitly. `file_secrets` binds immutable app-scoped cert/key versions; `app_managed_hashes` leaves short-lived self-signed certificate rotation and trusted browser `serverCertificateHashes` delivery to the app, with no Brine key injection or claim of normal public trust.
+The [UDP-only delivery](plans/08-udp.md) owns policy-approved UDP allocation,
+publishing, inventory and lifecycle recovery. The app owns its game protocol,
+authentication and any app-managed TLS. Plain UDP requires no certificate,
+WebTransport declaration or echo-health interface. Its endpoint facts contain
+the approved client address, port, protocol and exposure, not a guessed
+WebTransport URL. Implementation remains pending.
+
+Optional TLS file delivery is P08-11 in [the extension plan](plans/08-webtransport.md).
+`file_secrets` binds immutable app-scoped certificate/key versions.
+App-managed hashes leave short-lived certificate rotation and trusted browser
+`serverCertificateHashes` delivery to the app, with no Brine key injection or
+claim of normal public trust. WebTransport browser/draft interoperability is
+application evidence, separate from UDP deployment readiness.
 
 Default readiness combines existing HTTP health with ownership of the exact expected UDP mapping/listener. Protocol-session verification and remote UDP reachability are separate facts and remain unverified unless actually probed. Optional WebTransport health requires an explicit bounded echo contract or a supported app-specific protocol; ordinary-health Rust servers do not implement it merely to deploy. P08-05 specifies the optional nonce exchange and refusal budgets. A successful HTTP/3 GET never substitutes for that opted-in protocol check. Shared UDP 443 and private previews remain separately gated.
 

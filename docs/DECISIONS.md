@@ -163,7 +163,18 @@ All mutations, including static drops, depend on P03-01 to P03-05 and P03-07. P0
 
 D2 and D4 remain unchanged for the initial mode. Debian Caddy can serve HTTP/3 but cannot proxy WebTransport sessions. As checked on 2026-10-10, even upstream stable v2.11.7 lacks that released capability. Experimental upstream PR #7669 and prerequisite #7976 are unmerged. Upgrading to a stable Caddy build alone is not a solution.
 
-The first supported topology is a normal Caddy HTTPS page/API plus a separate app-owned WebTransport HTTPS URL with an explicit unprivileged UDP port. D6's loopback-only rule remains the default. Its only new exception is a declared WebTransport endpoint admitted by root-owned policy with an exact operator-approved bind address, exposure class and UDP range. No app chooses an arbitrary public address, privileged port, host network or Podman networking option. TCP and UDP allocations bind protocol, address, port and immutable resource identity. Unknown or overlapping listener ownership refuses. This is direct ingress, not transparent shared UDP 443 hosting.
+**UDP-first delivery amendment, owner, 2026-10-13.** The
+[UDP game-server plan](plans/08-udp.md) owns the initial transport delivery.
+Its protocol-independent declaration admits one direct UDP port beside ordinary
+Caddy HTTPS. D6's loopback-only rule remains the default; the new exception is
+an explicit UDP endpoint admitted by root-owned policy with an exact approved
+bind address, exposure class and unprivileged range. The game owns its protocol
+and any app-managed TLS. Plain UDP needs no certificate or WebTransport probe.
+Optional Brine TLS delivery, shared UDP 443 and previews remain separate tasks.
+This amendment broadens the previous WebTransport-only declaration, not host
+authority. No app chooses an arbitrary public address, privileged port, host
+network or raw Podman option. Allocations bind protocol, address, port and
+immutable resource identity. Unknown or overlapping ownership refuses.
 
 D5 additionally permits immutable, app-scoped Podman file secrets for the QUIC certificate and private key. Cert/key rotation is one planned release. Apps get neither Caddy certificate storage nor shared wildcard keys, ACME account material, DNS tokens or Tailscale credentials. The operator supplies delivered certificates and owns issuance/renewal initially. Deployment verifies their hostname, trust and expiry; diagnostics warn about expiry. Alternatively, an explicitly declared app-owned mode may manage short-lived self-signed certificates and deliver `serverCertificateHashes` over its trusted HTTPS page. The app owns hash delivery, browser support and rotation in that mode; Brine injects no cert/key and must not claim normal public trust or verified renewal. Secret values remain absent from plans, argv, logs and public artifacts.
 

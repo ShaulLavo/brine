@@ -12,7 +12,8 @@ Start with [the roadmap](../PLAN.md) and [decisions](../DECISIONS.md), then read
 | 05 | [Charm and agents](05-charm-and-agents.md) | Full TUI and reliable JSON interface |
 | 06 | [Release and operations](06-release-and-ops.md) | Permission boundaries, drills, distribution |
 | 07 | [Drops and previews](07-drops-and-previews.md) | Temporary sites, short links, git previews |
-| 08 | [WebTransport apps](08-webtransport.md) | App-terminated QUIC/UDP first; shared-port ingress and authorized previews gated separately |
+| 08 | [UDP game servers](08-udp.md) | Direct UDP publishing, ownership, lifecycle and physical recovery; execute before previews |
+| 08 extensions | [WebTransport](08-webtransport.md) | Optional TLS files/protocol probes, shared UDP 443 and transport previews |
 | 09 | [Managed SpacetimeDB](09-spacetimedb.md) | SQLite-preserving engine boundary, standalone service, fenced backups, reviewed publish and Pi drill |
 | 10 | [Easy app data](10-easy-data.md) | Environment contract, schema files in the app repo, init without sudo, one-command first deploy |
 
