@@ -1727,3 +1727,11 @@ source seal still includes the offset index. It is an optional upstream seek
 index, not selected recovery data. Orphan, malformed, unknown or unsafe entries
 retain the existing refusal behavior; log-tail and snapshot selection limits
 are unchanged.
+
+Native evidence binds the exact limits issued to its reader. Live output must
+match that request. Revalidation of opaque evidence keeps those same limits;
+protected retained records declare globally bounded limits and still undergo
+strict schema, usage and canonical identity checks. Global maxima are caps, not
+a substitute request. Parsing retained bytes grants no source, owner, capture,
+publication or recovery authority; the existing protected hashes and scope joins
+remain required.

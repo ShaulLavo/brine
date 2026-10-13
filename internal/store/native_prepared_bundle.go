@@ -139,8 +139,8 @@ func decodeNativePreparedBundle(ctx context.Context, tx dataQuerier, point nativ
 	if !valid || checkpoint.SHA256() != point.view.CheckpointSHA256 || c.Scope.BindingID != string(point.view.BindingID) || c.Scope.EpochID != string(point.view.EpochID) || transport.Identity.ModuleSHA256 != c.ArtifactSHA256 || c.GenerationID != point.view.GenerationID || c.DatabaseIdentity != point.view.NativeDatabase || c.PublisherIdentity != point.view.NativePublisher || c.ArtifactSHA256 != point.view.ArtifactWasmSHA256 || c.RuntimeModuleHash != point.view.ProgramWireHash || c.SchemaSHA256 != point.view.SchemaSHA256 || c.ConfigurationSHA256 != point.view.ConfigSHA256 || nativeSigningRecoverySHA256(c.SigningRecovery) != point.view.SigningRecoverySHA256 || !slices.Equal(c.Names, point.view.Names) || selection.Scope().CaptureID != pointID || checkNativeBundleMembers(source, manifest, sourceRaw) != nil {
 		return NativePreparedBundle{}, &IntegrityError{}
 	}
-	sourceEvidence, sourceErr := nativeevidence.Decode(sourceEvidenceRaw, nativeevidence.MaximumLimits())
-	restoredEvidence, restoredErr := nativeevidence.Decode(restoredEvidenceRaw, nativeevidence.MaximumLimits())
+	sourceEvidence, sourceErr := nativeevidence.DecodeStored(sourceEvidenceRaw)
+	restoredEvidence, restoredErr := nativeevidence.DecodeStored(restoredEvidenceRaw)
 	if sourceErr != nil || restoredErr != nil || !bytes.Equal(sourceEvidence.Bytes(), sourceEvidenceRaw) || !bytes.Equal(restoredEvidence.Bytes(), restoredEvidenceRaw) || !sourceEvidence.SamePersistedState(restoredEvidence) || sourceEvidence.SHA256() != point.view.SourceWitnessSHA256 || sourceEvidence.Offset() != point.view.CommittedOffset || sourceEvidence.DatabaseIdentity() != c.DatabaseIdentity || sourceEvidence.OwnerIdentity() != c.PublisherIdentity || sourceEvidence.Program().Kind != "wasm" || sourceEvidence.Program().SHA256 != c.ArtifactSHA256 || sourceEvidence.Program().Wire != c.RuntimeModuleHash {
 		return NativePreparedBundle{}, &IntegrityError{}
 	}

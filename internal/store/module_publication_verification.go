@@ -116,7 +116,7 @@ func checkPublicationVerificationObservation(ctx context.Context, attempt *Publi
 	if !slices.Equal(c.Names, names) || !data.ValidID(observed.ReaderNonce) || !data.ValidCatalogHash(observed.ReaderViewSHA256) || !data.ValidCatalogHash(observed.ReaderImageID) || observed.ReaderDisposedAt.IsZero() || observed.ReaderDisposedAt.Location() != time.UTC || observed.ReaderDisposedAt.Before(published.Process.FinishedAt) || observed.ReaderDisposedAt.After(time.Now().UTC()) {
 		return ErrConflict
 	}
-	evidence, err := nativeevidence.Decode(observed.Evidence.Bytes(), nativeevidence.MaximumLimits())
+	evidence, err := nativeevidence.Decode(observed.Evidence.Bytes(), observed.Evidence.RequestedLimits())
 	p := evidence.Program()
 	if err != nil || evidence.SHA256() != observed.Evidence.SHA256() || evidence.DatabaseIdentity() != c.DatabaseIdentity || evidence.OwnerIdentity() != c.PublisherIdentity || p.Kind != "wasm" || p.Wire != c.RuntimeModuleHash || p.SHA256 != c.ArtifactSHA256 || evidence.PersistedConnectedClients() != 0 {
 		return ErrConflict

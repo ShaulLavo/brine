@@ -251,7 +251,7 @@ func checkPublicationPrivateModuleObservation(ctx context.Context, current publi
 	if bundle.manifest.MatchesTree(ctx, observed.WorkingRoot) {
 		return "original_bundle", current.point.view.ArtifactWasmSHA256, current.point.view.SchemaSHA256, nil
 	}
-	evidence, err := nativeevidence.Decode(observed.WorkingEvidence.Bytes(), nativeevidence.MaximumLimits())
+	evidence, err := nativeevidence.Decode(observed.WorkingEvidence.Bytes(), observed.WorkingEvidence.RequestedLimits())
 	if err != nil || evidence.SHA256() != observed.WorkingEvidence.SHA256() || evidence.OwnerIdentity() != owner || evidence.PersistedConnectedClients() != 0 || !data.ValidID(observed.ReaderNonce) || !data.ValidCatalogHash(observed.ReaderViewSHA256) || !data.ValidCatalogHash(observed.ReaderImageID) || observed.ReaderDisposedAt.Location() != time.UTC || observed.ReaderDisposedAt.Before(current.point.view.PreparedAt) || observed.ReaderDisposedAt.After(observed.ObservedAt) {
 		return "", "", "", ErrConflict
 	}

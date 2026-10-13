@@ -128,7 +128,7 @@ func checkNativeRestoreObservation(ctx context.Context, capability *NativeLiveRe
 	if !data.ValidID(observed.ReaderNonce) || !data.ValidCatalogHash(observed.ReaderViewSHA256) || !data.ValidCatalogHash(observed.ReaderImageID) || observed.ReaderDisposedAt.IsZero() || observed.ReaderDisposedAt.Location() != time.UTC || observed.ReaderDisposedAt.Before(extracted.VerifiedAt()) || observed.ReaderDisposedAt.After(time.Now().UTC()) {
 		return ErrConflict
 	}
-	evidence, err := nativeevidence.Decode(observed.Evidence.Bytes(), nativeevidence.MaximumLimits())
+	evidence, err := nativeevidence.Decode(observed.Evidence.Bytes(), observed.Evidence.RequestedLimits())
 	if err != nil || evidence.SHA256() != observed.Evidence.SHA256() || !bundle.sourceEvidence.SamePersistedState(evidence) || !nativeBundleEvidenceMatches(v, bundle.checkpoint, evidence) {
 		return ErrConflict
 	}

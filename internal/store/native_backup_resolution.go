@@ -166,7 +166,7 @@ func (i *NativeBackupInspection) Upload(ctx context.Context) (NativeRetainedUplo
 	}
 	v = NativeRetainedUpload{Source: source, Manifest: manifest, Workspace: filepath.Join(string(permit.Reserved.Database.Root), d.Workspace), Directory: d.Directory, Scope: d.Scope, SourceSealSHA256: d.SourceSealSHA256, Artifact: artifact, Descriptor: descriptor}
 	if source.Kind() == "initialized" {
-		v.SourceEvidence, err = nativeevidence.Decode(d.SourceEvidence, nativeevidence.MaximumLimits())
+		v.SourceEvidence, err = nativeevidence.DecodeStored(d.SourceEvidence)
 		v.ConfirmedBound, merr = spacetimedb.DecodeConfirmedPairsRecord(d.ConfirmedBound)
 		schema, serr := spacetimedb.DecodeDescriptorV10(descriptor, spacetimedb.DefaultSchemaLimits())
 		if serr != nil {
