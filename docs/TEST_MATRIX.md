@@ -671,3 +671,15 @@ state and a distinct succeeded fresh producer. They require the retained owner,
 refuse a wrong owner, fence or binding, and preserve allocation, runtime and
 fence records. Earlier point provenance checks still run before reopening.
 No helper, native program or remote call is needed for this proof.
+
+### Private staging parent lifecycle
+
+The preserved CLI24 host has no state-root `staging` directory. The source copy
+boundary requires that directory before copying, and enrollment does not create
+it. Local tests reproduce that missing-parent refusal, then copy real fixture
+bytes and materialize a selected reader view through the protected parent
+writer. Consumer cleanup removes a newly created empty parent. Existing parent
+contents, unsafe modes or types, symlinks, foreign-owned roots and replacement
+directory contents are preserved. Canceled setup and failed consumers leave no
+new empty parent. These are local filesystem proofs; they do not claim a module
+plan, publication or deployment succeeded.

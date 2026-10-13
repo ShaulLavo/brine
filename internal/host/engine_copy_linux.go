@@ -24,9 +24,14 @@ type engineSourceCopy struct {
 	path     string
 	original engineTreeSeal
 	limits   engineCopyLimits
+	staging  *engineStagingParent
 }
 
 func copyEngineSource(ctx context.Context, binding data.SpacetimeDBBinding, staging string, name string, limits engineCopyLimits) (copy *engineSourceCopy, err error) {
+	return copyEngineSourceInParent(ctx, binding, staging, name, limits, nil)
+}
+
+func copyEngineSourceInParent(ctx context.Context, binding data.SpacetimeDBBinding, staging string, name string, limits engineCopyLimits, owned *engineStagingParent) (copy *engineSourceCopy, err error) {
 	if !data.ValidID(name) || !limits.valid() || data.OverlappingPaths(binding.SourcePath(), staging) {
 		return nil, errEngineSource
 	}
@@ -37,7 +42,7 @@ func copyEngineSource(ctx context.Context, binding data.SpacetimeDBBinding, stag
 	if err != nil {
 		return nil, err
 	}
-	parent, err := engineOpenRoot(staging)
+	parent, err := openEngineStagingConsumer(staging, owned)
 	if err != nil {
 		return nil, errors.Join(errEngineSource, source.Close())
 	}
@@ -168,11 +173,12 @@ func (c *engineSourceCopy) discard() error {
 	if err := c.disposeStage(); err != nil {
 		return err
 	}
-	if c.source == nil {
-		return nil
+	var err error
+	if c.source != nil {
+		err = c.source.Close()
+		c.source = nil
 	}
-	err := c.source.Close()
-	c.source = nil
+	err = errors.Join(err, c.staging.close())
 	return err
 }
 

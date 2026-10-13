@@ -4,7 +4,6 @@ package host
 
 import (
 	"context"
-	"path/filepath"
 	"slices"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -108,5 +107,5 @@ func (c publicationTargetCheckpoint) readView(ctx context.Context) (*nativeReadV
 	if err != nil {
 		return nil, err
 	}
-	return materializeNativeSelection(ctx, c.stage.source.root, filepath.Join(c.stage.source.preparation.StateRoot(), "staging"), c.selection, nonce)
+	return materializeNativeStateSelection(ctx, c.stage.source.root, c.stage.source.preparation.StateRoot(), c.selection, nonce)
 }
