@@ -14,12 +14,13 @@ import (
 // engineEmptySource requires an exhaustive owned source census under the
 // actual stopped preparation. Unpublished runtime metadata alone is insufficient.
 type engineEmptySource struct {
-	source   nativecapture.Source
-	original engineTreeSeal
-	copy     *engineSourceCopy
-	stopped  *store.NativeStoppedPreparation
-	state    *store.Store
-	permit   store.EnginePermit
+	source       nativecapture.Source
+	original     engineTreeSeal
+	copy         *engineSourceCopy
+	stopped      *store.NativeStoppedPreparation
+	state        *store.Store
+	permit       store.EnginePermit
+	initialStage *nativeInitialStageWork
 }
 
 func buildNativeEmptySource(ctx context.Context, state *store.Store, stateRoot string, stopped *store.NativeStoppedPreparation, copied *engineSourceCopy) (engineEmptySource, error) {
