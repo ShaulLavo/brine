@@ -783,3 +783,28 @@ preserves both earned proof records exactly. The real proof insertion, cursor
 append, stopped-desired record and fence-release transaction substeps pass and
 roll back. This verifies the database boundaries; no host source-preservation
 completion, resolver success or publication is claimed.
+
+### Fresh preparation after preserved unpublished source
+
+CLI30's actual resolver completed source preservation and released its claimed
+allocation fence. A distinct fresh preparation then failed before native work.
+The captured-state diagnostic passed task input, runtime, pending-work and
+immutable unpublished-owner guards, then reproduced refusal because no held
+allocation fence remained.
+
+A normal new preparation now owns a new fence after every current-epoch
+consumed publication has a terminal preserved-source cursor and matching proof,
+original failure and succeeded resolver receipt. Admission rechecks the exact
+unchanged unpublished runtime and stopped desired state under the existing
+binding guard in the same write transaction as fence creation. It preserves the
+released consumed fence and can reuse only the same operation's new fence.
+Initialized preparation keeps its current path.
+
+Neutral tests check terminal cursor proof hashing and exact winning resolver
+identity, including unfinished/foreign resolver refusal. On a disposable actual
+post-preservation copy, tests exercise new fence holding, same-operation reuse,
+protected owner derivation and BeginNativePreparation. Missing/changed proof,
+unfinished resolver, foreign task, changed original outcome/runtime/desired
+state and another unfinished consumer refuse without a new held fence.
+Concurrent same-operation holding converges on one fence; another owner refuses.
+These are admission proofs, not a successful new remote preparation.

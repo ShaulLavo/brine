@@ -334,10 +334,18 @@ func (s *Store) HoldDataFence(ctx context.Context, id data.DatabaseID, operation
 		return data.QuiescenceFence{}, err
 	}
 	defer tx.Rollback()
+	fence, err := s.holdDataFenceTx(ctx, tx, id, operation)
+	if err != nil {
+		return data.QuiescenceFence{}, err
+	}
+	return fence, tx.Commit()
+}
+
+func (s *Store) holdDataFenceTx(ctx context.Context, tx *sql.Tx, id data.DatabaseID, operation string) (data.QuiescenceFence, error) {
 	var nativeBinding data.ReplicaBindingID
 	nativeErr := tx.QueryRowContext(ctx, "SELECT b.id FROM data_replica_bindings b JOIN data_engine_kinds k ON k.database_id=b.database_id WHERE b.database_id=? AND k.engine='spacetimedb'", id).Scan(&nativeBinding)
 	if nativeErr == nil {
-		if err = refusePendingNativeCaptureMutation(ctx, tx, nativeBinding, operation); err != nil {
+		if err := refusePendingNativeCaptureMutation(ctx, tx, nativeBinding, operation); err != nil {
 			return data.QuiescenceFence{}, err
 		}
 	} else if !errors.Is(nativeErr, sql.ErrNoRows) {
@@ -353,7 +361,7 @@ func (s *Store) HoldDataFence(ctx context.Context, id data.DatabaseID, operation
 		if existing.OperationID != operation {
 			return existing, ErrConflict
 		}
-		return existing, tx.Commit()
+		return existing, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return data.QuiescenceFence{}, err
@@ -366,7 +374,7 @@ func (s *Store) HoldDataFence(ctx context.Context, id data.DatabaseID, operation
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_fences VALUES(?,?,?,?,?)", f.ID, f.DatabaseID, f.IncarnationID, f.OperationID, f.State); err != nil {
 		return f, err
 	}
-	return f, tx.Commit()
+	return f, nil
 }
 
 // ReleaseDataFence must follow fresh schema/quiescence checks by the operation

@@ -103,6 +103,12 @@ func (c Cursor) Scope() ProofScope       { return c.scope }
 func (c Cursor) State() CursorState      { return c.state }
 func (c Cursor) NativeDatabase() string  { return c.nativeDatabase }
 func (c Cursor) NativePublisher() string { return c.nativePublisher }
+func (c Cursor) SourcePreservationProofSHA256() string {
+	if c.state != SourcePreserved {
+		return ""
+	}
+	return c.events[len(c.events)-1].Observation.ProofSHA256
+}
 func (c Cursor) IntendedStep() Step {
 	if c.state != IntentRecorded && c.state != InspectRequired {
 		return ""

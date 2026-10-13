@@ -1432,7 +1432,7 @@ observations, withdraws hash-owned ingress under the host lock, and holds the
 native lifetime lock. Its completed source reloads the retained generation and
 exact bundle, not a newly generated checkpoint. The actual initial-owner helper
 supplies unpublished publisher provenance; JWT syntax does not supply it.
-Unpublished preparation adopts only the exact original allocation fence, proven
+Initial unpublished preparation adopts only the exact original allocation fence, proven
 by the successful managed preparation, immutable plan and allocation, and
 completed initial material delivery matching the protected runtime. The new
 preparation operation owns its effects; the original allocation operation still
@@ -1442,6 +1442,16 @@ preserves existing canonical journal bytes. Missing material, foreign or replace
 fences, and unresolved preparation claims refuse a new action. A terminal failed
 operation without a preparation claim remains failed and supplies no success
 evidence. Initialized preparation still acquires its own new fence.
+
+After terminal source preservation releases a consumed unpublished fence, a
+distinct normal preparation may acquire a new operation-owned fence. Under the
+existing binding guard and one write transaction, admission validates every
+current-epoch consumed publication's preserved cursor/proof, immutable original
+failure and exact succeeded resolver receipt. The current unpublished runtime
+head and stopped desired state must remain bound to that preserved source. The
+released fence stays released. Only the new owning operation may reuse its held
+fence; unfinished or foreign consumers refuse. Initialized preparation is
+unchanged.
 
 Historical restore-test reads the exact retained point and verifies in private
 isolation without starting or replacing live data.
