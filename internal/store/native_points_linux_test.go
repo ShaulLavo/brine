@@ -54,9 +54,17 @@ func dropNativeCaptureMigrationFixture(t *testing.T, ctx context.Context, s *Sto
 }
 
 func nativePreparationFixture(t *testing.T) (*Store, *NativePreparation, *data.EngineLock, ops.Operation) {
+	return nativePreparationFixtureAtRoot(t, "")
+}
+
+func nativePreparationFixtureAtRoot(t *testing.T, root string) (*Store, *NativePreparation, *data.EngineLock, ops.Operation) {
 	t.Helper()
 	ctx, s := context.Background(), openTest(t)
-	reserved, err := s.ReserveEngine(ctx, engineReservation(t))
+	reservation := engineReservation(t)
+	if root != "" {
+		reservation.Database.Root = data.PersistentRoot(root)
+	}
+	reserved, err := s.ReserveEngine(ctx, reservation)
 	if err != nil {
 		t.Fatal(err)
 	}

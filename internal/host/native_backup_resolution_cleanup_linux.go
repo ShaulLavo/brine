@@ -151,7 +151,7 @@ func (o nativeBackupResolutionOperations) cleanupInspectionWorkspaces(ctx contex
 			return errEngineSource
 		}
 		path := filepath.Join(string(permit.Reserved.Database.Root), workspace.Relative)
-		if path == uploadWorkspace {
+		if inspectionWorkspaceIsRetainedUpload(path, uploadWorkspace) {
 			continue
 		}
 		if err = o.disposeOriginalUploadReaders(ctx, path); err != nil {
@@ -194,4 +194,8 @@ func (o nativeBackupResolutionOperations) cleanupInspectionWorkspaces(ctx contex
 		}
 	}
 	return nil
+}
+
+func inspectionWorkspaceIsRetainedUpload(path, retained string) bool {
+	return retained != "" && path == retained
 }
