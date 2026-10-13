@@ -51,6 +51,7 @@ func (r Runner) runTask(ctx context.Context, op ops.Operation) error {
 	if err := r.Store.TransitionOperation(ctx, op.ID, op.State, ops.Preflight); err != nil {
 		return err
 	}
+	op.State = ops.Preflight
 	receipt, runErr := handler(ctx, op)
 	outcome := ops.TaskOutcome{Receipt: receipt}
 	to := ops.Succeeded

@@ -30,33 +30,37 @@ type publicationResolveWork struct {
 
 func modulePublicationResolveTask(operations modulePublications) func(context.Context, ops.Operation) (json.RawMessage, error) {
 	return func(ctx context.Context, op ops.Operation) (_ json.RawMessage, err error) {
-		if op.Kind != ops.ModulePublishResolve || op.State != ops.Preflight || operations.checkReviewedPlan(ctx, op.App, op.SecretRef) != nil {
+		if op.Kind != ops.ModulePublishResolve {
 			return nil, datapublish.ErrRecord
 		}
-		lock, err := operations.service.Store.AcquireHostLock(ctx)
+		scoped, err := operations.forTask(ctx, op)
+		if err != nil {
+			return nil, err
+		}
+		lock, err := scoped.service.Store.AcquireHostLock(ctx)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { err = errors.Join(err, lock.Release()) }()
-		terminal, completed, err := operations.service.Store.PublicationTerminalResolution(ctx, op.SecretRef, op.RecoveryOf, op.ID)
+		terminal, completed, err := scoped.service.Store.PublicationTerminalResolution(ctx, op.SecretRef, op.RecoveryOf, op.ID)
 		if err != nil {
 			return nil, err
 		}
 		if completed {
 			return json.Marshal(terminal)
 		}
-		inspection, err := operations.service.Store.PublicationInspection(ctx, op.SecretRef, op.Requester)
+		inspection, err := scoped.service.Store.PublicationInspection(ctx, op.SecretRef, op.Requester)
 		if err != nil {
 			return nil, err
 		}
 		if inspection.TransitionState == "" {
-			receipt, err := resolvePublicationPrivateSource(ctx, operations, op)
+			receipt, err := resolvePublicationPrivateSource(ctx, scoped, op)
 			if err != nil {
 				return nil, err
 			}
 			return json.Marshal(receipt)
 		}
-		work := &publicationResolveWork{operations: operations, op: op}
+		work := &publicationResolveWork{operations: scoped, op: op}
 		defer func() { err = errors.Join(err, work.close()) }()
 		if err = work.open(ctx); err != nil {
 			return nil, err
@@ -65,7 +69,7 @@ func modulePublicationResolveTask(operations modulePublications) func(context.Co
 		if err != nil {
 			return nil, err
 		}
-		s := operations.service.Store
+		s := scoped.service.Store
 		transition, err := s.ResumePublicationTransition(ctx, work.preparation, work.lifetime, op.SecretRef, op.RecoveryOf, op.ID, observed)
 		if err != nil {
 			return nil, err
