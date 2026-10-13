@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -38,7 +39,7 @@ func testInitialEngineForeignHandoff(t *testing.T, kind string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	runner := &engineInspectRunner{results: []localexec.Result{{Stdout: string(raw)}, {Stdout: string(raw)}}}
+	runner := &engineInspectRunner{results: []localexec.Result{{Stdout: container.ID + "\n"}, {Stdout: string(raw)}, {Stdout: strings.Repeat("e", 64) + "\n"}}}
 	session, err := localexec.NewSession(runner, uint32(os.Geteuid()), t.TempDir(), time.Second) //nolint:gosec // Linux UID originates as an unsigned syscall identity.
 	if err != nil {
 		t.Fatal(err)
@@ -49,7 +50,7 @@ func testInitialEngineForeignHandoff(t *testing.T, kind string) {
 	if handle, err := runtime.waitEngineHandoff(ctx, permit, material, make(chan error)); err == nil || handle != nil {
 		t.Fatal("foreign startup candidate granted a native handle", kind, err)
 	}
-	if len(runner.commands) != 1 || runner.commands[0].Mutation {
+	if len(runner.commands) != 2 || runner.commands[0].Mutation || runner.commands[1].Mutation || !slices.Contains(runner.commands[1].Args, container.ID) {
 		t.Fatal("foreign startup was retried, replaced or changed", kind)
 	}
 	if handle, err := bindEngineNative(context.Background(), session, container, permit, material); err == nil || handle != nil {
