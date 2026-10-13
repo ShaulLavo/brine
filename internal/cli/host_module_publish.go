@@ -31,3 +31,12 @@ func newHostModuleStage(deps Dependencies) *cobra.Command {
 		return deps.HostModuleStage(cmd.Context(), deps.Stdin, deps.Stdout)
 	}}
 }
+
+func newHostEngineMountProfile(deps Dependencies) *cobra.Command {
+	return &cobra.Command{Use: "engine-mount-profile", Hidden: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if deps.HostEngineMountProfile == nil {
+			return datapublish.ErrRecord
+		}
+		return deps.HostEngineMountProfile(cmd.Context(), deps.Stdout)
+	}}
+}

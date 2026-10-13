@@ -5,7 +5,6 @@ package host
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"syscall"
@@ -228,12 +227,7 @@ func publicationStageArguments(lease *publicationStageLease) ([]string, error) {
 	return append(args, "--entrypoint", "/brine", runtime.Image, "host", "module-stage"), nil
 }
 
-func publicationStageMountedRoot(process string, lease *publicationStageLease) bool {
-	actual, err := os.Stat(filepath.Join(process, "root/data"))
-	if err != nil || !actual.IsDir() {
-		return false
-	}
+func publicationStageRootIdentity(actual os.FileInfo, expected engineTreeMember) bool {
 	member, ok := actual.Sys().(*syscall.Stat_t)
-	expected := lease.rootMember
-	return ok && uint64(member.Dev) == expected.Device && member.Ino == expected.Inode && member.Uid == expected.UID && member.Mode == uint32(expected.Mode)
+	return ok && actual.IsDir() && uint64(member.Dev) == expected.Device && member.Ino == expected.Inode && member.Uid == expected.UID && member.Mode == uint32(expected.Mode)
 }

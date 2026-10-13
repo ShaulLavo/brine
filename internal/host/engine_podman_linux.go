@@ -135,7 +135,7 @@ func liveEngineArguments(permit store.EnginePermit, material engineMaterial) ([]
 		return nil, errEngineSource
 	}
 	args := engineContainerBase(r, engineContainerName(r.BindingID), "host")
-	args = append(args, "--label", "PODMAN_SYSTEMD_UNIT="+engineContainerName(r.BindingID)+".service", "--volume", source+":/data:rw", "--volume", material.privateKey+":/keys/private.pem:ro", "--volume", material.publicKey+":/keys/public.pem:ro", "--entrypoint", engineNativePath, r.Image)
+	args = append(args, "--label", "PODMAN_SYSTEMD_UNIT="+engineContainerName(r.BindingID)+".service", "--volume", source+":/data:rw", "--volume", material.privateKey+":/keys/private.pem:ro", "--volume", material.publicKey+":/keys/public.pem:ro", "--volume", engineProfileHelper+":/brine:ro", "--entrypoint", engineNativePath, r.Image)
 	return append(args, engineNativeArguments(r, r.HostPort)...), nil
 }
 
@@ -288,6 +288,7 @@ func ownedLiveEngine(container engineContainer, permit store.EnginePermit, mater
 	}
 	return engineContainerMounts(container.Mounts, map[string]engineMount{
 		"/data":             {Source: permit.Reserved.Database.SourcePath(), Type: "bind", RW: engineBool(true)},
+		"/brine":            {Source: engineProfileHelper, Type: "bind", RW: engineBool(false)},
 		"/keys/private.pem": {Source: material.privateKey, Type: "bind", RW: engineBool(false)},
 		"/keys/public.pem":  {Source: material.publicKey, Type: "bind", RW: engineBool(false)},
 	})
@@ -305,7 +306,7 @@ func (r *EngineStartupRuntime) waitEngineHandoff(ctx context.Context, permit sto
 			if container.Name != engineContainerName(permit.Runtime.BindingID) || !*container.State.Running {
 				continue
 			}
-			return bindEngineNative(container, permit, material)
+			return bindEngineNative(ctx, r.session, container, permit, material)
 		}
 		select {
 		case <-exited:

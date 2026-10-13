@@ -64,7 +64,7 @@ func (r *EngineStartupRuntime) stopOwnedNative(ctx, lifetime context.Context, pe
 		if container.Name != engineContainerName(permit.Runtime.BindingID) {
 			continue
 		}
-		native, err := bindEngineNative(container, permit, engineMaterialPaths(r.stateRoot, permit.Runtime))
+		native, err := bindEngineNative(ctx, r.session, container, permit, engineMaterialPaths(r.stateRoot, permit.Runtime))
 		if err != nil {
 			r.retainEngineLifetime(lifetime, permit, nil)
 			return errEngineSource

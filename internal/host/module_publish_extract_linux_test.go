@@ -130,7 +130,7 @@ func TestDescriptorContainerInspectionCannotReplaceLiveProcBinding(t *testing.T)
 	container := descriptorContainerFixture(lease)
 	*container.State.Running, *container.State.PID = true, os.Getpid()
 	container.State.CgroupPath = "/unrelated-scope"
-	if handle, err := bindDescriptorProcess(lease, container); !errors.Is(err, datapublish.ErrRecord) || handle != nil {
+	if handle, err := bindDescriptorProcess(context.Background(), localexec.Session{}, lease, container); !errors.Is(err, datapublish.ErrRecord) || handle != nil {
 		t.Fatal("caller-selected PID replaced independently owned cgroup", err)
 	}
 	if !errors.Is(descriptorProcessDisposed(context.Background(), nil), datapublish.ErrRecord) {

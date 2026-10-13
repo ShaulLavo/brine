@@ -148,7 +148,7 @@ func (o managedEngineObserver) native(ctx context.Context, permit store.EnginePe
 	if !engineSourceAbsent(others, permit.Reserved.Database.SourcePath()) {
 		return nil, errEngineSource
 	}
-	return bindEngineNative(*candidate, permit, material)
+	return bindEngineNative(ctx, o.session, *candidate, permit, material)
 }
 
 func observeManagedMetadata(ctx context.Context, permit store.EnginePermit, material engineMaterial) error {

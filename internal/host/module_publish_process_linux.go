@@ -36,13 +36,13 @@ func startDescriptorProcess(ctx context.Context, lease *descriptorLease, session
 		if !ownedDescriptorContainer(lease, container) || descriptorNoSwap(ctx, session, id) != nil {
 			return id, nil, datapublish.ErrRecord
 		}
-		handle, err := bindDescriptorProcess(lease, container)
+		handle, err := bindDescriptorProcess(ctx, session, lease, container)
 		return id, handle, err
 	}
 	return id, nil, datapublish.ErrRecord
 }
 
-func bindDescriptorProcess(lease *descriptorLease, container engineContainer) (*engineNativeHandle, error) {
+func bindDescriptorProcess(ctx context.Context, session localexec.Session, lease *descriptorLease, container engineContainer) (*engineNativeHandle, error) {
 	if !ownedDescriptorContainer(lease, container) || !*container.State.Running || *container.State.PID <= 0 {
 		return nil, datapublish.ErrRecord
 	}
@@ -62,25 +62,29 @@ func bindDescriptorProcess(lease *descriptorLease, container engineContainer) (*
 		return nil, datapublish.ErrRecord
 	}
 	handle := &engineNativeHandle{pid: pid, ticks: ticks, cgroup: scope + "/container", fd: fd}
-	if handle.alive() != nil || !engineNativeOwnership(process, pid) || !descriptorProcessBindings(process, lease) {
+	if handle.alive() != nil || !engineNativeOwnership(process, pid) || !descriptorProcessBindings(ctx, session, container, handle, process, lease) {
 		handle.close()
 		return nil, datapublish.ErrRecord
 	}
 	return handle, nil
 }
 
-func descriptorProcessBindings(process string, lease *descriptorLease) bool {
+func descriptorProcessBindings(ctx context.Context, session localexec.Session, container engineContainer, handle *engineNativeHandle, process string, lease *descriptorLease) bool {
 	raw, err := engineProcessFile(process, "cmdline")
 	if err != nil || !bytes.HasSuffix(raw, []byte{0}) || !slices.Equal(strings.Split(string(raw[:len(raw)-1]), "\x00"), []string{"/brine", "host", "module-describe"}) {
 		return false
 	}
-	actual, err := os.Stat(filepath.Join(process, "root", strings.TrimPrefix(moduleDescriptorArtifactPath, "/")))
-	if err != nil || !descriptorArtifactIdentity(actual, lease.artifact.member) {
+	files, err := openEngineProfileFiles("", engineMaterial{}, lease.artifact)
+	if err != nil {
 		return false
 	}
+	defer files.close()
 	helper, err := os.Stat(filepath.Join(process, "exe"))
-	protected, protectedErr := os.Stat("/usr/local/bin/brine")
-	return err == nil && protectedErr == nil && os.SameFile(helper, protected)
+	expected, expectedErr := files.helper.Stat()
+	if err != nil || expectedErr != nil || !os.SameFile(helper, expected) {
+		return false
+	}
+	return verifyEngineMountProfile(ctx, session, container, handle, files) == nil && lease.artifact.unchanged(ctx) == nil
 }
 
 func descriptorArtifactIdentity(info os.FileInfo, expected engineTreeMember) bool {

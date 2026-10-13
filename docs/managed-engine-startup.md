@@ -90,3 +90,36 @@ is not a safe rollback after those layers exist. Existing enrolled hosts need a
 separately authorized operator baseline with no runtime consumers, recorded
 original state and verified image, layer and source preservation. Replaying an
 old enrollment transaction does not install this dependency.
+
+## Namespace-local mount identity
+
+The runner can read a rootless FUSE container's process identity while traversal
+through `/proc/PID/root` returns permission denied. A disposable probe confirmed
+that both the runner and a root observer saw this refusal, while a fixed
+namespace-local metadata program could inspect the exact data and key inodes.
+The visible host `MergedDir` was an unmounted underlying directory, so it cannot
+stand in for the container's root.
+
+Binding preserves the owned container ID, labels, pinned image, exact mount
+list and security policy, process command, executable, PIDfd, start ticks and
+cgroup checks. It then executes only `/brine host engine-mount-profile` as
+`1000:1000` in that exact container. The helper accepts no arguments or input,
+reads only fixed stat and kernel namespace metadata, and starts no native child.
+No credential or file content appears in its bounded strict frame.
+
+The frame binds PID 1's start ticks and user and mount namespace identities.
+Fixed helper, data, key and optional artifact metadata must match host file
+descriptors held through the query. The runner reads the target UID and GID maps
+and kernel overflow IDs itself. It translates each protected host owner to the
+namespace view, including the overflow identity only when the map leaves that
+host owner unmapped. Device, inode, type, mode and mapped owners match exactly.
+Regular file size and link count also match. Directory size may change during
+ordinary online writes and grants no additional authority.
+
+The runner rechecks descriptors, current protected helper identity, namespaces,
+UID and GID maps, process lifetime, command and executable, and current container
+metadata before returning a bound handle. Publication and descriptor helpers
+already mount the fixed Brine binary read-only. The live engine now includes
+that same exact helper mount. Same-namespace native-child guards stay strict;
+the passive reader has no host root-traversal guard to replace. Source seals,
+material and permit rechecks still precede credential input or native effects.

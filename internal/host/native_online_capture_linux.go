@@ -12,6 +12,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/nativeevidence"
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -203,7 +204,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err != nil {
 		return nil, err
 	}
-	live, err := nativeCaptureLiveHandle(containers, permit, runtime.stateRoot)
+	live, err := nativeCaptureLiveHandle(ctx, runtime.session, containers, permit, runtime.stateRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +328,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	}
 	return json.Marshal(nativecapture.TaskReceipt{Kind: string(ops.NativeCapture), OperationID: op.ID, BindingID: string(point.BindingID), EpochID: string(point.EpochID), PointID: point.PointID, PointSHA256: point.PointSHA256, Outcome: "verified", Engine: "spacetimedb", ModuleSHA256: string(permit.Runtime.Module.Wasm), SchemaSHA256: permit.Runtime.Module.Schema.SHA256, CaptureIntervalSeconds: backup.Backup.CaptureIntervalSeconds, Loss: "unknown"})
 }
-func nativeCaptureLiveHandle(containers []engineContainer, permit store.EnginePermit, stateRoot string) (*engineNativeHandle, error) {
+func nativeCaptureLiveHandle(ctx context.Context, session localexec.Session, containers []engineContainer, permit store.EnginePermit, stateRoot string) (*engineNativeHandle, error) {
 	var selected *engineContainer
 	for i := range containers {
 		if containers[i].Name != engineContainerName(permit.Runtime.BindingID) {
@@ -341,7 +342,7 @@ func nativeCaptureLiveHandle(containers []engineContainer, permit store.EnginePe
 	if selected == nil {
 		return nil, errEngineSource
 	}
-	return bindEngineNative(*selected, permit, engineMaterialPaths(stateRoot, permit.Runtime))
+	return bindEngineNative(ctx, session, *selected, permit, engineMaterialPaths(stateRoot, permit.Runtime))
 }
 func buildNativeOnlineCheckpoint(ctx context.Context, runtime nativeBackupRuntime, permit store.EnginePermit, copied *nativeOnlineCopy, pointID string) (nativecapture.Checkpoint, error) {
 	replica, err := nativeSoleReplica(copied.copied)
