@@ -35,15 +35,19 @@ type publicationApplyWork struct {
 
 func modulePublicationApplyTask(operations modulePublications) func(context.Context, ops.Operation) (json.RawMessage, error) {
 	return func(ctx context.Context, op ops.Operation) (_ json.RawMessage, err error) {
-		if op.Kind != ops.ModulePublishApply || op.State != ops.Preflight || operations.checkReviewedPlan(ctx, op.App, op.SecretRef) != nil {
+		if op.Kind != ops.ModulePublishApply {
 			return nil, datapublish.ErrRecord
 		}
-		lock, err := operations.service.Store.AcquireHostLock(ctx)
+		scoped, err := operations.forTask(ctx, op)
+		if err != nil {
+			return nil, err
+		}
+		lock, err := scoped.service.Store.AcquireHostLock(ctx)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { err = errors.Join(err, lock.Release()) }()
-		work := &publicationApplyWork{operations: operations, op: op}
+		work := &publicationApplyWork{operations: scoped, op: op}
 		defer func() { err = errors.Join(err, work.close()) }()
 		if err = work.open(ctx); err != nil {
 			return nil, err

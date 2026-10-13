@@ -716,3 +716,21 @@ handoff, unchanged operation identity, durable failure outcomes and no terminal
 replay. A competing claim wins the actual Store transition first; the losing
 runner invokes no handler and records no outcome. These checks do not prove
 publication success or change the original physical failed operation.
+
+### Detached module task requester
+
+CLI27 earned another actual module review and approval. The new accepted apply
+again entered preflight and failed before any claim or effect. DetachedRunner
+opens the mutation runtime without a dispatcher requester. A read-only captured
+Store diagnostic exercised the real module guard and current policy: its empty
+ambient requester refused the saved review, while the exact accepted operation
+requester matched the review, approval and policy checks.
+
+Module apply and resolve now reconstruct a task-local service requester only
+from matching immutable operation kind, preflight state, app, review ID and
+review requester. Both keep current policy and publication inspection checks
+before host work. Neutral valid-plan tests cover empty and unrelated ambient
+requesters, both task kinds, isolated service copies and foreign job/review
+bindings. Captured-state checks exercise the full protected-store boundary and
+current policy refusal. Original failed operations and the no-claim resolver
+limitation remain unchanged. This is admission evidence, not publication success.
