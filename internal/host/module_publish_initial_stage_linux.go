@@ -129,29 +129,18 @@ func (w *nativePrepareWork) closeInitialPublisher(ctx context.Context) error {
 		return nil
 	}
 	if w.retainWorkspace {
+		if stage.observed.Stage != "observation" {
+			return errEngineSource
+		}
 		return closeInitialPublisherCopies(w)
 	}
-	if stage.observed.Stage != "observation" && stage.observed.Stage != "helper_disposed" {
-		if stage.observed.Stage != "unknown" {
-			if err := stage.record(ctx, "unknown"); err != nil {
-				return err
-			}
-		}
-	}
-	if lease := stage.lease; lease != nil && lease.attempted && !lease.disposed {
-		if err := disposeInitialPublisherHelper(ctx, lease, w.runtime); err != nil {
+	if stage.observed.Stage != "observation" && stage.observed.Stage != "helper_disposed" && stage.observed.Stage != "unknown" {
+		if err := stage.record(ctx, "unknown"); err != nil {
 			return err
 		}
-		if lease.process != nil {
-			if err := descriptorProcessDisposed(ctx, lease.process); err != nil {
-				return err
-			}
-		}
-		if lease.process != nil {
-			lease.process.close()
-			lease.process = nil
-		}
-		lease.disposed = true
+	}
+	if err := settleInitialPublisherHelper(ctx, stage.lease, w.runtime); err != nil {
+		return err
 	}
 	if err := closeInitialPublisherCopies(w); err != nil {
 		return err
@@ -175,6 +164,24 @@ func (w *nativePrepareWork) closeInitialPublisher(ctx context.Context) error {
 	}
 	w.parent = nil
 	return stage.record(ctx, "disposed")
+}
+
+func settleInitialPublisherHelper(ctx context.Context, lease *publicationStageLease, runtime nativeBackupRuntime) error {
+	if lease == nil || !lease.attempted || lease.disposed {
+		return nil
+	}
+	if err := disposeInitialPublisherHelper(ctx, lease, runtime); err != nil {
+		return err
+	}
+	if lease.process != nil {
+		if err := descriptorProcessDisposed(ctx, lease.process); err != nil {
+			return err
+		}
+		lease.process.close()
+		lease.process = nil
+	}
+	lease.disposed = true
+	return nil
 }
 
 func disposeInitialPublisherHelper(ctx context.Context, lease *publicationStageLease, runtime nativeBackupRuntime) error {

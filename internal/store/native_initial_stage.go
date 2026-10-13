@@ -229,7 +229,7 @@ func nativeInitialStageTransition(from, to string) bool {
 		return from != "helper_disposed" && from != "retirement_intent"
 	}
 	if to == "stop_intent" {
-		return from == "helper_started" || from == "input_issued" || from == "observation" || from == "unknown"
+		return from == "launch_intent" || from == "helper_started" || from == "input_issued" || from == "observation" || from == "unknown"
 	}
 	if to == "retirement_intent" {
 		return from == "helper_disposed" || from == "observation"
