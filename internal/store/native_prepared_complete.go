@@ -175,13 +175,18 @@ func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *Native
 	}
 	_, err = tx.ExecContext(ctx, "INSERT INTO data_native_prepared_points VALUES(?,?,?,?)", i.PointID, i.BindingID, i.EpochID, raw)
 	if err == nil {
-		_, err = tx.ExecContext(ctx, "INSERT INTO data_native_prepared_point_bundles VALUES(?,?,?,?,?,?,?,?)", i.PointID, sourceRaw, observed.Manifest.Bytes(), transportRaw, sourceEvidence, restoredEvidence, confirmed, final)
+		err = insertNativePreparedBundle(ctx, tx, i.PointID, sourceRaw, observed.Manifest.Bytes(), transportRaw, sourceEvidence, restoredEvidence, confirmed, final)
 	}
 	if err != nil || !stopped.active(s) || !extracted.Matches(ctx, observed.Parent, "download", observed.Transport, observed.Manifest) {
 		return NativePreparedPointView{}, errors.Join(ErrConflict, err)
 	}
 	v.PointSHA256 = point.hash
 	return v, tx.Commit()
+}
+
+func insertNativePreparedBundle(ctx context.Context, tx *sql.Tx, point string, source, manifest, transport, sourceEvidence, restoredEvidence, confirmed, final []byte) error {
+	_, err := tx.ExecContext(ctx, "INSERT INTO data_native_prepared_point_bundles VALUES(?,?,?,?,COALESCE(?,X''),COALESCE(?,X''),COALESCE(?,X''),COALESCE(?,X''))", point, source, manifest, transport, sourceEvidence, restoredEvidence, confirmed, final)
+	return err
 }
 
 func checkNativePreparedReader(v NativePreparedObservation, extracted restic.AuthenticatedRestore) error {

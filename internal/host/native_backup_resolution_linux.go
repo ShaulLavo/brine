@@ -135,12 +135,14 @@ type nativeBackupObserved struct {
 	stageParentSHA256    string
 	initialStagesSHA256  string
 	previousClaimsSHA256 string
+	initialOwner         *store.NativeInitialOwnerObservation
 }
 
 func (v *nativeBackupObserved) hash() string {
 	if v.needsCapture {
 		permit, _ := json.Marshal(v.preparedPermit)
-		raw, _ := json.Marshal(struct{ State, PermitSHA256, SourceSHA256, StageParentSHA256, InitialStagesSHA256, PreviousClaimsSHA256 string }{"stopped_unpublished", nativeBackupBytesHash(permit), v.sourceSealSHA256, v.stageParentSHA256, v.initialStagesSHA256, v.previousClaimsSHA256})
+		owner, _ := json.Marshal(v.initialOwner)
+		raw, _ := json.Marshal(struct{ State, PermitSHA256, SourceSHA256, StageParentSHA256, InitialStagesSHA256, PreviousClaimsSHA256, InitialOwnerSHA256 string }{"stopped_unpublished", nativeBackupBytesHash(permit), v.sourceSealSHA256, v.stageParentSHA256, v.initialStagesSHA256, v.previousClaimsSHA256, nativeBackupBytesHash(owner)})
 		return nativeBackupBytesHash(raw)
 	}
 	point := v.extracted.Point()

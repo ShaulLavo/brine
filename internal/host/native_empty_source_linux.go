@@ -24,6 +24,14 @@ type engineEmptySource struct {
 }
 
 func buildNativeEmptySource(ctx context.Context, state *store.Store, stateRoot string, stopped *store.NativeStoppedPreparation, copied *engineSourceCopy) (engineEmptySource, error) {
+	generation, err := data.NewID()
+	if err != nil {
+		return engineEmptySource{}, errEngineSource
+	}
+	return buildNativeEmptySourceGeneration(ctx, state, stateRoot, stopped, copied, generation)
+}
+
+func buildNativeEmptySourceGeneration(ctx context.Context, state *store.Store, stateRoot string, stopped *store.NativeStoppedPreparation, copied *engineSourceCopy, generation string) (engineEmptySource, error) {
 	if state == nil || copied == nil || copied.sourceUnchanged(ctx) != nil {
 		return engineEmptySource{}, errEngineSource
 	}
@@ -44,10 +52,6 @@ func buildNativeEmptySource(ctx context.Context, state *store.Store, stateRoot s
 		return engineEmptySource{}, err
 	}
 	material.clear()
-	generation, err := data.NewID()
-	if err != nil {
-		return engineEmptySource{}, errEngineSource
-	}
 	r := permit.Runtime
 	source, err := nativecapture.UnpublishedSource(nativecapture.EmptyRecord{Format: nativecapture.Format, Scope: nativecapture.EmptyScope{BindingID: string(r.BindingID), EpochID: string(r.EpochID)}, GenerationID: generation, ConfigurationSHA256: config, PublisherReference: r.Secrets.Publisher.Reference, SigningRecovery: nativecapture.SigningRecovery{Kind: "external_immutable", Reference: r.Secrets.SigningPrivate.Reference, Version: r.Secrets.SigningPrivate.Version, SHA256: r.Secrets.SigningPrivate.SHA256}, Members: members}, nativecapture.DefaultLimits())
 	if err != nil {

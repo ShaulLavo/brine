@@ -103,15 +103,12 @@ func (s *Store) ReadNativeInitialOwner(ctx context.Context, stopped *NativeStopp
 	if err := checkNativeStoppedCapability(ctx, tx, stopped); err != nil {
 		return NativeInitialOwnerObservation{}, err
 	}
-	var raw []byte
-	var v NativeInitialOwnerObservation
-	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_initial_owners WHERE point_id=?", stopped.PointID()).Scan(&raw)
-	if err != nil || len(raw) > 65536 || json.Unmarshal(raw, &v) != nil {
-		return v, errors.Join(&IntegrityError{}, err)
+	v, raw, err := readNativeInitialOwner(ctx, tx, stopped)
+	if err != nil {
+		return v, err
 	}
-	canonical, _ := json.Marshal(v)
-	if !bytes.Equal(raw, canonical) || checkNativeInitialOwner(ctx, tx, stopped, v) != nil || !stopped.active(s) {
-		return v, &IntegrityError{}
+	if !stopped.active(s) {
+		return v, ErrConflict
 	}
 	if stopped.completedPointSHA256 != "" {
 		point, err := readNativePreparedPointTx(ctx, tx, stopped.PointID())
@@ -120,4 +117,18 @@ func (s *Store) ReadNativeInitialOwner(ctx context.Context, stopped *NativeStopp
 		}
 	}
 	return v, tx.Commit()
+}
+
+func readNativeInitialOwner(ctx context.Context, tx *sql.Tx, stopped *NativeStoppedPreparation) (NativeInitialOwnerObservation, []byte, error) {
+	var raw []byte
+	var v NativeInitialOwnerObservation
+	err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_initial_owners WHERE point_id=?", stopped.PointID()).Scan(&raw)
+	if err != nil || len(raw) > 65536 || json.Unmarshal(raw, &v) != nil {
+		return v, nil, errors.Join(&IntegrityError{}, err)
+	}
+	canonical, _ := json.Marshal(v)
+	if !bytes.Equal(raw, canonical) || checkNativeInitialOwner(ctx, tx, stopped, v) != nil {
+		return v, nil, &IntegrityError{}
+	}
+	return v, raw, nil
 }

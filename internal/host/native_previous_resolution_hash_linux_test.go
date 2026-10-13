@@ -5,6 +5,8 @@ package host
 import (
 	"strings"
 	"testing"
+
+	"github.com/ShaulLavo/brine/internal/store"
 )
 
 func TestStoppedObservationBindsPreviousResolutionClaims(t *testing.T) {
@@ -13,5 +15,19 @@ func TestStoppedObservationBindsPreviousResolutionClaims(t *testing.T) {
 	observed.previousClaimsSHA256 = strings.Repeat("5", 64)
 	if observed.hash() == initial {
 		t.Fatal("fresh stopped observation ignored prior resolver claim/outcome")
+	}
+}
+
+func TestStoppedObservationBindsRetainedInitialOwner(t *testing.T) {
+	observed := nativeBackupObserved{needsCapture: true}
+	before := observed.hash()
+	observed.initialOwner = &store.NativeInitialOwnerObservation{GenerationID: strings.Repeat("1", 32)}
+	withOwner := observed.hash()
+	if withOwner == before {
+		t.Fatal("earned owner was not bound to review")
+	}
+	observed.initialOwner.SourceSHA256 = strings.Repeat("2", 64)
+	if observed.hash() == withOwner {
+		t.Fatal("changed owner source escaped review")
 	}
 }
