@@ -20,6 +20,7 @@ import (
 )
 
 type operatorFake struct {
+	derivedPublic  string
 	facts          Facts
 	commands       []localexec.Command
 	refuseProbe    bool
@@ -33,6 +34,13 @@ func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localex
 	f.commands = append(f.commands, c)
 	var data []byte
 	var err error
+	if c.Path == "ssh-keygen" {
+		if f.derivedPublic != "" {
+			return localexec.Output{Stdout: []byte(f.derivedPublic)}, nil
+		}
+		public, err := os.ReadFile(c.Args[len(c.Args)-1] + ".pub")
+		return localexec.Output{Stdout: public}, err
+	}
 	if c.Path == "scp" {
 		return localexec.Output{}, nil
 	}

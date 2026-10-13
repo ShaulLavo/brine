@@ -8,7 +8,7 @@ import (
 )
 
 func TestEnrollmentCannotAuthorizeItself(t *testing.T) {
-	for _, args := range [][]string{{"enroll", "fixture", "--yes"}, {"enroll", "fixture", "--no-input"}, {"enroll", "fixture", "--json"}} {
+	for _, args := range [][]string{{"enroll", "fixture", "--finish"}, {"enroll", "fixture", "--finish", "--undo"}, {"enroll", "fixture", "--yes"}, {"enroll", "fixture", "--no-input"}, {"enroll", "fixture", "--json"}} {
 		var out, diag bytes.Buffer
 		err := Execute(Dependencies{Context: context.Background(), Stdin: strings.NewReader("fixture\n"), Stdout: &out, Stderr: &diag}, args)
 		if err == nil {
