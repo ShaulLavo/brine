@@ -188,7 +188,13 @@ func protectedSocket(path string) error {
 	}
 	return nil
 }
-func validWorkspaceRelative(value string) bool {
+func validObservationRelative(value string) bool {
 	parts := strings.Split(value, "/")
-	return len(parts) == 2 && parts[0] == "native-restores" && nonceValid(parts[1])
+	if value == "native-restores" {
+		return true
+	}
+	if len(parts) == 2 {
+		return parts[0] == "native-restores" && nonceValid(parts[1])
+	}
+	return len(parts) == 4 && parts[0] == "apps" && nonceValid(parts[1]) && parts[2] == "databases" && nonceValid(parts[3])
 }
