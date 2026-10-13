@@ -1441,7 +1441,12 @@ and failed outcome. A `stopped_unpublished` observation requires the exact
 original allocation, config, material, held fence and closed routes/units, plus
 a complete empty staging parent with no process, mount or descriptor consumers.
 Retained initial-stage journals must be disposed. Journal absence alone supplies
-no authority. A reviewed resolver continues that original point and preparation
+no authority. Private launch refusal records a closed command outcome as
+`container_start_failed`, `container_start_unknown` or `container_start_output`.
+An uncertain launch stays uncertain. Cleanup preserves the primary failure;
+`helper_disposal` describes cleanup failure only when no earlier failure exists.
+These codes contain no subprocess output and grant no replay or cleanup authority.
+A reviewed resolver continues that original point and preparation
 operation through newly journaled private staging and capture; it never creates
 another preparation, repeats a recorded upload, or rewrites the failed outcome.
 Actual remote verification and original producer completion still precede an
