@@ -1,0 +1,78 @@
+name: Native engine
+on:
+  pull_request:
+    paths:
+      - tools/native-engine/**
+      - .github/workflows/native-engine.yml
+  push:
+    branches: [main]
+    paths:
+      - tools/native-engine/**
+      - .github/workflows/native-engine.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  portable:
+    name: Native engine (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            machine: Advanced Micro Devices X86-64
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            machine: AArch64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Prepare exact pinned source and shutdown patch
+        run: python3 tools/native-engine/prepare.py "$RUNNER_TEMP/engine-build"
+      - name: Build the GNU executable in the pinned Bookworm builder
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: ${{ runner.temp }}/engine-build
+          target: runtime
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: brine-native-engine:test
+          cache-from: type=gha,scope=native-engine-${{ matrix.arch }}-a339861a-6b6e0ab1
+          cache-to: type=gha,mode=max,scope=native-engine-${{ matrix.arch }}-a339861a-6b6e0ab1
+      - name: Extract the immutable executable bundle
+        run: |
+          container=$(docker create brine-native-engine:test)
+          trap 'docker rm -f "$container" >/dev/null' EXIT
+          mkdir "$RUNNER_TEMP/engine-artifact"
+          docker cp "$container:/usr/share/brine-native-engine/." "$RUNNER_TEMP/engine-artifact/"
+          cd "$RUNNER_TEMP/engine-artifact"
+          sha256sum --check SHA256SUMS
+          printf '%s\n' "$GITHUB_SHA" > source-head
+      - name: Check native architecture and packaged runtime ABI
+        env:
+          MACHINE: ${{ matrix.machine }}
+        run: |
+          readelf -h "$RUNNER_TEMP/engine-artifact/spacetimedb-standalone" | grep -F "$MACHINE"
+          docker run --rm --network none --entrypoint /opt/spacetime/spacetimedb-standalone brine-native-engine:test --version | grep -F '2.11.0'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: native-engine-${{ matrix.arch }}-${{ github.sha }}
+          path: ${{ runner.temp }}/engine-artifact
+          retention-days: 30
+
+  gate:
+    name: Complete native engine build gate
+    if: always()
+    needs: [portable]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require both native platforms
+        env:
+          RESULT: ${{ needs.portable.result }}
+        run: test "$RESULT" = success

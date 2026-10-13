@@ -10,5 +10,11 @@
   "shutdown_seconds": 30,
   "base_image": "docker.io/clockworklabs/spacetime@sha256:088aeefda7397bc265876e27fa254cbff64b8563dcc8d28db98423176c64af63",
   "base_amd64": "sha256:9fb3048daa9fa68ddfe6418ee680e0171761770caca6e0dff7595cda9366f462",
-  "base_arm64": "sha256:c4a7048f9ff3981980b97f0119c6221ac51c0a7b78e2d4447f0ee1ee22bae6fa"
+  "base_arm64": "sha256:c4a7048f9ff3981980b97f0119c6221ac51c0a7b78e2d4447f0ee1ee22bae6fa",
+  "builder": "docker.io/library/rust@sha256:a339861ae23e9abb272cea45dfafde21760d2ce6577a70f8a926153677902663",
+  "builder_amd64": "sha256:d99f7b31f49909348dc59b51f3c95d1efded1701ffb222f095aaab7de3c4abd8",
+  "builder_arm64": "sha256:809725748b728a8e1f8621a3c76e49fba8780c16d99ceda20abdb44d32665c30",
+  "v8_version": "145.0.0",
+  "v8_amd64_sha256": "7215753c0c78d141f752d7b993794bae07e18a1dfd466dcaa84fa64e76bacac1",
+  "v8_arm64_sha256": "e088af62c921512b0c2d963defe836dd4b54621e29e6393b0b384c6cccaa5f26"
 }

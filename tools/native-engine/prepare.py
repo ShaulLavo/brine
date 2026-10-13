@@ -39,6 +39,8 @@ def prepare(output, supplied):
         raise ValueError('native shutdown patch pin mismatch')
     subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-i', str(patch.resolve())], cwd=upstream, check=True, timeout=15)
     shutil.copyfile(HERE / 'pins.json', output / 'pins.json')
+    shutil.copyfile(patch, output / 'graceful-shutdown.patch')
+    shutil.copyfile(HERE / 'Dockerfile', output / 'Dockerfile')
     shutil.copyfile(upstream / 'LICENSE.txt', output / 'upstream-LICENSE.txt')
     print(upstream)
     return upstream
