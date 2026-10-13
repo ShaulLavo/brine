@@ -1,0 +1,45 @@
+--- a/crates/standalone/src/lib.rs
++++ b/crates/standalone/src/lib.rs
+@@ -118,6 +118,13 @@
+         }))
+     }
+ 
++    pub async fn shutdown(&self, timeout: Duration) -> anyhow::Result<()> {
++        for replica_id in self.host_controller.managed_replicas() {
++            self.host_controller.exit_module_host(replica_id, timeout).await?;
++        }
++        Ok(())
++    }
++
+     pub fn data_dir(&self) -> &Arc<ServerDataDir> {
+         &self.host_controller.data_dir
+     }
+--- a/crates/standalone/src/subcommands/start.rs
++++ b/crates/standalone/src/subcommands/start.rs
+@@ -198,6 +198,7 @@
+         db_cores,
+     )
+     .await?;
++    let shutdown_ctx = ctx.clone();
+     worker_metrics::spawn_jemalloc_stats(listen_addr.clone());
+     let main_rt = tokio::runtime::Handle::current();
+     worker_metrics::spawn_tokio_stats(listen_addr.clone(), "main".to_string(), main_rt.clone());
+@@ -292,6 +293,8 @@
+             })
+             .await?;
+     }
++
++    shutdown_ctx.shutdown(std::time::Duration::from_secs(30)).await?;
+ 
+     Ok(())
+ }
+--- a/crates/core/src/host/host_controller.rs
++++ b/crates/core/src/host/host_controller.rs
+@@ -819,6 +819,7 @@
+                 "replica={replica_id} shutdown timed out after {}s",
+                 start.elapsed().as_secs_f32()
+             );
++            return Err(anyhow::anyhow!("module host shutdown timed out"));
+         }
+ 
+         Ok(())
