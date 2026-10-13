@@ -13,6 +13,10 @@ import (
 )
 
 func (o nativeBackupResolutionOperations) cleanupOriginalUpload(ctx context.Context, v *nativeBackupObserved) error {
+	workspaceID, err := retainedUploadInspectionWorkspace(ctx, v.inspection, v.retained.Workspace)
+	if err != nil {
+		return err
+	}
 	if err := o.disposeOriginalUploadReaders(ctx, v.retained.Workspace); err != nil {
 		return err
 	}
@@ -24,6 +28,9 @@ func (o nativeBackupResolutionOperations) cleanupOriginalUpload(ctx context.Cont
 		if err != nil || !issued {
 			return errEngineSource
 		}
+		if workspaceID != "" {
+			return v.inspection.DisposeWorkspace(ctx, workspaceID)
+		}
 		return nil
 	}
 	if err := observeNativeWorkspaceAbsent(ctx, v.originalParent); err != nil {
@@ -32,11 +39,32 @@ func (o nativeBackupResolutionOperations) cleanupOriginalUpload(ctx context.Cont
 	if err := v.inspection.BeginUploadRetirement(ctx, v.originalParent); err != nil {
 		return err
 	}
-	err := discardNativeWorkspace(v.originalParent, v.retained.Workspace)
+	if workspaceID != "" {
+		if err := v.inspection.BeginWorkspaceRetirement(ctx, workspaceID, v.originalParent); err != nil {
+			return err
+		}
+	}
+	err = discardNativeWorkspace(v.originalParent, v.retained.Workspace)
 	if err == nil {
 		v.originalParent = nil
+		if workspaceID != "" {
+			return v.inspection.DisposeWorkspace(ctx, workspaceID)
+		}
 	}
 	return err
+}
+
+func retainedUploadInspectionWorkspace(ctx context.Context, i *store.NativeBackupInspection, path string) (string, error) {
+	workspaces, err := i.Workspaces(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, workspace := range workspaces {
+		if filepath.Base(path) == workspace.ID {
+			return workspace.ID, nil
+		}
+	}
+	return "", nil
 }
 
 func (o nativeBackupResolutionOperations) disposeOriginalUploadReaders(ctx context.Context, workspace string) error {
@@ -114,11 +142,18 @@ func (o nativeBackupResolutionOperations) cleanupInspectionWorkspaces(ctx contex
 	if err != nil {
 		return err
 	}
+	uploadWorkspace, err := i.RetainedUploadWorkspace(ctx)
+	if err != nil {
+		return err
+	}
 	for _, workspace := range workspaces {
 		if workspace.EpochID != permit.Runtime.EpochID {
 			return errEngineSource
 		}
 		path := filepath.Join(string(permit.Reserved.Database.Root), workspace.Relative)
+		if inspectionWorkspaceIsRetainedUpload(path, uploadWorkspace) {
+			continue
+		}
 		if err = o.disposeOriginalUploadReaders(ctx, path); err != nil {
 			return err
 		}
@@ -159,4 +194,8 @@ func (o nativeBackupResolutionOperations) cleanupInspectionWorkspaces(ctx contex
 		}
 	}
 	return nil
+}
+
+func inspectionWorkspaceIsRetainedUpload(path, retained string) bool {
+	return retained != "" && path == retained
 }

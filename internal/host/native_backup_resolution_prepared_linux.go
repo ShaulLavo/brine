@@ -8,7 +8,9 @@ import (
 	"errors"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
+	"github.com/ShaulLavo/brine/internal/nativeevidence"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/store"
 	"os"
 	"time"
@@ -84,12 +86,23 @@ func (o nativeBackupResolutionOperations) lock(ctx context.Context) (ops.Lock, e
 }
 
 func (o nativeBackupResolutionOperations) inspectStoppedUnpublished(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved, expected store.NativeBackupPreparedExpectation, source *os.Root) error {
+	if err := o.cleanupInspectionWorkspaces(ctx, i, expected.Permit); err != nil {
+		return err
+	}
 	if expected.Permit.Runtime.State != data.EngineUnpublished || expected.Stop.Mode != "unpublished_absent" || o.service.managedObserver == nil || o.service.managedObserver.sourceAbsent(ctx, expected.Permit.Reserved.Database) != nil {
 		return errEngineSource
 	}
 	seal, err := sealOwnedEngineSource(ctx, source, engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16})
 	if err != nil || expected.Permit.Allocation == nil || seal.root.Device != expected.Permit.Allocation.DirectoryDevice || seal.root.Inode != expected.Permit.Allocation.DirectoryInode || !engineModuleHTTPDisabled(source) {
 		return errEngineSource
+	}
+	if expected.InitialOwner != nil && expected.InitialOwner.SourceSealSHA256 != seal.hash {
+		return errEngineSource
+	}
+	if expected.InitialOwner != nil {
+		if err := verifyRetainedInitialSource(ctx, o.runtime.stateRoot, expected.Permit, seal, *expected.InitialOwner); err != nil {
+			return err
+		}
 	}
 	_, config, err := nativeEmptyMembers(seal)
 	preparation, prepErr := o.service.Store.ReadManagedPreparation(ctx, i.BindingID())
@@ -125,6 +138,7 @@ func (o nativeBackupResolutionOperations) inspectStoppedUnpublished(ctx context.
 	v.stageParentSHA256 = parentHash
 	v.initialStagesSHA256 = nativeBackupBytesHash(stagesRaw)
 	v.previousClaimsSHA256 = previousClaims
+	v.initialOwner = expected.InitialOwner
 	v.unitsState = "absent"
 	return nil
 }
@@ -169,7 +183,36 @@ func (o nativeBackupResolutionOperations) continueStoppedUnpublished(ctx context
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(backup.Backup.MaxMaintenanceSeconds)*time.Second)
 	defer cancel()
-	work := nativePrepareWork{runtime: o.runtime, input: input, operation: original, stopped: stopped, permit: v.preparedPermit, startedAt: time.Now()}
+	work := nativePrepareWork{runtime: o.runtime, input: input, operation: original, stopped: stopped, permit: v.preparedPermit, startedAt: time.Now(), retainedOwner: v.initialOwner}
 	defer func() { err = errors.Join(err, work.close(ctx)) }()
+	if v.initialOwner != nil {
+		return o.captureRetainedOwner(ctx, i, &work)
+	}
 	return work.capture(ctx)
+}
+
+func (o nativeBackupResolutionOperations) captureRetainedOwner(ctx context.Context, i *store.NativeBackupInspection, work *nativePrepareWork) (store.NativePreparedPointView, error) {
+	var err error
+	work.parent, work.path, err = newNativePreparedRestoreParent(ctx, work.permit)
+	if err != nil {
+		return store.NativePreparedPointView{}, err
+	}
+	work.workspaceInspection = i
+	work.inspectionWorkspaceID, err = i.RecordWorkspace(ctx, work.parent, work.path)
+	if err != nil {
+		return store.NativePreparedPointView{}, err
+	}
+	copyID, err := data.NewID()
+	if err != nil {
+		return store.NativePreparedPointView{}, err
+	}
+	work.copied, err = copyEngineSource(ctx, work.permit.Reserved.Database, work.path, copyID, engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16})
+	if err != nil {
+		return store.NativePreparedPointView{}, err
+	}
+	empty, err := work.reopenRetainedEmpty(ctx)
+	if err != nil {
+		return store.NativePreparedPointView{}, err
+	}
+	return work.uploadAndComplete(ctx, empty.source, work.copied.source, nativeevidence.Evidence{}, spacetimedb.RecoveredPairs{})
 }

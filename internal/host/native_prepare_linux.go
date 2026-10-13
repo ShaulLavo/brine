@@ -23,26 +23,29 @@ import (
 )
 
 type nativePrepareWork struct {
-	runtime         nativeBackupRuntime
-	input           store.NativeTaskInput
-	operation       ops.Operation
-	fence           data.QuiescenceFence
-	preparation     *store.EnginePreparation
-	lifetime        *data.EngineLock
-	native          *store.NativePreparation
-	stopped         *store.NativeStoppedPreparation
-	permit          store.EnginePermit
-	copied          *engineSourceCopy
-	parent          *os.Root
-	path            string
-	module          nativeCurrentModule
-	confirmed       spacetimedb.ConfirmedPairsRecord
-	observed        nativeOwnedObservation
-	withdrawn       caddy.State
-	prior           caddy.State
-	startedAt       time.Time
-	retainWorkspace bool
-	initialStage    *nativeInitialStageWork
+	runtime               nativeBackupRuntime
+	input                 store.NativeTaskInput
+	operation             ops.Operation
+	fence                 data.QuiescenceFence
+	preparation           *store.EnginePreparation
+	lifetime              *data.EngineLock
+	native                *store.NativePreparation
+	stopped               *store.NativeStoppedPreparation
+	permit                store.EnginePermit
+	copied                *engineSourceCopy
+	parent                *os.Root
+	path                  string
+	module                nativeCurrentModule
+	confirmed             spacetimedb.ConfirmedPairsRecord
+	observed              nativeOwnedObservation
+	withdrawn             caddy.State
+	prior                 caddy.State
+	startedAt             time.Time
+	retainWorkspace       bool
+	initialStage          *nativeInitialStageWork
+	retainedOwner         *store.NativeInitialOwnerObservation
+	workspaceInspection   *store.NativeBackupInspection
+	inspectionWorkspaceID string
 }
 
 func nativePrepareTask(service Service, stateRoot, home string, session nativeBackupRuntime) jobs.TaskHandler {
@@ -353,7 +356,7 @@ func (w *nativePrepareWork) close(ctx context.Context) error {
 		if w.retainWorkspace {
 			err = errors.Join(err, w.parent.Close())
 		} else {
-			err = errors.Join(err, discardNativeWorkspace(w.parent, w.path))
+			err = errors.Join(err, w.disposePreparationWorkspace(ctx))
 		}
 		w.parent = nil
 	}
@@ -366,6 +369,47 @@ func (w *nativePrepareWork) close(ctx context.Context) error {
 		w.preparation = nil
 	}
 	return err
+}
+
+func (w *nativePrepareWork) disposePreparationWorkspace(ctx context.Context) error {
+	if w.inspectionWorkspaceID == "" {
+		return discardNativeWorkspace(w.parent, w.path)
+	}
+	cleanup, cancel := initialPublisherCleanupContext(ctx)
+	defer cancel()
+	if err := observeNativeWorkspaceAbsent(cleanup, w.parent); err != nil {
+		_ = w.parent.Close()
+		return err
+	}
+	if err := w.workspaceInspection.BeginWorkspaceRetirement(cleanup, w.inspectionWorkspaceID, w.parent); err != nil {
+		_ = w.parent.Close()
+		return err
+	}
+	if err := discardNativeWorkspace(w.parent, w.path); err != nil {
+		return err
+	}
+	return w.workspaceInspection.DisposeWorkspace(cleanup, w.inspectionWorkspaceID)
+}
+
+func (w *nativePrepareWork) reopenRetainedEmpty(ctx context.Context) (engineEmptySource, error) {
+	if w.retainedOwner == nil {
+		return engineEmptySource{}, errEngineSource
+	}
+	actual, err := w.runtime.state.ReadNativeInitialOwner(ctx, w.stopped)
+	expectedRaw, _ := json.Marshal(w.retainedOwner)
+	actualRaw, _ := json.Marshal(actual)
+	if err != nil || string(expectedRaw) != string(actualRaw) || actual.SourceSealSHA256 != w.copied.original.hash {
+		return engineEmptySource{}, errEngineSource
+	}
+	empty, err := buildNativeEmptySourceGeneration(ctx, w.runtime.state, w.runtime.stateRoot, w.stopped, w.copied, actual.GenerationID)
+	if err != nil {
+		return engineEmptySource{}, err
+	}
+	empty, err = w.sealedRecoveryEmpty(ctx, empty)
+	if err != nil || empty.source.SHA256() != actual.SourceSHA256 || empty.unchanged(ctx) != nil {
+		return engineEmptySource{}, errEngineSource
+	}
+	return empty, nil
 }
 
 func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source nativecapture.Source, original *os.Root, evidence nativeevidence.Evidence, final spacetimedb.RecoveredPairs) (store.NativePreparedPointView, error) {

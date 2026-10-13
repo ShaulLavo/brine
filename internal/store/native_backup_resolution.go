@@ -180,6 +180,21 @@ func (i *NativeBackupInspection) Upload(ctx context.Context) (NativeRetainedUplo
 	return v, nil
 }
 
+func (i *NativeBackupInspection) RetainedUploadWorkspace(ctx context.Context) (string, error) {
+	if err := i.check(ctx, i.state.db); err != nil {
+		return "", err
+	}
+	var count int
+	if err := i.state.db.QueryRowContext(ctx, "SELECT count(*) FROM data_native_upload_descriptors WHERE operation_id=?", i.original.ID).Scan(&count); err != nil {
+		return "", err
+	}
+	if count == 0 {
+		return "", nil
+	}
+	retained, err := i.Upload(ctx)
+	return retained.Workspace, err
+}
+
 func (i *NativeBackupInspection) CheckUploadWorkspace(ctx context.Context, parent *os.Root) error {
 	retained, err := i.Upload(ctx)
 	if err != nil {

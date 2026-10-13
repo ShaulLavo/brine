@@ -90,6 +90,10 @@ func retainNativeUpload(ctx context.Context, tx *sql.Tx, permit EnginePermit, op
 	if err != nil || len(raw) > 8<<20 || len(retained.Artifact) > 32<<20 || len(retained.Descriptor) > 4<<20 {
 		return ErrInvalid
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO data_native_upload_descriptors VALUES(?,?,?,?,?)", operation, point, raw, retained.Artifact, retained.Descriptor)
+	return insertNativeUploadDescriptor(ctx, tx, operation, point, raw, retained.Artifact, retained.Descriptor)
+}
+
+func insertNativeUploadDescriptor(ctx context.Context, tx *sql.Tx, operation, point string, raw, artifact, descriptor []byte) error {
+	_, err := tx.ExecContext(ctx, "INSERT INTO data_native_upload_descriptors VALUES(?,?,?,COALESCE(?,X''),COALESCE(?,X''))", operation, point, raw, artifact, descriptor)
 	return err
 }

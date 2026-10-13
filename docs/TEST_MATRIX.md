@@ -626,3 +626,25 @@ predicates passed. The same child then reached its listener and exact command
 identity in 1.538 seconds, and stopped cleanly. Actual cleanup preserved control
 records and original image payloads. This proves the startup transition, not
 publisher verification, native preparation, publication or remote recovery.
+
+### Unpublished owner retention and upload
+
+The physical CLI21 flow earned a bound native child, successful publisher
+observation, helper disposal and one immutable initial owner. It then failed
+before the upload intent. A read-only detached check verified the owner-only
+phase, stopped source and material, exact source reconstruction, transport
+deadline and local repository constructor. It issued no helper, restic command
+or network call. Local bundle packing passed. An exact-driver reproduction
+failed the upload INSERT because absent module bytes bound SQL NULL to a
+required blob column.
+
+Local tests now store absent and present upload payloads and prepared evidence
+through the actual INSERT boundaries, assert blob types and unchanged bytes,
+and reject other issued effects in the owner-only phase. Owner continuation
+tests reconstruct its exact generation and signing-recovery form, preserve the
+owner receipt and original failure, bind ownership into review hashes, and
+refuse changed generation, source, seal or material. The continuation reaches
+capture admission without another initial stage or helper. Its new workspace is
+journaled; unknown cleanup observation preserves that journal rather than
+claiming disposal. These tests and the read-only diagnostic do not prove a
+successful remote upload or prepared point.

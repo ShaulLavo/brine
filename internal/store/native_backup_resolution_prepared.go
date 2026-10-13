@@ -17,6 +17,7 @@ type NativeBackupPreparedExpectation struct {
 	Routes       NativePreparedRoutes
 	PointID      string
 	NeedsCapture bool
+	InitialOwner *NativeInitialOwnerObservation
 }
 
 func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (NativeBackupPreparedExpectation, error) {
@@ -70,7 +71,14 @@ func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (Nativ
 	if err != nil {
 		return zero, err
 	}
-	return NativeBackupPreparedExpectation{Permit: permit, Stop: stopped, Routes: routes, PointID: intent.PointID, NeedsCapture: needsCapture}, tx.Commit()
+	var owner *NativeInitialOwnerObservation
+	if needsCapture {
+		owner, err = nativePreparedInitialOwner(ctx, tx, capability)
+		if err != nil {
+			return zero, err
+		}
+	}
+	return NativeBackupPreparedExpectation{Permit: permit, Stop: stopped, Routes: routes, PointID: intent.PointID, NeedsCapture: needsCapture, InitialOwner: owner}, tx.Commit()
 }
 func (i *NativeBackupInspection) ResumePrepared(ctx context.Context, lifetime *data.EngineLock, current NativeStopObservation) (*NativeStoppedPreparation, error) {
 	expected, err := i.PreparedExpectation(ctx)
@@ -139,10 +147,27 @@ func nativePreparedNeedsCapture(ctx context.Context, q dataQuerier, intent nativ
 	err := q.QueryRowContext(ctx, `SELECT
  (SELECT count(*) FROM data_native_prepared_upload_intents WHERE point_id=?)+
  (SELECT count(*) FROM data_native_prepared_points WHERE id=?)+
- (SELECT count(*) FROM data_native_initial_owners WHERE point_id=?)+
- (SELECT count(*) FROM data_native_capture_inputs WHERE operation_id=?)`, intent.PointID, intent.PointID, intent.PointID, intent.OperationID).Scan(&effects)
+ (SELECT count(*) FROM data_native_capture_inputs WHERE operation_id=?)`, intent.PointID, intent.PointID, intent.OperationID).Scan(&effects)
 	if err != nil || effects != 0 {
 		return false, errors.Join(ErrConflict, err)
 	}
 	return true, nil
+}
+
+func nativePreparedInitialOwner(ctx context.Context, tx *sql.Tx, preparation *NativePreparation) (*NativeInitialOwnerObservation, error) {
+	var count int
+	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_native_initial_owners WHERE point_id=?", preparation.PointID()).Scan(&count); err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, nil
+	}
+	if count != 1 {
+		return nil, ErrConflict
+	}
+	owner, _, err := readNativeInitialOwner(ctx, tx, &NativeStoppedPreparation{preparation: preparation})
+	if err != nil {
+		return nil, err
+	}
+	return &owner, nil
 }

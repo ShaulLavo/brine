@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -63,5 +64,38 @@ func TestStoppedOriginalIdentitySurvivesProgressWithoutAdmittingUnprovedEffects(
 	}
 	if _, err := state.ReadNativePreparedPoint(ctx, preparation.PointID()); !errors.Is(err, ErrNotFound) {
 		t.Fatal("unproved event sequence manufactured completed point", err)
+	}
+}
+
+func TestStoppedOwnerCapturePhaseRefusesOtherIssuedEffects(t *testing.T) {
+	for _, effect := range []string{"upload", "point", "capture"} {
+		t.Run(effect, func(t *testing.T) { testStoppedOwnerEffectRefusal(t, effect) })
+	}
+}
+
+func testStoppedOwnerEffectRefusal(t *testing.T, effect string) {
+	t.Helper()
+	state, prep, life, op := nativePreparationFixture(t)
+	ctx := context.Background()
+	if _, err := state.RecordNativeStoppedPreparation(ctx, prep, life, nativeAbsentStopFixture()); err != nil {
+		t.Fatal(err)
+	}
+	events, err := readNativePreparationEvents(ctx, state.db, prep.intent, prep.raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	switch effect {
+	case "upload":
+		_, err = state.db.ExecContext(ctx, "INSERT INTO data_native_prepared_upload_intents VALUES(?,?,?,?)", prep.PointID(), strings.Repeat("a", 64), strings.Repeat("b", 64), []byte("{}"))
+	case "point":
+		_, err = state.db.ExecContext(ctx, "INSERT INTO data_native_prepared_points VALUES(?,?,?,?)", prep.PointID(), prep.intent.BindingID, prep.intent.EpochID, []byte("{}"))
+	case "capture":
+		_, err = state.db.ExecContext(ctx, "INSERT INTO data_native_capture_inputs VALUES(?,?,?,?,?,?)", strings.Repeat("a", 32), op.ID, prep.intent.BindingID, prep.intent.EpochID, "exact", []byte("{}"))
+	}
+	if err != nil {
+		t.Fatal("effect fixture setup", err)
+	}
+	if _, err := nativePreparedNeedsCapture(ctx, state.db, prep.intent, events); !errors.Is(err, ErrConflict) {
+		t.Fatal("issued effect admitted owner-only capture", effect, err)
 	}
 }

@@ -1654,6 +1654,23 @@ observation and stop still require an immediate exact command match.
 An earlier binding or observation refusal remains the primary phase if stopping
 the child also fails.
 
+An unpublished preparation can retain a verified initial publisher owner before
+its upload intent exists. Inspection verifies that immutable owner against the
+original stopped preparation, current runtime and material, unchanged source
+seal, exact recorded generation and reconstructed sealed source hash. The review
+binds the owner receipt. This phase requires no upload descriptor, upload intent,
+prepared point or capture input, and all earlier stages and consumers must be
+settled. Resolution reuses that owner and generation without another publisher
+helper, owner write or preparation operation. It tracks the new copy workspace
+and preserves it once an upload is issued. Inspection never retires a workspace
+that is the retained original upload; its later authenticated retirement also
+settles the workspace journal.
+
+Absent module payloads and native evidence for an unpublished point are empty
+SQLite blobs, not NULL. Their hashes remain the hashes of empty bytes. Required
+source, manifest and transport records and all initialized validation remain
+unchanged.
+
 When the CLI has validated an accepted asynchronous task and waiting later
 fails, its error envelope keeps `data.status="accepted"` and the original
 `data.operation_id`. `ok` remains false, and the original error code and exit
