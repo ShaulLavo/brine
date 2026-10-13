@@ -80,10 +80,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		lease.helperPID, lease.helperTicks, lease.helperCgroup = handle.pid, handle.ticks, handle.cgroup
 		runErr = recordPublicationStageEvent(wait, lease, "started")
 		if runErr == nil {
-			if lease.initialStage != nil {
-				lease.initialStage.failureCode = "input_attach"
-				runErr = lease.initialStage.record(wait, "input_issued")
-			}
+			runErr = recordInitialPublisherInput(wait, lease)
 		}
 		if runErr == nil {
 			result, runErr = runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: []string{"attach", "--sig-proxy=false", id}, Stdin: input, Mutation: true, OutputLimit: 1 << 20})
@@ -107,11 +104,7 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		lease.disposed = true
 	}
 	if runErr != nil || disposeErr != nil || lease.sourceUnchanged(ctx) != nil {
-		if lease.initialStage != nil && runErr != nil {
-			if code := decodeModuleStageDiagnostic(result.Stdout); code != "" {
-				lease.initialStage.failureCode = code
-			}
-		}
+		setInitialPublisherFailure(lease, runErr, result.Stdout)
 		if lease.initialStage != nil && disposeErr != nil {
 			lease.initialStage.failureCode = "helper_disposal"
 		}
@@ -135,6 +128,23 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		}
 	}
 	return observation, nil
+}
+
+func recordInitialPublisherInput(ctx context.Context, lease *publicationStageLease) error {
+	if lease.initialStage == nil {
+		return nil
+	}
+	lease.initialStage.failureCode = "input_attach"
+	return lease.initialStage.record(ctx, "input_issued")
+}
+
+func setInitialPublisherFailure(lease *publicationStageLease, err error, output []byte) {
+	if lease.initialStage == nil || err == nil {
+		return
+	}
+	if code := decodeModuleStageDiagnostic(output); code != "" {
+		lease.initialStage.failureCode = code
+	}
 }
 
 func startPublicationStageProcess(ctx context.Context, lease *publicationStageLease, session localexec.Session) (string, *engineNativeHandle, error) {
@@ -245,15 +255,8 @@ func disposePublicationStage(ctx context.Context, lease *publicationStageLease, 
 		if !*container.State.Running && *container.State.PID == 0 {
 			continue
 		}
-		if lease.stopAttempted {
-			return datapublish.ErrRecord
-		}
-		lease.stopAttempted = true
-		if err = recordPublicationStageEvent(ctx, lease, "stop_intent"); err != nil {
+		if err = stopPublicationStageContainer(ctx, lease, session, container.ID); err != nil {
 			return err
-		}
-		if _, err = session.Execute(ctx, "/usr/bin/podman", []string{"stop", "--time", strconv.Itoa(lease.permit.Runtime.StopSeconds), container.ID}, nil, true); err != nil {
-			return datapublish.ErrRecord
 		}
 	}
 	if matched != 1 || privateEngineDisposed(ctx, session, lease.nonce) != nil {
@@ -267,6 +270,23 @@ func disposePublicationStage(ctx context.Context, lease *publicationStageLease, 
 		if container.Config.Labels["BRINE_PRIVATE_VERIFY"] == lease.nonce {
 			return datapublish.ErrRecord
 		}
+	}
+	return nil
+}
+
+func stopPublicationStageContainer(ctx context.Context, lease *publicationStageLease, session localexec.Session, containerID string) error {
+	if lease.stopAttempted {
+		return datapublish.ErrRecord
+	}
+	if lease.initialStage != nil {
+		lease.containerID = containerID
+	}
+	if err := recordPublicationStageEvent(ctx, lease, "stop_intent"); err != nil {
+		return err
+	}
+	lease.stopAttempted = true
+	if _, err := session.Execute(ctx, "/usr/bin/podman", []string{"stop", "--time", strconv.Itoa(lease.permit.Runtime.StopSeconds), containerID}, nil, true); err != nil {
+		return datapublish.ErrRecord
 	}
 	return nil
 }

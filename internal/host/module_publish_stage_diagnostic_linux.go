@@ -26,7 +26,7 @@ func moduleStageDiagnosticCode(code string) bool {
 }
 
 func emitModuleStageDiagnostic(output io.Writer, code string) error {
-	if !moduleStageDiagnosticCode(code) {
+	if output == nil || !moduleStageDiagnosticCode(code) {
 		return datapublish.ErrRecord
 	}
 	return json.NewEncoder(output).Encode(struct {
