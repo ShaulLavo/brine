@@ -805,3 +805,26 @@ unfinished resolver, foreign task, changed original outcome/runtime/desired
 state and another unfinished consumer refuse without a new held fence.
 Concurrent same-operation holding converges on one fence; another owner refuses.
 These are admission proofs, not a successful new remote preparation.
+
+### Publication refusal codes and native offset caches
+
+CLI31 earned the first real publication effect with helper start, attach, exit1,
+disposal and unknown events. Its private module log recorded table creation and
+database initialization, but no publication receipt or target transition exists.
+The controller discarded the guest's fixed refusal code for publication effects.
+Unknown effect events now optionally retain only a closed action and fixed phase.
+Absent diagnostics preserve the exact retained canonical shape. Tests reject
+unknown actions/codes and foreign steps, keep the primary phase over cleanup,
+and preserve underlying errors. Create artifact, publication and observation
+boundaries emit distinct fixed guest codes without changing native calls.
+
+The admitted passive classifier then stopped at inventory, before any reader or
+view was created. The actual working tree has a same-offset `.stdb.log` and
+4MiB `.stdb.ofs`. Pinned upstream paths define the latter as an offset index;
+its stream reader uses it only as an optional seek optimization. A real-file
+fixture reproduced the old inventory refusal. Inventory now omits only a safe,
+canonical, paired offset index while keeping the whole-tree seal and strict log
+selection. Tests retain the active log tail, original cache bytes and rejection
+of orphan/malformed/unknown members. This does not classify the actual native
+publication. The protected reader image is separately confirmed absent; its
+existing reviewed pin still governs dependency setup.

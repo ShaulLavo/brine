@@ -165,27 +165,27 @@ func executeModuleStage(ctx context.Context, request moduleStageInput, credentia
 
 func executeInitialModuleStage(ctx context.Context, request moduleStageInput, server spacetimedb.PrivateServerEndpoint, credential spacetimedb.PublisherCredential, verified spacetimedb.NativePublisherVerification, observation moduleStageObservation) (moduleStageObservation, error) {
 	if string(verified.Publisher()) != request.ExpectedPublisher {
-		return moduleStageObservation{}, datapublish.ErrRecord
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_publisher"}
 	}
 	artifact, err := readModuleDescriptorArtifact()
 	if err != nil || string(artifact.WasmSHA256()) != request.WasmSHA256 || string(artifact.ProgramWireHash()) != request.ProgramWireHash {
-		return moduleStageObservation{}, datapublish.ErrRecord
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_create_artifact"}
 	}
 	receipt, err := spacetimedb.PublishNativeCreate(ctx, server, credential, verified, request.CreationName, artifact.Bytes())
 	if err != nil || !receipt.At(server) || string(receipt.Publisher()) != request.ExpectedPublisher || receipt.Name() != request.CreationName || receipt.WasmSHA256() != artifact.WasmSHA256() || receipt.ProgramWireHash() != artifact.ProgramWireHash() {
-		return moduleStageObservation{}, datapublish.ErrInspection
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_create_publish", cause: datapublish.ErrInspection}
 	}
 	endpoint, err := spacetimedb.NewPrivateEndpoint("127.0.0.1", privateEnginePort, string(receipt.Database()))
 	if err != nil {
-		return moduleStageObservation{}, datapublish.ErrInspection
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_create_endpoint", cause: datapublish.ErrInspection}
 	}
 	expected, err := spacetimedb.NewExpectedDatabase(string(receipt.Database()), request.ExpectedPublisher, []string{request.CreationName})
 	if err != nil {
-		return moduleStageObservation{}, datapublish.ErrInspection
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_create_expected", cause: datapublish.ErrInspection}
 	}
 	current, err := spacetimedb.ObserveCurrent(ctx, endpoint, credential, expected, spacetimedb.DefaultObserverLimits())
 	if err != nil || string(current.CurrentModule()) != request.ProgramWireHash || current.Schema().SHA256() != request.SchemaSHA256 {
-		return moduleStageObservation{}, datapublish.ErrInspection
+		return moduleStageObservation{}, moduleStageStepError{code: "guest_create_observe", cause: datapublish.ErrInspection}
 	}
 	observation.Receipt, observation.ReceiptBindingSHA, observation.PublicationKnown = receipt.ResponseBytes(), receipt.BindingSHA256(), true
 	return moduleStageMetadata(observation, current), nil

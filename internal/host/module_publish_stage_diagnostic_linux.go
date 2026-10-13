@@ -11,18 +11,21 @@ import (
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
-type moduleStageStepError struct{ code string }
+type moduleStageStepError struct {
+	code  string
+	cause error
+}
 
 func (e moduleStageStepError) Error() string { return "private native stage refused" }
-func (e moduleStageStepError) Unwrap() error { return datapublish.ErrRecord }
+func (e moduleStageStepError) Unwrap() error {
+	if e.cause != nil {
+		return e.cause
+	}
+	return datapublish.ErrRecord
+}
 
 func moduleStageDiagnosticCode(code string) bool {
-	switch code {
-	case "guest_containment", "guest_input", "guest_source", "guest_credential", "guest_child_start", "guest_child_bind", "guest_listener", "guest_publisher", "guest_operation", "guest_child_stop", "guest_output":
-		return true
-	default:
-		return false
-	}
+	return datapublish.GuestStageFailureCode(code)
 }
 
 func emitModuleStageDiagnostic(output io.Writer, code string) error {

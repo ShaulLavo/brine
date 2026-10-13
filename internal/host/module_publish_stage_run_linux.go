@@ -55,11 +55,15 @@ func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLea
 	}
 	observation, err := runPublicationStage(ctx, lease, request, runner, session)
 	if err != nil || !moduleStageResultMatches(observation, request, review.NativePreflightResponse()) {
+		if err == nil {
+			_ = recordPublicationStageFailure(context.WithoutCancel(ctx), lease, action, "stage_result_mismatch")
+		}
 		_, _ = state.RecordPublicationUnknown(context.WithoutCancel(ctx), attempt)
 		return publicationStageEvidence{}, datapublish.ErrInspection
 	}
 	if action == moduleStagePreflight {
 		if _, err = state.RecordPublicationPreflight(ctx, attempt, moduleStageProtectedObservation(lease, observation)); err != nil {
+			_ = recordPublicationStageFailure(context.WithoutCancel(ctx), lease, action, "stage_preflight_record")
 			_, _ = state.RecordPublicationUnknown(context.WithoutCancel(ctx), attempt)
 			return publicationStageEvidence{}, datapublish.ErrInspection
 		}
@@ -67,6 +71,7 @@ func runRestoredPublicationStage(ctx context.Context, lease *publicationStageLea
 	if action == moduleStagePublish || action == moduleStageCreate {
 		observed := store.PublicationStageObservation{Process: moduleStageProtectedObservation(lease, observation), NativeDatabase: observation.Database, NativePublisher: observation.Publisher, ProgramWireHash: observation.ProgramWireHash, SchemaSHA256: observation.SchemaSHA256, Receipt: slices.Clone(observation.Receipt), ReceiptBindingSHA256: observation.ReceiptBindingSHA}
 		if _, err = state.RecordPublicationPublished(ctx, attempt, observed); err != nil {
+			_ = recordPublicationStageFailure(context.WithoutCancel(ctx), lease, action, "stage_publication_record")
 			_, _ = state.RecordPublicationUnknown(context.WithoutCancel(ctx), attempt)
 			return publicationStageEvidence{}, datapublish.ErrInspection
 		}

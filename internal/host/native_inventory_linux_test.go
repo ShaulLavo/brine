@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -79,5 +80,55 @@ func TestNativeOwnedInventoryRefusesNoncanonicalReplica(t *testing.T) {
 	}
 	if _, err := nativeSoleReplica(seal); err == nil {
 		t.Fatal("noncanonical replica directory admitted")
+	}
+}
+
+func TestNativeOwnedInventoryExcludesOnlyPairedOffsetIndex(t *testing.T) {
+	root, _ := nativeInventoryRoot(t, []byte("native log fixture"))
+	cachePath := "replicas/7/clog/00000000000000000000.stdb.ofs"
+	cache := make([]byte, 4<<20)
+	if err := root.WriteFile(cachePath, cache, 0600); err != nil {
+		t.Fatal(err)
+	}
+	seal, err := sealEngineRoot(t.Context(), root, engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	inventory, err := nativeOwnedInventory(t.Context(), root, seal, strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32))
+	if err != nil || len(inventory.Members()) != 1 || inventory.Members()[0].Path != "replicas/7/clog/00000000000000000000.stdb.log" {
+		t.Fatal("derived offset cache entered recovery data or hid actual log", err)
+	}
+	selected, err := nativecapture.Select(inventory, nativecapture.DefaultLimits())
+	tail, present := selected.TailMember()
+	if err != nil || !present || tail.Path != inventory.Members()[0].Path {
+		t.Fatal("cache exclusion lost full active-tail selection", err)
+	}
+	retained, err := root.ReadFile(cachePath)
+	if err != nil || !bytes.Equal(retained, cache) {
+		t.Fatal("inventory changed original offset cache", err)
+	}
+	if err = root.Remove(cachePath); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"orphan.ofs", "00000000000000000001.stdb.ofs", "0000000000000000000.stdb.ofs", "00000000000000000000.stdb.unknown", "0000000000000000000.stdb.log"} {
+		checkNativeInventoryUnknownMember(t, root, name)
+	}
+}
+
+func checkNativeInventoryUnknownMember(t *testing.T, root *os.Root, name string) {
+	t.Helper()
+	path := "replicas/7/clog/" + name
+	if err := root.WriteFile(path, []byte("unknown member"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	seal, err := sealEngineRoot(t.Context(), root, engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = nativeOwnedInventory(t.Context(), root, seal, strings.Repeat("a", 32), strings.Repeat("b", 32), strings.Repeat("c", 32)); err == nil {
+		t.Fatal("unknown or unpaired member silently ignored", name)
+	}
+	if err = root.Remove(path); err != nil {
+		t.Fatal(err)
 	}
 }
