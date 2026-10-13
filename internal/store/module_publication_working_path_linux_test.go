@@ -15,7 +15,7 @@ import (
 
 func TestPublicationWorkingPathUsesPhysicalNameAndHeldIdentity(t *testing.T) {
 	base := t.TempDir()
-	if err := os.Chmod(base, 0700); err != nil {
+	if err := os.Chmod(base, 0700); err != nil { //nolint:gosec // Protected fixture directory must be private and searchable.
 		t.Fatal(err)
 	}
 	fd, err := unix.Open(base, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
