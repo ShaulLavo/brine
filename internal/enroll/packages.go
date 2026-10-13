@@ -46,12 +46,24 @@ func installed(ctx context.Context, runner localexec.StdoutRunner, name string) 
 		}
 		return "", errors.New("package state is unknown")
 	}
-	fields := strings.Fields(out)
-	if len(fields) != 2 {
+	state, version, separated := strings.Cut(out, "\t")
+	if !separated || (version != "" && !packageVersion.MatchString(version)) {
 		return "", errors.New("invalid dpkg state")
 	}
-	if fields[0] != "installed" {
+	switch state {
+	case "not-installed":
 		return "", nil
+	case "config-files":
+		if version == "" {
+			return "", errors.New("invalid dpkg state")
+		}
+		return "", nil
+	case "installed":
+		if version == "" {
+			return "", errors.New("invalid dpkg state")
+		}
+		return version, nil
+	default:
+		return "", errors.New("dpkg package state is incomplete or unknown")
 	}
-	return fields[1], nil
 }

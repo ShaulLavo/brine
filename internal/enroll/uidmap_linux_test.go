@@ -58,9 +58,10 @@ func TestProbeReviewsMissingUIDMapWithoutRecommendations(t *testing.T) {
 			return localexec.Result{Stdout: "x86_64"}, nil
 		case "dpkg-query":
 			if c.Args[len(c.Args)-1] == "uidmap" {
-				return localexec.Result{}, &localexec.Error{ExitCode: 1}
+				return localexec.Result{Stdout: "not-installed\t"}, nil
 			}
-			return localexec.Result{Stdout: "installed\t1.0"}, nil
+			versions := map[string]string{"podman": "5.4.2+ds1-2+b2", "passt": "0.0~git20250503.587980c-2+deb13u1", "caddy": "2.6.2-12+deb13u1"}
+			return localexec.Result{Stdout: "installed\t" + versions[c.Args[len(c.Args)-1]]}, nil
 		case "apt-get":
 			if !slices.Equal(c.Args, []string{"--simulate", "--no-remove", "--no-install-recommends", "install", "uidmap"}) || c.Mutation {
 				t.Fatalf("unreviewed package probe: %+v", c)
