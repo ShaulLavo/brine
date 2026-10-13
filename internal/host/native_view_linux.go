@@ -40,10 +40,14 @@ type nativeReadView struct {
 }
 
 func materializeNativeSelection(ctx context.Context, source *os.Root, staging string, selection nativecapture.Selection, nonce string) (view *nativeReadView, err error) {
+	return materializeNativeSelectionInParent(ctx, source, staging, selection, nonce, nil)
+}
+
+func materializeNativeSelectionInParent(ctx context.Context, source *os.Root, staging string, selection nativecapture.Selection, nonce string, owned *engineStagingParent) (view *nativeReadView, err error) {
 	if source == nil || !data.ValidID(nonce) || selection.Kind() != "logs" && selection.Kind() != "snapshot" || len(selection.Members()) == 0 {
 		return nil, errEngineSource
 	}
-	parent, err := engineOpenRoot(staging)
+	parent, err := openEngineStagingConsumer(staging, owned)
 	if err != nil {
 		return nil, err
 	}

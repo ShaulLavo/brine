@@ -53,14 +53,23 @@ func engineMakePrivateDirectories(root *os.Root, path string) error {
 	current := ""
 	for _, part := range strings.Split(path, "/") {
 		current = filepath.Join(current, part)
-		if err := root.Mkdir(current, 0700); err != nil && !errors.Is(err, os.ErrExist) {
-			return errEngineSource
-		}
-		if engineDirectoryChain(root, current) != nil {
-			return errEngineSource
+		if _, err := engineMakePrivateDirectory(root, current); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+func engineMakePrivateDirectory(root *os.Root, path string) (bool, error) {
+	err := root.Mkdir(path, 0700)
+	created := err == nil
+	if err != nil && !errors.Is(err, os.ErrExist) {
+		return false, errEngineSource
+	}
+	if engineDirectoryChain(root, path) != nil {
+		return created, errEngineSource
+	}
+	return created, nil
 }
 
 func engineWritePrivateVersion(ctx context.Context, root *os.Root, name, hash string, content []byte) error {

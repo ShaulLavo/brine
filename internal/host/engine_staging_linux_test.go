@@ -157,10 +157,42 @@ func TestStateStagingRetirementPreservesReplacement(t *testing.T) {
 	if err := os.WriteFile(marker, []byte("keep"), 0600); err != nil { //nolint:gosec // Replacement owner's fixture content.
 		t.Fatal(err)
 	}
+	if consumer, err := openEngineStagingConsumer(path, parent); err == nil || consumer != nil {
+		t.Fatal("replacement parent supplied a consumer root")
+	}
 	if err := parent.close(); err == nil {
 		t.Fatal("replacement parent was retired")
 	}
 	if content, err := os.ReadFile(marker); err != nil || string(content) != "keep" { //nolint:gosec // Replacement owner's synthetic fixture marker.
 		t.Fatal("replacement content was changed", err)
+	}
+}
+
+func TestPrivateStagingCreationReceiptComesFromMkdir(t *testing.T) {
+	_, stateRoot := engineSourceFixture(t)
+	root, err := engineOpenRoot(stateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = root.Close() }()
+	if _, err := root.Lstat("staging"); !os.IsNotExist(err) {
+		t.Fatal("fixture staging already exists")
+	}
+	if err := root.Mkdir("staging", 0700); err != nil {
+		t.Fatal(err)
+	}
+	created, err := engineMakePrivateDirectory(root, "staging")
+	if err != nil || created {
+		t.Fatal("pre-Mkdir absence supplied creation ownership", err)
+	}
+	lease, err := prepareEngineStaging(context.Background(), stateRoot)
+	if err != nil || lease.created {
+		t.Fatal("another creator's parent became owned", err)
+	}
+	if err := lease.close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.Stat("staging"); err != nil {
+		t.Fatal("another creator's empty parent was removed", err)
 	}
 }
