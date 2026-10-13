@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -54,7 +55,7 @@ type engineNativeHandle struct {
 	fd     int
 }
 
-func bindEngineNative(ctx context.Context, session localexec.Session, container engineContainer, permit store.EnginePermit, material engineMaterial) (*engineNativeHandle, error) {
+func acquireEngineNativeHandle(container engineContainer, permit store.EnginePermit, material engineMaterial) (*engineNativeHandle, error) {
 	if !ownedLiveEngine(container, permit, material) || !*container.State.Running || *container.State.PID <= 0 || !data.ValidCatalogHash(container.ID) {
 		return nil, errEngineSource
 	}
@@ -73,31 +74,118 @@ func bindEngineNative(ctx context.Context, session localexec.Session, container 
 		return nil, errEngineSource
 	}
 	handle := &engineNativeHandle{pid: pid, ticks: ticks, cgroup: scope + "/container", fd: fd}
-	if handle.alive() != nil || !engineNativeCommand(process, permit.Runtime) || !engineNativeOwnership(process, pid) {
+	if handle.alive() != nil || !engineNativeOwnership(process, pid) {
+		handle.close()
+		return nil, errEngineSource
+	}
+	return handle, nil
+}
+
+func bindEngineNative(ctx context.Context, session localexec.Session, container engineContainer, permit store.EnginePermit, material engineMaterial) (*engineNativeHandle, error) {
+	handle, err := acquireEngineNativeHandle(container, permit, material)
+	if err != nil {
+		return nil, err
+	}
+	process := "/proc/" + strconv.FormatUint(uint64(handle.pid), 10)
+	if !engineNativeCommand(process, permit.Runtime) {
 		handle.close()
 		return nil, errEngineSource
 	}
 	files, err := openEngineProfileFiles(permit.Reserved.Database.SourcePath(), material, nil)
 	if err != nil {
 		handle.close()
-		return nil, errEngineSource
+		return nil, err
 	}
 	defer files.close()
-	root, err := files.data.Stat()
-	if err != nil || permit.Allocation == nil {
-		handle.close()
-		return nil, errEngineSource
-	}
-	stat, ok := root.Sys().(*syscall.Stat_t)
-	if !ok || uint64(stat.Dev) != permit.Allocation.DirectoryDevice || stat.Ino != permit.Allocation.DirectoryInode || verifyEngineMountProfile(ctx, session, container, handle, files) != nil {
-		handle.close()
-		return nil, errEngineSource
-	}
-	if !engineAllocatedSource(permit) {
+	if !engineNativeProfileRoot(files, permit) || verifyEngineMountProfile(ctx, session, container, handle, files) != nil || !engineAllocatedSource(permit) {
 		handle.close()
 		return nil, errEngineSource
 	}
 	return handle, nil
+}
+
+func bindStartingEngineNative(ctx context.Context, session localexec.Session, container engineContainer, permit store.EnginePermit, material engineMaterial) (*engineNativeHandle, error) {
+	handle, err := acquireEngineNativeHandle(container, permit, material)
+	if err != nil {
+		return nil, err
+	}
+	complete := false
+	defer func() {
+		if !complete {
+			handle.close()
+		}
+	}()
+	files, err := openEngineProfileFiles(permit.Reserved.Database.SourcePath(), material, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer files.close()
+	process := "/proc/" + strconv.FormatUint(uint64(handle.pid), 10)
+	identity, err := engineNativeStartingIdentity(process, handle)
+	if err != nil {
+		return nil, err
+	}
+	before, err := files.snapshot()
+	if err != nil {
+		return nil, err
+	}
+	guard := func() bool { return engineNativeStartingBound(process, handle, identity, files, before, permit) }
+	if !guard() || verifyEngineMountProfileCommand(ctx, session, container, handle, files, engineProfileStartingCommand) != nil || !guard() {
+		return nil, errEngineSource
+	}
+	if waitEngineProcessCommand(ctx, handle, engineNativePath, engineNativeArguments(permit.Runtime, permit.Runtime.HostPort), guard) != nil {
+		return nil, errEngineSource
+	}
+	if verifyEngineMountProfile(ctx, session, container, handle, files) != nil || !guard() || !engineNativeCommand(process, permit.Runtime) || ctx.Err() != nil {
+		return nil, errEngineSource
+	}
+	complete = true
+	return handle, nil
+}
+
+func engineNativeProfileRoot(files engineProfileFiles, permit store.EnginePermit) bool {
+	root, err := files.data.Stat()
+	if err != nil || permit.Allocation == nil {
+		return false
+	}
+	stat, ok := root.Sys().(*syscall.Stat_t)
+	return ok && uint64(stat.Dev) == permit.Allocation.DirectoryDevice && stat.Ino == permit.Allocation.DirectoryInode
+}
+
+func engineNativeStartingIdentity(process string, handle *engineNativeHandle) (engineProfileIdentity, error) {
+	user, err := engineProfileNamespaceAt(process, "user")
+	if err != nil {
+		return engineProfileIdentity{}, err
+	}
+	mount, err := engineProfileNamespaceAt(process, "mnt")
+	if err != nil {
+		return engineProfileIdentity{}, err
+	}
+	return engineProfileIdentity{ticks: handle.ticks, user: user, mount: mount}, nil
+}
+
+func engineNativeStartingBound(process string, handle *engineNativeHandle, identity engineProfileIdentity, files engineProfileFiles, before engineMountProfile, permit store.EnginePermit) bool {
+	after, err := files.snapshot()
+	return err == nil && engineProfileLifetimeBound(process, handle, identity) && engineProfileStable(before, after) && files.helperUnchanged() && engineNativeProfileRoot(files, permit) && engineAllocatedSource(permit)
+}
+
+func waitEngineProcessCommand(ctx context.Context, handle *engineNativeHandle, path string, args []string, guard func() bool) error {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	process := "/proc/" + strconv.FormatUint(uint64(handle.pid), 10)
+	for {
+		if ctx.Err() != nil || handle.alive() != nil || !guard() {
+			return errEngineSource
+		}
+		if engineProcessCommand(process, path, args) && handle.alive() == nil && guard() && ctx.Err() == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return errEngineSource
+		case <-ticker.C:
+		}
+	}
 }
 
 func engineAllocatedSource(permit store.EnginePermit) bool {
@@ -148,8 +236,12 @@ func (h *engineNativeHandle) alive() error {
 }
 
 func engineNativeCommand(process string, runtime data.EngineRuntime) bool {
+	return engineProcessCommand(process, engineNativePath, engineNativeArguments(runtime, runtime.HostPort))
+}
+
+func engineProcessCommand(process, path string, args []string) bool {
 	exe, err := os.Readlink(filepath.Join(process, "exe"))
-	if err != nil || exe != engineNativePath {
+	if err != nil || exe != path {
 		return false
 	}
 	raw, err := engineProcessFile(process, "cmdline")
@@ -157,7 +249,7 @@ func engineNativeCommand(process string, runtime data.EngineRuntime) bool {
 		return false
 	}
 	arguments := strings.Split(string(raw[:len(raw)-1]), "\x00")
-	return slices.Equal(arguments, append([]string{engineNativePath}, engineNativeArguments(runtime, runtime.HostPort)...))
+	return slices.Equal(arguments, append([]string{path}, args...))
 }
 
 func engineNativeOwnership(process string, pid uint32) bool {

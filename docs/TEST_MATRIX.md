@@ -604,3 +604,25 @@ A complete CLI test submits once, polls once and reports the failed resolver's
 accepted ID without replay. These tests explain a recorded helper exit 1 after
 attach exit 0; they do not identify the underlying guest refusal or prove a
 successful native operation.
+
+### Native child startup transition
+
+Local subprocess tests hold a PIDfd and start ticks across a real exec
+transition, then require the exact executable and arguments. Foreign paths or
+arguments, changed ticks or cgroup, a dead process and an expired deadline
+refuse. Readiness cancellation leaves the enclosing child lifetime intact.
+Listener readiness receives the same startup deadline after command binding;
+it cannot obtain another full startup budget. Closed diagnostic tests preserve
+the first binding, listener, publisher or operation failure when child cleanup
+also fails.
+Initial live handoff tests refuse foreign container IDs, process IDs, images
+and mounts without choosing another candidate or issuing a mutation. Shared
+command-wait tests refuse non-command guard drift while readiness is pending.
+
+The authorized dummy native probe used the pinned image and production
+resources, mounts, UID, argv and environment with fresh disposable data and
+signing keys. Its immediate command check failed while all other binding
+predicates passed. The same child then reached its listener and exact command
+identity in 1.538 seconds, and stopped cleanly. Actual cleanup preserved control
+records and original image payloads. This proves the startup transition, not
+publisher verification, native preparation, publication or remote recovery.
