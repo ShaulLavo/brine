@@ -36,7 +36,7 @@ func (p Prober) Collect(ctx context.Context) (Facts, error) {
 		return f, errors.New("invalid host public key")
 	}
 	f.HostKey = strings.Join(fields[:2], " ")
-	for _, name := range []string{"podman", "passt", "caddy"} {
+	for _, name := range requiredPackages {
 		v, err := installed(ctx, p.Runner, name)
 		if err != nil {
 			return f, err
@@ -47,7 +47,7 @@ func (p Prober) Collect(ctx context.Context) (Facts, error) {
 	}
 
 	missing := []string{}
-	for _, name := range []string{"podman", "passt", "caddy"} {
+	for _, name := range requiredPackages {
 		if f.Packages[name] == "" {
 			missing = append(missing, name)
 		}

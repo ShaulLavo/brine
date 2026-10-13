@@ -58,7 +58,7 @@ func MakePlan(f Facts) (Plan, error) {
 			return fail()
 		}
 	}
-	for name, pattern := range map[string]string{"podman": `^(?:[0-9]+:)?5\.4(?:\.|-|$)`, "caddy": `^(?:[0-9]+:)?2\.6(?:\.|-|$)`, "passt": `^(?:[0-9]+:)?0\.0~git20250503\.`} {
+	for name, pattern := range map[string]string{"podman": `^(?:[0-9]+:)?5\.4(?:\.|-|$)`, "caddy": `^(?:[0-9]+:)?2\.6(?:\.|-|$)`, "passt": `^(?:[0-9]+:)?0\.0~git20250503\.`, "uidmap": `^(?:[0-9]+:)?4\.17\.4(?:-|$)`} {
 		count := 0
 		for _, pkg := range f.PackageInstall {
 			if strings.Split(pkg.Name, ":")[0] == name {
@@ -108,7 +108,7 @@ func MakePlan(f Facts) (Plan, error) {
 		return fail()
 	}
 	p := Plan{Litestream: asset, Restic: resticAsset, Changes: []string{
-		"Install missing Debian podman, passt and caddy packages and their declared dependencies; never upgrade or remove existing packages during enrollment.",
+		"Install missing Debian podman, passt, caddy and uidmap packages and their declared dependencies; never upgrade or remove existing packages during enrollment.",
 		"Before any package installation, mask Caddy so its package default site cannot start; its post-install normally enables and starts caddy.service.",
 		"Podman's netavark dependency can enable netavark-dhcp-proxy.service, netavark-dhcp-proxy.socket and netavark-firewalld-reload.service, and activate the DHCP proxy socket on installation. These package post-install effects are part of the transaction.",
 		"Create only the Brine runner account, with an empty skeleton and login shell /bin/sh; refuse a preexisting unowned account, group or home.",
@@ -130,7 +130,7 @@ func MakePlan(f Facts) (Plan, error) {
 	}}
 	p.Changes = append(p.Changes, fmt.Sprintf("Install root-owned 0755 Litestream %s for linux/%s from %s (SHA-256 %s) at %s. Create protected /opt/brine/litestream version directories, stage and verify version before installation; journal file/directory ownership for undo. No app or replica restart.", asset.Version, asset.Architecture, asset.URL, asset.SHA256, asset.Path))
 	p.Changes = append(p.Changes, fmt.Sprintf("Install root-owned 0755 restic %s for linux/%s from %s. Verify archive SHA-256 %s and executable SHA-256 %s, stage and verify the exact version before installation at %s. Journal dedicated restic directories and files for undo; preserve shared /opt/brine. No repository, app or engine changes.", resticAsset.Archive.Version, resticAsset.Archive.Architecture, resticAsset.Archive.URL, resticAsset.Archive.SHA256, resticAsset.BinarySHA256, resticAsset.Archive.Path))
-	for _, name := range []string{"podman", "passt", "caddy"} {
+	for _, name := range requiredPackages {
 		if f.Packages[name] == "" {
 			p.MissingPackages = append(p.MissingPackages, name)
 		}

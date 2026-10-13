@@ -17,7 +17,7 @@ The client (`brine` on a laptop or in an agent sandbox) holds only target config
 
 ## D2. Reference OS: Debian 13 (trixie)
 
-Supported target: Debian 13 with systemd 257, cgroup v2, and the distribution's Podman 5.4, `passt` and Caddy 2.6 packages. Test evidence records the exact installed package revisions. Inventory checks `passt` explicitly, since Podman only recommends it. Other distributions return `unsupported` from inventory rather than "probably works".
+Supported target: Debian 13 with systemd 257, cgroup v2, and the distribution's Podman 5.4, `passt` and Caddy 2.6 packages. Test evidence records the exact installed package revisions. Inventory checks `passt` and `uidmap` explicitly, since Podman only recommends them. Rootless Podman requires uidmap's `newuidmap` and `newgidmap` helpers; missing packages enter the exact reviewed installation transaction. Other distributions return `unsupported` from inventory rather than "probably works".
 
 Hosts may be **amd64 or arm64**. Plans already bind image platform. Fixture images must be published for both architectures, and plans refuse an image digest whose platform doesn't match the target.
 
