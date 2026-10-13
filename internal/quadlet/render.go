@@ -15,6 +15,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/runnerstorage"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 	"github.com/pelletier/go-toml/v2"
@@ -115,6 +116,7 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 		fmt.Fprintf(&b, "Environment=%s\n", quoteAssignment(e.Name+"="+e.Value))
 	}
 	b.WriteString("\n[Service]\nRestart=on-failure\nSuccessExitStatus=143\nRestartForceExitStatus=143\n")
+	fmt.Fprintf(&b, "Environment=%s\n", runnerstorage.Environment)
 	if persistent.runtime != nil {
 		fmt.Fprintf(&b, "UMask=0077\nExecStartPre=/usr/local/bin/brine host writer-permit %s\nExecStartPre=/usr/local/bin/brine host writer-attempt %s\n", persistent.incarnation, persistent.incarnation)
 	}

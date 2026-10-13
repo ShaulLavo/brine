@@ -51,6 +51,10 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	if e != nil {
 		return nil, e
 	}
+	session, err := localexec.NewSession(localexec.ExecRunner{}, uint32(uid), identity.HomeDir, time.Minute)
+	if err != nil || validateRunnerStorage(ctx, session) != nil {
+		return nil, result.New(result.DependencyMissing, nil)
+	}
 	var state *store.Store
 	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
 	if preview {
@@ -86,10 +90,6 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		return nil, result.New(result.DependencyMissing, nil)
 	}
 	collector := inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: state.InventoryState}
-	session, err := localexec.NewSession(localexec.ExecRunner{}, uint32(uid), identity.HomeDir, time.Minute)
-	if err != nil {
-		return nil, err
-	}
 	runtimeSystemd := systemd.New(session)
 	units := lazyUnits{home: identity.HomeDir, validator: quadletValidator{}}
 	manager, err := caddy.NewManager("/etc/caddy/brine", caddyValidator{session}, caddyReloader{runtimeSystemd})
@@ -296,6 +296,14 @@ func NewInventory(ctx context.Context) (*inventory.Collector, error) {
 	identity, err := user.LookupId(strconv.Itoa(os.Geteuid()))
 	if err != nil || identity.Username != "brine" || identity.HomeDir != "/home/brine" || os.Geteuid() == 0 {
 		return nil, result.New(result.DispatchOperationRefused, nil)
+	}
+	uid, err := strconv.ParseUint(identity.Uid, 10, 32)
+	if err != nil {
+		return nil, result.New(result.DispatchOperationRefused, nil)
+	}
+	session, err := localexec.NewSession(localexec.ExecRunner{}, uint32(uid), identity.HomeDir, 5*time.Second)
+	if err != nil || validateRunnerStorage(ctx, session) != nil {
+		return nil, result.New(result.DependencyMissing, nil)
 	}
 	key, err := trustedRead(ctx, "/etc/ssh/brine/inventory-key", 32)
 	if err != nil || len(key) != 32 {

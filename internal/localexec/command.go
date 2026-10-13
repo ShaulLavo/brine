@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/ShaulLavo/brine/internal/runnerstorage"
 )
 
 const CommandOutputLimit = 256 * 1024
@@ -170,6 +172,10 @@ func commandEnvironment(overrides []string, allowAgent bool) ([]string, string, 
 			if value != "C" {
 				return nil, "", &Error{Kind: Invalid}
 			}
+		case "CONTAINERS_STORAGE_CONF":
+			if value != runnerstorage.Path {
+				return nil, "", &Error{Kind: Invalid}
+			}
 		default:
 			return nil, "", &Error{Kind: Invalid}
 		}
@@ -182,6 +188,12 @@ func commandEnvironment(overrides []string, allowAgent bool) ([]string, string, 
 		"XDG_DATA_HOME=" + filepath.Join(identity.HomeDir, ".local", "share"),
 		"XDG_CACHE_HOME=" + filepath.Join(identity.HomeDir, ".cache"),
 		"XDG_RUNTIME_DIR=" + runtime, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + runtime + "/bus",
+	}
+	if identity.Username == "brine" {
+		if identity.HomeDir != "/home/brine" || runnerstorage.CheckLocal() != nil {
+			return nil, "", &Error{Kind: Failed}
+		}
+		env = append(env, runnerstorage.Environment)
 	}
 	return append(env, overrides...), identity.HomeDir, nil
 }

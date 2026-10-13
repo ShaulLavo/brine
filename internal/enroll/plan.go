@@ -58,11 +58,15 @@ func MakePlan(f Facts) (Plan, error) {
 			return fail()
 		}
 	}
+	if version := f.Packages["fuse-overlayfs"]; version != "" && !regexp.MustCompile(`^(?:[0-9]+:)?1\.14(?:-|$)`).MatchString(version) {
+		return fail()
+	}
 	for _, candidate := range []struct{ name, pattern string }{
 		{"podman", `^(?:[0-9]+:)?5\.4(?:\.|-|$)`},
 		{"caddy", `^(?:[0-9]+:)?2\.6(?:\.|-|$)`},
 		{"passt", `^(?:[0-9]+:)?0\.0~git20250503\.`},
 		{"uidmap", `^(?:[0-9]+:)?4\.17\.4(?:-|$)`},
+		{"fuse-overlayfs", `^(?:[0-9]+:)?1\.14(?:-|$)`},
 	} {
 		count := 0
 		for _, pkg := range f.PackageInstall {
@@ -113,12 +117,13 @@ func MakePlan(f Facts) (Plan, error) {
 		return fail()
 	}
 	p := Plan{Litestream: asset, Restic: resticAsset, Changes: []string{
-		"Install missing Debian podman, passt, caddy and uidmap packages and their declared dependencies; never upgrade or remove existing packages during enrollment.",
+		"Install missing Debian podman, passt, caddy, uidmap and fuse-overlayfs packages and their declared dependencies; never upgrade or remove existing packages during enrollment.",
 		"Before any package installation, mask Caddy so its package default site cannot start; its post-install normally enables and starts caddy.service.",
 		"Podman's netavark dependency can enable netavark-dhcp-proxy.service, netavark-dhcp-proxy.socket and netavark-firewalld-reload.service, and activate the DHCP proxy socket on installation. These package post-install effects are part of the transaction.",
 		"Create only the Brine runner account, with an empty skeleton and login shell /bin/sh; refuse a preexisting unowned account, group or home.",
 		"Create a root-owned home (root:brine, 0755), root-owned .ssh (0755) kept empty after verification; create runner-owned .config, .local, .cache and .local/state/brine (0700).",
 		"Keep the home top level free of startup files and writable symlinks; require effective global SSH PermitUserEnvironment=no for loopback and remote connections require locale/display-only AcceptEnv and locale-only SetEnv across every included branch, and refuse per-user PAM environment files. Verify startup-file bypasses after enrollment.",
+		"Install the root-owned canonical /etc/brine/runner-storage.conf selecting overlay with /usr/bin/fuse-overlayfs for the Brine runner only, before rootless runtime queries. Refuse configuration drift; FUSE layers make a later native-overlay rollback unsafe.",
 		"Enable lingering for the Brine runner and install the binary at /usr/local/bin/brine, with root-owned parents and mode 0755.",
 		"Install a private root-owned workspace consumer observer with only read-only process inspection. It accepts one runner-owned0700 directory descriptor under current allowed persistent roots. The separate root-owned allow_workspace_observation grant defaults false and is required for every request; no command, signal, deletion, root SSH or path/PID request authority.",
 		"Create root-owned /etc/ssh/brine and authorized_keys directories (0755), install the root-owned deploy key at /etc/ssh/brine/authorized_keys/brine (0644), and the inventory identity at /etc/ssh/brine/inventory-key (0644).",

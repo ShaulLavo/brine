@@ -21,6 +21,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/runnerstorage"
 )
 
 const recordDir = "/var/lib/brine-enrollment"
@@ -558,6 +559,7 @@ func (h *host) steps() []Step {
 		{Name: "native-reader", Check: h.checkNativeReader, Apply: h.installNativeReader, Undo: h.undoNativeReader},
 		{Name: "user", Check: h.checkUser, Apply: h.createUser, Undo: h.removeUser},
 		{Name: "layout", Check: h.checkLayout, Apply: h.layout, Undo: noop},
+		{Name: "runner-storage", Check: h.checkRunnerStorage, Apply: h.installRunnerStorage, Undo: h.undoRunnerStorage},
 		{Name: "linger", Check: func(context.Context) (bool, error) {
 			_, err := os.Lstat("/var/lib/systemd/linger/brine")
 			return err == nil, nil
@@ -1111,7 +1113,7 @@ func (p probeRunner) RunStdout(ctx context.Context, path string, args ...string)
 }
 
 func (h *host) preflight(ctx context.Context) error {
-	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath, reconcileUnitPath, reconcileGeneratorPath, LitestreamPath} {
+	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath, reconcileUnitPath, reconcileGeneratorPath, LitestreamPath, "/etc/brine", runnerstorage.Path} {
 		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("preexisting enrollment resource refused")
 		}
