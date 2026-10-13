@@ -48,3 +48,20 @@ func TestNativeBackupInspectionReportsOnlyQualifiedUnitStates(t *testing.T) {
 		t.Fatal("unit observation joined to capture")
 	}
 }
+
+func TestStoppedPreparationInspectionStateIsClosed(t *testing.T) {
+	view := NativeBackupInspectionView{OperationID: "original-prepare", Kind: "native_prepare", BindingID: strings.Repeat("a", 32), EpochID: strings.Repeat("b", 32), ObservationSHA256: strings.Repeat("c", 64), State: "stopped_unpublished", UnitsState: "absent"}
+	raw, _ := json.Marshal(view)
+	if _, err := DecodeNativeBackupInspectionView(raw); err != nil {
+		t.Fatal("qualified stopped-only inspection refused", err)
+	}
+	for _, invalid := range []NativeBackupInspectionView{
+		{OperationID: view.OperationID, Kind: "native_capture", BindingID: view.BindingID, EpochID: view.EpochID, ObservationSHA256: view.ObservationSHA256, State: view.State, UnitsState: view.UnitsState},
+		{OperationID: view.OperationID, Kind: view.Kind, BindingID: view.BindingID, EpochID: view.EpochID, ObservationSHA256: view.ObservationSHA256, State: view.State, UnitsState: "unknown"},
+	} {
+		raw, _ := json.Marshal(invalid)
+		if _, err := DecodeNativeBackupInspectionView(raw); err == nil {
+			t.Fatal("unqualified stopped-only state admitted")
+		}
+	}
+}

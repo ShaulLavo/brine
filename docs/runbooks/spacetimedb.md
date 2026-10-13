@@ -98,9 +98,10 @@ action.
 
 If the service is unavailable, a consumer remains or observation is unknown,
 retain the workspace and report recovery-required. Observation does not release
-a data fence. The observer source is independently reviewed. Actual FDSTORE
-busy/closed behavior and installed-service sandbox qualification remain pending
-before the physical drill can rely on this prerequisite.
+a data fence. Require qualification of the installed service before relying on
+its absence result. A real FDSTORE control must refuse while the manager retains a workspace
+descriptor after sender exit, then permit absence after that descriptor closes.
+Record the installed sandbox and scoped grant with that result.
 
 ## Allocate and deliver material
 
@@ -170,9 +171,12 @@ brine apply DEPLOYMENT_PLAN_ID --target TARGET --json
 brine status APP --target TARGET --json
 ```
 
-Require the exact preparation receipt, then the publication receipt before
-planning deployment. Preparation retains its fence and measured maintenance
-time. Publication privately verifies actual ownership, module, schema and initial
+Require a `native_prepare` receipt with `outcome: "verified"` before publication.
+Its point, binding and epoch must match the original allocation. Empty module and
+schema hashes are valid only for an affirmatively unpublished source. Require
+`module_publish_apply` with `outcome: "published"`, `transition_state: "completed"`
+and a distinct `new_epoch_id` before planning deployment. Preparation retains its
+fence and measured maintenance time. Publication privately verifies actual ownership, module, schema and initial
 data, preserves the original tree, and activates a new epoch. It leaves services
 stopped. Only the fresh ordinary deployment plan starts the compatible service
 and frontend. App startup never creates or publishes a database.
@@ -196,7 +200,8 @@ brine restore native-test VERIFIED_POINT_ID --target TARGET --json
 
 Require `outcome: "verified"` from the matching capture and restore-test receipts.
 Compare binding, epoch, point, module and schema identities with the expected
-confirmed data. The test uses authenticated remote extraction and isolated
+confirmed data. The capture receipt has kind `native_capture`. The test receipt
+has kind `native_restore_test`. The test uses authenticated remote extraction and isolated
 passive replay, then disposes its reader without changing live data. SQLite uses
 `restore test` and Litestream; its TXID or receipt cannot select a native point.
 
@@ -209,7 +214,11 @@ Status reads protected records without contacting storage or refreshing proof.
 ## Review a module update
 
 Review init, update, lifecycle and scheduled-reducer effects with the exact Wasm
-and compatible retained recovery release. Prepare fresh current coverage:
+and compatible retained recovery release. First update the desired declaration
+in `brine.toml` to the candidate Wasm and canonical schema sidecars. Select the
+matching application client and compatible recovery release. The review checks
+the extracted candidate descriptor against that saved target declaration. Then
+prepare fresh current coverage:
 
 ```sh
 brine plan brine.toml --target TARGET --json
@@ -267,7 +276,8 @@ automatic reverse data swap.
 Read the original operation status first. Keep its fence, private stages, journal,
 original trees and recovery versions while inspecting the actual effect.
 
-For capture, preparation or backup-policy activation:
+For interrupted capture, preparation or backup-policy activation, inspect the
+original operation:
 
 ```sh
 brine backup recovery inspect ORIGINAL_OPERATION_ID --target TARGET --json
@@ -275,9 +285,27 @@ brine backup recovery review ORIGINAL_OPERATION_ID --target TARGET --json
 brine backup recovery resolve REVIEW_ID --target TARGET --json
 ```
 
-Use the review within ten minutes. Resolution rereads actual remote and local
-state and never repeats upload or repository initialization. Its completed record
-alone is insufficient; successful task outcome and cleanup must also join.
+Proceed to review when inspection returns `state: "verified_remote"` or the
+qualified preparation state `stopped_unpublished`, with the expected original
+operation, binding, epoch and observation hash. For backup activation, inspect
+also reports the actual `units_state`. Resolve selects the returned review ID.
+Use the review within ten minutes. Require `native_backup_resolve` with
+`outcome: "adopted"` and its matching nested original receipt. The original task
+outcome remains unchanged.
+
+Resolution rereads actual remote and local state. It never repeats an issued
+upload or repository initialization. Require both successful task completion and
+verified cleanup before using its completed record.
+
+For an unpublished preparation stopped before capture or upload, inspection can
+return `state: "stopped_unpublished"` and `units_state: "absent"`. Brine must prove
+the original stop, fence, configuration and material, an unchanged empty source,
+settled initial-helper attempts, and absence of consumers throughout the staging
+parent and source. Missing journal rows alone cannot prove absence. Reviewed
+resolution continues that original preparation and PointID, captures only
+unissued work, and returns its nested `native_prepare` receipt. Keep the original
+fence and operation if inspection refuses. Do not submit another preparation key
+to bypass the refusal.
 
 Cleanup proves absence through the protected observer, then records an owned
 retirement intent before deleting that exact workspace. After a crash, a missing
@@ -314,6 +342,10 @@ brine archive native plan APP --target TARGET --json
 brine archive native apply APP --plan ARCHIVE_PLAN_ID --target TARGET --json
 brine archive native inspect ARCHIVE_ID --target TARGET --json
 ```
+
+Save both `id` and `archive_id` from the archive plan. Apply selects its plan ID;
+inspect and status select the archive ID. Resolve selects the original operation
+ID. These selectors are not interchangeable.
 
 Retirement preserves current data, prior terminal transition trees, all remote
 epochs and recovery versions. Thirty-day retention starts after all moves

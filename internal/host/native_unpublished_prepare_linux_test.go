@@ -76,7 +76,7 @@ func TestNativePrepareAdoptsOriginalUnpublishedAllocationFence(t *testing.T) {
 	}
 	work := nativePrepareWork{runtime: nativeBackupRuntime{state: state, stateRoot: f.stateRoot, home: f.home}, input: input, operation: op}
 	defer func() {
-		if err := work.close(); err != nil {
+		if err := work.close(ctx); err != nil {
 			t.Error(err)
 		}
 	}()
@@ -196,7 +196,7 @@ func checkNativePrepareRefusal(t *testing.T, mode string) {
 		t.Fatal(err)
 	}
 	work := nativePrepareWork{runtime: nativeBackupRuntime{state: state, stateRoot: f.stateRoot, home: f.home}, input: input, operation: op}
-	defer func() { _ = work.close() }()
+	defer func() { _ = work.close(ctx) }()
 	if err := work.acquire(ctx); err == nil {
 		t.Fatal("unproven fence admitted")
 	}

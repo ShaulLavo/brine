@@ -24,7 +24,9 @@ func TestModulePublicationReviewMigrationPreservesActualPreparedPoint(t *testing
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err = tx.ExecContext(ctx, `DROP TABLE data_module_publication_effect_events;
+	if _, err = tx.ExecContext(ctx, `DROP TABLE data_native_initial_stage_events;
+DROP TABLE data_native_initial_stage_intents;
+DROP TABLE data_module_publication_effect_events;
 DROP TABLE data_module_publication_effects;
 DROP TABLE data_module_publication_approvals;
 DROP TABLE data_module_publication_target_intents;

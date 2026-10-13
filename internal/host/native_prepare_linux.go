@@ -42,6 +42,7 @@ type nativePrepareWork struct {
 	prior           caddy.State
 	startedAt       time.Time
 	retainWorkspace bool
+	initialStage    *nativeInitialStageWork
 }
 
 func nativePrepareTask(service Service, stateRoot, home string, session nativeBackupRuntime) jobs.TaskHandler {
@@ -63,7 +64,7 @@ func nativePrepareTask(service Service, stateRoot, home string, session nativeBa
 		}
 		defer func() { _ = lock.Release() }()
 		work := &nativePrepareWork{runtime: session, input: input, operation: op, startedAt: time.Now()}
-		defer func() { taskErr = errors.Join(taskErr, work.close()) }()
+		defer func() { taskErr = errors.Join(taskErr, work.close(ctx)) }()
 		if err := work.acquire(ctx); err != nil {
 			return nil, err
 		}
@@ -203,6 +204,15 @@ func (w *nativePrepareWork) reacquire(ctx context.Context) error {
 }
 
 func (w *nativePrepareWork) capture(ctx context.Context) (store.NativePreparedPointView, error) {
+	if w.permit.Runtime.State == data.EngineUnpublished {
+		if err := beginInitialPublisherWork(ctx, w); err != nil {
+			return store.NativePreparedPointView{}, err
+		}
+		if _, err := newInitialPublisherParent(ctx, w); err != nil {
+			return store.NativePreparedPointView{}, err
+		}
+		return w.captureSource(ctx, w.initialStage.copyID)
+	}
 	parent, path, err := newNativePreparedRestoreParent(ctx, w.permit)
 	if err != nil {
 		return store.NativePreparedPointView{}, err
@@ -212,11 +222,31 @@ func (w *nativePrepareWork) capture(ctx context.Context) (store.NativePreparedPo
 	if err != nil {
 		return store.NativePreparedPointView{}, err
 	}
+	return w.captureSource(ctx, copyID)
+}
+
+func (w *nativePrepareWork) captureSource(ctx context.Context, copyID string) (store.NativePreparedPointView, error) {
+	var err error
+	path := w.path
+	if w.initialStage != nil {
+		w.initialStage.failureCode = "source_copy"
+	}
 	w.copied, err = copyEngineSource(ctx, w.permit.Reserved.Database, path, copyID, engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16})
 	if err != nil {
 		return store.NativePreparedPointView{}, err
 	}
 	if w.permit.Runtime.State == data.EngineUnpublished {
+		if w.copied.original.hash != w.initialStage.sourceSeal {
+			return store.NativePreparedPointView{}, errEngineSource
+		}
+		private, sealErr := nativeRestoreDirectoryIdentity(w.copied.root, ".")
+		if sealErr != nil {
+			return store.NativePreparedPointView{}, sealErr
+		}
+		w.initialStage.observed.Directory = &data.EngineDirectoryIdentity{Device: private.Device, Inode: private.Inode}
+		if err = w.initialStage.record(ctx, "copy_ready"); err != nil {
+			return store.NativePreparedPointView{}, err
+		}
 		return w.captureEmpty(ctx)
 	}
 	replica, err := nativeSoleReplica(w.copied.original)
@@ -271,6 +301,7 @@ func (w *nativePrepareWork) capture(ctx context.Context) (store.NativePreparedPo
 }
 
 func (w *nativePrepareWork) captureEmpty(ctx context.Context) (store.NativePreparedPointView, error) {
+	w.initialStage.failureCode = "source_empty"
 	empty, err := buildNativeEmptySource(ctx, w.runtime.state, w.runtime.stateRoot, w.stopped, w.copied)
 	if err != nil {
 		return store.NativePreparedPointView{}, err
@@ -279,6 +310,11 @@ func (w *nativePrepareWork) captureEmpty(ctx context.Context) (store.NativePrepa
 	if err != nil {
 		return store.NativePreparedPointView{}, err
 	}
+	w.initialStage.observed.SourceSHA256 = empty.source.SHA256()
+	if err = w.initialStage.record(ctx, "source_ready"); err != nil {
+		return store.NativePreparedPointView{}, err
+	}
+	empty.initialStage = w.initialStage
 	lease, err := acquireInitialPublisherStage(ctx, empty, podman.New(w.runtime.session))
 	if err != nil {
 		return store.NativePreparedPointView{}, err
@@ -290,9 +326,25 @@ func (w *nativePrepareWork) captureEmpty(ctx context.Context) (store.NativePrepa
 	return w.uploadAndComplete(ctx, empty.source, w.copied.source, nativeevidence.Evidence{}, spacetimedb.RecoveredPairs{})
 }
 
-func (w *nativePrepareWork) close() error {
+func (w *nativePrepareWork) close(ctx context.Context) error {
 	var err error
+	if w.initialStage != nil && w.initialStage.lease != nil {
+		defer w.initialStage.lease.material.clear()
+	}
 	err = errors.Join(err, w.module.close())
+	if w.initialStage != nil {
+		ctx, cancel := initialPublisherCleanupContext(ctx)
+		err = errors.Join(err, w.closeInitialPublisher(ctx))
+		cancel()
+		if err != nil {
+			w.retainWorkspace = true
+			err = errors.Join(err, closeInitialPublisherCopies(w))
+			if w.parent != nil {
+				err = errors.Join(err, w.parent.Close())
+				w.parent = nil
+			}
+		}
+	}
 	if w.copied != nil {
 		err = errors.Join(err, w.copied.discard())
 		w.copied = nil

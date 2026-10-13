@@ -76,7 +76,11 @@ func readUnpublishedPreparationAuthority(ctx context.Context, q dataQuerier, bin
 		return unpublishedPreparationAuthority{}, errors.Join(ErrConflict, err)
 	}
 	p, d, err := loadPlan(ctx, q, prepared.PlanID)
-	if err != nil || p.Managed == nil || p.Managed.State != data.EngineUnpublished || p.Managed.Database != database || p.App != op.App || !managedAppOwns(ctx, q, op.App, database.IncarnationID) {
+	if err != nil || p.Managed == nil || p.Managed.State != data.EngineUnpublished || p.Managed.Database != database || p.App != op.App {
+		return unpublishedPreparationAuthority{}, errors.Join(ErrConflict, err)
+	}
+	var app string
+	if err := q.QueryRowContext(ctx, "SELECT app FROM data_incarnations WHERE id=?", database.IncarnationID).Scan(&app); err != nil || app != op.App {
 		return unpublishedPreparationAuthority{}, errors.Join(ErrConflict, err)
 	}
 	var id string
