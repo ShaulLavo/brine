@@ -208,6 +208,9 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 	if os.Geteuid() != 0 {
 		return nil, errors.New("enrollment host operations require operator admin access")
 	}
+	if req.VerifyOnly && req.Action != "verify" {
+		return nil, errors.New("verify-only is valid only for enrollment verification")
+	}
 	if len(req.IdentityKey) != 32 {
 		return nil, errors.New("enrollment identity key must be 32 bytes")
 	}
@@ -247,6 +250,11 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 	}
 	if req.Action != "apply" && req.Action != "undo" && req.Action != "verify" {
 		return nil, errors.New("unknown enrollment action")
+	}
+	if req.Action == "verify" {
+		if _, err := h.verificationFiles(req); err != nil {
+			return nil, err
+		}
 	}
 	if req.Action == "apply" {
 		if h.r.SSHReloadPending {
@@ -309,8 +317,11 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		return UndoResult{Removed: true, RetainedPolicy: h.r.RetainedPolicy}, nil
 	}
 	if req.Action == "verify" {
-		if h.r.Journal.Phase != Enrolled {
-			return nil, errors.New("enrollment incomplete")
+		if err = h.verifyEnrollment(ctx, req); err != nil {
+			return nil, err
+		}
+		if req.VerifyOnly {
+			return h.facts(ctx, req.IdentityKey)
 		}
 		if err = h.finishVerification(ctx); err != nil {
 			return nil, err

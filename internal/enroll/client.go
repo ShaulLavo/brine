@@ -21,7 +21,7 @@ import (
 
 type Options struct {
 	Destination, Name, DeployKeyPath, IdentityPath, HostBinary, ConfigDir string
-	Undo, NoInput                                                         bool
+	Undo, Finish, NoInput                                                 bool
 }
 type Client struct {
 	Runner   localexec.InputRunner
@@ -71,6 +71,9 @@ func DefaultTargetName(destination string) string {
 }
 
 func (c Client) Run(ctx context.Context, o Options) error {
+	if o.Undo && o.Finish {
+		return errors.New("--finish and --undo cannot be combined")
+	}
 	if !adminDestination.MatchString(o.Destination) || !targetName.MatchString(o.Name) || !filepath.IsAbs(o.ConfigDir) {
 		return errors.New("invalid enrollment destination, target name or config directory")
 	}
@@ -84,7 +87,7 @@ func (c Client) Run(ctx context.Context, o Options) error {
 		return err
 	}
 	keyPath := filepath.Join(o.ConfigDir, o.Name+".identity-key")
-	identityKey, err := clientKey(keyPath)
+	identityKey, err := clientKey(keyPath, !o.Finish)
 	if err != nil {
 		return err
 	}
@@ -149,8 +152,8 @@ func (c Client) Run(ctx context.Context, o Options) error {
 	}
 	remote := append(append([]string{}, args...), prefix+dir+"/brine host enrollment")
 	confirmed := ""
-	call := func(action, key string) ([]byte, error) {
-		data, err := json.Marshal(HostRequest{Action: action, IdentityKey: identityKey, DeployKey: key, Confirmed: confirmed})
+	call := func(action, key string, verifyOnly bool) ([]byte, error) {
+		data, err := json.Marshal(HostRequest{Action: action, IdentityKey: identityKey, DeployKey: key, Confirmed: confirmed, VerifyOnly: verifyOnly})
 		if err != nil {
 			return nil, err
 		}
@@ -160,7 +163,7 @@ func (c Client) Run(ctx context.Context, o Options) error {
 	if o.Undo {
 		probeAction = "undo-probe"
 	}
-	data, err := call(probeAction, "")
+	data, err := call(probeAction, "", false)
 	if err != nil {
 		return err
 	}
@@ -187,6 +190,12 @@ func (c Client) Run(ctx context.Context, o Options) error {
 		confirmed, err = confirmationBinding(f)
 		if err != nil {
 			return err
+		}
+		if o.Finish && len(plan.MissingPackages) != 0 {
+			return errors.New("finish requires every runtime package to be installed")
+		}
+		if o.Finish {
+			plan.Changes = []string{"Verify the original enrollment, installed assets and restricted deploy connection.", "Remove only journaled verification fixtures and record the verified empty runtime metadata.", "Write the private client target config after all checks pass."}
 		}
 		for i, change := range plan.Changes {
 			fmt.Fprintf(c.Output, "%d. %s\n", i+1, change)
@@ -229,7 +238,7 @@ func (c Client) Run(ctx context.Context, o Options) error {
 		return err
 	}
 	if o.Undo {
-		raw, undoErr := call("undo", "")
+		raw, undoErr := call("undo", "", false)
 		if undoErr != nil {
 			return undoErr
 		}
@@ -253,7 +262,19 @@ func (c Client) Run(ctx context.Context, o Options) error {
 		fmt.Fprintln(c.Output, "Enrollment removed and runner absence verified.")
 		return nil
 	}
-	if _, err = call("apply", deployKey); err != nil {
+	if o.Finish {
+		derived, err := c.exec(ctx, "ssh-keygen", []string{"-y", "-P", "", "-f", o.IdentityPath}, nil, 30*time.Second)
+		if err != nil {
+			return err
+		}
+		privatePublic, err := PublicKey(strings.TrimSpace(string(derived)))
+		if err != nil || privatePublic != deployKey {
+			return errors.New("deploy private key does not match the supplied public key")
+		}
+		if _, err = call("verify", deployKey, true); err != nil {
+			return err
+		}
+	} else if _, err = call("apply", deployKey, false); err != nil {
 		return err
 	}
 	target := transport.Target{Name: o.Name, Destination: "brine@" + strings.Split(o.Destination, "@")[len(strings.Split(o.Destination, "@"))-1], IdentityPath: o.IdentityPath, PinnedHostKey: f.HostKey}
@@ -269,7 +290,7 @@ func (c Client) Run(ctx context.Context, o Options) error {
 	if _, err = tc.Call(ctx, target, request); err != nil {
 		return err
 	}
-	data, err = call("verify", "")
+	data, err = call("verify", deployKey, false)
 	if err != nil {
 		return err
 	}
@@ -280,7 +301,7 @@ func (c Client) Run(ctx context.Context, o Options) error {
 	if _, err = MakePlan(verified); err != nil {
 		return err
 	}
-	if len(verified.Packages) != 3 {
+	if len(verified.Packages) != len(requiredPackages) {
 		return errors.New("post-enrollment runtime packages are missing")
 	}
 	if !verified.OwnedRunner || verified.Snapshot.Runner.Linger.Value == nil || !*verified.Snapshot.Runner.Linger.Value {
@@ -324,7 +345,7 @@ func clientFile(path string, data []byte) error {
 	}
 	return writeSync(f, data)
 }
-func clientKey(path string) ([]byte, error) {
+func clientKey(path string, create bool) ([]byte, error) {
 	data, err := os.ReadFile(path)
 	if err == nil {
 		s, err := os.Lstat(path)
@@ -333,7 +354,7 @@ func clientKey(path string) ([]byte, error) {
 		}
 		return data, nil
 	}
-	if !errors.Is(err, os.ErrNotExist) {
+	if !errors.Is(err, os.ErrNotExist) || !create {
 		return nil, err
 	}
 	data = make([]byte, 32)
@@ -344,6 +365,7 @@ func clientKey(path string) ([]byte, error) {
 }
 
 type HostRequest struct {
+	VerifyOnly  bool   `json:"verify_only,omitempty"`
 	Confirmed   string `json:"confirmed,omitempty"`
 	Action      string `json:"action"`
 	IdentityKey []byte `json:"identity_key"`

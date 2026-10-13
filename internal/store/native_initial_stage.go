@@ -245,6 +245,8 @@ func nativeInitialStageCode(code string) bool {
 	switch code {
 	case "workspace_create", "source_copy", "source_empty", "image_inspect", "material_read", "lease_check", "container_start", "helper_bind", "input_attach", "helper_result", "helper_stop", "helper_disposal", "source_changed", "workspace_disposal":
 		return true
+	case "container_start_failed", "container_start_unknown", "container_start_output":
+		return true
 	case "guest_containment", "guest_input", "guest_source", "guest_credential", "guest_child_start", "guest_child_bind", "guest_listener", "guest_publisher", "guest_operation", "guest_child_stop", "guest_output":
 		return true
 	default:

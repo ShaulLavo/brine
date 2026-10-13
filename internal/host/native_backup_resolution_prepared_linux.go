@@ -109,6 +109,10 @@ func (o nativeBackupResolutionOperations) inspectStoppedUnpublished(ctx context.
 		return err
 	}
 	stagesRaw, _ := json.Marshal(stages)
+	previousClaims, err := i.PreviousResolutionClaimsSHA256(ctx)
+	if err != nil {
+		return err
+	}
 	parentHash, err := inspectNativeStageParentAbsent(ctx, string(expected.Permit.Reserved.Database.Root))
 	if err != nil {
 		return err
@@ -120,6 +124,7 @@ func (o nativeBackupResolutionOperations) inspectStoppedUnpublished(ctx context.
 	v.sourceSealSHA256 = seal.hash
 	v.stageParentSHA256 = parentHash
 	v.initialStagesSHA256 = nativeBackupBytesHash(stagesRaw)
+	v.previousClaimsSHA256 = previousClaims
 	v.unitsState = "absent"
 	return nil
 }

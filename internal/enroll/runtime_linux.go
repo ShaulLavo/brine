@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"os"
@@ -141,7 +142,19 @@ func (h *host) runtimeHomeAllowed() map[string]bool {
 	return paths
 }
 
+func (h *host) checkRootlessHelpers(ctx context.Context) error {
+	for _, helper := range []string{"/usr/bin/newuidmap", "/usr/bin/newgidmap"} {
+		if _, err := h.run(ctx, false, "/usr/bin/test", "-x", helper); err != nil {
+			return fmt.Errorf("rootless runtime requires executable %s from uidmap: %w", helper, err)
+		}
+	}
+	return nil
+}
+
 func (h *host) checkEmptyRuntime(ctx context.Context) error {
+	if err := h.checkRootlessHelpers(ctx); err != nil {
+		return err
+	}
 	// Podman creates metadata even while listing an empty store. Only the fixed,
 	// empty runtime tree is enrollment-created; app/image/volume/secret data isn't.
 	for _, args := range [][]string{{"ps", "-a", "--format", "{{.ID}}"}, {"image", "ls", "--format", "{{.ID}}"}, {"volume", "ls", "--format", "{{.Name}}"}, {"secret", "ls", "--format", "{{.Name}}"}} {
