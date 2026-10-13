@@ -48,6 +48,7 @@ func newEnrollCmd(deps Dependencies, noInput *bool, modes *machineModes) *cobra.
 	cmd.Flags().StringVar(&o.IdentityPath, "identity", "", "Private key path (defaults to --deploy-key without .pub)")
 	cmd.Flags().StringVar(&o.HostBinary, "host-binary", "", "Matching-architecture Linux brine binary")
 	cmd.Flags().StringVar(&o.ConfigDir, "config-dir", "", "Private client target directory")
+	cmd.Flags().BoolVar(&o.Finish, "finish", false, "Verify an existing enrollment and finish its private client target config")
 	cmd.Flags().BoolVar(&o.Undo, "undo", false, "Remove only verified enrollment-owned resources")
 	cmd.Flags().Bool("yes", false, "Still requires terminal stdin and typed target-name confirmation")
 	return cmd
