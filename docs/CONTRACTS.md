@@ -1364,9 +1364,13 @@ operator-policy hash. The fixed root:brine service uses the private AF_UNIX
 `unixpacket` socket `/run/brine-workspace-observer/observe.sock`; public dispatch
 cannot start or configure it.
 
-One passed runner-owned `0700` directory descriptor selects
-`native-restores/<32 lowercase hex>` under the current admitted root. A fresh
-nonce and actual device/inode/mount bind the `absent`, `busy` or `unknown` result.
+One passed runner-owned `0700` directory descriptor selects only a
+`native-restores/<32 lowercase hex>` workspace, the exact `native-restores`
+parent, or `apps/<32 lowercase hex>/databases/<32 lowercase hex>` under the
+current admitted root. Arbitrary owned subtrees and descendants refuse. The
+normal source caller separately binds its actual protected allocation and
+stopped capability. A fresh nonce and actual device/inode/mount bind the
+`absent`, `busy` or `unknown` result.
 No request selects a path, PID, policy, command or caller-supplied proof. The
 service preserves mount-namespace identity and bounds capabilities to
 `CAP_SYS_PTRACE` and `CAP_DAC_READ_SEARCH` for read-only process metadata.
