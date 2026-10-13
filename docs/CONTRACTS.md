@@ -1679,6 +1679,12 @@ receipt, completion journal, point hash, binding and epoch. Missing or changed
 resolution proof refuses review; the existing expiry, fence, requester, app
 and declaration checks still apply.
 
+Reopening a validated prepared point acquires its recorded fence owner. For an
+unpublished allocation, that owner is the original allocation operation and
+can differ from the later preparation producer. The guard verifies the exact
+binding, fence and held owner. It does not substitute the producer or another
+owner when they differ.
+
 When the CLI has validated an accepted asynchronous task and waiting later
 fails, its error envelope keeps `data.status="accepted"` and the original
 `data.operation_id`. `ok` remains false, and the original error code and exit
