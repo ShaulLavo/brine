@@ -4,6 +4,7 @@ package localexec
 
 import (
 	"context"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -12,10 +13,11 @@ import (
 )
 
 type ForegroundCommand struct {
-	Path string
-	Args []string
-	Env  []string
-	Dir  string
+	Path   string
+	Args   []string
+	Env    []string
+	Dir    string
+	Stderr io.Writer
 }
 
 // ForegroundProcess keeps wait and signal authority at the subprocess boundary.
@@ -37,6 +39,7 @@ func StartForeground(ctx context.Context, request ForegroundCommand) (*Foregroun
 	command := exec.CommandContext(ctx, request.Path, request.Args...) //nolint:gosec // Typed bounded argv at the subprocess boundary; no shell expansion.
 	command.Env = append([]string(nil), request.Env...)
 	command.Dir = request.Dir
+	command.Stderr = request.Stderr
 	configureProcessGroup(command)
 	command.WaitDelay = time.Second
 	if err := command.Start(); err != nil {

@@ -99,8 +99,9 @@ func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) (sta
 	startup, stopStartup := context.WithTimeout(wait, time.Duration(request.Runtime.StartupSeconds)*time.Second)
 	defer stopStartup()
 	code = "guest_child_start"
+	diagnostics := &moduleNativeDiagnostics{}
 	child, err := localexec.StartForeground(wait, localexec.ForegroundCommand{Path: engineNativePath, Args: engineNativeArguments(request.Runtime, privateEnginePort),
-		Env: []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "TMPDIR=/tmp", "TOKIO_WORKER_THREADS=2"}, Dir: "/tmp"})
+		Env: []string{"PATH=/usr/bin:/bin", "HOME=/tmp", "TMPDIR=/tmp", "TOKIO_WORKER_THREADS=2"}, Dir: "/tmp", Stderr: diagnostics})
 	if err != nil {
 		return datapublish.ErrRecord
 	}
@@ -118,6 +119,9 @@ func RunModuleStage(ctx context.Context, input io.Reader, output io.Writer) (sta
 	stopErr := stopEngineChild(wait, child, exited, time.Duration(request.Runtime.StopSeconds)*time.Second)
 	if observeErr != nil || stopErr != nil || wait.Err() != nil || handle == nil || !handle.exited() || !engineReplayAlone(request.Runtime.PIDsLimit) {
 		code = moduleStageTerminalCode(code, observeErr, stopErr)
+		if observeErr == nil && stopErr != nil {
+			code = moduleChildStopFailureCode(stopErr, diagnostics.panicSeen())
+		}
 		return datapublish.ErrRecord
 	}
 	observation.ChildStopped = true
