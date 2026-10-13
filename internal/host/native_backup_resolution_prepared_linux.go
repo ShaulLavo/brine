@@ -158,6 +158,12 @@ func (o nativeBackupResolutionOperations) continueStoppedUnpublished(ctx context
 	if err != nil || original.State != ops.RecoveryRequired {
 		return store.NativePreparedPointView{}, errEngineSource
 	}
+	backup, err := o.service.Store.ReadNativeBackupPolicy(ctx, input.BindingID)
+	if err != nil {
+		return store.NativePreparedPointView{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(backup.Backup.MaxMaintenanceSeconds)*time.Second)
+	defer cancel()
 	work := nativePrepareWork{runtime: o.runtime, input: input, operation: original, stopped: stopped, permit: v.preparedPermit, startedAt: time.Now()}
 	defer func() { err = errors.Join(err, work.close()) }()
 	return work.capture(ctx)
