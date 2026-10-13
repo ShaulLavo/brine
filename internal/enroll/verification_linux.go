@@ -22,7 +22,13 @@ func (h *host) verificationFiles(req HostRequest) ([]verificationFile, error) {
 	if h.r.BinaryHash == "" || h.r.Files[binaryPath].Hash != h.r.BinaryHash {
 		return nil, errors.New("verification binary differs from original enrollment intent")
 	}
-	return []verificationFile{{binaryPath, h.r.BinaryHash}, {sshIdentityPath, hash(req.IdentityKey)}, {sshKeyPath, hash(h.keyFile())}}, nil
+	files := []verificationFile{{binaryPath, h.r.BinaryHash}, {sshIdentityPath, hash(req.IdentityKey)}, {sshKeyPath, hash(h.keyFile())}}
+	for _, file := range files {
+		if h.r.Files[file.path].Hash != file.hash {
+			return nil, fmt.Errorf("verification file differs from original enrollment intent: %s", file.path)
+		}
+	}
+	return files, nil
 }
 
 func (h *host) verifyEnrollment(ctx context.Context, req HostRequest) error {

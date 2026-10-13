@@ -126,14 +126,21 @@ func TestHostVerificationRequiresOriginalIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, failure := range []string{"phase", "key", "binary"} {
+	for _, failure := range []string{"phase", "key", "binary", "identity"} {
 		h := host{r: hostRecord{ID: "fixture", Key: original, BinaryHash: hash([]byte("original")), Files: map[string]ownedFile{binaryPath: {Hash: hash([]byte("original"))}}, Journal: Journal{Phase: Enrolled}}}
 		req := HostRequest{DeployKey: original, IdentityKey: make([]byte, 32)}
+		h.r.Files[sshIdentityPath] = ownedFile{Hash: hash(req.IdentityKey)}
+		h.r.Files[sshKeyPath] = ownedFile{Hash: hash(h.keyFile())}
+		if files, err := h.verificationFiles(req); err != nil || len(files) != 3 {
+			t.Fatalf("original protected enrollment rejected: %v", err)
+		}
 		switch failure {
 		case "phase":
 			h.r.Journal.Phase = Applying
 		case "key":
 			req.DeployKey = "invalid"
+		case "identity":
+			req.IdentityKey[0] = 1
 		case "binary":
 			h.r.Files[binaryPath] = ownedFile{Hash: hash([]byte("changed"))}
 		}
