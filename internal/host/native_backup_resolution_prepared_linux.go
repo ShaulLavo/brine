@@ -165,6 +165,6 @@ func (o nativeBackupResolutionOperations) continueStoppedUnpublished(ctx context
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(backup.Backup.MaxMaintenanceSeconds)*time.Second)
 	defer cancel()
 	work := nativePrepareWork{runtime: o.runtime, input: input, operation: original, stopped: stopped, permit: v.preparedPermit, startedAt: time.Now()}
-	defer func() { err = errors.Join(err, work.close()) }()
+	defer func() { err = errors.Join(err, work.close(ctx)) }()
 	return work.capture(ctx)
 }

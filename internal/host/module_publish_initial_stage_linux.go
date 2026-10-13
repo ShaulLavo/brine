@@ -225,6 +225,6 @@ func closeInitialPublisherCopies(w *nativePrepareWork) error {
 	return err
 }
 
-func initialPublisherCleanupContext() (context.Context, context.CancelFunc) {
-	return context.WithTimeout(context.Background(), jobs.JournalTimeout)
+func initialPublisherCleanupContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), jobs.JournalTimeout)
 }

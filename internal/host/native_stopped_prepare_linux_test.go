@@ -48,7 +48,7 @@ func stoppedUnpublishedPrepareFixture(t *testing.T) (*nativePrepareWork, nativeM
 	}
 	w := &nativePrepareWork{runtime: nativeBackupRuntime{state: f.service.Store, stateRoot: f.stateRoot, home: f.home, session: session}, input: input, operation: op}
 	t.Cleanup(func() {
-		if err := w.close(); err != nil {
+		if err := w.close(ctx); err != nil {
 			t.Error(err)
 		}
 	})
@@ -122,7 +122,7 @@ func TestStoppedUnpublishedOriginalInspectionDoesNotRequireUpload(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := w.close(); err != nil {
+	if err := w.close(ctx); err != nil {
 		t.Fatal(err)
 	}
 	inspection, err := f.service.Store.OpenNativeBackupInspection(ctx, w.operation.ID, f.service.Requester)
@@ -204,7 +204,7 @@ func TestStoppedOriginalWithUnknownInitialStageCannotQualifyForContinuation(t *t
 	if err := f.service.Store.CompleteTask(ctx, w.operation.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.InternalError}); err != nil {
 		t.Fatal(err)
 	}
-	if err := w.close(); err != nil {
+	if err := w.close(ctx); err != nil {
 		t.Fatal(err)
 	}
 	inspection, err := f.service.Store.OpenNativeBackupInspection(ctx, w.operation.ID, f.service.Requester)
