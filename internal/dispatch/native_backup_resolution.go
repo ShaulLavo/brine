@@ -88,14 +88,14 @@ func DecodeNativeBackupInspectionView(raw []byte) (NativeBackupInspectionView, e
 	if _, err := strictjson.Object(raw, fields...); err != nil {
 		return v, err
 	}
-	if json.Unmarshal(raw, &v) != nil || !jobs.ValidID(v.OperationID) || v.Kind != "native_capture" && v.Kind != "native_prepare" && v.Kind != "native_backup_activate" || !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(v.BindingID) || !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(v.EpochID) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(v.ObservationSHA256) || v.State != "verified_remote" {
+	if json.Unmarshal(raw, &v) != nil || !jobs.ValidID(v.OperationID) || v.Kind != "native_capture" && v.Kind != "native_prepare" && v.Kind != "native_backup_activate" || !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(v.BindingID) || !regexp.MustCompile(`^[a-f0-9]{32}$`).MatchString(v.EpochID) || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(v.ObservationSHA256) || v.State != "verified_remote" && (v.State != "stopped_unpublished" || v.Kind != "native_prepare" || v.UnitsState != "absent") {
 		return v, strictjson.ErrObject
 	}
 	if v.Kind == "native_backup_activate" {
 		if v.UnitsState != "not_issued" && v.UnitsState != "issued_absent" && v.UnitsState != "verified" {
 			return v, strictjson.ErrObject
 		}
-	} else if v.UnitsState != "" {
+	} else if v.State != "stopped_unpublished" && v.UnitsState != "" {
 		return v, strictjson.ErrObject
 	}
 	return v, nil
