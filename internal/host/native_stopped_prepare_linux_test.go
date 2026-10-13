@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -43,7 +42,7 @@ func stoppedUnpublishedPrepareFixture(t *testing.T) (*nativePrepareWork, nativeM
 	if err := f.service.Store.SetOperationState(ctx, op.ID, ops.Preflight); err != nil {
 		t.Fatal(err)
 	}
-	session, err := localexec.NewSession(nativeMaterialImageExecutor{}, uint32(os.Geteuid()), f.home, time.Second)
+	session, err := localexec.NewSession(nativeMaterialImageExecutor{}, nativeBackupFixtureUID(t), f.home, time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
