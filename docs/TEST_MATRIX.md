@@ -831,3 +831,27 @@ selection. Tests retain the active log tail, original cache bytes and rejection
 of orphan/malformed/unknown members. This does not classify the actual native
 publication. The protected reader image is separately confirmed absent; its
 existing reviewed pin still governs dependency setup.
+
+### Retained evidence keeps issued reader limits
+
+The actual CLI32 resolver's reader succeeded and was disposed, while its
+preservation still failed before proof insertion. A fixed read-only checker
+passed every one-effect anchor and final source, policy, route and stopped-host
+guard. Captured candidate-shaped transaction substeps also passed and rolled
+back. The carried evidence decoder then reproduced the refusal: native reader
+limits are smaller than global maxima, and decoding requires an exact requested
+limit match. Store rereads incorrectly supplied the maxima.
+
+Opaque evidence now rereads with its exact bound requested limits. Protected
+stored bytes use a separate strict decoder that validates declared limits
+within global maxima, then invokes the unchanged exact-limit decoder. Live
+reader output still uses its issued limits. Tests preserve canonical bytes,
+hashes, state and maximum-bound records, reject changed live request limits,
+malformed/zero/oversized or insufficient record limits, aliases/duplicates/nulls
+and output/table/row overflow. Changed owner content produces different identity,
+state and hash; parsing grants no provenance.
+
+A private captured-review fixture exercises the real candidate/owner acceptance
+boundary with syntactic evidence under production reader limits and rejects a
+foreign owner. It does not fabricate native data, physical anchors, a completed
+preservation transaction or receipt. No new reader or native helper ran.

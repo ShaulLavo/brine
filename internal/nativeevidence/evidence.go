@@ -146,7 +146,7 @@ func Decode(raw []byte, requested Limits) (Evidence, error) {
 	if !validLimits(requested) || uint64(len(raw)) > requested.OutputBytes || len(raw) == 0 {
 		return Evidence{}, ErrEvidence
 	}
-	fields, err := strictjson.Object(raw, "format", "outcome", "upstream_commit", "observed_database_identity", "observed_owner_identity", "current_program_kind", "current_program_algorithm", "current_program_digest", "current_program_hash", "current_program_sha256", "program_bytes", "committed_offset", "framing", "snapshot", "persisted_connected_clients", "evidence_algorithm", "state_blake3", "tables", "confirmed_pairs_projection", "input", "limits")
+	fields, err := evidenceObject(raw)
 	if err != nil || requiredValues(fields) != nil {
 		return Evidence{}, ErrEvidence
 	}
@@ -168,6 +168,27 @@ func Decode(raw []byte, requested Limits) (Evidence, error) {
 	}
 	digest := sha256.Sum256(canonical)
 	return Evidence{value: value, canonical: canonical, digest: hex.EncodeToString(digest[:])}, nil
+}
+
+// DecodeStored validates retained evidence with its bound, globally bounded
+// limits. Live reader output still requires Decode with the issued request.
+func DecodeStored(raw []byte) (Evidence, error) {
+	if len(raw) == 0 || uint64(len(raw)) > MaximumLimits().OutputBytes {
+		return Evidence{}, ErrEvidence
+	}
+	fields, err := evidenceObject(raw)
+	if err != nil {
+		return Evidence{}, ErrEvidence
+	}
+	var limits Limits
+	if json.Unmarshal(fields["limits"], &limits) != nil || !validLimits(limits) {
+		return Evidence{}, ErrEvidence
+	}
+	return Decode(raw, limits)
+}
+
+func evidenceObject(raw []byte) (map[string]json.RawMessage, error) {
+	return strictjson.Object(raw, "format", "outcome", "upstream_commit", "observed_database_identity", "observed_owner_identity", "current_program_kind", "current_program_algorithm", "current_program_digest", "current_program_hash", "current_program_sha256", "program_bytes", "committed_offset", "framing", "snapshot", "persisted_connected_clients", "evidence_algorithm", "state_blake3", "tables", "confirmed_pairs_projection", "input", "limits")
 }
 
 func requiredValues(fields map[string]json.RawMessage) error {

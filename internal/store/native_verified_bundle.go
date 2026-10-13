@@ -73,8 +73,8 @@ func readNativeVerifiedPointBundleTx(ctx context.Context, tx *sql.Tx, pointID st
 	if err != nil {
 		return nativeVerifiedPointBundle{}, err
 	}
-	sourceEvidence, sourceErr := nativeevidence.Decode(sourceEvidenceRaw, nativeevidence.MaximumLimits())
-	restoredEvidence, restoredErr := nativeevidence.Decode(restoredEvidenceRaw, nativeevidence.MaximumLimits())
+	sourceEvidence, sourceErr := nativeevidence.DecodeStored(sourceEvidenceRaw)
+	restoredEvidence, restoredErr := nativeevidence.DecodeStored(restoredEvidenceRaw)
 	if sourceErr != nil || restoredErr != nil || !bytes.Equal(sourceEvidence.Bytes(), sourceEvidenceRaw) || !bytes.Equal(restoredEvidence.Bytes(), restoredEvidenceRaw) || !sourceEvidence.SamePersistedState(restoredEvidence) || !nativeBundleEvidenceMatches(point.view, checkpoint, sourceEvidence) || !nativeBundleEvidenceMatches(point.view, checkpoint, restoredEvidence) {
 		return nativeVerifiedPointBundle{}, &IntegrityError{}
 	}

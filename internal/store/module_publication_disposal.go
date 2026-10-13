@@ -161,7 +161,7 @@ func readPublicationVerificationTx(ctx context.Context, tx *sql.Tx, attempt *Pub
 		return record, "", &IntegrityError{}
 	}
 	checkpoint, err := nativecapture.DecodeCheckpoint(record.Checkpoint, nativecapture.DefaultLimits())
-	evidence, evidenceErr := nativeevidence.Decode(record.Evidence, nativeevidence.MaximumLimits())
+	evidence, evidenceErr := nativeevidence.DecodeStored(record.Evidence)
 	published, publicationSHA, publicationErr := readPublicationPublishedTx(ctx, tx, current.cursor)
 	observed := PublicationVerificationObservation{Checkpoint: checkpoint, Evidence: evidence, ReaderNonce: record.ReaderNonce, ReaderViewSHA256: record.ReaderViewSHA256, ReaderImageID: record.ReaderImageID, ReaderDisposedAt: record.ReaderDisposedAt}
 	if err != nil || evidenceErr != nil || publicationErr != nil || publicationSHA != record.PublicationSHA256 || checkPublicationVerificationObservation(ctx, attempt, current, published, observed) != nil {
