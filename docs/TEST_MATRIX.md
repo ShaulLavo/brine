@@ -701,3 +701,18 @@ parent deadlines and one call without retries. A real filesystem fixture invokes
 publication review cleanup after cancellation, removes the owned copied source
 and newly created empty staging parent, and preserves the original source. These
 checks do not establish a successful remote module plan or publication.
+
+### Detached task state handoff
+
+The CLI26 actual module review succeeded. Its accepted apply operation entered
+preflight, then became recovery-required without a publication claim, cursor or
+effect. A local diagnostic used the real Runner, Store and module apply guard.
+It proved the handler received queued while the durable operation was preflight,
+so the guard refused before host work.
+
+The runner now updates its local operation state only after the successful
+preflight transition. Real Store regressions cover queued and launch-unknown
+handoff, unchanged operation identity, durable failure outcomes and no terminal
+replay. A competing claim wins the actual Store transition first; the losing
+runner invokes no handler and records no outcome. These checks do not prove
+publication success or change the original physical failed operation.
