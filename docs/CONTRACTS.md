@@ -1603,3 +1603,16 @@ fresh protected retention proof, whose canonical hash is retained in the origina
 deletion intent. Recovery preserves that intent and proof and checks the current
 grant, policy and retention before each further destructive step. Neither purpose
 deletes remote objects.
+
+The enrolled Brine runner uses the root-owned canonical
+`/etc/brine/runner-storage.conf`, selecting overlay with the fixed
+`/usr/bin/fuse-overlayfs` mount program. `CONTAINERS_STORAGE_CONF` may name only
+that source constant. Actual NSS runner identity, not a supplied session UID,
+selects the profile. Runtime admission verifies protected canonical bytes,
+helper provenance and device access, the qualified helper version, and actual
+Podman dynamic UID mapping. Native, application and replication service
+launches share this profile without exposing it as application configuration.
+Enrollment previews and journals the required FUSE package and protected file;
+undo preserves its existing unknown-data and ownership refusal rules. A native
+store cannot safely revert after FUSE layers are written. No startup, capture,
+maintenance or general subprocess deadline changes with this dependency.

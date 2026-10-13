@@ -21,6 +21,7 @@ Environment="Z=line one\nline two"
 Restart=on-failure
 SuccessExitStatus=143
 RestartForceExitStatus=143
+Environment=CONTAINERS_STORAGE_CONF=/etc/brine/runner-storage.conf
 
 [Install]
 WantedBy=default.target

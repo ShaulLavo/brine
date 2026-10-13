@@ -60,7 +60,7 @@ func TestProbeReviewsMissingUIDMapWithoutRecommendations(t *testing.T) {
 			if c.Args[len(c.Args)-1] == "uidmap" {
 				return localexec.Result{Stdout: "not-installed\t"}, nil
 			}
-			versions := map[string]string{"podman": "5.4.2+ds1-2+b2", "passt": "0.0~git20250503.587980c-2+deb13u1", "caddy": "2.6.2-12+deb13u1"}
+			versions := map[string]string{"podman": "5.4.2+ds1-2+b2", "passt": "0.0~git20250503.587980c-2+deb13u1", "caddy": "2.6.2-12+deb13u1", "fuse-overlayfs": "1.14-1+b1"}
 			return localexec.Result{Stdout: "installed\t" + versions[c.Args[len(c.Args)-1]]}, nil
 		case "apt-get":
 			if !slices.Equal(c.Args, []string{"--simulate", "--no-remove", "--no-install-recommends", "install", "uidmap"}) || c.Mutation {
@@ -79,7 +79,7 @@ func TestProbeReviewsMissingUIDMapWithoutRecommendations(t *testing.T) {
 	facts, err := p.Collect(context.Background())
 	// The later SSH audit intentionally lacks its fixture; package probing must
 	// already have bound the exact mandatory dependency by then.
-	if err == nil || !slices.Equal(facts.PackageInstall, []Package{{Name: "uidmap", Version: "1:4.17.4-2"}}) || len(facts.Packages) != 3 {
+	if err == nil || !slices.Equal(facts.PackageInstall, []Package{{Name: "uidmap", Version: "1:4.17.4-2"}}) || len(facts.Packages) != 4 {
 		t.Fatalf("missing uidmap did not enter the exact package preview: %v %v", facts.PackageInstall, err)
 	}
 }

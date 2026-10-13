@@ -16,6 +16,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/runnerstorage"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
 )
@@ -40,6 +41,10 @@ func OpenEngineStartup(ctx context.Context) (*EngineStartupRuntime, error) {
 	}
 	session, err := localexec.NewSession(localexec.ExecRunner{}, uint32(uid), identity.HomeDir, 5*time.Second)
 	if err != nil {
+		_ = state.Close()
+		return nil, errEngineSource
+	}
+	if err = validateRunnerStorage(ctx, session); err != nil {
 		_ = state.Close()
 		return nil, errEngineSource
 	}
@@ -307,7 +312,7 @@ func (r *EngineStartupRuntime) launchEngine(ctx, startup context.Context, proof 
 	if err != nil {
 		return engineRefusal(engineRefusalNativeArguments, err)
 	}
-	command, err := localexec.StartForeground(context.WithoutCancel(ctx), localexec.ForegroundCommand{Path: "/usr/bin/podman", Args: args, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + r.home, "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(os.Geteuid()), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(os.Geteuid()) + "/bus", "LC_ALL=C"}, Dir: r.home})
+	command, err := localexec.StartForeground(context.WithoutCancel(ctx), localexec.ForegroundCommand{Path: "/usr/bin/podman", Args: args, Env: []string{"PATH=/usr/bin:/bin", "HOME=" + r.home, "XDG_RUNTIME_DIR=/run/user/" + strconv.Itoa(os.Geteuid()), "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/" + strconv.Itoa(os.Geteuid()) + "/bus", "LC_ALL=C", runnerstorage.Environment}, Dir: r.home})
 	if err != nil {
 		return engineRefusal(engineRefusalNativeStart, errEngineSource)
 	}

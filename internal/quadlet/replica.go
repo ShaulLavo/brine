@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/replication"
+	"github.com/ShaulLavo/brine/internal/runnerstorage"
 )
 
 type ReplicaUnitOptions struct {
@@ -39,7 +40,7 @@ func RenderReplica(o ReplicaUnitOptions) (Unit, error) {
 	hash := replication.ConfigHash(o.Config)
 	args := strings.Join([]string{o.Binding.DatabaseID, o.Binding.BindingID, o.Binding.EpochID, hash}, " ")
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Brine-owned replica=%s config=%s\n\n[Unit]\nDescription=Brine database replication %s\n\n[Service]\nType=simple\nStandardOutput=null\nStandardError=null\nUMask=0077\nEnvironmentFile=%s\nExecStartPre=/usr/local/bin/brine host replica-permit %s\nExecStart=/usr/local/bin/brine host replica-exec %s %s %s\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=60s\nKillMode=control-group\n\n[Install]\nWantedBy=default.target\n", o.Binding.BindingID, hash, o.Binding.DatabaseID, o.CredentialPath, args, args, o.ConfigPath, o.CredentialPath)
+	fmt.Fprintf(&b, "# Brine-owned replica=%s config=%s\n\n[Unit]\nDescription=Brine database replication %s\n\n[Service]\nType=simple\nStandardOutput=null\nStandardError=null\nUMask=0077\nEnvironment=%s\nEnvironmentFile=%s\nExecStartPre=/usr/local/bin/brine host replica-permit %s\nExecStart=/usr/local/bin/brine host replica-exec %s %s %s\nRestart=on-failure\nRestartSec=5s\nTimeoutStopSec=60s\nKillMode=control-group\n\n[Install]\nWantedBy=default.target\n", o.Binding.BindingID, hash, o.Binding.DatabaseID, runnerstorage.Environment, o.CredentialPath, args, args, o.ConfigPath, o.CredentialPath)
 	return Unit{name: name, content: b.String()}, nil
 }
 func unitPath(s string) bool {

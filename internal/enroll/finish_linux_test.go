@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/runnerstorage"
 	"github.com/ShaulLavo/brine/internal/target"
 	"github.com/ShaulLavo/brine/internal/transport"
 )
@@ -131,7 +132,8 @@ func TestHostVerificationRequiresOriginalIntent(t *testing.T) {
 		req := HostRequest{DeployKey: original, IdentityKey: make([]byte, 32)}
 		h.r.Files[sshIdentityPath] = ownedFile{Hash: hash(req.IdentityKey)}
 		h.r.Files[sshKeyPath] = ownedFile{Hash: hash(h.keyFile())}
-		if files, err := h.verificationFiles(req); err != nil || len(files) != 3 {
+		h.r.Files[runnerstorage.Path] = ownedFile{Hash: hash([]byte(runnerstorage.Config))}
+		if files, err := h.verificationFiles(req); err != nil || len(files) != 4 {
 			t.Fatalf("original protected enrollment rejected: %v", err)
 		}
 		switch failure {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/runnerstorage"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,7 +116,7 @@ func TestEmptyRuntimeChecksEveryResourceWithRunnerEnvironment(t *testing.T) {
 					return localexec.Result{}, nil
 				}
 				argv := strings.Join(c.Args, " ")
-				if c.Path != "/usr/sbin/runuser" || c.Mutation || !strings.Contains(argv, "-u brine -- /usr/bin/env XDG_CONFIG_HOME=/home/brine/.config") || !strings.Contains(argv, "XDG_RUNTIME_DIR=/run/user/1234") || !strings.Contains(argv, "--root /home/brine/.local/share/containers/storage --runroot /run/user/1234/containers") {
+				if c.Path != "/usr/sbin/runuser" || c.Mutation || !strings.Contains(argv, "-u brine -- /usr/bin/env "+runnerstorage.Environment+" XDG_CONFIG_HOME=/home/brine/.config") || !strings.Contains(argv, "XDG_RUNTIME_DIR=/run/user/1234") || !strings.Contains(argv, "--root /home/brine/.local/share/containers/storage --runroot /run/user/1234/containers") {
 					t.Fatalf("unsafe runtime command: %+v", c)
 				}
 				return tt.output, tt.err

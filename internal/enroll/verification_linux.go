@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/ShaulLavo/brine/internal/runnerstorage"
 )
 
 type verificationFile struct {
@@ -22,7 +23,7 @@ func (h *host) verificationFiles(req HostRequest) ([]verificationFile, error) {
 	if h.r.BinaryHash == "" || h.r.Files[binaryPath].Hash != h.r.BinaryHash {
 		return nil, errors.New("verification binary differs from original enrollment intent")
 	}
-	files := []verificationFile{{binaryPath, h.r.BinaryHash}, {sshIdentityPath, hash(req.IdentityKey)}, {sshKeyPath, hash(h.keyFile())}}
+	files := []verificationFile{{binaryPath, h.r.BinaryHash}, {sshIdentityPath, hash(req.IdentityKey)}, {sshKeyPath, hash(h.keyFile())}, {runnerstorage.Path, hash([]byte(runnerstorage.Config))}}
 	for _, file := range files {
 		if h.r.Files[file.path].Hash != file.hash {
 			return nil, fmt.Errorf("verification file differs from original enrollment intent: %s", file.path)
@@ -52,6 +53,9 @@ func (h *host) verifyEnrollment(ctx context.Context, req HostRequest) error {
 	plan, err := MakePlan(facts)
 	if err != nil || len(plan.MissingPackages) != 0 {
 		return errors.Join(err, errors.New("verification requires all runtime packages"))
+	}
+	if err := h.qualifyRunnerStorage(ctx); err != nil {
+		return err
 	}
 	if err := h.checkRootlessHelpers(ctx); err != nil {
 		return err
