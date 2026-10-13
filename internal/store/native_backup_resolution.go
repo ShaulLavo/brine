@@ -3,6 +3,7 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"os"
@@ -74,7 +75,12 @@ func nativeBackupOriginal(ctx context.Context, q dataQuerier, id, requester stri
 			return op, "", "", inputErr
 		}
 		binding = input.BindingID
-		err = q.QueryRowContext(ctx, "SELECT canonical FROM data_native_upload_descriptors WHERE operation_id=?", id).Scan(&identity)
+		if op.Kind == ops.NativePrepare {
+			identity, err = nativePreparedOriginalIdentity(ctx, q, op)
+		} else {
+			err = q.QueryRowContext(ctx, "SELECT canonical FROM data_native_upload_descriptors WHERE operation_id=?", id).Scan(&identity)
+		}
+
 	}
 	if err != nil {
 		return op, "", "", ErrConflict
@@ -205,6 +211,27 @@ func (i *NativeBackupInspection) Material(ctx context.Context) (NativeRepository
 		}
 		metadata, err := activation.Metadata(ctx)
 		return metadata.Material, err
+	}
+	if i.original.Kind == ops.NativePrepare {
+		expected, err := i.PreparedExpectation(ctx)
+		if err != nil {
+			return NativeRepositoryMaterial{}, err
+		}
+		if expected.NeedsCapture {
+			tx, err := i.state.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+			if err != nil {
+				return NativeRepositoryMaterial{}, err
+			}
+			defer func() { _ = tx.Rollback() }()
+			material, err := readNativeCurrentRepositoryMaterial(ctx, tx, expected.Permit)
+			if err != nil {
+				return NativeRepositoryMaterial{}, err
+			}
+			if material.Scope.ExpiresAt.After(i.deadline) {
+				material.Scope.ExpiresAt = i.deadline
+			}
+			return material, tx.Commit()
+		}
 	}
 	retained, err := i.Upload(ctx)
 	if err != nil {

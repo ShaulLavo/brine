@@ -132,7 +132,7 @@ func (s scope) authorize(directory *os.File) (directoryIdentity, string, error) 
 	}
 	for _, allowed := range s.roots {
 		relative, err := filepath.Rel(allowed, path)
-		if err != nil || !validWorkspaceRelative(relative) {
+		if err != nil || !validObservationRelative(relative) {
 			continue
 		}
 		if err = s.authorizedAlias(allowed, relative, held); err == nil {

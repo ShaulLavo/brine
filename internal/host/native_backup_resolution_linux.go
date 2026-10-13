@@ -103,7 +103,7 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 	if err != nil {
 		return nil, err
 	}
-	if inspection.OriginalKind() != ops.NativeBackupActivate {
+	if inspection.OriginalKind() != ops.NativeBackupActivate && !observed.needsCapture {
 		if err = o.cleanupOriginalUpload(ctx, observed); err != nil {
 			return nil, err
 		}
@@ -112,26 +112,36 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 }
 
 type nativeBackupObserved struct {
-	material       store.NativeRepositoryMaterial
-	runtime        nativeBackupRuntime
-	inspection     *store.NativeBackupInspection
-	workspaceID    string
-	lifetime       *data.EngineLock
-	preparedStop   store.NativeStopObservation
-	retained       store.NativeRetainedUpload
-	originalParent *os.Root
-	parent         *os.Root
-	path           string
-	extracted      restic.AuthenticatedRestore
-	observation    store.NativePreparedObservation
-	initialized    restic.InitializedRepository
-	activation     store.NativeBackupActivationMetadata
-	repositoryID   string
-	configSHA256   string
-	unitsState     string
+	material            store.NativeRepositoryMaterial
+	runtime             nativeBackupRuntime
+	inspection          *store.NativeBackupInspection
+	workspaceID         string
+	lifetime            *data.EngineLock
+	preparedStop        store.NativeStopObservation
+	retained            store.NativeRetainedUpload
+	originalParent      *os.Root
+	parent              *os.Root
+	path                string
+	extracted           restic.AuthenticatedRestore
+	observation         store.NativePreparedObservation
+	initialized         restic.InitializedRepository
+	activation          store.NativeBackupActivationMetadata
+	repositoryID        string
+	configSHA256        string
+	unitsState          string
+	needsCapture        bool
+	preparedPermit      store.EnginePermit
+	sourceSealSHA256    string
+	stageParentSHA256   string
+	initialStagesSHA256 string
 }
 
 func (v *nativeBackupObserved) hash() string {
+	if v.needsCapture {
+		permit, _ := json.Marshal(v.preparedPermit)
+		raw, _ := json.Marshal(struct{ State, PermitSHA256, SourceSHA256, StageParentSHA256, InitialStagesSHA256 string }{"stopped_unpublished", nativeBackupBytesHash(permit), v.sourceSealSHA256, v.stageParentSHA256, v.initialStagesSHA256})
+		return nativeBackupBytesHash(raw)
+	}
 	point := v.extracted.Point()
 	// Credential expiry governs the read, not the identity of the inspected effect.
 	point.Scope.ExpiresAt = time.Time{}
@@ -147,7 +157,11 @@ func (v *nativeBackupObserved) hash() string {
 	return nativeBackupBytesHash(raw)
 }
 func (v *nativeBackupObserved) view(i *store.NativeBackupInspection) dispatch.NativeBackupInspectionView {
-	return dispatch.NativeBackupInspectionView{OperationID: i.OriginalOperationID(), Kind: string(i.OriginalKind()), BindingID: string(i.BindingID()), EpochID: v.material.Scope.EpochID, ObservationSHA256: v.hash(), State: "verified_remote", UnitsState: v.unitsState}
+	state := "verified_remote"
+	if v.needsCapture {
+		state = "stopped_unpublished"
+	}
+	return dispatch.NativeBackupInspectionView{OperationID: i.OriginalOperationID(), Kind: string(i.OriginalKind()), BindingID: string(i.BindingID()), EpochID: v.material.Scope.EpochID, ObservationSHA256: v.hash(), State: state, UnitsState: v.unitsState}
 }
 func (v *nativeBackupObserved) close(ctx context.Context) error {
 	var err error
@@ -204,6 +218,10 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 		if err = o.inspectPreparedOriginal(ctx, i, v); err != nil {
 			return nil, err
 		}
+	}
+	if v.needsCapture {
+		complete = true
+		return v, nil
 	}
 	permit, err := o.service.Store.ReadEnginePermit(ctx, i.BindingID())
 	if err != nil {

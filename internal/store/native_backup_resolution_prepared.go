@@ -5,16 +5,18 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"time"
 )
 
 type NativeBackupPreparedExpectation struct {
-	Permit  EnginePermit
-	Stop    NativeStopObservation
-	Routes  NativePreparedRoutes
-	PointID string
+	Permit       EnginePermit
+	Stop         NativeStopObservation
+	Routes       NativePreparedRoutes
+	PointID      string
+	NeedsCapture bool
 }
 
 func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (NativeBackupPreparedExpectation, error) {
@@ -25,16 +27,16 @@ func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (Nativ
 	if err := i.check(ctx, i.state.db); err != nil {
 		return zero, err
 	}
-	retained, err := i.Upload(ctx)
-	if err != nil {
-		return zero, err
+	var pointID string
+	if err := i.state.db.QueryRowContext(ctx, "SELECT id FROM data_native_preparations WHERE operation_id=?", i.original.ID).Scan(&pointID); err != nil {
+		return zero, ErrConflict
 	}
 	tx, err := i.state.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return zero, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	intent, raw, err := readNativePreparationIntent(ctx, tx, retained.Manifest.Identity().CaptureID)
+	intent, raw, err := readNativePreparationIntent(ctx, tx, pointID)
 	if err != nil || intent.OperationID != i.original.ID || intent.BindingID != i.binding {
 		return zero, ErrConflict
 	}
@@ -64,7 +66,11 @@ func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (Nativ
 	if err = checkNativePreparationCapability(ctx, tx, capability); err != nil {
 		return zero, err
 	}
-	return NativeBackupPreparedExpectation{Permit: permit, Stop: stopped, Routes: routes, PointID: intent.PointID}, tx.Commit()
+	needsCapture, err := nativePreparedNeedsCapture(ctx, tx, intent, events)
+	if err != nil {
+		return zero, err
+	}
+	return NativeBackupPreparedExpectation{Permit: permit, Stop: stopped, Routes: routes, PointID: intent.PointID, NeedsCapture: needsCapture}, tx.Commit()
 }
 func (i *NativeBackupInspection) ResumePrepared(ctx context.Context, lifetime *data.EngineLock, current NativeStopObservation) (*NativeStoppedPreparation, error) {
 	expected, err := i.PreparedExpectation(ctx)
@@ -98,4 +104,45 @@ func checkNativeRetainedUploadObservation(ctx context.Context, q dataQuerier, op
 		return ErrConflict
 	}
 	return nil
+}
+
+func nativePreparedOriginalIdentity(ctx context.Context, q dataQuerier, op ops.Operation) ([]byte, error) {
+	var pointID string
+	if err := q.QueryRowContext(ctx, "SELECT id FROM data_native_preparations WHERE operation_id=?", op.ID).Scan(&pointID); err != nil {
+		return nil, ErrConflict
+	}
+	intent, raw, err := readNativePreparationIntent(ctx, q, pointID)
+	if err != nil || intent.OperationID != op.ID {
+		return nil, errors.Join(ErrConflict, err)
+	}
+	events, err := readNativePreparationEvents(ctx, q, intent, raw)
+	if err != nil || len(events) != 2 && len(events) != 6 || checkNativePreparedStopFacts(intent, events[0].Proof, events[1].Proof) != nil {
+		return nil, errors.Join(ErrConflict, err)
+	}
+	first, _ := json.Marshal(events[0])
+	second, _ := json.Marshal(events[1])
+	return bytes.Join([][]byte{raw, first, second}, nil), nil
+}
+
+func nativePreparedNeedsCapture(ctx context.Context, q dataQuerier, intent nativePreparationIntent, events []nativePreparationEvent) (bool, error) {
+	var descriptors int
+	if err := q.QueryRowContext(ctx, "SELECT count(*) FROM data_native_upload_descriptors WHERE operation_id=?", intent.OperationID).Scan(&descriptors); err != nil {
+		return false, err
+	}
+	if descriptors == 1 {
+		return false, nil
+	}
+	if descriptors != 0 || intent.SourceKind != "unpublished" || len(events) != 2 {
+		return false, ErrConflict
+	}
+	var effects int
+	err := q.QueryRowContext(ctx, `SELECT
+ (SELECT count(*) FROM data_native_prepared_upload_intents WHERE point_id=?)+
+ (SELECT count(*) FROM data_native_prepared_points WHERE id=?)+
+ (SELECT count(*) FROM data_native_initial_owners WHERE point_id=?)+
+ (SELECT count(*) FROM data_native_capture_inputs WHERE operation_id=?)`, intent.PointID, intent.PointID, intent.PointID, intent.OperationID).Scan(&effects)
+	if err != nil || effects != 0 {
+		return false, errors.Join(ErrConflict, err)
+	}
+	return true, nil
 }

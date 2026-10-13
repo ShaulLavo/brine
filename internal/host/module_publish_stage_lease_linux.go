@@ -42,6 +42,7 @@ type publicationStageLease struct {
 	helperCgroup   string
 	observation    moduleStageObservation
 	effectRecorded bool
+	initialStage   *nativeInitialStageWork
 }
 
 func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource, images *podman.Client) (*publicationStageLease, error) {
@@ -60,20 +61,50 @@ func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource,
 	if err != nil {
 		return nil, err
 	}
+	if source.initialStage != nil {
+		source.initialStage.failureCode = "image_inspect"
+		if err = source.initialStage.record(ctx, "image_inspect"); err != nil {
+			return nil, err
+		}
+	}
 	image, err := descriptorImage(ctx, images, platform)
 	if err != nil || image.ImageID != source.permit.Runtime.ImageID || image.ManifestDigest != source.permit.Runtime.ManifestDigest {
 		return nil, datapublish.ErrRecord
 	}
+	if source.initialStage != nil {
+		if err = source.initialStage.record(ctx, "image_ready"); err != nil {
+			return nil, err
+		}
+		source.initialStage.failureCode = "material_read"
+	}
 	material, err := readEngineMaterial(ctx, preparation.StateRoot(), source.permit)
 	if err != nil {
 		return nil, datapublish.ErrRecord
+	}
+	if source.initialStage != nil {
+		if err = source.initialStage.record(ctx, "material_ready"); err != nil {
+			material.clear()
+			return nil, err
+		}
 	}
 	nonce, err := data.NewID()
 	if err != nil || source.unchanged(ctx) != nil || !preparation.Active(source.permit.Runtime.BindingID) {
 		material.clear()
 		return nil, datapublish.ErrRecord
 	}
-	return &publicationStageLease{empty: source, stagePath: source.copy.path, preparation: preparation, permit: source.permit, material: material, image: image, nonce: nonce, rootMember: sealed.root}, nil
+	if source.initialStage != nil {
+		nonce = source.initialStage.nonce
+		source.initialStage.failureCode = "lease_check"
+		if err = source.initialStage.record(ctx, "lease_ready"); err != nil {
+			material.clear()
+			return nil, err
+		}
+	}
+	lease := &publicationStageLease{empty: source, stagePath: source.copy.path, preparation: preparation, permit: source.permit, material: material, image: image, nonce: nonce, rootMember: sealed.root, initialStage: source.initialStage}
+	if source.initialStage != nil {
+		source.initialStage.lease = lease
+	}
+	return lease, nil
 }
 
 func acquireRestoredPublicationStage(ctx context.Context, working *publicationWorkingStage, images *podman.Client) (*publicationStageLease, error) {

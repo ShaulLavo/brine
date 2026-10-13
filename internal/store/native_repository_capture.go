@@ -43,7 +43,8 @@ func (r *NativeCaptureRepository) Material(ctx context.Context) (NativeRepositor
 		}
 	}
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", r.operationID))
-	if err != nil || op.State != ops.Preflight || op.Kind != ops.NativeCapture && op.Kind != ops.NativePrepare {
+	continuing := r.stopped != nil && r.stopped.preparation.inspection != nil && r.stopped.preparation.inspection.resolver != "" && op.State == ops.RecoveryRequired
+	if err != nil || op.State != ops.Preflight && !continuing || op.Kind != ops.NativeCapture && op.Kind != ops.NativePrepare {
 		return NativeRepositoryMaterial{}, errors.Join(ErrConflict, err)
 	}
 	permit, err := readEnginePermit(ctx, tx, r.binding)

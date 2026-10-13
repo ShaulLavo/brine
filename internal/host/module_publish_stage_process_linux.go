@@ -34,7 +34,7 @@ type initialPublisherEvidence struct {
 }
 
 func runInitialPublisherStage(ctx context.Context, lease *publicationStageLease, runner localexec.InputRunner, session localexec.Session) (initialPublisherEvidence, error) {
-	if lease == nil || lease.attempted || lease.sourceUnchanged(ctx) != nil {
+	if lease == nil || lease.initialStage == nil || lease.attempted || lease.sourceUnchanged(ctx) != nil {
 		return initialPublisherEvidence{}, datapublish.ErrRecord
 	}
 	request := moduleStageInput{Action: moduleStagePublisher, Runtime: lease.permit.Runtime, Token: string(lease.material.publisher)}
@@ -66,12 +66,25 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 	startedAt := time.Now().UTC()
 	lease.startedAt = startedAt
 	wait, cancel := context.WithTimeout(ctx, time.Duration(request.Runtime.StartupSeconds+request.Runtime.StopSeconds+45)*time.Second)
+	if lease.initialStage != nil {
+		lease.initialStage.failureCode = "container_start"
+		if err = lease.initialStage.record(wait, "launch_intent"); err != nil {
+			cancel()
+			return moduleStageObservation{}, err
+		}
+	}
 	id, handle, runErr := startPublicationStageProcess(wait, lease, session)
 	lease.containerID, lease.process = id, handle
 	var result localexec.Output
 	if runErr == nil && handle.alive() == nil && lease.sourceUnchanged(wait) == nil {
 		lease.helperPID, lease.helperTicks, lease.helperCgroup = handle.pid, handle.ticks, handle.cgroup
 		runErr = recordPublicationStageEvent(wait, lease, "started")
+		if runErr == nil {
+			if lease.initialStage != nil {
+				lease.initialStage.failureCode = "input_attach"
+				runErr = lease.initialStage.record(wait, "input_issued")
+			}
+		}
 		if runErr == nil {
 			result, runErr = runner.RunInput(wait, localexec.Command{Path: "/usr/bin/podman", Args: []string{"attach", "--sig-proxy=false", id}, Stdin: input, Mutation: true, OutputLimit: 1 << 20})
 		}
@@ -94,15 +107,33 @@ func runPublicationStage(ctx context.Context, lease *publicationStageLease, requ
 		lease.disposed = true
 	}
 	if runErr != nil || disposeErr != nil || lease.sourceUnchanged(ctx) != nil {
+		if lease.initialStage != nil && runErr != nil {
+			if code := decodeModuleStageDiagnostic(result.Stdout); code != "" {
+				lease.initialStage.failureCode = code
+			}
+		}
+		if lease.initialStage != nil && disposeErr != nil {
+			lease.initialStage.failureCode = "helper_disposal"
+		}
 		_ = recordPublicationStageEvent(context.WithoutCancel(ctx), lease, "unknown")
 		return moduleStageObservation{}, datapublish.ErrRecord
 	}
 	lease.finishedAt = time.Now().UTC()
 	observation, err := decodeModuleStageObservation(result.Stdout, startedAt, lease.finishedAt)
 	if err != nil {
+		if lease.initialStage != nil {
+			lease.initialStage.failureCode = "helper_result"
+			_ = lease.initialStage.record(context.WithoutCancel(ctx), "unknown")
+		}
 		return moduleStageObservation{}, err
 	}
 	lease.observation = observation
+	if lease.initialStage != nil {
+		lease.initialStage.observed.ChildPID, lease.initialStage.observed.ChildStartTicks = observation.ChildPID, observation.ChildStartTicks
+		if err = lease.initialStage.record(ctx, "observation"); err != nil {
+			return moduleStageObservation{}, err
+		}
+	}
 	return observation, nil
 }
 
@@ -115,6 +146,9 @@ func startPublicationStageProcess(ctx context.Context, lease *publicationStageLe
 	id := strings.TrimSpace(started.Stdout)
 	if err != nil || started.Truncated || !data.ValidCatalogHash(id) {
 		return "", nil, datapublish.ErrRecord
+	}
+	if lease.initialStage != nil {
+		lease.initialStage.failureCode = "helper_bind"
 	}
 	containers, err := listEngineContainers(ctx, session)
 	if err != nil {
@@ -238,6 +272,9 @@ func disposePublicationStage(ctx context.Context, lease *publicationStageLease, 
 }
 
 func recordPublicationStageEvent(ctx context.Context, lease *publicationStageLease, stage string) error {
+	if lease.initialStage != nil {
+		return lease.initialStage.recordLease(ctx, lease, stage)
+	}
 	if !lease.effectRecorded {
 		return nil
 	}
