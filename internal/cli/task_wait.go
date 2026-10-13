@@ -11,6 +11,14 @@ import (
 	"github.com/ShaulLavo/brine/internal/systemd"
 )
 
+type acceptedTaskFailure struct {
+	accepted jobs.Accepted
+	cause    error
+}
+
+func (e *acceptedTaskFailure) Error() string { return result.Classify(e.cause).Error() }
+func (e *acceptedTaskFailure) Unwrap() error { return e.cause }
+
 // waitTask leaves each transport call's 15-second budget unchanged. Only the
 // observer has an overall job-runtime bound; its departure cannot cancel work.
 // A no-wait caller receives the accepted operation ID and can query status later.
@@ -34,10 +42,15 @@ func (f operationFlags) waitTask(ctx context.Context, deps Dependencies, accepte
 	})
 }
 
-func waitAcceptedTask(ctx context.Context, accepted jobs.Accepted, kind ops.Kind, noWait bool, readStatus func(context.Context, dispatch.OperationArgs) (jobs.Status, error)) (any, error) {
+func waitAcceptedTask(ctx context.Context, accepted jobs.Accepted, kind ops.Kind, noWait bool, readStatus func(context.Context, dispatch.OperationArgs) (jobs.Status, error)) (value any, waitErr error) {
 	if accepted.Status != "accepted" || !jobs.ValidID(accepted.OperationID) || !kind.IsTask() {
 		return nil, result.New(result.TransportInvalidResponse, nil)
 	}
+	defer func() {
+		if waitErr != nil {
+			waitErr = &acceptedTaskFailure{accepted: accepted, cause: waitErr}
+		}
+	}()
 	if noWait {
 		return accepted, nil
 	}

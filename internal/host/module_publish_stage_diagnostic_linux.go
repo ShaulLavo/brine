@@ -59,3 +59,10 @@ func moduleStageFailureCode(err error, fallback string) string {
 	}
 	return fallback
 }
+
+func moduleStageRunFailure(err error, output []byte) error {
+	if code := decodeModuleStageDiagnostic(output); code != "" {
+		return errors.Join(err, moduleStageStepError{code: code})
+	}
+	return err
+}

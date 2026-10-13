@@ -590,3 +590,17 @@ reject regular-file drift while directory size/link changes from ordinary live
 writes retain the existing directory identity contract. This is binding-source
 and mechanism evidence; actual native initialization, publication and remote
 recovery still require the authorized physical command flow.
+
+### Refusal diagnostics and accepted-task locators
+
+Local tests cover a successful attach carrying a closed guest refusal, retaining
+that enum through cleanup without producing owner evidence. Unknown, malformed,
+duplicate or extra-field diagnostics cannot replace a typed primary error or
+supply a phase code. Tests also cover preserving a validated accepted operation
+ID through terminal failure, observer cancellation and invalid status while
+retaining the original typed error, code and exit status. The error remains
+`ok=false`; unvalidated acceptance and crossed status IDs never supply a locator.
+A complete CLI test submits once, polls once and reports the failed resolver's
+accepted ID without replay. These tests explain a recorded helper exit 1 after
+attach exit 0; they do not identify the underlying guest refusal or prove a
+successful native operation.
