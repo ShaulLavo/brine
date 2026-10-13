@@ -1431,6 +1431,18 @@ and actual loaded timer properties precede active policy. Transport deadlines
 stay within both the caller budget and admitted material expiry. Enrollment
 installs the independently published main native-reader0.0.5 platform pin;
 reader execution pulls its fixed digest only after affirmative local absence.
+Stopped unpublished preparation can be inspected before any upload exists.
+Its original identity binds the immutable preparation intent, first stop proofs,
+and failed outcome. A `stopped_unpublished` observation requires the exact
+original allocation, config, material, held fence and closed routes/units, plus
+a complete empty staging parent with no process, mount or descriptor consumers.
+Retained initial-stage journals must be disposed. Journal absence alone supplies
+no authority. A reviewed resolver continues that original point and preparation
+operation through newly journaled private staging and capture; it never creates
+another preparation, repeats a recorded upload, or rewrites the failed outcome.
+Actual remote verification and original producer completion still precede an
+adopted resolver receipt. Unknown helper or stage ownership refuses continuation.
+
 Unknown effects preserve their intents and partial files. Reference-only
 `native_backup_inspect`, `native_backup_review` and `native_backup_resolve` use
 fixed readback and an independent resolver task. Schema22 retains original upload
