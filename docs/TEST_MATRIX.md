@@ -1055,3 +1055,12 @@ request/query IDs, deletes, invalid counts, binary frames, denial and deadlines.
 Registered default-column rows require the qualified rating value7; arbitrary
 extra fields refuse. Empty-table omission follows the pinned engine protocol.
 The legacy SQL fixture remains historical decoding evidence only.
+
+### Capture completion refusal boundaries
+
+Focused tests exercise source, live-process and module rechecks in order, fixed
+non-retryable error envelopes, preserved causes/cancellation and strict failed
+task outcomes. Every code refuses a successful outcome or extra diagnostic text.
+Remote verification and point commit refusal use those same closed codes in the
+original-operation resolver. These diagnostics grant no recovery authority and
+change no capture/workspace/point admission guard.

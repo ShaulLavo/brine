@@ -324,6 +324,11 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `release_not_found` | 2 | false | The rollback release is not known for this app. |
 | `native_point_not_found` | 2 | false | The native point reference is not known on this target. |
 | `rollback_no_op` | 5 | false | The rollback target is already current or requires no changes. |
+| `native_capture_verification_refused` | 1 | false | Native capture remote verification refused. |
+| `native_capture_source_refused` | 1 | false | Native capture source recheck refused. |
+| `native_capture_live_refused` | 1 | false | Native capture live engine recheck refused. |
+| `native_capture_candidate_refused` | 1 | false | Native capture module recheck refused. |
+| `native_capture_commit_refused` | 1 | false | Native capture verified point commit refused. |
 | `internal_error` | 1 | false | The operation failed. |
 | `invalid_usage` | 2 | false | Invalid command or arguments. Use --help for usage. |
 | `dependency_missing` | 3 | false | A required dependency is missing or incompatible. |
@@ -1820,3 +1825,12 @@ omission means empty rows; a missing populated side still refuses as an orphan.
 No retry, join, intersection or truncation repairs inconsistent data. New
 observations record `confirmed_subscription_lower_bound`; retained historical
 SQL records keep their original basis and canonical bytes.
+
+Native capture failures after upload carry a fixed closed code for remote
+verification, source recheck, live engine recheck, module recheck or verified
+point commit. Post-verification checks run in that order and stop at the first
+refusal. Codes contain no subprocess output, row, credential, path or identifier;
+underlying errors remain wrapped for internal cause/cancellation handling.
+Unknown upload results and retained workspaces keep their existing recovery
+requirements. Original backup resolution uses the same verification and commit
+codes while adopting retained evidence without another upload.
