@@ -94,14 +94,24 @@ func TestModuleRuntimeMasksRequireExactActualNodeTypes(t *testing.T) {
 
 func TestModuleRuntimeDirectoryMaskRequiresActualEmptyDirectory(t *testing.T) {
 	directory := t.TempDir()
-	if !moduleRuntimeMaskDirectoryEmpty(directory) {
+	if !checkRuntimeMaskDirectory(t, directory) {
 		t.Fatal("actual empty directory refused")
 	}
 	path := filepath.Join(directory, "entry")
 	if err := os.WriteFile(path, []byte("retained"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if moduleRuntimeMaskDirectoryEmpty(directory) || moduleRuntimeMaskDirectoryEmpty(path) || moduleRuntimeMaskDirectoryEmpty(filepath.Join(directory, "missing")) {
+	if checkRuntimeMaskDirectory(t, directory) || checkRuntimeMaskDirectory(t, path) || checkRuntimeMaskDirectory(t, filepath.Join(directory, "missing")) {
 		t.Fatal("nonempty, regular or missing directory mask admitted")
 	}
+}
+
+func checkRuntimeMaskDirectory(t *testing.T, path string) bool {
+	t.Helper()
+	directory, err := os.Open(path) //nolint:gosec // Paths are owned temporary test fixtures.
+	if err != nil {
+		return false
+	}
+	defer func() { _ = directory.Close() }()
+	return moduleRuntimeMaskDirectoryEmpty(directory)
 }

@@ -3,6 +3,7 @@
 package host
 
 import (
+	"errors"
 	"io"
 	"os"
 	"slices"
@@ -105,17 +106,17 @@ func moduleReadonlyRuntimeMask(fields, filesystem []string) bool {
 	if kind == moduleRuntimeMaskNull {
 		return true
 	}
-	return moduleRuntimeMaskDirectoryEmpty(fields[4])
-}
-
-func moduleRuntimeMaskDirectoryEmpty(path string) bool {
-	directory, err := os.Open(path)
+	directory, err := os.Open("/proc/acpi")
 	if err != nil {
 		return false
 	}
 	defer func() { _ = directory.Close() }()
+	return moduleRuntimeMaskDirectoryEmpty(directory)
+}
+
+func moduleRuntimeMaskDirectoryEmpty(directory *os.File) bool {
 	entries, err := directory.ReadDir(1)
-	return len(entries) == 0 && err == io.EOF
+	return len(entries) == 0 && errors.Is(err, io.EOF)
 }
 
 func moduleRuntimeMaskStat(kind moduleRuntimeMaskKind, status unix.Stat_t) bool {
