@@ -324,6 +324,11 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `release_not_found` | 2 | false | The rollback release is not known for this app. |
 | `native_point_not_found` | 2 | false | The native point reference is not known on this target. |
 | `rollback_no_op` | 5 | false | The rollback target is already current or requires no changes. |
+| `native_capture_verification_refused` | 1 | false | Native capture remote verification refused. |
+| `native_capture_source_refused` | 1 | false | Native capture source recheck refused. |
+| `native_capture_live_refused` | 1 | false | Native capture live engine recheck refused. |
+| `native_capture_candidate_refused` | 1 | false | Native capture module recheck refused. |
+| `native_capture_commit_refused` | 1 | false | Native capture verified point commit refused. |
 | `internal_error` | 1 | false | The operation failed. |
 | `invalid_usage` | 2 | false | Invalid command or arguments. Use --help for usage. |
 | `dependency_missing` | 3 | false | A required dependency is missing or incompatible. |
@@ -1758,11 +1763,15 @@ their canonical bytes.
 
 Native recovery inventory excludes only pinned-layout, runner-owned mode-0600,
 single-link `<20-digit-offset>.stdb.ofs` files in the sole replica's `clog`
-directory when the same offset has a supported nonempty `.stdb.log`. The full
-source seal still includes the offset index. It is an optional upstream seek
-index, not selected recovery data. Orphan, malformed, unknown or unsafe entries
-retain the existing refusal behavior; log-tail and snapshot selection limits
-are unchanged.
+directory when the same offset has a supported nonempty `.stdb.log`. A stopped
+full-source seal still includes the offset index. An online copy omits these
+same qualified indexes because the engine updates their fixed-size contents
+in place. The online census still requires exact index metadata, including
+ownership, file identity, mount, mode, link count and size. Captured checkpoint
+and native history prefixes remain hashed through held and fresh descriptors.
+The index is an optional upstream seek optimization, not selected recovery
+data. Orphan, malformed, unknown or unsafe entries retain the existing refusal
+behavior; log-tail and snapshot selection limits are unchanged.
 
 Native evidence binds the exact limits issued to its reader. Live output must
 match that request. Revalidation of opaque evidence keeps those same limits;
@@ -1820,3 +1829,12 @@ omission means empty rows; a missing populated side still refuses as an orphan.
 No retry, join, intersection or truncation repairs inconsistent data. New
 observations record `confirmed_subscription_lower_bound`; retained historical
 SQL records keep their original basis and canonical bytes.
+
+Native capture failures after upload carry a fixed closed code for remote
+verification, source recheck, live engine recheck, module recheck or verified
+point commit. Post-verification checks run in that order and stop at the first
+refusal. Codes contain no subprocess output, row, credential, path or identifier;
+underlying errors remain wrapped for internal cause/cancellation handling.
+Unknown upload results and retained workspaces keep their existing recovery
+requirements. Original backup resolution uses the same verification and commit
+codes while adopting retained evidence without another upload.

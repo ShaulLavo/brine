@@ -862,6 +862,18 @@ of orphan/malformed/unknown members. This does not classify the actual native
 publication. The protected reader image is separately confirmed absent; its
 existing reviewed pin still governs dependency setup.
 
+Both architecture source48 continuing captures later reached remote verification
+but refused the final online source check. One admitted Pi source-only copy
+reproduced the first failure after a write inside the fixed-size `.stdb.ofs`
+prefix. Its source census and file metadata still matched. Online copies now
+omit only the same qualified index as inventory and retain exact census metadata
+checks for it. A real-file regression fails before the fix when that index
+changes in place, then passes with the index absent from the copy. Native log
+rewrite, unknown or orphan index, cache size/replacement/alias, missing sibling,
+and unsafe identity/sibling cases still refuse. This regression proves the
+boundary; a successful ordinary continuing-write capture requires new physical
+acceptance after paired delivery.
+
 ### Retained evidence keeps issued reader limits
 
 The actual CLI32 resolver's reader succeeded and was disposed, while its
@@ -1055,3 +1067,25 @@ request/query IDs, deletes, invalid counts, binary frames, denial and deadlines.
 Registered default-column rows require the qualified rating value7; arbitrary
 extra fields refuse. Empty-table omission follows the pinned engine protocol.
 The legacy SQL fixture remains historical decoding evidence only.
+
+### Interrupted native task reconciliation
+
+Public reconciliation records an unknown `recovery_required` task outcome
+atomically with the terminal state through the existing task completion API.
+Only a preflight task whose operation unit is settled absent/dead with a known
+empty manager queue is terminalized. Active, transitional and unreadable unit or
+queue observations preserve the nonterminal task. Native input, preparation
+proofs and held fences remain unchanged; repeated reconciliation cannot replace
+a terminal outcome. Real Store/public job-runner regression checks that a stopped
+original preparation can open the existing backup inspector afterwards. Unknown
+capture tasks without retained upload proof still refuse inspection. These local
+checks do not establish a physical fault drill or verified remote recovery.
+
+### Capture completion refusal boundaries
+
+Focused tests exercise source, live-process and module rechecks in order, fixed
+non-retryable error envelopes, preserved causes/cancellation and strict failed
+task outcomes. Every code refuses a successful outcome or extra diagnostic text.
+Remote verification and point commit refusal use those same closed codes in the
+original-operation resolver. These diagnostics grant no recovery authority and
+change no capture/workspace/point admission guard.

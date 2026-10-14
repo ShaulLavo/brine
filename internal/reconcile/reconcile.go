@@ -12,6 +12,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/systemd"
 )
 
@@ -27,6 +28,7 @@ type Store interface {
 	LoadPlan(context.Context, string) (plan.Plan, policy.Desired, error)
 	AppendEvent(context.Context, string, ops.Event) (uint64, error)
 	TransitionOperation(context.Context, string, ops.State, ops.State) error
+	CompleteTask(context.Context, string, ops.State, ops.TaskOutcome) error
 }
 type RunnerInspector interface {
 	Show(context.Context, systemd.Unit) (systemd.Properties, error)
@@ -197,6 +199,10 @@ func (r Reconciler) reconcileUnderLocks(ctx context.Context, lock, launch ops.Lo
 					return report, err
 				}
 				outcome.After = current.State
+			} else if op.Kind.IsTask() && op.State == ops.Preflight {
+				if err := r.Store.CompleteTask(ctx, op.ID, outcome.After, ops.TaskOutcome{Error: result.RecoveryRequired}); err != nil {
+					return report, err
+				}
 			} else {
 				payload, _ := json.Marshal(ops.FailurePayload{Code: outcome.Code})
 				if _, err := r.Store.AppendEvent(ctx, op.ID, ops.Event{Kind: "failure", Payload: payload}); err != nil {
@@ -250,7 +256,14 @@ func (r Reconciler) inspect(ctx context.Context, op ops.Operation) (Outcome, *co
 		return out, nil, nil
 	}
 	dead := absent || showErr == nil && pendingErr == nil && !pending && (properties.ActiveState == "inactive" && properties.SubState == "dead" || properties.ActiveState == "failed" && properties.SubState == "failed" || properties.ActiveState == "active" && properties.SubState == "exited")
+	if op.Kind.IsTask() && op.State == ops.Preflight && (!dead || pendingErr != nil) {
+		out.After, out.Action, out.Code = op.State, "unchanged", ""
+		return out, nil, nil
+	}
 	if !dead {
+		return out, nil, nil
+	}
+	if op.Kind.IsTask() && op.State == ops.Preflight {
 		return out, nil, nil
 	}
 	events, err := r.events(ctx, op.ID)

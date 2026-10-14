@@ -350,7 +350,7 @@ func (o nativeBackupResolutionOperations) adopt(ctx context.Context, i *store.Na
 	}
 	point, err := capture.Complete(ctx, v.extracted, v.observation)
 	if err != nil {
-		return nil, err
+		return nil, result.New(result.NativeCaptureCommitRefused, err)
 	}
 	backup, err := o.service.Store.ReadNativeBackupPolicy(ctx, point.BindingID)
 	checkpoint, _, _ := v.retained.Source.Initialized()
@@ -447,7 +447,7 @@ func (o nativeBackupResolutionOperations) inspectUpload(ctx context.Context, i *
 		}
 		evidence, disposal, err := o.runtime.verifyExtracted(ctx, v.extracted, v.parent, v.path, checkpoint, selection, v.retained.SourceEvidence, schema, v.retained.ConfirmedBound, v.retained.FinalPairs)
 		if err != nil {
-			return err
+			return result.New(result.NativeCaptureVerifyRefused, err)
 		}
 		v.observation.RestoredEvidence = evidence
 		v.observation.ReaderNonce = disposal.nonce

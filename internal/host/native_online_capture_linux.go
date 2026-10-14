@@ -92,6 +92,9 @@ func captureNativeOnlineCopy(ctx context.Context, permit store.EnginePermit, par
 		if member.Mode&unix.S_IFMT != unix.S_IFREG || !nativeCheckpointMember(member.Name) && !nativeCaptureHistoryMember(member.Name) {
 			continue
 		}
+		if nativeOnlineOffsetCacheMember(member, copy.before) {
+			continue
+		}
 		if err := copy.copyMember(ctx, member); err != nil {
 			return nil, err
 		}
@@ -166,18 +169,21 @@ func nativeOnlineCensusMatches(before, after engineOnlineCensus) bool {
 		return false
 	}
 	for i, original := range before.members {
-		actual := after.members[i]
-		if nativeCaptureHistoryMember(original.Name) && original.Mode&unix.S_IFMT == unix.S_IFREG {
-			if !enginePrefixMetadata(actual, original, original.Size) {
-				return false
-			}
-			continue
-		}
-		if actual != original {
+		if !nativeOnlineMemberMatches(original, after.members[i], before) {
 			return false
 		}
 	}
 	return true
+}
+
+func nativeOnlineMemberMatches(original, actual engineTreeMember, census engineOnlineCensus) bool {
+	if nativeOnlineOffsetCacheMember(original, census) {
+		return actual == original
+	}
+	if nativeCaptureHistoryMember(original.Name) && original.Mode&unix.S_IFMT == unix.S_IFREG {
+		return enginePrefixMetadata(actual, original, original.Size)
+	}
+	return actual == original
 }
 
 func nativeOnlineCaptureTask(service Service, runtime nativeBackupRuntime) jobs.TaskHandler {
@@ -313,13 +319,16 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	}
 	defer func() { _ = extracted.Root().Close() }()
 	restored, remoteDisposal, err := runtime.verifyExtracted(ctx, extracted, parent, path, checkpoint, selection, witness, module.candidate.candidate.Schema(), confirmed, final)
-	if err != nil || copied.unchanged(ctx) != nil || live.alive() != nil || module.candidate.unchanged(ctx) != nil {
-		return nil, errEngineSource
+	if err != nil {
+		return nil, result.New(result.NativeCaptureVerifyRefused, err)
+	}
+	if err = checkNativeCapturePostVerification(ctx, copied, live, module.candidate); err != nil {
+		return nil, err
 	}
 	_ = disposal
 	point, err := claim.Complete(ctx, extracted, store.NativePreparedObservation{Parent: parent, Source: source, Manifest: bundle.Manifest(), Transport: transport, SourceEvidence: witness, RestoredEvidence: restored, ConfirmedBound: confirmed, FinalPairs: final, Artifact: artifact.Bytes(), Descriptor: module.descriptor, ReaderNonce: remoteDisposal.nonce, ReaderViewSHA256: remoteDisposal.viewHash, ReaderImageID: remoteDisposal.imageID, ReaderDisposedAt: remoteDisposal.at})
 	if err != nil {
-		return nil, err
+		return nil, result.New(result.NativeCaptureCommitRefused, err)
 	}
 	retainWorkspace = false
 	backup, err := service.Store.ReadNativeBackupPolicy(ctx, point.BindingID)
@@ -396,4 +405,17 @@ func readNativeOnlineCopy(ctx context.Context, runtime nativeBackupRuntime, copi
 		return nativeevidence.Evidence{}, nativeDisposal{}, err
 	}
 	return evidence, disposal, nil
+}
+
+func checkNativeCapturePostVerification(ctx context.Context, copied *nativeOnlineCopy, live *engineNativeHandle, candidate extractedPublicationCandidate) error {
+	if err := copied.unchanged(ctx); err != nil {
+		return result.New(result.NativeCaptureSourceRefused, err)
+	}
+	if err := live.alive(); err != nil {
+		return result.New(result.NativeCaptureLiveRefused, err)
+	}
+	if err := candidate.unchanged(ctx); err != nil {
+		return result.New(result.NativeCaptureCandidateRefused, err)
+	}
+	return nil
 }
