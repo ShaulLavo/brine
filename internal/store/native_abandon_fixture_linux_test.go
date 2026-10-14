@@ -423,7 +423,7 @@ func TestNativeAbandonExpectedBindsPublicPointHash(t *testing.T) {
 	}
 }
 
-func TestNativeAbandonRejectsQueuedPolicyDrift(t *testing.T) {
+func TestNativeAbandonRejectsQueuedAdmissionDrift(t *testing.T) {
 	fixture := newNativeAbandonFixture(t)
 	var version int
 	if err := fixture.state.db.QueryRowContext(t.Context(), "SELECT max(version) FROM data_admissions WHERE database_id=?", fixture.point.DatabaseID).Scan(&version); err != nil {

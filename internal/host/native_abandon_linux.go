@@ -42,9 +42,8 @@ func nativeAbandonTask(service Service, runtime nativeBackupRuntime) jobs.TaskHa
 		if err != nil {
 			return nil, err
 		}
-		policyValue, err := service.Policy.Load(ctx)
-		if err != nil || policyValue.Hash() != "sha256:"+expected.Point.PolicySHA256 {
-			return nil, result.New(result.PolicyRefused, err)
+		if err := checkNativeAbandonPolicy(ctx, service, expected.Point.PolicySHA256); err != nil {
+			return nil, err
 		}
 		observed, err := observeNativeAbandonment(ctx, service, runtime, abandonment)
 		if err != nil {
@@ -97,9 +96,8 @@ func observeNativeAbandonment(ctx context.Context, service Service, runtime nati
 	if err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
-	policyValue, err := service.Policy.Load(ctx)
-	if err != nil || policyValue.Hash() != "sha256:"+finalExpected.Point.PolicySHA256 {
-		return store.NativeAbandonObservation{}, result.New(result.PolicyRefused, err)
+	if err := checkNativeAbandonPolicy(ctx, service, finalExpected.Point.PolicySHA256); err != nil {
+		return store.NativeAbandonObservation{}, err
 	}
 	routeHash := sha256.Sum256(routeBytes)
 	return store.NativeAbandonObservation{Stop: stop, SourceSHA256: point.SourceSealSHA256, CodeSHA256: expected.CodeSHA256, RoutesSHA256: hex.EncodeToString(routeHash[:]), Directory: data.EngineDirectoryIdentity{Device: seal.root.Device, Inode: seal.root.Inode}, CheckpointSHA: expected.Point.CheckpointSHA256, ObservedAt: time.Now().UTC()}, nil
@@ -167,6 +165,14 @@ func verifyNativeAbandonCode(ctx context.Context, runtime nativeBackupRuntime, a
 	state, err := client.ContainerState(ctx, name)
 	if !managedFrontendStopped(state, err) {
 		return errEngineSource
+	}
+	return nil
+}
+
+func checkNativeAbandonPolicy(ctx context.Context, service Service, expected string) error {
+	current, err := service.Policy.Load(ctx)
+	if err != nil || current.Hash() != "sha256:"+expected {
+		return result.New(result.PolicyRefused, err)
 	}
 	return nil
 }
