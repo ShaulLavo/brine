@@ -273,3 +273,33 @@ func TestNativeAbandonCompleteRollsBackFenceFailure(t *testing.T) {
 		t.Fatal("desired state changed after rollback", current, err)
 	}
 }
+
+func TestNativeAbandonRejectsStopDriftAndRepeatCompletion(t *testing.T) {
+	fixture := newNativeAbandonFixture(t)
+	cap, observed := fixture.open(t)
+	drift := observed
+	drift.Stop.FinishedAt = drift.Stop.FinishedAt.Add(time.Second)
+	if _, err := fixture.state.CompleteNativeAbandonment(t.Context(), cap, drift); err == nil {
+		t.Fatal("stop drift admitted")
+	}
+	if _, err := fixture.state.CompleteNativeAbandonment(t.Context(), cap, observed); err != nil {
+		t.Fatal("first completion", err)
+	}
+	if _, err := fixture.state.CompleteNativeAbandonment(t.Context(), cap, observed); err == nil {
+		t.Fatal("repeat completion admitted")
+	}
+}
+
+func TestNativeAbandonRejectsCheckpointProvenanceDrift(t *testing.T) {
+	fixture := newNativeAbandonFixture(t)
+	var raw []byte
+	if err := fixture.state.db.QueryRowContext(t.Context(), "SELECT provenance FROM data_native_checkpoints WHERE binding_id=? AND epoch_id=? AND generation_id=?", fixture.point.BindingID, fixture.point.EpochID, fixture.point.GenerationID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	raw[10] = 'x'
+	abandonExec(t, fixture.state.db, "DROP TRIGGER data_native_checkpoints_no_update")
+	abandonExec(t, fixture.state.db, "UPDATE data_native_checkpoints SET provenance=? WHERE binding_id=? AND epoch_id=? AND generation_id=?", raw, fixture.point.BindingID, fixture.point.EpochID, fixture.point.GenerationID)
+	if _, err := fixture.state.OpenNativeAbandonment(t.Context(), fixture.operation.ID); err == nil {
+		t.Fatal("provenance drift admitted")
+	}
+}
