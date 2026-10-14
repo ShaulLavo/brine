@@ -1763,11 +1763,15 @@ their canonical bytes.
 
 Native recovery inventory excludes only pinned-layout, runner-owned mode-0600,
 single-link `<20-digit-offset>.stdb.ofs` files in the sole replica's `clog`
-directory when the same offset has a supported nonempty `.stdb.log`. The full
-source seal still includes the offset index. It is an optional upstream seek
-index, not selected recovery data. Orphan, malformed, unknown or unsafe entries
-retain the existing refusal behavior; log-tail and snapshot selection limits
-are unchanged.
+directory when the same offset has a supported nonempty `.stdb.log`. A stopped
+full-source seal still includes the offset index. An online copy omits these
+same qualified indexes because the engine updates their fixed-size contents
+in place. The online census still requires exact index metadata, including
+ownership, file identity, mount, mode, link count and size. Captured checkpoint
+and native history prefixes remain hashed through held and fresh descriptors.
+The index is an optional upstream seek optimization, not selected recovery
+data. Orphan, malformed, unknown or unsafe entries retain the existing refusal
+behavior; log-tail and snapshot selection limits are unchanged.
 
 Native evidence binds the exact limits issued to its reader. Live output must
 match that request. Revalidation of opaque evidence keeps those same limits;

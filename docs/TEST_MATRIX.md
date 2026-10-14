@@ -862,6 +862,18 @@ of orphan/malformed/unknown members. This does not classify the actual native
 publication. The protected reader image is separately confirmed absent; its
 existing reviewed pin still governs dependency setup.
 
+Both architecture source48 continuing captures later reached remote verification
+but refused the final online source check. One admitted Pi source-only copy
+reproduced the first failure after a write inside the fixed-size `.stdb.ofs`
+prefix. Its source census and file metadata still matched. Online copies now
+omit only the same qualified index as inventory and retain exact census metadata
+checks for it. A real-file regression fails before the fix when that index
+changes in place, then passes with the index absent from the copy. Native log
+rewrite, unknown or orphan index, cache size/replacement/alias, missing sibling,
+and unsafe identity/sibling cases still refuse. This regression proves the
+boundary; a successful ordinary continuing-write capture requires new physical
+acceptance after paired delivery.
+
 ### Retained evidence keeps issued reader limits
 
 The actual CLI32 resolver's reader succeeded and was disposed, while its
