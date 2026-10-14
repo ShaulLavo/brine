@@ -323,22 +323,34 @@ func TestNativeAbandonOutcomeImmutableJoins(t *testing.T) {
 	if err := json.Unmarshal(outcome.Receipt, &receipt); err != nil {
 		t.Fatal(err)
 	}
-	fields := []string{"preparation_operation_id", "fence_owner_operation_id", "source_seal_sha256", "current_stop_sha256", "current_code_sha256", "current_routes_sha256", "stopped_desired_revision"}
+	fields := []string{"preparation_operation_id", "fence_owner_operation_id", "binding_id", "source_seal_sha256", "current_stop_sha256", "current_code_sha256", "current_routes_sha256", "stopped_desired_revision"}
 	for _, field := range fields {
 		t.Run(field, func(t *testing.T) {
 			mutated := map[string]any{}
 			for key, value := range receipt {
 				mutated[key] = value
 			}
-			mutated[field] = "foreign"
+			mutated[field] = "foreign-operation"
+			if field == "binding_id" {
+				mutated[field] = strings.Repeat("f", 32)
+			}
+			if strings.HasSuffix(field, "sha256") {
+				mutated[field] = strings.Repeat("f", 64)
+			}
 			if field == "stopped_desired_revision" {
-				mutated[field] = float64(99)
+				mutated[field] = float64(1)
 			}
 			changedReceipt, _ := json.Marshal(mutated)
 			outcome.Receipt = changedReceipt
 			changed, _ := json.Marshal(outcome)
 			abandonExec(t, fixture.state.db, "DROP TRIGGER operation_outcomes_immutable")
 			abandonExec(t, fixture.state.db, "UPDATE operation_outcomes SET canonical=? WHERE operation_id=?", changed, fixture.operation.ID)
+			oldReader := outcome
+			var opRecord ops.Operation
+			opRecord, _ = fixture.state.GetOperation(t.Context(), fixture.operation.ID)
+			if !oldReader.Valid(opRecord) {
+				t.Fatal("mutation did not remain a valid generic outcome")
+			}
 			if _, err := fixture.state.ReadNativeAbandonmentOutcome(t.Context(), fixture.operation.ID); err == nil {
 				t.Fatal("mutated receipt admitted")
 			}
