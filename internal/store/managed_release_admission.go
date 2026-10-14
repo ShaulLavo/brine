@@ -11,9 +11,12 @@ import (
 )
 
 func admitManagedRelease(ctx context.Context, tx *sql.Tx, p plan.Plan, r Release) error {
+	return admitManagedOwnedRelease(ctx, tx, p, r, false)
+}
+func admitManagedOwnedRelease(ctx context.Context, tx *sql.Tx, p plan.Plan, r Release, recovered bool) error {
 	var operationPlan, app string
 	var state ops.State
-	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", r.ID).Scan(&operationPlan, &app, &state); err != nil || operationPlan != p.Hash || app != p.App || state != ops.Committing {
+	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", r.ID).Scan(&operationPlan, &app, &state); err != nil || operationPlan != p.Hash || app != p.App || state != ops.Committing && !(recovered && state == ops.RecoveryRequired) {
 		return ErrConflict
 	}
 	m := p.Managed
@@ -34,7 +37,11 @@ func admitManagedRelease(ctx context.Context, tx *sql.Tx, p plan.Plan, r Release
 		return ErrConflict
 	}
 	if m.Frontend != nil {
-		frontend, err := readManagedFrontendPermit(ctx, tx, p.App)
+		record, err := readManagedFrontendRecord(ctx, tx, p.App)
+		frontend := record.Resolution
+		if !recovered {
+			frontend, err = readManagedFrontendPermit(ctx, tx, p.App)
+		}
 		if err != nil || frontend.Permit.OperationID != r.ID || frontend.Permit.PlanID != p.Hash || frontend.Permit.UnitHash != r.Managed.Frontend.Unit.Hash {
 			return ErrConflict
 		}

@@ -23,6 +23,15 @@ func (e *Executor) inspectManagedInitialized(ctx context.Context, op Operation, 
 	if p.Lifecycle != "" {
 		return e.inspectManagedLifecycle(ctx, op, p, d, events, r)
 	}
+	if last, valid := ops.ManagedCreateRecoveryPrefix(events, p); valid {
+		_, exists, err := e.Releases.CurrentRelease(ctx, p.App)
+		if err != nil {
+			return r, err
+		}
+		if !exists && (last.Step == "managed_route_check" || last.Outcome != "completed") {
+			return e.inspectManagedRoute(ctx, op, p, d, last, r)
+		}
+	}
 	last, valid := managedInitializedPrefix(events, p)
 	r.Step = last.Step
 	if !valid || last.Step != "managed_commit" || p.Lifecycle != "" {
@@ -120,7 +129,7 @@ func managedRecoveryFrontendImage(facts Facts, p plan.Plan) bool {
 		if app.Name != p.App {
 			continue
 		}
-		return app.Image.Status == target.KnownStatus && app.Image.Value != nil && app.Image.Value.Digest == p.Managed.Frontend.Image.Digest && app.AllocatedHostPort.Status == target.KnownStatus && app.AllocatedHostPort.Value != nil && *app.AllocatedHostPort.Value == p.Managed.Frontend.Port
+		return app.Image.Status == target.KnownStatus && app.Image.Value != nil && app.Image.Value.Digest == p.Managed.Frontend.Image.Digest && app.Image.Value.Platform == p.Managed.Frontend.Image.Platform && app.AllocatedHostPort.Status == target.KnownStatus && app.AllocatedHostPort.Value != nil && *app.AllocatedHostPort.Value == p.Managed.Frontend.Port
 	}
 	return false
 }

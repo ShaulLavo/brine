@@ -353,6 +353,9 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 	}
 	switch r.Action {
 	case ResumeForward:
+		if x.managedRouteOwner != "" {
+			return x.finishManagedRoute(ctx, r)
+		}
 		if x.plan.Lifecycle == plan.ReviseReplica {
 			return x.reviseReplica(ctx, r.completed)
 		}

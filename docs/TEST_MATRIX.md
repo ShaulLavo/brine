@@ -994,3 +994,22 @@ backup policy's original epoch. It refuses stale epochs, crossed bindings,
 changed program/Wasm/schema/image identities, secret roles, roots and missing
 artifacts. The lease requires an actual held preparation before any effect.
 Existing descriptor process/image/mount and disposal tests remain required.
+
+### Managed create recovery after route publication
+
+A create operation whose exact forward journal completes route publication and
+its protected receipt can finish an interrupted read-only route check through
+ordinary inspect/resolve. Recovery proves current policy, target, runtime,
+fences, installed frontend ownership, loaded routing and the original generation
+plus exactly its desired-state and route receipts. It probes direct and routed
+health, then commits the original artifacts under a claimed resolver. It never
+repeats image pulls, staging, binding, starts, stops, reloads or route publication.
+The original failed receipt stays recovery-required; the original frontend
+permit gains serving authority only after the resolver succeeds with the joined
+release proof. Unknown earlier effects, foreign owners, stale generations,
+changed artifacts, unhealthy or stopped frontends and current fences refuse.
+
+Local executor and actual Store integration tests cover these rules, including a
+change between health and commit. This is not physical deployment evidence.
+A frontend stopped by a later host shutdown still requires a separately reviewed
+start path; this read-only continuation does not grant one.
