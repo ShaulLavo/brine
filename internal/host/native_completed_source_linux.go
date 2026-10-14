@@ -20,7 +20,7 @@ func reopenNativeCheckpoint(ctx context.Context, state *store.Store, stopped *st
 	}
 	bundle, err := state.ReadNativePreparedBundle(ctx, stopped)
 	checkpoint, _, initialized := bundle.Source().Initialized()
-	if err != nil || !initialized || bundle.Point().SourceSealSHA256 != copied.original.hash {
+	if err != nil || !initialized || !engineSourceSealMatches(copied.original, bundle.Point().SourceSealSHA256) {
 		return engineSealedCheckpoint{}, errEngineSource
 	}
 	permit, err := state.ReadNativeStoppedPermit(ctx, stopped)
@@ -43,7 +43,7 @@ func reopenNativeEmptySource(ctx context.Context, state *store.Store, stateRoot 
 	}
 	bundle, err := state.ReadNativePreparedBundle(ctx, stopped)
 	empty, valid := bundle.Source().Empty()
-	if err != nil || !valid || bundle.Point().SourceSealSHA256 != fresh.original.hash || !nativeCheckpointMatchesSeal(empty.Members, fresh.original) || empty.PublisherReference != fresh.permit.Runtime.Secrets.Publisher.Reference || empty.SigningRecovery.Reference != fresh.permit.Runtime.Secrets.SigningPrivate.Reference || empty.SigningRecovery.Version != fresh.permit.Runtime.Secrets.SigningPrivate.Version || empty.SigningRecovery.SHA256 != fresh.permit.Runtime.Secrets.SigningPrivate.SHA256 {
+	if err != nil || !valid || !engineSourceSealMatches(fresh.original, bundle.Point().SourceSealSHA256) || !nativeCheckpointMatchesSeal(empty.Members, fresh.original) || empty.PublisherReference != fresh.permit.Runtime.Secrets.Publisher.Reference || empty.SigningRecovery.Reference != fresh.permit.Runtime.Secrets.SigningPrivate.Reference || empty.SigningRecovery.Version != fresh.permit.Runtime.Secrets.SigningPrivate.Version || empty.SigningRecovery.SHA256 != fresh.permit.Runtime.Secrets.SigningPrivate.SHA256 {
 		return engineEmptySource{}, errEngineSource
 	}
 	fresh.source = bundle.Source()

@@ -49,7 +49,7 @@ func (o nativeBackupResolutionOperations) inspectPreparedOriginal(ctx context.Co
 		return err
 	}
 	seal, err := sealOwnedEngineSource(ctx, source, engineCopyLimits{Bytes: 64 << 20, Files: 16384, Depth: 16})
-	if err != nil || seal.hash != retained.SourceSealSHA256 {
+	if err != nil || !engineSourceSealMatches(seal, retained.SourceSealSHA256) {
 		return errEngineSource
 	}
 	return nil
@@ -96,7 +96,7 @@ func (o nativeBackupResolutionOperations) inspectStoppedUnpublished(ctx context.
 	if err != nil || expected.Permit.Allocation == nil || seal.root.Device != expected.Permit.Allocation.DirectoryDevice || seal.root.Inode != expected.Permit.Allocation.DirectoryInode || !engineModuleHTTPDisabled(source) {
 		return errEngineSource
 	}
-	if expected.InitialOwner != nil && expected.InitialOwner.SourceSealSHA256 != seal.hash {
+	if expected.InitialOwner != nil && !engineSourceSealMatches(seal, expected.InitialOwner.SourceSealSHA256) {
 		return errEngineSource
 	}
 	if expected.InitialOwner != nil {
