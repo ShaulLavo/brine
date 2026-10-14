@@ -32,11 +32,11 @@ func TestNativeAbandonRechecksLivePolicyWithoutAdmissionChange(t *testing.T) {
 		t.Fatal("policy fixture did not change", err)
 	}
 	loader.p = changed
-	if err := checkNativeAbandonPolicy(t.Context(), service, pointPolicy); result.Classify(err).Code() != result.PolicyRefused {
+	if err := checkNativeAbandonPolicy(t.Context(), service, pointPolicy); err == nil || result.Classify(err).Code() != result.PolicyRefused {
 		t.Fatal("changed live policy admitted with original point policy", err)
 	}
 	loader.p, loader.err = original, errors.New("policy unreadable")
-	if err := checkNativeAbandonPolicy(t.Context(), service, pointPolicy); result.Classify(err).Code() != result.PolicyRefused {
+	if err := checkNativeAbandonPolicy(t.Context(), service, pointPolicy); err == nil || result.Classify(err).Code() != result.PolicyRefused {
 		t.Fatal("unreadable policy admitted", err)
 	}
 }
