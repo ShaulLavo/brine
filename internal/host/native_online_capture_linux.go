@@ -92,6 +92,9 @@ func captureNativeOnlineCopy(ctx context.Context, permit store.EnginePermit, par
 		if member.Mode&unix.S_IFMT != unix.S_IFREG || !nativeCheckpointMember(member.Name) && !nativeCaptureHistoryMember(member.Name) {
 			continue
 		}
+		if nativeOnlineOffsetCacheMember(member, copy.before) {
+			continue
+		}
 		if err := copy.copyMember(ctx, member); err != nil {
 			return nil, err
 		}
@@ -166,18 +169,21 @@ func nativeOnlineCensusMatches(before, after engineOnlineCensus) bool {
 		return false
 	}
 	for i, original := range before.members {
-		actual := after.members[i]
-		if nativeCaptureHistoryMember(original.Name) && original.Mode&unix.S_IFMT == unix.S_IFREG {
-			if !enginePrefixMetadata(actual, original, original.Size) {
-				return false
-			}
-			continue
-		}
-		if actual != original {
+		if !nativeOnlineMemberMatches(original, after.members[i], before) {
 			return false
 		}
 	}
 	return true
+}
+
+func nativeOnlineMemberMatches(original, actual engineTreeMember, census engineOnlineCensus) bool {
+	if nativeOnlineOffsetCacheMember(original, census) {
+		return actual == original
+	}
+	if nativeCaptureHistoryMember(original.Name) && original.Mode&unix.S_IFMT == unix.S_IFREG {
+		return enginePrefixMetadata(actual, original, original.Size)
+	}
+	return actual == original
 }
 
 func nativeOnlineCaptureTask(service Service, runtime nativeBackupRuntime) jobs.TaskHandler {

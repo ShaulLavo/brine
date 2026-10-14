@@ -66,6 +66,19 @@ func nativeOffsetCacheMember(member engineTreeMember, prefix string, seal engine
 	return false
 }
 
+func nativeOnlineOffsetCacheMember(member engineTreeMember, census engineOnlineCensus) bool {
+	if !strings.HasSuffix(member.Name, ".stdb.ofs") {
+		return false
+	}
+	metadata := engineTreeSeal{root: census.root, members: census.members}
+	replica, err := nativeSoleReplica(metadata)
+	if err != nil {
+		return false
+	}
+	prefix := "replicas/" + strconv.FormatUint(replica, 10) + "/"
+	return nativeOffsetCacheMember(member, prefix, metadata)
+}
+
 func nativeSoleReplica(seal engineTreeSeal) (uint64, error) {
 	var replica uint64
 	found := false
