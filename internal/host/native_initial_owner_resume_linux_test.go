@@ -63,6 +63,18 @@ func initialOwnerResumeFixture(t *testing.T) (*nativePrepareWork, nativeMaterial
 	return w, f, owner
 }
 
+func TestNativePreparedSourceSealPreservesRetainedOwnerDigest(t *testing.T) {
+	original := engineTreeSeal{hash: strings.Repeat("a", 64)}
+	if got := nativePreparedSourceSeal(original, nil); got != engineSourceSealDigest(original) {
+		t.Fatalf("new prepared source seal = %q, want transition digest", got)
+	}
+	legacy := strings.Repeat("b", 64)
+	owner := &store.NativeInitialOwnerObservation{SourceSealSHA256: legacy}
+	if got := nativePreparedSourceSeal(original, owner); got != legacy {
+		t.Fatalf("retained owner source seal = %q, want recorded digest", got)
+	}
+}
+
 func TestRetainedInitialOwnerReopensExactSourceWithoutNativeHelper(t *testing.T) {
 	w, _, owner := initialOwnerResumeFixture(t)
 	ctx := context.Background()

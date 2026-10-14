@@ -435,7 +435,8 @@ func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source native
 		return store.NativePreparedPointView{}, err
 	}
 	defer func() { _ = bundle.Close() }()
-	if err := w.runtime.state.RecordNativePreparedUploadIntent(ctx, w.stopped, source, bundle.Manifest(), store.NativeUploadRetention{Parent: w.parent, Workspace: w.path, SourceSealSHA256: engineSourceSealDigest(w.copied.original), SourceEvidence: evidence, ConfirmedBound: w.confirmed, FinalPairs: final, Artifact: w.module.artifact.Bytes(), Descriptor: w.module.descriptor}); err != nil {
+	sourceSeal := nativePreparedSourceSeal(w.copied.original, w.retainedOwner)
+	if err := w.runtime.state.RecordNativePreparedUploadIntent(ctx, w.stopped, source, bundle.Manifest(), store.NativeUploadRetention{Parent: w.parent, Workspace: w.path, SourceSealSHA256: sourceSeal, SourceEvidence: evidence, ConfirmedBound: w.confirmed, FinalPairs: final, Artifact: w.module.artifact.Bytes(), Descriptor: w.module.descriptor}); err != nil {
 		return store.NativePreparedPointView{}, err
 	}
 	w.retainWorkspace = true
@@ -448,7 +449,7 @@ func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source native
 		return store.NativePreparedPointView{}, err
 	}
 	defer func() { _ = extracted.Root().Close() }()
-	observation := store.NativePreparedObservation{Parent: w.parent, Source: source, Manifest: bundle.Manifest(), Transport: transport, SourceSealSHA256: engineSourceSealDigest(w.copied.original), SourceEvidence: evidence, ConfirmedBound: w.confirmed, FinalPairs: final, Artifact: w.module.artifact.Bytes(), Descriptor: w.module.descriptor}
+	observation := store.NativePreparedObservation{Parent: w.parent, Source: source, Manifest: bundle.Manifest(), Transport: transport, SourceSealSHA256: sourceSeal, SourceEvidence: evidence, ConfirmedBound: w.confirmed, FinalPairs: final, Artifact: w.module.artifact.Bytes(), Descriptor: w.module.descriptor}
 	if checkpoint, selection, initialized := source.Initialized(); initialized {
 		restored, disposal, err := w.runtime.verifyExtracted(ctx, extracted, w.parent, w.path, checkpoint, selection, evidence, w.module.candidate.candidate.Schema(), w.confirmed, final)
 		if err != nil {
@@ -465,6 +466,13 @@ func (w *nativePrepareWork) uploadAndComplete(ctx context.Context, source native
 		w.retainWorkspace = false
 	}
 	return point, err
+}
+
+func nativePreparedSourceSeal(original engineTreeSeal, retainedOwner *store.NativeInitialOwnerObservation) string {
+	if retainedOwner != nil {
+		return retainedOwner.SourceSealSHA256
+	}
+	return engineSourceSealDigest(original)
 }
 
 func (w *nativePrepareWork) maintenanceMillis() uint64 {
