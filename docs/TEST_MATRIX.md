@@ -966,3 +966,12 @@ initialized location and refuses changed binding, epoch, destination or an
 unstripped repository ID. Different prefix, bucket, endpoint, region and path
 mode each refuse admission. The opaque initialization and creation-grant checks
 remain required in both transition claims.
+
+### Current module after a publication epoch change
+
+`TestCurrentDescriptorUsesSuccessorPermitAndExactCurrentArtifact` accepts an
+initialized successor permit with the exact current artifact, independent of the
+backup policy's original epoch. It refuses stale epochs, crossed bindings,
+changed program/Wasm/schema/image identities, secret roles, roots and missing
+artifacts. The lease requires an actual held preparation before any effect.
+Existing descriptor process/image/mount and disposal tests remain required.

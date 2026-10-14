@@ -1797,3 +1797,12 @@ trailing slash; the transport location omits that delimiter before hashing.
 Binding, incoming epoch, exact destination and original creation grant still
 must match. A different prefix, bucket, endpoint, region or path mode refuses
 transition admission.
+
+Current-module extraction for online capture and initialized exact preparation
+binds the current committed engine permit under its held preparation guard.
+It verifies the exact current Wasm and native program identities before staging,
+then inspects the pinned runtime image and checks the extracted current schema.
+The inherited backup policy keeps its original deployment-plan identity and
+cannot select the current extraction epoch. Candidate publication extraction
+continues to require its reviewed deployment plan; current-source extraction
+grants no candidate publication or writer start authority.
