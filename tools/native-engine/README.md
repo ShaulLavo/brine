@@ -39,7 +39,13 @@ unshare --user --map-root-user --net -- sh -c '
 The runner creates fresh private signing keys and a disposable database, checks
 confirmed `schema_marker` and `sequence_state` rows, requires SIGINT exit zero,
 then immediately reopens and compares database identity, schema, program and
-rows. It stops its owned processes and removes its keys and database on success,
+rows. Schema comparison orders only whole `Types`, `Tables` and
+`ExplicitNames.entries` declarations. The pinned upstream schema converter
+emits these collections from unordered maps (`crates/schema/src/def.rs`,
+`From<ModuleDef> for RawModuleDefV10`). All values, duplicate counts, section
+order and positional arrays remain part of equality, including Typespace,
+product fields, index columns and reducer order.
+It stops its owned processes and removes its keys and database on success,
 failure or ordinary interruption. The private results directory retains a
 scrubbed receipt and at most two 64 KiB logs. Its caller owns removal after
 review. This regression does not establish managed restore or R2 delivery.
@@ -49,4 +55,5 @@ Check bundle refusals and archive timestamp restoration without compilation:
 ```sh
 python3 tools/native-engine/verify_bundle_test.py
 python3 tools/native-engine/prepare_test.py
+python3 tools/native-engine/verify_lifecycle_test.py
 ```

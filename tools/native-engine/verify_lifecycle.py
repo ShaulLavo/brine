@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Check a supplied native engine and supplied v1 Wasm in a caller-isolated network."""
 import argparse
+import copy
 import hashlib
 import json
 import os
@@ -27,6 +28,20 @@ def require_isolation():
         raise ValueError('caller must supply a loopback-only network namespace')
     if pathlib.Path('/proc/net/route').read_text().splitlines()[1:]:
         raise ValueError('caller network namespace has an external route')
+
+
+def normalize_schema_declaration_order(schema):
+    """Order only the collections emitted from upstream HashMap iteration."""
+    normalized = copy.deepcopy(schema)
+    key = lambda value: json.dumps(value, sort_keys=True, separators=(',', ':'))
+    for section in normalized['sections']:
+        if 'Types' in section:
+            section['Types'].sort(key=key)
+        if 'Tables' in section:
+            section['Tables'].sort(key=key)
+        if 'ExplicitNames' in section:
+            section['ExplicitNames']['entries'].sort(key=key)
+    return normalized
 
 
 class Probe:
@@ -104,7 +119,7 @@ class Probe:
             if rows[name] != expected:
                 raise ValueError('confirmed fixed fixture rows differ')
         return {'info': info, 'environment': environment, 'rows': rows,
-                'schema': self.request(prefix + '/schema?version=10', token=token),
+                'schema': normalize_schema_declaration_order(self.request(prefix + '/schema?version=10', token=token)),
                 'names': self.request(prefix + '/names', token=token)}
 
     def stop(self, process):
