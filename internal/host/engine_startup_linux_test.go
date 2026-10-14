@@ -384,7 +384,7 @@ func TestEnginePrivateMountContainmentRejectsExtraAndWritableKey(t *testing.T) {
 	if !engineReplayMounts([]byte(raw)) {
 		t.Fatal("fixed mount namespace refused")
 	}
-	for _, attack := range []string{raw + "\n20 0 0:1 / /live rw - ext4 fixture rw", strings.Replace(raw, "/keys/private.pem ro", "/keys/private.pem rw", 1), raw + "\n20 0 0:1 / /run/notify rw - tmpfs fixture rw"} {
+	for _, attack := range []string{raw + "\n20 0 0:1 / /live rw - ext4 fixture rw", strings.Replace(raw, "/keys/private.pem ro", "/keys/private.pem rw", 1), strings.Replace(raw, "/keys/private.pem ro", "/keys/private.pem ro,rw", 1), raw + "\n20 0 0:1 / /run/notify rw - tmpfs fixture rw"} {
 		if engineReplayMounts([]byte(attack)) {
 			t.Fatal("private namespace admitted external mounts or writable key")
 		}

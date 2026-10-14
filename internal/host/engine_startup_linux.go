@@ -172,8 +172,7 @@ func (r *EngineStartupRuntime) verifyEngineStart(ctx context.Context, guard *eng
 		material.clear()
 		return engineStartupProof{}, engineRefusal(engineRefusalNonce, errEngineSource)
 	}
-	staging := filepath.Join(r.stateRoot, "engine-verification")
-	copy, err := copyEngineSource(ctx, permit.Reserved.Database, staging, nonce, engineCopyLimits{Bytes: permit.Runtime.CopyBytes, Files: permit.Runtime.CopyFiles, Depth: 64})
+	copy, err := copyEngineStateSource(ctx, permit.Reserved.Database, r.stateRoot, nonce, engineCopyLimits{Bytes: permit.Runtime.CopyBytes, Files: permit.Runtime.CopyFiles, Depth: 64})
 	if err != nil {
 		material.clear()
 		return engineStartupProof{}, engineRefusal(engineRefusalCopy, err)
