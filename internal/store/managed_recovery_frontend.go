@@ -23,6 +23,14 @@ func managedRecoveryFrontend(ctx context.Context, tx *sql.Tx, record ManagedFron
 	if err != nil || source.Kind != ops.Deploy || source.State != ops.RecoveryRequired || source.PlanID != p.Hash || source.App != p.App {
 		return resolution, false, ErrConflict
 	}
+	var head string
+	headErr := tx.QueryRowContext(ctx, "SELECT current_id FROM release_heads WHERE app=?", p.App).Scan(&head)
+	if headErr == nil {
+		return resolution, false, nil
+	}
+	if !errors.Is(headErr, sql.ErrNoRows) {
+		return resolution, false, headErr
+	}
 	cursor, err := managedCreateCursor(ctx, tx, source.ID, p)
 	if err != nil || cursor.Boundary.Step != "managed_route_check" || cursor.FrontendStart.Step != "" {
 		return resolution, false, err
@@ -38,10 +46,7 @@ func managedRecoveryFrontend(ctx context.Context, tx *sql.Tx, record ManagedFron
 	if err := tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)+(SELECT COUNT(*) FROM data_engine_preparations)+(SELECT COUNT(*) FROM data_engine_desired_states)+(SELECT COUNT(*) FROM data_engine_route_states)").Scan(&generation); err != nil || generation != *p.ObservedGeneration.Value+2 {
 		return resolution, true, ErrConflict
 	}
-	var head string
-	if err := tx.QueryRowContext(ctx, "SELECT current_id FROM release_heads WHERE app=?", p.App).Scan(&head); !errors.Is(err, sql.ErrNoRows) {
-		return resolution, true, ErrConflict
-	}
+
 	if _, err := managedOwnedControl(ctx, tx, p, source.ID); err != nil {
 		return resolution, true, err
 	}
