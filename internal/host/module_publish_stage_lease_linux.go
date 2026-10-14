@@ -57,18 +57,14 @@ func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource,
 	if err != nil || !sameEngineContents(source.original, sealed) {
 		return nil, datapublish.ErrRecord
 	}
-	platform, err := descriptorRuntimePlatform(source.permit.Runtime)
-	if err != nil {
-		return nil, err
-	}
 	if source.initialStage != nil {
 		source.initialStage.failureCode = "image_inspect"
 		if err = source.initialStage.record(ctx, "image_inspect"); err != nil {
 			return nil, err
 		}
 	}
-	image, err := descriptorImage(ctx, images, platform)
-	if err != nil || image.ImageID != source.permit.Runtime.ImageID || image.ManifestDigest != source.permit.Runtime.ManifestDigest {
+	image, err := descriptorImage(ctx, images, source.permit.Runtime)
+	if err != nil {
 		return nil, datapublish.ErrRecord
 	}
 	if source.initialStage != nil {
@@ -131,12 +127,8 @@ func acquireRestoredStage(ctx context.Context, source *nativeRestoredSource, art
 	if err != nil || point.PointSHA256 != source.pointSHA256 || point.BindingID != source.permit.Runtime.BindingID || point.EpochID != source.permit.Runtime.EpochID || point.SourceSHA256 != source.source.SHA256() || point.CheckpointSHA256 != source.checkpointSHA256 || source.manifest.Identity().CheckpointSHA256 != source.checkpointSHA256 || point.BundleManifestSHA256 != source.manifest.SHA256() {
 		return nil, datapublish.ErrRecord
 	}
-	platform, err := descriptorRuntimePlatform(source.permit.Runtime)
+	image, err := descriptorImage(ctx, images, source.permit.Runtime)
 	if err != nil {
-		return nil, err
-	}
-	image, err := descriptorImage(ctx, images, platform)
-	if err != nil || image.ImageID != source.permit.Runtime.ImageID || image.ManifestDigest != source.permit.Runtime.ManifestDigest {
 		return nil, datapublish.ErrRecord
 	}
 	material, err := readEngineMaterial(ctx, source.preparation.StateRoot(), source.permit)

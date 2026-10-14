@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -115,6 +116,9 @@ func (o nativeMaterialOperations) candidate(ctx context.Context, p plan.Plan, d 
 	if !errors.Is(err, store.ErrNotFound) {
 		return data.EngineRuntime{}, err
 	}
+	if !p.Managed.AdmitsNewEngine(string(d.SpacetimeDB.Image)) {
+		return data.EngineRuntime{}, errEngineSource
+	}
 	prepared, err := o.service.Store.ReadManagedPreparation(ctx, p.Managed.Database.BindingID)
 	if err != nil || prepared.PlanID != p.Hash {
 		return data.EngineRuntime{}, errEngineSource
@@ -131,12 +135,13 @@ func (o nativeMaterialOperations) candidate(ctx context.Context, p plan.Plan, d 
 	if metadata == nil || image.ManifestDigest.Value == nil || image.Platform.OS != "linux" {
 		return data.EngineRuntime{}, errEngineSource
 	}
-	index, err := podman.ParseImage(data.SpacetimeDBImage)
+	reference := string(d.SpacetimeDB.Image)
+	index, err := podman.ParseImage(reference)
 	if err != nil {
 		return data.EngineRuntime{}, err
 	}
-	repository := "docker.io/clockworklabs/spacetime@"
-	selected, err := podman.ParseImage(repository + *image.ManifestDigest.Value)
+	repository, _, _ := strings.Cut(reference, "@")
+	selected, err := podman.ParseImage(repository + "@" + *image.ManifestDigest.Value)
 	if err != nil {
 		return data.EngineRuntime{}, err
 	}
@@ -148,11 +153,11 @@ func (o nativeMaterialOperations) candidate(ctx context.Context, p plan.Plan, d 
 		return data.EngineRuntime{}, errors.Join(errEngineSource, err)
 	}
 	observed, err := client.InspectStored(ctx, index, selected)
-	if err != nil || observed.ManifestDigest != *image.ManifestDigest.Value || observed.Platform.OS != image.Platform.OS || observed.Platform.Architecture != image.Platform.Arch {
+	if err != nil || observed.IndexDigest != image.Digest || observed.ManifestDigest != *image.ManifestDigest.Value || observed.Platform.OS != image.Platform.OS || observed.Platform.Architecture != image.Platform.Arch {
 		return data.EngineRuntime{}, errors.Join(errEngineSource, err)
 	}
 	resources := d.SpacetimeDB.Resources
-	runtime := data.EngineRuntime{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, State: data.EngineUnpublished, Image: data.SpacetimeDBImage, ManifestDigest: observed.ManifestDigest, ImageID: observed.ImageID, Version: d.SpacetimeDB.Version, Runtime: d.SpacetimeDB.Runtime, HostPort: prepared.EnginePort, Names: []string{}, Module: data.EngineModuleDefinition{Program: data.NativeProgramWireHash(metadata.RuntimeModuleHash), Wasm: data.WasmSHA256(metadata.WasmSHA256), Schema: data.EngineSchemaDefinition{Marker: d.SpacetimeDB.Module.Marker, Canonicalizer: metadata.Canonicalizer, SHA256: metadata.SchemaSHA256}}, Secrets: nativeMaterialMetadata(d, material, expiry), MemoryMB: resources.MemoryMB, PIDsLimit: resources.PIDsLimit, PagePoolMB: resources.PagePoolMB, StopSeconds: resources.StopTimeoutSeconds, StartupSeconds: 60, CopyBytes: 64 << 20, CopyFiles: 16384}
+	runtime := data.EngineRuntime{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, State: data.EngineUnpublished, Image: reference, ManifestDigest: observed.ManifestDigest, ImageID: observed.ImageID, Version: d.SpacetimeDB.Version, Runtime: d.SpacetimeDB.Runtime, HostPort: prepared.EnginePort, Names: []string{}, Module: data.EngineModuleDefinition{Program: data.NativeProgramWireHash(metadata.RuntimeModuleHash), Wasm: data.WasmSHA256(metadata.WasmSHA256), Schema: data.EngineSchemaDefinition{Marker: d.SpacetimeDB.Module.Marker, Canonicalizer: metadata.Canonicalizer, SHA256: metadata.SchemaSHA256}}, Secrets: nativeMaterialMetadata(d, material, expiry), MemoryMB: resources.MemoryMB, PIDsLimit: resources.PIDsLimit, PagePoolMB: resources.PagePoolMB, StopSeconds: resources.StopTimeoutSeconds, StartupSeconds: 60, CopyBytes: 64 << 20, CopyFiles: 16384}
 	unit, err := EngineServiceBytes(runtime)
 	if err != nil {
 		return data.EngineRuntime{}, err

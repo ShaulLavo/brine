@@ -19,6 +19,15 @@ change an already hashed managed plan.
 These checks do not complete T37 or verify physical routing, startup, publishing,
 backup, fence handoff or reboot.
 
+Managed engine identity checks distinguish recorded history from new allocation.
+A retained runtime and plan with a non-current pinned image decode without
+changing canonical bytes. An unchanged deployment stays bound to that identity.
+Fresh preparation and initial material refuse an unselected image or mismatched
+platform manifest. Descriptor image inspection proves the recorded repository,
+index, manifest and configuration ID, derives the actual supported platform,
+and refuses drift without pulling or selecting a replacement image. These unit
+checks do not prove a published patched engine or physical lifecycle acceptance.
+
 ## Managed ingress logging admission (P09-04)
 
 Pure checks use actual pinned adapted fixtures and refuse implicit default
