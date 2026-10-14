@@ -267,7 +267,7 @@ func readNativeAbandonCheckpointTx(ctx context.Context, tx *sql.Tx, point native
 		return nativecapture.Checkpoint{}, err
 	}
 	checkpoint, err := nativecapture.DecodeCheckpoint(raw, nativecapture.DefaultLimits())
-	if err != nil || checkpoint.SHA256() != p.CheckpointSHA256 || generation != p.GenerationID || operationID != operation.ID {
+	if err != nil || checkpoint.SHA256() != p.CheckpointSHA256 || generation != p.GenerationID || operationID != p.PreparationOperationID {
 		return nativecapture.Checkpoint{}, &IntegrityError{}
 	}
 	c := checkpoint.Record()

@@ -21,6 +21,8 @@ import (
 
 // This uses the actual schema19 migration for control-store CAS tests.
 // It does not claim native process/source or physical deployment acceptance.
+var managedControlModuleOverride *data.EngineModuleDefinition
+
 func managedControlFixture(t *testing.T) (*Store, plan.Plan, ops.Operation) {
 	t.Helper()
 	return managedControlFrontendFixture(t, false)
@@ -93,6 +95,9 @@ func managedControlStateFixtureAtRoot(t *testing.T, frontend, unpublished bool, 
 		t.Fatal(err)
 	}
 	runtime := engineRuntimeFixture(reserved)
+	if managedControlModuleOverride != nil {
+		runtime.Module = *managedControlModuleOverride
+	}
 	if unpublished {
 		runtime.State, runtime.Database, runtime.Publisher, runtime.Names = data.EngineUnpublished, "", "", []string{}
 	}
