@@ -1102,3 +1102,14 @@ records. Temporary production overlays reproduce both prior producer failures.
 These local tests do not manufacture an authenticated restore capability or
 prove remote transport. Full prepared-point completion and archive acceptance
 remain part of the physical drill.
+
+### Published fixture recovery profiles
+
+The current published v1, logic-only, additive, and default-column Wasm pins
+pass both confirmed lower-bound decoding and passive native recovery projection.
+Each artifact remains bound to its exact canonical schema. A different schema
+or an unknown artifact still refuses. Tests read the actual publication pin file
+and retain checks for historical points without admitting arbitrary modules.
+
+This gate verifies evidence projection only. Staged publication, remote replay,
+and the full module update remain physical acceptance obligations.
