@@ -12,8 +12,7 @@ import (
 // Regenerate the neutral host regression fixture through the actual point,
 // route and abandonment producers. No host data or credential files are read.
 func TestWriteNativeRouteWithdrawalFixture(t *testing.T) {
-	destination := os.Getenv("BRINE_WRITE_NATIVE_WITHDRAWAL_FIXTURE")
-	if destination == "" {
+	if os.Getenv("BRINE_WRITE_NATIVE_WITHDRAWAL_FIXTURE") != "1" {
 		t.Skip("fixture generation not requested")
 	}
 	fixture := newNativeAbandonFixture(t, true)
@@ -45,7 +44,7 @@ func TestWriteNativeRouteWithdrawalFixture(t *testing.T) {
 		writeNativeRouteFixtureTable(t, &result, fixture.state, name)
 	}
 	result.WriteString("PRAGMA foreign_keys=ON;\n")
-	if err := os.WriteFile(destination, []byte(result.String()), 0600); err != nil {
+	if err := os.WriteFile("../host/testdata/native-withdrawal.sql", []byte(result.String()), 0600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -67,11 +66,12 @@ func writeNativeRouteFixtureTable(t *testing.T, result *strings.Builder, state *
 	if err := columns.Close(); err != nil {
 		t.Fatal(err)
 	}
+	// #nosec G202 -- identifiers come from this fixture's Store schema; SQLite quote() encodes every value.
 	rows, err := state.db.QueryContext(t.Context(), "SELECT "+strings.Join(quotes, ",")+" FROM "+name+" ORDER BY rowid")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		values := make([]string, len(quotes))
 		destinations := make([]any, len(values))
