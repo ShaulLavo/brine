@@ -107,7 +107,7 @@ func TestPublicationTransitionProofMigrationAdmitsActualWriterKindsAndRetainsRow
 
 func TestPristinePublicationProofSchemaContainsCurrentKindDomain(t *testing.T) {
 	directory := t.TempDir()
-	if err := os.Chmod(directory, 0700); err != nil {
+	if err := os.Chmod(directory, 0700); err != nil { //nolint:gosec // Private runner state directory fixture.
 		t.Fatal(err)
 	}
 	state, err := Open(directory)
