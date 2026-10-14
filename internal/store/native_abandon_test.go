@@ -39,6 +39,22 @@ func TestNativeAbandonAdmissionRejectsUninitializedPoint(t *testing.T) {
 	}
 }
 
+func TestNativeAbandonInitializedPointFixtureRetainsClosedArm(t *testing.T) {
+	_, _, point := nativeCompletedPointFixture(t)
+	point.SourceKind = "initialized"
+	point.CommittedOffsetKnown = true
+	point.CommittedOffset = 8
+	point.NativeDatabase = strings.Repeat("1", 64)
+	point.NativePublisher = strings.Repeat("2", 64)
+	point.ProgramWireHash = strings.Repeat("3", 64)
+	point.ArtifactWasmSHA256 = "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc"
+	point.SchemaSHA256 = "f10d1efcbbdcec34434fa257946ca8a562ba1ad5f6b1b22b17fca14ca7eacc45"
+	point.Names = []string{"game"}
+	if !validNativePreparedPoint(point) {
+		t.Fatal("initialized point fixture is not closed")
+	}
+}
+
 func TestNativeAbandonStoppedIntentAppendIsAtomic(t *testing.T) {
 	ctx := context.Background()
 	s, p, deploy := managedControlFixture(t)
