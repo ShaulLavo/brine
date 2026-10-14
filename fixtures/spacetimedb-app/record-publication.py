@@ -24,4 +24,10 @@ for descriptor in index_data['manifests']:
 assert set(platforms) == {'amd64', 'arm64'}
 verified = json.loads(manifest.read_text())
 assert verified['source_head'] == source and verified['source_dirty'] is False
-output.write_text(json.dumps({'source_revision': source, 'image_index': index, 'platforms': platforms, 'module_sha256': verified['modules']['v1'], 'client_sha256': verified['clients']['v1']['browser_sha256']}, indent=2) + '\n')
+variant = verified['serving_variant']
+assert variant in ('v1', 'default-column')
+output.write_text(json.dumps({'source_revision': source, 'artifact_source_revision': verified['artifact_source_head'],
+                             'serving_variant': variant, 'image_index': index, 'platforms': platforms,
+                             'module_sha256': verified['modules'][variant],
+                             'client_sha256': verified['clients'][variant]['browser_sha256'],
+                             'app_binaries': verified['app_binaries']}, indent=2) + '\n')

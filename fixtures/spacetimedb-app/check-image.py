@@ -97,9 +97,12 @@ def inspect_http(base, arch, manifest):
     assert config == {'endpoint': 'https://fixture.example/', 'database': 'recovery-fixture'}
     with urllib.request.urlopen(base + 'browser.js', timeout=1) as response:
         browser = response.read()
-    assert hashlib.sha256(browser).hexdigest() == manifest['clients']['v1']['browser_sha256']
+    variant = manifest['serving_variant']
+    assert variant in ('v1', 'default-column')
+    assert hashlib.sha256(browser).hexdigest() == manifest['clients'][variant]['browser_sha256']
     return {'platform': 'linux/' + arch, 'transferred_binary_mode': '0644', 'image_entrypoint_mode': '0555',
-            'container_user': '10001:10001', 'entrypoint_running': True, 'http_and_browser_identity': True}
+            'container_user': '10001:10001', 'entrypoint_running': True, 'http_and_browser_identity': True,
+            'serving_variant': variant, 'browser_sha256': hashlib.sha256(browser).hexdigest()}
 
 
 def main():

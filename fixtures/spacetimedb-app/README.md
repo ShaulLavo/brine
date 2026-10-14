@@ -18,9 +18,11 @@ fixtures/spacetimedb-app/browser-test/node_modules/.bin/playwright install chrom
 python3 fixtures/spacetimedb-app/smoke.py "$BRINE_FIXTURE_BUILD_ROOT"
 ```
 
-The **Publish SpacetimeDB drill fixture** workflow runs build and native/browser checks on pull requests. Only a successful main-branch verification job can publish to `ghcr.io/shaullavo/brine-spacetimedb-fixture`. It retains module/client hashes, the source revision and actual image index/platform digests. Use the immutable index from that workflow's summary, never a tag. Publication and both architectures' execution evidence remain required before P09-03 is complete.
+The **Publish SpacetimeDB drill fixture** workflow builds and verifies modules and clients once. Separate `v1` and `default-column` packaging jobs consume that verified bundle, embed the selected pinned browser, and compile only the small Go asset servers. Both jobs check actual served browser bytes on amd64 and arm64 before main-only publication to `ghcr.io/shaullavo/brine-spacetimedb-fixture`. Tags name the full source commit and serving variant. Each receipt records the selected variant, exact matching module and browser hashes, binary hashes and actual image index/platform digests. Use the immutable index from that workflow's summary, never a tag. Publication and native physical execution remain required before P09-03 is complete.
 
-The serving image is `scratch` with one static binary, about 6 MiB per architecture, and UID/GID **10001:10001**. Image assembly sets the entrypoint mode to 0555 even when artifact transfer reduces files to 0644. The workflow removes executable bits, builds both images and checks actual entrypoint startup plus HTTP/browser identity before publication. Arm64 runs under CI emulation; native Pi execution remains a physical gate. It contains no compiler, shell, module publisher, signing key or backup credential. It embeds the same v1 browser assets for both architectures. SpacetimeDB runs in a separate pinned engine service.
+The serving image is `scratch` with one static binary, about 6 MiB per architecture, and UID/GID **10001:10001**. Image assembly sets the entrypoint mode to 0555 even when artifact transfer reduces files to 0644. The workflow removes executable bits, builds both images and checks actual entrypoint startup plus HTTP/browser identity before publication. Arm64 runs under CI emulation; native Pi execution remains a physical gate. It contains no compiler, shell, module publisher, signing key or backup credential. Both architectures embed the same selected browser. SpacetimeDB runs in a separate pinned engine service.
+
+`package-variant.py VERIFIED_BUNDLE NEW_OUTPUT default-column --input-source BUNDLE_SOURCE_COMMIT` packages an existing qualified bundle without downloading or rebuilding Rust/client artifacts. The output records that artifact source separately from the clean current asset-server source. It verifies every module, browser and input binary against the source-owned pins before selecting the default browser. Local callers keep `TMPDIR` and `GOCACHE` on `/work` and own removal of their output after inspection.
 
 ## App environment and HTTP contract
 
@@ -68,7 +70,7 @@ Rust features are mutually exclusive and are built as distinct Wasm artifacts. T
 
 | Variant | Change and client pairing |
 | --- | --- |
-| `v1` | Four evidence columns and no lifecycle hook; the published app serves this client |
+| `v1` | Four evidence columns and no lifecycle hook; the v1 image serves this client |
 | `logic-only` | Keeps the exact v1 schema, reducer API, accepted writes and recovery profile; a repeated sequence now reports `sequence already committed` |
 | `additive` | Adds public `fixture_note`; subscribed row layouts stay unchanged; both base and regenerated clients preserve markers |
 | `default-column` | Appends `rating: u8` with default seven to both tables; existing column and default order stays intact; requires its regenerated client and browser assets |
@@ -76,7 +78,7 @@ Rust features are mutually exclusive and are built as distinct Wasm artifacts. T
 | `access-change` | Changes `recovery_left` from public to private; access changes require independent review |
 | `observer-hooks` | Adds `client_connected` that changes the marker; the fixture's confirmed invariant reader refuses the changed marker |
 
-Native preflight labels nonempty table removal **AutoMigrate** with `break_clients=true`, and public-to-private access change **AutoMigrate** with `break_clients=false`. Those flags do not establish safe data or access changes. The defaulted-column candidate uses its own freshly generated SDK; no parser accepts both row layouts. It is not compatible with the published v1 client image. Negative candidates are not serving or rollback releases.
+Native preflight labels nonempty table removal **AutoMigrate** with `break_clients=true`, and public-to-private access change **AutoMigrate** with `break_clients=false`. Those flags do not establish safe data or access changes. The defaulted-column candidate uses its own generated SDK and separately published default-column browser image. The v1 image retains its four-column client. Select the matching immutable image when declaring a candidate or recovery release. Negative candidates are not serving or rollback releases.
 
 `smoke.py` runs the actual SDK and headless browser against the pinned local runtime. It proves denied writes, explicit confirmed WebSocket events and browser writes, bounded scheduling without clients, stopped-tree marker replay through the shared observer, unconfirmed-acknowledgement refusal, logic-only and additive preservation, and regenerated default-column decoding. The logic-only case updates populated v1 state, requires a changed native program hash with identical observed canonical schema, checks the changed rejection without data effects, and appends the next confirmed row with the unchanged v1 client. The build also compares its generated bindings and browser bytes with v1. Private keys and tokens stay outside its retained evidence and are removed after the run.
 
