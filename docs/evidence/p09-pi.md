@@ -87,8 +87,8 @@ Engine, frontend and ingress remained stopped/fenced.
 The next genuine logic-only module plan refused before an apply because the old
 stopped-state guard required a live cgroup suffix after Podman had cleared it.
 That guard is corrected in current source. The unused point expired at
-14:45:54 UTC, leaving the original fence held. No changed-module publication,
-rollback or successful abandonment has been physically recorded in this evidence.
+14:45:54 UTC, leaving the original fence held. Neither a changed-module publication nor a rollback
+had been recorded at this point. The later abandonment result is recorded below.
 An expired point is not new mutation coverage.
 
 ### Source52 installation and refused abandonment
@@ -107,11 +107,45 @@ and caused no data, lifecycle or module effect. The original unused expired
 point and fence, stopped 144-row source and old operation outcomes stayed intact.
 No new preparation or data mutation followed.
 
-The requester correction at `50b0091b5b2634eacbe42c9a9da3bdee892b7038`
-is locally verified. It scopes the detached task from its protected input and
-checks the stored accepted operation before live authorization. The correction
-has not run on the physical target. Successful abandonment and ordinary resume
-remain required.
+The requester correction scopes the detached task from its protected input and
+checks the stored accepted operation before live authorization. The failed
+source52 operation remains unchanged. Its successful source53 continuation is
+recorded below.
+
+### Source53 abandonment succeeded; ordinary resume remains unproved
+
+Actual CLI 0.1.53-dev source was
+`4ff3ac0697518f119bf2001c7c4ec05408a9ac7a`, tree
+`187bb7dbc7b919273d4ffbb409be17253201628b`. Executed arm64 CLI SHA256 was
+`106ca00bbdc328dd09f53d11a1d45b5c5ace17abd85e2955f1e535a474739f52`.
+PR169 merged as `9f6c467628d6a313e9da15bdb84ddf30d0c1013f` with that same tree.
+The tested binary retains its actual pre-merge source identity.
+
+Public abandonment operation
+`01a13c06a7ad2a684ec0d68bd291a6079403775f7436` succeeded at 20:07:20 UTC. It
+released only the original preparation fence and recorded stopped desired
+revision 7. All 144 source rows stayed unchanged. Engine, frontend and ingress
+remained stopped. Original point `7911ba25dc062f8de7d04154851cdb03`, SHA256
+`275f17b7b4aae7d0f17ddbb448e72911cfcc1362f2d715fdb5af95ba019ad768`
+and expiry stayed immutable, as did the source52 recovery-required outcome. No new preparation or module mutation ran.
+
+The next public `start` planning request timed out after 15.061 seconds. It saved
+no plan and issued no apply. A matched read-only diagnostic took 16.156 seconds:
+runtime open 1.512 seconds and planning 14.523 seconds, including two inventory
+passes of 4.305 and 4.274 seconds and image resolutions of 2.478 and 2.262
+seconds. It reached a conflict-free plan shape with `plan_saved: false`. The inactive current-state
+refusal was expected; stopped-state reading succeeded. Protected state stayed
+equal and the 28.9 MB remote diagnostic was removed with cleanup checked.
+
+Source54 correction `42d7a91ca15b202e66219fa1c1e145397ddddf7c` reuses the
+collected planning input while retaining fresh apply-time preflight. For an
+affirmatively stopped managed scope, ordinary start selects both engine and
+frontend. Apply starts and checks the guarded engine first, then checks the exact
+owned frontend under the lifecycle operation's current desired state before
+starting it. Existing installed hashes, release, module and epoch stay unchanged.
+Local source tests cover the sequence; physical source54 resume is unrun.
+Ordinary resume, a new exact preparation, genuine module changes and the
+remaining fault/archive drills remain required.
 
 ## Earned amd64 results
 
@@ -191,7 +225,7 @@ keys, publisher tokens, remote credentials and inventories are omitted here.
 
 | Case | Current scope |
 | --- | --- |
-| Source52 unused-point abandonment and ordinary resume | Actual source52 install/schema 29 preservation and a pre-effect policy-refused abandonment are recorded. Successful abandonment/resume remain unproved. |
+| Unused-point abandonment and ordinary resume | Source53 abandonment succeeded, released only the original fence and kept all components stopped. Subsequent start planning timed out without a saved plan/apply; ordinary resume remains unproved. |
 | Genuine logic/additive/default module updates and compatible rollback | Published artifacts and finite recovery profiles exist. Actual update/paired-client/data-preservation and rollback cases remain. |
 | Destructive/access/hook/manual/stale/artifact/source/role refusals | Historical native/pure-core facts exist. Assigned current whole-operation negatives remain. |
 | Live restore | Default-denied and separately granted positive restoration, new stopped epoch, original retention and compatible resume remain. |

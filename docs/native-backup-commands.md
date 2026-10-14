@@ -117,9 +117,10 @@ Abandonment leaves original point bytes, expiry, journals, data and remote
 backups unchanged. It never supplies fresh mutation coverage. After successful
 abandonment, ordinary start and a new exact preparation are separate operations.
 The [runbook procedure](runbooks/spacetimedb.md#abandon-an-unused-exact-preparation)
-describes the required original-operation handling. Source52 installation and a
-pre-effect policy-refused abandonment are recorded; the requester correction is
-local only. Successful physical abandonment remains unproved.
+describes the required original-operation handling. Actual source53 abandonment
+released only its original fence and left all components stopped. The later
+ordinary start plan timed out without a saved plan or apply; successful ordinary
+resume remains required. The earlier source52 refusal is retained unchanged.
 
 ## Test a retained remote point
 
