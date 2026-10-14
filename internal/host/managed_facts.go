@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"errors"
+	"maps"
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/caddy"
@@ -109,10 +110,12 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 
 type managedRouteReader interface {
 	ReadManagedRouteState(context.Context, string) (store.ManagedRouteState, error)
+	NativeRouteWithdrawal(context.Context, store.ManagedRouteState, string, uint64) (store.NativePreparedRoutes, error)
 }
 
 func managedRoutingFacts(ctx context.Context, state plan.BrineState, pol policy.Policy, snapshot target.Snapshot, authority caddy.ManagedIngressAuthority, routes managedRouteReader) (caddy.State, error) {
 	routing := caddy.State{Files: map[string]string{}, Sites: map[string]caddy.Site{}}
+	heads := []store.ManagedRouteState{}
 	for _, release := range state.Releases {
 		var site caddy.Site
 		var err error
@@ -127,6 +130,7 @@ func managedRoutingFacts(ctx context.Context, state plan.BrineState, pol policy.
 			if !current.Present {
 				continue
 			}
+			heads = append(heads, current)
 			release.CaddyFile.Hash = current.FileHash
 			site, err = caddy.CommittedManagedSite(release.Desired, *release.Managed)
 			if err == nil {
@@ -147,8 +151,32 @@ func managedRoutingFacts(ctx context.Context, state plan.BrineState, pol policy.
 	}
 	if snapshot.CaddyConfig.Status == target.KnownStatus && snapshot.CaddyConfig.Value != nil {
 		routing.Generation = snapshot.CaddyConfig.Value.Generation
+		return managedWithdrawnRouting(ctx, routing, heads, *snapshot.CaddyConfig.Value, pol.Hash(), routes)
 	} else if snapshot.CaddyConfig.Status != target.Absent {
 		return caddy.State{}, result.New(result.Conflict, nil)
+	}
+	return routing, nil
+}
+
+func managedWithdrawnRouting(ctx context.Context, routing caddy.State, heads []store.ManagedRouteState, observed target.CaddyConfigSet, policyHash string, reader managedRouteReader) (caddy.State, error) {
+	files := make(map[string]string, len(observed.Files))
+	for _, file := range observed.Files {
+		if _, duplicate := files[file.Name]; duplicate {
+			return caddy.State{}, result.New(result.Conflict, nil)
+		}
+		files[file.Name] = file.Hash
+	}
+	for _, head := range heads {
+		name := head.App + ".caddy"
+		if _, present := files[name]; present {
+			continue
+		}
+		withdrawal, err := reader.NativeRouteWithdrawal(ctx, head, policyHash, observed.Generation)
+		if err != nil || !maps.Equal(withdrawal.PreviousFiles, routing.Files) || !maps.Equal(withdrawal.CurrentFiles, files) {
+			return caddy.State{}, errors.Join(result.New(result.Conflict, nil), err)
+		}
+		delete(routing.Files, name)
+		delete(routing.Sites, name)
 	}
 	return routing, nil
 }

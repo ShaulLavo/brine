@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
@@ -151,7 +152,19 @@ func commitAbandonFixtureRelease(t *testing.T, s *Store, p plan.Plan, op ops.Ope
 		t.Fatal(err)
 	}
 	unit := target.Unit{Name: "brine-engine-" + string(wanted.BindingID) + ".service", Hash: "sha256:" + p.Managed.EngineUnitHash}
-	release := Release{ID: op.ID, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: []plan.SecretBinding{}, Units: []target.Unit{unit}, CaddyFile: target.CaddyFile{Name: p.App + ".caddy", Hash: "sha256:" + strings.Repeat("a", 64)}, CaddyGeneration: 1, Managed: &ops.ManagedRelease{BindingID: wanted.BindingID, EpochID: wanted.EpochID, RuntimeSHA256: wanted.RuntimeSHA256, EngineUnit: unit, EnginePort: p.Managed.EnginePort}}
+	_, desired, err := s.LoadPlan(ctx, p.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	site, err := caddy.CommittedManagedSite(desired, *p.Managed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	renderedRoute, err := caddy.Render(site)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := Release{ID: op.ID, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: []plan.SecretBinding{}, Units: []target.Unit{unit}, CaddyFile: target.CaddyFile{Name: p.App + ".caddy", Hash: digest(renderedRoute)}, CaddyGeneration: 1, Managed: &ops.ManagedRelease{BindingID: wanted.BindingID, EpochID: wanted.EpochID, RuntimeSHA256: wanted.RuntimeSHA256, EngineUnit: unit, EnginePort: p.Managed.EnginePort}}
 	if err := s.SetOperationState(ctx, op.ID, ops.Starting); err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +242,11 @@ func seedAbandonFixturePoint(t *testing.T, tx *sql.Tx, i nativePreparationIntent
 	provenance := nativeCheckpointProvenance{Format: "brine-native-checkpoint-provenance-v1", PointID: p.PointID, BindingID: p.BindingID, EpochID: p.EpochID, GenerationID: p.GenerationID, CheckpointSHA256: c.SHA256(), SourceSHA256: p.SourceSHA256, SourceEvidenceSHA256: p.SourceWitnessSHA256, ArtifactSHA256: p.ArtifactWasmSHA256, ProgramWireHash: p.ProgramWireHash, DescriptorSHA256: nativePointHash(descriptor), SchemaSHA256: p.SchemaSHA256, ReaderDisposalSHA256: nativePointHash([]byte(proof.ReaderNonce + proof.ReaderViewSHA256 + proof.ReaderImageID)), ArtifactProofSHA256: ""}
 	abandonExec(t, tx, "INSERT INTO data_native_checkpoints VALUES(?,?,?,?,?,?,?,?,?)", p.PointID, p.BindingID, p.EpochID, p.GenerationID, i.OperationID, c.Bytes(), abandonJSON(t, provenance), artifact, descriptor)
 	abandonExec(t, tx, "INSERT INTO data_native_prepared_points VALUES(?,?,?,?)", p.PointID, p.BindingID, p.EpochID, abandonJSON(t, p))
-	routes := NativePreparedRoutes{PointID: p.PointID, OperationID: i.OperationID, App: app, PreviousGeneration: 1, PreviousFiles: map[string]string{}, CurrentGeneration: 2, CurrentFiles: map[string]string{}, RecordedAt: p.PreparedAt}
+	head, err := readManagedRouteState(t.Context(), tx, app)
+	if err != nil {
+		t.Fatal(err)
+	}
+	routes := NativePreparedRoutes{PointID: p.PointID, OperationID: i.OperationID, App: app, PreviousGeneration: head.Generation, PreviousFiles: map[string]string{app + ".caddy": head.FileHash}, CurrentGeneration: head.Generation + 1, CurrentFiles: map[string]string{}, RecordedAt: p.PreparedAt}
 	abandonExec(t, tx, "INSERT INTO data_native_prepared_routes VALUES(?,?,?)", p.PointID, "withdrawn", abandonJSON(t, routes))
 }
 
