@@ -4,7 +4,11 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -36,6 +40,17 @@ func TestNativeAbandonAdmissionRejectsUninitializedPoint(t *testing.T) {
 	}
 	if _, err := s.OpenNativeAbandonment(ctx, abandon.ID); err == nil || !errors.Is(err, ErrConflict) {
 		t.Fatalf("uninitialized point admitted: %v", err)
+	}
+}
+
+func TestNativeAbandonPinnedRecoveryFixtureArtifact(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "spacetimedb", "testdata", "recovery-v1.wasm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != "92f4efff417d8f17ba4329c46fd1bdc13c8e234137e6150ac33f62503cb212cc" {
+		t.Fatal("pinned recovery fixture artifact changed")
 	}
 }
 
