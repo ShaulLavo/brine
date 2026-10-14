@@ -69,6 +69,9 @@ func (s *Store) ReserveNativeMaterial(ctx context.Context, app, planID, requeste
 	if initial && (candidate.State != data.EngineUnpublished || candidate.Database != "" || candidate.Publisher != "" || len(candidate.Names) != 0) {
 		return NativeMaterialInput{}, false, ErrConflict
 	}
+	if initial && (!p.Managed.AdmitsNewEngine(candidate.Image) || candidate.Image != string(d.SpacetimeDB.Image) || candidate.ManifestDigest != *p.Managed.EngineImage.ManifestDigest.Value) {
+		return NativeMaterialInput{}, false, ErrConflict
+	}
 	input := NativeMaterialInput{Requester: requester, Runtime: candidate, Initial: initial, PriorRuntimeSHA256: head.RuntimeSHA256, PreparationOperationID: prepared.OperationID, DesiredRevision: wanted.Revision, PolicyHash: d.PolicyHash}
 	outcome := "stored_unreferenced"
 	if initial {

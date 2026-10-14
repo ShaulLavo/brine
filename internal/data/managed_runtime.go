@@ -2,7 +2,9 @@ package data
 
 import (
 	"encoding/json"
+	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
@@ -97,13 +99,28 @@ const SpacetimeDBImage = "docker.io/clockworklabs/spacetime@sha256:088aeefda7397
 const SpacetimeDBAMD64Manifest = "sha256:9fb3048daa9fa68ddfe6418ee680e0171761770caca6e0dff7595cda9366f462"
 const SpacetimeDBARM64Manifest = "sha256:c4a7048f9ff3981980b97f0119c6221ac51c0a7b78e2d4447f0ee1ee22bae6fa"
 
+var engineImagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
+
+// ValidEngineImage validates recorded pins without selecting today's artifact.
+func ValidEngineImage(image, manifest string) bool {
+	return len(image) <= 1024 && engineImagePattern.MatchString(image) && strings.HasPrefix(manifest, "sha256:") && ValidCatalogHash(strings.TrimPrefix(manifest, "sha256:"))
+}
+
+// SelectedEngineImage admits the published profile for a new allocation.
+func SelectedEngineImage(image, manifest, arch string) bool {
+	if image != SpacetimeDBImage {
+		return false
+	}
+	return arch == "amd64" && manifest == SpacetimeDBAMD64Manifest || arch == "arm64" && manifest == SpacetimeDBARM64Manifest
+}
+
 func (r EngineRuntime) Clone() EngineRuntime {
 	r.Names = slices.Clone(r.Names)
 	return r
 }
 
 func (r EngineRuntime) Validate() error {
-	if !ValidID(string(r.BindingID)) || !ValidID(string(r.EpochID)) || r.Image != SpacetimeDBImage || r.Version != "2.11.0" || r.ManifestDigest != SpacetimeDBAMD64Manifest && r.ManifestDigest != SpacetimeDBARM64Manifest || !ValidCatalogHash(r.ImageID) || r.Runtime.UID != 1000 || r.Runtime.GID != 1000 || r.HostPort < 1024 || !ValidCatalogHash(r.UnitSHA256) {
+	if !ValidID(string(r.BindingID)) || !ValidID(string(r.EpochID)) || !ValidEngineImage(r.Image, r.ManifestDigest) || r.Version != "2.11.0" || !ValidCatalogHash(r.ImageID) || r.Runtime.UID != 1000 || r.Runtime.GID != 1000 || r.HostPort < 1024 || !ValidCatalogHash(r.UnitSHA256) {
 		return ErrInvalid
 	}
 	if r.MemoryMB < 128 || r.MemoryMB > 65536 || r.PIDsLimit < 16 || r.PIDsLimit > 65536 || r.PagePoolMB < 16 || r.PagePoolMB >= r.MemoryMB || r.StopSeconds < 1 || r.StopSeconds > 60 || r.StartupSeconds < 1 || r.StartupSeconds > 300 || r.CopyBytes < 1 || r.CopyBytes > 1<<30 || r.CopyFiles < 1 || r.CopyFiles > 16384 || r.Module.Validate() != nil {

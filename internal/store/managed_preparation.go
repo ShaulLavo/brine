@@ -65,7 +65,7 @@ func (s *Store) ReserveManagedPreparation(ctx context.Context, operation string,
 	if err != nil || op.Kind != ops.Deploy || op.PlanID != planned.Hash || op.App != planned.App || op.State != ops.Preparing {
 		return request, errors.Join(ErrConflict, err)
 	}
-	stored, _, err := loadPlan(ctx, tx, planned.Hash)
+	stored, desired, err := loadPlan(ctx, tx, planned.Hash)
 	if err != nil {
 		return request, err
 	}
@@ -86,6 +86,9 @@ func (s *Store) ReserveManagedPreparation(ctx context.Context, operation string,
 	}
 	if !errors.Is(err, ErrNotFound) {
 		return request, err
+	}
+	if desired.SpacetimeDB == nil || !m.AdmitsNewEngine(string(desired.SpacetimeDB.Image)) {
+		return request, ErrConflict
 	}
 	if err = admitManagedPorts(ctx, tx, request); err != nil {
 		return request, err
