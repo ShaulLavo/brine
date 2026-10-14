@@ -83,12 +83,12 @@ func (r Runner) finishNativeAbandonTask(ctx context.Context, original ops.Operat
 	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
 	defer cancel()
 	reader, ok := r.Store.(interface {
-		ReadTaskOutcome(context.Context, string) (*ops.TaskOutcome, error)
+		ReadNativeAbandonmentOutcome(context.Context, string) (*ops.TaskOutcome, error)
 	})
 	if !ok {
 		return result.New(result.DependencyMissing, nil)
 	}
-	outcome, err := reader.ReadTaskOutcome(journal, original.ID)
+	outcome, err := reader.ReadNativeAbandonmentOutcome(journal, original.ID)
 	if err != nil {
 		return errors.Join(runErr, err)
 	}

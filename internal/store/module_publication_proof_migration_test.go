@@ -13,6 +13,9 @@ import (
 
 const proofSchema26 = `
 CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(26);
+CREATE TABLE operations(id TEXT PRIMARY KEY, plan_id TEXT, requester TEXT NOT NULL, idempotency_key TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, kind TEXT NOT NULL, app TEXT NOT NULL, secret_ref TEXT NOT NULL, recovery_of TEXT NOT NULL DEFAULT '', UNIQUE(requester,idempotency_key));
+CREATE TABLE data_replica_bindings(id TEXT PRIMARY KEY);
+CREATE TABLE data_native_task_inputs(id TEXT PRIMARY KEY,requester TEXT NOT NULL,kind TEXT NOT NULL,binding_id TEXT NOT NULL,canonical BLOB NOT NULL);
 CREATE TABLE transitions(kind TEXT NOT NULL,from_state TEXT NOT NULL,to_state TEXT NOT NULL,PRIMARY KEY(kind,from_state,to_state));
 CREATE TABLE data_module_publication_claims(plan_id TEXT PRIMARY KEY); INSERT INTO data_module_publication_claims VALUES('reviewed-plan');
 CREATE TABLE data_module_publication_proofs(

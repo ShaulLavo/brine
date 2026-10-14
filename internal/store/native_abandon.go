@@ -1,8 +1,10 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"slices"
 	"time"
@@ -22,14 +24,15 @@ type NativeAbandonment struct {
 }
 
 type nativeAbandonFacts struct {
-	input   NativeTaskInput
-	point   nativePreparedPoint
-	bundle  NativePreparedBundle
-	permit  EnginePermit
-	release Release
-	desired policy.Desired
-	wanted  ManagedDesiredState
-	codeSHA string
+	input     NativeTaskInput
+	point     nativePreparedPoint
+	bundle    NativePreparedBundle
+	permit    EnginePermit
+	release   Release
+	desired   policy.Desired
+	wanted    ManagedDesiredState
+	codeSHA   string
+	routesSHA string
 }
 
 type NativeAbandonExpected struct {
@@ -123,7 +126,7 @@ func (a *NativeAbandonment) Expected(ctx context.Context) (NativeAbandonExpected
 }
 
 func sameNativeAbandonFacts(before, after nativeAbandonFacts) bool {
-	return before.point.hash == after.point.hash && before.codeSHA == after.codeSHA && before.wanted == after.wanted && before.release.ID == after.release.ID
+	return before.point.hash == after.point.hash && before.codeSHA == after.codeSHA && before.routesSHA == after.routesSHA && before.wanted == after.wanted && before.release.ID == after.release.ID
 }
 
 func (s *Store) readNativeAbandonFacts(ctx context.Context, operation ops.Operation) (nativeAbandonFacts, error) {
@@ -183,7 +186,19 @@ func readNativeAbandonFactsTx(ctx context.Context, tx *sql.Tx, operation ops.Ope
 	if err != nil || !wanted.Current(input.BindingID, point.view.EpochID, point.view.RuntimeSHA256) {
 		return facts, errors.Join(ErrConflict, err)
 	}
-	return nativeAbandonFacts{input: input, point: point, bundle: bundle, permit: permit, release: release, desired: desired, wanted: wanted, codeSHA: codeSHA}, nil
+	var routeRaw []byte
+	if err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_prepared_routes WHERE point_id=? AND stage='withdrawn'", point.view.PointID).Scan(&routeRaw); err != nil {
+		return facts, errors.Join(ErrConflict, err)
+	}
+	var routes NativePreparedRoutes
+	if len(routeRaw) == 0 || json.Unmarshal(routeRaw, &routes) != nil || routes.PointID != point.view.PointID || routes.OperationID != point.view.PreparationOperationID {
+		return facts, &IntegrityError{}
+	}
+	canonicalRoutes, err := json.Marshal(routes)
+	if err != nil || !bytes.Equal(routeRaw, canonicalRoutes) {
+		return facts, &IntegrityError{}
+	}
+	return nativeAbandonFacts{input: input, point: point, bundle: bundle, permit: permit, release: release, desired: desired, wanted: wanted, codeSHA: codeSHA, routesSHA: nativePointHash(routeRaw)}, nil
 }
 
 func checkNativeAbandonOriginal(ctx context.Context, tx *sql.Tx, operation ops.Operation, point nativePreparedPoint) error {
