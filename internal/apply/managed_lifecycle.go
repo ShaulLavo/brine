@@ -119,18 +119,12 @@ func (r *managedExecution) stopManagedComponent(ctx context.Context) error {
 func (r *managedExecution) startManagedComponent(ctx context.Context) error {
 	x := r.x
 	if x.plan.ManagedLifecycle.Engine {
-		if err := x.step(ctx, "managed_engine_start", Starting, "start_failed", func(ctx context.Context) error {
-			if x.executor.Managed.EngineReady(ctx, x.plan) == nil {
-				return nil
-			}
-			if err := x.executor.Managed.BeforeEngineStart(ctx, x.plan); err != nil {
-				return err
-			}
-			return x.executor.Systemd.Start(ctx, r.engineService)
-		}); err != nil {
+		if err := r.startLifecycleEngine(ctx); err != nil {
 			return err
 		}
-		return x.step(ctx, "managed_engine_check", Checking, "health_failed", func(ctx context.Context) error { return x.executor.Managed.EngineReady(ctx, x.plan) })
+	}
+	if !x.plan.ManagedLifecycle.Frontend {
+		return nil
 	}
 	if err := x.step(ctx, "managed_frontend_start", Starting, "start_failed", func(ctx context.Context) error {
 		if err := x.executor.Managed.BeforeFrontendStart(ctx, x.id, x.plan, x.desired, x.previousUnitHash()); err != nil {
@@ -141,6 +135,26 @@ func (r *managedExecution) startManagedComponent(ctx context.Context) error {
 		return err
 	}
 	return x.step(ctx, "managed_frontend_check", Checking, "health_failed", func(ctx context.Context) error { return x.check(ctx, x.desired, x.plan.HostPort, false) })
+}
+
+func (r *managedExecution) startLifecycleEngine(ctx context.Context) error {
+	x := r.x
+	if err := x.step(ctx, "managed_engine_start", Starting, "start_failed", func(ctx context.Context) error {
+		if x.executor.Managed.EngineReady(ctx, x.plan) == nil {
+			return nil
+		}
+		if err := x.executor.Managed.BeforeEngineStart(ctx, x.plan); err != nil {
+			return err
+		}
+		return x.executor.Systemd.Start(ctx, r.engineService)
+	}); err != nil {
+		return err
+	}
+	checkState := Checking
+	if x.plan.ManagedLifecycle.Frontend {
+		checkState = Starting
+	}
+	return x.step(ctx, "managed_engine_check", checkState, "health_failed", func(ctx context.Context) error { return x.executor.Managed.EngineReady(ctx, x.plan) })
 }
 func (r *managedExecution) publishManagedRoutes(ctx context.Context) error {
 	x := r.x

@@ -72,7 +72,7 @@ func (r managedFactsImages) Resolve(_ context.Context, reference spec.ImageRefer
 	}
 	return r.frontend, nil
 }
-func managedFactsRecoveryFixture(t *testing.T) (*deployRig, plan.Plan, ops.Operation, caddy.State) {
+func managedFactsRecoveryFixture(t *testing.T, configure ...func(*data.EngineRuntime)) (*deployRig, plan.Plan, ops.Operation, caddy.State) {
 	t.Helper()
 	stateRoot := t.TempDir()
 	r := newDeployRigAt(t, stateRoot)
@@ -110,6 +110,9 @@ func managedFactsRecoveryFixture(t *testing.T) (*deployRig, plan.Plan, ops.Opera
 	engine := desired.SpacetimeDB
 	runtime.MemoryMB, runtime.PIDsLimit, runtime.StopSeconds = engine.Resources.MemoryMB, engine.Resources.PIDsLimit, engine.Resources.StopTimeoutSeconds
 	runtime.Secrets.AuthPolicy.Reference = string(engine.Auth)
+	if len(configure) != 0 {
+		configure[0](&runtime)
+	}
 	desired.SpacetimeDB.Module.Metadata = &spec.ModuleMetadata{WasmSHA256: spec.WasmSHA256(runtime.Module.Wasm), RuntimeModuleHash: spec.RuntimeModuleHash(runtime.Module.Program), Canonicalizer: runtime.Module.Schema.Canonicalizer, SchemaSHA256: runtime.Module.Schema.SHA256}
 	destination := desired.BackupDestinations[0]
 	prefix, err := data.RemotePrefix(destination.BasePrefix, binding.IncarnationID, binding.DatabaseID, runtime.EpochID)

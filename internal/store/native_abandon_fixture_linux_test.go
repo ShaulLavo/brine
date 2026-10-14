@@ -16,6 +16,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -49,7 +50,7 @@ func abandonExec(t *testing.T, q interface {
 
 // This fixture seeds synthetic passive evidence into a private Store. Its
 // module bytes and descriptor are real, while no host or remote tool runs.
-func newNativeAbandonFixture(t *testing.T) nativeAbandonFixture {
+func newNativeAbandonFixture(t *testing.T, frontend ...bool) nativeAbandonFixture {
 	t.Helper()
 	ctx := t.Context()
 	artifact, err := os.ReadFile("../spacetimedb/testdata/recovery-v1.wasm")
@@ -69,7 +70,8 @@ func newNativeAbandonFixture(t *testing.T) nativeAbandonFixture {
 		t.Fatal(err)
 	}
 	module := data.EngineModuleDefinition{Program: data.NativeProgramWireHash(wire), Wasm: data.WasmSHA256(wasm), Schema: data.EngineSchemaDefinition{Marker: "game-v1", Canonicalizer: schema.Version(), SHA256: schema.SHA256()}}
-	s, p, deploy := managedControlStateFixtureAtRoot(t, false, false, "", module)
+	withFrontend := len(frontend) != 0 && frontend[0]
+	s, p, deploy := managedControlStateFixtureAtRoot(t, withFrontend, false, "", module)
 	wanted := commitAbandonFixtureRelease(t, s, p, deploy)
 	requester, err := datainit.ParseRequester("deploy:" + strings.Repeat("4", 64))
 	if err != nil {
@@ -144,17 +146,37 @@ func newNativeAbandonFixture(t *testing.T) nativeAbandonFixture {
 func commitAbandonFixtureRelease(t *testing.T, s *Store, p plan.Plan, op ops.Operation) ManagedDesiredState {
 	t.Helper()
 	ctx := t.Context()
-	wanted := ManagedDesiredState{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, Revision: 1, PlanID: p.Hash, OperationID: op.ID, EngineRunning: true, IngressServing: true}
+	wanted := ManagedDesiredState{BindingID: p.Managed.Database.BindingID, EpochID: p.Managed.Archive.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, Revision: 1, PlanID: p.Hash, OperationID: op.ID, EngineRunning: true, FrontendRunning: p.Managed.Frontend != nil, IngressServing: true}
 	if _, err := s.CommitManagedDesired(ctx, op.ID, 0, wanted); err != nil {
 		t.Fatal(err)
 	}
 	unit := target.Unit{Name: "brine-engine-" + string(wanted.BindingID) + ".service", Hash: "sha256:" + p.Managed.EngineUnitHash}
 	release := Release{ID: op.ID, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: []plan.SecretBinding{}, Units: []target.Unit{unit}, CaddyFile: target.CaddyFile{Name: p.App + ".caddy", Hash: "sha256:" + strings.Repeat("a", 64)}, CaddyGeneration: 1, Managed: &ops.ManagedRelease{BindingID: wanted.BindingID, EpochID: wanted.EpochID, RuntimeSHA256: wanted.RuntimeSHA256, EngineUnit: unit, EnginePort: p.Managed.EnginePort}}
+	if err := s.SetOperationState(ctx, op.ID, ops.Starting); err != nil {
+		t.Fatal(err)
+	}
+	if p.Managed.Frontend != nil {
+		_, desired, err := s.LoadPlan(ctx, p.Hash)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rendered, err := quadlet.Render(desired, p, *p.Managed.Frontend.Image.ManifestDigest.Value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.BindManagedFrontendPermit(ctx, op.ID, p.Hash, rendered.Hash()); err != nil {
+			t.Fatal(err)
+		}
+		front := target.Unit{Name: rendered.Name(), Hash: rendered.Hash()}
+		release.Secrets = p.Secrets
+		release.Units = append(release.Units, front)
+		release.Managed.Frontend = &ops.ManagedFrontend{Image: p.Managed.Frontend.Image, Port: p.Managed.Frontend.Port, Unit: front, Secrets: p.Secrets}
+	}
 	route := ManagedRouteState{App: p.App, BindingID: wanted.BindingID, EpochID: wanted.EpochID, RuntimeSHA256: wanted.RuntimeSHA256, DesiredRevision: 1, PlanID: p.Hash, OperationID: op.ID, Revision: 1, Generation: 1, Present: true, FileHash: release.CaddyFile.Hash, RootSHA256: strings.Repeat("b", 64), LoadedSHA256: strings.Repeat("c", 64)}
 	if _, err := s.CommitManagedRouteState(ctx, 0, route); err != nil {
 		t.Fatal(err)
 	}
-	for _, state := range []ops.State{ops.Starting, ops.Checking, ops.Committing} {
+	for _, state := range []ops.State{ops.Checking, ops.Committing} {
 		if err := s.SetOperationState(ctx, op.ID, state); err != nil {
 			t.Fatal(err)
 		}
