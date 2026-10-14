@@ -92,7 +92,7 @@ func (w *publicationPrivateInspectionWork) observe(ctx context.Context) (store.P
 	if err := w.checkAbsent(ctx); err != nil {
 		return zero, err
 	}
-	_, observed, err := w.observeOriginal(ctx)
+	before, observed, err := w.observeOriginal(ctx)
 	if err != nil {
 		return zero, err
 	}
@@ -104,9 +104,8 @@ func (w *publicationPrivateInspectionWork) observe(ctx context.Context) (store.P
 	if err = w.checkAbsent(ctx); err != nil {
 		return zero, err
 	}
-	limits := engineCopyLimits{Bytes: w.facts.Permit.Runtime.CopyBytes, Files: w.facts.Permit.Runtime.CopyFiles, Depth: 16}
-	after, err := sealOwnedEngineSource(ctx, w.original, limits)
-	if err != nil || !engineSourceSealMatches(after, observed.OriginalSealSHA256) {
+	after, err := sealOwnedEngineSource(ctx, w.original, engineCopyLimits{Bytes: w.facts.Permit.Runtime.CopyBytes, Files: w.facts.Permit.Runtime.CopyFiles, Depth: 16})
+	if err != nil || after.hash != before.hash {
 		return zero, errEngineSource
 	}
 	observed.ObservedAt = time.Now().UTC()
