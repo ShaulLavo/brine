@@ -7,7 +7,6 @@ import (
 	"errors"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
@@ -123,7 +122,7 @@ func (r nativeBackupRuntime) inspectPreparedStop(ctx context.Context, app string
 			return store.NativeStopObservation{}, errEngineSource
 		}
 		finished, err := decodeNativeStoppedState([]byte(result.Stdout), container.ID, expected.FinishedAt, time.Now().UTC())
-		if err != nil || !finished.Equal(expected.FinishedAt) || !strings.HasSuffix(container.State.CgroupPath, "/libpod-"+container.ID+".scope") {
+		if err != nil || !finished.Equal(expected.FinishedAt) {
 			return store.NativeStopObservation{}, errEngineSource
 		}
 		if err = preparedContainerCgroupAbsent(container.ID); err != nil {
