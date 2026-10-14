@@ -1830,6 +1830,19 @@ No retry, join, intersection or truncation repairs inconsistent data. New
 observations record `confirmed_subscription_lower_bound`; retained historical
 SQL records keep their original basis and canonical bytes.
 
+Stored native source seals use `brine-engine-transition-tree-v1`. Directory
+sizes are excluded because a same-inode rename can change them. The digest
+retains member names, file contents and sizes, device, inode, mount, ownership,
+mode, and link count. Internal copy verification keeps its strict generic tree
+hash.
+
+Verification of an existing immutable source record accepts its recorded
+generic tree digest or transition digest only when that digest matches the
+observed tree. Publication recovery carries the verified point digest into
+its preservation observation. Resuming an initial owner carries the owner's
+recorded digest through upload and point completion. Neither path rewrites
+the original record.
+
 Native capture failures after upload carry a fixed closed code for remote
 verification, source recheck, live engine recheck, module recheck or verified
 point commit. Post-verification checks run in that order and stop at the first
