@@ -29,12 +29,13 @@ outcome requires the inspection flow below.
    Enroll through the [existing enrollment flow](../CONTRACTS.md#operator-enrollment).
    Keep the target configuration and private input files outside the repository.
 2. Select the pinned engine from
-   [runtime pins](../../tools/spacetime-runtime/pins.json). Enrollment installs the
+   [selected native engine](../evidence/p09-native-engine.md). Enrollment installs the
    passive reader's [architecture-specific artifact pins](../../internal/enroll/native_reader.go).
    Select the immutable
    frontend image and matching Wasm/client artifacts from the
    [fixture publication](../../fixtures/spacetimedb-app/README.md#pinned-build-and-publication).
-   Admit only the licensed single-instance topology.
+   Permit `ghcr.io` with the `shaullavo/brine-native-engine` repository in the
+   protected registry policy. Admit only the licensed single-instance topology.
 3. Declare `engine = "spacetimedb"` under `[[databases]]`. Include the app-owned
    root, nested service, module artifacts, schema compatibility, resource bounds,
    backup destination and separate secret references. Use the

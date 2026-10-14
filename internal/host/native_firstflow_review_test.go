@@ -80,7 +80,7 @@ func newFirstOperatorFixture(t *testing.T) firstOperatorFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw = []byte(strings.Replace(string(raw), "/srv/brine-data", root, 1) + "\n[[allowed_registries]]\nhost=\"docker.io\"\nrepository_prefixes=[\"clockworklabs\"]\n")
+	raw = []byte(strings.Replace(string(raw), "/srv/brine-data", root, 1) + "\n[[allowed_registries]]\nhost=\"ghcr.io\"\nrepository_prefixes=[\"shaullavo\"]\n")
 	pol, err := policy.Parse(raw)
 	if err != nil {
 		t.Fatal(err)

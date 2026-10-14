@@ -95,9 +95,9 @@ type EngineRuntime struct {
 	UnitSHA256     string                  `json:"unit_sha256"`
 }
 
-const SpacetimeDBImage = "docker.io/clockworklabs/spacetime@sha256:088aeefda7397bc265876e27fa254cbff64b8563dcc8d28db98423176c64af63"
-const SpacetimeDBAMD64Manifest = "sha256:9fb3048daa9fa68ddfe6418ee680e0171761770caca6e0dff7595cda9366f462"
-const SpacetimeDBARM64Manifest = "sha256:c4a7048f9ff3981980b97f0119c6221ac51c0a7b78e2d4447f0ee1ee22bae6fa"
+const SpacetimeDBImage = "ghcr.io/shaullavo/brine-native-engine@sha256:d84c721e4efb07e153439f1e1e67e08569377d124017bf664c032aaa5b2f5715"
+const SpacetimeDBAMD64Manifest = "sha256:749503c7980af9f9063e32dac02866579d5908249834b08a35842e2b3f8ab909"
+const SpacetimeDBARM64Manifest = "sha256:bf2f2d6b8d6a48fae10d547378cc148ec25e2f85ffc840f5f14d37850108abe0"
 
 var engineImagePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.-]*(?::[0-9]+)?(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)+@sha256:[a-f0-9]{64}$`)
 
