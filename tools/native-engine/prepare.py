@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import hashlib
 import json
+import os
 import pathlib
 import shutil
 import subprocess
 import sys
 import tarfile
+import time
 import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -38,6 +40,10 @@ def prepare(output, supplied):
     if file_sha256(patch) != PINS['patch_sha256']:
         raise ValueError('native shutdown patch pin mismatch')
     subprocess.run(['patch', '--batch', '--fuzz=0', '-p1', '-i', str(patch.resolve())], cwd=upstream, check=True, timeout=15)
+    prepared_ns = time.time_ns()
+    for path in upstream.rglob('*'):
+        if path.is_file():
+            os.utime(path, ns=(prepared_ns, prepared_ns))
     shutil.copyfile(HERE / 'pins.json', output / 'pins.json')
     shutil.copyfile(patch, output / 'graceful-shutdown.patch')
     shutil.copyfile(HERE / 'Dockerfile', output / 'Dockerfile')
