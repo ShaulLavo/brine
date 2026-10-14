@@ -123,7 +123,10 @@ func (a *NativeAbandonment) Expected(ctx context.Context) (NativeAbandonExpected
 	if err != nil || !sameNativeAbandonFacts(a.facts, facts) || !a.active() {
 		return NativeAbandonExpected{}, errors.Join(ErrConflict, err)
 	}
-	return NativeAbandonExpected{App: a.operation.App, Point: facts.point.view, Checkpoint: facts.checkpoint, Permit: facts.permit, Release: facts.release, Desired: facts.desired, Wanted: facts.wanted, CodeSHA256: facts.codeSHA}, nil
+	point := facts.point.view
+	point.PointSHA256 = facts.point.hash
+	point.Names = slices.Clone(point.Names)
+	return NativeAbandonExpected{App: a.operation.App, Point: point, Checkpoint: facts.checkpoint, Permit: facts.permit, Release: facts.release, Desired: facts.desired, Wanted: facts.wanted, CodeSHA256: facts.codeSHA}, nil
 }
 
 func sameNativeAbandonFacts(before, after nativeAbandonFacts) bool {
