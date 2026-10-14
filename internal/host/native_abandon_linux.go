@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
-	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -23,17 +22,18 @@ import (
 
 func nativeAbandonTask(service Service, runtime nativeBackupRuntime) jobs.TaskHandler {
 	return func(ctx context.Context, op ops.Operation) (receipt json.RawMessage, taskErr error) {
-		if op.Kind != ops.NativePrepareAbandon || service.Requester != op.Requester || service.Authorize(ctx, dispatch.Mutating) != nil || runtime.state != service.Store {
-			return nil, result.New(result.PolicyRefused, nil)
+		scoped, err := nativeAbandonTaskService(ctx, service, op)
+		if err != nil || runtime.state != scoped.Store {
+			return nil, result.New(result.PolicyRefused, err)
 		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		lock, err := service.Store.AcquireHostLock(ctx)
+		lock, err := scoped.Store.AcquireHostLock(ctx)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { taskErr = errors.Join(taskErr, lock.Release()) }()
-		abandonment, err := service.Store.OpenNativeAbandonment(ctx, op.ID)
+		abandonment, err := scoped.Store.OpenNativeAbandonment(ctx, op.ID)
 		if err != nil {
 			return nil, err
 		}
@@ -42,14 +42,14 @@ func nativeAbandonTask(service Service, runtime nativeBackupRuntime) jobs.TaskHa
 		if err != nil {
 			return nil, err
 		}
-		if err := checkNativeAbandonPolicy(ctx, service, expected.Point.PolicySHA256); err != nil {
+		if err := checkNativeAbandonPolicy(ctx, scoped, expected.Point.PolicySHA256); err != nil {
 			return nil, err
 		}
-		observed, err := observeNativeAbandonment(ctx, service, runtime, abandonment)
+		observed, err := observeNativeAbandonment(ctx, scoped, runtime, abandonment)
 		if err != nil {
 			return nil, err
 		}
-		completed, err := service.Store.CompleteNativeAbandonment(ctx, abandonment, observed)
+		completed, err := scoped.Store.CompleteNativeAbandonment(ctx, abandonment, observed)
 		if err != nil {
 			return nil, err
 		}
