@@ -60,24 +60,30 @@ func newReconciler(service Service, engine apply.Executor, inspector reconcile.R
 			return ops.Succeeded, nil
 		}
 		return ops.Failed, nil
-	}, Store: service.Store, Systemd: inspector, ExecutorFor: func(_ context.Context, _ ops.Operation, p plan.Plan, d policy.Desired) (*apply.Executor, error) {
+	}, Store: service.Store, Systemd: inspector, ExecutorFor: func(_ context.Context, op ops.Operation, p plan.Plan, d policy.Desired) (*apply.Executor, error) {
 		copy := engine
-		copy.Facts = operationFacts{service: service, desired: d, removal: p.Lifecycle == plan.RemoveApp}
+		copy.Facts = operationFacts{service: service, desired: d, removal: p.Lifecycle == plan.RemoveApp, recoveryPlan: p, recoveryOperation: op}
 		return &copy, nil
 	}}
 }
 
 type operationFacts struct {
-	service Service
-	desired policy.Desired
-	removal bool
+	service           Service
+	desired           policy.Desired
+	removal           bool
+	recoveryPlan      plan.Plan
+	recoveryOperation ops.Operation
 }
 
 func (f operationFacts) Read(ctx context.Context) (apply.Facts, error) {
 	if f.removal {
 		return f.service.removalFacts(ctx, f.desired)
 	}
-	return f.service.facts(ctx, App(f.desired))
+	facts, err := f.service.facts(ctx, App(f.desired))
+	if err != nil {
+		return facts, err
+	}
+	return f.managedRecoveryRoutes(ctx, facts)
 }
 
 // The runner hook intentionally has an error-only contract: run-op owns the

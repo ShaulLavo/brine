@@ -994,3 +994,64 @@ backup policy's original epoch. It refuses stale epochs, crossed bindings,
 changed program/Wasm/schema/image identities, secret roles, roots and missing
 artifacts. The lease requires an actual held preparation before any effect.
 Existing descriptor process/image/mount and disposal tests remain required.
+
+### Managed create recovery after route publication
+
+A create operation whose exact forward journal completes route publication and
+its protected receipt can finish an interrupted read-only route check through
+ordinary inspect/resolve. Recovery proves current policy, target, runtime,
+fences, installed frontend ownership, loaded routing and the original generation
+plus exactly its desired-state and route receipts. It probes direct and routed
+health, then commits the original artifacts under a claimed resolver. It never
+repeats image pulls, staging, binding, starts, stops, reloads or route publication.
+The original failed receipt stays recovery-required; the original frontend
+permit gains serving authority only after the resolver succeeds with the joined
+release proof. Unknown earlier effects, foreign owners, stale generations,
+changed artifacts, unsettled or foreign frontends and current fences refuse.
+
+Local executor and actual Store integration tests cover these rules, including a
+change between health and commit. This is not physical deployment evidence.
+When a later host shutdown stopped the known frontend, the same exact create
+recovery may claim one frontend wake. Before its intent it proves the original
+unit and image, settled stopped service/container, current policy, generation,
+runtime, desired state, protected route and unfenced binding. The normal frontend
+guard receives the immutable original permit plus a temporary pending operation
+ID naming only the unique active resolver. Terminal/cancelled or stale claims
+lose this permission; copied unknown starts never grant a new wake. A start with
+unknown outcome is inspected for actual running ownership and never repeated.
+Store/executor tests cover known wake, running unknown settlement, stopped unknown
+refusal and terminal permission disappearance. Host tests verify the guard uses
+the active resolver and current policy, with no original-owner fallback.
+
+### Managed recovery facts for an applied uncommitted route
+
+The public resolution service and runner now exercise the actual host recovery
+facts factory with an original create journal ending at route-check unknown and
+no committed release head. Recovery reconstructs that one protected route only
+when its original owner, plan, current runtime/desired state, policy, generation
+and actual inventory file match. Loaded route inspection remains required. The
+ordinary planner still sees only committed routing; unrelated committed routes
+remain in the recovery observation. Missing, changed, duplicated or unknown
+files, generation/policy/owner drift and current data fences refuse without
+frontend starts or commits. The neutral real Store/Service/Executor fixture uses
+stand-in native/systemd/TLS observations and does not claim physical recovery.
+
+For a known owned frontend in failed/stopped state, the recovery runtime brackets
+`StoppedContainerImage` with its existing exact stopped component proof. Cached
+index and manifest pins must name the same local image ID/platform; an existing
+stopped container must retain the exact unit/name/image ownership, and absence
+requires the explicit Podman existence probe. This proof and the exact rendered
+unit supply the stopped artifact identity and declared port. Unknown live image
+or port facts still refuse for running frontends. Public Service/Runner tests
+exercise failed units with unknown live fields, strict cached-image measurement,
+route reconstruction, and foreign image/platform/container/unit refusals.
+
+### Coherent confirmed observation during writes
+
+Confirmed subscriptions use a single durable initial snapshot across both pair
+tables and the schema marker. Tests reject orphan/mismatched rows, unknown or
+duplicate tables/IDs/fields, malformed rows/timestamps/identity frames, wrong
+request/query IDs, deletes, invalid counts, binary frames, denial and deadlines.
+Registered default-column rows require the qualified rating value7; arbitrary
+extra fields refuse. Empty-table omission follows the pinned engine protocol.
+The legacy SQL fixture remains historical decoding evidence only.
