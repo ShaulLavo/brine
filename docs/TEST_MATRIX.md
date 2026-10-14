@@ -1022,3 +1022,16 @@ unknown outcome is inspected for actual running ownership and never repeated.
 Store/executor tests cover known wake, running unknown settlement, stopped unknown
 refusal and terminal permission disappearance. Host tests verify the guard uses
 the active resolver and current policy, with no original-owner fallback.
+
+### Managed recovery facts for an applied uncommitted route
+
+The public resolution service and runner now exercise the actual host recovery
+facts factory with an original create journal ending at route-check unknown and
+no committed release head. Recovery reconstructs that one protected route only
+when its original owner, plan, current runtime/desired state, policy, generation
+and actual inventory file match. Loaded route inspection remains required. The
+ordinary planner still sees only committed routing; unrelated committed routes
+remain in the recovery observation. Missing, changed, duplicated or unknown
+files, generation/policy/owner drift and current data fences refuse without
+frontend starts or commits. The neutral real Store/Service/Executor fixture uses
+stand-in native/systemd/TLS observations and does not claim physical recovery.
