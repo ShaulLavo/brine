@@ -29,6 +29,15 @@ type NativeRestoreTestArgs struct {
 	IdempotencyKey string `json:"idempotency_key"`
 }
 
+type NativeAbandonArgs struct {
+	PointID        string `json:"point_id"`
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+func (a NativeAbandonArgs) Valid() bool {
+	return data.ValidID(a.PointID) && data.ValidID(a.IdempotencyKey)
+}
+
 func (a NativeRestoreTestArgs) Valid() bool {
 	return data.ValidID(a.PointID) && data.ValidID(a.IdempotencyKey)
 }
@@ -37,6 +46,7 @@ type NativeBackupOperations interface {
 	Capture(context.Context, NativeCaptureArgs) (jobs.Accepted, error)
 	Prepare(context.Context, NativePrepareArgs) (jobs.Accepted, error)
 	TestRestore(context.Context, NativeRestoreTestArgs) (jobs.Accepted, error)
+	Abandon(context.Context, NativeAbandonArgs) (jobs.Accepted, error)
 }
 
 func decodeNativeCapture(raw json.RawMessage) (any, error) { return decodeNativeBackup(raw) }
@@ -78,6 +88,20 @@ func decodeNativeRestoreTest(raw json.RawMessage) (any, error) {
 	return args, nil
 }
 
+func decodeNativeAbandon(raw json.RawMessage) (any, error) {
+	fields, err := strictjson.Object(raw, "point_id", "idempotency_key")
+	if err != nil {
+		return nil, err
+	}
+	point, pointErr := strictjson.Value[string](fields["point_id"])
+	key, keyErr := strictjson.Value[string](fields["idempotency_key"])
+	args := NativeAbandonArgs{PointID: point, IdempotencyKey: key}
+	if pointErr != nil || keyErr != nil || !args.Valid() {
+		return nil, strictjson.ErrObject
+	}
+	return args, nil
+}
+
 func (s *Server) submitNativeBackup(ctx context.Context, args any) (jobs.Accepted, error) {
 	if s.NativeBackups == nil {
 		return jobs.Accepted{}, result.New(result.DependencyMissing, nil)
@@ -89,6 +113,8 @@ func (s *Server) submitNativeBackup(ctx context.Context, args any) (jobs.Accepte
 		return s.NativeBackups.Prepare(ctx, args)
 	case NativeRestoreTestArgs:
 		return s.NativeBackups.TestRestore(ctx, args)
+	case NativeAbandonArgs:
+		return s.NativeBackups.Abandon(ctx, args)
 	default:
 		return jobs.Accepted{}, result.New(result.DispatchInvalidRequest, nil)
 	}

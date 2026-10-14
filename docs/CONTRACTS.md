@@ -1851,3 +1851,28 @@ underlying errors remain wrapped for internal cause/cancellation handling.
 Unknown upload results and retained workspaces keep their existing recovery
 requirements. Original backup resolution uses the same verification and commit
 codes while adopting retained evidence without another upload.
+
+### Abandon an unused native preparation
+
+`brine backup abandon POINT_ID --target NAME` submits a point-scoped
+`native_prepare_abandon` task. The personal requester must own the original
+successful initialized preparation. The command accepts a fresh or expired
+unused point. It never extends its expiry or supplies new mutation coverage.
+
+The task verifies the original preparation journal and receipt, protected
+checkpoint, unchanged owned source, current compatible release, stopped units,
+closed routes, and current policy under the host, binding, and lifetime locks.
+A consumed point, unresolved effect, changed source, foreign owner, or stale
+current scope refuses.
+
+Completion atomically records a stopped desired revision, releases only the
+original fence, and records the immutable task receipt and success state.
+Engine, frontend, and ingress remain stopped. The original point, journal,
+expiry, data, and remote backups remain unchanged. Ordinary lifecycle start
+and a distinct fresh preparation are separate subsequent operations.
+
+After a lost acknowledgement, the runner verifies the stored receipt against
+the retained original point, released fence, release, routes, and stopped
+revision. A later legitimate lifecycle revision does not invalidate that
+historical receipt. Failed or unknown attempts retain their recorded outcome
+and cannot infer success from an unjoined receipt.

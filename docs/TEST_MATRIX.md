@@ -118,7 +118,7 @@ convert source checks or accepted tasks into physical success claims.
 | Task and tests | Public execution | Required acceptance evidence |
 | --- | --- | --- |
 | P09-04, T37 | Original `plan`/`apply`, `data material set`, post-publication fresh `plan`/`apply`, `status` | Actual rootless service and frontend, app/server permits, HTTPS/WS subscriptions, supplied-key user auth and denied management/publisher routes; startup/reboot fence refusals |
-| P09-05, T38 | `backup recovery set`, `backup credentials plan`/`set`, `backup policy plan`/`activate`, `backup capture`, `backup status`, `restore native-test` | Real scoped S3 authenticated repository and complete extraction; signing-key recovery; isolated passive replay equal to confirmed source evidence while writers continue; missed cadence/expiry/outage and interrupted capture/activation resolution |
+| P09-05, T38 | `backup recovery set`, `backup credentials plan`/`set`, `backup policy plan`/`activate`, `backup capture`, `backup abandon`, `backup status`, `restore native-test` | Real scoped S3 authenticated repository and complete extraction; signing-key recovery; isolated passive replay equal to confirmed source evidence while writers continue; missed cadence/expiry/outage and interrupted capture/activation resolution |
 | P09-06, T39 | `backup prepare`, `data module plan`/`apply`/`inspect`/`resolve`, fresh deployment | Genuine empty first publication with original preparation plan; additive/default preservation and matched clients; destructive/access-change refusals; stale artifact/source/review/role refusals; unknown publish and transition recovery without repeating effects |
 | P09-07, T40 | `restore native-live plan`/`apply`/`inspect`/`review-resolution`/`resolve`, `archive native plan`/`apply`/`inspect`/`resolve`, `archive status`, `archive credentials plan`/`set`, `archive maintain plan`/`apply`/`resolve` | Historical data in a new epoch with compatible code, original-tree retention, default-denied live restore, interrupted swaps/reboot fences, full-binding archive/recreate safety, original-scoped credential renewal, thirty-day retention, purge grant/refusals, deadline-bound expiry and unknown deletion recovery |
 | P09-08, T41 | The complete runbook on authorized disposable targets | Actual arm64 Pi and amd64 execution, browser and confirmed markers, real S3 online capture/replay, code/module changes, reboot, exact stop/competitor/FDSTORE observer refusals, interruption and archive drills; actual resource measurements and host teardown |
@@ -133,8 +133,12 @@ denies observation without changing the deployment operator-policy hash.
 The private observer takes an actual owned directory descriptor, never a path,
 PID or caller proof. Missing service, busy consumers and unknown observations
 preserve the workspace. Source review and actual authorized FDSTORE busy/closed
-qualification are distinct gates. The observer source is independently reviewed;
-actual authorized FDSTORE and installed-sandbox qualification remains pending.
+qualification are distinct gates. The installed observer on the authorized arm64
+fixture passed default denial, an explicit scoped grant, retained-manager-FD busy
+refusal after sender exit, and closed-FD absence. Its owned probe was removed.
+This earns that installed scope, not every later observer asset or stopped-binding
+path. The [physical evidence](evidence/p09-pi.md) keeps final-asset and new-scope
+qualification separate.
 Fresh enrollment records actual runner identity before listener installation;
 requests require completed `enrolled` phase and the explicit grant. Cleanup
 records an owned retirement intent after absence proof, adopts a missing directory
@@ -142,6 +146,22 @@ only under that exact issued intent, and returns inspection/review cleanup
 failures. Required negatives include no-intent disappearance, replaced identity,
 missing/false grant, busy FDSTORE and unknown metadata. Keep all related phase
 checkboxes unchanged.
+
+## Current native physical acceptance
+
+The [arm64 and amd64 evidence](evidence/p09-pi.md) records successful ordinary
+source49 online capture while bounded confirmed writes continued, followed by
+same-point authenticated real R2 native tests. Pi rows advanced from 124 to 144 and AMD
+rows from 101 to 121. Verified lower bounds and recovered prefixes remain distinct from
+current source counts; loss is unknown and online maintenance is zero.
+
+First publication and both architecture frontend execution are earned. A Pi
+browser confirmed its own write. Genuine module updates, compatible rollback,
+separately granted live restore, archive/recreate/retention/purge, assigned fault
+cases, final merged binaries and actual-host cleanup remain required. Unused-point
+abandonment has source/local boundary evidence and one source52 pre-effect
+policy refusal. Successful physical abandonment/resume remains required.
+No phase task is checked by this paragraph.
 
 ## T35 qualified runtime prerequisites, admission pending
 
@@ -1113,3 +1133,17 @@ and retain checks for historical points without admitting arbitrary modules.
 
 This gate verifies evidence projection only. Staged publication, remote replay,
 and the full module update remain physical acceptance obligations.
+
+### Unused initialized preparation disposition
+
+A neutral initialized Store fixture includes real module bytes and descriptor
+with synthetic checkpoint and journal evidence. It exercises abandonment
+admission and atomic completion after the original preparation expires,
+retains the original point and source facts, and verifies stopped intent with
+original-fence release. An injected fence-update failure rolls back the entire
+completion. Changed stop or checkpoint facts and repeated completion refuse.
+
+Receipt corruption cases bind every retained scope and evidence hash during
+acknowledgement-loss adoption. Schema migration tests preserve existing task,
+input, outcome, and fence records. These local checks do not prove the Pi
+command path or remote recovery; both remain physical acceptance obligations.

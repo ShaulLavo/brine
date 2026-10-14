@@ -31,6 +31,21 @@ func (o nativeBackupOperations) Prepare(ctx context.Context, args dispatch.Nativ
 	}
 	return o.submit(ctx, args.App, args.Database, args.IdempotencyKey, ops.NativePrepare)
 }
+
+func (o nativeBackupOperations) Abandon(ctx context.Context, args dispatch.NativeAbandonArgs) (jobs.Accepted, error) {
+	if !args.Valid() || o.service.Authorize(ctx, dispatch.Mutating) != nil {
+		return jobs.Accepted{}, result.New(result.PolicyRefused, nil)
+	}
+	point, err := o.service.Store.ReadNativePreparedPoint(ctx, args.PointID)
+	if err != nil || point.SourceKind != "initialized" {
+		return jobs.Accepted{}, result.New(result.PolicyRefused, err)
+	}
+	_, _, app, err := o.service.Store.ReadNativePreparedStopExpectation(ctx, point.PointID)
+	if err != nil {
+		return jobs.Accepted{}, err
+	}
+	return o.submitBinding(ctx, point.BindingID, app, args.IdempotencyKey, ops.NativePrepareAbandon, point.PointID)
+}
 func (o nativeBackupOperations) submit(ctx context.Context, app, database, key string, kind ops.Kind) (jobs.Accepted, error) {
 	binding, err := o.service.Store.SelectNativeTaskBinding(ctx, app, database)
 	if err != nil {

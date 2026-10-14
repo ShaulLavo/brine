@@ -104,14 +104,13 @@ tidy() {
   git diff --exit-code -- go.mod go.sum
 }
 
-tests() {
+normal_tests() {
   format_check
   tidy
   go vet ./...
   GOOS=darwin GOARCH=arm64 go vet ./...
   # Shared disk and process fixtures make package-level parallelism scheduler-sensitive.
   go test -p 1 -timeout 30m ./...
-  go test -race -p 1 -timeout 30m ./...
   go build ./cmd/brine
   (
     cd tools/webtransport-experiment
@@ -120,8 +119,20 @@ tests() {
     go vet ./...
     GOOS=darwin GOARCH=arm64 go vet ./...
     go test -v -count=1 -timeout 1m ./...
+  )
+}
+
+race_tests() {
+  go test -race -p 1 -timeout 30m ./...
+  (
+    cd tools/webtransport-experiment
     go test -race -count=1 -timeout 1m ./...
   )
+}
+
+tests() {
+  normal_tests
+  race_tests
 }
 
 vulnerability() {
@@ -134,10 +145,12 @@ vulnerability() {
 case "${1:-all}" in
   all) tests; lint; rules; deadcode; duplicates; vulnerability ;;
   test) tests ;;
+  test-normal) normal_tests ;;
+  test-race) race_tests ;;
   lint) lint ;;
   structure) rules; deadcode; duplicates ;;
   vulnerability) vulnerability ;;
   fast) fast ;;
   format) format_check ;;
-  *) echo 'Usage: scripts/check.sh [all|test|lint|structure|vulnerability|fast|format]' >&2; exit 2 ;;
+  *) echo 'Usage: scripts/check.sh [all|test|test-normal|test-race|lint|structure|vulnerability|fast|format]' >&2; exit 2 ;;
 esac

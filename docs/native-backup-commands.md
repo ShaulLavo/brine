@@ -6,8 +6,10 @@ history and signing recovery material, uploads it, then independently restores
 and verifies it. Preparation withdraws owned ingress and proves a clean stop
 before making exact coverage. Both retain unknown effects for inspection.
 
-Physical S3, Pi, browser and interruption acceptance remains pending. Passing
-unit tests does not establish those results.
+The [physical evidence](evidence/p09-pi.md) records ordinary online capture and
+same-point real R2 native tests on arm64 and amd64, plus a Pi browser write.
+Assigned faults, full mutation/recovery/archive acceptance and final delivery
+remain incomplete. Passing unit tests does not establish those results.
 
 ## Start a fresh managed app
 
@@ -91,6 +93,34 @@ completion identifies a fresh exact prepared point. Its data fence remains held
 for the reviewed data operation. This is separate from an ordinary online point
 and can require maintenance downtime.
 
+## Abandon unused exact coverage
+
+```sh
+brine backup abandon POINT_ID --target TARGET --json
+```
+
+The command submits `native_prepare_abandon` with only `point_id` and
+`idempotency_key`, under the mutating authorization class. It selects a successful
+initialized exact preparation owned by the requester. A fresh or expired unused
+point is eligible for reproof. Consumed points, unresolved effects, changed
+sources and incompatible current scopes refuse.
+
+The expected receipt has `kind: "native_prepare_abandon"`, `outcome: "abandoned"`,
+the original `point_id`, `point_sha256`, `preparation_operation_id`, binding and
+epoch, and the source/stop/code/routes proof hashes. It also binds the original
+fence owner, compatible release and `stopped_desired_revision`. Completion
+atomically releases only the original fence and records the immutable outcome.
+Engine, frontend and ingress remain stopped. This is distinct from an online
+backup, live restore or ordinary lifecycle start.
+
+Abandonment leaves original point bytes, expiry, journals, data and remote
+backups unchanged. It never supplies fresh mutation coverage. After successful
+abandonment, ordinary start and a new exact preparation are separate operations.
+The [runbook procedure](runbooks/spacetimedb.md#abandon-an-unused-exact-preparation)
+describes the required original-operation handling. Source52 installation and a
+pre-effect policy-refused abandonment are recorded; the requester correction is
+local only. Successful physical abandonment remains unproved.
+
 ## Test a retained remote point
 
 ```sh
@@ -108,10 +138,10 @@ does not accept a Litestream TXID or a SQLite receipt.
 
 ## Wait or return acceptance
 
-All three commands wait by default. They report the accepted operation ID on
+Capture, preparation, restore-test and abandonment wait by default. They report the accepted operation ID on
 stderr and poll the existing operation-status API. Completion requires the
-closed `nativecapture.TaskReceipt`, the exact task kind and accepted operation
-ID. Native restore-test also requires the original requested point ID.
+closed receipt, the exact task kind and accepted operation ID. Restore-test
+and abandonment also require the original requested point ID.
 
 Use `--no-wait` to return only accepted status and operation ID. Acceptance is
 not verification. Poll later with:
@@ -120,7 +150,7 @@ not verification. Poll later with:
 brine status --operation OPERATION_ID --target TARGET --json
 ```
 
-Use `--json` or `--jsonl` for the existing machine envelope. The successful native
+Use `--json` or `--jsonl` for the existing machine envelope. The successful capture, preparation and restore-test
 receipt has `kind`, `operation_id`, `binding_id`, `epoch_id`, `point_id`,
 `point_sha256`, `outcome: "verified"`, `engine`, `module_sha256`,
 `schema_sha256`, `capture_interval_seconds`, `maintenance_millis` and `loss`.

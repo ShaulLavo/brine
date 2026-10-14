@@ -126,6 +126,8 @@ func engineTransitionSealDigest(sealed engineTreeSeal) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// Source seals use the stable transition digest when available, while retaining
+// the legacy member hash for points created before that digest was introduced.
 func engineSourceSealDigest(sealed engineTreeSeal) string {
 	return engineTransitionSealDigest(sealed)
 }

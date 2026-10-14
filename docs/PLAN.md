@@ -19,8 +19,10 @@ commands implement allocation, private backup credentials, reviewed first
 initialization, schema-preserving deployment and isolated restore checks.
 Managed SpacetimeDB commands implement private roles, backup policy, online
 capture, exact preparation, passive restore tests, reviewed publication, gated
-live restore and archive retirement. Use the
-[operator runbook](runbooks/spacetimedb.md) for their required sequence.
+live restore, archive retirement and unused exact-preparation abandonment. Use
+the [operator runbook](runbooks/spacetimedb.md) for their required sequence. The
+[physical evidence](evidence/p09-pi.md) records first publication, Pi browser
+execution and ordinary online capture with real R2 replay on both architectures.
 Phase 04 and Phase 09 acceptance remains incomplete. The welcome TUI uses
 Bubble Tea **v2** and Lip Gloss **v2**; the full operation UI remains later work.
 No production-readiness, zero-downtime or verified R2-restore claim follows from

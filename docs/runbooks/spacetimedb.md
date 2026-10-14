@@ -1,9 +1,11 @@
 # Operate a managed SpacetimeDB app
 
 Phase 09 is Approved and incomplete. These commands describe the implemented
-operator flow. They do not establish successful Pi, S3, browser or interruption
-acceptance. Keep the [phase tasks](../plans/09-spacetimedb.md) unchecked until
-their required evidence exists.
+operator flow. The [physical evidence](../evidence/p09-pi.md) records first
+publication, Pi browser writes and ordinary online capture with real R2 replay
+on both architectures. Module updates, live restore, archive, assigned fault
+cases and final delivery remain incomplete. Keep the
+[phase tasks](../plans/09-spacetimedb.md) unchecked until their full evidence exists.
 
 Use an enrolled target and its restricted personal identity. Replace uppercase
 arguments with declared names or IDs returned by Brine. Save each reviewed plan,
@@ -226,6 +228,37 @@ and restore-test report zero maintenance. Loss remains `unknown`; cadence, uploa
 success and a verified lower bound do not prove zero loss. Status reports missed
 intervals, verification age, credential expiry, pending failures and held fences.
 Status reads protected records without contacting storage or refreshing proof.
+
+## Abandon an unused exact preparation
+
+If a successful initialized preparation will not be used, abandon its recorded
+point through the restricted target. Expiry alone leaves the original fence held.
+A fresh or expired unused point can be abandoned, but a consumed point,
+unresolved effect, changed source or incompatible current scope refuses.
+
+```sh
+brine backup abandon PREPARED_POINT_ID --target TARGET --json
+brine status --operation ABANDON_OPERATION_ID --target TARGET --json
+```
+
+Require a successful `native_prepare_abandon` receipt with `outcome: "abandoned"`
+and the original point, binding, epoch and preparation operation. Brine rechecks
+the checkpoint, owned source, compatible current code, stopped units, closed
+routes and current policy under retained locks. Completion releases only the
+original fence and records a stopped desired revision. Engine, frontend and
+ingress stay stopped. Point expiry, source data, the original journal and remote
+backups remain unchanged.
+
+After successful abandonment, use ordinary lifecycle planning to resume the
+compatible app. Prepare a distinct fresh point before another reviewed data
+mutation. Abandonment never extends expired coverage or authorizes publication.
+For a lost response, inspect the original operation and use its retained key.
+Do not clear its fence or infer success from an unjoined receipt.
+
+The [physical evidence](../evidence/p09-pi.md) records source52 installation
+and a public abandonment refusal before effects. The detached-requester fix is
+locally verified but physically unrun. Successful abandonment and ordinary
+resume remain required.
 
 ## Review a module update
 

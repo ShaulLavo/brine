@@ -128,5 +128,6 @@ func newBackupCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	credentials.AddCommand(planned, set)
 	backup.AddCommand(newNativeBackupStatusCmd(deps, modes), newNativeBackupPolicyCmd(deps, modes), newNativeRecoveryCmd(deps, modes), credentials)
 	backup.AddCommand(newNativeBackupCmd(deps, modes, ops.NativeCapture), newNativeBackupCmd(deps, modes, ops.NativePrepare))
+	backup.AddCommand(newNativePointTaskCmd(deps, modes, ops.NativePrepareAbandon))
 	return backup
 }

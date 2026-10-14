@@ -24,7 +24,7 @@ func (i NativeTaskInput) valid() bool {
 	if !i.Requester.Valid() || !data.ValidID(string(i.BindingID)) {
 		return false
 	}
-	if i.Kind == ops.NativeRestoreTest {
+	if i.Kind == ops.NativeRestoreTest || i.Kind == ops.NativePrepareAbandon {
 		return data.ValidID(i.PointID)
 	}
 	return (i.Kind == ops.NativeCapture || i.Kind == ops.NativePrepare) && i.PointID == ""

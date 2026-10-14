@@ -39,9 +39,21 @@ jobs:
           # Keep this in sync with mise.toml; go.mod declares the minimum supported Go.
           go-version: "1.27.2"
           cache: true
-      - run: ./scripts/check.sh test
+      - run: ./scripts/check.sh test-normal
       - name: Check optional SpacetimeDB runtime probe
         run: bash scripts/check-spacetime-runtime.sh
+
+  race:
+    name: Race tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: "1.27.2"
+          cache: true
+      - run: ./scripts/check.sh test-race
 
   lint:
     name: New-code static checks
@@ -99,15 +111,16 @@ jobs:
   gate:
     name: Complete CI gate
     if: always()
-    needs: [test, lint, structure, vulnerability, cli-pair]
+    needs: [test, race, lint, structure, vulnerability, cli-pair]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every CI job
         env:
           TEST: ${{ needs.test.result }}
+          RACE: ${{ needs.race.result }}
           LINT: ${{ needs.lint.result }}
           STRUCTURE: ${{ needs.structure.result }}
           VULNERABILITY: ${{ needs.vulnerability.result }}
           CLI_PAIR: ${{ needs.cli-pair.result }}
         run: |
-          [[ $TEST == success && $LINT == success && $STRUCTURE == success && $VULNERABILITY == success && $CLI_PAIR == success ]]
+          [[ $TEST == success && $RACE == success && $LINT == success && $STRUCTURE == success && $VULNERABILITY == success && $CLI_PAIR == success ]]

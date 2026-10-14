@@ -35,7 +35,9 @@ operations stop writers under a durable fence and consume a fresh prepared point
 Reviewed publication and live restore verify privately, preserve the original
 tree and activate a new stopped epoch. A fresh managed deployment starts it.
 The [SpacetimeDB runbook](runbooks/spacetimedb.md) describes the public commands;
-physical S3, browser, interruption and archive acceptance remains incomplete.
+the [physical evidence](evidence/p09-pi.md) records first publication, Pi browser
+execution and online real R2 replay on both architectures. Changed-module, live
+restore, archive, assigned faults and final delivery remain incomplete.
 
 ## Planned layers
 
@@ -61,9 +63,11 @@ deployment ([D12](DECISIONS.md#d12-app-schema-changes-are-separate-from-deployme
 
 Complete the shared SQLite recovery gate and the
 [Phase 09 Pi/browser drill](plans/09-spacetimedb.md#p09-08-run-the-physical-pi-and-browser-recovery-drill).
-Verify known confirmed data through real S3 recovery, compatible code/module
-changes, reboot, interruption and archive retention. Record actual arm64 and
-amd64 execution, resource measurements and teardown. These gates remain pending.
+Reuse the earned ordinary online capture/replay core on arm64 and amd64 from
+[the physical evidence](evidence/p09-pi.md). Complete compatible code/module
+changes, live restore, held-fence reboot/interruption and archive retention.
+Record remaining resource measurements, final installed merged binaries and
+actual-host teardown. The phase exit remains pending.
 
 ## Non-goals
 

@@ -6,14 +6,16 @@ Agent-first self-hosted deployments, with a human-friendly Charm CLI.
 
 An experiment for running personal applications on enrolled Linux servers. Routine deployments use a deterministic command API; the full terminal interface is still planned.
 
-> **Status: deployment and reviewed first-database initialization implemented.** Brine supports enrollment, connected planning, detached deployment, app and operation status, logs, diagnosis, reconciliation, recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical test](docs/evidence/p03-pi.md) passed on the authorized test host. This is not a production-readiness, zero-downtime or R2-restore claim. The one-command SQLite workflow is implemented; the remaining Phase 04 backup, migration, removal and recovery acceptance gates are still open. The Charm TUI is currently a welcome screen.
+> **Status: deployment and reviewed first-database initialization implemented.** Brine supports enrollment, connected planning, detached deployment, app and operation status, logs, diagnosis, reconciliation, recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical test](docs/evidence/p03-pi.md) passed on the authorized test host. This is not a production-readiness or zero-downtime claim. The one-command SQLite workflow is implemented; the remaining Phase 04 backup, migration, removal and recovery acceptance gates are still open. The Charm TUI is currently a welcome screen.
 
 Managed SpacetimeDB commands implement stopped allocation, private role delivery,
 backup activation, online capture and isolated restore tests, reviewed module
 publication, separately gated live restore and whole-binding archive retirement.
 The [operator runbook](docs/runbooks/spacetimedb.md) gives their required order.
-Phase 09 physical recovery, browser, interruption and archive acceptance remains
-incomplete.
+The [physical evidence](docs/evidence/p09-pi.md) records first publication, Pi
+browser writes and online real R2 capture/replay on both architectures. Phase 09
+module-update, live-restore, archive, assigned fault and final-delivery acceptance
+remains incomplete.
 
 ## Components
 
