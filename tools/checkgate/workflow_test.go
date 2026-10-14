@@ -82,7 +82,14 @@ func TestCIGateRejectsEveryUnsuccessfulResult(t *testing.T) {
 		t.Fatal("missing gate command")
 	}
 	command := parts[1]
-	jobs := []string{"TEST", "LINT", "STRUCTURE", "VULNERABILITY"}
+	bindings := regexp.MustCompile(`(?m)^          ([A-Z_]+): \$\{\{ needs\.[a-zA-Z0-9_-]+\.result \}\}$`).FindAllStringSubmatch(parts[0], -1)
+	if len(bindings) == 0 {
+		t.Fatal("missing prerequisite result bindings")
+	}
+	jobs := make([]string, 0, len(bindings))
+	for _, binding := range bindings {
+		jobs = append(jobs, binding[1])
+	}
 	run := func(t *testing.T, changed, result string, wantSuccess bool) {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
