@@ -76,7 +76,7 @@ func freshNativeMaterialFixture(t *testing.T) nativeMaterialFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw = []byte(strings.Replace(string(raw), "/srv/brine-data", root, 1) + "\n[[allowed_registries]]\nhost=\"docker.io\"\nrepository_prefixes=[\"clockworklabs\"]\n")
+	raw = []byte(strings.Replace(string(raw), "/srv/brine-data", root, 1) + "\n[[allowed_registries]]\nhost=\"ghcr.io\"\nrepository_prefixes=[\"shaullavo\"]\n")
 	pol, err := policy.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -151,7 +151,7 @@ func (nativeMaterialImageExecutor) Execute(ctx context.Context, c localexec.Comm
 		return localexec.Result{}, ctx.Err()
 	}
 	if len(c.Args) > 1 && c.Args[0] == "image" && c.Args[1] == "inspect" {
-		raw, _ := json.Marshal([]map[string]any{{"Id": strings.Repeat("a", 64), "Digest": data.SpacetimeDBARM64Manifest, "RepoDigests": []string{data.SpacetimeDBImage, "docker.io/clockworklabs/spacetime@" + data.SpacetimeDBARM64Manifest}, "Architecture": "arm64", "Os": "linux", "ManifestType": "application/vnd.oci.image.manifest.v1+json"}})
+		raw, _ := json.Marshal([]map[string]any{{"Id": strings.Repeat("a", 64), "Digest": data.SpacetimeDBARM64Manifest, "RepoDigests": []string{data.SpacetimeDBImage, strings.Split(data.SpacetimeDBImage, "@")[0] + "@" + data.SpacetimeDBARM64Manifest}, "Architecture": "arm64", "Os": "linux", "ManifestType": "application/vnd.oci.image.manifest.v1+json"}})
 		return localexec.Result{Stdout: string(raw)}, ctx.Err()
 	}
 	if len(c.Args) > 0 && c.Args[0] == "ps" && !c.Mutation {

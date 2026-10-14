@@ -34,7 +34,8 @@ outcome requires the inspection flow below.
    Select the immutable
    frontend image and matching Wasm/client artifacts from the
    [fixture publication](../../fixtures/spacetimedb-app/README.md#pinned-build-and-publication).
-   Admit only the licensed single-instance topology.
+   Permit `ghcr.io` with the `shaullavo/brine-native-engine` repository in the
+   protected registry policy. Admit only the licensed single-instance topology.
 3. Declare `engine = "spacetimedb"` under `[[databases]]`. Include the app-owned
    root, nested service, module artifacts, schema compatibility, resource bounds,
    backup destination and separate secret references. Use the

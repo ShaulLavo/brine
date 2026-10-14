@@ -59,7 +59,7 @@ func managedControlStateFixtureAtRoot(t *testing.T, frontend, unpublished bool, 
 	if ownedRoot != "" {
 		raw = []byte(strings.ReplaceAll(string(raw), "/srv/brine-data", ownedRoot))
 	}
-	raw = append(raw, []byte("\n[[allowed_registries]]\nhost=\"docker.io\"\nrepository_prefixes=[\"clockworklabs\"]\n")...)
+	raw = append(raw, []byte("\n[[allowed_registries]]\nhost=\"ghcr.io\"\nrepository_prefixes=[\"shaullavo\"]\n")...)
 	pol, err := policy.Parse(raw)
 	if err != nil {
 		t.Fatal(err)
