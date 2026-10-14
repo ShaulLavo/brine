@@ -99,7 +99,8 @@ func inspectNativeAbandonSource(ctx context.Context, expected store.NativeAbando
 	}
 	defer func() { _ = root.Close() }()
 	sealed, err := sealOwnedEngineSource(ctx, root, engineCopyLimits{Bytes: expected.Permit.Runtime.CopyBytes, Files: expected.Permit.Runtime.CopyFiles, Depth: 16})
-	checkpoint, _, initialized := expected.Bundle.Source().Initialized()
+	checkpoint := expected.Checkpoint
+	initialized := checkpoint.SHA256() != ""
 	allocation := expected.Permit.Allocation
 	if err != nil || !initialized || allocation == nil || !engineSourceSealMatches(sealed, expected.Point.SourceSealSHA256) || sealed.root.Device != allocation.DirectoryDevice || sealed.root.Inode != allocation.DirectoryInode || checkpoint.SHA256() != expected.Point.CheckpointSHA256 || !nativeCheckpointMatchesSeal(checkpoint.Record().Members, sealed) {
 		return engineTreeSeal{}, errEngineSource

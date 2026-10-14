@@ -13,6 +13,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
 type NativeAbandonment struct {
@@ -24,21 +25,21 @@ type NativeAbandonment struct {
 }
 
 type nativeAbandonFacts struct {
-	input     NativeTaskInput
-	point     nativePreparedPoint
-	bundle    NativePreparedBundle
-	permit    EnginePermit
-	release   Release
-	desired   policy.Desired
-	wanted    ManagedDesiredState
-	codeSHA   string
-	routesSHA string
+	input      NativeTaskInput
+	point      nativePreparedPoint
+	checkpoint nativecapture.Checkpoint
+	permit     EnginePermit
+	release    Release
+	desired    policy.Desired
+	wanted     ManagedDesiredState
+	codeSHA    string
+	routesSHA  string
 }
 
 type NativeAbandonExpected struct {
 	App        string
 	Point      NativePreparedPointView
-	Bundle     NativePreparedBundle
+	Checkpoint nativecapture.Checkpoint
 	Permit     EnginePermit
 	Release    Release
 	Desired    policy.Desired
@@ -122,7 +123,7 @@ func (a *NativeAbandonment) Expected(ctx context.Context) (NativeAbandonExpected
 	if err != nil || !sameNativeAbandonFacts(a.facts, facts) || !a.active() {
 		return NativeAbandonExpected{}, errors.Join(ErrConflict, err)
 	}
-	return NativeAbandonExpected{App: a.operation.App, Point: facts.bundle.Point(), Bundle: facts.bundle, Permit: facts.permit, Release: facts.release, Desired: facts.desired, Wanted: facts.wanted, CodeSHA256: facts.codeSHA}, nil
+	return NativeAbandonExpected{App: a.operation.App, Point: facts.point.view, Checkpoint: facts.checkpoint, Permit: facts.permit, Release: facts.release, Desired: facts.desired, Wanted: facts.wanted, CodeSHA256: facts.codeSHA}, nil
 }
 
 func sameNativeAbandonFacts(before, after nativeAbandonFacts) bool {
@@ -170,7 +171,7 @@ func readNativeAbandonFactsTx(ctx context.Context, tx *sql.Tx, operation ops.Ope
 	if err := refusePendingNativePreparation(ctx, tx, input.BindingID, point.view.PreparationOperationID); err != nil {
 		return facts, err
 	}
-	bundle, err := readNativePreparedBundleTx(ctx, tx, input.PointID)
+	checkpoint, err := readNativeAbandonCheckpointTx(ctx, tx, point, operation)
 	if err != nil {
 		return facts, err
 	}
@@ -198,7 +199,7 @@ func readNativeAbandonFactsTx(ctx context.Context, tx *sql.Tx, operation ops.Ope
 	if err != nil || !bytes.Equal(routeRaw, canonicalRoutes) {
 		return facts, &IntegrityError{}
 	}
-	return nativeAbandonFacts{input: input, point: point, bundle: bundle, permit: permit, release: release, desired: desired, wanted: wanted, codeSHA: codeSHA, routesSHA: nativePointHash(routeRaw)}, nil
+	return nativeAbandonFacts{input: input, point: point, checkpoint: checkpoint, permit: permit, release: release, desired: desired, wanted: wanted, codeSHA: codeSHA, routesSHA: nativePointHash(routeRaw)}, nil
 }
 
 func checkNativeAbandonOriginal(ctx context.Context, tx *sql.Tx, operation ops.Operation, point nativePreparedPoint) error {
@@ -256,4 +257,33 @@ func readNativeAbandonCode(ctx context.Context, tx *sql.Tx, app string, point Na
 		return Release{}, policy.Desired{}, "", err
 	}
 	return release, desired, nativePointHash(raw), nil
+}
+
+func readNativeAbandonCheckpointTx(ctx context.Context, tx *sql.Tx, point nativePreparedPoint, operation ops.Operation) (nativecapture.Checkpoint, error) {
+	var raw, provenance, artifact, descriptor []byte
+	var generation, operationID string
+	p := point.view
+	if err := tx.QueryRowContext(ctx, "SELECT generation_id,operation_id,canonical,provenance,artifact,descriptor FROM data_native_checkpoints WHERE binding_id=? AND epoch_id=? AND generation_id=?", p.BindingID, p.EpochID, p.GenerationID).Scan(&generation, &operationID, &raw, &provenance, &artifact, &descriptor); err != nil {
+		return nativecapture.Checkpoint{}, err
+	}
+	checkpoint, err := nativecapture.DecodeCheckpoint(raw, nativecapture.DefaultLimits())
+	if err != nil || checkpoint.SHA256() != p.CheckpointSHA256 || generation != p.GenerationID || operationID != operation.ID {
+		return nativecapture.Checkpoint{}, &IntegrityError{}
+	}
+	c := checkpoint.Record()
+	if c.Scope.BindingID != string(p.BindingID) || c.Scope.EpochID != string(p.EpochID) || c.GenerationID != p.GenerationID || c.DatabaseIdentity != p.NativeDatabase || c.PublisherIdentity != p.NativePublisher || c.RuntimeModuleHash != p.ProgramWireHash || c.ArtifactSHA256 != p.ArtifactWasmSHA256 || c.SchemaSHA256 != p.SchemaSHA256 || c.ConfigurationSHA256 != p.ConfigSHA256 || nativeSigningRecoverySHA256(c.SigningRecovery) != p.SigningRecoverySHA256 || !slices.Equal(c.Names, p.Names) {
+		return nativecapture.Checkpoint{}, &IntegrityError{}
+	}
+	if _, err := readNativePreparedSchema(ctx, tx, checkpoint); err != nil {
+		return nativecapture.Checkpoint{}, err
+	}
+	var proof nativeCheckpointProvenance
+	if _, err := strictjson.Object(provenance, "format", "point_id", "binding_id", "epoch_id", "generation_id", "checkpoint_sha256", "source_sha256", "source_evidence_sha256", "artifact_sha256", "program_wire_hash", "descriptor_sha256", "schema_sha256", "reader_disposal_sha256", "artifact_proof_sha256"); err != nil || json.Unmarshal(provenance, &proof) != nil {
+		return nativecapture.Checkpoint{}, &IntegrityError{}
+	}
+	canonicalProof, _ := json.Marshal(proof)
+	if !bytes.Equal(provenance, canonicalProof) || proof.Format != "brine-native-checkpoint-provenance-v1" || proof.PointID != p.PointID || proof.BindingID != p.BindingID || proof.EpochID != p.EpochID || proof.GenerationID != p.GenerationID || proof.CheckpointSHA256 != checkpoint.SHA256() || proof.SourceSHA256 != p.SourceSHA256 || proof.SourceEvidenceSHA256 != p.SourceWitnessSHA256 || proof.ArtifactSHA256 != c.ArtifactSHA256 || proof.ProgramWireHash != c.RuntimeModuleHash || proof.DescriptorSHA256 != nativePointHash(descriptor) || proof.SchemaSHA256 != c.SchemaSHA256 || !data.ValidCatalogHash(proof.ReaderDisposalSHA256) || !data.ValidCatalogHash(proof.ArtifactProofSHA256) || nativePointHash(artifact) != proof.ArtifactProofSHA256 {
+		return nativecapture.Checkpoint{}, &IntegrityError{}
+	}
+	return checkpoint, nil
 }
