@@ -176,3 +176,52 @@ func TestConfirmedPairsRejectUnsupportedArtifactBeforeNetwork(t *testing.T) {
 		t.Fatal("unsupported artifact reached lifecycle-running SQL or metadata")
 	}
 }
+
+func decodeConfirmedSQLStatement(value any, marker bool) ([]any, error) {
+	statements, ok := value.([]any)
+	if !ok || len(statements) != 1 {
+		return nil, ErrRecoveryPairs
+	}
+	statement, err := exactObject(statements[0], "schema", "rows", "total_duration_micros", "stats")
+	if err != nil || !confirmedSQLShape(statement["schema"], marker) || !confirmedSQLStats(statement["stats"]) {
+		return nil, ErrRecoveryPairs
+	}
+	if _, err := integer(statement["total_duration_micros"]); err != nil {
+		return nil, ErrRecoveryPairs
+	}
+	rows, ok := statement["rows"].([]any)
+	if !ok || len(rows) > MaxRecoveryPairs {
+		return nil, ErrRecoveryPairs
+	}
+	return rows, nil
+}
+
+func confirmedSQLStats(value any) bool {
+	stats, err := exactObject(value, "rows_inserted", "rows_deleted", "rows_updated")
+	if err != nil {
+		return false
+	}
+	for _, value := range stats {
+		count, err := integer(value)
+		if err != nil || count != 0 {
+			return false
+		}
+	}
+	return true
+}
+
+func confirmedSQLShape(value any, marker bool) bool {
+	const pairs = `{"elements":[{"name":{"some":"sequence"},"algebraic_type":{"U64":[]}},{"name":{"some":"marker"},"algebraic_type":{"String":[]}},{"name":{"some":"commit_time"},"algebraic_type":{"Product":{"elements":[{"name":{"some":"__timestamp_micros_since_unix_epoch__"},"algebraic_type":{"I64":[]}}]}}},{"name":{"some":"scheduled"},"algebraic_type":{"Bool":[]}}]}`
+	const markers = `{"elements":[{"name":{"some":"id"},"algebraic_type":{"U8":[]}},{"name":{"some":"revision"},"algebraic_type":{"String":[]}}]}`
+	shape := pairs
+	if marker {
+		shape = markers
+	}
+	expected, err := decodeDocument([]byte(shape), DefaultSchemaLimits())
+	if err != nil {
+		return false
+	}
+	left, leftErr := encodeDocument(expected, MaxRecoveryPairsBytes)
+	right, rightErr := encodeDocument(value, MaxRecoveryPairsBytes)
+	return leftErr == nil && rightErr == nil && bytes.Equal(left, right)
+}

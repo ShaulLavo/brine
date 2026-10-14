@@ -109,7 +109,7 @@ func validateConfirmedRecordFields(fields map[string]json.RawMessage) error {
 }
 
 func newConfirmedPairsRecord(value confirmedPairsRecord) (ConfirmedPairsRecord, error) {
-	if value.Format != ConfirmedPairsFormat || value.Contract != RecoveryPairsContract || value.Basis != "confirmed_sql_lower_bound" ||
+	if value.Format != ConfirmedPairsFormat || value.Contract != RecoveryPairsContract || value.Basis != "confirmed_sql_lower_bound" && value.Basis != "confirmed_subscription_lower_bound" ||
 		value.Canonicalizer != CanonicalizerVersion || value.Marker != RecoverySchemaMarker || !validHexIdentity(value.Database) ||
 		!validHexIdentity(value.Publisher) || !validHexIdentity(value.Program) || !SupportsConfirmedRecoveryPairs(value.Wasm, value.Schema) {
 		return ConfirmedPairsRecord{}, ErrRecoveryPairs

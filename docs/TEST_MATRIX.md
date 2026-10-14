@@ -994,3 +994,13 @@ backup policy's original epoch. It refuses stale epochs, crossed bindings,
 changed program/Wasm/schema/image identities, secret roles, roots and missing
 artifacts. The lease requires an actual held preparation before any effect.
 Existing descriptor process/image/mount and disposal tests remain required.
+
+### Coherent confirmed observation during writes
+
+Confirmed subscriptions use a single durable initial snapshot across both pair
+tables and the schema marker. Tests reject orphan/mismatched rows, unknown or
+duplicate tables/IDs/fields, malformed rows/timestamps/identity frames, wrong
+request/query IDs, deletes, invalid counts, binary frames, denial and deadlines.
+Registered default-column rows require the qualified rating value7; arbitrary
+extra fields refuse. Empty-table omission follows the pinned engine protocol.
+The legacy SQL fixture remains historical decoding evidence only.
