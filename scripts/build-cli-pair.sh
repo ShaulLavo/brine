@@ -23,13 +23,29 @@ fi
 
 source_head=$(git rev-parse HEAD)
 source_tree=$(git rev-parse HEAD^{tree})
+output_owned=0
+cleanup() {
+  build_exit_code=$?
+  if (( build_exit_code != 0 && output_owned == 1 )); then
+    rm -rf -- "$output_root"
+  fi
+  exit "$build_exit_code"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 mkdir -- "$output_root"
+output_owned=1
 for architecture in amd64 arm64; do
   binary="$output_root/brine-$architecture"
   CGO_ENABLED=0 GOOS=linux GOARCH="$architecture" go build -trimpath -o "$binary" ./cmd/brine
   go version -m "$binary" > "$output_root/$architecture.metadata.txt"
 done
 "$output_root/brine-amd64" version --json > "$output_root/amd64.version.json"
+if [[ $(git rev-parse HEAD) != "$source_head" || $(git rev-parse HEAD^{tree}) != "$source_tree" || -n $(git status --porcelain) ]]; then
+  printf 'source changed during the build\n' >&2
+  exit 1
+fi
 
 python3 - "$output_root" "$source_head" "$source_tree" <<'PY'
 import hashlib
