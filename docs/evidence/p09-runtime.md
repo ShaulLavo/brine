@@ -1,6 +1,6 @@
 # P09 runtime contract and evidence
 
-P09-02 delivers the reproducible local gate, qualified canonical schema and metadata primitives, and the following pinned runtime contract. Managed SpacetimeDB spec, capture, and startup admission remain disabled. P09-02 remains unchecked until its complete acceptance is integrated; these tests do not supply a production startup permit or exact restore receipt.
+This document retains the earlier prerequisite gate, canonical schema and metadata experiments against the original pinned runtime. Managed spec, startup, capture and preparation commands are now implemented. Their earned physical scope is recorded in [the integration evidence](p09-pi.md). P09-02 remains unchecked until its complete acceptance exists; these earlier experiments do not supply a production startup permit or exact restore receipt.
 
 ## Artifact and scope
 
@@ -63,9 +63,9 @@ Native healthy metadata cannot distinguish a fresh allocation from lost historic
 
 The repository experiment seals a stopped source, copies only its bounded owned fixture tree, withholds bootstrap bytes in the copy, and checks source preservation and verifier disposal. Bubblewrap makes the original and external network inaccessible. Native startup may run init, lifecycle, or scheduled work only in this disposable copy. Its metadata result is not an exact captured data point.
 
-Production `StoppedOwnedTree` and opaque `StartupProof` construction are P09-04 work. Existing host/store adapters must establish ownership, absence of processes/restart jobs/lifetime holders, committed binding/epoch, durable fences, and startup serialization through source-seal rechecks, private verification, disposal, and live launch. A location parser or arbitrary directory does not establish those facts. No managed startup path is enabled in this PR.
+The historical gate above did not enable managed startup. Current host/store adapters construct the protected startup proofs through ownership, process/job/lifetime absence, committed binding/epoch, durable fences, source-seal rechecks, private verification and disposal. A location parser or arbitrary directory still cannot supply those facts. Actual managed execution is recorded in [the integration evidence](p09-pi.md).
 
-The separate exact-state native reader additionally found that a nonzero partial final commit header can be labelled `Complete` by the upstream decoder. Full-source offset, physical framing, native checksums, snapshot connectivity, and table multiset witnesses must therefore qualify exact capture independently. Metadata match and native `Complete` alone are insufficient. That reader's production distribution and capture integration are not shipped here.
+The separate exact-state native reader additionally found that a nonzero partial final commit header can be labelled `Complete` by the upstream decoder. Full-source offset, physical framing, native checksums, snapshot connectivity, and table multiset witnesses must therefore qualify exact capture independently. Metadata match and native `Complete` alone are insufficient. That prerequisite slice did not ship the reader. Current production capture integrates the distributed exact-state reader; its physical results and remaining fault cases are recorded separately.
 
 ## Program identity correction
 
@@ -85,4 +85,4 @@ The actual loopback Caddy JWT gate allowed only selected subscribe with an ordin
 
 Default CI syntax-checks the optional gate and verifies its pins without network or host access. Go tests cover real payload equality, declaration/ref permutation, ordered-list changes, malformed/unsupported graphs, observer drift, fixed routes, private credential formatting/serialization, and budgets.
 
-P09-04 through P09-08 still own managed spec/permit/startup wiring, exact-state reader qualification, authenticated remote capture/download, protected signing recovery, reviewed publication and source swaps, interruption/reboot recovery, and the physical Brine/browser/R2 drill. No simulated or earlier pilot result substitutes for those gates. The known cancellation panic is recorded in the owner's upstream report list; nothing was posted upstream.
+Managed spec, permits, startup, the reader, authenticated remote capture/test and reviewed publication are implemented. The [integration evidence](p09-pi.md) records first publication, Pi browser execution and continuing-write real R2 capture/replay on both architectures. Genuine changed-module, live-restore, archive and assigned interruption/reboot cases, final merged delivery and cleanup remain incomplete. The selected engine contains the independently qualified shutdown repair; the original cancellation-panic results above remain historical upstream evidence. No report was posted upstream.

@@ -321,7 +321,7 @@ Persistent declarations, observed schema compatibility gates and reviewed empty 
 
 ## D13. SpacetimeDB is a managed data engine alongside SQLite
 
-**Status: Approved design, implementation pending**, 2026-10-10. The owner wants a browser-served Bevy/Wasm game with a Rust server and potentially SpacetimeDB on the owner's enrolled Linux servers. [Phase 09](plans/09-spacetimedb.md) implements this decision. This document does not ship another engine or authorize a production-host change.
+**Status: Approved, managed commands implemented; physical acceptance incomplete.** The original design was approved on 2026-10-10. Current earned results and remaining gates are in [the integration evidence](evidence/p09-pi.md). The owner wants a browser-served Bevy/Wasm game with a Rust server and potentially SpacetimeDB on the owner's enrolled Linux servers. [Phase 09](plans/09-spacetimedb.md) implements this decision. This document does not ship another engine or authorize a production-host change.
 
 ### Scope and engine boundary
 

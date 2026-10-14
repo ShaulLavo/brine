@@ -10,7 +10,18 @@ Use one app-owned standalone engine tree and one module database per binding ini
 
 ## Existing implementation and first boundary
 
-Inspect current code before each task. At this plan's base, `internal/data/model.go`, `allocation.go`, `admission.go`, `credential.go`, `restore_point.go`, and `schema.go` combine shared identities with SQLite-specific filenames, catalog observations and restore variants. `internal/replication/permit.go` implements committed-state fail-closed permits; the other replication files render/start Litestream and handle barriers, locks and credential revisions. `internal/restore/` restores remote LTX or SQLite snapshots into isolated directories. `internal/datainit/` and `internal/host/data_init_linux.go`, `data_preparation.go`, `persistent_linux.go` connect reviewed empty SQLite initialization, fencing and host effects. These are real implementation boundaries, not permission to rewrite the whole subsystem.
+The shared typed engine boundary and public managed commands are implemented.
+They include stopped allocation, private roles, backup policy, online capture,
+exact preparation, isolated native restore tests, reviewed module publication,
+separately granted live restore, native archive and maintenance, and unused-point
+abandonment. Cobra and the restricted dispatcher call the same recorded engine.
+The [operator runbook](../runbooks/spacetimedb.md) describes their sequence.
+
+The [physical evidence](../evidence/p09-pi.md) records first publication on both
+architectures, a Pi browser write, and ordinary continuing-write capture followed
+by same-point real R2 tests on arm64 and amd64. Those earned results do not
+complete the remaining update, restore, archive, fault, final-delivery or cleanup
+acceptance. The task boxes below remain unchanged.
 
 D11/D12 and Phase 04 remain authoritative for SQLite. P09-01 extracts the smallest typed engine boundary while keeping SQLite output and behavior unchanged. It can begin against the merged foundations without waiting for every Phase 04 checkbox. Each later task requires demonstrated shared guarantees, not an unchecked phase label or package mocks. Missing prerequisites become explicit blockers in that task's PR. Coordinate shared store/spec/host edits with Phase 04 owners.
 
@@ -59,7 +70,7 @@ If any exact-capture or observer gate fails, leave managed mutation admission di
 
 **Delivered prerequisite slice.** [P09 runtime evidence](../evidence/p09-runtime.md) and the [manual repository gate](../../tools/spacetime-runtime/README.md) retain actual native/OCI, online-prefix, metadata, shutdown, guarded-bootstrap, publication and JWT facts. The shared Go canonicalizer and hook-free metadata observer are qualified without managed admission. Canonicalizer v2 fixes reducer-set ordering; the pilot v1 hash remains historical only. Actual program hashing is Keccak-256 with a reversed u256 JSON wire representation, not BLAKE3. The retained repository gate recovers 180 explicitly confirmed rows with active history versus 135 from closed history, and refuses missing-history reconstruction when bootstrap bytes are withheld. Its nonzero source stop earns no exact point.
 
-P09-02 stays unchecked. Production startup provenance/fence composition and exact-state native framing/high-water qualification remain required; unknown stops cannot supply exact preparation. P09-04/05 own their integration, and the physical Brine/R2 operation drill remains P09-08. No spec or backup capability is admitted by these helpers.
+P09-02 stays unchecked. Managed startup provenance, fences, the exact-state reader and public capture/preparation are now composed. The [physical evidence](../evidence/p09-pi.md) records their earned scope and remaining current fault cases. Unknown stops still cannot supply exact preparation. The earlier helper-only gate does not itself grant production authority.
 
 ### P09-03. Publish a reproducible multi-architecture game-data fixture
 
@@ -118,7 +129,7 @@ Publish on a private restored staging copy with no external egress, validate mod
 
 **Evidence.** T39 covers this task. Add TEST_MATRIX reviewed-data cases for new database creation, logic-only update reducers, defaulted columns, nonempty table removal, constraint/access changes, no-init deployment, failed publish, staged verification, stale review, source drift and crashes before/after swap/epoch commit. Keep SQLite initialization and rollback tests green. Document the actual noninteractive CLI/API boundary and demonstrate that no token enters argv, logs or public state.
 
-**Delivered pure core.** [Schema/publication core evidence](../evidence/p09-schema-publication.md) retains six final native descriptor fixtures and conservative comparison tests, plus private immutable create/update records and a retained-attempt cursor. Existing-name remapping requires an operator procedure; staged additions/defaults still need independent data proofs. Cursor decoding requires an independently retained exact-record hash to prevent coherent history rewinds. This unit performs no host/store/jobs effects and grants no mutation authority. Protected extraction, role/claim lookup, exact remote preparation, staged publication/projection, atomic swap/epoch transition and physical acceptance remain required; P09-06 stays unchecked. Temporary exact-symbol reachability allowances must be removed when real composition links the core, and unused symbols must be deleted before full phase exit.
+**Delivered implementation.** The earlier [schema/publication core evidence](../evidence/p09-schema-publication.md) records the pure comparison and cursor slice. Protected extraction, role lookup, remote preparation, private publication/projection, source preservation, swap/epoch transitions and public task/inspection/resolution commands are now composed. First publication has run on both architectures. Temporary composition allowances and obsolete APIs were removed. Genuine changed-module application, compatible rollback, refusals and controlled publication/swap/epoch recovery remain required by the acceptance above. P09-06 stays unchecked. Existing-name remapping still requires a separate operator procedure.
 
 ### P09-07. Complete restore, archive and interrupted-operation recovery
 
