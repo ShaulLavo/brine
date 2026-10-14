@@ -46,13 +46,11 @@ jobs:
           mkdir -p "$RUNNER_TEMP/fixture-release/bin" "$RUNNER_TEMP/fixture-release/artifacts"
           cp -R fixtures/spacetimedb-app/bin/. "$RUNNER_TEMP/fixture-release/bin/"
           cp -R "$RUNNER_TEMP/spacetimedb-fixture/artifacts/." "$RUNNER_TEMP/fixture-release/artifacts/"
-      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - name: Qualify flattened transfer and both image entrypoints
+      - name: Check the source bundle and packaging regressions
         run: |
+          python3 fixtures/spacetimedb-app/check-release.py "$RUNNER_TEMP/fixture-release" "$GITHUB_SHA"
           python3 fixtures/spacetimedb-app/check-image-test.py
-          python3 fixtures/spacetimedb-app/check-image.py "$RUNNER_TEMP/fixture-release" "$RUNNER_TEMP/fixture-image-proof"
-          cp "$RUNNER_TEMP/fixture-image-proof/image-evidence.json" "$RUNNER_TEMP/fixture-release/artifacts/image-evidence.json"
+          python3 fixtures/spacetimedb-app/package-variant-test.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: spacetimedb-fixture-${{ github.sha }}
@@ -60,8 +58,47 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-  publish:
+  package:
     needs: verify
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [v1, default-column]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
+        with:
+          go-version: "1.27.2"
+          cache: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: spacetimedb-fixture-${{ github.sha }}
+          path: ${{ runner.temp }}/fixture-source
+      - name: Embed the exact selected browser without rebuilding modules
+        env:
+          VARIANT: ${{ matrix.variant }}
+        run: python3 fixtures/spacetimedb-app/package-variant.py "$RUNNER_TEMP/fixture-source" "$RUNNER_TEMP/fixture-variant" "$VARIANT" --input-source "$GITHUB_SHA"
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - name: Qualify both entrypoints and their actual served browser bytes
+        run: |
+          python3 fixtures/spacetimedb-app/check-image.py "$RUNNER_TEMP/fixture-variant" "$RUNNER_TEMP/fixture-image-proof"
+          cp "$RUNNER_TEMP/fixture-image-proof/image-evidence.json" "$RUNNER_TEMP/fixture-variant/artifacts/image-evidence.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: spacetimedb-fixture-${{ matrix.variant }}-${{ github.sha }}
+          path: ${{ runner.temp }}/fixture-variant/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [verify, package]
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [v1, default-column]
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -72,11 +109,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
-          name: spacetimedb-fixture-${{ github.sha }}
+          name: spacetimedb-fixture-${{ matrix.variant }}-${{ github.sha }}
           path: fixtures/spacetimedb-app/release/
       - name: Verify downloaded identities
+        env:
+          VARIANT: ${{ matrix.variant }}
         run: |
-          python3 fixtures/spacetimedb-app/check-release.py fixtures/spacetimedb-app/release "$GITHUB_SHA"
+          python3 fixtures/spacetimedb-app/check-release.py fixtures/spacetimedb-app/release "$GITHUB_SHA" "$VARIANT"
           cp -R fixtures/spacetimedb-app/release/bin fixtures/spacetimedb-app/bin
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
@@ -90,10 +129,11 @@ jobs:
           context: fixtures/spacetimedb-app
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/shaullavo/brine-spacetimedb-fixture:${{ github.sha }}
+          tags: ghcr.io/shaullavo/brine-spacetimedb-fixture:${{ github.sha }}-${{ matrix.variant }}
           labels: |
             org.opencontainers.image.source=https://github.com/ShaulLavo/brine
             org.opencontainers.image.revision=${{ github.sha }}
+            io.brine.fixture.serving-variant=${{ matrix.variant }}
       - name: Record immutable index/platform/module pins
         env:
           DIGEST: ${{ steps.image.outputs.digest }}
@@ -104,7 +144,7 @@ jobs:
           cat "$RUNNER_TEMP/publication-pins.json" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: spacetimedb-publication-${{ github.sha }}
+          name: spacetimedb-publication-${{ matrix.variant }}-${{ github.sha }}
           path: ${{ runner.temp }}/publication-pins.json
           if-no-files-found: error
           retention-days: 30
