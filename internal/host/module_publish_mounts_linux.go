@@ -5,9 +5,11 @@ package host
 import (
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/datapublish"
+	"golang.org/x/sys/unix"
 )
 
 func readModuleGuestMountInfo() ([]byte, error) {
@@ -38,9 +40,9 @@ func moduleDescriptorMounts(raw []byte) bool {
 		return false
 	}
 	for _, line := range lines {
-		before, _, found := strings.Cut(line, " - ")
+		before, after, found := strings.Cut(line, " - ")
 		fields := strings.Fields(before)
-		if !found || len(fields) < 6 || seen[fields[4]] || !moduleDescriptorMountMode(required, optional, fields[4], fields[5]) {
+		if !found || len(fields) < 6 || seen[fields[4]] || !moduleDescriptorMountMode(required, optional, fields[4], fields[5]) && !moduleReadonlyRuntimeMask(fields, strings.Fields(after)) {
 			return false
 		}
 		seen[fields[4]] = true
@@ -64,4 +66,61 @@ func moduleDescriptorMountMode(required map[string]string, optional map[string]b
 		writable = writable || flag == "rw"
 	}
 	return mode == "ro" && readOnly && !writable || mode == "rw" && writable && !readOnly
+}
+
+type moduleRuntimeMaskKind uint8
+
+const (
+	moduleRuntimeMaskNone moduleRuntimeMaskKind = iota
+	moduleRuntimeMaskEmpty
+	moduleRuntimeMaskNull
+)
+
+func moduleRuntimeMaskShape(fields, filesystem []string) moduleRuntimeMaskKind {
+	if len(fields) < 6 || len(filesystem) < 3 {
+		return moduleRuntimeMaskNone
+	}
+	flags := strings.Split(fields[5], ",")
+	if !slices.Contains(flags, "ro") || slices.Contains(flags, "rw") {
+		return moduleRuntimeMaskNone
+	}
+	if fields[4] == "/proc/acpi" && fields[3] == "/" && filesystem[0] == "tmpfs" && filesystem[1] == "tmpfs" {
+		return moduleRuntimeMaskEmpty
+	}
+	if fields[4] == "/proc/kcore" && fields[3] == "/null" && filesystem[0] == "devtmpfs" && filesystem[1] == "udev" && slices.Contains(flags, "nosuid") {
+		return moduleRuntimeMaskNull
+	}
+	return moduleRuntimeMaskNone
+}
+
+func moduleReadonlyRuntimeMask(fields, filesystem []string) bool {
+	kind := moduleRuntimeMaskShape(fields, filesystem)
+	if kind == moduleRuntimeMaskNone {
+		return false
+	}
+	var status unix.Stat_t
+	if unix.Lstat(fields[4], &status) != nil || !moduleRuntimeMaskStat(kind, status) {
+		return false
+	}
+	if kind == moduleRuntimeMaskNull {
+		return true
+	}
+	return moduleRuntimeMaskDirectoryEmpty(fields[4])
+}
+
+func moduleRuntimeMaskDirectoryEmpty(path string) bool {
+	directory, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = directory.Close() }()
+	entries, err := directory.ReadDir(1)
+	return len(entries) == 0 && err == io.EOF
+}
+
+func moduleRuntimeMaskStat(kind moduleRuntimeMaskKind, status unix.Stat_t) bool {
+	if kind == moduleRuntimeMaskEmpty {
+		return status.Mode == unix.S_IFDIR|01777 && status.Uid == 0 && status.Gid == 0 && status.Nlink == 2
+	}
+	return kind == moduleRuntimeMaskNull && status.Mode == unix.S_IFCHR|0666 && status.Uid == 65534 && status.Gid == 65534 && status.Nlink == 1 && status.Size == 0 && unix.Major(uint64(status.Rdev)) == 1 && unix.Minor(uint64(status.Rdev)) == 3
 }

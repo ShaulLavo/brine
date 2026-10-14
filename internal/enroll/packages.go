@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-var requiredPackages = []string{"podman", "passt", "caddy", "uidmap", "fuse-overlayfs"}
+var requiredPackages = []string{"podman", "passt", "caddy", "uidmap", "fuse-overlayfs", "dbus-user-session"}
 
 var packageName = regexp.MustCompile(`^[a-z0-9][a-z0-9+.-]*(?::(?:amd64|arm64|all))?$`)
 var packageVersion = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.+:~_-]*$`)
