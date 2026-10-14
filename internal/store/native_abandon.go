@@ -274,7 +274,26 @@ func readNativeAbandonCheckpointTx(ctx context.Context, tx *sql.Tx, point native
 	if c.Scope.BindingID != string(p.BindingID) || c.Scope.EpochID != string(p.EpochID) || c.GenerationID != p.GenerationID || c.DatabaseIdentity != p.NativeDatabase || c.PublisherIdentity != p.NativePublisher || c.RuntimeModuleHash != p.ProgramWireHash || c.ArtifactSHA256 != p.ArtifactWasmSHA256 || c.SchemaSHA256 != p.SchemaSHA256 || c.ConfigurationSHA256 != p.ConfigSHA256 || nativeSigningRecoverySHA256(c.SigningRecovery) != p.SigningRecoverySHA256 || !slices.Equal(c.Names, p.Names) {
 		return nativecapture.Checkpoint{}, &IntegrityError{}
 	}
+	permit, err := readEnginePermit(ctx, tx, p.BindingID)
+	if err != nil {
+		return nativecapture.Checkpoint{}, err
+	}
+	if permit.Runtime.Database != data.NativeDatabaseIdentity(c.DatabaseIdentity) || permit.Runtime.Publisher != data.NativePublisherIdentity(c.PublisherIdentity) || permit.Runtime.Module.Program != data.NativeProgramWireHash(c.RuntimeModuleHash) || permit.Runtime.Module.Wasm != data.WasmSHA256(c.ArtifactSHA256) || permit.Runtime.Module.Schema.SHA256 != c.SchemaSHA256 || !slices.Equal(permit.Runtime.Names, c.Names) {
+		return nativecapture.Checkpoint{}, &IntegrityError{}
+	}
 	if _, err := readNativePreparedSchema(ctx, tx, checkpoint); err != nil {
+		return nativecapture.Checkpoint{}, err
+	}
+	intent, intentRaw, err := readNativePreparationIntent(ctx, tx, p.PointID)
+	if err != nil {
+		return nativecapture.Checkpoint{}, err
+	}
+	events, err := readNativePreparationEvents(ctx, tx, intent, intentRaw)
+	if err != nil || len(events) != 6 {
+		return nativecapture.Checkpoint{}, &IntegrityError{}
+	}
+	verification, err := decodeNativePreparedVerification(p, events[4].Proof)
+	if err != nil {
 		return nativecapture.Checkpoint{}, err
 	}
 	var proof nativeCheckpointProvenance
@@ -282,7 +301,7 @@ func readNativeAbandonCheckpointTx(ctx context.Context, tx *sql.Tx, point native
 		return nativecapture.Checkpoint{}, &IntegrityError{}
 	}
 	canonicalProof, _ := json.Marshal(proof)
-	if !bytes.Equal(provenance, canonicalProof) || proof.Format != "brine-native-checkpoint-provenance-v1" || proof.PointID != p.PointID || proof.BindingID != p.BindingID || proof.EpochID != p.EpochID || proof.GenerationID != p.GenerationID || proof.CheckpointSHA256 != checkpoint.SHA256() || proof.SourceSHA256 != p.SourceSHA256 || proof.SourceEvidenceSHA256 != p.SourceWitnessSHA256 || proof.ArtifactSHA256 != c.ArtifactSHA256 || proof.ProgramWireHash != c.RuntimeModuleHash || proof.DescriptorSHA256 != nativePointHash(descriptor) || proof.SchemaSHA256 != c.SchemaSHA256 || !data.ValidCatalogHash(proof.ReaderDisposalSHA256) || !data.ValidCatalogHash(proof.ArtifactProofSHA256) || nativePointHash(artifact) != proof.ArtifactProofSHA256 {
+	if !bytes.Equal(provenance, canonicalProof) || proof.Format != "brine-native-checkpoint-provenance-v1" || proof.PointID != p.PointID || proof.BindingID != p.BindingID || proof.EpochID != p.EpochID || proof.GenerationID != p.GenerationID || proof.CheckpointSHA256 != checkpoint.SHA256() || proof.SourceSHA256 != p.SourceSHA256 || proof.SourceEvidenceSHA256 != p.SourceWitnessSHA256 || proof.ArtifactSHA256 != c.ArtifactSHA256 || proof.ProgramWireHash != c.RuntimeModuleHash || proof.DescriptorSHA256 != nativePointHash(descriptor) || proof.SchemaSHA256 != c.SchemaSHA256 || proof.ReaderDisposalSHA256 != nativePointHash([]byte(verification.ReaderNonce+verification.ReaderViewSHA256+verification.ReaderImageID)) || proof.ArtifactProofSHA256 != "" {
 		return nativecapture.Checkpoint{}, &IntegrityError{}
 	}
 	return checkpoint, nil

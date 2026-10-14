@@ -203,7 +203,7 @@ func seedAbandonFixturePoint(t *testing.T, tx *sql.Tx, i nativePreparationIntent
 			t.Fatal(err)
 		}
 	}
-	provenance := nativeCheckpointProvenance{Format: "brine-native-checkpoint-provenance-v1", PointID: p.PointID, BindingID: p.BindingID, EpochID: p.EpochID, GenerationID: p.GenerationID, CheckpointSHA256: c.SHA256(), SourceSHA256: p.SourceSHA256, SourceEvidenceSHA256: p.SourceWitnessSHA256, ArtifactSHA256: p.ArtifactWasmSHA256, ProgramWireHash: p.ProgramWireHash, DescriptorSHA256: nativePointHash(descriptor), SchemaSHA256: p.SchemaSHA256, ReaderDisposalSHA256: nativePointHash([]byte(proof.ReaderNonce + proof.ReaderViewSHA256 + proof.ReaderImageID)), ArtifactProofSHA256: nativePointHash(artifact)}
+	provenance := nativeCheckpointProvenance{Format: "brine-native-checkpoint-provenance-v1", PointID: p.PointID, BindingID: p.BindingID, EpochID: p.EpochID, GenerationID: p.GenerationID, CheckpointSHA256: c.SHA256(), SourceSHA256: p.SourceSHA256, SourceEvidenceSHA256: p.SourceWitnessSHA256, ArtifactSHA256: p.ArtifactWasmSHA256, ProgramWireHash: p.ProgramWireHash, DescriptorSHA256: nativePointHash(descriptor), SchemaSHA256: p.SchemaSHA256, ReaderDisposalSHA256: nativePointHash([]byte(proof.ReaderNonce + proof.ReaderViewSHA256 + proof.ReaderImageID)), ArtifactProofSHA256: ""}
 	abandonExec(t, tx, "INSERT INTO data_native_checkpoints VALUES(?,?,?,?,?,?,?,?,?)", p.PointID, p.BindingID, p.EpochID, p.GenerationID, i.OperationID, c.Bytes(), abandonJSON(t, provenance), artifact, descriptor)
 	abandonExec(t, tx, "INSERT INTO data_native_prepared_points VALUES(?,?,?,?)", p.PointID, p.BindingID, p.EpochID, abandonJSON(t, p))
 	routes := NativePreparedRoutes{PointID: p.PointID, OperationID: i.OperationID, App: app, PreviousGeneration: 1, PreviousFiles: map[string]string{}, CurrentGeneration: 2, CurrentFiles: map[string]string{}, RecordedAt: p.PreparedAt}
@@ -212,6 +212,7 @@ func seedAbandonFixturePoint(t *testing.T, tx *sql.Tx, i nativePreparationIntent
 
 func (f nativeAbandonFixture) open(t *testing.T) (*NativeAbandonment, NativeAbandonObservation) {
 	t.Helper()
+
 	cap, err := f.state.OpenNativeAbandonment(t.Context(), f.operation.ID)
 	if err != nil {
 		t.Fatal("open initialized abandonment", err)
