@@ -422,3 +422,15 @@ func TestNativeAbandonExpectedBindsPublicPointHash(t *testing.T) {
 		t.Fatal("expected point hash is not the retained public point hash")
 	}
 }
+
+func TestNativeAbandonRejectsQueuedPolicyDrift(t *testing.T) {
+	fixture := newNativeAbandonFixture(t)
+	var version int
+	if err := fixture.state.db.QueryRowContext(t.Context(), "SELECT max(version) FROM data_admissions WHERE database_id=?", fixture.point.DatabaseID).Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	abandonExec(t, fixture.state.db, "INSERT INTO data_admissions(database_id,version,policy_hash) VALUES(?,?,?)", fixture.point.DatabaseID, version+1, "sha256:"+strings.Repeat("f", 64))
+	if _, err := fixture.state.OpenNativeAbandonment(t.Context(), fixture.operation.ID); err == nil {
+		t.Fatal("queued policy drift admitted")
+	}
+}
