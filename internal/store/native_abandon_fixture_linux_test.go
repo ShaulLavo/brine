@@ -409,7 +409,7 @@ func TestNativeAbandonExpectedBindsPublicPointHash(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer cap.Close()
+	defer func() { _ = cap.Close() }()
 	expected, err := cap.Expected(t.Context())
 	if err != nil {
 		t.Fatal(err)
