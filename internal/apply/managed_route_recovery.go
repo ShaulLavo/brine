@@ -38,7 +38,7 @@ func (e *Executor) inspectManagedRoute(ctx context.Context, op Operation, p plan
 			return r, nil
 		}
 	}
-	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, managedRouteOwner: owner, managedFrontendStart: cursor.FrontendStart}
+	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, managedRouteOwner: owner, managedFrontendStart: cursor.FrontendStart, managedFrontendWake: cursor.FrontendStart.Step == "" && last.Step == "managed_route_check" && (last.Outcome == "intent" || last.Outcome == "unknown")}
 	if p.Managed.Frontend != nil {
 		if e.Health == nil || e.Systemd == nil || e.Podman == nil || p.Image.ManifestDigest.Status != target.KnownStatus || p.Image.ManifestDigest.Value == nil {
 			return r, nil
@@ -58,7 +58,7 @@ func (e *Executor) inspectManagedRoute(ctx context.Context, op Operation, p plan
 	if err := x.proveManagedRoute(inspect, true); err != nil {
 		return r, nil
 	}
-	if x.managedFrontendStart.Step != "" && x.managedFrontendStopped {
+	if x.managedFrontendStopped && !x.managedFrontendWake {
 		return r, nil
 	}
 	r.Action, r.resolutionState = ResumeForward, managedRecoveryState(last.Step)
@@ -197,6 +197,9 @@ func (x *execution) wakeManagedFrontend(ctx context.Context) error {
 	prior := x.managedFrontendStart
 	if prior.Step != "" && x.managedFrontendStopped {
 		return &Error{Step: prior.Step, Code: "interrupted", Cause: errors.New("unknown frontend start cannot be repeated")}
+	}
+	if x.managedFrontendStopped && !x.managedFrontendWake {
+		return &Error{Step: "managed_route_check", Code: "interrupted", Cause: errors.New("frontend wake boundary was not admitted")}
 	}
 	if x.managedFrontendStopped {
 		if err := x.step(ctx, "managed_recovery_frontend_start", Starting, "start_failed", func(ctx context.Context) error {

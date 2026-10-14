@@ -57,6 +57,7 @@ type Executor struct {
 }
 
 type execution struct {
+	managedFrontendWake                     bool
 	managedFrontendStopped                  bool
 	managedFrontendStart                    ops.StepPayload
 	managedRouteOwner                       string

@@ -245,6 +245,11 @@ func (h *managedCommitHost) Check(_ context.Context, _ policy.Desired, _ target.
 	return nil
 }
 func TestManagedRoutePublicExecutorCommitsThroughActualStoreAndGrantsOnlyAfterResolverSuccess(t *testing.T) {
+	t.Run("original-route-check", func(t *testing.T) { testManagedRoutePublicExecutor(t, false) })
+	t.Run("resolver-commit-unknown", func(t *testing.T) { testManagedRoutePublicExecutor(t, true) })
+}
+func testManagedRoutePublicExecutor(t *testing.T, interruptedCommit bool) {
+	t.Helper()
 	s, p, source, resolver, expected := managedRouteCommitFixture(t)
 	ctx := context.Background()
 	_, d, err := s.LoadPlan(ctx, p.Hash)
@@ -259,6 +264,22 @@ func TestManagedRoutePublicExecutorCommitsThroughActualStoreAndGrantsOnlyAfterRe
 	facts := apply.Facts{Routing: host.route, Input: plan.Input{Desired: d, State: plan.BrineState{Target: p.Target, Generation: generation}}}
 	facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
 	executor := apply.Executor{Journal: s, Releases: managedCommitReleases{s}, Managed: host, Routes: host, Health: host, Facts: apply.FactsFunc(func(context.Context) (apply.Facts, error) { return facts, nil }), Systemd: &systemd.Fake{IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return true, nil }}, Podman: &podman.Fake{SecretExistsFunc: func(context.Context, podman.Name) (bool, error) { return true, nil }}}
+	if interruptedCommit {
+		claimManagedRouteCommit(t, s, resolver.ID)
+		appendManagedStep(t, s, resolver.ID, "managed_commit", "unknown")
+		if err := s.SetOperationState(ctx, resolver.ID, ops.RecoveryRequired); err != nil {
+			t.Fatal(err)
+		}
+		source, err = s.GetOperation(ctx, resolver.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resolver, _, err = s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, PlanID: p.Hash, RecoveryOf: source.ID}, "requester", "commit-settlement")
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
 	events, err := s.EventsAfter(ctx, resolver.ID, 0, 1024)
 	if err != nil {
 		t.Fatal(err)
@@ -274,14 +295,14 @@ func TestManagedRoutePublicExecutorCommitsThroughActualStoreAndGrantsOnlyAfterRe
 		t.Fatal("unexpected health probes", host.checks)
 	}
 	actual, err := s.CurrentRelease(ctx, p.App)
-	if err != nil || actual.ID != source.ID || actual.Managed.Frontend.Unit != expected.Managed.Frontend.Unit {
+	if err != nil || actual.ID != expected.ID || actual.Managed.Frontend.Unit != expected.Managed.Frontend.Unit {
 		t.Fatal("wrong released ownership", err)
 	}
 	permit, err := s.ReadManagedFrontendPermit(ctx, p.App)
-	if err != nil || permit.Permit.OperationID != source.ID || permit.Pending {
+	if err != nil || permit.Permit.OperationID != expected.ID || permit.Pending {
 		t.Fatal("resolved client guard refused", err)
 	}
-	original, err := s.GetOperation(ctx, source.ID)
+	original, err := s.GetOperation(ctx, expected.ID)
 	if err != nil || original.State != ops.RecoveryRequired {
 		t.Fatal("original receipt rewritten", err)
 	}

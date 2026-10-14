@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -192,19 +193,101 @@ func TestManagedCreateLatePrefixRejectsMissingDuplicateAndEarlierUnknownSteps(t 
 }
 
 func TestOriginalManagedCommitUnknownDoesNotAdvertiseUncommittedAdoption(t *testing.T) {
-	r, source, resolver := managedRouteRecoveryFixture(t)
-	for _, step := range []ops.StepPayload{{Step: "managed_route_check", Outcome: "completed"}, {Step: "managed_commit", Outcome: "intent"}, {Step: "managed_commit", Outcome: "unknown"}} {
+	for _, state := range []State{Queued, LaunchUnknown, Preflight, Preparing, Quiescing, Starting, Checking, Committing} {
+		t.Run(string(state), func(t *testing.T) {
+			r, source, resolver := managedRouteRecoveryFixture(t)
+			addManagedRecoverySteps(r, ops.StepPayload{Step: "managed_route_check", Outcome: "completed"}, ops.StepPayload{Step: "managed_commit", Outcome: "intent"}, ops.StepPayload{Step: "managed_commit", Outcome: "unknown"})
+			resolver.State = state
+			assessment, err := r.executor.InspectResolution(context.Background(), resolver, source, r.plan, r.desired, r.events)
+			if err != nil || assessment.Action != RequireRecovery || len(r.effects) != 0 || len(r.checks) != 0 || r.committed {
+				t.Fatal("unsupported original commit advertised", state, assessment.Action, err, r.effects)
+			}
+			original := source
+			original.State = Committing
+			assessment, err = r.executor.InspectRecovery(context.Background(), original, r.plan, r.desired, r.events)
+			if err != nil || assessment.Action != RequireRecovery {
+				t.Fatal("unsupported original commit reconciliation advertised", assessment.Action, err)
+			}
+		})
+	}
+}
+func addManagedRecoverySteps(r *managedRouteRecoveryRig, steps ...ops.StepPayload) {
+	for _, step := range steps {
 		raw, _ := json.Marshal(step)
 		r.events = append(r.events, Event{Kind: "step", Payload: raw})
 	}
-	assessment, err := r.executor.InspectResolution(context.Background(), resolver, source, r.plan, r.desired, r.events)
-	if err != nil || assessment.Action != RequireRecovery {
-		t.Fatal("unsupported original commit advertised", assessment.Action, err)
+}
+
+type stoppedManagedRouteFake struct{ *managedRuntimeFake }
+
+func (f stoppedManagedRouteFake) CompletedManaged(context.Context, string, plan.Plan, policy.Desired) error {
+	return injected
+}
+func (f stoppedManagedRouteFake) StoppedManagedFrontend(context.Context, string, plan.Plan, policy.Desired) error {
+	return nil
+}
+
+func TestStoppedManagedRecoveryAssessmentMatchesWakeBoundary(t *testing.T) {
+	states := []State{Queued, LaunchUnknown, Preflight, Preparing, Quiescing, Starting, Checking, Committing}
+	for _, state := range states {
+		t.Run(string(state), func(t *testing.T) {
+			for _, outcome := range []string{"intent", "unknown", "completed", "commit-unknown"} {
+				t.Run(outcome, func(t *testing.T) {
+					r, source, resolver := managedRouteRecoveryFixture(t)
+					r.executor.Managed = stoppedManagedRouteFake{r.executor.Managed.(*managedRuntimeFake)}
+					resolver.State = state
+					if outcome == "intent" {
+						r.events = slices.DeleteFunc(r.events, func(event Event) bool {
+							var step ops.StepPayload
+							return event.Kind == "step" && json.Unmarshal(event.Payload, &step) == nil && step.Step == "managed_route_check" && step.Outcome == "unknown"
+						})
+					}
+					if outcome == "completed" || outcome == "commit-unknown" {
+						addManagedRecoverySteps(r, ops.StepPayload{Step: "managed_route_check", Outcome: "completed"})
+					}
+					if outcome == "commit-unknown" {
+						addManagedRecoverySteps(r, ops.StepPayload{Step: "managed_commit", Outcome: "intent"}, ops.StepPayload{Step: "managed_commit", Outcome: "unknown"})
+						// A nested resolver commit is a running-only continuation; it must not
+						// advertise another wake after the route check has completed.
+						source.Kind = ops.Resolve
+						source.RecoveryOf = "original"
+						r.executor.Journal = managedRootJournal{rig: r.rig, root: Operation{ID: "original", Kind: ops.Deploy, PlanID: r.plan.Hash, App: r.plan.App, State: RecoveryRequired}}
+					}
+					assessment, err := r.executor.InspectResolution(context.Background(), resolver, source, r.plan, r.desired, r.events)
+					wanted := RequireRecovery
+					if outcome == "intent" || outcome == "unknown" {
+						wanted = ResumeForward
+					}
+					if err != nil || assessment.Action != wanted || len(r.effects) != 0 || len(r.checks) != 0 || r.committed {
+						t.Fatal("assessment and wake grant disagree", outcome, state, assessment.Action, err, r.effects)
+					}
+				})
+			}
+		})
 	}
-	original := source
-	original.State = Committing
-	assessment, err = r.executor.InspectRecovery(context.Background(), original, r.plan, r.desired, r.events)
-	if err != nil || assessment.Action != RequireRecovery {
-		t.Fatal("unsupported original commit reconciliation advertised", assessment.Action, err)
+}
+
+type managedRootJournal struct {
+	*rig
+	root Operation
+}
+
+func (j managedRootJournal) GetOperation(_ context.Context, id string) (Operation, error) {
+	if id == j.root.ID {
+		return j.root, nil
+	}
+	return Operation{}, injected
+}
+
+func TestCompletedRouteCheckCannotGainWakeAfterAssessment(t *testing.T) {
+	r, source, resolver := managedRouteRecoveryFixture(t)
+	addManagedRecoverySteps(r, ops.StepPayload{Step: "managed_route_check", Outcome: "completed"})
+	assessment, err := r.executor.InspectResolution(context.Background(), resolver, source, r.plan, r.desired, r.events)
+	if err != nil || assessment.Action != ResumeForward {
+		t.Fatal("running completion unavailable", err, assessment.Action)
+	}
+	r.executor.Managed = stoppedManagedRouteFake{r.executor.Managed.(*managedRuntimeFake)}
+	if err := r.executor.Recover(context.Background(), assessment); err == nil || r.committed || len(r.effects) != 0 || len(r.checks) != 0 {
+		t.Fatal("liveness change authorized unadmitted wake", err, r.effects)
 	}
 }

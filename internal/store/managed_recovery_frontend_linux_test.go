@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -117,5 +118,44 @@ func TestManagedRecoveryFrontendRefusesStaleAndForgedPermission(t *testing.T) {
 				t.Fatal("stale or forged claim granted permission")
 			}
 		})
+	}
+}
+
+func TestCommittedManagedReleaseKeepsOrdinaryPermitAndRejectsTemporaryWake(t *testing.T) {
+	s, p, source, resolver := managedResolutionFixture(t)
+	ctx := context.Background()
+	record, err := s.ReadManagedFrontendRecord(ctx, p.App)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, state := range []ops.State{ops.Queued, ops.Preflight, ops.Preparing, ops.Starting, ops.Checking, ops.Committing} {
+		if state != ops.Queued {
+			if err := s.SetOperationState(ctx, resolver.ID, state); err != nil {
+				t.Fatal(err)
+			}
+		}
+		tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, temporary, err := managedRecoveryFrontend(ctx, tx, record)
+		closeErr := tx.Rollback()
+		if err != nil || closeErr != nil || temporary {
+			t.Fatal("committed release reached temporary wake", state, err, closeErr, temporary)
+		}
+	}
+	if _, err := s.ReadManagedFrontendPermit(ctx, p.App); err == nil {
+		t.Fatal("unfinished resolver bypassed joined ordinary permit")
+	}
+	if err := s.SetOperationState(ctx, resolver.ID, ops.Succeeded); err != nil {
+		t.Fatal(err)
+	}
+	granted, err := s.ReadManagedFrontendPermit(ctx, p.App)
+	if err != nil || granted.Pending || granted.PendingOperationID != "" || granted.Permit != record.Resolution.Permit {
+		t.Fatal("temporary inspector replaced committed serving proof", err)
+	}
+	unchanged, err := s.GetOperation(ctx, source.ID)
+	if err != nil || unchanged.State != ops.RecoveryRequired {
+		t.Fatal("committed serving proof changed original receipt", err)
 	}
 }
