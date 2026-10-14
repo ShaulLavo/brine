@@ -1806,3 +1806,17 @@ The inherited backup policy keeps its original deployment-plan identity and
 cannot select the current extraction epoch. Candidate publication extraction
 continues to require its reviewed deployment plan; current-source extraction
 grants no candidate publication or writer start authority.
+
+Confirmed recovery-pair observation uses one private authenticated v1JSON
+`SubscribeMulti` initial snapshot with `confirmed=true`. The pinned engine
+computes all three independent table queries under one read transaction and
+waits for that transaction offset to become durable before delivery. Separate
+SQL reads cannot supply this snapshot while scheduled writers advance.
+
+The observer requires the exact protocol, identity frame, request/query ID,
+complete named row shape from the admitted registered base/default-column
+layout, table IDs/names, row counts and fixed schema marker. Pinned empty-table
+omission means empty rows; a missing populated side still refuses as an orphan.
+No retry, join, intersection or truncation repairs inconsistent data. New
+observations record `confirmed_subscription_lower_bound`; retained historical
+SQL records keep their original basis and canonical bytes.
