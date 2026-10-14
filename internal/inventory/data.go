@@ -23,6 +23,10 @@ func ProbeDataMapping(ctx context.Context, runner localexec.Runner, root data.Ro
 	if runner == nil || runtime.Validate() != nil || !root.Admits(root.Root, 1) || strings.ContainsAny(string(root.Root), ":\x00\r\n") {
 		return evidence, data.ErrInvalid
 	}
+	stdoutRunner, ok := runner.(localexec.CaptureRunner)
+	if !ok {
+		return evidence, data.ErrInvalid
+	}
 	timeout, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	directory, err := os.MkdirTemp(string(root.Root), ".brine-mapping-")
@@ -41,8 +45,8 @@ func ProbeDataMapping(ctx context.Context, runner localexec.Runner, root data.Ro
 	gid := strconv.FormatUint(uint64(runtime.GID), 10)
 	// Fixed script; no request values or paths are interpolated into its source.
 	script := `import os; p="/data/probe"; assert open(p).read()=="host"; assert os.getuid()==int(os.environ["BRINE_UID"]); assert os.getgid()==int(os.environ["BRINE_GID"]); os.unlink(p); f=open(p,"w"); f.write("container"); f.close(); assert os.stat(p).st_mode & 0o777 == 0o600; print("mapped")`
-	output, err := runner.Run(timeout, "podman", "run", "--rm", "--network=none", "--pull=never", "--userns=keep-id:uid="+uid+",gid="+gid, "--user="+uid+":"+gid, "--umask=0077", "--env=BRINE_UID="+uid, "--env=BRINE_GID="+gid, "--volume="+directory+":/data:rw", MappingProbeImage, "python", "-c", script)
-	if err != nil || strings.TrimSpace(output) != "mapped" {
+	output, err := stdoutRunner.CaptureStdout(timeout, localexec.OutputLimit, "podman", "run", "--rm", "--network=none", "--pull=never", "--userns=keep-id:uid="+uid+",gid="+gid, "--user="+uid+":"+gid, "--umask=0077", "--env=BRINE_UID="+uid, "--env=BRINE_GID="+gid, "--volume="+directory+":/data:rw", MappingProbeImage, "python", "-c", script)
+	if err != nil || output.Overflow || strings.TrimSpace(output.Stdout) != "mapped" {
 		return evidence, fmt.Errorf("keep-id mapping probe refused")
 	}
 	if err = data.VerifyRunnerFile(hostFile); err != nil {

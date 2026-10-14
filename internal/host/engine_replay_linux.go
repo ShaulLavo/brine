@@ -149,17 +149,15 @@ func engineReplayMounts(raw []byte) bool {
 	}
 	seen := map[string]bool{}
 	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
-		before, _, found := strings.Cut(line, " - ")
+		before, after, found := strings.Cut(line, " - ")
 		fields := strings.Fields(before)
 		if !found || len(fields) < 6 || seen[fields[4]] {
 			return false
 		}
-		path := fields[4]
-		mode, mandatory := required[path]
-		if !mandatory && !allowed[path] || mandatory && !slices.Contains(strings.Split(fields[5], ","), mode) {
+		if !moduleDescriptorMountMode(required, allowed, fields[4], fields[5]) && !moduleReadonlyRuntimeMask(fields, strings.Fields(after)) {
 			return false
 		}
-		seen[path] = true
+		seen[fields[4]] = true
 	}
 	for path := range required {
 		if !seen[path] {

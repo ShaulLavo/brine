@@ -34,6 +34,33 @@ func TestStateSourceCopyCreatesMissingStagingAndOwnsCleanup(t *testing.T) {
 	}
 }
 
+func TestStateSourceCopyRetainsOriginalAfterVerificationDisposal(t *testing.T) {
+	binding, stateRoot := engineSourceFixture(t)
+	ctx := context.Background()
+	copied, err := copyEngineStateSource(ctx, binding, stateRoot, strings.Repeat("d", 32), engineCopyLimits{Bytes: 1 << 20, Files: 128, Depth: 64})
+	if err != nil {
+		t.Fatal("fresh startup staging copy", err)
+	}
+	t.Cleanup(func() { _ = copied.discard() })
+	privatePath := copied.path
+	if err := copied.disposeStage(); err != nil {
+		t.Fatal("verification copy disposal", err)
+	}
+	if _, err := os.Lstat(privatePath); !os.IsNotExist(err) {
+		t.Fatal("private verification copy remained")
+	}
+	content, err := copied.source.ReadFile("control-db/state")
+	if err != nil || string(content) != "synthetic-persisted-state" || copied.sourceUnchanged(ctx) != nil {
+		t.Fatal("verification disposal invalidated the original source proof", err)
+	}
+	if err := copied.discard(); err != nil {
+		t.Fatal("startup source and staging cleanup", err)
+	}
+	if _, err := os.Lstat(filepath.Join(stateRoot, "staging")); !os.IsNotExist(err) {
+		t.Fatal("owned startup staging parent remained")
+	}
+}
+
 func TestStateNativeSelectionCreatesMissingStagingAndOwnsCleanup(t *testing.T) {
 	source, selection, _ := nativeViewFixture(t)
 	stateRoot := t.TempDir()

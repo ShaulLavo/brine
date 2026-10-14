@@ -1015,6 +1015,21 @@ The operator-only hidden `host enrollment` endpoint accepts bounded JSON on stdi
 
 Missing packages use a simulated apt transaction with exact versions for every new dependency. Missing runtime candidates are checked against D2 before confirmation. Apply is bound to the displayed fixed change list, exact transaction and relevant inventory; it repeats the binding check before creating a journal and under the lock before performing enrollment changes. Changed candidates, dependencies, installed versions or host trust require a fresh inventory and confirmation. Enrollment refuses package upgrades, removals and transaction drift. It masks Caddy before installation, removes a new Caddy package's verified default site from the candidate root configuration, validates the Brine root and only then unmasks and starts the service. Existing root Caddy configuration keeps its sites and gains the one fixed import. The complete candidate is journaled and validated in the protected enrollment directory before live replacement. Known validation/promotion failures restore verified original bytes and metadata; unknown or changed observed state keeps the journal and fails closed. Interrupted promotion resumes from either the recorded original or intended file, and candidate cleanup is recorded. Package removal during undo is limited to recorded installed packages; it does not autoremove or purge preexisting package configuration.
 
+Fresh enrollment explicitly requires Debian's `dbus-user-session` package. A
+running, lingering user manager and installed `dbus-daemon` alone do not supply
+the user bus that rootless Podman needs for systemd cgroups. The missing package
+and its dependencies enter the same exact reviewed apt transaction; preinstalled
+packages remain untouched. Container process binding still requires the expected
+systemd user scope.
+
+Private module descriptor and publication helpers admit two additional standard
+OCI masks observed on the Debian amd64 runtime. `/proc/acpi` must be a read-only
+tmpfs root with an actually empty, non-symlink directory of the observed root
+ownership and mode. `/proc/kcore` must be a read-only, nosuid `/null` mount from
+`devtmpfs`, with a non-symlink null character device, major 1/minor 3, mode 0666,
+one link, zero size and the unmapped 65534 owner/group. Other extra paths and
+writable or changed nodes still refuse before helper input.
+
 The runner has a root-owned home and `.ssh`, with only runner-owned `.config`, `.local`, `.cache` and state below them. `authorized_keys` and the root-owned forced SSH command name `/usr/bin/env BRINE_AUTHENTICATED=deploy /usr/local/bin/brine host serve` with `restrict`. SSH AcceptEnv and SetEnv cannot supply that marker. The marker selects the enrolled runner principal; it does not independently prove an SSH login. A process already running as `brine` can set it locally and has that same principal's deployment authority. The host factory checks the captured marker before opening the store for every operation except ping. Run-op captures no marker and only receives the execution runner, not dispatcher planning or job-acceptance dependencies. The root-owned external deploy key is at `/etc/ssh/brine/authorized_keys/brine`; `.ssh` remains empty after verification. A root-written inventory identity key at `/etc/ssh/brine/inventory-key` supplies the shared snapshot collector without trusting runner-writable state. Caddy's generation parent is root-owned and group-writable by the runner so the unprivileged generation adapter can create and promote generations. The polkit rule grants only `caddy.service` reload.
 
 Enrollment also journals root-owned `/etc/ssh/brine/operator-policy.toml` and `/etc/ssh/brine/requester`, both mode 0644. The requester is an opaque digest of the canonical deploy public key, never a request argument. The operator confirms a default policy with no allowed registries, domains or secrets, app ports 20000-20999, 512 MiB and 128 PID ceilings, a 1 GiB disk reserve and Caddy HTTPS port 443. Deployment stays denied until the operator edits that protected policy. Enrollment installs the default only if the policy is absent, never replaces it on re-run, and verifies file ownership and mode rather than content. Deployment still strictly parses and validates the contents. Undo removes only the unchanged enrollment-installed default; an edited or preexisting operator policy and its protected parent directory remain in place and are explicitly reported. The loader requires root-owned, non-writable parents and a root-owned regular file with no symlink or hard link. Policy TOML decoding is strict. The explicit `caddy_port` sets the local routed-health listener; production currently requires the explicit value 443, matching the generated Caddy sites. Other listener ports remain unsupported and are refused before deployment rather than failing routed health checks.
@@ -1756,3 +1771,38 @@ strict schema, usage and canonical identity checks. Global maxima are caps, not
 a substitute request. Parsing retained bytes grants no source, owner, capture,
 publication or recovery authority; the existing protected hashes and scope joins
 remain required.
+
+Initial module publication records `unit_absent` in its protected target proof.
+The source is an unpublished allocation, and ordinary deployment installs the
+managed engine service after publication initializes it. Publication observes
+actual service-file absence and the unchanged canonical future unit hash. It
+refuses any installed file, including a matching file, and unsafe or unknown
+paths. Initialized publication still requires the exact installed service.
+Activation, completion and transition recovery require the same unit observation
+as the retained target proof. Existing process, job, container, reader, ingress,
+fence and tree checks remain required; unit absence grants no start authority.
+
+Control schema 28 admits the two protected final publication proof kinds,
+`transition_target` and `transition_completion`, alongside retained proof kinds.
+The normal store opener upgrades schema 27 atomically, preserving every proof
+key, kind, hash and canonical byte. Read-only openers refuse a schema that needs
+migration. The typed proof-kind catalog supplies the current SQL constraint;
+unknown kinds, foreign claims, duplicate proof keys, invalid hash lengths,
+oversized records, updates and deletes remain refused.
+
+Incoming publication and live-restore transitions compare the initialized
+repository destination through `nativeArchiveLocation`, the same constructor
+used by repository initialization. The archive prefix retains its ownership
+trailing slash; the transport location omits that delimiter before hashing.
+Binding, incoming epoch, exact destination and original creation grant still
+must match. A different prefix, bucket, endpoint, region or path mode refuses
+transition admission.
+
+Current-module extraction for online capture and initialized exact preparation
+binds the current committed engine permit under its held preparation guard.
+It verifies the exact current Wasm and native program identities before staging,
+then inspects the pinned runtime image and checks the extracted current schema.
+The inherited backup policy keeps its original deployment-plan identity and
+cannot select the current extraction epoch. Candidate publication extraction
+continues to require its reviewed deployment plan; current-source extraction
+grants no candidate publication or writer start authority.

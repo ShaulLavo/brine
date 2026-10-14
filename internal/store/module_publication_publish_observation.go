@@ -56,7 +56,7 @@ func (s *Store) RecordPublicationPublished(ctx context.Context, attempt *Publica
 	if err != nil {
 		return current.cursor, ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO data_module_publication_proofs VALUES(?,?,'publication_receipt',?,?)", current.review.Plan().ID(), "publication", hash, raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, current.review.Plan().ID(), "publication", publicationReceiptProof, raw); err != nil {
 		return current.cursor, err
 	}
 	if err = appendPublicationCursorTx(ctx, tx, current.review.Plan(), current.cursor, next); err != nil {

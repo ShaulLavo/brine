@@ -210,7 +210,7 @@ func (s *Store) PreservePublicationOriginalSource(ctx context.Context, capabilit
 		return zero, ErrInvalid
 	}
 	hash := publicationStorageSHA256(raw)
-	if err = insertPublicationProofTx(ctx, tx, current.claim.PlanID, "source_preservation", "source_preservation", raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, current.claim.PlanID, "source_preservation", publicationPreservationProof, raw); err != nil {
 		return zero, err
 	}
 	next, err := current.cursor.PreserveSource(hash)

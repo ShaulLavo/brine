@@ -91,10 +91,10 @@ func (s *Store) RecordPublicationVerified(ctx context.Context, attempt *Publicat
 	if err != nil {
 		return current.cursor, ErrConflict
 	}
-	if err = insertPublicationProofTx(ctx, tx, attempt.planID, "verification", "target_verification", raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, attempt.planID, "verification", publicationVerificationProof, raw); err != nil {
 		return current.cursor, err
 	}
-	if err = insertPublicationProofTx(ctx, tx, attempt.planID, "checkpoint", "target_checkpoint", observed.Checkpoint.Bytes()); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, attempt.planID, "checkpoint", publicationCheckpointProof, observed.Checkpoint.Bytes()); err != nil {
 		return current.cursor, err
 	}
 	if err = appendPublicationCursorTx(ctx, tx, current.review.Plan(), current.cursor, next); err != nil || attempt.restored.unchanged(ctx) != nil || checkPublicationCheckpointMembers(ctx, attempt.restored.root, observed.Checkpoint) != nil {
@@ -173,7 +173,7 @@ func publicationTargetObservation(cursor datapublish.Cursor, step datapublish.St
 	return datapublish.Observation{Scope: scope, Step: step, Outcome: datapublish.ObservedCompleted, ProofSHA256: hash, NativeDatabase: cursor.NativeDatabase(), NativePublisher: cursor.NativePublisher(), ProgramWireHash: scope.CandidateProgramWireHash, SchemaSHA256: scope.CandidateSchemaSHA256, Requirements: []datapublish.RequirementProof{}}
 }
 
-func insertPublicationProofTx(ctx context.Context, tx *sql.Tx, plan, id, kind string, raw []byte) error {
+func insertPublicationProofTx(ctx context.Context, tx *sql.Tx, plan, id string, kind publicationProofKind, raw []byte) error {
 	if len(raw) == 0 || len(raw) > 4<<20 {
 		return ErrInvalid
 	}

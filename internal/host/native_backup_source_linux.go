@@ -80,11 +80,7 @@ func readNativeProgramMember(ctx context.Context, root *os.Root, member engineTr
 }
 
 func (r nativeBackupRuntime) extractCurrentModule(ctx context.Context, preparation *store.EnginePreparation, permit store.EnginePermit, artifact datapublish.Artifact) (module nativeCurrentModule, err error) {
-	backup, err := r.state.ReadNativeBackupPolicy(ctx, permit.Runtime.BindingID)
-	if err != nil {
-		return nativeCurrentModule{}, err
-	}
-	lease, err := acquireDescriptorLease(ctx, r.state, preparation, permit.Runtime.BindingID, backup.DeploymentPlanID, artifact, podman.New(r.session))
+	lease, err := acquireCurrentDescriptorLease(ctx, r.state, preparation, permit, artifact, podman.New(r.session))
 	if err != nil {
 		return nativeCurrentModule{}, err
 	}

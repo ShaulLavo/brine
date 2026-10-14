@@ -181,9 +181,16 @@ func publicationCompletionReceiptTx(ctx context.Context, tx *sql.Tx, current pub
 	return receipt, nil
 }
 
+func checkPublicationCompletionTarget(target publicationTarget, completed publicationCompletionRecord) error {
+	if completed.TargetSHA256 != target.hash || completed.UnitAbsent != target.record.UnitAbsent || completed.UnitSHA256 != publicationTargetUnitSHA256(target) || completed.MaterialSHA256 != target.record.MaterialSHA256 || completed.ObservedAt.Before(target.record.ObservedAt) {
+		return &IntegrityError{}
+	}
+	return nil
+}
+
 func checkPublicationCompletionJoinTx(ctx context.Context, tx *sql.Tx, current publicationAttemptState, input data.EngineTransition, cursor data.EngineTransitionCursor, completed publicationCompletionRecord, hash string) error {
 	target, err := readPublicationTargetTx(ctx, tx, current)
-	if err != nil || completed.TargetSHA256 != target.hash || completed.UnitSHA256 != target.runtime.UnitSHA256 || completed.MaterialSHA256 != target.record.MaterialSHA256 || completed.ObservedAt.Before(target.record.ObservedAt) {
+	if err != nil || checkPublicationCompletionTarget(target, completed) != nil {
 		return errors.Join(&IntegrityError{}, err)
 	}
 	var previousRaw []byte

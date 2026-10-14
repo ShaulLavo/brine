@@ -13,12 +13,17 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/localexec"
 )
 
 type mappingRunner func(context.Context, string, ...string) (string, error)
 
 func (f mappingRunner) Run(ctx context.Context, path string, args ...string) (string, error) {
-	return f(ctx, path, args...)
+	return "", errors.New("combined mapping output is forbidden")
+}
+func (f mappingRunner) CaptureStdout(ctx context.Context, _ int, path string, args ...string) (localexec.Capture, error) {
+	stdout, err := f(ctx, path, args...)
+	return localexec.Capture{Stdout: stdout}, err
 }
 func TestMappingProbeUsesOnlyPrivateDisposableData(t *testing.T) {
 	root := t.TempDir()
@@ -112,5 +117,99 @@ func TestMappingProbeRefusesFailureAndForeignModes(t *testing.T) {
 				t.Fatal("failed probe left artifacts", err)
 			}
 		})
+	}
+}
+
+type mappingScriptRunner struct{ mode string }
+
+func (mappingScriptRunner) Run(context.Context, string, ...string) (string, error) {
+	return "", errors.New("combined mapping output is forbidden")
+}
+
+func (r mappingScriptRunner) CaptureStdout(ctx context.Context, limit int, path string, args ...string) (localexec.Capture, error) {
+	if path != "podman" {
+		return localexec.Capture{}, errors.New("unexpected mapping executable")
+	}
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "--volume=") {
+			continue
+		}
+		directory := strings.TrimSuffix(strings.TrimPrefix(arg, "--volume="), ":/data:rw")
+		return (localexec.ExecRunner{}).CaptureStdout(ctx, limit, "sh", "-c", mappingShellFixture, "mapping-fixture", filepath.Join(directory, "probe"), r.mode)
+	}
+	return localexec.Capture{}, errors.New("missing disposable mount")
+}
+
+const mappingShellFixture = `
+test "$(cat "$1")" = host || exit 2
+rm "$1" || exit 2
+umask 077
+printf container > "$1" || exit 2
+printf 'podman cgroup warning\n' >&2
+case "$2" in
+  wrong-stdout) printf 'mapped\nextra\n'; exit 0 ;;
+  stderr-marker) printf 'mapped\n' >&2; printf other; exit 0 ;;
+  nonzero) printf 'mapped\n'; exit 7 ;;
+  foreign-mode) chmod 0644 "$1" || exit 2 ;;
+  wrong-content) printf other > "$1" || exit 2 ;;
+  stdout-overflow) printf 'mapped\n'; printf '%4200s' ''; exit 0 ;;
+  stderr-overflow) printf '%4200s' '' >&2 ;;
+esac
+printf 'mapped\n'
+`
+
+func TestMappingProbeSeparatesRealProcessDiagnostics(t *testing.T) {
+	for _, mode := range []string{"warning", "stderr-overflow", "stdout-overflow", "wrong-stdout", "stderr-marker", "nonzero", "foreign-mode", "wrong-content"} {
+		t.Run(mode, func(t *testing.T) { testMappingScript(t, mode) })
+	}
+}
+
+func testMappingScript(t *testing.T, mode string) {
+	t.Helper()
+	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
+		t.Fatal(err)
+	}
+	rootProof, err := data.ProbeRoot(context.Background(), root)
+	if err != nil {
+		t.Skipf("probe filesystem: %v", err)
+	}
+	identity := data.RuntimeIdentity{UID: 10001, GID: 10001}
+	proof, err := ProbeDataMapping(context.Background(), mappingScriptRunner{mode: mode}, rootProof, identity)
+	wantSuccess := mode == "warning" || mode == "stderr-overflow"
+	if wantSuccess && (err != nil || !proof.Admits(identity, rootProof)) {
+		t.Fatalf("stderr warning refused successful mapping: %+v %v", proof, err)
+	}
+	if !wantSuccess && (err == nil || proof.KeepID) {
+		t.Fatalf("invalid mapping admitted: %+v %v", proof, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("process probe left artifacts", err)
+	}
+}
+
+type combinedMappingRunner struct{}
+
+func (combinedMappingRunner) Run(context.Context, string, ...string) (string, error) {
+	return "mapped", nil
+}
+
+func TestMappingProbeRequiresCaptureRunnerBeforeFileEffects(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0700); err != nil { //nolint:gosec // Private directory requires execute permission for traversal.
+		t.Fatal(err)
+	}
+	rootProof, err := data.ProbeRoot(context.Background(), root)
+	if err != nil {
+		t.Skipf("probe filesystem: %v", err)
+	}
+	proof, err := ProbeDataMapping(context.Background(), combinedMappingRunner{}, rootProof, data.RuntimeIdentity{UID: 10001, GID: 10001})
+	if !errors.Is(err, data.ErrInvalid) || proof.KeepID {
+		t.Fatalf("combined runner admitted: %+v %v", proof, err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("unsupported runner left artifacts", err)
 	}
 }

@@ -121,7 +121,7 @@ func (w *publicationResolveWork) observe(ctx context.Context) (store.Publication
 	if err != nil {
 		return zero, err
 	}
-	unit, err := readNativeRestoreUnit(ctx, w.operations.runtime.home, w.facts.TargetRuntime)
+	unit, err := readPublicationUnit(ctx, w.operations.runtime.home, w.facts.TargetRuntime, w.facts.SourcePermit.Runtime.State == data.EngineUnpublished)
 	if err != nil {
 		return zero, err
 	}
@@ -133,7 +133,7 @@ func (w *publicationResolveWork) observe(ctx context.Context) (store.Publication
 		return zero, err
 	}
 	raw, _ := json.Marshal(w.facts.TargetRuntime.Secrets)
-	return store.PublicationTransitionObservation{Layout: layout, UnitSHA256: unit, MaterialSHA256: nativeBackupBytesHash(raw), EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true, ObservedAt: time.Now().UTC()}, nil
+	return store.PublicationTransitionObservation{Layout: layout, UnitSHA256: unit, UnitAbsent: unit == "", MaterialSHA256: nativeBackupBytesHash(raw), EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true, ObservedAt: time.Now().UTC()}, nil
 }
 
 func (w *publicationResolveWork) complete(ctx context.Context, transition *store.PublicationTransition) error {

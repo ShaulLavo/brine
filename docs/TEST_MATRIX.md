@@ -714,6 +714,27 @@ publication review cleanup after cancellation, removes the owned copied source
 and newly created empty staging parent, and preserves the original source. These
 checks do not establish a successful remote module plan or publication.
 
+### Synchronous material delivery budget
+
+The CLI37 physical initial material call ended with `transport_failure` after
+15.066 seconds and no operation response. The new-engine candidate pulls its
+selected pinned image before reserving material custody. The ordinary request
+budget cut off that pull despite its intended two-minute bound.
+
+`native_material_set` now allows two minutes for the pull and fifteen seconds
+for the other host work. The client allows two minutes forty seconds in total,
+including input reading, the existing five-second custody reconciliation and SSH
+connection allowance. Only the pull receives a longer subprocess session budget;
+other image probes and metadata status keep their existing bounds.
+
+Local dispatcher tests inspect the actual work deadline and earlier caller
+deadlines. A client-to-dispatcher fixture completes a sixteen-second delivery,
+then verifies an earlier caller deadline still cancels both layers with one call
+and `transport_failure`. A real control-store fixture cancels the pre-custody
+pull and verifies no material reservation exists for its exact key. Existing
+immutable receipt and unknown-write tests remain required. These tests do not
+establish successful physical delivery, image-pull cleanup or publication.
+
 ### Detached task state handoff
 
 The CLI26 actual module review succeeded. Its accepted apply operation entered
@@ -888,3 +909,88 @@ observation-first failure precedence. These diagnostics do not prove the actual
 shutdown cause or a successful publication. The new CLI33 claim was separately
 preserved by its supported public resolver; its working copy remains retained
 for the next diagnostic consumer.
+
+### Initial publication before service installation
+
+`TestInitialPublicationObservesAbsentServiceUntilOrdinaryDeploy` reproduces the
+fresh allocation boundary: strict initialized readback refuses the absent unit,
+while initial publication observes its absence without writing a service. It
+refuses an unexpected installed service, and initialized publication requires
+exact installed bytes. `TestInitialPublicationRefusesUnsafeUnitAndChangedServiceDeclaration`
+refuses a dangling unit symlink and a changed canonical unit declaration.
+`TestPublicationUnitAbsenceBelongsOnlyToUnpublishedSource` checks the source-state
+admission rules; `TestPublicationActivationRequiresTheRecordedUnitObservation`
+checks that activation cannot substitute unknown or installed state for recorded
+absence. `TestPublicationCompletionReadbackRetainsInitialUnitAbsence` reads a
+serialized completion through the receipt validator and rejects swapped unit
+observations. Physical publication acceptance still requires the full P09-08 drill.
+
+### Rootless Podman user bus prerequisite
+
+The minimal Debian amd64 fixture had a running, lingering user manager and
+`dbus-daemon`, but no `dbus-user-session`, user bus socket or user D-Bus units.
+Podman explicitly reported fallback from systemd to cgroupfs. Fresh enrollment
+now includes the missing package in its exact reviewed transaction. Tests cover
+read-only probing without recommendations, missing or unqualified candidate
+refusal, and installation with the original journaled dependency versions.
+These package-boundary tests do not prove a successful native preparation.
+
+An independently named neutral container on the current pinned amd64 image,
+with the same private namespaces and security profile, then reproduced two
+standard masks absent on the Pi: empty read-only tmpfs `/proc/acpi` and
+read-only `/null` devtmpfs `/proc/kcore`, a null character device with major 1
+and minor 3.
+The prior closed module mount classifiers rejected both before input. The
+shared guard now requires their exact path, backing filesystem, mount mode and
+non-symlink node metadata, with a bounded actual directory emptiness check.
+Tests reject writable, foreign and changed mount shapes in both helper profiles,
+wrong/null/block/symlink/device/owner/link metadata and actual nonempty
+directories. The neutral container and scope were removed. This is containment
+evidence, not recovery of the original unknown operation or a publication receipt.
+
+### Fresh engine startup staging
+
+The amd64 fixture published its module, then ordinary deployment reached engine
+startup and failed with the private refusal code `source_copy`. Its private
+state directory existed, but the assumed `engine-verification` parent did not.
+The raw copy boundary rejects a missing parent before inspecting the source.
+Startup now uses the existing owned state-staging helper to create, validate and
+retire that parent. The missing-parent regression verifies original bytes and
+cleanup; a lifecycle test disposes the private verification copy while keeping
+the sealed original available for final startup checks, then removes the owned
+empty parent. Existing-parent, unsafe-node and replacement tests remain in place.
+These checks do not claim a successful live engine start.
+
+Startup replay also uses the same exact `/proc/acpi` and `/proc/kcore` mask
+guard already qualified on this amd64 image. No additional mask paths are
+admitted. Its closed-profile tests reject the same foreign and writable masks,
+and a mixed read-only/writable key mount is refused rather than matching one
+flag in isolation. Actual private replay and live startup remain physical checks.
+### Final publication proof storage
+
+`TestPublicationTransitionProofMigrationAdmitsActualWriterKindsAndRetainsRows`
+reproduces schema27 rejecting the actual target writer, then upgrades through the
+normal opener. It reads every retained proof unchanged and inserts/reads both
+final proof kinds through the production writer. Current typed proof kinds also
+supply the pristine schema constraint. Foreign-key, duplicate-key, hash/size and
+immutable-record checks remain enforced. The schema27 failure test preserves
+version, bytes and foreign-key enforcement after a failed upgrade.
+
+### Initialized incoming repository identity
+
+`TestNativeIncomingTransitionScopeMatchesInitializedCanonicalLocation` reproduces
+the trailing-slash digest mismatch between archive and transport prefixes. The
+shared publication/live-restore scope check accepts the exact canonical
+initialized location and refuses changed binding, epoch, destination or an
+unstripped repository ID. Different prefix, bucket, endpoint, region and path
+mode each refuse admission. The opaque initialization and creation-grant checks
+remain required in both transition claims.
+
+### Current module after a publication epoch change
+
+`TestCurrentDescriptorUsesSuccessorPermitAndExactCurrentArtifact` accepts an
+initialized successor permit with the exact current artifact, independent of the
+backup policy's original epoch. It refuses stale epochs, crossed bindings,
+changed program/Wasm/schema/image identities, secret roles, roots and missing
+artifacts. The lease requires an actual held preparation before any effect.
+Existing descriptor process/image/mount and disposal tests remain required.

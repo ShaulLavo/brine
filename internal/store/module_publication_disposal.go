@@ -98,7 +98,7 @@ func (s *Store) RecordPublicationDisposed(ctx context.Context, attempt *Publicat
 	if err != nil {
 		return current.cursor, ErrConflict
 	}
-	if err = insertPublicationProofTx(ctx, tx, attempt.planID, "disposal", "staging_disposal", raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, attempt.planID, "disposal", publicationDisposalProof, raw); err != nil {
 		return current.cursor, err
 	}
 	if err = appendPublicationCursorTx(ctx, tx, current.review.Plan(), current.cursor, next); err != nil || attempt.restored.unchanged(ctx) != nil {

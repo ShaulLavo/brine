@@ -16,6 +16,7 @@ import (
 type PublicationTransitionObservation struct {
 	Layout               data.EngineLayoutObservation
 	UnitSHA256           string
+	UnitAbsent           bool
 	MaterialSHA256       string
 	EngineAbsent         bool
 	ApplicationAbsent    bool
@@ -27,7 +28,7 @@ type PublicationTransitionObservation struct {
 func (PublicationTransitionObservation) MarshalJSON() ([]byte, error) { return nil, ErrInvalid }
 
 func checkPublicationTransitionObservation(target publicationTarget, input data.EngineTransition, observed PublicationTransitionObservation) error {
-	if data.ClassifyEngineTransitionLayout(input, observed.Layout) != data.EngineLayoutPromoted || observed.UnitSHA256 != target.runtime.UnitSHA256 || observed.MaterialSHA256 != target.record.MaterialSHA256 || !observed.EngineAbsent || !observed.ApplicationAbsent || !observed.IngressClosed || !observed.PrivateReadersAbsent || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(target.record.ObservedAt) || observed.ObservedAt.After(time.Now().UTC()) {
+	if data.ClassifyEngineTransitionLayout(input, observed.Layout) != data.EngineLayoutPromoted || observed.UnitAbsent != target.record.UnitAbsent || observed.UnitSHA256 != publicationTargetUnitSHA256(target) || observed.MaterialSHA256 != target.record.MaterialSHA256 || !observed.EngineAbsent || !observed.ApplicationAbsent || !observed.IngressClosed || !observed.PrivateReadersAbsent || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(target.record.ObservedAt) || observed.ObservedAt.After(time.Now().UTC()) {
 		return ErrConflict
 	}
 	return nil
@@ -166,6 +167,7 @@ type publicationCompletionRecord struct {
 	CursorSHA256   string                 `json:"cursor_sha256"`
 	LayoutSHA256   string                 `json:"layout_sha256"`
 	UnitSHA256     string                 `json:"unit_sha256"`
+	UnitAbsent     bool                   `json:"unit_absent,omitempty"`
 	MaterialSHA256 string                 `json:"material_sha256"`
 	ObservedAt     time.Time              `json:"observed_at"`
 }
@@ -189,12 +191,12 @@ func (s *Store) CompletePublicationTransition(ctx context.Context, capability *P
 	}
 	publicationRaw, _ := current.cursor.MarshalJSON()
 	layoutRaw, _ := json.Marshal(observed.Layout)
-	record := publicationCompletionRecord{Format: "brine-publication-completion-v1", Scope: current.cursor.Scope(), TransitionID: input.Common().Scope.ID, InputSHA256: input.SHA256(), TargetSHA256: target.hash, CursorSHA256: publicationStorageSHA256(publicationRaw), LayoutSHA256: publicationStorageSHA256(layoutRaw), UnitSHA256: observed.UnitSHA256, MaterialSHA256: observed.MaterialSHA256, ObservedAt: observed.ObservedAt}
+	record := publicationCompletionRecord{Format: "brine-publication-completion-v1", Scope: current.cursor.Scope(), TransitionID: input.Common().Scope.ID, InputSHA256: input.SHA256(), TargetSHA256: target.hash, CursorSHA256: publicationStorageSHA256(publicationRaw), LayoutSHA256: publicationStorageSHA256(layoutRaw), UnitSHA256: observed.UnitSHA256, UnitAbsent: observed.UnitAbsent, MaterialSHA256: observed.MaterialSHA256, ObservedAt: observed.ObservedAt}
 	raw, err := json.Marshal(record)
 	if err != nil || len(raw) > 65536 {
 		return current.cursor, ErrInvalid
 	}
-	if err = insertPublicationProofTx(ctx, tx, current.review.Plan().ID(), "completion", "transition_completion", raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, current.review.Plan().ID(), "completion", publicationTransitionCompletionProof, raw); err != nil {
 		return current.cursor, err
 	}
 	hash := publicationStorageSHA256(raw)

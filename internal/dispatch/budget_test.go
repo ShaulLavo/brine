@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/datapublish"
+	"github.com/ShaulLavo/brine/internal/nativematerial"
 )
 
 type delayedRequestReader struct {
@@ -40,7 +41,7 @@ func TestStandardHostBudgetIncludesRequestRead(t *testing.T) {
 }
 
 func TestOperationBudgetsKeepStandardCallsShort(t *testing.T) {
-	for _, operation := range []string{"ping", "inventory", "job_status", "app_status", "module_publish_inspect", "module_publish_apply", "native_live_restore_plan", "foreign"} {
+	for _, operation := range []string{"ping", "inventory", "job_status", "app_status", "native_material_status", "module_publish_inspect", "module_publish_apply", "native_live_restore_plan", "foreign"} {
 		if OperationTimeout(operation) != 15*time.Second || CallTimeout(operation) != 15*time.Second {
 			t.Fatal("unrelated operation gained a review budget", operation)
 		}
@@ -49,6 +50,50 @@ func TestOperationBudgetsKeepStandardCallsShort(t *testing.T) {
 		if OperationTimeout(operation) != ReviewWorkTimeout || CallTimeout(operation) != RequestTimeout+ReviewWorkTimeout+ReviewCleanupTimeout+SSHConnectTimeout {
 			t.Fatal("review budget does not cover read, work and teardown", operation)
 		}
+	}
+	if OperationTimeout("native_material_set") != 135*time.Second || CallTimeout("native_material_set") != 160*time.Second {
+		t.Fatal("material delivery budget does not cover pull, work, read, cleanup and SSH")
+	}
+}
+
+type materialBudgetRecorder struct {
+	deadline time.Time
+	wait     bool
+}
+
+func (r *materialBudgetRecorder) DeliverMaterial(ctx context.Context, _ NativeMaterialArgs) (nativematerial.Receipt, error) {
+	r.deadline, _ = ctx.Deadline()
+	if r.wait {
+		<-ctx.Done()
+		return nativematerial.Receipt{}, ctx.Err()
+	}
+	return nativematerial.Receipt{}, nil
+}
+
+func (*materialBudgetRecorder) InspectMaterial(context.Context, NativeMaterialInspectArgs) (nativematerial.Receipt, error) {
+	return nativematerial.Receipt{}, nil
+}
+
+func TestMaterialHostBudgetPreservesEarlierParentDeadline(t *testing.T) {
+	wire := materialWireFixture(t)
+	defer clear(wire)
+	request := nativeBackupRequest(t, "native_material_set", string(wire))
+	defer clear(request)
+	r := &materialBudgetRecorder{}
+	server := NewServer("fixture", nil).WithJobs(nil, func(context.Context, Class) error { return nil })
+	server.NativeMaterial = r
+	started := time.Now()
+	response, err := server.Handle(t.Context(), bytes.NewReader(request))
+	if err != nil || !response.OK || r.deadline.Before(started.Add(NativeMaterialWorkTimeout)) || r.deadline.After(time.Now().Add(NativeMaterialWorkTimeout)) {
+		t.Fatal("host material delivery inherited the short request budget", err)
+	}
+	deadline := time.Now().Add(20 * time.Millisecond)
+	parent, cancel := context.WithDeadline(t.Context(), deadline)
+	defer cancel()
+	r.wait = true
+	response, err = server.Handle(parent, bytes.NewReader(request))
+	if !errors.Is(err, context.DeadlineExceeded) || response.OK || !r.deadline.Equal(deadline) {
+		t.Fatal("host material delivery extended its parent deadline", err)
 	}
 }
 

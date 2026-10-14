@@ -135,7 +135,7 @@ func (s *Store) ResumePublicationTransition(ctx context.Context, preparation *En
 		return nil, errors.Join(ErrConflict, err)
 	}
 	layout := data.ClassifyEngineTransitionLayout(input, observed.Layout)
-	if layout == data.EngineLayoutConflict || !observed.EngineAbsent || !observed.ApplicationAbsent || !observed.IngressClosed || !observed.PrivateReadersAbsent || observed.UnitSHA256 != target.runtime.UnitSHA256 || observed.MaterialSHA256 != target.record.MaterialSHA256 || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(target.record.ObservedAt) || observed.ObservedAt.After(time.Now().UTC()) {
+	if layout == data.EngineLayoutConflict || !observed.EngineAbsent || !observed.ApplicationAbsent || !observed.IngressClosed || !observed.PrivateReadersAbsent || observed.UnitAbsent != target.record.UnitAbsent || observed.UnitSHA256 != publicationTargetUnitSHA256(target) || observed.MaterialSHA256 != target.record.MaterialSHA256 || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(target.record.ObservedAt) || observed.ObservedAt.After(time.Now().UTC()) {
 		return nil, ErrConflict
 	}
 	if (cursor.Stage == data.EngineTransitionActivated || cursor.Stage == data.EngineTransitionFinishIntent) && layout != data.EngineLayoutPromoted {
