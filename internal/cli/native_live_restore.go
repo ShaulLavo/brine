@@ -38,7 +38,10 @@ func newNativeLiveRestorePlanCmd(deps Dependencies, modes *machineModes) *cobra.
 			return result.New(result.TransportInvalidResponse, nil)
 		}
 		if modes.enabled() {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), p))
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), struct {
+				PlanID string           `json:"plan_id"`
+				Plan   liverestore.Plan `json:"plan"`
+			}{PlanID: p.ID(), Plan: p}))
 		}
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Restore plan %s. Selected point %s. Current safety point %s. Possible loss: %s. Expires %s.\n", p.ID(), p.Spec().Selected.PointID, p.Spec().Safety.PointID, p.Loss().Kind, p.Spec().ExpiresAt.Format("2006-01-02T15:04:05Z"))
 		return err

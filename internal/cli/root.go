@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.45-dev"
+const Version = "0.1.46-dev"
 
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.

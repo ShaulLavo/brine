@@ -1045,3 +1045,13 @@ unit supply the stopped artifact identity and declared port. Unknown live image
 or port facts still refuse for running frontends. Public Service/Runner tests
 exercise failed units with unknown live fields, strict cached-image measurement,
 route reconstruction, and foreign image/platform/container/unit refusals.
+
+### Coherent confirmed observation during writes
+
+Confirmed subscriptions use a single durable initial snapshot across both pair
+tables and the schema marker. Tests reject orphan/mismatched rows, unknown or
+duplicate tables/IDs/fields, malformed rows/timestamps/identity frames, wrong
+request/query IDs, deletes, invalid counts, binary frames, denial and deadlines.
+Registered default-column rows require the qualified rating value7; arbitrary
+extra fields refuse. Empty-table omission follows the pinned engine protocol.
+The legacy SQL fixture remains historical decoding evidence only.
