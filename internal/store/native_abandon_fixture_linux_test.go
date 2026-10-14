@@ -402,3 +402,23 @@ func TestNativeAbandonMigrationPreservesNativeJournalRows(t *testing.T) {
 		t.Fatal("fixture input changed")
 	}
 }
+
+func TestNativeAbandonExpectedBindsPublicPointHash(t *testing.T) {
+	fixture := newNativeAbandonFixture(t)
+	cap, err := fixture.state.OpenNativeAbandonment(t.Context(), fixture.operation.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cap.Close()
+	expected, err := cap.Expected(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	point, _, _, err := fixture.state.ReadNativePreparedStopExpectation(t.Context(), fixture.point.PointID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if expected.Point.PointSHA256 == "" || expected.Point.PointSHA256 != point.PointSHA256 {
+		t.Fatal("expected point hash is not the retained public point hash")
+	}
+}
