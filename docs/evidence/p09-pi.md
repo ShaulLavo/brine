@@ -112,7 +112,7 @@ checks the stored accepted operation before live authorization. The failed
 source52 operation remains unchanged. Its successful source53 continuation is
 recorded below.
 
-### Source53 abandonment succeeded; ordinary resume remains unproved
+### Source53 abandonment succeeded
 
 Actual CLI 0.1.53-dev source was
 `4ff3ac0697518f119bf2001c7c4ec05408a9ac7a`, tree
@@ -143,9 +143,37 @@ affirmatively stopped managed scope, ordinary start selects both engine and
 frontend. Apply starts and checks the guarded engine first, then checks the exact
 owned frontend under the lifecycle operation's current desired state before
 starting it. Existing installed hashes, release, module and epoch stay unchanged.
-Local source tests cover the sequence; physical source54 resume is unrun.
-Ordinary resume, a new exact preparation, genuine module changes and the
-remaining fault/archive drills remain required.
+The actual source54 result follows. A new exact preparation, genuine module
+changes and the remaining fault/archive drills remain required.
+
+### Source54 started both components but failed to publish ingress
+
+Executed CLI 0.1.54-dev source was
+`45a8269fc090c44f6fe22086c2b8070f0efca867`, tree
+`b1397cb86c422acff3056f78fcc26109e985fe12`. The arm64 CLI SHA256 was
+`c14b0fda8f9ab74dbabaa5332fbe9d5196790c38815959614250277b889b9b01`.
+This was a reviewed CI binary, not a final merged binary.
+
+The public start plan completed in 12.111 seconds. Apply operation
+`01a13c426a6e6836f64558f7e6c268e07344d3041382` completed guarded engine
+start/check and frontend start/check, then failed at `managed_route` with
+`route_invalid`. Its terminal `failed` outcome and event sequence 22 remain
+unchanged. Desired revision 8 requests both components and ingress running.
+
+Read-only systemd and Podman observations confirmed both components running,
+with no manager jobs and the current helper inode bound into the engine. Caddy
+remained at generation 14 with the app route absent. No next candidate or
+generation 15 was created. The original point, expiry, released fence,
+successful abandonment and earlier refused operation remained preserved.
+No fresh SDK count, preparation or module publication followed this failure.
+The earlier 144-row count remains a historical baseline.
+
+Local reproduction found that the completed native preparation had recorded
+its deliberate ingress withdrawal from generation 13 to 14. Managed routing
+facts nevertheless reconstructed the old app site from the retained route
+head. The reconstructed set had ten sites; the observed set had nine. Caddy's
+drift check correctly refused this mismatch. Successful ordinary ingress
+resume remains unproved.
 
 ## Earned amd64 results
 
@@ -182,6 +210,43 @@ containers and per-run tunnels were checked absent. Normal guest shutdown later
 returned clean native SIGINT/stop-post, clean I/O and disk check, with actual
 VM/scope/process/port/temporary-alias closure. The retained read-only disk and its
 backing chain remain recovery/final-delivery consumers. Full teardown is pending.
+
+### Merged source53 continuing capture and same-point test
+
+The later amd64 run used the actual merged source
+`9f6c467628d6a313e9da15bdb84ddf30d0c1013f`, tree
+`187bb7dbc7b919273d4ffbb409be17253201628b`, CLI 0.1.53-dev and schema 29.
+Normal writable Store opening migrated schema 28 to 29 and preserved every
+original control row, operation, proof, fence and history.
+
+Twenty genuine scheduled writes advanced the source from 121 to 141 confirmed
+paired rows while ordinary capture and the same-point real R2 test ran.
+
+| Receipt | Actual result |
+| --- | --- |
+| Capture operation | `01a13c3750ee2cc281db1b45e01062359f2f87c93875`, succeeded |
+| Verified point | `9104bb71997b7fa42b688aead72bc424` |
+| Point SHA256 | `524252b4a7a87fb0ff27c5d70e728616a506a88e1579c8e1c17ef8c2b497e1dc` |
+| Confirmed lower bound and recovered final pairs | 122 paired rows |
+| Same-point native-test operation | `01a13c378e93563644ab3d3ad2c5238e1d68fc53a860`, succeeded |
+| Persisted source/restored state | Equal hashes and matching point/module/schema |
+| Maintenance and loss | Zero online maintenance, `loss: "unknown"` |
+
+The live native/frontend PIDs and protected state stayed unchanged. Capture
+workspaces, isolated readers and the tunnel were checked absent. The 57-, 82-
+and 102-row histories remained intact. Normal quiescence and guest shutdown
+passed clean I/O and disk checks. Exact process, scope, cgroup, port, socket
+and temporary SSH alias closure was verified. The latest sealed continuation
+disk preserves 141 rows and the new 122-row point for remaining acceptance.
+
+The original installer failed at a read-only startup-permit command that did
+not migrate the Store. The subsequent public app-status command performed the
+ordinary writable migration. A separate rootless namespace permission denial
+prevented direct helper verification through `/proc`; contained Podman readback
+proved the actual helper inode and hash. Neither failed installer step was
+replayed. The outer wrapper also returned exit 1 after misclassifying its
+watchdog's normal exit during shutdown. Actual host closure passed independently;
+the wrapper failure remains recorded.
 
 ## Qualified observer scope
 
@@ -225,7 +290,7 @@ keys, publisher tokens, remote credentials and inventories are omitted here.
 
 | Case | Current scope |
 | --- | --- |
-| Unused-point abandonment and ordinary resume | Source53 abandonment succeeded, released only the original fence and kept all components stopped. Subsequent start planning timed out without a saved plan/apply; ordinary resume remains unproved. |
+| Unused-point abandonment and ordinary resume | Source53 abandonment succeeded and released only the original fence. Source54 started and checked engine/frontend, then failed to publish ingress. Successful routed resume remains unproved. |
 | Genuine logic/additive/default module updates and compatible rollback | Published artifacts and finite recovery profiles exist. Actual update/paired-client/data-preservation and rollback cases remain. |
 | Destructive/access/hook/manual/stale/artifact/source/role refusals | Historical native/pure-core facts exist. Assigned current whole-operation negatives remain. |
 | Live restore | Default-denied and separately granted positive restoration, new stopped epoch, original retention and compatible resume remain. |
