@@ -69,33 +69,25 @@ func newNativeBackupCmd(deps Dependencies, modes *machineModes, kind ops.Kind) *
 	return cmd
 }
 
-func newNativeRestoreTestCmd(deps Dependencies, modes *machineModes) *cobra.Command {
+func newNativePointTaskCmd(deps Dependencies, modes *machineModes, kind ops.Kind) *cobra.Command {
 	var flags nativeTaskFlags
-	cmd := &cobra.Command{Use: "native-test POINT_ID --target NAME", Short: "Verify an exact SpacetimeDB backup in private isolation without changing live data", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	name, short := "native-test", "Verify an exact SpacetimeDB backup in private isolation without changing live data"
+	if kind == ops.NativePrepareAbandon {
+		name, short = "abandon", "Abandon an unused exact native preparation and leave its components stopped"
+	}
+	cmd := &cobra.Command{Use: name + " POINT_ID --target NAME", Short: short, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if !data.ValidID(args[0]) {
 			return result.New(result.InvalidUsage, nil)
 		}
 		if err := flags.prepareKey(cmd); err != nil {
 			return err
 		}
-		input := dispatch.NativeRestoreTestArgs{PointID: args[0], IdempotencyKey: flags.key}
-		return flags.run(cmd, deps, modes, ops.NativeRestoreTest, input, args[0])
-	}}
-	flags.register(cmd)
-	return cmd
-}
-
-func newNativeAbandonCmd(deps Dependencies, modes *machineModes) *cobra.Command {
-	var flags nativeTaskFlags
-	cmd := &cobra.Command{Use: "abandon POINT_ID --target NAME", Short: "Abandon an unused exact native preparation and leave its components stopped", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if !data.ValidID(args[0]) {
-			return result.New(result.InvalidUsage, nil)
+		request := dispatch.NativeRestoreTestArgs{PointID: args[0], IdempotencyKey: flags.key}
+		var input any = request
+		if kind == ops.NativePrepareAbandon {
+			input = dispatch.NativeAbandonArgs(request)
 		}
-		if err := flags.prepareKey(cmd); err != nil {
-			return err
-		}
-		input := dispatch.NativeAbandonArgs{PointID: args[0], IdempotencyKey: flags.key}
-		return flags.run(cmd, deps, modes, ops.NativePrepareAbandon, input, args[0])
+		return flags.run(cmd, deps, modes, kind, input, args[0])
 	}}
 	flags.register(cmd)
 	return cmd
