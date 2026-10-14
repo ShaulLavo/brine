@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -13,9 +14,49 @@ import (
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func (r managedRuntime) CompletedManaged(ctx context.Context, operation string, p plan.Plan, d policy.Desired) error {
+	return r.inspectManagedCompletion(ctx, operation, p, d, false)
+}
+func (r managedRuntime) StoppedManagedFrontend(ctx context.Context, operation string, p plan.Plan, d policy.Desired) error {
+	if p.Kind != plan.Create || p.Lifecycle != "" || p.Managed == nil || p.Managed.Frontend == nil {
+		return errEngineSource
+	}
+	if err := r.inspectManagedCompletion(ctx, operation, p, d, true); err != nil {
+		return err
+	}
+	if err := r.stoppedFrontendImage(ctx, p, d); err != nil {
+		return err
+	}
+	return r.inspectManagedCompletion(ctx, operation, p, d, true)
+}
+func (r managedRuntime) stoppedFrontendImage(ctx context.Context, p plan.Plan, d policy.Desired) error {
+	frontend := p.Managed.Frontend
+	if frontend == nil || frontend.Image.ManifestDigest.Status != target.KnownStatus || frontend.Image.ManifestDigest.Value == nil {
+		return errEngineSource
+	}
+	index, err := podman.ParseImage(string(d.Image))
+	if err != nil {
+		return errEngineSource
+	}
+	repository, _, _ := strings.Cut(index.String(), "@")
+	manifest, err := podman.ParseImage(repository + "@" + *frontend.Image.ManifestDigest.Value)
+	if err != nil {
+		return errEngineSource
+	}
+	name, err := managedFrontendContainerName(p.App)
+	if err != nil {
+		return errEngineSource
+	}
+	image, err := podman.New(r.observer.session).StoppedContainerImage(ctx, name, p.App+".service", index, manifest)
+	if err != nil || image.IndexDigest != frontend.Image.Digest || image.ManifestDigest != *frontend.Image.ManifestDigest.Value || image.Platform.OS != frontend.Image.Platform.OS || image.Platform.Architecture != frontend.Image.Platform.Arch {
+		return errEngineSource
+	}
+	return ctx.Err()
+}
+func (r managedRuntime) inspectManagedCompletion(ctx context.Context, operation string, p plan.Plan, d policy.Desired, stoppedFrontend bool) error {
 	permit, err := r.expected(ctx, p)
 	if err != nil {
 		return errEngineSource
@@ -45,11 +86,15 @@ func (r managedRuntime) CompletedManaged(ctx context.Context, operation string, 
 	if err != nil || observed.Generation != route.Generation || observed.Files[p.App+".caddy"] != route.FileHash {
 		return errEngineSource
 	}
-	if err := r.completedComponents(ctx, operation, p, flags); err != nil {
+	componentFlags := flags
+	if stoppedFrontend {
+		componentFlags.FrontendRunning = false
+	}
+	if err := r.completedComponents(ctx, operation, p, componentFlags); err != nil {
 		return err
 	}
 	final, err := currentManagedDesired(ctx, r.state, permit.Runtime)
-	if err != nil || final != wanted || r.completedComponents(ctx, operation, p, flags) != nil {
+	if err != nil || final != wanted || r.completedComponents(ctx, operation, p, componentFlags) != nil {
 		return errEngineSource
 	}
 	return ctx.Err()
@@ -74,6 +119,9 @@ func (r managedRuntime) completedComponents(ctx context.Context, operation strin
 	if !flags.FrontendRunning {
 		record, err := r.state.ReadManagedFrontendRecord(ctx, p.App)
 		if err != nil || !r.completedFrontendOwner(ctx, record, operation, p) || quadlet.VerifyCurrent(ctx, r.home, p.App+".container", record.Resolution.Permit.UnitHash) != nil {
+			return errEngineSource
+		}
+		if verifyManagedFrontendLoaded(ctx, r.observer.session, r.home, p.App) != nil {
 			return errEngineSource
 		}
 		host := archiveHost{session: r.observer.session}

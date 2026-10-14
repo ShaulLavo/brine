@@ -4,16 +4,13 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"slices"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
-	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/systemd"
-	"github.com/ShaulLavo/brine/internal/target"
 )
 
 type managedExecution struct {
@@ -137,16 +134,7 @@ func (e *Executor) runManagedDeployment(ctx context.Context, id string, p plan.P
 		if err := e.Managed.BeforeIngress(ctx, id, p, d); err != nil {
 			return err
 		}
-		m := p.Managed
-		engine := target.Unit{Name: r.engineService.String(), Hash: "sha256:" + m.EngineUnitHash}
-		units := []target.Unit{engine}
-		adjunct := &ops.ManagedRelease{BindingID: m.Database.BindingID, EpochID: m.Archive.EpochID, RuntimeSHA256: m.RuntimeSHA256, EngineUnit: engine, EnginePort: m.EnginePort}
-		if m.Frontend != nil {
-			front := target.Unit{Name: x.unit.Name(), Hash: x.unit.Hash()}
-			units = append(units, front)
-			adjunct.Frontend = &ops.ManagedFrontend{Image: m.Frontend.Image, Port: m.Frontend.Port, Unit: front, Secrets: slices.Clone(m.Frontend.Secrets)}
-		}
-		release := Release{ID: id, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets), Units: units, CaddyFile: target.CaddyFile{Name: p.App + ".caddy", Hash: x.route.Files[p.App+".caddy"]}, CaddyGeneration: x.route.Generation, Managed: adjunct}
+		release := *managedRouteRelease(id, p, x.unit, x.route)
 		x.nextRelease = &release
 		err := e.Releases.CommitRelease(ctx, p.App, release)
 		if err == nil {

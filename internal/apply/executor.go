@@ -57,6 +57,10 @@ type Executor struct {
 }
 
 type execution struct {
+	managedFrontendWake                     bool
+	managedFrontendStopped                  bool
+	managedFrontendStart                    ops.StepPayload
+	managedRouteOwner                       string
 	executor                                *Executor
 	id                                      string
 	plan                                    plan.Plan

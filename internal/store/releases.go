@@ -171,10 +171,13 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 			return err
 		}
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO releases VALUES(?,?,?,?,?,?)", app, r.ID, r.PlanID, raw, digest(raw), timestamp()); err != nil {
+	return persistRelease(ctx, tx, app, r, raw)
+}
+func persistRelease(ctx context.Context, tx *sql.Tx, app string, r Release, raw []byte) error {
+	if _, err := tx.ExecContext(ctx, "INSERT INTO releases VALUES(?,?,?,?,?,?)", app, r.ID, r.PlanID, raw, digest(raw), timestamp()); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, `INSERT INTO release_heads(app,current_id,previous_id) VALUES(?,?,NULL) ON CONFLICT(app) DO UPDATE SET previous_id=current_id,current_id=excluded.current_id`, app, r.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO release_heads(app,current_id,previous_id) VALUES(?,?,NULL) ON CONFLICT(app) DO UPDATE SET previous_id=current_id,current_id=excluded.current_id`, app, r.ID); err != nil {
 		return err
 	}
 	return tx.Commit()

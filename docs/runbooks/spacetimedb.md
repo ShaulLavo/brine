@@ -23,6 +23,21 @@ Proceed only after the required operation succeeds with its matching receipt.
 `--no-wait` does not verify an effect. A lost response or `recovery_required`
 outcome requires the inspection flow below.
 
+## Obtain a matched CLI build
+
+Go CI publishes Linux amd64 and arm64 binaries in `brine-cli-SOURCE_HEAD`,
+retained for three days. Pull request artifacts use the actual reviewed branch
+head. The artifact includes `receipt.json`, compiler metadata and CLI version.
+Compare its source head, architecture and SHA-256 with the downloaded binary
+before using it. The complete CI gate and actual host drill establish acceptance.
+
+To reproduce the pair on a Linux amd64 host, run this from a clean checkout with
+an unused output directory outside the repository:
+
+```sh
+bash scripts/build-cli-pair.sh OUTPUT_DIRECTORY
+```
+
 ## Check prerequisites
 
 1. Obtain operator authorization for the target, disposable app and destination.

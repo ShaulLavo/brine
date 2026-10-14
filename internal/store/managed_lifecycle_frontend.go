@@ -69,6 +69,7 @@ func managedLifecycleFrontend(ctx context.Context, tx *sql.Tx, record ManagedFro
 	view := ManagedFrontendResolution{Plan: p, Desired: d, Permit: ManagedFrontendPermit{App: p.App, OperationID: desired.OperationID, PlanID: p.Hash, BindingID: desired.BindingID, EpochID: desired.EpochID, RuntimeSHA256: desired.RuntimeSHA256, UnitHash: record.Resolution.Permit.UnitHash}}
 	if state == ops.Starting || state == ops.Checking || state == ops.Committing {
 		view.Pending = true
+		view.PendingOperationID = desired.OperationID
 		return view, true, nil
 	}
 	proofOperation := desired.OperationID
