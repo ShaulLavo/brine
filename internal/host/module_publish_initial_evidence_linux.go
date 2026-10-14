@@ -42,7 +42,7 @@ func (e initialPublisherEvidence) provenanceBytes(ctx context.Context) ([]byte, 
 	}
 	lease, child := e.lease, e.lease.observation
 	return json.Marshal(store.NativeInitialOwnerObservation{Format: "brine-native-initial-owner-provenance-v1", PointID: e.pointID, OperationID: e.operationID,
-		BindingID: e.runtime.BindingID, EpochID: e.runtime.EpochID, GenerationID: empty.GenerationID, SourceSHA256: e.sourceSHA, SourceSealSHA256: e.source.original.hash,
+		BindingID: e.runtime.BindingID, EpochID: e.runtime.EpochID, GenerationID: empty.GenerationID, SourceSHA256: e.sourceSHA, SourceSealSHA256: engineSourceSealDigest(e.source.original),
 		AllocationID: e.source.permit.Allocation.DatabaseID, Runtime: e.runtime.Clone(), StageDevice: e.stageRoot.Device, StageInode: e.stageRoot.Inode,
 		HelperPID: lease.helperPID, HelperStartTicks: lease.helperTicks, HelperCgroup: lease.helperCgroup, ChildPID: child.ChildPID, ChildStartTicks: child.ChildStartTicks,
 		ChildBound: child.ChildBound, ChildStopped: child.ChildStopped, HelperDisposed: lease.disposed, Publisher: e.publisher, CredentialSHA256: e.credentialSHA,

@@ -92,12 +92,10 @@ func (w *publicationPrivateInspectionWork) observe(ctx context.Context) (store.P
 	if err := w.checkAbsent(ctx); err != nil {
 		return zero, err
 	}
-	limits := engineCopyLimits{Bytes: w.facts.Permit.Runtime.CopyBytes, Files: w.facts.Permit.Runtime.CopyFiles, Depth: 16}
-	before, err := sealOwnedEngineSource(ctx, w.original, limits)
-	if err != nil || before.hash != w.facts.Point.SourceSealSHA256 {
-		return zero, errEngineSource
+	before, observed, err := w.observeOriginal(ctx)
+	if err != nil {
+		return zero, err
 	}
-	observed := store.PublicationSourcePreservationObservation{OriginalRoot: w.original, OriginalSealSHA256: before.hash, WorkingRoot: w.working, EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true}
 	if w.working != nil && !w.facts.Manifest.MatchesTree(ctx, w.working) {
 		if err = w.inspectModule(ctx, &observed); err != nil {
 			return zero, err
@@ -106,12 +104,22 @@ func (w *publicationPrivateInspectionWork) observe(ctx context.Context) (store.P
 	if err = w.checkAbsent(ctx); err != nil {
 		return zero, err
 	}
-	after, err := sealOwnedEngineSource(ctx, w.original, limits)
+	after, err := sealOwnedEngineSource(ctx, w.original, engineCopyLimits{Bytes: w.facts.Permit.Runtime.CopyBytes, Files: w.facts.Permit.Runtime.CopyFiles, Depth: 16})
 	if err != nil || after.hash != before.hash {
 		return zero, errEngineSource
 	}
 	observed.ObservedAt = time.Now().UTC()
 	return observed, nil
+}
+
+func (w *publicationPrivateInspectionWork) observeOriginal(ctx context.Context) (engineTreeSeal, store.PublicationSourcePreservationObservation, error) {
+	limits := engineCopyLimits{Bytes: w.facts.Permit.Runtime.CopyBytes, Files: w.facts.Permit.Runtime.CopyFiles, Depth: 16}
+	before, err := sealOwnedEngineSource(ctx, w.original, limits)
+	if err != nil || !engineSourceSealMatches(before, w.facts.Point.SourceSealSHA256) {
+		return engineTreeSeal{}, store.PublicationSourcePreservationObservation{}, errEngineSource
+	}
+	observed := store.PublicationSourcePreservationObservation{OriginalRoot: w.original, OriginalSealSHA256: w.facts.Point.SourceSealSHA256, WorkingRoot: w.working, EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true}
+	return before, observed, nil
 }
 
 func (w *publicationPrivateInspectionWork) checkAbsent(ctx context.Context) error {

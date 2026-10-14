@@ -141,16 +141,9 @@ func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *Native
 			return NativePreparedPointView{}, err
 		}
 	} else {
-		empty, valid := observed.Source.Empty()
-		var ownerRaw []byte
-		var owner NativeInitialOwnerObservation
-		err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_initial_owners WHERE point_id=?", i.PointID).Scan(&ownerRaw)
-		if !valid || err != nil || json.Unmarshal(ownerRaw, &owner) != nil || checkNativeInitialOwner(ctx, tx, stopped, owner) != nil || owner.SourceSHA256 != v.SourceSHA256 || owner.SourceSealSHA256 != v.SourceSealSHA256 || owner.GenerationID != empty.GenerationID {
-			return NativePreparedPointView{}, errors.Join(ErrConflict, err)
+		if err = completeNativePreparedEmptySource(ctx, tx, stopped, observed.Source, &v); err != nil {
+			return NativePreparedPointView{}, err
 		}
-		v.GenerationID, v.CheckpointSHA256, v.ConfigSHA256, v.SourceWitnessSHA256 = empty.GenerationID, observed.Source.SHA256(), empty.ConfigurationSHA256, nativePointHash(ownerRaw)
-		recovery, _ := json.Marshal(empty.SigningRecovery)
-		v.SigningRecoverySHA256 = nativePointHash(recovery)
 	}
 	verification := nativePreparedVerification{Format: "brine-native-prepared-verification-v1", PointID: i.PointID, SourceSHA256: v.SourceSHA256, SourceNativeSHA256: nativePointHash(sourceEvidence), RestoredNativeSHA256: nativePointHash(restoredEvidence), FinalPairsSHA256: nativePointHash(final), ConfirmedBoundSHA256: nativePointHash(confirmed), ManifestSHA256: v.BundleManifestSHA256, TransportSHA256: v.TransportPointSHA256, ReaderNonce: observed.ReaderNonce, ReaderViewSHA256: observed.ReaderViewSHA256, ReaderImageID: observed.ReaderImageID, ReaderDisposedAt: observed.ReaderDisposedAt, VerifiedAt: now}
 	verifiedRaw, _ := json.Marshal(verification)
@@ -182,6 +175,20 @@ func (s *Store) CompleteNativePreparedPoint(ctx context.Context, stopped *Native
 	}
 	v.PointSHA256 = point.hash
 	return v, tx.Commit()
+}
+
+func completeNativePreparedEmptySource(ctx context.Context, tx *sql.Tx, stopped *NativeStoppedPreparation, source nativecapture.Source, point *NativePreparedPointView) error {
+	empty, valid := source.Empty()
+	var ownerRaw []byte
+	var owner NativeInitialOwnerObservation
+	err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_initial_owners WHERE point_id=?", stopped.PointID()).Scan(&ownerRaw)
+	if !valid || err != nil || json.Unmarshal(ownerRaw, &owner) != nil || checkNativeInitialOwner(ctx, tx, stopped, owner) != nil || owner.SourceSHA256 != point.SourceSHA256 || owner.SourceSealSHA256 != point.SourceSealSHA256 || owner.GenerationID != empty.GenerationID {
+		return errors.Join(ErrConflict, err)
+	}
+	point.GenerationID, point.CheckpointSHA256, point.ConfigSHA256, point.SourceWitnessSHA256 = empty.GenerationID, source.SHA256(), empty.ConfigurationSHA256, nativePointHash(ownerRaw)
+	recovery, _ := json.Marshal(empty.SigningRecovery)
+	point.SigningRecoverySHA256 = nativePointHash(recovery)
+	return nil
 }
 
 func insertNativePreparedBundle(ctx context.Context, tx *sql.Tx, point string, source, manifest, transport, sourceEvidence, restoredEvidence, confirmed, final []byte) error {

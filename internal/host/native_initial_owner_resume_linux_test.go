@@ -63,6 +63,18 @@ func initialOwnerResumeFixture(t *testing.T) (*nativePrepareWork, nativeMaterial
 	return w, f, owner
 }
 
+func TestNativePreparedSourceSealPreservesRetainedOwnerDigest(t *testing.T) {
+	original := engineTreeSeal{hash: strings.Repeat("a", 64)}
+	if got := nativePreparedSourceSeal(original, nil); got != engineSourceSealDigest(original) {
+		t.Fatalf("new prepared source seal = %q, want transition digest", got)
+	}
+	legacy := strings.Repeat("b", 64)
+	owner := &store.NativeInitialOwnerObservation{SourceSealSHA256: legacy}
+	if got := nativePreparedSourceSeal(original, owner); got != legacy {
+		t.Fatalf("retained owner source seal = %q, want recorded digest", got)
+	}
+}
+
 func TestRetainedInitialOwnerReopensExactSourceWithoutNativeHelper(t *testing.T) {
 	w, _, owner := initialOwnerResumeFixture(t)
 	ctx := context.Background()
@@ -200,5 +212,34 @@ func testRetainedInitialOwnerDrift(t *testing.T, w *nativePrepareWork, owner sto
 	w.retainedOwner = &owner
 	if _, err := w.reopenRetainedEmpty(context.Background()); err == nil && kind != "material" && kind != "runtime" {
 		t.Fatal("changed owner selected another source", kind)
+	}
+}
+
+func TestRetainedInitialOwnerReopenCarriesImmutableSealToPreparedCompletion(t *testing.T) {
+	w, _, owner := initialOwnerResumeFixture(t)
+	ctx := context.Background()
+	stable := engineSourceSealDigest(w.copied.original)
+	if stable == owner.SourceSealSHA256 {
+		t.Fatal("fixture did not retain a distinct generic owner seal")
+	}
+	empty, err := w.reopenRetainedEmpty(ctx)
+	if err != nil || empty.source.SHA256() != owner.SourceSHA256 {
+		t.Fatal("actual retained owner source did not reopen", err)
+	}
+	actual, err := w.runtime.state.ReadNativeInitialOwner(ctx, w.stopped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceSeal := nativePreparedSourceSeal(w.copied.original, w.retainedOwner)
+	if sourceSeal != actual.SourceSealSHA256 || sourceSeal == stable {
+		t.Fatal("resumed upload/completion would change its protected owner digest")
+	}
+	if w.initialStage != nil || w.module.candidate.lease != nil {
+		t.Fatal("retained source seal required a second native helper")
+	}
+	before, _ := json.Marshal(owner)
+	after, _ := json.Marshal(actual)
+	if string(before) != string(after) {
+		t.Fatal("retained completion source was proved by rewriting its owner")
 	}
 }
