@@ -175,18 +175,18 @@ func TestManagedCreateLatePrefixRejectsMissingDuplicateAndEarlierUnknownSteps(t 
 			steps = append(steps, event)
 		}
 	}
-	if _, valid := ops.ManagedCreateRecoveryPrefix(steps, r.plan); !valid {
+	if _, valid := ops.ManagedCreateRecoveryCursor(steps, r.plan); !valid {
 		t.Fatal("known prefix rejected")
 	}
 	for i := range steps {
 		missing := append([]Event(nil), steps[:i]...)
 		missing = append(missing, steps[i+1:]...)
-		if _, valid := ops.ManagedCreateRecoveryPrefix(missing, r.plan); valid && i < len(steps)-1 {
+		if _, valid := ops.ManagedCreateRecoveryCursor(missing, r.plan); valid && i < len(steps)-1 {
 			t.Fatal("missing prefix event accepted", i)
 		}
 		duplicate := append([]Event(nil), steps[:i+1]...)
 		duplicate = append(duplicate, steps[i:]...)
-		if _, valid := ops.ManagedCreateRecoveryPrefix(duplicate, r.plan); valid {
+		if _, valid := ops.ManagedCreateRecoveryCursor(duplicate, r.plan); valid {
 			t.Fatal("duplicated prefix event accepted", i)
 		}
 	}
