@@ -1068,3 +1068,12 @@ a terminal outcome. Real Store/public job-runner regression checks that a stoppe
 original preparation can open the existing backup inspector afterwards. Unknown
 capture tasks without retained upload proof still refuse inspection. These local
 checks do not establish a physical fault drill or verified remote recovery.
+
+### Capture completion refusal boundaries
+
+Focused tests exercise source, live-process and module rechecks in order, fixed
+non-retryable error envelopes, preserved causes/cancellation and strict failed
+task outcomes. Every code refuses a successful outcome or extra diagnostic text.
+Remote verification and point commit refusal use those same closed codes in the
+original-operation resolver. These diagnostics grant no recovery authority and
+change no capture/workspace/point admission guard.

@@ -62,6 +62,14 @@ const (
 	TransportInvalidResponse  Code = "transport_invalid_response"
 )
 
+const (
+	NativeCaptureVerifyRefused    Code = "native_capture_verification_refused"
+	NativeCaptureSourceRefused    Code = "native_capture_source_refused"
+	NativeCaptureLiveRefused      Code = "native_capture_live_refused"
+	NativeCaptureCandidateRefused Code = "native_capture_candidate_refused"
+	NativeCaptureCommitRefused    Code = "native_capture_commit_refused"
+)
+
 const BackupAdmissionRefreshRequired Code = "backup_admission_refresh_required"
 
 type description struct {
@@ -98,6 +106,11 @@ var descriptions = map[Code]description{
 	TransportFailure:               {Operational, "The SSH transport failed; reconcile before retrying any mutation.", false},
 	TransportInvalidResponse:       {Operational, "The SSH dispatcher response is invalid.", false},
 	OfflineRequired:                {Validation, "Choose --target NAME for connected planning, or use --offline with --snapshot and --policy.", false},
+	NativeCaptureVerifyRefused:     {Operational, "Native capture remote verification refused.", false},
+	NativeCaptureSourceRefused:     {Operational, "Native capture source recheck refused.", false},
+	NativeCaptureLiveRefused:       {Operational, "Native capture live engine recheck refused.", false},
+	NativeCaptureCandidateRefused:  {Operational, "Native capture module recheck refused.", false},
+	NativeCaptureCommitRefused:     {Operational, "Native capture verified point commit refused.", false},
 	InternalError:                  {Operational, "The operation failed.", false},
 	InvalidUsage:                   {Validation, "Invalid command or arguments. Use --help for usage.", false},
 	DependencyMissing:              {Dependency, "A required dependency is missing or incompatible.", false},

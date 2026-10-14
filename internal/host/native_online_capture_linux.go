@@ -313,13 +313,16 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	}
 	defer func() { _ = extracted.Root().Close() }()
 	restored, remoteDisposal, err := runtime.verifyExtracted(ctx, extracted, parent, path, checkpoint, selection, witness, module.candidate.candidate.Schema(), confirmed, final)
-	if err != nil || copied.unchanged(ctx) != nil || live.alive() != nil || module.candidate.unchanged(ctx) != nil {
-		return nil, errEngineSource
+	if err != nil {
+		return nil, result.New(result.NativeCaptureVerifyRefused, err)
+	}
+	if err = checkNativeCapturePostVerification(ctx, copied, live, module.candidate); err != nil {
+		return nil, err
 	}
 	_ = disposal
 	point, err := claim.Complete(ctx, extracted, store.NativePreparedObservation{Parent: parent, Source: source, Manifest: bundle.Manifest(), Transport: transport, SourceEvidence: witness, RestoredEvidence: restored, ConfirmedBound: confirmed, FinalPairs: final, Artifact: artifact.Bytes(), Descriptor: module.descriptor, ReaderNonce: remoteDisposal.nonce, ReaderViewSHA256: remoteDisposal.viewHash, ReaderImageID: remoteDisposal.imageID, ReaderDisposedAt: remoteDisposal.at})
 	if err != nil {
-		return nil, err
+		return nil, result.New(result.NativeCaptureCommitRefused, err)
 	}
 	retainWorkspace = false
 	backup, err := service.Store.ReadNativeBackupPolicy(ctx, point.BindingID)
@@ -396,4 +399,17 @@ func readNativeOnlineCopy(ctx context.Context, runtime nativeBackupRuntime, copi
 		return nativeevidence.Evidence{}, nativeDisposal{}, err
 	}
 	return evidence, disposal, nil
+}
+
+func checkNativeCapturePostVerification(ctx context.Context, copied *nativeOnlineCopy, live *engineNativeHandle, candidate extractedPublicationCandidate) error {
+	if err := copied.unchanged(ctx); err != nil {
+		return result.New(result.NativeCaptureSourceRefused, err)
+	}
+	if err := live.alive(); err != nil {
+		return result.New(result.NativeCaptureLiveRefused, err)
+	}
+	if err := candidate.unchanged(ctx); err != nil {
+		return result.New(result.NativeCaptureCandidateRefused, err)
+	}
+	return nil
 }
