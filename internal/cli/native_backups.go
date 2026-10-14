@@ -85,6 +85,22 @@ func newNativeRestoreTestCmd(deps Dependencies, modes *machineModes) *cobra.Comm
 	return cmd
 }
 
+func newNativeAbandonCmd(deps Dependencies, modes *machineModes) *cobra.Command {
+	var flags nativeTaskFlags
+	cmd := &cobra.Command{Use: "abandon POINT_ID --target NAME", Short: "Abandon an unused exact native preparation and leave its components stopped", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !data.ValidID(args[0]) {
+			return result.New(result.InvalidUsage, nil)
+		}
+		if err := flags.prepareKey(cmd); err != nil {
+			return err
+		}
+		input := dispatch.NativeAbandonArgs{PointID: args[0], IdempotencyKey: flags.key}
+		return flags.run(cmd, deps, modes, ops.NativePrepareAbandon, input, args[0])
+	}}
+	flags.register(cmd)
+	return cmd
+}
+
 func (f nativeTaskFlags) run(cmd *cobra.Command, deps Dependencies, modes *machineModes, kind ops.Kind, input any, pointID string) error {
 	response, err := f.operation.call(cmd.Context(), deps, string(kind), input)
 	if err != nil {
@@ -108,6 +124,17 @@ func (f nativeTaskFlags) run(cmd *cobra.Command, deps Dependencies, modes *machi
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), value))
 		}
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Accepted operation %s. Check with %s.\n", accepted.OperationID, f.operation.command("status", "--operation", accepted.OperationID))
+		return err
+	}
+	if kind == ops.NativePrepareAbandon {
+		receipt, ok := value.(nativecapture.AbandonReceipt)
+		if !ok || receipt.PointID != pointID {
+			return result.New(result.TransportInvalidResponse, nil)
+		}
+		if modes.enabled() {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), receipt))
+		}
+		_, err := fmt.Fprintf(cmd.OutOrStdout(), "Preparation %s abandoned. Its original fence is released; engine, frontend and ingress remain stopped.\n", receipt.PointID)
 		return err
 	}
 	receipt, ok := value.(nativecapture.TaskReceipt)

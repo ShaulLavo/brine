@@ -79,6 +79,7 @@ var operations = map[string]operation{
 	"native_recovery_set":                   {Mutating, decodeNativeRecovery},
 	"native_capture":                        {Mutating, decodeNativeCapture},
 	"native_prepare":                        {Mutating, decodeNativePrepare},
+	"native_prepare_abandon":                {Mutating, decodeNativeAbandon},
 	"native_restore_test":                   {ReadOnly, decodeNativeRestoreTest},
 	"deploy_operation":                      {ReadOnly, decodeDeploymentOperationQuery},
 	"deploy_state":                          {ReadOnly, decodeDeployment},
@@ -370,7 +371,7 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = accepted
-	case NativeCaptureArgs, NativePrepareArgs, NativeRestoreTestArgs:
+	case NativeCaptureArgs, NativePrepareArgs, NativeRestoreTestArgs, NativeAbandonArgs:
 		accepted, err := s.submitNativeBackup(ctx, args)
 		if err != nil {
 			return fail(result.Classify(err))

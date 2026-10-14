@@ -29,6 +29,12 @@ type TaskOutcome struct {
 
 func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 	switch op.Kind {
+	case NativePrepareAbandon:
+		receipt, err := nativecapture.DecodeAbandonReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID || receipt.InputSHA256 != op.SecretRef {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
 	case ArchiveMaintenanceApply, ArchiveMaintenanceResolve:
 		receipt, err := archive.DecodeMaintenanceReceipt(raw)
 		if err != nil || receipt.Kind != string(op.Kind) || receipt.OperationID != op.ID || receipt.PlanID != op.SecretRef || receipt.OriginalOperationID != op.RecoveryOf {

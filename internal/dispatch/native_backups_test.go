@@ -97,6 +97,10 @@ type nativeBackupsRecorder struct {
 	restore NativeRestoreTestArgs
 }
 
+func (r *nativeBackupsRecorder) Abandon(_ context.Context, _ NativeAbandonArgs) (jobs.Accepted, error) {
+	return jobs.Accepted{Status: "accepted", OperationID: "abandon-operation"}, nil
+}
+
 func (r *nativeBackupsRecorder) Capture(_ context.Context, args NativeCaptureArgs) (jobs.Accepted, error) {
 	r.calls++
 	r.kind, r.capture = "native_capture", args

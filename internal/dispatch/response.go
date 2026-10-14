@@ -167,7 +167,7 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_backup_activate", "native_capture", "native_prepare", "native_restore_test", "module_publish_apply", "module_publish_resolve", "native_retire", "native_retire_resolve", "native_live_restore_resolve", "native_live_restore", "native_backup_resolve":
+		case "data_init_apply", "restore_test", "backup_credentials_set", "native_recovery_set", "native_backup_activate", "native_capture", "native_prepare", "native_prepare_abandon", "native_restore_test", "module_publish_apply", "module_publish_resolve", "native_retire", "native_retire_resolve", "native_live_restore_resolve", "native_live_restore", "native_backup_resolve":
 			accepted, err := decodeAccepted(fields["data"])
 			if err != nil {
 				return invalid()

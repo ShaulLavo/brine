@@ -18,6 +18,14 @@ func (s *Store) CompleteTask(ctx context.Context, id string, state ops.State, ou
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := completeTaskTx(ctx, tx, id, state, outcome); err != nil {
+		return err
+	}
+
+	return tx.Commit()
+}
+
+func completeTaskTx(ctx context.Context, tx *sql.Tx, id string, state ops.State, outcome ops.TaskOutcome) error {
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 	if err != nil {
 		return err
@@ -39,7 +47,7 @@ func (s *Store) CompleteTask(ctx context.Context, id string, state ops.State, ou
 	if _, err = appendEvent(ctx, tx, id, ops.Event{Kind: "state", State: state}); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (s *Store) ReadTaskOutcome(ctx context.Context, id string) (*ops.TaskOutcome, error) {

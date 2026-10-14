@@ -174,6 +174,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	r.Runner.TaskHandlers[ops.NativeCapture] = nativeOnlineCaptureTask(service, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativeRestoreTest] = nativeHistoricalRestoreTask(service, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativePrepare] = nativePrepareTask(service, stateDir, identity.HomeDir, nativeRuntime)
+	r.Runner.TaskHandlers[ops.NativePrepareAbandon] = nativeAbandonTask(service, nativeRuntime)
 	backupOperations := nativeBackupOperations{service: service, jobs: taskJobs}
 	r.NativeCapture = nativeCaptureScheduler(backupOperations, nativeRuntime)
 	r.NativeBackups = backupOperations

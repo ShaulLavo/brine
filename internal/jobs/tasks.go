@@ -1,6 +1,7 @@
 package jobs
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -53,6 +54,9 @@ func (r Runner) runTask(ctx context.Context, op ops.Operation) error {
 	}
 	op.State = ops.Preflight
 	receipt, runErr := handler(ctx, op)
+	if op.Kind == ops.NativePrepareAbandon {
+		return r.finishNativeAbandonTask(ctx, op, receipt, runErr, state)
+	}
 	outcome := ops.TaskOutcome{Receipt: receipt}
 	to := ops.Succeeded
 	terminal := op
@@ -71,4 +75,41 @@ func (r Runner) runTask(ctx context.Context, op ops.Operation) error {
 	defer cancel()
 	completeErr := state.CompleteTask(journal, op.ID, to, outcome)
 	return errors.Join(runErr, completeErr)
+}
+
+func (r Runner) finishNativeAbandonTask(ctx context.Context, original ops.Operation, receipt json.RawMessage, runErr error, completer interface {
+	CompleteTask(context.Context, string, ops.State, ops.TaskOutcome) error
+}) error {
+	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
+	defer cancel()
+	reader, ok := r.Store.(interface {
+		ReadTaskOutcome(context.Context, string) (*ops.TaskOutcome, error)
+	})
+	if !ok {
+		return result.New(result.DependencyMissing, nil)
+	}
+	outcome, err := reader.ReadTaskOutcome(journal, original.ID)
+	if err != nil {
+		return errors.Join(runErr, err)
+	}
+	current, err := r.Store.GetOperation(journal, original.ID)
+	if err != nil {
+		return errors.Join(runErr, err)
+	}
+	if current.Kind != original.Kind || current.Requester != original.Requester || current.App != original.App || current.SecretRef != original.SecretRef || current.IdempotencyKey != original.IdempotencyKey {
+		return result.New(result.Conflict, nil)
+	}
+	if current.State == ops.Succeeded {
+		if outcome == nil || !outcome.Valid(current) || len(receipt) != 0 && !bytes.Equal(receipt, outcome.Receipt) {
+			return result.New(result.InternalError, nil)
+		}
+		return runErr
+	}
+	if current.State != ops.Preflight || outcome != nil {
+		return errors.Join(runErr, result.New(result.Conflict, nil))
+	}
+	if runErr == nil {
+		runErr = result.New(result.InternalError, nil)
+	}
+	return errors.Join(runErr, completer.CompleteTask(journal, original.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.Classify(runErr).Code()}))
 }
