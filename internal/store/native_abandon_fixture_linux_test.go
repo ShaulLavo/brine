@@ -16,6 +16,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -301,5 +302,91 @@ func TestNativeAbandonRejectsCheckpointProvenanceDrift(t *testing.T) {
 	abandonExec(t, fixture.state.db, "UPDATE data_native_checkpoints SET provenance=? WHERE binding_id=? AND epoch_id=? AND generation_id=?", raw, fixture.point.BindingID, fixture.point.EpochID, fixture.point.GenerationID)
 	if _, err := fixture.state.OpenNativeAbandonment(t.Context(), fixture.operation.ID); err == nil {
 		t.Fatal("provenance drift admitted")
+	}
+}
+
+func TestNativeAbandonOutcomeImmutableJoins(t *testing.T) {
+	fixture := newNativeAbandonFixture(t)
+	cap, observed := fixture.open(t)
+	if _, err := fixture.state.CompleteNativeAbandonment(t.Context(), cap, observed); err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	if err := fixture.state.db.QueryRowContext(t.Context(), "SELECT canonical FROM operation_outcomes WHERE operation_id=?", fixture.operation.ID).Scan(&raw); err != nil {
+		t.Fatal(err)
+	}
+	var outcome ops.TaskOutcome
+	if err := json.Unmarshal(raw, &outcome); err != nil {
+		t.Fatal(err)
+	}
+	var receipt map[string]any
+	if err := json.Unmarshal(outcome.Receipt, &receipt); err != nil {
+		t.Fatal(err)
+	}
+	fields := []string{"preparation_operation_id", "fence_owner_operation_id", "source_seal_sha256", "current_stop_sha256", "current_code_sha256", "current_routes_sha256", "stopped_desired_revision"}
+	for _, field := range fields {
+		t.Run(field, func(t *testing.T) {
+			mutated := map[string]any{}
+			for key, value := range receipt {
+				mutated[key] = value
+			}
+			mutated[field] = "foreign"
+			if field == "stopped_desired_revision" {
+				mutated[field] = float64(99)
+			}
+			changedReceipt, _ := json.Marshal(mutated)
+			outcome.Receipt = changedReceipt
+			changed, _ := json.Marshal(outcome)
+			abandonExec(t, fixture.state.db, "DROP TRIGGER operation_outcomes_immutable")
+			abandonExec(t, fixture.state.db, "UPDATE operation_outcomes SET canonical=? WHERE operation_id=?", changed, fixture.operation.ID)
+			if _, err := fixture.state.ReadNativeAbandonmentOutcome(t.Context(), fixture.operation.ID); err == nil {
+				t.Fatal("mutated receipt admitted")
+			}
+			abandonExec(t, fixture.state.db, "UPDATE operation_outcomes SET canonical=? WHERE operation_id=?", raw, fixture.operation.ID)
+			abandonExec(t, fixture.state.db, "CREATE TRIGGER operation_outcomes_immutable BEFORE UPDATE ON operation_outcomes BEGIN SELECT RAISE(ABORT,'immutable operation outcome'); END")
+		})
+	}
+}
+
+func TestNativeAbandonMigrationPreservesNativeJournalRows(t *testing.T) {
+	state, preparation, _, op := nativePreparationFixture(t)
+	if err := state.CompleteTask(t.Context(), op.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.InternalError}); err != nil {
+		t.Fatal(err)
+	}
+	input, err := state.ReadNativeTaskInput(t.Context(), op.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inputRaw, outcomeRaw []byte
+	if err := state.db.QueryRowContext(t.Context(), "SELECT canonical FROM data_native_task_inputs WHERE id=?", op.SecretRef).Scan(&inputRaw); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.db.QueryRowContext(t.Context(), "SELECT canonical FROM operation_outcomes WHERE operation_id=?", op.ID).Scan(&outcomeRaw); err != nil {
+		t.Fatal(err)
+	}
+	var fenceState string
+	if err := state.db.QueryRowContext(t.Context(), "SELECT state FROM data_fences WHERE id=?", preparation.intent.FenceID).Scan(&fenceState); err != nil {
+		t.Fatal(err)
+	}
+	abandonExec(t, state.db, "UPDATE schema_version SET version=28")
+	if err := state.migrate(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	var gotInput, gotOutcome []byte
+	if err := state.db.QueryRowContext(t.Context(), "SELECT canonical FROM data_native_task_inputs WHERE id=?", op.SecretRef).Scan(&gotInput); err != nil {
+		t.Fatal(err)
+	}
+	if err := state.db.QueryRowContext(t.Context(), "SELECT canonical FROM operation_outcomes WHERE operation_id=?", op.ID).Scan(&gotOutcome); err != nil {
+		t.Fatal(err)
+	}
+	if string(inputRaw) != string(gotInput) || string(outcomeRaw) != string(gotOutcome) {
+		t.Fatal("migration changed canonical journal bytes")
+	}
+	var gotFence string
+	if err := state.db.QueryRowContext(t.Context(), "SELECT state FROM data_fences WHERE id=?", preparation.intent.FenceID).Scan(&gotFence); err != nil || gotFence != fenceState {
+		t.Fatal("migration changed fence", gotFence, err)
+	}
+	if input.Kind != ops.NativePrepare {
+		t.Fatal("fixture input changed")
 	}
 }

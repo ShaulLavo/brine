@@ -147,7 +147,7 @@ func (s *Store) ReadNativeAbandonmentOutcome(ctx context.Context, id string) (*o
 		return nil, err
 	}
 	point, err := decodeNativePreparedPoint(pointRaw)
-	if err != nil || point.hash != decoded.PointSHA256 || string(point.view.FenceID) != decoded.FenceID || point.view.FenceOwnerOpID != decoded.FenceOwnerOperationID || string(point.view.BindingID) != decoded.BindingID || string(point.view.EpochID) != decoded.EpochID {
+	if err != nil || input.BindingID != point.view.BindingID || point.hash != decoded.PointSHA256 || string(point.view.FenceID) != decoded.FenceID || point.view.FenceOwnerOpID != decoded.FenceOwnerOperationID || string(point.view.BindingID) != decoded.BindingID || string(point.view.EpochID) != decoded.EpochID {
 		return nil, &IntegrityError{}
 	}
 	var state string
@@ -158,13 +158,25 @@ func (s *Store) ReadNativeAbandonmentOutcome(ctx context.Context, id string) (*o
 	if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM releases WHERE app=? AND id=?", op.App, decoded.ReleaseID).Scan(&releaseExists); err != nil || releaseExists != 1 {
 		return nil, errors.Join(ErrConflict, err)
 	}
+	release, err := readRelease(ctx, tx, op.App, decoded.ReleaseID)
+	if err != nil {
+		return nil, err
+	}
+	_, releaseRaw, err := normalizeRelease(release)
+	if err != nil || nativePointHash(releaseRaw) != decoded.CurrentCodeSHA256 || decoded.PreparationOperationID != point.view.PreparationOperationID || decoded.FenceOwnerOperationID != point.view.FenceOwnerOpID || decoded.SourceSealSHA256 != point.view.SourceSealSHA256 || decoded.CurrentStopSHA256 != point.view.StopProofSHA256 {
+		return nil, &IntegrityError{}
+	}
+	var routeRaw []byte
+	if err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_prepared_routes WHERE point_id=? AND stage='withdrawn'", point.view.PointID).Scan(&routeRaw); err != nil || nativePointHash(routeRaw) != decoded.CurrentRoutesSHA256 {
+		return nil, &IntegrityError{}
+	}
 	var planID, operationID string
 	var desiredRaw []byte
 	if err := tx.QueryRowContext(ctx, "SELECT plan_id,operation_id,canonical FROM data_engine_desired_states WHERE binding_id=? AND revision=?", point.view.BindingID, decoded.StoppedDesiredRevision).Scan(&planID, &operationID, &desiredRaw); err != nil {
 		return nil, err
 	}
 	wanted, err := decodeManagedDesired(point.view.BindingID, decoded.StoppedDesiredRevision, planID, operationID, desiredRaw)
-	if err != nil || wanted.OperationID != op.ID || wanted.BindingID != point.view.BindingID || wanted.EpochID != point.view.EpochID || wanted.RuntimeSHA256 != point.view.RuntimeSHA256 || wanted.EngineRunning || wanted.FrontendRunning || wanted.IngressServing {
+	if err != nil || wanted.OperationID != op.ID || wanted.PlanID != release.PlanID || wanted.BindingID != point.view.BindingID || wanted.EpochID != point.view.EpochID || wanted.RuntimeSHA256 != point.view.RuntimeSHA256 || wanted.EngineRunning || wanted.FrontendRunning || wanted.IngressServing {
 		return nil, errors.Join(ErrConflict, err)
 	}
 	return &outcome, tx.Commit()
