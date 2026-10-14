@@ -50,7 +50,7 @@ func cloneManagedImage(image Image) Image {
 }
 
 func (m ManagedServicePlan) Valid() bool {
-	if m.Archive.Validate(m.Database) != nil || m.EnginePort < 1024 || m.EnginePort > 65535 || !managedEngineImageVerified(m.EngineImage) {
+	if m.Archive.Validate(m.Database) != nil || m.EnginePort < 1024 || m.EnginePort > 65535 || !managedImageVerified(m.EngineImage) {
 		return false
 	}
 	if m.State != data.EngineUnpublished && m.State != data.EngineInitialized {
@@ -72,16 +72,14 @@ func managedImageVerified(image Image) bool {
 	return validHash(image.Digest) && image.validManifest() && image.ManifestDigest.Status == target.KnownStatus && image.ManifestDigest.Value != nil && image.Platform.OS == "linux" && (image.Platform.Arch == "amd64" || image.Platform.Arch == "arm64")
 }
 
-func managedEngineImageVerified(image Image) bool {
-	_, digest, _ := strings.Cut(data.SpacetimeDBImage, "@")
-	if !managedImageVerified(image) || image.Digest != digest {
-		return false
-	}
-	manifest := data.SpacetimeDBAMD64Manifest
-	if image.Platform.Arch == "arm64" {
-		manifest = data.SpacetimeDBARM64Manifest
-	}
-	return *image.ManifestDigest.Value == manifest
+func managedEngineImageMatches(reference string, image Image) bool {
+	_, digest, _ := strings.Cut(reference, "@")
+	return managedImageVerified(image) && data.ValidEngineImage(reference, *image.ManifestDigest.Value) && image.Digest == digest
+}
+
+// AdmitsNewEngine selects the current profile only at fresh allocation admission.
+func (m ManagedServicePlan) AdmitsNewEngine(reference string) bool {
+	return m.Valid() && managedEngineImageMatches(reference, m.EngineImage) && data.SelectedEngineImage(reference, *m.EngineImage.ManifestDigest.Value, m.EngineImage.Platform.Arch)
 }
 
 func (f ManagedFrontendPlan) Valid(enginePort target.Port) bool {

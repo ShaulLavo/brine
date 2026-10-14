@@ -15,7 +15,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/store"
-	"github.com/ShaulLavo/brine/internal/target"
 )
 
 const descriptorMemoryMB = 512
@@ -44,7 +43,7 @@ func acquireDescriptorLease(ctx context.Context, state *store.Store, preparation
 		return nil, datapublish.ErrRecord
 	}
 	planned, desired, err := state.LoadPlan(ctx, deploymentPlanID)
-	if err != nil || desired.SpacetimeDB == nil || string(desired.SpacetimeDB.Image) != data.SpacetimeDBImage || planned.Image.Platform.OS != "linux" {
+	if err != nil || desired.SpacetimeDB == nil || planned.Managed == nil || planned.Managed.Database.BindingID != binding {
 		return nil, datapublish.ErrRecord
 	}
 	reserved, err := state.ReadReservedEngine(ctx, binding)
@@ -55,37 +54,37 @@ func acquireDescriptorLease(ctx context.Context, state *store.Store, preparation
 	if err != nil || incarnation != reserved.Database.IncarnationID {
 		return nil, datapublish.ErrRecord
 	}
-	image, err := descriptorImage(ctx, images, planned.Image.Platform)
-	if err != nil || !preparation.Active(binding) {
+	_, runtime, err := state.ReadEngineHead(ctx, binding)
+	if err != nil || runtime.Image != string(desired.SpacetimeDB.Image) || runtime.EpochID != planned.Managed.Archive.EpochID || planned.Managed.EngineImage.ManifestDigest.Value == nil || runtime.ManifestDigest != *planned.Managed.EngineImage.ManifestDigest.Value {
+		return nil, datapublish.ErrRecord
+	}
+	image, err := descriptorImage(ctx, images, runtime)
+	plannedImage := planned.Managed.EngineImage
+	if err != nil || image.IndexDigest != plannedImage.Digest || image.Platform.OS != plannedImage.Platform.OS || image.Platform.Architecture != plannedImage.Platform.Arch || !preparation.Active(binding) {
 		return nil, datapublish.ErrRecord
 	}
 	staged, err := stagePublicationArtifact(ctx, preparation, binding, artifact)
 	if err != nil {
 		return nil, err
 	}
-	return &descriptorLease{artifact: staged, image: image, imageRef: data.SpacetimeDBImage}, nil
+	return &descriptorLease{artifact: staged, image: image, imageRef: runtime.Image}, nil
 }
 
-func descriptorImage(ctx context.Context, images *podman.Client, platform target.Platform) (podman.ImageInfo, error) {
-	var manifest string
-	switch platform.Arch {
-	case "amd64":
-		manifest = data.SpacetimeDBAMD64Manifest
-	case "arm64":
-		manifest = data.SpacetimeDBARM64Manifest
-	default:
+func descriptorImage(ctx context.Context, images *podman.Client, runtime data.EngineRuntime) (podman.ImageInfo, error) {
+	if runtime.Validate() != nil {
 		return podman.ImageInfo{}, datapublish.ErrRecord
 	}
-	index, err := podman.ParseImage(data.SpacetimeDBImage)
+	index, err := podman.ParseImage(runtime.Image)
 	if err != nil {
 		return podman.ImageInfo{}, datapublish.ErrRecord
 	}
-	selected, err := podman.ParseImage(strings.SplitN(data.SpacetimeDBImage, "@", 2)[0] + "@" + manifest)
+	repository, digest, _ := strings.Cut(runtime.Image, "@")
+	selected, err := podman.ParseImage(repository + "@" + runtime.ManifestDigest)
 	if err != nil {
 		return podman.ImageInfo{}, datapublish.ErrRecord
 	}
 	observed, err := images.InspectStored(ctx, index, selected)
-	if err != nil || observed.ManifestDigest != manifest || !data.ValidCatalogHash(observed.ImageID) || observed.Platform.OS != platform.OS || observed.Platform.Architecture != platform.Arch {
+	if err != nil || observed.IndexDigest != digest || observed.ManifestDigest != runtime.ManifestDigest || observed.ImageID != runtime.ImageID || observed.Platform.OS != "linux" || observed.Platform.Architecture != "amd64" && observed.Platform.Architecture != "arm64" {
 		return podman.ImageInfo{}, datapublish.ErrRecord
 	}
 	return observed, nil

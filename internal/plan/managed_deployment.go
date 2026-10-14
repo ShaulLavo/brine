@@ -26,7 +26,7 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 	}
 	facts := in.Managed.Clone()
 	runtime := facts.Runtime
-	if runtime.Validate() != nil || runtime.State != data.EngineInitialized || facts.Archive.Validate(*facts.Database) != nil || runtime.BindingID != facts.Database.BindingID || runtime.EpochID != facts.Archive.EpochID || !managedEngineImageVerified(facts.EngineImage) {
+	if runtime.Validate() != nil || runtime.State != data.EngineInitialized || facts.Archive.Validate(*facts.Database) != nil || runtime.BindingID != facts.Database.BindingID || runtime.EpochID != facts.Archive.EpochID || !managedEngineImageMatches(runtime.Image, facts.EngineImage) || *facts.EngineImage.ManifestDigest.Value != runtime.ManifestDigest {
 		return Plan{}, errors.New("managed runtime ownership differs")
 	}
 	raw, err := json.Marshal(runtime.Clone())

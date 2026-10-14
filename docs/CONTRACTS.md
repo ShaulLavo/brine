@@ -1432,6 +1432,15 @@ observations, withdraws hash-owned ingress under the host lock, and holds the
 native lifetime lock. Its completed source reloads the retained generation and
 exact bundle, not a newly generated checkpoint. The actual initial-owner helper
 supplies unpublished publisher provenance; JWT syntax does not supply it.
+Recorded managed runtimes and plans retain their exact pinned engine identity.
+Decoding validates image, manifest and configuration hash syntax and the closed
+engine version without replacing those pins with the current published profile.
+New allocation and initial material admission require the current selected
+image and platform manifest. Native pulls use the admitted plan image; module
+extraction and staged publication inspect the recorded index, platform manifest
+and configuration ID together. Missing identity proof refuses the operation.
+Existing allocations have no implicit engine update.
+
 Initial unpublished preparation adopts only the exact original allocation fence, proven
 by the successful managed preparation, immutable plan and allocation, and
 completed initial material delivery matching the protected runtime. The new

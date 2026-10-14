@@ -17,7 +17,7 @@ const PrepareManagedEngine ChangeKind = "prepare_managed_engine"
 // BuildManagedPreparation freezes an unpublished allocation. It has no engine,
 // frontend, upload, publication, routing, or serving-release changes.
 func BuildManagedPreparation(in Input, proposed ManagedServicePlan, root data.RootEvidence) (Plan, error) {
-	if policy.ValidateManagedDesired(in.Desired) != nil || in.Managed == nil || in.Managed.Runtime != nil || proposed.State != data.EngineUnpublished || !proposed.Valid() || proposed.Database.Name != in.Desired.SpacetimeDB.Name || proposed.Database.Root != in.Desired.SpacetimeDB.PersistentRoot || proposed.Archive.Destination != in.Desired.BackupDestinations[0] || !slices.Contains(in.Desired.PersistentRoots, proposed.Database.Root) {
+	if policy.ValidateManagedDesired(in.Desired) != nil || in.Managed == nil || in.Managed.Runtime != nil || proposed.State != data.EngineUnpublished || !proposed.AdmitsNewEngine(string(in.Desired.SpacetimeDB.Image)) || proposed.Database.Name != in.Desired.SpacetimeDB.Name || proposed.Database.Root != in.Desired.SpacetimeDB.PersistentRoot || proposed.Archive.Destination != in.Desired.BackupDestinations[0] || !slices.Contains(in.Desired.PersistentRoots, proposed.Database.Root) {
 		return Plan{}, errors.New("managed unpublished preparation required")
 	}
 	if in.Desired.App().HasAppContainer() != (proposed.Frontend != nil) || proposed.EngineImage.Platform.Arch != in.Snapshot.Arch || proposed.Frontend != nil && (proposed.Frontend.Image.Platform.Arch != in.Snapshot.Arch || proposed.Frontend.Image.Digest != in.Image.Digest) {
