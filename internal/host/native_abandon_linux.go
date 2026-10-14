@@ -38,6 +38,14 @@ func nativeAbandonTask(service Service, runtime nativeBackupRuntime) jobs.TaskHa
 			return nil, err
 		}
 		defer func() { taskErr = errors.Join(taskErr, abandonment.Close()) }()
+		expected, err := abandonment.Expected(ctx)
+		if err != nil {
+			return nil, err
+		}
+		policyValue, err := service.Policy.Load(ctx)
+		if err != nil || policyValue.Hash() != "sha256:"+expected.Point.PolicySHA256 {
+			return nil, result.New(result.PolicyRefused, err)
+		}
 		observed, err := observeNativeAbandonment(ctx, service, runtime, abandonment)
 		if err != nil {
 			return nil, err
@@ -85,8 +93,13 @@ func observeNativeAbandonment(ctx context.Context, service Service, runtime nati
 	if _, err := runtime.inspectPreparedStop(ctx, app, expected.Permit, stop, routes, current, previous); err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
-	if _, err := abandonment.Expected(ctx); err != nil {
+	finalExpected, err := abandonment.Expected(ctx)
+	if err != nil {
 		return store.NativeAbandonObservation{}, err
+	}
+	policyValue, err := service.Policy.Load(ctx)
+	if err != nil || policyValue.Hash() != "sha256:"+finalExpected.Point.PolicySHA256 {
+		return store.NativeAbandonObservation{}, result.New(result.PolicyRefused, err)
 	}
 	routeHash := sha256.Sum256(routeBytes)
 	return store.NativeAbandonObservation{Stop: stop, SourceSHA256: point.SourceSealSHA256, CodeSHA256: expected.CodeSHA256, RoutesSHA256: hex.EncodeToString(routeHash[:]), Directory: data.EngineDirectoryIdentity{Device: seal.root.Device, Inode: seal.root.Inode}, CheckpointSHA: expected.Point.CheckpointSHA256, ObservedAt: time.Now().UTC()}, nil
@@ -128,11 +141,30 @@ func verifyNativeAbandonCode(ctx context.Context, runtime nativeBackupRuntime, a
 	if quadlet.VerifyCurrent(ctx, runtime.home, front.Unit.Name, front.Unit.Hash) != nil || verifyManagedFrontendLoaded(ctx, runtime.session, runtime.home, app) != nil {
 		return errEngineSource
 	}
+	planned, desired, err := runtime.state.LoadPlan(ctx, expected.Release.PlanID)
+	if err != nil {
+		return errEngineSource
+	}
+	managed := managedRuntime{state: runtime.state, observer: managedEngineObserver{session: runtime.session}, home: runtime.home}
+	if err := managed.stoppedFrontendImage(ctx, planned, desired); err != nil {
+		return err
+	}
+	client := podman.New(runtime.session)
+	for _, secret := range front.Secrets {
+		parsed, err := podman.ParseSecretName(secret.VersionName)
+		if err != nil {
+			return errEngineSource
+		}
+		present, err := client.SecretExists(ctx, parsed)
+		if err != nil || !present {
+			return errEngineSource
+		}
+	}
 	name, err := managedFrontendContainerName(app)
 	if err != nil {
 		return err
 	}
-	state, err := podman.New(runtime.session).ContainerState(ctx, name)
+	state, err := client.ContainerState(ctx, name)
 	if !managedFrontendStopped(state, err) {
 		return errEngineSource
 	}
