@@ -714,6 +714,27 @@ publication review cleanup after cancellation, removes the owned copied source
 and newly created empty staging parent, and preserves the original source. These
 checks do not establish a successful remote module plan or publication.
 
+### Synchronous material delivery budget
+
+The CLI37 physical initial material call ended with `transport_failure` after
+15.066 seconds and no operation response. The new-engine candidate pulls its
+selected pinned image before reserving material custody. The ordinary request
+budget cut off that pull despite its intended two-minute bound.
+
+`native_material_set` now allows two minutes for the pull and fifteen seconds
+for the other host work. The client allows two minutes forty seconds in total,
+including input reading, the existing five-second custody reconciliation and SSH
+connection allowance. Only the pull receives a longer subprocess session budget;
+other image probes and metadata status keep their existing bounds.
+
+Local dispatcher tests inspect the actual work deadline and earlier caller
+deadlines. A client-to-dispatcher fixture completes a sixteen-second delivery,
+then verifies an earlier caller deadline still cancels both layers with one call
+and `transport_failure`. A real control-store fixture cancels the pre-custody
+pull and verifies no material reservation exists for its exact key. Existing
+immutable receipt and unknown-write tests remain required. These tests do not
+establish successful physical delivery, image-pull cleanup or publication.
+
 ### Detached task state handoff
 
 The CLI26 actual module review succeeded. Its accepted apply operation entered

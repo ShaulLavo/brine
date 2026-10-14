@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -158,6 +159,77 @@ func (nativeMaterialImageExecutor) Execute(ctx context.Context, c localexec.Comm
 		return localexec.Result{}, ctx.Err()
 	}
 	return localexec.Result{}, fmt.Errorf("unexpected native material command")
+}
+
+type materialPullBudgetExecutor struct {
+	deadline       time.Time
+	pullTimeout    time.Duration
+	inspectTimeout time.Duration
+	wait           bool
+}
+
+func (e *materialPullBudgetExecutor) Execute(ctx context.Context, command localexec.Command) (localexec.Result, error) {
+	if len(command.Args) > 0 && command.Args[0] == "pull" {
+		e.deadline, _ = ctx.Deadline()
+		e.pullTimeout = command.Timeout
+		if e.wait {
+			<-ctx.Done()
+			return localexec.Result{}, ctx.Err()
+		}
+	}
+	if len(command.Args) > 1 && command.Args[0] == "image" && command.Args[1] == "inspect" {
+		e.inspectTimeout = command.Timeout
+	}
+	return (nativeMaterialImageExecutor{}).Execute(ctx, command)
+}
+
+func TestNativeMaterialPullUsesOwnBudgetWithoutExtendingParentOrReservingAfterCancellation(t *testing.T) {
+	f := freshNativeMaterialFixture(t)
+	executor := &materialPullBudgetExecutor{}
+	session, err := localexec.NewSession(executor, nativeBackupFixtureUID(t), f.home, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.service.managedObserver.session = session
+	packet := freshNativeMaterialPacket(t)
+	defer clear(packet)
+	material, expiry, err := decodeNativeMaterialPacket(packet, time.Now().UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer material.Clear()
+	o := nativeMaterialOperations{service: f.service}
+	started := time.Now()
+	if _, err := o.candidate(t.Context(), f.plan, f.desired, material, expiry); err != nil {
+		t.Fatal(err)
+	}
+	if executor.pullTimeout != dispatch.NativeMaterialPullTimeout || executor.inspectTimeout != time.Second || executor.deadline.Before(started.Add(dispatch.NativeMaterialPullTimeout)) || executor.deadline.After(time.Now().Add(dispatch.NativeMaterialPullTimeout)) {
+		t.Fatal("pull budget clipped by shared session or unrelated inspection budget changed")
+	}
+	executor.wait = true
+	key := strings.Repeat("9", 32)
+	wire, err := dispatch.EncodeNativeMaterial(f.plan.App, f.plan.Hash, key, packet)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(wire)
+	request, err := dispatch.EncodeRequest(dispatch.Request{SchemaVersion: dispatch.SchemaVersion, Op: "native_material_set", RequestID: "material-budget", Args: wire})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer clear(request)
+	server := dispatch.NewServer("fixture", nil).WithJobs(nil, f.service.Authorize)
+	server.NativeMaterial = o
+	deadline := time.Now().Add(time.Second)
+	parent, cancel := context.WithDeadline(t.Context(), deadline)
+	defer cancel()
+	response, err := server.Handle(parent, bytes.NewReader(request))
+	if err == nil || response.OK || !executor.deadline.Equal(deadline) {
+		t.Fatal("canceled image pull succeeded or extended parent deadline", err)
+	}
+	if _, err := f.service.Store.NativeMaterialByKey(t.Context(), f.service.Requester, key); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("canceled pre-custody image pull reserved native material", err)
+	}
 }
 func freshNativeMaterialPacket(t *testing.T) []byte {
 	f := newNativePacketFixture(t)

@@ -238,6 +238,15 @@ func NewSession(executor Executor, uid uint32, dir string, timeout time.Duration
 	runtime := "/run/user/" + strconv.FormatUint(uint64(uid), 10)
 	return Session{executor: executor, dir: dir, env: []string{"XDG_RUNTIME_DIR=" + runtime, "DBUS_SESSION_BUS_ADDRESS=unix:path=" + runtime + "/bus", "LC_ALL=C"}, timeout: timeout}, nil
 }
+
+func (s Session) WithTimeout(timeout time.Duration) (Session, error) {
+	if s.executor == nil || timeout <= 0 {
+		return Session{}, &Error{Kind: Invalid}
+	}
+	s.timeout = timeout
+	return s, nil
+}
+
 func (s Session) Execute(ctx context.Context, path string, args []string, stdin []byte, mutation bool) (Result, error) {
 	if s.executor == nil {
 		return Result{}, &Error{Kind: Invalid}
