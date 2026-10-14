@@ -97,7 +97,7 @@ func (w *publicationPrivateInspectionWork) observe(ctx context.Context) (store.P
 	if err != nil || !engineSourceSealMatches(before, w.facts.Point.SourceSealSHA256) {
 		return zero, errEngineSource
 	}
-	observed := store.PublicationSourcePreservationObservation{OriginalRoot: w.original, OriginalSealSHA256: engineSourceSealDigest(before), WorkingRoot: w.working, EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true}
+	observed := store.PublicationSourcePreservationObservation{OriginalRoot: w.original, OriginalSealSHA256: w.facts.Point.SourceSealSHA256, WorkingRoot: w.working, EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true}
 	if w.working != nil && !w.facts.Manifest.MatchesTree(ctx, w.working) {
 		if err = w.inspectModule(ctx, &observed); err != nil {
 			return zero, err
@@ -107,7 +107,7 @@ func (w *publicationPrivateInspectionWork) observe(ctx context.Context) (store.P
 		return zero, err
 	}
 	after, err := sealOwnedEngineSource(ctx, w.original, limits)
-	if err != nil || !engineSourceSealMatches(after, observed.OriginalSealSHA256) {
+	if err != nil || after.hash != before.hash {
 		return zero, errEngineSource
 	}
 	observed.ObservedAt = time.Now().UTC()
