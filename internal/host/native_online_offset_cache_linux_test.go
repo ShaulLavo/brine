@@ -93,10 +93,11 @@ func TestNativeOnlineCopyRejectsOffsetCacheMetadataDrift(t *testing.T) {
 	}{
 		{"size", func(root *os.Root, cache string) error { return root.WriteFile(cache, []byte{1}, 0600) }},
 		{"replacement", func(root *os.Root, cache string) error {
-			if err := root.Remove(cache); err != nil {
+			replacement := cache + ".replacement"
+			if err := root.WriteFile(replacement, make([]byte, 4<<20), 0600); err != nil {
 				return err
 			}
-			return root.WriteFile(cache, make([]byte, 4<<20), 0600)
+			return root.Rename(replacement, cache)
 		}},
 		{"alias", func(root *os.Root, cache string) error { return root.Link(cache, "control-db/cache-alias") }},
 		{"log_sibling", func(root *os.Root, _ string) error {
