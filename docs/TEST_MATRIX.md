@@ -919,3 +919,16 @@ now includes the missing package in its exact reviewed transaction. Tests cover
 read-only probing without recommendations, missing or unqualified candidate
 refusal, and installation with the original journaled dependency versions.
 These package-boundary tests do not prove a successful native preparation.
+
+An independently named neutral container on the current pinned amd64 image,
+with the same private namespaces and security profile, then reproduced two
+standard masks absent on the Pi: empty read-only tmpfs `/proc/acpi` and
+read-only `/null` devtmpfs `/proc/kcore`, a null character device with major 1
+and minor 3.
+The prior closed module mount classifiers rejected both before input. The
+shared guard now requires their exact path, backing filesystem, mount mode and
+non-symlink node metadata, with a bounded actual directory emptiness check.
+Tests reject writable, foreign and changed mount shapes in both helper profiles,
+wrong/null/block/symlink/device/owner/link metadata and actual nonempty
+directories. The neutral container and scope were removed. This is containment
+evidence, not recovery of the original unknown operation or a publication receipt.
