@@ -1089,3 +1089,14 @@ task outcomes. Every code refuses a successful outcome or extra diagnostic text.
 Remote verification and point commit refusal use those same closed codes in the
 original-operation resolver. These diagnostics grant no recovery authority and
 change no capture/workspace/point admission guard.
+
+### Published fixture recovery profiles
+
+The current published v1, logic-only, additive, and default-column Wasm pins
+pass both confirmed lower-bound decoding and passive native recovery projection.
+Each artifact remains bound to its exact canonical schema. A different schema
+or an unknown artifact still refuses. Tests read the actual publication pin file
+and retain checks for historical points without admitting arbitrary modules.
+
+This gate verifies evidence projection only. Staged publication, remote replay,
+and the full module update remain physical acceptance obligations.
