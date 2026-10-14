@@ -6,14 +6,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 )
 
-// ManagedCreateRecoveryPrefix accepts only the exact applied create path ending
-// at its read-only route check or release commit. Earlier uncertain effects and
-// compensation cannot authorize adopting installed artifacts.
-func ManagedCreateRecoveryPrefix(events []Event, p plan.Plan) (StepPayload, bool) {
-	cursor, valid := ManagedCreateRecoveryCursor(events, p)
-	return cursor.Boundary, valid
-}
-
 // ManagedCreateCursor separates the original check boundary from one resolver-owned wake.
 type ManagedCreateCursor struct {
 	Boundary      StepPayload
