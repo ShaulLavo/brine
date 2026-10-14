@@ -29,7 +29,7 @@ outcome requires the inspection flow below.
    Enroll through the [existing enrollment flow](../CONTRACTS.md#operator-enrollment).
    Keep the target configuration and private input files outside the repository.
 2. Select the pinned engine from
-   [runtime pins](../../tools/spacetime-runtime/pins.json). Enrollment installs the
+   [selected native engine](../evidence/p09-native-engine.md). Enrollment installs the
    passive reader's [architecture-specific artifact pins](../../internal/enroll/native_reader.go).
    Select the immutable
    frontend image and matching Wasm/client artifacts from the

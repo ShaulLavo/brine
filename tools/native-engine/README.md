@@ -1,5 +1,8 @@
 # Native engine bundles
 
+The [selected engine publication](../../docs/evidence/p09-native-engine.md) records
+the actual image and both platform/configuration identities used for new allocations.
+
 `prepare.py` verifies the upstream archive and shutdown patch before applying
 the patch. It refreshes extracted file timestamps so a reused Cargo target
 cannot treat older restored source as unchanged. File contents retain their
