@@ -1055,3 +1055,16 @@ request/query IDs, deletes, invalid counts, binary frames, denial and deadlines.
 Registered default-column rows require the qualified rating value7; arbitrary
 extra fields refuse. Empty-table omission follows the pinned engine protocol.
 The legacy SQL fixture remains historical decoding evidence only.
+
+### Interrupted native task reconciliation
+
+Public reconciliation records an unknown `recovery_required` task outcome
+atomically with the terminal state through the existing task completion API.
+Only a preflight task whose operation unit is settled absent/dead with a known
+empty manager queue is terminalized. Active, transitional and unreadable unit or
+queue observations preserve the nonterminal task. Native input, preparation
+proofs and held fences remain unchanged; repeated reconciliation cannot replace
+a terminal outcome. Real Store/public job-runner regression checks that a stopped
+original preparation can open the existing backup inspector afterwards. Unknown
+capture tasks without retained upload proof still refuse inspection. These local
+checks do not establish a physical fault drill or verified remote recovery.
