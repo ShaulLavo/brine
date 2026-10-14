@@ -1756,3 +1756,13 @@ strict schema, usage and canonical identity checks. Global maxima are caps, not
 a substitute request. Parsing retained bytes grants no source, owner, capture,
 publication or recovery authority; the existing protected hashes and scope joins
 remain required.
+
+Initial module publication records `unit_absent` in its protected target proof.
+The source is an unpublished allocation, and ordinary deployment installs the
+managed engine service after publication initializes it. Publication observes
+actual service-file absence and the unchanged canonical future unit hash. It
+refuses any installed file, including a matching file, and unsafe or unknown
+paths. Initialized publication still requires the exact installed service.
+Activation, completion and transition recovery require the same unit observation
+as the retained target proof. Existing process, job, container, reader, ingress,
+fence and tree checks remain required; unit absence grants no start authority.

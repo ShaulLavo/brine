@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/store"
 	"golang.org/x/sys/unix"
 )
@@ -79,7 +80,7 @@ func preparePublicationTarget(ctx context.Context, state *store.Store, capabilit
 	if err = syncEngineDirectory(stage.parent, "."); err != nil {
 		return nil, err
 	}
-	unit, err := readNativeRestoreUnit(ctx, home, facts.Runtime)
+	unit, err := readPublicationUnit(ctx, home, facts.Runtime, checkpoint.stage.source.permit.Runtime.State == data.EngineUnpublished)
 	if err != nil {
 		return nil, err
 	}
@@ -154,7 +155,7 @@ func (s *publicationTargetStage) observe(ctx context.Context, unit string) (stor
 	allocation.DirectoryDevice, allocation.DirectoryInode = stagedSeal.Directory.Device, stagedSeal.Directory.Inode
 	allocation.AllocatedAt = time.Now().UTC()
 	raw, _ := json.Marshal(s.facts.Runtime.Secrets)
-	return store.PublicationTargetObservation{Parent: s.parent, Staged: s.staged, OldTree: oldSeal, TargetTree: stagedSeal, Allocation: allocation, UnitSHA256: unit, MaterialSHA256: nativeBackupBytesHash(raw), ObservedAt: time.Now().UTC()}, nil
+	return store.PublicationTargetObservation{Parent: s.parent, Staged: s.staged, OldTree: oldSeal, TargetTree: stagedSeal, Allocation: allocation, UnitSHA256: unit, UnitAbsent: unit == "", MaterialSHA256: nativeBackupBytesHash(raw), ObservedAt: time.Now().UTC()}, nil
 }
 
 func (s *publicationTargetStage) close() error {

@@ -23,6 +23,7 @@ type PublicationTargetObservation struct {
 	TargetTree     data.EngineTreeSeal
 	Allocation     data.AllocationReceipt
 	UnitSHA256     string
+	UnitAbsent     bool
 	MaterialSHA256 string
 	ObservedAt     time.Time
 }
@@ -37,6 +38,7 @@ type publicationTargetRecord struct {
 	RuntimeSHA256    string                 `json:"runtime_sha256"`
 	CheckpointSHA256 string                 `json:"checkpoint_sha256"`
 	MaterialSHA256   string                 `json:"material_sha256"`
+	UnitAbsent       bool                   `json:"unit_absent,omitempty"`
 	OldTree          data.EngineTreeSeal    `json:"old_tree"`
 	TargetTree       data.EngineTreeSeal    `json:"target_tree"`
 	Allocation       data.AllocationReceipt `json:"allocation"`
@@ -69,7 +71,7 @@ func (s *Store) RecordPublicationTarget(ctx context.Context, capability *Publica
 		return errors.Join(ErrConflict, err)
 	}
 	runtimeRaw, _ := json.Marshal(intent.Runtime)
-	record := publicationTargetRecord{Format: "brine-publication-target-v1", Scope: current.cursor.Scope(), TransitionID: intent.TransitionID, IntentSHA256: intentHash, RuntimeSHA256: publicationStorageSHA256(runtimeRaw), CheckpointSHA256: checkpoint.SHA256(), MaterialSHA256: observed.MaterialSHA256, OldTree: observed.OldTree, TargetTree: observed.TargetTree, Allocation: cloneNativeAllocation(observed.Allocation), ObservedAt: observed.ObservedAt}
+	record := publicationTargetRecord{Format: "brine-publication-target-v1", Scope: current.cursor.Scope(), TransitionID: intent.TransitionID, IntentSHA256: intentHash, RuntimeSHA256: publicationStorageSHA256(runtimeRaw), CheckpointSHA256: checkpoint.SHA256(), MaterialSHA256: observed.MaterialSHA256, UnitAbsent: observed.UnitAbsent, OldTree: observed.OldTree, TargetTree: observed.TargetTree, Allocation: cloneNativeAllocation(observed.Allocation), ObservedAt: observed.ObservedAt}
 	raw, err := json.Marshal(record)
 	if err != nil || len(raw) > 65536 {
 		return ErrInvalid
@@ -105,10 +107,24 @@ func checkPublicationTargetObservation(permit EnginePermit, intent publicationTa
 	if observed.OldTree.Root != (data.EngineDirectoryIdentity{Device: a.RootDevice, Inode: a.RootInode}) || observed.OldTree.Directory != (data.EngineDirectoryIdentity{Device: a.DirectoryDevice, Inode: a.DirectoryInode}) || !nativeAllocationMatches(observed.Allocation, permit.Reserved, observed.TargetTree) || observed.Allocation.MappingProof.Runtime != intent.Runtime.Runtime {
 		return ErrConflict
 	}
-	if observed.UnitSHA256 != intent.Runtime.UnitSHA256 || observed.MaterialSHA256 != nativeRestoreMaterialSHA256(intent.Runtime) || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(intent.RecordedAt) || observed.ObservedAt.After(time.Now().UTC()) {
+	if !publicationTargetUnitMatches(permit.Runtime.State == data.EngineUnpublished, intent.Runtime.UnitSHA256, observed.UnitSHA256, observed.UnitAbsent) || observed.MaterialSHA256 != nativeRestoreMaterialSHA256(intent.Runtime) || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(intent.RecordedAt) || observed.ObservedAt.After(time.Now().UTC()) {
 		return ErrConflict
 	}
 	return nil
+}
+
+func publicationTargetUnitMatches(initial bool, expected, observed string, absent bool) bool {
+	if initial {
+		return absent && observed == ""
+	}
+	return !absent && data.ValidCatalogHash(expected) && observed == expected
+}
+
+func publicationTargetUnitSHA256(target publicationTarget) string {
+	if target.record.UnitAbsent {
+		return ""
+	}
+	return target.runtime.UnitSHA256
 }
 
 func readPublicationTargetTx(ctx context.Context, tx *sql.Tx, current publicationAttemptState) (publicationTarget, error) {
@@ -126,11 +142,12 @@ func readPublicationTargetTx(ctx context.Context, tx *sql.Tx, current publicatio
 	}
 	target.checkpoint, err = nativecapture.DecodeCheckpoint(intent.Checkpoint, nativecapture.DefaultLimits())
 	permit, permitErr := readPublicationSourcePermitTx(ctx, tx, current)
-	observed := PublicationTargetObservation{OldTree: r.OldTree, TargetTree: r.TargetTree, Allocation: r.Allocation, UnitSHA256: intent.Runtime.UnitSHA256, MaterialSHA256: r.MaterialSHA256, ObservedAt: r.ObservedAt}
+	target.runtime = intent.Runtime.Clone()
+	observed := PublicationTargetObservation{OldTree: r.OldTree, TargetTree: r.TargetTree, Allocation: r.Allocation, UnitSHA256: publicationTargetUnitSHA256(target), UnitAbsent: r.UnitAbsent, MaterialSHA256: r.MaterialSHA256, ObservedAt: r.ObservedAt}
 	if err != nil || permitErr != nil || target.checkpoint.SHA256() != r.CheckpointSHA256 || checkPublicationTargetObservation(permit, intent, observed) != nil {
 		return target, errors.Join(&IntegrityError{}, err, permitErr)
 	}
-	target.hash, target.runtime = hash, intent.Runtime.Clone()
+	target.hash = hash
 	return target, nil
 }
 

@@ -228,7 +228,7 @@ func (w *publicationApplyWork) observeTransition(ctx context.Context, tree *engi
 	if err != nil {
 		return zero, err
 	}
-	unit, err := readNativeRestoreUnit(ctx, w.operations.runtime.home, runtime)
+	unit, err := readPublicationUnit(ctx, w.operations.runtime.home, runtime, w.opened.restored.permit.Runtime.State == data.EngineUnpublished)
 	if err != nil {
 		return zero, err
 	}
@@ -240,7 +240,7 @@ func (w *publicationApplyWork) observeTransition(ctx context.Context, tree *engi
 		return zero, err
 	}
 	raw, _ := json.Marshal(runtime.Secrets)
-	return store.PublicationTransitionObservation{Layout: layout, UnitSHA256: unit, MaterialSHA256: nativeBackupBytesHash(raw), EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true, ObservedAt: time.Now().UTC()}, nil
+	return store.PublicationTransitionObservation{Layout: layout, UnitSHA256: unit, UnitAbsent: unit == "", MaterialSHA256: nativeBackupBytesHash(raw), EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true, ObservedAt: time.Now().UTC()}, nil
 }
 
 func (w *publicationApplyWork) close() error {

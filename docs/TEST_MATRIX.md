@@ -909,3 +909,18 @@ observation-first failure precedence. These diagnostics do not prove the actual
 shutdown cause or a successful publication. The new CLI33 claim was separately
 preserved by its supported public resolver; its working copy remains retained
 for the next diagnostic consumer.
+
+### Initial publication before service installation
+
+`TestInitialPublicationObservesAbsentServiceUntilOrdinaryDeploy` reproduces the
+fresh allocation boundary: strict initialized readback refuses the absent unit,
+while initial publication observes its absence without writing a service. It
+refuses an unexpected installed service, and initialized publication requires
+exact installed bytes. `TestInitialPublicationRefusesUnsafeUnitAndChangedServiceDeclaration`
+refuses a dangling unit symlink and a changed canonical unit declaration.
+`TestPublicationUnitAbsenceBelongsOnlyToUnpublishedSource` checks the source-state
+admission rules; `TestPublicationActivationRequiresTheRecordedUnitObservation`
+checks that activation cannot substitute unknown or installed state for recorded
+absence. `TestPublicationCompletionReadbackRetainsInitialUnitAbsence` reads a
+serialized completion through the receipt validator and rejects swapped unit
+observations. Physical publication acceptance still requires the full P09-08 drill.
