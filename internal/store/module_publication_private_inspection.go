@@ -194,7 +194,7 @@ func (s *Store) PreservePublicationOriginalSource(ctx context.Context, capabilit
 	if err != nil {
 		return zero, err
 	}
-	if observed.OriginalSealSHA256 != current.point.view.SourceSealSHA256 || !observed.EngineAbsent || !observed.ApplicationAbsent || !observed.IngressClosed || !observed.PrivateReadersAbsent || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(current.point.view.PreparedAt) || observed.ObservedAt.After(time.Now().UTC()) || checkPublicationSourcePreservationAnchors(ctx, permit, effects, observed) != nil {
+	if checkPublicationPreservedPoint(current.point.view, observed) != nil || checkPublicationSourcePreservationAnchors(ctx, permit, effects, observed) != nil {
 		return zero, ErrConflict
 	}
 	kind, module, schema, err := checkPublicationPrivateModuleObservation(ctx, current, bundle, owner, effects, observed)
@@ -236,6 +236,13 @@ func (s *Store) PreservePublicationOriginalSource(ctx context.Context, capabilit
 	}
 	receipt := publicationPreservedReceipt(current, capability.attempt.resolverID, hash)
 	return receipt, tx.Commit()
+}
+
+func checkPublicationPreservedPoint(point NativePreparedPointView, observed PublicationSourcePreservationObservation) error {
+	if observed.OriginalSealSHA256 != point.SourceSealSHA256 || !observed.EngineAbsent || !observed.ApplicationAbsent || !observed.IngressClosed || !observed.PrivateReadersAbsent || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(point.PreparedAt) || observed.ObservedAt.After(time.Now().UTC()) {
+		return ErrConflict
+	}
+	return nil
 }
 
 func checkPublicationPrivateModuleObservation(ctx context.Context, current publicationAttemptState, bundle NativePreparedBundle, owner string, effects []PublicationEffect, observed PublicationSourcePreservationObservation) (string, string, string, error) {

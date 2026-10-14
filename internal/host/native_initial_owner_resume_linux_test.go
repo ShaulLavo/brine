@@ -214,3 +214,32 @@ func testRetainedInitialOwnerDrift(t *testing.T, w *nativePrepareWork, owner sto
 		t.Fatal("changed owner selected another source", kind)
 	}
 }
+
+func TestRetainedInitialOwnerReopenCarriesImmutableSealToPreparedCompletion(t *testing.T) {
+	w, _, owner := initialOwnerResumeFixture(t)
+	ctx := context.Background()
+	stable := engineSourceSealDigest(w.copied.original)
+	if stable == owner.SourceSealSHA256 {
+		t.Fatal("fixture did not retain a distinct generic owner seal")
+	}
+	empty, err := w.reopenRetainedEmpty(ctx)
+	if err != nil || empty.source.SHA256() != owner.SourceSHA256 {
+		t.Fatal("actual retained owner source did not reopen", err)
+	}
+	actual, err := w.runtime.state.ReadNativeInitialOwner(ctx, w.stopped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceSeal := nativePreparedSourceSeal(w.copied.original, w.retainedOwner)
+	if sourceSeal != actual.SourceSealSHA256 || sourceSeal == stable {
+		t.Fatal("resumed upload/completion would change its protected owner digest")
+	}
+	if w.initialStage != nil || w.module.candidate.lease != nil {
+		t.Fatal("retained source seal required a second native helper")
+	}
+	before, _ := json.Marshal(owner)
+	after, _ := json.Marshal(actual)
+	if string(before) != string(after) {
+		t.Fatal("retained completion source was proved by rewriting its owner")
+	}
+}
