@@ -76,7 +76,7 @@ func (s *Store) RecordPublicationTarget(ctx context.Context, capability *Publica
 	if err != nil || len(raw) > 65536 {
 		return ErrInvalid
 	}
-	if err = insertPublicationProofTx(ctx, tx, capability.attempt.planID, "target", "transition_target", raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, capability.attempt.planID, "target", publicationTransitionTargetProof, raw); err != nil {
 		return err
 	}
 	if !capability.active(s) || capability.attempt.restored.unchanged(ctx) != nil || checkPublicationTargetAnchors(ctx, capability, observed) != nil || checkPublicationCheckpointMembers(ctx, observed.Staged, checkpoint) != nil {

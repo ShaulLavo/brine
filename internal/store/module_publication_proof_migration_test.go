@@ -68,7 +68,7 @@ func TestPublicationProofMigrationPreservesBytesAndConstraints(t *testing.T) {
 	}
 	defer func() { _ = state.Close() }()
 	var version, count int
-	if err = state.db.QueryRowContext(t.Context(), "SELECT version FROM schema_version").Scan(&version); err != nil || version != 27 {
+	if err = state.db.QueryRowContext(t.Context(), "SELECT version FROM schema_version").Scan(&version); err != nil || version != SchemaVersion {
 		t.Fatal("normal opener did not migrate", version, err)
 	}
 	var plan, id, kind, retainedHash string
@@ -85,11 +85,11 @@ func TestPublicationProofMigrationPreservesBytesAndConstraints(t *testing.T) {
 	checkPublicationProofConstraints(t, state, hash, raw)
 	read, err := OpenReadOnly(t.Context(), dir)
 	if err != nil {
-		t.Fatal("readonly27 refused migrated state", err)
+		t.Fatal("readonly current schema refused migrated state", err)
 	}
 	defer func() { _ = read.Close() }()
 	if _, err = read.db.ExecContext(t.Context(), "DELETE FROM data_module_publication_proofs"); err == nil {
-		t.Fatal("readonly27 became writable")
+		t.Fatal("readonly current schema became writable")
 	}
 }
 
