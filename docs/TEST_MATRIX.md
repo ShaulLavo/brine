@@ -947,6 +947,25 @@ Tests reject writable, foreign and changed mount shapes in both helper profiles,
 wrong/null/block/symlink/device/owner/link metadata and actual nonempty
 directories. The neutral container and scope were removed. This is containment
 evidence, not recovery of the original unknown operation or a publication receipt.
+
+### Fresh engine startup staging
+
+The amd64 fixture published its module, then ordinary deployment reached engine
+startup and failed with the private refusal code `source_copy`. Its private
+state directory existed, but the assumed `engine-verification` parent did not.
+The raw copy boundary rejects a missing parent before inspecting the source.
+Startup now uses the existing owned state-staging helper to create, validate and
+retire that parent. The missing-parent regression verifies original bytes and
+cleanup; a lifecycle test disposes the private verification copy while keeping
+the sealed original available for final startup checks, then removes the owned
+empty parent. Existing-parent, unsafe-node and replacement tests remain in place.
+These checks do not claim a successful live engine start.
+
+Startup replay also uses the same exact `/proc/acpi` and `/proc/kcore` mask
+guard already qualified on this amd64 image. No additional mask paths are
+admitted. Its closed-profile tests reject the same foreign and writable masks,
+and a mixed read-only/writable key mount is refused rather than matching one
+flag in isolation. Actual private replay and live startup remain physical checks.
 ### Final publication proof storage
 
 `TestPublicationTransitionProofMigrationAdmitsActualWriterKindsAndRetainsRows`

@@ -58,6 +58,9 @@ func assertModuleProfilesRefuseMask(t *testing.T, line string) {
 	if moduleStageMounts([]byte(stage + line)) {
 		t.Fatal("publication profile admitted unsafe runtime mask")
 	}
+	if engineReplayMounts([]byte(stage + line)) {
+		t.Fatal("startup replay profile admitted unsafe runtime mask")
+	}
 }
 
 func TestModuleRuntimeMasksRequireExactActualNodeTypes(t *testing.T) {
