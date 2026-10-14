@@ -1766,3 +1766,11 @@ paths. Initialized publication still requires the exact installed service.
 Activation, completion and transition recovery require the same unit observation
 as the retained target proof. Existing process, job, container, reader, ingress,
 fence and tree checks remain required; unit absence grants no start authority.
+
+Control schema 28 admits the two protected final publication proof kinds,
+`transition_target` and `transition_completion`, alongside retained proof kinds.
+The normal store opener upgrades schema 27 atomically, preserving every proof
+key, kind, hash and canonical byte. Read-only openers refuse a schema that needs
+migration. The typed proof-kind catalog supplies the current SQL constraint;
+unknown kinds, foreign claims, duplicate proof keys, invalid hash lengths,
+oversized records, updates and deletes remain refused.

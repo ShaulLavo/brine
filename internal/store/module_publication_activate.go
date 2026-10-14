@@ -196,7 +196,7 @@ func (s *Store) CompletePublicationTransition(ctx context.Context, capability *P
 	if err != nil || len(raw) > 65536 {
 		return current.cursor, ErrInvalid
 	}
-	if err = insertPublicationProofTx(ctx, tx, current.review.Plan().ID(), "completion", "transition_completion", raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, current.review.Plan().ID(), "completion", publicationTransitionCompletionProof, raw); err != nil {
 		return current.cursor, err
 	}
 	hash := publicationStorageSHA256(raw)

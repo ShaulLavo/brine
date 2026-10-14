@@ -45,7 +45,7 @@ func (s *Store) RecordPublicationRestore(ctx context.Context, attempt *Publicati
 	if err != nil {
 		return current.cursor, ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO data_module_publication_proofs VALUES(?,?,'staging_restore',?,?)", current.review.Plan().ID(), "restore", publicationStorageSHA256(raw), raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, current.review.Plan().ID(), "restore", publicationRestoreProof, raw); err != nil {
 		return current.cursor, err
 	}
 	if err = appendPublicationCursorTx(ctx, tx, current.review.Plan(), current.cursor, next); err != nil {

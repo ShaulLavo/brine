@@ -924,3 +924,13 @@ checks that activation cannot substitute unknown or installed state for recorded
 absence. `TestPublicationCompletionReadbackRetainsInitialUnitAbsence` reads a
 serialized completion through the receipt validator and rejects swapped unit
 observations. Physical publication acceptance still requires the full P09-08 drill.
+
+### Final publication proof storage
+
+`TestPublicationTransitionProofMigrationAdmitsActualWriterKindsAndRetainsRows`
+reproduces schema27 rejecting the actual target writer, then upgrades through the
+normal opener. It reads every retained proof unchanged and inserts/reads both
+final proof kinds through the production writer. Current typed proof kinds also
+supply the pristine schema constraint. Foreign-key, duplicate-key, hash/size and
+immutable-record checks remain enforced. The schema27 failure test preserves
+version, bytes and foreign-key enforcement after a failed upgrade.

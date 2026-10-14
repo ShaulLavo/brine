@@ -49,7 +49,7 @@ func (s *Store) RecordPublicationPreflight(ctx context.Context, attempt *Publica
 	if err != nil {
 		return current.cursor, ErrConflict
 	}
-	if _, err = tx.ExecContext(ctx, "INSERT INTO data_module_publication_proofs VALUES(?,?,'preflight',?,?)", current.review.Plan().ID(), "preflight", publicationStorageSHA256(raw), raw); err != nil {
+	if err = insertPublicationProofTx(ctx, tx, current.review.Plan().ID(), "preflight", publicationPreflightProof, raw); err != nil {
 		return current.cursor, err
 	}
 	if err = appendPublicationCursorTx(ctx, tx, current.review.Plan(), current.cursor, next); err != nil {
