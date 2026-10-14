@@ -97,7 +97,7 @@ func (o nativeMaterialOperations) DeliverMaterial(ctx context.Context, args disp
 	return receipt, nil
 }
 func (o nativeMaterialOperations) materialUnknown(ctx context.Context, input store.NativeMaterialInput) (nativematerial.Receipt, error) {
-	inspect, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	inspect, cancel := context.WithTimeout(context.WithoutCancel(ctx), dispatch.NativeMaterialCleanupTimeout)
 	defer cancel()
 	op, err := o.service.Store.GetOperation(inspect, input.Receipt.OperationID)
 	if err == nil && op.State == ops.Preparing {
@@ -146,8 +146,12 @@ func (o nativeMaterialOperations) candidate(ctx context.Context, p plan.Plan, d 
 		return data.EngineRuntime{}, err
 	}
 	client := podman.New(o.service.managedObserver.session)
-	pull, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	err = client.Pull(pull, index)
+	pullSession, err := o.service.managedObserver.session.WithTimeout(dispatch.NativeMaterialPullTimeout)
+	if err != nil {
+		return data.EngineRuntime{}, err
+	}
+	pull, cancel := context.WithTimeout(ctx, dispatch.NativeMaterialPullTimeout)
+	err = podman.New(pullSession).Pull(pull, index)
 	cancel()
 	if err != nil {
 		return data.EngineRuntime{}, errors.Join(errEngineSource, err)
