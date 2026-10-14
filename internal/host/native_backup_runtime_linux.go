@@ -93,7 +93,7 @@ func (r nativeBackupRuntime) restorePreparedSource(ctx context.Context, stopped 
 	}
 	bundle, err := r.state.ReadNativePreparedBundle(ctx, stopped)
 	checkpoint, _, initialized := bundle.Source().Initialized()
-	if err != nil || !initialized || checkpoint.SHA256() != original.checkpoint.SHA256() || bundle.Point().SourceSealSHA256 != original.original.hash {
+	if err != nil || !initialized || checkpoint.SHA256() != original.checkpoint.SHA256() || !engineSourceSealMatches(original.original, bundle.Point().SourceSealSHA256) {
 		return nil, errEngineSource
 	}
 	restored, err := r.restorePrepared(ctx, stopped, bundle)
@@ -113,7 +113,7 @@ func (r nativeBackupRuntime) restorePreparedEmpty(ctx context.Context, original 
 		return nil, errEngineSource
 	}
 	bundle, err := r.state.ReadNativePreparedBundle(ctx, original.stopped)
-	if err != nil || bundle.Source().Kind() != "unpublished" || bundle.Source().SHA256() != original.source.SHA256() || bundle.Point().SourceSealSHA256 != original.original.hash {
+	if err != nil || bundle.Source().Kind() != "unpublished" || bundle.Source().SHA256() != original.source.SHA256() || !engineSourceSealMatches(original.original, bundle.Point().SourceSealSHA256) {
 		return nil, errEngineSource
 	}
 	restored, err := r.restorePrepared(ctx, original.stopped, bundle)

@@ -188,7 +188,7 @@ func (h archiveHost) verifyNativeArchiveDataSeal(ctx context.Context, p archive.
 	if !present {
 		source = archived
 	}
-	if engineTransitionSealDigest(source) != point.SourceSealSHA256 || source.root.Device != d.Allocation.DirectoryDevice || source.root.Inode != d.Allocation.DirectoryInode {
+	if !engineSourceSealMatches(source, point.SourceSealSHA256) || source.root.Device != d.Allocation.DirectoryDevice || source.root.Inode != d.Allocation.DirectoryInode {
 		return archive.ErrRefused
 	}
 	return nil

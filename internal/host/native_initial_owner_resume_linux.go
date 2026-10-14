@@ -11,7 +11,7 @@ import (
 
 func verifyRetainedInitialSource(ctx context.Context, stateRoot string, permit store.EnginePermit, seal engineTreeSeal, owner store.NativeInitialOwnerObservation) error {
 	members, config, err := nativeEmptyMembers(seal)
-	if err != nil || owner.SourceSealSHA256 != seal.hash {
+	if err != nil || !engineSourceSealMatches(seal, owner.SourceSealSHA256) {
 		return errEngineSource
 	}
 	recovery, key, err := backupSigningRecovery(ctx, stateRoot, permit)

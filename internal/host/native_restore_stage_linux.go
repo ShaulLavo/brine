@@ -34,7 +34,7 @@ type nativeRestoreStage struct {
 }
 
 func newNativeRestoreStage(ctx context.Context, state *store.Store, claim *store.NativeLiveRestoreExecution, source engineSealedCheckpoint) (stage *nativeRestoreStage, err error) {
-	if state == nil || state.CheckNativeLiveRestoreExecution(ctx, claim) != nil || source.state != state || source.unchanged(ctx) != nil || source.stopped.PointID() != claim.Attempt().PreparedPointID || source.checkpoint.SHA256() != claim.CheckpointSHA256() || source.original.hash != claim.SourceSealSHA256() {
+	if state == nil || state.CheckNativeLiveRestoreExecution(ctx, claim) != nil || source.state != state || source.unchanged(ctx) != nil || source.stopped.PointID() != claim.Attempt().PreparedPointID || source.checkpoint.SHA256() != claim.CheckpointSHA256() || !engineSourceSealMatches(source.original, claim.SourceSealSHA256()) {
 		return nil, errEngineSource
 	}
 	binding := claim.Binding()

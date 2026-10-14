@@ -94,7 +94,7 @@ func (w *publicationPrivateInspectionWork) observe(ctx context.Context) (store.P
 	}
 	limits := engineCopyLimits{Bytes: w.facts.Permit.Runtime.CopyBytes, Files: w.facts.Permit.Runtime.CopyFiles, Depth: 16}
 	before, err := sealOwnedEngineSource(ctx, w.original, limits)
-	if err != nil || before.hash != w.facts.Point.SourceSealSHA256 {
+	if err != nil || !engineSourceSealMatches(before, w.facts.Point.SourceSealSHA256) {
 		return zero, errEngineSource
 	}
 	observed := store.PublicationSourcePreservationObservation{OriginalRoot: w.original, OriginalSealSHA256: before.hash, WorkingRoot: w.working, EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true}
