@@ -16,7 +16,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-// ManagedRecoveryFrontend proves current owned components with only the frontend stopped.
+// ManagedRecoveryFrontend proves current owned components and cached pinned frontend artifacts with the frontend stopped.
 type ManagedRecoveryFrontend interface {
 	StoppedManagedFrontend(context.Context, string, plan.Plan, policy.Desired) error
 }
@@ -98,7 +98,7 @@ func (x *execution) proveManagedRoute(ctx context.Context, allowStopped bool) er
 	}
 	if p.Managed.Frontend != nil {
 		hash, known := observedUnitHash(facts, p.App, x.unit.Name())
-		if !known || hash != x.unit.Hash() || !managedRecoveryFrontendImage(facts, p) {
+		if !known || hash != x.unit.Hash() || !x.managedFrontendStopped && !managedRecoveryFrontendImage(facts, p) {
 			return errors.New("managed recovery frontend changed")
 		}
 		if err := verifyManagedFrontendSecrets(ctx, e, p); err != nil {

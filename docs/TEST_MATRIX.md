@@ -1035,3 +1035,13 @@ remain in the recovery observation. Missing, changed, duplicated or unknown
 files, generation/policy/owner drift and current data fences refuse without
 frontend starts or commits. The neutral real Store/Service/Executor fixture uses
 stand-in native/systemd/TLS observations and does not claim physical recovery.
+
+For a known owned frontend in failed/stopped state, the recovery runtime brackets
+`StoppedContainerImage` with its existing exact stopped component proof. Cached
+index and manifest pins must name the same local image ID/platform; an existing
+stopped container must retain the exact unit/name/image ownership, and absence
+requires the explicit Podman existence probe. This proof and the exact rendered
+unit supply the stopped artifact identity and declared port. Unknown live image
+or port facts still refuse for running frontends. Public Service/Runner tests
+exercise failed units with unknown live fields, strict cached-image measurement,
+route reconstruction, and foreign image/platform/container/unit refusals.

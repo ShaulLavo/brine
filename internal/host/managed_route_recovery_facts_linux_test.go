@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -17,6 +18,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/jobs"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -31,6 +33,7 @@ import (
 type managedFactsRecoveryRuntime struct {
 	apply.ManagedRuntime
 	running bool
+	cached  managedRuntime
 }
 
 func (r *managedFactsRecoveryRuntime) CompletedManaged(context.Context, string, plan.Plan, policy.Desired) error {
@@ -39,11 +42,11 @@ func (r *managedFactsRecoveryRuntime) CompletedManaged(context.Context, string, 
 	}
 	return nil
 }
-func (r *managedFactsRecoveryRuntime) StoppedManagedFrontend(context.Context, string, plan.Plan, policy.Desired) error {
+func (r *managedFactsRecoveryRuntime) StoppedManagedFrontend(ctx context.Context, _ string, p plan.Plan, d policy.Desired) error {
 	if r.running {
 		return fmt.Errorf("frontend running")
 	}
-	return nil
+	return r.cached.stoppedFrontendImage(ctx, p, d)
 }
 func (*managedFactsRecoveryRuntime) CheckManagedIngress(context.Context, caddy.ManagedIngressClaim) error {
 	return nil
@@ -139,7 +142,7 @@ func managedFactsRecoveryFixture(t *testing.T) (*deployRig, plan.Plan, ops.Opera
 		t.Fatal(err)
 	}
 	engineImage := plan.Image{Digest: strings.Split(runtime.Image, "@")[1], Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known(runtime.ManifestDigest)}
-	frontend := plan.Image{Digest: strings.Split(string(desired.Image), "@")[1], Platform: engineImage.Platform, ManifestDigest: target.Known("sha256:" + strings.Repeat("a", 64))}
+	frontend := plan.Image{Digest: strings.Split(string(desired.Image), "@")[1], Platform: engineImage.Platform, ManifestDigest: target.Known("sha256:" + strings.Repeat("c", 64))}
 	snap := r.inventory.snapshot
 	snap.Versions.Caddy = target.Known("2.10.2")
 	input := plan.Input{Desired: desired, Snapshot: snap, State: plan.BrineState{Target: snap.Identity, Releases: []plan.CurrentRelease{}}, Image: frontend, Managed: &plan.ManagedFacts{Database: &reserved.Database, Archive: &reserved.Archive, Runtime: &runtime, EngineImage: engineImage, Fences: []data.QuiescenceFence{}, NativeState: target.Known("running"), OwnedNativeState: target.Known("running"), LoggingPrerequisite: target.Known(true), LoggingRootSHA256: strings.Repeat("a", 64), LoggingConfigSHA256: strings.Repeat("b", 64)}}
@@ -216,6 +219,12 @@ func appendHostRecoveryStep(t *testing.T, state *store.Store, id, step, outcome 
 }
 
 func TestManagedResolutionUsesPublicServiceFactsForAppliedUncommittedRoute(t *testing.T) {
+	for _, kind := range []string{"failed-known-cache", "failed-foreign-image", "failed-wrong-platform", "failed-foreign-container", "running-unknown-live-image", "changed-owned-unit"} {
+		t.Run(kind, func(t *testing.T) { testManagedResolutionPublicFacts(t, kind) })
+	}
+}
+func testManagedResolutionPublicFacts(t *testing.T, kind string) {
+	t.Helper()
 	r, p, source, expected := managedFactsRecoveryFixture(t)
 	ctx := context.Background()
 	_, desired, err := r.store.LoadPlan(ctx, p.Hash)
@@ -226,7 +235,27 @@ func TestManagedResolutionUsesPublicServiceFactsForAppliedUncommittedRoute(t *te
 	if err != nil || len(ordinary.Routing.Files) != 0 || ordinary.Input.Snapshot.CaddyConfig.Value == nil || len(ordinary.Input.Snapshot.CaddyConfig.Value.Files) != 1 {
 		t.Fatal("ordinary planning adopted an uncommitted route", err, ordinary.Routing)
 	}
-	runtime := &managedFactsRecoveryRuntime{}
+	cache := newManagedStoppedImageRunner(p, desired)
+	session, err := localexec.NewSession(cache, 1000, t.TempDir(), time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &managedFactsRecoveryRuntime{cached: managedRuntime{observer: managedEngineObserver{session: session}}}
+	// Failed units intentionally have no live image or allocated-port facts.
+	(*r.inventory.snapshot.Apps.Value)[0].Image = target.Observation[target.Image]{Status: target.Unknown}
+	(*r.inventory.snapshot.Apps.Value)[0].AllocatedHostPort = target.Observation[target.Port]{Status: target.Unknown}
+	switch kind {
+	case "failed-foreign-image":
+		cache.image = strings.ReplaceAll(cache.image, string(desired.Image), "registry.example.com:5000/foreign@sha256:"+strings.Repeat("f", 64))
+	case "failed-wrong-platform":
+		cache.image = strings.ReplaceAll(cache.image, "arm64", "amd64")
+	case "failed-foreign-container":
+		cache.container = `[{"Name":"foreign","Image":"foreign","State":{"Running":false,"Status":"exited"},"Config":{"Labels":{}}}]`
+	case "running-unknown-live-image":
+		runtime.running = true
+	case "changed-owned-unit":
+		(*r.inventory.snapshot.Apps.Value)[0].QuadletUnits.Value = &[]target.Unit{{Name: p.App + ".container", Hash: "sha256:" + strings.Repeat("f", 64)}}
+	}
 	starts := 0
 	manager := &systemd.Fake{IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return runtime.running, nil }, StartFunc: func(ctx context.Context, unit systemd.Unit) error {
 		starts++
@@ -238,6 +267,8 @@ func TestManagedResolutionUsesPublicServiceFactsForAppliedUncommittedRoute(t *te
 			t.Fatal("normal start lacked resolver grant", err)
 		}
 		runtime.running = true
+		(*r.inventory.snapshot.Apps.Value)[0].Image = target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform})
+		(*r.inventory.snapshot.Apps.Value)[0].AllocatedHostPort = target.Known(p.HostPort)
 		return nil
 	}}
 	engine := apply.Executor{Journal: r.store, Releases: releases{r.store}, Managed: runtime, Routes: managedFactsRecoveryRoutes{expected: expected}, Systemd: manager, Health: r.health, Podman: &podman.Fake{SecretExistsFunc: func(context.Context, podman.Name) (bool, error) { return true, nil }}}
@@ -247,8 +278,18 @@ func TestManagedResolutionUsesPublicServiceFactsForAppliedUncommittedRoute(t *te
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := runner.Run(ctx, accepted.OperationID); err != nil {
-		t.Fatal("actual public service facts refused applied route", err)
+	runErr := runner.Run(ctx, accepted.OperationID)
+	if kind != "failed-known-cache" {
+		if runErr == nil || starts != 0 || r.health.calls != 0 {
+			t.Fatal("changed or live-unknown image proof reached effects", runErr, starts, r.health.calls)
+		}
+		if _, err := r.store.CurrentRelease(ctx, p.App); !errors.Is(err, store.ErrNotFound) {
+			t.Fatal("refusal committed release", err)
+		}
+		return
+	}
+	if runErr != nil {
+		t.Fatal("actual public service facts refused applied route", runErr)
 	}
 	completed, err := r.store.GetOperation(ctx, accepted.OperationID)
 	if err != nil || completed.State != ops.Succeeded || starts != 1 || r.health.calls != 2 {
@@ -345,5 +386,81 @@ func TestManagedRecoveryFactsPreserveUnrelatedObservedCommittedRoutes(t *testing
 	expectedBytes, err := caddy.Render(otherSite)
 	if err != nil || !bytes.Equal(otherBytes, expectedBytes) {
 		t.Fatal("recovery changed unrelated site", err)
+	}
+}
+
+type managedStoppedImageRunner struct {
+	image     string
+	container string
+	failure   error
+	commands  []localexec.Command
+}
+
+func newManagedStoppedImageRunner(p plan.Plan, d policy.Desired) *managedStoppedImageRunner {
+	repository, _, _ := strings.Cut(string(d.Image), "@")
+	raw, _ := json.Marshal([]map[string]any{{"Id": strings.Repeat("d", 64), "Digest": *p.Image.ManifestDigest.Value, "RepoDigests": []string{string(d.Image), repository + "@" + *p.Image.ManifestDigest.Value}, "Os": p.Image.Platform.OS, "Architecture": p.Image.Platform.Arch, "ManifestType": "application/vnd.oci.image.manifest.v1+json"}})
+	return &managedStoppedImageRunner{image: string(raw)}
+}
+func (r *managedStoppedImageRunner) Execute(_ context.Context, command localexec.Command) (localexec.Result, error) {
+	r.commands = append(r.commands, command)
+	if command.Path != "podman" || command.Mutation {
+		return localexec.Result{}, fmt.Errorf("unexpected stopped image mutation")
+	}
+	if r.failure != nil {
+		return localexec.Result{}, r.failure
+	}
+	if len(command.Args) == 3 && command.Args[0] == "container" && command.Args[1] == "exists" {
+		if r.container == "" {
+			return localexec.Result{}, &localexec.Error{Kind: localexec.Failed, ExitCode: 1}
+		}
+		return localexec.Result{}, nil
+	}
+	if len(command.Args) == 3 && command.Args[0] == "image" && command.Args[1] == "inspect" {
+		return localexec.Result{Stdout: r.image}, nil
+	}
+	if len(command.Args) == 3 && command.Args[0] == "container" && command.Args[1] == "inspect" {
+		return localexec.Result{Stdout: r.container}, nil
+	}
+	return localexec.Result{}, fmt.Errorf("unexpected stopped image request")
+}
+func TestManagedStoppedFrontendImageRequiresExactLocalPinsAndOwnership(t *testing.T) {
+	for _, name := range []string{"absent", "owned-stopped", "missing-index", "wrong-platform", "foreign-container", "unknown-exists"} {
+		t.Run(name, func(t *testing.T) {
+			r, p, _, _ := managedFactsRecoveryFixture(t)
+			_, desired, err := r.store.LoadPlan(context.Background(), p.Hash)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cache := newManagedStoppedImageRunner(p, desired)
+			switch name {
+			case "missing-index":
+				cache.image = strings.ReplaceAll(cache.image, string(desired.Image), "registry.example.com:5000/foreign@sha256:"+strings.Repeat("f", 64))
+			case "wrong-platform":
+				cache.image = strings.ReplaceAll(cache.image, "arm64", "amd64")
+			case "unknown-exists":
+				cache.failure = &localexec.Error{Kind: localexec.Timeout}
+			case "owned-stopped", "foreign-container":
+				image := strings.Repeat("d", 64)
+				if name == "foreign-container" {
+					image = strings.Repeat("f", 64)
+				}
+				raw, _ := json.Marshal([]map[string]any{{"Name": "systemd-" + p.App, "Image": image, "State": map[string]any{"Running": false, "Status": "exited"}, "Config": map[string]any{"Labels": map[string]string{"PODMAN_SYSTEMD_UNIT": p.App + ".service"}}}})
+				cache.container = string(raw)
+			}
+			session, err := localexec.NewSession(cache, 1000, t.TempDir(), time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			runtime := managedRuntime{observer: managedEngineObserver{session: session}}
+			err = runtime.stoppedFrontendImage(context.Background(), p, desired)
+			if (err == nil) != (name == "absent" || name == "owned-stopped") {
+				t.Fatal("cached image proof accepted wrong identity", name, err)
+			}
+			for _, command := range cache.commands {
+				if command.Mutation || command.Args[0] == "manifest" || command.Args[0] == "pull" {
+					t.Fatal("stopped proof requested registry or mutation", command.Args)
+				}
+			}
+		})
 	}
 }
