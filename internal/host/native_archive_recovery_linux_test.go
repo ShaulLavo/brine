@@ -34,8 +34,9 @@ func TestNativeArchiveDataSealSurvivesMoveAndDetectsRetainedChanges(t *testing.T
 	if err = base.Rename(binding.RelativeDirectory, retained); err != nil {
 		t.Fatal(err)
 	}
+	persistedSourceSeal := engineTransitionSealDigest(original)
 	moved, present, err := sealNativeArchiveLocation(ctx, base, retained)
-	if err != nil || !present || moved.hash != original.hash {
+	if err != nil || !present || engineTransitionSealDigest(moved) != persistedSourceSeal {
 		t.Fatal("whole native source changed at its retained location", err)
 	}
 	if _, present, err = sealNativeArchiveLocation(ctx, base, binding.RelativeDirectory); err != nil || present {
@@ -45,7 +46,7 @@ func TestNativeArchiveDataSealSurvivesMoveAndDetectsRetainedChanges(t *testing.T
 		t.Fatal(err)
 	}
 	changed, _, err := sealNativeArchiveLocation(ctx, base, retained)
-	if err != nil || changed.hash == original.hash {
+	if err != nil || engineTransitionSealDigest(changed) == persistedSourceSeal {
 		t.Fatal("changed retained bytes kept the original seal", err)
 	}
 	if err = base.RemoveAll(retained); err != nil {
