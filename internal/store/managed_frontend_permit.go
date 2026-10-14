@@ -24,10 +24,11 @@ type ManagedFrontendPermit struct {
 }
 
 type ManagedFrontendResolution struct {
-	Permit  ManagedFrontendPermit
-	Pending bool
-	Plan    plan.Plan
-	Desired policy.Desired
+	Permit             ManagedFrontendPermit
+	Pending            bool
+	PendingOperationID string
+	Plan               plan.Plan
+	Desired            policy.Desired
 }
 
 func (p ManagedFrontendPermit) Valid() bool {
@@ -186,9 +187,13 @@ func readManagedFrontendPermit(ctx context.Context, tx *sql.Tx, app string) (Man
 	permit := resolution.Permit
 	if state == ops.Starting || state == ops.Checking || state == ops.Committing {
 		resolution.Pending = true
+		resolution.PendingOperationID = permit.OperationID
 		return resolution, nil
 	}
 	if state == ops.RecoveryRequired {
+		if pending, applies, err := managedRecoveryFrontend(ctx, tx, record); err != nil || applies {
+			return pending, err
+		}
 		resolved, err := managedResolutionSucceeded(ctx, tx, record)
 		if err != nil || !resolved {
 			return resolution, errors.Join(ErrConflict, err)

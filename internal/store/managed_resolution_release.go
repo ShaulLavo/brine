@@ -66,8 +66,8 @@ func managedResolutionCommitOwner(ctx context.Context, tx *sql.Tx, resolver stri
 	if err != nil || original.State != ops.RecoveryRequired || original.Kind != ops.Deploy || original.PlanID != p.Hash || original.App != p.App {
 		return ErrConflict
 	}
-	last, err := managedCreateJournal(ctx, tx, original.ID, p)
-	if err != nil || last.Step != "managed_route_check" {
+	cursor, err := managedCreateCursor(ctx, tx, original.ID, p)
+	if err != nil || cursor.Boundary.Step != "managed_route_check" || cursor.FrontendStart.Step != "" {
 		return ErrConflict
 	}
 	current := original
@@ -76,7 +76,7 @@ func managedResolutionCommitOwner(ctx context.Context, tx *sql.Tx, resolver stri
 		if err != nil || !exists || child.Kind != ops.Resolve || child.RecoveryOf != current.ID || child.PlanID != p.Hash || child.App != p.App || child.SecretRef != original.SecretRef || managedResolutionReceipt(ctx, tx, child) != nil {
 			return ErrConflict
 		}
-		last, err = managedCreateJournal(ctx, tx, child.ID, p)
+		last, err := managedCreateJournal(ctx, tx, child.ID, p)
 		if err != nil {
 			return err
 		}
@@ -97,23 +97,27 @@ func managedCommitOperation(ctx context.Context, tx *sql.Tx, id string) (Operati
 	return scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 }
 func managedCreateJournal(ctx context.Context, tx *sql.Tx, id string, p plan.Plan) (ops.StepPayload, error) {
+	cursor, err := managedCreateCursor(ctx, tx, id, p)
+	return cursor.Boundary, err
+}
+func managedCreateCursor(ctx context.Context, tx *sql.Tx, id string, p plan.Plan) (ops.ManagedCreateCursor, error) {
 	rows, err := tx.QueryContext(ctx, "SELECT payload FROM events WHERE operation_id=? AND kind='step' ORDER BY seq LIMIT 129", id)
 	if err != nil {
-		return ops.StepPayload{}, err
+		return ops.ManagedCreateCursor{}, err
 	}
 	defer func() { _ = rows.Close() }()
 	events := []ops.Event{}
 	for rows.Next() {
 		var raw json.RawMessage
 		if err := rows.Scan(&raw); err != nil {
-			return ops.StepPayload{}, err
+			return ops.ManagedCreateCursor{}, err
 		}
 		events = append(events, ops.Event{Kind: "step", Payload: raw})
 	}
 	if rows.Err() != nil || len(events) > 128 {
-		return ops.StepPayload{}, ErrConflict
+		return ops.ManagedCreateCursor{}, ErrConflict
 	}
-	last, valid := ops.ManagedCreateRecoveryPrefix(events, p)
+	last, valid := ops.ManagedCreateRecoveryCursor(events, p)
 	if !valid {
 		return last, ErrConflict
 	}

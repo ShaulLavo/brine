@@ -16,6 +16,15 @@ import (
 )
 
 func (r managedRuntime) CompletedManaged(ctx context.Context, operation string, p plan.Plan, d policy.Desired) error {
+	return r.inspectManagedCompletion(ctx, operation, p, d, false)
+}
+func (r managedRuntime) StoppedManagedFrontend(ctx context.Context, operation string, p plan.Plan, d policy.Desired) error {
+	if p.Kind != plan.Create || p.Lifecycle != "" || p.Managed == nil || p.Managed.Frontend == nil {
+		return errEngineSource
+	}
+	return r.inspectManagedCompletion(ctx, operation, p, d, true)
+}
+func (r managedRuntime) inspectManagedCompletion(ctx context.Context, operation string, p plan.Plan, d policy.Desired, stoppedFrontend bool) error {
 	permit, err := r.expected(ctx, p)
 	if err != nil {
 		return errEngineSource
@@ -45,11 +54,15 @@ func (r managedRuntime) CompletedManaged(ctx context.Context, operation string, 
 	if err != nil || observed.Generation != route.Generation || observed.Files[p.App+".caddy"] != route.FileHash {
 		return errEngineSource
 	}
-	if err := r.completedComponents(ctx, operation, p, flags); err != nil {
+	componentFlags := flags
+	if stoppedFrontend {
+		componentFlags.FrontendRunning = false
+	}
+	if err := r.completedComponents(ctx, operation, p, componentFlags); err != nil {
 		return err
 	}
 	final, err := currentManagedDesired(ctx, r.state, permit.Runtime)
-	if err != nil || final != wanted || r.completedComponents(ctx, operation, p, flags) != nil {
+	if err != nil || final != wanted || r.completedComponents(ctx, operation, p, componentFlags) != nil {
 		return errEngineSource
 	}
 	return ctx.Err()
@@ -74,6 +87,9 @@ func (r managedRuntime) completedComponents(ctx context.Context, operation strin
 	if !flags.FrontendRunning {
 		record, err := r.state.ReadManagedFrontendRecord(ctx, p.App)
 		if err != nil || !r.completedFrontendOwner(ctx, record, operation, p) || quadlet.VerifyCurrent(ctx, r.home, p.App+".container", record.Resolution.Permit.UnitHash) != nil {
+			return errEngineSource
+		}
+		if verifyManagedFrontendLoaded(ctx, r.observer.session, r.home, p.App) != nil {
 			return errEngineSource
 		}
 		host := archiveHost{session: r.observer.session}

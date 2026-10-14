@@ -57,10 +57,15 @@ func (e *Executor) InspectResolution(ctx context.Context, successor, source Oper
 	if err != nil || r.Action == RequireRecovery {
 		return r, err
 	}
+	if r.execution.managedRouteOwner != "" && r.Step == "managed_commit" && source.Kind == ops.Deploy && (successor.State == Queued || successor.State == LaunchUnknown) {
+		return refused, nil
+	}
 	r.operation = successor
 	r.execution.id = successor.ID
 	r.execution.state = successor.State
-	r.resolutionState = projected.State
+	if r.execution.managedRouteOwner == "" {
+		r.resolutionState = projected.State
+	}
 	return r, nil
 }
 

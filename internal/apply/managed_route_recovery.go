@@ -16,13 +16,18 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-// ManagedResolutionReleases commits the original owner's proven artifacts without rebinding
-// live permits or issuing another component/route mutation.
+// ManagedRecoveryFrontend proves current owned components with only the frontend stopped.
+type ManagedRecoveryFrontend interface {
+	StoppedManagedFrontend(context.Context, string, plan.Plan, policy.Desired) error
+}
+
+// ManagedResolutionReleases commits the original owner's proven artifacts without rebinding live permits.
 type ManagedResolutionReleases interface {
 	CommitManagedResolutionRelease(context.Context, string, uint64, Release) error
 }
 
-func (e *Executor) inspectManagedRoute(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, last ops.StepPayload, r Recovery) (Recovery, error) {
+func (e *Executor) inspectManagedRoute(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, cursor ops.ManagedCreateCursor, r Recovery) (Recovery, error) {
+	last := cursor.Boundary
 	r.Step = last.Step
 	owner := op.ID
 	if len(r.resolutionOwners) > 0 {
@@ -33,7 +38,7 @@ func (e *Executor) inspectManagedRoute(ctx context.Context, op Operation, p plan
 			return r, nil
 		}
 	}
-	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, managedRouteOwner: owner}
+	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, managedRouteOwner: owner, managedFrontendStart: cursor.FrontendStart}
 	if p.Managed.Frontend != nil {
 		if e.Health == nil || e.Systemd == nil || e.Podman == nil || p.Image.ManifestDigest.Status != target.KnownStatus || p.Image.ManifestDigest.Value == nil {
 			return r, nil
@@ -50,17 +55,23 @@ func (e *Executor) inspectManagedRoute(ctx context.Context, op Operation, p plan
 	}
 	inspect, cancel := context.WithTimeout(ctx, e.effectTimeout())
 	defer cancel()
-	if err := x.proveManagedRoute(inspect); err != nil {
+	if err := x.proveManagedRoute(inspect, true); err != nil {
 		return r, nil
 	}
-	r.Action, r.resolutionState = ResumeForward, Checking
+	if x.managedFrontendStart.Step != "" && x.managedFrontendStopped {
+		return r, nil
+	}
+	r.Action, r.resolutionState = ResumeForward, managedRecoveryState(last.Step)
+	if x.managedFrontendStopped {
+		r.resolutionState = Starting
+	}
 	r.unknownBoundary = last.Outcome == "intent"
 	r.execution = x
 	r.completed[last.Step] = last.Outcome == "completed"
 	return r, nil
 }
 
-func (x *execution) proveManagedRoute(ctx context.Context) error {
+func (x *execution) proveManagedRoute(ctx context.Context, allowStopped bool) error {
 	e, p := x.executor, x.plan
 	routes, ok := e.Routes.(ManagedRecoveryRoutes)
 	if !ok {
@@ -77,8 +88,13 @@ func (x *execution) proveManagedRoute(ctx context.Context) error {
 	if err != nil || exists {
 		return errors.New("managed recovery release changed")
 	}
+	x.managedFrontendStopped = false
 	if err := e.Managed.CompletedManaged(ctx, x.managedRouteOwner, p, x.desired); err != nil {
-		return err
+		stopped, ok := e.Managed.(ManagedRecoveryFrontend)
+		if !allowStopped || !ok || x.id == x.managedRouteOwner || p.Managed.Frontend == nil || stopped.StoppedManagedFrontend(ctx, x.managedRouteOwner, p, x.desired) != nil {
+			return err
+		}
+		x.managedFrontendStopped = true
 	}
 	if p.Managed.Frontend != nil {
 		hash, known := observedUnitHash(facts, p.App, x.unit.Name())
@@ -119,10 +135,13 @@ func managedRouteRelease(owner string, p plan.Plan, frontend quadlet.Unit, route
 
 func (x *execution) finishManagedRoute(ctx context.Context, r Recovery) error {
 	inspect, cancel := context.WithTimeout(ctx, x.executor.effectTimeout())
-	err := x.proveManagedRoute(inspect)
+	err := x.proveManagedRoute(inspect, true)
 	cancel()
 	if err != nil {
 		return x.terminal(ctx, RecoveryRequired, &Error{Step: r.Step, Code: "interrupted", Cause: err})
+	}
+	if err := x.wakeManagedFrontend(ctx); err != nil {
+		return x.terminal(ctx, RecoveryRequired, err)
 	}
 	if x.plan.Managed.Frontend != nil {
 		if err := x.check(ctx, x.desired, x.plan.HostPort, false); err != nil {
@@ -138,7 +157,7 @@ func (x *execution) finishManagedRoute(ctx context.Context, r Recovery) error {
 		}
 	}
 	commit := func(ctx context.Context) error {
-		if err := x.proveManagedRoute(ctx); err != nil {
+		if err := x.proveManagedRoute(ctx, false); err != nil {
 			return &Error{Step: "managed_commit", Code: "interrupted", Cause: err}
 		}
 		var err error
@@ -172,4 +191,38 @@ func (x *execution) finishManagedRoute(ctx context.Context, r Recovery) error {
 		}
 	}
 	return x.terminal(ctx, Succeeded, nil)
+}
+
+func (x *execution) wakeManagedFrontend(ctx context.Context) error {
+	prior := x.managedFrontendStart
+	if prior.Step != "" && x.managedFrontendStopped {
+		return &Error{Step: prior.Step, Code: "interrupted", Cause: errors.New("unknown frontend start cannot be repeated")}
+	}
+	if x.managedFrontendStopped {
+		if err := x.step(ctx, "managed_recovery_frontend_start", Starting, "start_failed", func(ctx context.Context) error {
+			if err := x.proveManagedRoute(ctx, true); err != nil || !x.managedFrontendStopped {
+				return &Error{Step: "managed_recovery_frontend_start", Code: "interrupted", Cause: err}
+			}
+			return x.executor.Systemd.Start(ctx, x.service)
+		}); err != nil {
+			return err
+		}
+		x.managedFrontendStopped = false
+	}
+	if prior.Step != "" && prior.Outcome != "completed" {
+		if prior.Outcome == "intent" {
+			if err := x.event(ctx, prior.Step, "unknown", "interrupted"); err != nil {
+				return err
+			}
+		}
+		if err := x.event(ctx, prior.Step, "completed", ""); err != nil {
+			return err
+		}
+	}
+	if err := x.prepareResolution(ctx, Checking); err != nil {
+		return err
+	}
+	inspect, cancel := context.WithTimeout(ctx, x.executor.effectTimeout())
+	defer cancel()
+	return x.proveManagedRoute(inspect, false)
 }

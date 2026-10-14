@@ -20,20 +20,8 @@ func admitManagedOwnedRelease(ctx context.Context, tx *sql.Tx, p plan.Plan, r Re
 		return ErrConflict
 	}
 	m := p.Managed
-	if !managedAppOwns(ctx, tx, p.App, m.Database.IncarnationID) {
-		return ErrConflict
-	}
-	desired, current, err := readEffectiveManagedDesired(ctx, tx, m.Database.BindingID, m.Archive.EpochID, m.RuntimeSHA256)
-	if err != nil || !current || !desired.EngineRunning || !desired.IngressServing || desired.FrontendRunning != (m.Frontend != nil) || desired.PlanID != p.Hash || desired.OperationID != r.ID {
-		return ErrConflict
-	}
-	permit, err := readEnginePermit(ctx, tx, m.Database.BindingID)
-	raw, _ := json.Marshal(permit.Runtime)
-	if err != nil || digest(raw) != "sha256:"+m.RuntimeSHA256 || !permit.AllowsVerification(time.Now().UTC()) {
-		return ErrConflict
-	}
-	route, err := readManagedRouteState(ctx, tx, p.App)
-	if err != nil || route.BindingID != m.Database.BindingID || route.EpochID != m.Archive.EpochID || route.RuntimeSHA256 != m.RuntimeSHA256 || route.DesiredRevision != desired.Revision || route.PlanID != p.Hash || route.OperationID != r.ID || !route.Present || route.FileHash != r.CaddyFile.Hash || route.Generation != r.CaddyGeneration {
+	route, err := managedOwnedControl(ctx, tx, p, r.ID)
+	if err != nil || route.FileHash != r.CaddyFile.Hash || route.Generation != r.CaddyGeneration {
 		return ErrConflict
 	}
 	if m.Frontend != nil {
@@ -51,4 +39,25 @@ func admitManagedOwnedRelease(ctx context.Context, tx *sql.Tx, p plan.Plan, r Re
 	// engine-only serving release. Immutable frontend permits remain as evidence.
 	_, err = tx.ExecContext(ctx, "DELETE FROM data_engine_frontend_heads WHERE app=?", p.App)
 	return err
+}
+
+func managedOwnedControl(ctx context.Context, tx *sql.Tx, p plan.Plan, owner string) (ManagedRouteState, error) {
+	m := p.Managed
+	if !managedAppOwns(ctx, tx, p.App, m.Database.IncarnationID) {
+		return ManagedRouteState{}, ErrConflict
+	}
+	desired, current, err := readEffectiveManagedDesired(ctx, tx, m.Database.BindingID, m.Archive.EpochID, m.RuntimeSHA256)
+	if err != nil || !current || !desired.EngineRunning || !desired.IngressServing || desired.FrontendRunning != (m.Frontend != nil) || desired.PlanID != p.Hash || desired.OperationID != owner || desired.Revision != p.ManagedIntentRevision+1 {
+		return ManagedRouteState{}, ErrConflict
+	}
+	permit, err := readEnginePermit(ctx, tx, m.Database.BindingID)
+	raw, _ := json.Marshal(permit.Runtime)
+	if err != nil || digest(raw) != "sha256:"+m.RuntimeSHA256 || !permit.AllowsVerification(time.Now().UTC()) {
+		return ManagedRouteState{}, ErrConflict
+	}
+	route, err := readManagedRouteState(ctx, tx, p.App)
+	if err != nil || route.BindingID != m.Database.BindingID || route.EpochID != m.Archive.EpochID || route.RuntimeSHA256 != m.RuntimeSHA256 || route.DesiredRevision != desired.Revision || route.PlanID != p.Hash || route.OperationID != owner || route.Revision != p.ManagedRouteRevision+1 || !route.Present {
+		return ManagedRouteState{}, ErrConflict
+	}
+	return route, nil
 }

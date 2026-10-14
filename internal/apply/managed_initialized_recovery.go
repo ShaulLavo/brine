@@ -23,16 +23,23 @@ func (e *Executor) inspectManagedInitialized(ctx context.Context, op Operation, 
 	if p.Lifecycle != "" {
 		return e.inspectManagedLifecycle(ctx, op, p, d, events, r)
 	}
-	if last, valid := ops.ManagedCreateRecoveryPrefix(events, p); valid {
+	if cursor, valid := ops.ManagedCreateRecoveryCursor(events, p); valid {
+		last := cursor.Boundary
 		_, exists, err := e.Releases.CurrentRelease(ctx, p.App)
 		if err != nil {
 			return r, err
 		}
+		if !exists && op.Kind == ops.Deploy && last.Step == "managed_commit" {
+			return r, nil
+		}
 		if !exists && (last.Step == "managed_route_check" || last.Outcome != "completed") {
-			return e.inspectManagedRoute(ctx, op, p, d, last, r)
+			return e.inspectManagedRoute(ctx, op, p, d, cursor, r)
 		}
 	}
 	last, valid := managedInitializedPrefix(events, p)
+	if cursor, exact := ops.ManagedCreateRecoveryCursor(events, p); exact {
+		last, valid = cursor.Boundary, true
+	}
 	r.Step = last.Step
 	if !valid || last.Step != "managed_commit" || p.Lifecycle != "" {
 		return r, nil

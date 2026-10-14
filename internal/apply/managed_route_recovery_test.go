@@ -190,3 +190,21 @@ func TestManagedCreateLatePrefixRejectsMissingDuplicateAndEarlierUnknownSteps(t 
 		}
 	}
 }
+
+func TestOriginalManagedCommitUnknownDoesNotAdvertiseUncommittedAdoption(t *testing.T) {
+	r, source, resolver := managedRouteRecoveryFixture(t)
+	for _, step := range []ops.StepPayload{{Step: "managed_route_check", Outcome: "completed"}, {Step: "managed_commit", Outcome: "intent"}, {Step: "managed_commit", Outcome: "unknown"}} {
+		raw, _ := json.Marshal(step)
+		r.events = append(r.events, Event{Kind: "step", Payload: raw})
+	}
+	assessment, err := r.executor.InspectResolution(context.Background(), resolver, source, r.plan, r.desired, r.events)
+	if err != nil || assessment.Action != RequireRecovery {
+		t.Fatal("unsupported original commit advertised", assessment.Action, err)
+	}
+	original := source
+	original.State = Committing
+	assessment, err = r.executor.InspectRecovery(context.Background(), original, r.plan, r.desired, r.events)
+	if err != nil || assessment.Action != RequireRecovery {
+		t.Fatal("unsupported original commit reconciliation advertised", assessment.Action, err)
+	}
+}

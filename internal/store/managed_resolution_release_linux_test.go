@@ -13,6 +13,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/apply"
 	"github.com/ShaulLavo/brine/internal/caddy"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -195,13 +196,26 @@ func (s managedCommitReleases) CurrentRelease(ctx context.Context, app string) (
 type managedCommitHost struct {
 	apply.ManagedRuntime
 	apply.Routes
-	state  *Store
-	owner  string
-	route  caddy.State
-	checks []bool
+	state   *Store
+	owner   string
+	route   caddy.State
+	checks  []bool
+	stopped bool
 }
 
 func (h *managedCommitHost) CompletedManaged(ctx context.Context, owner string, p plan.Plan, _ policy.Desired) error {
+	if h.stopped {
+		return ErrConflict
+	}
+	return h.controlProof(ctx, owner, p)
+}
+func (h *managedCommitHost) StoppedManagedFrontend(ctx context.Context, owner string, p plan.Plan, _ policy.Desired) error {
+	if !h.stopped {
+		return ErrConflict
+	}
+	return h.controlProof(ctx, owner, p)
+}
+func (h *managedCommitHost) controlProof(ctx context.Context, owner string, p plan.Plan) error {
 	record, err := h.state.ReadManagedFrontendRecord(ctx, p.App)
 	if err != nil || owner != h.owner || record.Resolution.Permit.OperationID != owner || record.Resolution.Permit.PlanID != p.Hash || record.Resolution.Permit.RuntimeSHA256 != p.Managed.RuntimeSHA256 {
 		return ErrConflict
@@ -274,5 +288,161 @@ func TestManagedRoutePublicExecutorCommitsThroughActualStoreAndGrantsOnlyAfterRe
 	completed, err := s.GetOperation(ctx, resolver.ID)
 	if err != nil || completed.State != ops.Succeeded {
 		t.Fatal("resolver did not own completion", err)
+	}
+}
+
+func TestManagedRouteRecoveryWakesOnlyTheOriginalOwnedFrontendOnce(t *testing.T) {
+	for _, unknown := range []bool{false, true} {
+		t.Run(map[bool]string{false: "known", true: "unknown-running"}[unknown], func(t *testing.T) {
+			s, p, source, resolver, expected := managedRouteCommitFixture(t)
+			ctx := context.Background()
+			_, d, err := s.LoadPlan(ctx, p.Hash)
+			if err != nil {
+				t.Fatal(err)
+			}
+			generation, err := s.Generation(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			host := &managedCommitHost{state: s, owner: source.ID, stopped: true, route: caddy.State{Generation: expected.CaddyGeneration, Files: map[string]string{expected.CaddyFile.Name: expected.CaddyFile.Hash}}}
+			facts := apply.Facts{Routing: host.route, Input: plan.Input{Desired: d, State: plan.BrineState{Target: p.Target, Generation: generation}}}
+			facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
+			starts := 0
+			system := &systemd.Fake{IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return !host.stopped, nil }, StartFunc: func(ctx context.Context, unit systemd.Unit) error {
+				starts++
+				if unit.String() != p.App+".service" {
+					t.Fatal("recovery attempted engine start")
+				}
+				pending, err := s.ReadManagedFrontendPermit(ctx, p.App)
+				if err != nil || !pending.Pending || pending.PendingOperationID != resolver.ID || pending.Permit.OperationID != source.ID {
+					t.Fatal("ordinary start had no exact resolver permit", err, pending.PendingOperationID)
+				}
+				host.stopped = false
+				if unknown {
+					return &localexec.Error{Kind: localexec.UnknownOutcome}
+				}
+				return nil
+			}}
+			executor := apply.Executor{Journal: s, Releases: managedCommitReleases{s}, Managed: host, Routes: host, Health: host, Facts: apply.FactsFunc(func(context.Context) (apply.Facts, error) { return facts, nil }), Systemd: system, Podman: &podman.Fake{SecretExistsFunc: func(context.Context, podman.Name) (bool, error) { return true, nil }}}
+			events, err := s.EventsAfter(ctx, resolver.ID, 0, 1024)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assessment, err := executor.InspectResolution(ctx, resolver, source, p, d, events)
+			if err != nil || assessment.Action != apply.ResumeForward {
+				t.Fatal("owned stopped frontend recovery unavailable", assessment.Action, err)
+			}
+			err = executor.Recover(ctx, assessment)
+			if unknown {
+				if err == nil || starts != 1 {
+					t.Fatal("unknown start not preserved", err, starts)
+				}
+				if _, err := s.ReadManagedFrontendPermit(ctx, p.App); err == nil {
+					t.Fatal("terminal resolver retained provisional grant")
+				}
+				failed, err := s.GetOperation(ctx, resolver.ID)
+				if err != nil || failed.State != ops.RecoveryRequired {
+					t.Fatal("unknown resolver not retained", err)
+				}
+				next, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, PlanID: p.Hash, RecoveryOf: resolver.ID}, "requester", "wake-settlement")
+				if err != nil {
+					t.Fatal(err)
+				}
+				events, err = s.EventsAfter(ctx, next.ID, 0, 1024)
+				if err != nil {
+					t.Fatal(err)
+				}
+				host.stopped = true
+				refused, err := executor.InspectResolution(ctx, next, failed, p, d, events)
+				if err != nil || refused.Action != apply.RequireRecovery || starts != 1 {
+					t.Fatal("unknown stopped start was retryable", err, refused.Action)
+				}
+				host.stopped = false
+				assessment, err = executor.InspectResolution(ctx, next, failed, p, d, events)
+				if err != nil || assessment.Action != apply.ResumeForward {
+					t.Fatal("actual running unknown start not settled", err, assessment.Action)
+				}
+				if resolveErr := executor.Recover(ctx, assessment); resolveErr != nil {
+					t.Fatal(resolveErr)
+				}
+			}
+			if !unknown && err != nil || starts != 1 || !reflect.DeepEqual(host.checks, []bool{false, true}) {
+				t.Fatal("frontend wake repeated or health missing", err, starts, host.checks)
+			}
+			release, err := s.CurrentRelease(ctx, p.App)
+			if err != nil || release.ID != source.ID || release.Managed.Frontend.Unit != expected.Managed.Frontend.Unit {
+				t.Fatal("wake changed original artifacts", err)
+			}
+			permission, err := s.ReadManagedFrontendPermit(ctx, p.App)
+			if err != nil || permission.Pending || permission.PendingOperationID != "" || permission.Permit.OperationID != source.ID {
+				t.Fatal("resolved wake did not replace temporary permission with joined serving proof", err)
+			}
+		})
+	}
+}
+
+type failedManagedTerminal struct{ *Store }
+
+func (s failedManagedTerminal) SetOperationState(ctx context.Context, id string, state ops.State) error {
+	if state == ops.Succeeded {
+		return errors.New("terminal journal interruption")
+	}
+	return s.Store.SetOperationState(ctx, id, state)
+}
+func TestManagedWakeCommittedReleaseResolutionSettlesTerminalWithoutAnotherStart(t *testing.T) {
+	s, p, source, resolver, expected := managedRouteCommitFixture(t)
+	ctx := context.Background()
+	_, d, err := s.LoadPlan(ctx, p.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	generation, err := s.Generation(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	host := &managedCommitHost{state: s, owner: source.ID, stopped: true, route: caddy.State{Generation: expected.CaddyGeneration, Files: map[string]string{expected.CaddyFile.Name: expected.CaddyFile.Hash}}}
+	facts := apply.Facts{Routing: host.route, Input: plan.Input{Desired: d, State: plan.BrineState{Target: p.Target, Generation: generation}}}
+	facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
+	starts := 0
+	executor := apply.Executor{Journal: failedManagedTerminal{s}, Releases: managedCommitReleases{s}, Managed: host, Routes: host, Health: host, Facts: apply.FactsFunc(func(context.Context) (apply.Facts, error) { return facts, nil }), Systemd: &systemd.Fake{IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return !host.stopped, nil }, StartFunc: func(context.Context, systemd.Unit) error { starts++; host.stopped = false; return nil }}, Podman: &podman.Fake{SecretExistsFunc: func(context.Context, podman.Name) (bool, error) { return true, nil }}}
+	events, err := s.EventsAfter(ctx, resolver.ID, 0, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := executor.InspectResolution(ctx, resolver, source, p, d, events)
+	if err != nil || assessment.Action != apply.ResumeForward {
+		t.Fatal(err, assessment.Action)
+	}
+	if err := executor.Recover(ctx, assessment); err == nil {
+		t.Fatal("terminal interruption missing")
+	}
+	failed, err := s.GetOperation(ctx, resolver.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed.State == ops.Committing {
+		if err := s.SetOperationState(ctx, resolver.ID, ops.RecoveryRequired); err != nil {
+			t.Fatal(err)
+		}
+		failed.State = ops.RecoveryRequired
+	}
+	next, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, PlanID: p.Hash, RecoveryOf: resolver.ID}, "requester", "wake-terminal-settlement")
+	if err != nil {
+		t.Fatal(err)
+	}
+	events, err = s.EventsAfter(ctx, next.ID, 0, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	executor.Journal = s
+	assessment, err = executor.InspectResolution(ctx, next, failed, p, d, events)
+	if err != nil || assessment.Action != apply.FinishSucceeded {
+		t.Fatal("committed wake terminal was unreachable", err, assessment.Action)
+	}
+	if err := executor.Recover(ctx, assessment); err != nil || starts != 1 {
+		t.Fatal("terminal settlement repeated start", err, starts)
+	}
+	if _, err := s.ReadManagedFrontendPermit(ctx, p.App); err != nil {
+		t.Fatal("terminal settlement did not close serving proof", err)
 	}
 }

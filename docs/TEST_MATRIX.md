@@ -1007,9 +1007,18 @@ repeats image pulls, staging, binding, starts, stops, reloads or route publicati
 The original failed receipt stays recovery-required; the original frontend
 permit gains serving authority only after the resolver succeeds with the joined
 release proof. Unknown earlier effects, foreign owners, stale generations,
-changed artifacts, unhealthy or stopped frontends and current fences refuse.
+changed artifacts, unsettled or foreign frontends and current fences refuse.
 
 Local executor and actual Store integration tests cover these rules, including a
 change between health and commit. This is not physical deployment evidence.
-A frontend stopped by a later host shutdown still requires a separately reviewed
-start path; this read-only continuation does not grant one.
+When a later host shutdown stopped the known frontend, the same exact create
+recovery may claim one frontend wake. Before its intent it proves the original
+unit and image, settled stopped service/container, current policy, generation,
+runtime, desired state, protected route and unfenced binding. The normal frontend
+guard receives the immutable original permit plus a temporary pending operation
+ID naming only the unique active resolver. Terminal/cancelled or stale claims
+lose this permission; copied unknown starts never grant a new wake. A start with
+unknown outcome is inspected for actual running ownership and never repeated.
+Store/executor tests cover known wake, running unknown settlement, stopped unknown
+refusal and terminal permission disappearance. Host tests verify the guard uses
+the active resolver and current policy, with no original-owner fallback.

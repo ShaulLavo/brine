@@ -10,6 +10,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/quadlet"
+	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
 )
 
@@ -35,15 +36,12 @@ func (r *ManagedFrontendRuntime) Permit(ctx context.Context, binding, app string
 	}
 	runtime := r.startup
 	resolution, err := runtime.state.ReadManagedFrontendPermit(ctx, app)
-	if err != nil || resolution.Permit.BindingID != data.ReplicaBindingID(binding) {
+	if err != nil || resolution.Pending && resolution.PendingOperationID == "" || resolution.Permit.BindingID != data.ReplicaBindingID(binding) {
 		return errEngineSource
 	}
-	if resolution.Pending {
-		operation := attemptOperation{uid: r.uid, home: runtime.home}
-		active, err := operation.OperationActive(ctx, resolution.Permit.OperationID)
-		if err != nil || !active {
-			return errEngineSource
-		}
+	operation := attemptOperation{uid: r.uid, home: runtime.home}
+	if err := verifyManagedFrontendPending(ctx, resolution, DiskPolicy{}, operation.OperationActive); err != nil {
+		return err
 	}
 	guard, err := data.AcquireEngineLaunchGuard(ctx, runtime.stateRoot, resolution.Permit.BindingID)
 	if err != nil {
@@ -74,11 +72,32 @@ func (r *ManagedFrontendRuntime) Permit(ctx context.Context, binding, app string
 		return errEngineSource
 	}
 	final, err := runtime.state.ReadManagedFrontendPermit(ctx, app)
-	if err != nil || final.Permit != resolution.Permit || quadlet.VerifyCurrent(ctx, runtime.home, app+".container", resolution.Permit.UnitHash) != nil || verifyManagedFrontendLoaded(ctx, runtime.session, runtime.home, app) != nil {
+	if err != nil || final.Permit != resolution.Permit || final.Pending != resolution.Pending || final.PendingOperationID != resolution.PendingOperationID || quadlet.VerifyCurrent(ctx, runtime.home, app+".container", resolution.Permit.UnitHash) != nil || verifyManagedFrontendLoaded(ctx, runtime.session, runtime.home, app) != nil {
 		return errEngineSource
 	}
 	finalDesired, err := currentManagedDesired(ctx, runtime.state, proof.permit.Runtime)
 	if err != nil || finalDesired != wanted {
+		return errEngineSource
+	}
+	if err := verifyManagedFrontendPending(ctx, final, DiskPolicy{}, operation.OperationActive); err != nil {
+		return err
+	}
+	return ctx.Err()
+}
+
+func verifyManagedFrontendPending(ctx context.Context, resolution store.ManagedFrontendResolution, loader PolicyLoader, active func(context.Context, string) (bool, error)) error {
+	if !resolution.Pending {
+		return nil
+	}
+	if resolution.PendingOperationID == "" {
+		return errEngineSource
+	}
+	pol, err := loader.Load(ctx)
+	if err != nil || pol.Hash() != resolution.Plan.PolicyHash {
+		return errEngineSource
+	}
+	running, err := active(ctx, resolution.PendingOperationID)
+	if err != nil || !running {
 		return errEngineSource
 	}
 	return ctx.Err()

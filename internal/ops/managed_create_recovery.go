@@ -10,9 +10,24 @@ import (
 // at its read-only route check or release commit. Earlier uncertain effects and
 // compensation cannot authorize adopting installed artifacts.
 func ManagedCreateRecoveryPrefix(events []Event, p plan.Plan) (StepPayload, bool) {
+	cursor, valid := ManagedCreateRecoveryCursor(events, p)
+	return cursor.Boundary, valid
+}
+
+// ManagedCreateCursor separates the original check boundary from one resolver-owned wake.
+type ManagedCreateCursor struct {
+	Boundary      StepPayload
+	FrontendStart StepPayload
+}
+
+// ManagedCreateRecoveryCursor admits at most one claimed frontend wake after
+// known publication. It does not admit another wake after an uncertain start.
+func ManagedCreateRecoveryCursor(events []Event, p plan.Plan) (ManagedCreateCursor, bool) {
+	var cursor ManagedCreateCursor
 	var last StepPayload
+	recoveryOutcome := ""
 	if p.Kind != plan.Create || p.Lifecycle != "" || p.Managed == nil || !p.Managed.Valid() {
-		return last, false
+		return cursor, false
 	}
 	steps := []string{"preflight", "managed_desired", "engine_stage"}
 	if p.Managed.Frontend != nil {
@@ -33,14 +48,27 @@ func ManagedCreateRecoveryPrefix(events []Event, p plan.Plan) (StepPayload, bool
 		if event.Kind != "step" {
 			continue
 		}
-		if ValidateEvent(event) != nil || json.Unmarshal(event.Payload, &last) != nil || index >= len(steps) || last.Step != steps[index] {
-			return last, false
+		var step StepPayload
+		if ValidateEvent(event) != nil || json.Unmarshal(event.Payload, &step) != nil {
+			return cursor, false
 		}
-		if !(outcome == "" && last.Outcome == "intent" || outcome == "intent" && (last.Outcome == "completed" || last.Outcome == "unknown") || outcome == "unknown" && last.Outcome == "completed") {
-			return last, false
+		if step.Step == "managed_recovery_frontend_start" {
+			if p.Managed.Frontend == nil || index != len(steps)-2 || (outcome != "intent" && outcome != "unknown") || !managedCreateOutcome(recoveryOutcome, step.Outcome) {
+				return cursor, false
+			}
+			recoveryOutcome = step.Outcome
+			cursor.FrontendStart = step
+			continue
+		}
+		last = step
+		if index >= len(steps) || last.Step != steps[index] || recoveryOutcome != "" && recoveryOutcome != "completed" {
+			return cursor, false
+		}
+		if !managedCreateOutcome(outcome, last.Outcome) {
+			return cursor, false
 		}
 		if last.Outcome == "unknown" && index < len(steps)-2 {
-			return last, false
+			return cursor, false
 		}
 		outcome = last.Outcome
 		if outcome == "completed" {
@@ -48,5 +76,10 @@ func ManagedCreateRecoveryPrefix(events []Event, p plan.Plan) (StepPayload, bool
 			outcome = ""
 		}
 	}
-	return last, last.Step == "managed_route_check" || last.Step == "managed_commit"
+	cursor.Boundary = last
+	return cursor, last.Step == "managed_route_check" || last.Step == "managed_commit"
+}
+
+func managedCreateOutcome(before, after string) bool {
+	return before == "" && after == "intent" || before == "intent" && (after == "completed" || after == "unknown") || before == "unknown" && after == "completed"
 }
