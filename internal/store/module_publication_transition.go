@@ -53,10 +53,9 @@ func (s *Store) ClaimPublicationTransition(ctx context.Context, capability *Publ
 	if err != nil || intent.creationID != current.claim.RepositoryIntentID || intent.hash != current.claim.RepositoryIntentSHA || intent.record.OperationID != current.claim.ApplyOpID || intent.epochID != current.claim.NewEpochID || intent.record.ConsumerSHA256 != current.claim.ConsumerSHA {
 		return nil, errors.Join(ErrConflict, err)
 	}
-	location := restic.S3Location{Endpoint: intent.archive.Destination.Endpoint, Bucket: intent.archive.Destination.Bucket, Prefix: intent.archive.RemotePrefix, Region: intent.archive.Destination.Region, PathStyle: intent.archive.Destination.PathStyle}
 	scope := initialized.Scope()
 	scope.RepositoryID = ""
-	if scope.BindingID != string(current.claim.BindingID) || scope.EpochID != string(current.claim.NewEpochID) || scope.DestinationSHA256 != location.SHA256() || !initialized.AdmitsCreation(scope, intent.creationGrantSHA256) {
+	if !nativeIncomingTransitionScopeMatches(scope, intent) || !initialized.AdmitsCreation(scope, intent.creationGrantSHA256) {
 		return nil, ErrConflict
 	}
 	var repositoryID string

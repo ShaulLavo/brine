@@ -260,3 +260,7 @@ func (s *Store) ReadNativeIncomingInitialized(ctx context.Context, r *NativeInco
 	}
 	return result, tx.Commit()
 }
+
+func nativeIncomingTransitionScopeMatches(scope restic.Scope, intent nativeRepositoryIntent) bool {
+	return scope.RepositoryID == "" && scope.BindingID == string(intent.record.BindingID) && scope.EpochID == string(intent.epochID) && scope.DestinationSHA256 == nativeArchiveLocation(intent.archive).SHA256()
+}

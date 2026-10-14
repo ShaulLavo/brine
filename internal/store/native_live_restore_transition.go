@@ -75,8 +75,7 @@ func (s *Store) ClaimNativeLiveRestoreTransition(ctx context.Context, capability
 	}
 	scope := initialized.Scope()
 	scope.RepositoryID = ""
-	location := restic.S3Location{Endpoint: intent.archive.Destination.Endpoint, Bucket: intent.archive.Destination.Bucket, Prefix: intent.archive.RemotePrefix, Region: intent.archive.Destination.Region, PathStyle: intent.archive.Destination.PathStyle}
-	if scope.BindingID != string(intent.record.BindingID) || scope.EpochID != string(intent.epochID) || scope.DestinationSHA256 != location.SHA256() || !initialized.AdmitsCreation(scope, intent.creationGrantSHA256) {
+	if !nativeIncomingTransitionScopeMatches(scope, intent) || !initialized.AdmitsCreation(scope, intent.creationGrantSHA256) {
 		return nil, ErrConflict
 	}
 	var recordedRepository string

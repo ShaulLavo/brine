@@ -956,3 +956,13 @@ final proof kinds through the production writer. Current typed proof kinds also
 supply the pristine schema constraint. Foreign-key, duplicate-key, hash/size and
 immutable-record checks remain enforced. The schema27 failure test preserves
 version, bytes and foreign-key enforcement after a failed upgrade.
+
+### Initialized incoming repository identity
+
+`TestNativeIncomingTransitionScopeMatchesInitializedCanonicalLocation` reproduces
+the trailing-slash digest mismatch between archive and transport prefixes. The
+shared publication/live-restore scope check accepts the exact canonical
+initialized location and refuses changed binding, epoch, destination or an
+unstripped repository ID. Different prefix, bucket, endpoint, region and path
+mode each refuse admission. The opaque initialization and creation-grant checks
+remain required in both transition claims.

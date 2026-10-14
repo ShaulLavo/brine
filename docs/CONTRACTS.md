@@ -1789,3 +1789,11 @@ key, kind, hash and canonical byte. Read-only openers refuse a schema that needs
 migration. The typed proof-kind catalog supplies the current SQL constraint;
 unknown kinds, foreign claims, duplicate proof keys, invalid hash lengths,
 oversized records, updates and deletes remain refused.
+
+Incoming publication and live-restore transitions compare the initialized
+repository destination through `nativeArchiveLocation`, the same constructor
+used by repository initialization. The archive prefix retains its ownership
+trailing slash; the transport location omits that delimiter before hashing.
+Binding, incoming epoch, exact destination and original creation grant still
+must match. A different prefix, bucket, endpoint, region or path mode refuses
+transition admission.
