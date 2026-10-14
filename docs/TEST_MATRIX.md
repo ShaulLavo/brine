@@ -1113,3 +1113,17 @@ and retain checks for historical points without admitting arbitrary modules.
 
 This gate verifies evidence projection only. Staged publication, remote replay,
 and the full module update remain physical acceptance obligations.
+
+### Unused initialized preparation disposition
+
+A neutral initialized Store fixture includes real module bytes and descriptor
+with synthetic checkpoint and journal evidence. It exercises abandonment
+admission and atomic completion after the original preparation expires,
+retains the original point and source facts, and verifies stopped intent with
+original-fence release. An injected fence-update failure rolls back the entire
+completion. Changed stop or checkpoint facts and repeated completion refuse.
+
+Receipt corruption cases bind every retained scope and evidence hash during
+acknowledgement-loss adoption. Schema migration tests preserve existing task,
+input, outcome, and fence records. These local checks do not prove the Pi
+command path or remote recovery; both remain physical acceptance obligations.
