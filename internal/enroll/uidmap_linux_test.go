@@ -48,7 +48,16 @@ func missingIDMapHelperRefuses(t *testing.T, helper string) {
 	}
 }
 
-func TestProbeReviewsMissingUIDMapWithoutRecommendations(t *testing.T) {
+func TestProbeReviewsMissingRootlessPrerequisitesWithoutRecommendations(t *testing.T) {
+	for _, name := range []string{"uidmap", "dbus-user-session"} {
+		t.Run(name, func(t *testing.T) { probeMissingRootlessPrerequisite(t, name) })
+	}
+}
+
+func probeMissingRootlessPrerequisite(t *testing.T, name string) {
+	t.Helper()
+	versions := map[string]string{"podman": "5.4.2+ds1-2+b2", "passt": "0.0~git20250503.587980c-2+deb13u1", "caddy": "2.6.2-12+deb13u1", "fuse-overlayfs": "1.14-1+b1", "uidmap": "1:4.17.4-2", "dbus-user-session": "1.16.2-2"}
+	version := versions[name]
 	blob := append([]byte{0, 0, 0, 11}, []byte("ssh-ed25519")...)
 	blob = append(blob, 0, 0, 0, 32)
 	blob = append(blob, make([]byte, 32)...)
@@ -57,16 +66,15 @@ func TestProbeReviewsMissingUIDMapWithoutRecommendations(t *testing.T) {
 		case "uname":
 			return localexec.Result{Stdout: "x86_64"}, nil
 		case "dpkg-query":
-			if c.Args[len(c.Args)-1] == "uidmap" {
+			if c.Args[len(c.Args)-1] == name {
 				return localexec.Result{Stdout: "not-installed\t"}, nil
 			}
-			versions := map[string]string{"podman": "5.4.2+ds1-2+b2", "passt": "0.0~git20250503.587980c-2+deb13u1", "caddy": "2.6.2-12+deb13u1", "fuse-overlayfs": "1.14-1+b1"}
 			return localexec.Result{Stdout: "installed\t" + versions[c.Args[len(c.Args)-1]]}, nil
 		case "apt-get":
-			if !slices.Equal(c.Args, []string{"--simulate", "--no-remove", "--no-install-recommends", "install", "uidmap"}) || c.Mutation {
+			if !slices.Equal(c.Args, []string{"--simulate", "--no-remove", "--no-install-recommends", "install", name}) || c.Mutation {
 				t.Fatalf("unreviewed package probe: %+v", c)
 			}
-			return localexec.Result{Stdout: "Inst uidmap (1:4.17.4-2 Debian:13/stable [amd64])\n"}, nil
+			return localexec.Result{Stdout: "Inst " + name + " (" + version + " Debian:13/stable [amd64])\n"}, nil
 		default:
 			return localexec.Result{}, &localexec.Error{ExitCode: 1}
 		}
@@ -79,8 +87,8 @@ func TestProbeReviewsMissingUIDMapWithoutRecommendations(t *testing.T) {
 	facts, err := p.Collect(context.Background())
 	// The later SSH audit intentionally lacks its fixture; package probing must
 	// already have bound the exact mandatory dependency by then.
-	if err == nil || !slices.Equal(facts.PackageInstall, []Package{{Name: "uidmap", Version: "1:4.17.4-2"}}) || len(facts.Packages) != 4 {
-		t.Fatalf("missing uidmap did not enter the exact package preview: %v %v", facts.PackageInstall, err)
+	if err == nil || !slices.Equal(facts.PackageInstall, []Package{{Name: name, Version: version}}) || len(facts.Packages) != 5 {
+		t.Fatalf("missing %s did not enter the exact package preview: %v %v", name, facts.PackageInstall, err)
 	}
 }
 

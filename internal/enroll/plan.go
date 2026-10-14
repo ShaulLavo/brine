@@ -67,6 +67,7 @@ func MakePlan(f Facts) (Plan, error) {
 		{"passt", `^(?:[0-9]+:)?0\.0~git20250503\.`},
 		{"uidmap", `^(?:[0-9]+:)?4\.17\.4(?:-|$)`},
 		{"fuse-overlayfs", `^(?:[0-9]+:)?1\.14(?:-|$)`},
+		{"dbus-user-session", `^(?:[0-9]+:)?1\.16\.2(?:-|$)`},
 	} {
 		count := 0
 		for _, pkg := range f.PackageInstall {
@@ -117,7 +118,7 @@ func MakePlan(f Facts) (Plan, error) {
 		return fail()
 	}
 	p := Plan{Litestream: asset, Restic: resticAsset, Changes: []string{
-		"Install missing Debian podman, passt, caddy, uidmap and fuse-overlayfs packages and their declared dependencies; never upgrade or remove existing packages during enrollment.",
+		"Install missing Debian podman, passt, caddy, uidmap, fuse-overlayfs and dbus-user-session packages and their declared dependencies; never upgrade or remove existing packages during enrollment.",
 		"Before any package installation, mask Caddy so its package default site cannot start; its post-install normally enables and starts caddy.service.",
 		"Podman's netavark dependency can enable netavark-dhcp-proxy.service, netavark-dhcp-proxy.socket and netavark-firewalld-reload.service, and activate the DHCP proxy socket on installation. These package post-install effects are part of the transaction.",
 		"Create only the Brine runner account, with an empty skeleton and login shell /bin/sh; refuse a preexisting unowned account, group or home.",

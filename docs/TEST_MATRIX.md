@@ -909,3 +909,13 @@ observation-first failure precedence. These diagnostics do not prove the actual
 shutdown cause or a successful publication. The new CLI33 claim was separately
 preserved by its supported public resolver; its working copy remains retained
 for the next diagnostic consumer.
+
+### Rootless Podman user bus prerequisite
+
+The minimal Debian amd64 fixture had a running, lingering user manager and
+`dbus-daemon`, but no `dbus-user-session`, user bus socket or user D-Bus units.
+Podman explicitly reported fallback from systemd to cgroupfs. Fresh enrollment
+now includes the missing package in its exact reviewed transaction. Tests cover
+read-only probing without recommendations, missing or unqualified candidate
+refusal, and installation with the original journaled dependency versions.
+These package-boundary tests do not prove a successful native preparation.
