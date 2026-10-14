@@ -1090,6 +1090,19 @@ Remote verification and point commit refusal use those same closed codes in the
 original-operation resolver. These diagnostics grant no recovery authority and
 change no capture/workspace/point admission guard.
 
+### Native archive source seal boundaries
+
+Owned-file publication inspection preserves the exact verified point digest for
+both transition and historical generic seals. Retained-owner resume carries
+its recorded digest through the upload and completion observation. Store tests
+exercise the exact preservation and empty-source completion guards with retained
+point and owner records, and reject replacement digests without changing those
+records. Temporary production overlays reproduce both prior producer failures.
+
+These local tests do not manufacture an authenticated restore capability or
+prove remote transport. Full prepared-point completion and archive acceptance
+remain part of the physical drill.
+
 ### Published fixture recovery profiles
 
 The current published v1, logic-only, additive, and default-column Wasm pins
