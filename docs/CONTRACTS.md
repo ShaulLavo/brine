@@ -334,6 +334,8 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `dependency_missing` | 3 | false | A required dependency is missing or incompatible. |
 | `policy_refused` | 4 | false | The operation was refused by policy. |
 | `policy_registry_denied` | 4 | false | The image registry or repository is not allowed by operator policy. |
+| `native_material_requires_stop` | 5 | false | Material activation requires a reviewed full stop. Plan and apply stop --engine, then review material activation again. |
+| `native_material_lease_expired` | 4 | false | The selected native material lease cannot cover the operation. Deliver renewed material and review its activation. |
 | `backup_admission_refresh_required` | 4 | false | Backup credential delivery refused: the operator policy changed. An explicit approved admission refresh is required before continuing. |
 | `conflict` | 5 | true | The plan is stale or another operation holds the lock. |
 | `recovery_required` | 6 | false | Manual recovery is required before continuing. |

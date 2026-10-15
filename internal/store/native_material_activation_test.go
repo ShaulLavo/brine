@@ -3,6 +3,7 @@
 package store
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -67,5 +68,14 @@ func TestMaterialRevisionPreservesRestoredEpochAllocation(t *testing.T) {
 	var historical []byte
 	if err = f.store.db.QueryRowContext(ctx, "SELECT canonical FROM data_engine_runtime_commits WHERE binding_id=? AND version=?", head.BindingID, head.Version).Scan(&historical); err != nil || nativeCanonicalHash(historical) != head.RuntimeSHA256 {
 		t.Fatal("historical signing runtime changed", err)
+	}
+}
+
+func dropNativeMaterialActivationMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
+	t.Helper()
+	for _, table := range []string{"data_native_material_activations", "data_native_material_activation_plans"} {
+		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
