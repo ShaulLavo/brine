@@ -184,8 +184,8 @@ func readMaterialActivationReceipt(ctx context.Context, q dataQuerier, id string
 }
 
 // Material revisions retain the allocation and transition proof of their epoch.
-func materialEpochHead(ctx context.Context, q dataQuerier, head data.EngineHeadRef) (data.EngineHeadRef, error) {
-	for {
+func materialRuntimeHead(ctx context.Context, q dataQuerier, head data.EngineHeadRef, ancestorSHA256 string) (data.EngineHeadRef, error) {
+	for head.RuntimeSHA256 != ancestorSHA256 {
 		var id string
 		err := q.QueryRowContext(ctx, "SELECT plan_id FROM data_native_material_activations WHERE binding_id=? AND version=?", head.BindingID, head.Version).Scan(&id)
 		if errors.Is(err, sql.ErrNoRows) {
@@ -204,6 +204,7 @@ func materialEpochHead(ctx context.Context, q dataQuerier, head data.EngineHeadR
 		}
 		head = p.Head
 	}
+	return head, nil
 }
 func (s *Store) ReadNativeMaterialActivationReceipt(ctx context.Context, id string) (nativematerial.ActivationReceipt, error) {
 	return readMaterialActivationReceipt(ctx, s.db, id)

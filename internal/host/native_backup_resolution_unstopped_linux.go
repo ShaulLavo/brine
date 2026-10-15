@@ -31,16 +31,9 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 	if quadlet.VerifyCurrent(ctx, o.runtime.home, front.Unit.Name, front.Unit.Hash) != nil || verifyManagedFrontendLoaded(ctx, o.runtime.session, o.runtime.home, expected.Routes.App) != nil {
 		return errEngineSource
 	}
-	if err = inspectPreparedUnitStopped(ctx, archiveHost{session: o.runtime.session}, expected.Routes.App+".service"); err != nil {
-		return err
-	}
-	name, err := managedFrontendContainerName(expected.Routes.App)
+	v.frontendRunning, err = o.inspectUnstoppedFrontend(ctx, expected)
 	if err != nil {
 		return err
-	}
-	state, err := podman.New(o.runtime.session).ContainerState(ctx, name)
-	if !managedFrontendStopped(state, err) {
-		return errEngineSource
 	}
 	observer := managedEngineObserver{state: o.runtime.state, stateRoot: o.runtime.stateRoot, home: o.runtime.home, session: o.runtime.session, units: systemd.New(o.runtime.session)}
 	engineState, err := observer.ownedState(ctx, expected.Permit)
@@ -75,4 +68,33 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 	v.rootSHA256 = root
 	v.loadedSHA256 = loaded
 	return nil
+}
+
+func (o nativeBackupResolutionOperations) inspectUnstoppedFrontend(ctx context.Context, expected store.NativeBackupPreparedExpectation) (bool, error) {
+	app := expected.Routes.App
+	unit, err := systemd.ParseUnit(app + ".service")
+	if err != nil {
+		return false, err
+	}
+	manager := systemd.New(o.runtime.session)
+	pending, err := manager.JobPending(ctx, unit)
+	if err != nil || pending {
+		return false, errEngineSource
+	}
+	props, err := manager.Show(ctx, unit)
+	if err != nil {
+		return false, errEngineSource
+	}
+	name, err := managedFrontendContainerName(app)
+	if err != nil {
+		return false, err
+	}
+	state, stateErr := podman.New(o.runtime.session).ContainerState(ctx, name)
+	if props.ActiveState == "active" && props.SubState == "running" && stateErr == nil && state.Running && !expected.FrontendStopped {
+		return true, nil
+	}
+	if props.ActiveState != "inactive" || props.SubState != "dead" || !managedFrontendStopped(state, stateErr) {
+		return false, errEngineSource
+	}
+	return false, nil
 }

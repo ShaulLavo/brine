@@ -38,7 +38,7 @@ func cloneNativeAllocation(receipt data.AllocationReceipt) data.AllocationReceip
 
 func readNativeEpochMaterial(ctx context.Context, q dataQuerier, head data.EngineHeadRef, reserved ReservedEngine) (nativeEpochMaterial, error) {
 	var anchorErr error
-	head, anchorErr = materialEpochHead(ctx, q, head)
+	head, anchorErr = materialRuntimeHead(ctx, q, head, "")
 	if anchorErr != nil {
 		return nativeEpochMaterial{}, anchorErr
 	}
@@ -94,7 +94,7 @@ func readInitialEngineAllocation(ctx context.Context, q dataQuerier, reserved Re
 
 func projectEngineEpoch(ctx context.Context, q dataQuerier, reserved ReservedEngine, head data.EngineHeadRef) (ReservedEngine, *data.AllocationReceipt, error) {
 	var anchorErr error
-	head, anchorErr = materialEpochHead(ctx, q, head)
+	head, anchorErr = materialRuntimeHead(ctx, q, head, "")
 	if anchorErr != nil {
 		return reserved, nil, anchorErr
 	}

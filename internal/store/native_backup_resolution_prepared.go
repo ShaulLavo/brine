@@ -12,16 +12,17 @@ import (
 )
 
 type NativeBackupPreparedExpectation struct {
-	Permit        EnginePermit
-	Stop          NativeStopObservation
-	Routes        NativePreparedRoutes
-	PointID       string
-	NeedsCapture  bool
-	StopNotIssued bool
-	Release       Release
-	Desired       ManagedDesiredState
-	Route         ManagedRouteState
-	InitialOwner  *NativeInitialOwnerObservation
+	Permit          EnginePermit
+	Stop            NativeStopObservation
+	Routes          NativePreparedRoutes
+	PointID         string
+	NeedsCapture    bool
+	FrontendStopped bool
+	StopNotIssued   bool
+	Release         Release
+	Desired         ManagedDesiredState
+	Route           ManagedRouteState
+	InitialOwner    *NativeInitialOwnerObservation
 }
 
 func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (NativeBackupPreparedExpectation, error) {
@@ -76,7 +77,11 @@ func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (Nativ
 		if err != nil {
 			return zero, err
 		}
-		return NativeBackupPreparedExpectation{Permit: permit, Routes: routes, PointID: intent.PointID, StopNotIssued: true, Release: release, Desired: desired, Route: route}, tx.Commit()
+		_, _, frontendStopped, err := nativeUnstoppedFrontend(ctx, tx, intent, i.original)
+		if err != nil {
+			return zero, err
+		}
+		return NativeBackupPreparedExpectation{Permit: permit, Routes: routes, PointID: intent.PointID, StopNotIssued: true, FrontendStopped: frontendStopped, Release: release, Desired: desired, Route: route}, tx.Commit()
 	}
 	needsCapture, err := nativePreparedNeedsCapture(ctx, tx, intent, events)
 	if err != nil {

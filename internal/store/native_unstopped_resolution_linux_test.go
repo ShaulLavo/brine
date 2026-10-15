@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
 	"strings"
@@ -131,10 +132,10 @@ func testUnstoppedRelease(t *testing.T, running bool) {
 		t.Fatal(err)
 	}
 	inspection, hash := claimUnstoppedResolution(t, s, original)
-	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), strings.Repeat("b", 64), running, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
+	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), strings.Repeat("b", 64), running, false, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
 		t.Fatal("changed review released fence")
 	}
-	receipt, err := inspection.ReleaseUnstoppedPreparation(t.Context(), hash, running, strings.Repeat("c", 64), strings.Repeat("d", 64))
+	receipt, err := inspection.ReleaseUnstoppedPreparation(t.Context(), hash, running, false, strings.Repeat("c", 64), strings.Repeat("d", 64))
 	if err != nil {
 		t.Fatal("reviewed unissued stop release", err)
 	}
@@ -170,7 +171,7 @@ func testUnstoppedRelease(t *testing.T, running bool) {
 	if err != nil || outcomeErr != nil || after != original || !bytes.Equal(beforeRaw, afterRaw) {
 		t.Fatal("original failure changed", err, outcomeErr)
 	}
-	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), hash, running, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
+	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), hash, running, false, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
 		t.Fatal("released preparation resolved twice")
 	}
 }
@@ -185,7 +186,7 @@ func TestNativeUnissuedStopResolutionRollsBackWithFenceRelease(t *testing.T) {
 	if _, err = s.db.ExecContext(t.Context(), `CREATE TRIGGER reject_unstopped_release BEFORE UPDATE ON data_fences BEGIN SELECT RAISE(ABORT,'fixture'); END;`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), hash, false, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
+	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), hash, false, false, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
 		t.Fatal("failed fence release committed disposition")
 	}
 	after, err := s.ReadManagedDesired(t.Context(), prep.intent.BindingID)
@@ -228,5 +229,29 @@ func TestNativePreparationBeforeFrontendStopCanBeInspected(t *testing.T) {
 	expected, err := inspection.PreparedExpectation(t.Context())
 	if err != nil || !expected.StopNotIssued {
 		t.Fatal("unissued frontend and engine stops", err)
+	}
+}
+
+func TestNativePreparationBeforeFrontendStopCanBeReleased(t *testing.T) {
+	s, prep, original := unstoppedPreparationFixture(t, false)
+	inspection, hash := claimUnstoppedResolution(t, s, original)
+	receipt, err := inspection.ReleaseUnstoppedPreparation(t.Context(), hash, true, true, strings.Repeat("c", 64), strings.Repeat("d", 64))
+	if err != nil || receipt.Outcome != "released" {
+		t.Fatal("unissued stops cannot release the original preparation", err)
+	}
+	wanted, err := s.ReadManagedDesired(t.Context(), prep.intent.BindingID)
+	if err != nil || !wanted.EngineRunning || !wanted.FrontendRunning || wanted.IngressServing {
+		t.Fatal("release changed observed component state", err, wanted)
+	}
+	op, err := s.GetOperation(t.Context(), original.ID)
+	if err != nil || op.State != ops.RecoveryRequired {
+		t.Fatal("release rewrote the original failure", err)
+	}
+	var disposition nativecapture.PreparationReleaseReceipt
+	if err := json.Unmarshal(receipt.Receipt, &disposition); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkNativeReleasedPreparation(t.Context(), s.db, original, disposition); err != nil {
+		t.Fatal("released preparation lost its observed running frontend", err)
 	}
 }

@@ -53,31 +53,63 @@ func nativeUnstoppedIdentity(ctx context.Context, q dataQuerier, intent nativePr
 	if !maps.Equal(wanted, prior.CurrentFiles) || prior.CurrentGeneration < prior.PreviousGeneration {
 		return nil, ErrConflict
 	}
+
+	_, frontend, _, err := nativeUnstoppedFrontend(ctx, q, intent, op)
+	if err != nil {
+		return nil, err
+	}
+	return append(facts, frontend...), nil
+}
+
+func nativeUnstoppedFrontend(ctx context.Context, q dataQuerier, intent nativePreparationIntent, op ops.Operation) (Release, []byte, bool, error) {
+	var count int
+	if err := q.QueryRowContext(ctx, "SELECT count(*) FROM data_native_prepared_frontend_stops WHERE point_id=?", intent.PointID).Scan(&count); err != nil {
+		return Release{}, nil, false, err
+	}
+	if count == 0 {
+		var id string
+		if err := q.QueryRowContext(ctx, "SELECT current_id FROM release_heads WHERE app=?", op.App).Scan(&id); err != nil {
+			return Release{}, nil, false, err
+		}
+		release, err := readRelease(ctx, q, op.App, id)
+		if err != nil {
+			return Release{}, nil, false, err
+		}
+		if err = checkNativePreparedRelease(ctx, q, intent, release); err != nil {
+			return Release{}, nil, false, err
+		}
+		raw, _ := json.Marshal(struct{ ReleaseID, FrontendStop string }{release.ID, "not_issued"})
+		return release, raw, false, nil
+	}
+	if count != 2 {
+		return Release{}, nil, false, ErrConflict
+	}
+	var facts []byte
 	var previous nativePreparedFrontendStopRecord
 	for _, stage := range []string{"intent", "stopped"} {
 		var raw []byte
 		var f nativePreparedFrontendStopRecord
 		if err := q.QueryRowContext(ctx, "SELECT canonical FROM data_native_prepared_frontend_stops WHERE point_id=? AND stage=?", intent.PointID, stage).Scan(&raw); err != nil {
-			return nil, err
+			return Release{}, nil, false, err
 		}
 		if json.Unmarshal(raw, &f) != nil || f.PointID != intent.PointID || f.OperationID != op.ID || f.ReleaseID == "" || f.Unit != op.App+".container" || f.At.Before(intent.CreatedAt) || f.At.After(time.Now().UTC()) {
-			return nil, ErrConflict
+			return Release{}, nil, false, ErrConflict
 		}
 		canonical, _ := json.Marshal(f)
 		if !bytes.Equal(raw, canonical) {
-			return nil, &IntegrityError{}
+			return Release{}, nil, false, &IntegrityError{}
 		}
 		if stage == "stopped" && (f.ReleaseID != previous.ReleaseID || f.Unit != previous.Unit || f.UnitSHA != previous.UnitSHA || f.At.Before(previous.At)) {
-			return nil, ErrConflict
+			return Release{}, nil, false, ErrConflict
 		}
 		previous = f
 		facts = append(facts, raw...)
 	}
 	release, err := readRelease(ctx, q, op.App, previous.ReleaseID)
-	if err != nil || release.Managed == nil || release.Managed.Frontend == nil || release.Managed.BindingID != intent.BindingID || release.Managed.EpochID != intent.EpochID || release.Managed.RuntimeSHA256 != intent.RuntimeSHA256 || release.Managed.Frontend.Unit.Name != previous.Unit || release.Managed.Frontend.Unit.Hash != previous.UnitSHA {
-		return nil, ErrConflict
+	if err != nil || checkNativePreparedRelease(ctx, q, intent, release) != nil || release.Managed.Frontend.Unit.Name != previous.Unit || release.Managed.Frontend.Unit.Hash != previous.UnitSHA {
+		return Release{}, nil, false, ErrConflict
 	}
-	return facts, nil
+	return release, facts, true, nil
 }
 
 func nativeUnstoppedCurrent(ctx context.Context, tx *sql.Tx, intent nativePreparationIntent, op ops.Operation) (Release, ManagedDesiredState, ManagedRouteState, error) {
@@ -90,13 +122,11 @@ func nativeUnstoppedCurrent(ctx context.Context, tx *sql.Tx, intent nativePrepar
 		return zero, ManagedDesiredState{}, ManagedRouteState{}, err
 	}
 	release, err := readRelease(ctx, tx, op.App, releaseID)
-	var stopped []byte
-	var f nativePreparedFrontendStopRecord
 	if err != nil {
 		return zero, ManagedDesiredState{}, ManagedRouteState{}, err
 	}
-	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_prepared_frontend_stops WHERE point_id=? AND stage='stopped'", intent.PointID).Scan(&stopped)
-	if err != nil || json.Unmarshal(stopped, &f) != nil || f.ReleaseID != release.ID {
+	recorded, _, _, err := nativeUnstoppedFrontend(ctx, tx, intent, op)
+	if err != nil || recorded.ID != release.ID {
 		return zero, ManagedDesiredState{}, ManagedRouteState{}, ErrConflict
 	}
 	desired, err := readManagedDesired(ctx, tx, intent.BindingID)
@@ -112,13 +142,13 @@ func nativeUnstoppedCurrent(ctx context.Context, tx *sql.Tx, intent nativePrepar
 
 // ReleaseUnstoppedPreparation records disposition without inventing a clean stop
 // or backup point. Ordinary start owns the later component and ingress changes.
-func (i *NativeBackupInspection) ReleaseUnstoppedPreparation(ctx context.Context, observationSHA256 string, engineRunning bool, rootSHA256, loadedSHA256 string) (nativecapture.BackupResolutionReceipt, error) {
+func (i *NativeBackupInspection) ReleaseUnstoppedPreparation(ctx context.Context, observationSHA256 string, engineRunning, frontendRunning bool, rootSHA256, loadedSHA256 string) (nativecapture.BackupResolutionReceipt, error) {
 	var zero nativecapture.BackupResolutionReceipt
 	if i.resolver == "" || observationSHA256 != i.review.ObservationSHA256 || !data.ValidCatalogHash(rootSHA256) || !data.ValidCatalogHash(loadedSHA256) {
 		return zero, ErrConflict
 	}
 	expected, err := i.PreparedExpectation(ctx)
-	if err != nil || !expected.StopNotIssued {
+	if err != nil || !expected.StopNotIssued || expected.FrontendStopped && frontendRunning || frontendRunning && !engineRunning {
 		return zero, ErrConflict
 	}
 	tx, cancel, err := i.state.beginWrite(ctx)
@@ -143,7 +173,7 @@ func (i *NativeBackupInspection) ReleaseUnstoppedPreparation(ctx context.Context
 	if err != nil || len(events) != 0 {
 		return zero, ErrConflict
 	}
-	wanted := ManagedDesiredState{BindingID: i.binding, EpochID: intent.EpochID, RuntimeSHA256: intent.RuntimeSHA256, Revision: desired.Revision + 1, PlanID: release.PlanID, OperationID: i.resolver, EngineRunning: engineRunning}
+	wanted := ManagedDesiredState{BindingID: i.binding, EpochID: intent.EpochID, RuntimeSHA256: intent.RuntimeSHA256, Revision: desired.Revision + 1, PlanID: release.PlanID, OperationID: i.resolver, EngineRunning: engineRunning, FrontendRunning: frontendRunning}
 	next := route
 	next.Revision++
 	next.DesiredRevision = wanted.Revision
@@ -225,7 +255,11 @@ func checkNativeReleasedPreparation(ctx context.Context, q dataQuerier, original
 	if err = q.QueryRowContext(ctx, "SELECT canonical FROM data_engine_route_states WHERE app=? AND revision=?", original.App, r.RouteRevision).Scan(&routeRaw); err != nil {
 		return err
 	}
-	if json.Unmarshal(desiredRaw, &desired) != nil || json.Unmarshal(routeRaw, &route) != nil || !desired.Valid() || !route.Valid() || desired.FrontendRunning || desired.IngressServing || route.Present || route.DesiredRevision != desired.Revision || desired.EpochID != intent.EpochID || desired.RuntimeSHA256 != intent.RuntimeSHA256 || route.EpochID != intent.EpochID || route.RuntimeSHA256 != intent.RuntimeSHA256 || route.OperationID != desired.OperationID {
+	if json.Unmarshal(desiredRaw, &desired) != nil || json.Unmarshal(routeRaw, &route) != nil || !desired.Valid() || !route.Valid() || desired.IngressServing || route.Present || route.DesiredRevision != desired.Revision || desired.EpochID != intent.EpochID || desired.RuntimeSHA256 != intent.RuntimeSHA256 || route.EpochID != intent.EpochID || route.RuntimeSHA256 != intent.RuntimeSHA256 || route.OperationID != desired.OperationID {
+		return ErrConflict
+	}
+	_, _, frontendStopped, err := nativeUnstoppedFrontend(ctx, q, intent, original)
+	if err != nil || frontendStopped && desired.FrontendRunning {
 		return ErrConflict
 	}
 	resolver, err := nativeResolutionOperation(ctx, q, desired.OperationID)
