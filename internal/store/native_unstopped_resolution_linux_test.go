@@ -255,3 +255,41 @@ func TestNativePreparationBeforeFrontendStopCanBeReleased(t *testing.T) {
 		t.Fatal("released preparation lost its observed running frontend", err)
 	}
 }
+
+func TestNativeReleasedPreparationSurvivesLaterRelease(t *testing.T) {
+	s, prep, original := unstoppedPreparationFixture(t, false)
+	inspection, hash := claimUnstoppedResolution(t, s, original)
+	receipt, err := inspection.ReleaseUnstoppedPreparation(t.Context(), hash, true, true, strings.Repeat("c", 64), strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = inspection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, before, err := nativeBackupOriginal(t.Context(), s.db, original.ID, original.Requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var disposition nativecapture.PreparationReleaseReceipt
+	if err = json.Unmarshal(receipt.Receipt, &disposition); err != nil {
+		t.Fatal(err)
+	}
+	release, err := s.CurrentRelease(t.Context(), original.App)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release.ID = "later-release"
+	release, raw, err := normalizeRelease(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	abandonExec(t, s.db, "INSERT INTO releases VALUES(?,?,?,?,?,?)", original.App, release.ID, release.PlanID, raw, digest(raw), prep.intent.CreatedAt.Add(time.Nanosecond).Format(time.RFC3339Nano))
+	abandonExec(t, s.db, "UPDATE release_heads SET current_id=? WHERE app=?", release.ID, original.App)
+	_, _, after, err := nativeBackupOriginal(t.Context(), s.db, original.ID, original.Requester)
+	if err != nil || after != before {
+		t.Fatal("a later release changed the original recovery identity", err)
+	}
+	if err := checkNativeReleasedPreparation(t.Context(), s.db, original, disposition); err != nil {
+		t.Fatal("a later release invalidated the completed original recovery", err)
+	}
+}
