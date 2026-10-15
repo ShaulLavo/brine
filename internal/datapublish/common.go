@@ -12,6 +12,7 @@ import (
 )
 
 var ErrRecord = errors.New("invalid publication record")
+var ErrOperatorProcedure = errors.New("publication requires a separate operator procedure")
 var ErrStale = errors.New("publication review is stale")
 var ErrInspection = errors.New("publication requires retained-attempt inspection")
 

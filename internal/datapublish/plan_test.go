@@ -221,3 +221,19 @@ func TestReviewFreshnessRejectsRebindingAndExpiry(t *testing.T) {
 		t.Fatal("source point rebound", err)
 	}
 }
+
+func TestPublicationPlanExplainsDefaultModuleRemovingAdditiveTable(t *testing.T) {
+	spec := planFixture(t, false)
+	point := spec.Source.point
+	point.WasmSHA256 = "95e91b07e63ec82ac66528091bc245dfd10f94da69186eb90bfefc4ef4b386eb"
+	point.ProgramWireHash = "45e519febe12048bc2fde9b37ab6eb362b407faa1939581e58a7eba49401576b"
+	source, err := NewCapturedSource(point, nativeSchema(t, "additive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spec.Source = source
+	_, err = NewPlan(spec)
+	if !errors.Is(err, ErrOperatorProcedure) {
+		t.Fatal("removing the additive table returned an opaque error", err)
+	}
+}
