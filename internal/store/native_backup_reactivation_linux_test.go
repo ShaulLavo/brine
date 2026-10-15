@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
@@ -16,17 +17,19 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func TestNativeBackupReactivationOnInitializedEngine(t *testing.T) {
-	t.Run("normal", func(t *testing.T) { checkNativeBackupReactivation(t, false) })
-	t.Run("interrupted", func(t *testing.T) { checkNativeBackupReactivation(t, true) })
+	t.Run("normal", func(t *testing.T) { checkNativeBackupReactivation(t, "") })
+	t.Run("before_units", func(t *testing.T) { checkNativeBackupReactivation(t, "prepared") })
+	t.Run("units_issued", func(t *testing.T) { checkNativeBackupReactivation(t, "units_issued") })
 }
 
-func checkNativeBackupReactivation(t *testing.T, interrupted bool) {
+func checkNativeBackupReactivation(t *testing.T, interruption string) {
 	t.Helper()
-	s, original, _ := managedControlFixture(t)
+	s, original := nativeReactivationControlFixture(t)
 	ctx := t.Context()
 	_, desired, err := s.LoadPlan(ctx, original.Hash)
 	if err != nil {
@@ -83,14 +86,24 @@ func checkNativeBackupReactivation(t *testing.T, interrupted bool) {
 	if err != nil || metadata.Material.PolicySHA256 != strings.TrimPrefix(current.Hash(), "sha256:") || metadata.Material.CredentialRecord.PolicyHash == current.Hash() {
 		t.Fatal("reactivation must reuse the original credential provenance", err)
 	}
-	if err := activation.BeginUnits(ctx); err != nil {
-		t.Fatal(err)
+	if interruption != "prepared" {
+		if err := activation.BeginUnits(ctx); err != nil {
+			t.Fatal(err)
+		}
 	}
 	var inspection *NativeBackupInspection
-	if interrupted {
+	if interruption != "" {
 		inspection = resumeNativeReactivation(t, s, op, activation)
 		activation, err = inspection.Activation(ctx)
 		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	if interruption == "prepared" {
+		if err := inspection.BeginResolutionUnits(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if err := activation.BeginUnits(ctx); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -212,6 +225,9 @@ func seedNativeReactivationPolicy(t *testing.T, s *Store, deployment plan.Plan, 
 	}
 	id, hash := strings.Repeat("a", 32), strings.Repeat("b", 64)
 	credential := CredentialRecord{ID: id, Kind: "receipt", App: scope.App, Requester: requester, PlanID: "sha256:" + hash, PlanHash: "sha256:" + hash, TargetHash: "sha256:" + hash, PolicyHash: scope.PolicyHash, BindingID: scope.Database.BindingID, EpochID: scope.Archive.EpochID, Destination: scope.Archive.Destination.Reference, CredentialRef: scope.Archive.Destination.CredentialRef, Version: 1, ReceivedAt: time.Now().UTC()}
+	provenance := backupcredentials.Plan{Requester: requester, Kind: backupcredentials.Kind, Version: credential.Version, Scope: backupcredentials.Scope{App: credential.App, CredentialRef: credential.CredentialRef, TargetHash: credential.TargetHash, PolicyHash: credential.PolicyHash, Binding: string(credential.BindingID), Epoch: string(credential.EpochID), Destination: string(credential.Destination)}}
+	credential.PlanID = "sha256:" + nativePointHash(abandonJSON(t, provenance))
+	credential.PlanHash = credential.PlanID
 	if err := s.SaveNativeCredentialRecord(ctx, credential); err != nil {
 		t.Fatal(err)
 	}
@@ -295,6 +311,43 @@ func assertNativeReactivatedPreparation(t *testing.T, s *Store, active NativeBac
 	}
 	point := NativePreparedPointView{BindingID: active.BindingID, EpochID: active.EpochID, DatabaseID: prepared.intent.DatabaseID, IncarnationID: prepared.intent.IncarnationID, RuntimeVersion: prepared.intent.RuntimeVersion, RuntimeSHA256: prepared.intent.RuntimeSHA256, AllocationSHA256: prepared.intent.AllocationSHA256, PolicySHA256: prepared.intent.PolicySHA256}
 	assertNativeReactivatedConsumers(t, s, point)
+	permit, err := s.ReadEnginePermit(ctx, active.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	artifact, err := os.ReadFile("../spacetimedb/testdata/recovery-v1.wasm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := os.ReadFile("../spacetimedb/testdata/descriptor-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, point, proof := abandonFixtureCheckpoint(t, prepared.intent, permit.Runtime, artifact, descriptor)
+	now := time.Now().UTC()
+	point.PreparedAt, point.ExpiresAt, point.RetainUntil = now, now.Add(10*time.Minute), now.Add(31*24*time.Hour)
+	proof.VerifiedAt, proof.ReaderDisposedAt = now, now
+	stop := NativeStopObservation{Mode: "clean_exit", ContainerID: strings.Repeat("1", 64), FinishedAt: now, SourceAbsent: true, RestartJobsAbsent: true, IngressClosed: true}
+	point.StopProofSHA256 = nativePointHash(abandonJSON(t, stop))
+	point.RestoreReceiptSHA256 = nativePointHash(abandonJSON(t, proof))
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	seedAbandonFixturePoint(t, tx, prepared.intent, prepared.raw, point, stop, proof, checkpoint, artifact, descriptor, op.App)
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if err := guard.Close(); err != nil {
+		t.Fatal(err)
+	}
+	receipt := nativecapture.TaskReceipt{Kind: string(ops.NativePrepare), OperationID: op.ID, BindingID: string(point.BindingID), EpochID: string(point.EpochID), PointID: point.PointID, PointSHA256: nativePointHash(abandonJSON(t, point)), Outcome: "verified", Engine: "spacetimedb", ModuleSHA256: point.ArtifactWasmSHA256, SchemaSHA256: point.SchemaSHA256, CaptureIntervalSeconds: 30, Loss: "unknown"}
+	if err := s.CompleteTask(ctx, op.ID, ops.Succeeded, ops.TaskOutcome{Receipt: abandonJSON(t, receipt)}); err != nil {
+		t.Fatal(err)
+	}
+	assertNativeReactivatedAbandonment(t, s, active, point, stop, requester)
+
 	var retained CredentialRecord
 	var raw []byte
 	if err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE id=?", active.CredentialReceiptID).Scan(&raw); err != nil || json.Unmarshal(raw, &retained) != nil || retained.PolicyHash == "sha256:"+active.PolicySHA256 {
@@ -334,7 +387,14 @@ func assertNativeReactivatedLifecycle(t *testing.T, s *Store, desired policy.Des
 	if err != nil {
 		t.Fatal(err)
 	}
+	if in.State.Releases[0].Desired.PolicyHash == desired.PolicyHash {
+		t.Fatal("backup activation rewrote the historical deployment policy")
+	}
 	in.Managed.OwnedNativeState = target.Known("running")
+	in.Managed.BackupDesiredHash, err = s.ReadNativeBackupDesiredHash(t.Context(), in.Managed.Database.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, action := range []plan.ChangeKind{plan.StartApp, plan.StopApp, plan.RestartApp} {
 		p, err := plan.BuildLifecycle(in, action)
 		if err != nil || p.Kind == plan.Conflict {
@@ -350,4 +410,60 @@ func assertNativeReactivatedCredential(t *testing.T, s *Store, active NativeBack
 	if err := checkNativeInitializedCredential(t.Context(), s.db, intent, result); err != nil {
 		t.Error("reactivated credential cannot initialize the next epoch", err)
 	}
+}
+
+func nativeReactivationControlFixture(t *testing.T) (*Store, plan.Plan) {
+	t.Helper()
+	artifact, err := os.ReadFile("../spacetimedb/testdata/recovery-v1.wasm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := os.ReadFile("../spacetimedb/testdata/descriptor-v1.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wasm, wire, err := spacetimedb.ModuleIdentities(artifact)
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := spacetimedb.DecodeDescriptorV10(descriptor, spacetimedb.DefaultSchemaLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	module := data.EngineModuleDefinition{Program: data.NativeProgramWireHash(wire), Wasm: data.WasmSHA256(wasm), Schema: data.EngineSchemaDefinition{Marker: "game-v1", Canonicalizer: schema.Version(), SHA256: schema.SHA256()}}
+	s, p, _ := managedControlStateFixtureAtRoot(t, false, false, "", module)
+	return s, p
+}
+
+func assertNativeReactivatedAbandonment(t *testing.T, s *Store, active NativeBackupPolicy, point NativePreparedPointView, stop NativeStopObservation, requester string) {
+	t.Helper()
+	ctx := t.Context()
+	identity, err := datainit.ParseRequester(requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := s.SaveNativeTaskInput(ctx, NativeTaskInput{Requester: identity, Kind: ops.NativePrepareAbandon, BindingID: point.BindingID, PointID: point.PointID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	op, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.NativePrepareAbandon, App: "hello", SecretRef: ref}, requester, "abandon-after-reactivation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOperationState(ctx, op.ID, ops.Preflight); err != nil {
+		t.Fatal(err)
+	}
+	fixture := nativeAbandonFixture{state: s, operation: op, point: point, stop: stop}
+	cap, observed := fixture.open(t)
+	if _, err := s.CompleteNativeAbandonment(ctx, cap, observed); err != nil {
+		t.Fatal("abandonment after reactivation", err)
+	}
+	if err := cap.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, desired, err := s.LoadPlan(ctx, active.DeploymentPlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertNativeReactivatedLifecycle(t, s, desired)
 }

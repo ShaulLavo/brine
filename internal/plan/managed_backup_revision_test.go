@@ -7,6 +7,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func TestManagedPolicyEditRequiresBackupReactivation(t *testing.T) {
@@ -60,5 +61,33 @@ func TestManagedRecoveryReferenceChangeUsesOnlyBackupRevision(t *testing.T) {
 		if ManagedBackupOnly(next, before) {
 			t.Fatal("non-backup change entered the backup-only path")
 		}
+	}
+}
+
+func TestManagedLifecycleUsesActivatedBackupDesiredHash(t *testing.T) {
+	in := managedInitializedFixture(t, false)
+	created, err := Build(in)
+	if err != nil || created.Kind == Conflict {
+		t.Fatal(err, created.Conflicts)
+	}
+	in.State.Releases = []CurrentRelease{{App: created.App, ID: "current", Desired: in.Desired, Image: created.Image, HostPort: created.HostPort, Secrets: []SecretBinding{}, Units: []target.Unit{{Name: "brine-engine-" + string(created.Managed.Database.BindingID) + ".service", Hash: "sha256:" + created.Managed.EngineUnitHash}}, CaddyFile: target.CaddyFile{Name: created.App + ".caddy", Hash: "sha256:" + strings.Repeat("a", 64)}, Managed: created.Managed}}
+	in.Desired.PolicyHash = "sha256:" + strings.Repeat("f", 64)
+	p, err := BuildLifecycle(in, StartApp)
+	if err != nil || p.Kind != Conflict || !hasManagedConflict(p, ManagedBackupRevisionRequired) {
+		t.Fatal("policy edit admitted lifecycle before activation", p.Conflicts, err)
+	}
+	raw, err := in.Desired.CanonicalBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Managed.BackupDesiredHash = hash(raw)
+	p, err = BuildLifecycle(in, StartApp)
+	if err != nil || p.Kind == Conflict {
+		t.Fatal("activated backup policy refused lifecycle", p.Conflicts, err)
+	}
+	in.Desired.PolicyHash = "sha256:" + strings.Repeat("e", 64)
+	p, err = BuildLifecycle(in, StartApp)
+	if err != nil || p.Kind != Conflict {
+		t.Fatal("later policy edit admitted lifecycle without reactivation", p.Conflicts, err)
 	}
 }

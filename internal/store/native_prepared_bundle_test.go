@@ -14,7 +14,12 @@ import (
 
 func nativeEmptyBundleRecords(t *testing.T) (nativePreparedPoint, []byte, []byte, []byte) {
 	t.Helper()
-	binding, epoch, pointID, generation := strings.Repeat("1", 32), strings.Repeat("2", 32), strings.Repeat("3", 32), strings.Repeat("4", 32)
+	return nativeEmptyBundleRecordsFor(t, strings.Repeat("1", 32), strings.Repeat("2", 32), strings.Repeat("3", 32))
+}
+
+func nativeEmptyBundleRecordsFor(t *testing.T, binding, epoch, pointID string) (nativePreparedPoint, []byte, []byte, []byte) {
+	t.Helper()
+	generation := strings.Repeat("4", 32)
 	config, key := strings.Repeat("a", 64), strings.Repeat("b", 64)
 	source, err := nativecapture.UnpublishedSource(nativecapture.EmptyRecord{Format: nativecapture.Format, Scope: nativecapture.EmptyScope{BindingID: binding, EpochID: epoch}, GenerationID: generation, ConfigurationSHA256: config, PublisherReference: "publisher", SigningRecovery: nativecapture.SigningRecovery{Kind: "external_immutable", Reference: "signing", Version: 1, SHA256: key}, Members: []nativecapture.CheckpointMember{{Path: "config.toml", Bytes: 10, SHA256: config}}}, nativecapture.DefaultLimits())
 	if err != nil {

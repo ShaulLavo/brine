@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/restic"
 )
@@ -97,8 +98,12 @@ func checkNativeInitializedCredential(ctx context.Context, q dataQuerier, intent
 		return errors.Join(ErrConflict, err)
 	}
 	canonical, err := json.Marshal(record)
-	if err != nil || !bytes.Equal(raw, canonical) || record.BindingID != intent.record.BindingID || record.CredentialRef != intent.archive.Destination.CredentialRef || record.Destination != intent.archive.Destination.Reference || record.Version != result.Scope.CredentialVersion || record.Kind != "receipt" || record.ReceivedAt.IsZero() || record.ReceivedAt.Location() != time.UTC || record.ReceivedAt.After(result.VerifiedAt) || record.PolicyHash != "sha256:"+intent.record.PolicySHA256 {
+	if err != nil || !bytes.Equal(raw, canonical) || record.BindingID != intent.record.BindingID || record.CredentialRef != intent.archive.Destination.CredentialRef || record.Destination != intent.archive.Destination.Reference || record.Version != result.Scope.CredentialVersion || record.Kind != "receipt" || record.ReceivedAt.IsZero() || record.ReceivedAt.Location() != time.UTC || record.ReceivedAt.After(result.VerifiedAt) {
 		return errors.Join(&IntegrityError{}, err)
+	}
+	provenance := backupcredentials.Plan{Requester: record.Requester, Kind: backupcredentials.Kind, ID: record.PlanID, Version: record.Version, ExpiresAt: record.ExpiresAt, Scope: backupcredentials.Scope{App: record.App, CredentialRef: record.CredentialRef, TargetHash: record.TargetHash, PolicyHash: record.PolicyHash, Binding: string(record.BindingID), Epoch: string(record.EpochID), Destination: string(record.Destination)}}
+	if record.PlanHash != record.PlanID || !provenance.Valid() {
+		return &IntegrityError{}
 	}
 	if record.ExpiresAt != nil && (!result.VerifiedAt.Before(*record.ExpiresAt) || result.Scope.ExpiresAt.After(*record.ExpiresAt)) {
 		return ErrConflict

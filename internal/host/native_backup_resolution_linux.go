@@ -387,22 +387,51 @@ func (o nativeBackupResolutionOperations) inspectActivation(ctx context.Context,
 }
 
 func (o nativeBackupResolutionOperations) inspectActivationUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata, stage string) (string, error) {
-	var err error
-	if stage == "prepared" {
-		if err = o.absentUnits(ctx, metadata); err != nil {
-			return "", err
-		}
-		return "not_issued", nil
-	} else if err = o.verifyUnits(ctx, metadata); err == nil {
+	if stage != "prepared" && o.verifyUnits(ctx, metadata) == nil {
 		return "verified", nil
-	} else if stage == "units_issued" {
-		if err = o.absentUnits(ctx, metadata); err != nil {
+	}
+	if stage != "prepared" && stage != "units_issued" {
+		return "", errEngineSource
+	}
+	if metadata.Previous.Revision != 0 {
+		if err := o.verifyPreviousUnits(ctx, metadata); err != nil {
 			return "", err
 		}
-		return "issued_absent", nil
-	} else {
+		if stage == "prepared" {
+			return "not_issued", nil
+		}
+		return "issued_previous", nil
+	}
+	if err := o.absentUnits(ctx, metadata); err != nil {
 		return "", err
 	}
+	if stage == "prepared" {
+		return "not_issued", nil
+	}
+	return "issued_absent", nil
+}
+
+func (o nativeBackupResolutionOperations) verifyPreviousUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata) error {
+	previous := metadata
+	previous.Plan.Backup = metadata.Previous.Backup
+	unit, timer := nativeBackupUnitBytes(previous)
+	if metadata.Previous.BindingID != metadata.Plan.BindingID || nativeBackupBytesHash(unit) != metadata.Previous.UnitSHA256 || nativeBackupBytesHash(timer) != metadata.Previous.TimerSHA256 {
+		return errEngineSource
+	}
+	if err := o.verifyUnits(ctx, previous); err != nil {
+		return err
+	}
+	root, err := nativeBackupConfigRoot(o.runtime.home)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	for _, suffix := range []string{".service.new", ".timer.new"} {
+		if _, err := root.Lstat(filepath.Join("systemd/user", nativeBackupUnitName(metadata)+suffix)); !os.IsNotExist(err) {
+			return errEngineSource
+		}
+	}
+	return nil
 }
 
 func (o nativeBackupResolutionOperations) inspectUpload(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved, client *restic.Client, repository restic.Repository) error {
@@ -481,7 +510,7 @@ func (o nativeBackupResolutionOperations) adoptActivation(ctx context.Context, i
 		}
 	}
 	unit, timer := nativeBackupUnitBytes(v.activation)
-	if v.unitsState == "not_issued" || v.unitsState == "issued_absent" {
+	if v.unitsState == "not_issued" || v.unitsState == "issued_absent" || v.unitsState == "issued_previous" {
 		if err = i.BeginResolutionUnits(ctx); err != nil {
 			return nil, err
 		}

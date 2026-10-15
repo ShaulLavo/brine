@@ -186,13 +186,26 @@ func checkNativeBackupPredecessorUnits(t *testing.T, stage string) {
 	if err != nil {
 		t.Fatalf("%s reactivation refuses its exact owned predecessor: %v", stage, err)
 	}
-	if state == "verified" || state == "issued_absent" {
+	expected := "not_issued"
+	if stage == "units_issued" {
+		expected = "issued_previous"
+	}
+	if state != expected {
 		t.Fatal("predecessor mistaken for installed replacement or absent units", state)
 	}
 	timerPath := filepath.Join(home, managedServiceDirectory, nativeBackupUnitName(metadata)+".timer")
 	retained, err := os.ReadFile(timerPath)
 	if err != nil || string(retained) != string(timer) {
 		t.Fatal("inspection changed predecessor units", err)
+	}
+	if err := os.WriteFile(timerPath+".new", timer, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := operation.inspectActivationUnits(t.Context(), metadata, stage); err == nil {
+		t.Fatal("unexplained staged replacement admitted recovery")
+	}
+	if err := os.Remove(timerPath + ".new"); err != nil {
+		t.Fatal(err)
 	}
 	if err := os.WriteFile(timerPath, []byte("foreign"), 0600); err != nil {
 		t.Fatal(err)
@@ -202,6 +215,13 @@ func checkNativeBackupPredecessorUnits(t *testing.T, stage string) {
 	}
 	if err := os.WriteFile(timerPath, timer, 0600); err != nil {
 		t.Fatal(err)
+	}
+	unit, timer = nativeBackupUnitBytes(metadata)
+	if err := installNativeBackupUnits(t.Context(), home, session, metadata, unit, timer); err != nil {
+		t.Fatal("cannot replace inspected predecessor", err)
+	}
+	if state, err := operation.inspectActivationUnits(t.Context(), metadata, "units_issued"); err != nil || state != "verified" {
+		t.Fatal("installed replacement refused recovery", state, err)
 	}
 	metadata.Previous = store.NativeBackupPolicy{}
 	if _, err := operation.inspectActivationUnits(t.Context(), metadata, "prepared"); err == nil {
