@@ -4,6 +4,10 @@ import "time"
 
 const RequestTimeout = 15 * time.Second
 const ReviewWorkTimeout = 9 * time.Minute
+
+// PlanWorkTimeout covers read-only planning, which resolves images and reads
+// inventory. A Raspberry Pi measured 12 to 16 seconds for that work.
+const PlanWorkTimeout = time.Minute
 const ReviewCleanupTimeout = 70 * time.Second
 const SSHConnectTimeout = 5 * time.Second
 const NativeMaterialPullTimeout = 2 * time.Minute
@@ -16,6 +20,8 @@ func OperationTimeout(operation string) time.Duration {
 		return ReviewWorkTimeout
 	case "native_material_set":
 		return NativeMaterialWorkTimeout
+	case "plan", "lifecycle", "rollback":
+		return PlanWorkTimeout
 	default:
 		return RequestTimeout
 	}

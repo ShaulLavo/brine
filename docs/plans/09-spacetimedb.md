@@ -143,6 +143,34 @@ Publish on a private restored staging copy with no external egress, validate mod
 
 **Evidence.** T40 covers this task. Extend T19/T22-T23 with full-tree restore, archive retention, remove/recreate/purge and interruption cases for archive rename, bundle swap, key dependency, epoch activation and fence release. Exercise scheduler/restart races and timed-out stop/upload/publish. Unit/fake tests do not replace the P09-08 drill.
 
+**Open blockers found 2026-10-15 (Source56 Pi pass).** Details and operation IDs
+are in the [physical evidence](../evidence/p09-pi.md#source56-blockers).
+
+1. *Preparation after a changed-module publication fails.* On the Pi, after a
+   logic-only publication activated a new epoch and the frontend was redeployed,
+   `brine backup prepare APP --database main` withdrew ingress, stopped the
+   frontend, then failed with `internal_error` inside the engine stop binding
+   (`bindNativeStopAttempt` in `internal/host/native_stop_linux.go`). Start with
+   `verifyEngineService`, `verifyEngineLoadedService` and `bindEngineNative`
+   against the new epoch's runtime and material paths. A debug build showed only
+   the store's `conflicting control record` for the follow-up inspection.
+   Add a fake-host regression that prepares after a completed publication.
+2. *That failure cannot be resolved.* `nativePreparedOriginalIdentity` in
+   `internal/store/native_backup_resolution_prepared.go` accepts only two or six
+   preparation events, so `backup recovery inspect` refuses an operation that
+   failed before recording its stop. Inspection must recognize "fence held,
+   ingress withdrawn, frontend stopped, engine stop never issued" and allow a
+   reviewed resume that republishes ingress without a new preparation key.
+3. *An operator policy edit voids backup activation.* Changing the operator policy,
+   for example adding `allow_live_restore = true`, changes its hash. Preparation then
+   refuses with `policy_refused`, and `brine backup policy plan --deployment-plan ID`
+   returned `internal_error` for a current plan. Live restore requires such an
+   edit, so define and test the re-activation path before running it.
+4. *Helper replacement requires a stopped engine.* A running engine keeps the old
+   helper bound, and planning reports `managed.native_state` unknown until the
+   operator stops the units. Document this in the upgrade runbook or make stop
+   planning accept it.
+
 ### P09-08. Run the physical Pi and browser recovery drill
 
 - [ ] **P09-08**

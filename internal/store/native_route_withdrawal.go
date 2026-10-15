@@ -91,6 +91,9 @@ func nativeRouteWithdrawalFence(ctx context.Context, tx *sql.Tx, point NativePre
 	if state == data.FenceHeld {
 		return nil
 	}
+	if nativeWithdrawalSuccessor(ctx, tx, point, "", "") == nil && state == data.FenceReleased {
+		return nil
+	}
 	var abandonment string
 	err = tx.QueryRowContext(ctx, `SELECT o.id FROM operations o JOIN operation_outcomes r ON r.operation_id=o.id
  WHERE o.kind='native_prepare_abandon' AND o.state='succeeded'
@@ -108,12 +111,41 @@ func nativeRouteWithdrawalCurrent(ctx context.Context, tx *sql.Tx, head ManagedR
 		return err
 	}
 	raw, err := json.Marshal(permit.Runtime)
-	if err != nil || point.BindingID != head.BindingID || point.EpochID != head.EpochID || point.RuntimeSHA256 != head.RuntimeSHA256 || policyHash != "sha256:"+point.PolicySHA256 || permit.Runtime.EpochID != point.EpochID || nativePointHash(raw) != point.RuntimeSHA256 || permit.Reserved.Database.DatabaseID != point.DatabaseID || permit.Reserved.Database.IncarnationID != point.IncarnationID || !managedAppOwns(ctx, tx, head.App, point.IncarnationID) || permit.Allocation == nil {
+	if err != nil || point.BindingID != head.BindingID || point.EpochID != head.EpochID || point.RuntimeSHA256 != head.RuntimeSHA256 || policyHash != "sha256:"+point.PolicySHA256 || permit.Reserved.Database.DatabaseID != point.DatabaseID || permit.Reserved.Database.IncarnationID != point.IncarnationID || !managedAppOwns(ctx, tx, head.App, point.IncarnationID) || permit.Allocation == nil {
 		return ErrConflict
+	}
+	if permit.Runtime.EpochID != point.EpochID || nativePointHash(raw) != point.RuntimeSHA256 {
+		// A completed transition binds its own target runtime and allocation.
+		return nativeWithdrawalSuccessor(ctx, tx, point, permit.Runtime.EpochID, nativePointHash(raw))
 	}
 	allocation, err := json.Marshal(permit.Allocation)
 	if err != nil || nativePointHash(allocation) != point.AllocationSHA256 {
 		return ErrConflict
+	}
+	return nil
+}
+
+// nativeWithdrawalSuccessor proves that a completed transition consumed the
+// withdrawing point and activated the wanted epoch and runtime. Empty wanted
+// values accept that transition's own target.
+func nativeWithdrawalSuccessor(ctx context.Context, tx *sql.Tx, point NativePreparedPointView, epoch data.ReplicaEpochID, runtimeSHA256 string) error {
+	var id string
+	err := tx.QueryRowContext(ctx, "SELECT id FROM data_engine_transition_inputs WHERE prepared_point_id=? AND binding_id=?", point.PointID, point.BindingID).Scan(&id)
+	if err != nil {
+		return errors.Join(ErrConflict, err)
+	}
+	input, cursor, err := readEngineTransition(ctx, tx, id)
+	if err != nil || cursor.Stage != data.EngineTransitionCompleted {
+		return errors.Join(ErrConflict, err)
+	}
+	common := input.Common()
+	if common.FenceID != point.FenceID || common.PreparedPoint.EpochID != point.EpochID || epoch != "" && common.NewEpochID != epoch || runtimeSHA256 != "" && common.TargetRuntimeSHA256 != runtimeSHA256 {
+		return ErrConflict
+	}
+	var predecessor data.ReplicaEpochID
+	err = tx.QueryRowContext(ctx, "SELECT predecessor_epoch_id FROM data_native_epochs WHERE epoch_id=? AND binding_id=? AND transition_id=?", common.NewEpochID, point.BindingID, id).Scan(&predecessor)
+	if err != nil || predecessor != point.EpochID {
+		return errors.Join(ErrConflict, err)
 	}
 	return nil
 }
