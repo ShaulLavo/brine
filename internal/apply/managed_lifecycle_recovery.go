@@ -60,12 +60,14 @@ func managedLifecycleRecoveryPrefix(events []Event, p plan.Plan) (ops.StepPayloa
 		steps = append(steps, "managed_pause", "managed_withdraw", component, "managed_route_receipt")
 	}
 	if p.Lifecycle != plan.StopApp {
-		component := "managed_engine_start"
-		check := "managed_engine_check"
-		if p.ManagedLifecycle.Frontend {
-			component, check = "managed_frontend_start", "managed_frontend_check"
+		steps = append(steps, "managed_resume")
+		if p.ManagedLifecycle.Engine {
+			steps = append(steps, "managed_engine_start", "managed_engine_check")
 		}
-		steps = append(steps, "managed_resume", component, check, "managed_route", "managed_route_receipt")
+		if p.ManagedLifecycle.Frontend {
+			steps = append(steps, "managed_frontend_start", "managed_frontend_check")
+		}
+		steps = append(steps, "managed_route", "managed_route_receipt")
 	}
 	var last ops.StepPayload
 	index, outcome := 0, ""

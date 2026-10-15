@@ -3,12 +3,11 @@ package apps
 import (
 	"context"
 	"github.com/ShaulLavo/brine/internal/plan"
-	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
 )
 
 type ManagedFactsReader interface {
-	ManagedFacts(context.Context, policy.Desired) (plan.Input, error)
+	ManagedFacts(context.Context, plan.Input) (plan.Input, error)
 }
 
 func (s Service) collectManaged(ctx context.Context, in *plan.Input) error {
@@ -18,7 +17,7 @@ func (s Service) collectManaged(ctx context.Context, in *plan.Input) error {
 	if s.ManagedFacts == nil {
 		return result.New(result.DependencyMissing, nil)
 	}
-	fresh, err := s.ManagedFacts.ManagedFacts(ctx, in.Desired)
+	fresh, err := s.ManagedFacts.ManagedFacts(ctx, *in)
 	if err != nil {
 		return err
 	}

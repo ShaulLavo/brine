@@ -2,9 +2,12 @@ package apply
 
 import (
 	"context"
+	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/caddy"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/systemd"
@@ -198,5 +201,59 @@ func testManagedLifecycleRecovery(t *testing.T, frontend bool, action plan.Chang
 	refused, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "lifecycle", PlanID: r.plan.Hash, Kind: "deploy", App: r.plan.App, State: Checking}, r.plan, r.desired, r.events)
 	if err != nil || refused.Action != RequireRecovery {
 		t.Fatal("stale lifecycle observation granted completion", err, refused.Action)
+	}
+}
+
+type guardedResumeRuntime struct{ *managedRuntimeFake }
+
+func (r guardedResumeRuntime) BeforeFrontendStart(ctx context.Context, op string, p plan.Plan, d policy.Desired, hash string) error {
+	if err := r.EngineReady(ctx, p); err != nil {
+		return err
+	}
+	return r.managedRuntimeFake.BeforeFrontendStart(ctx, op, p, d, hash)
+}
+
+func TestManagedStartResumesStoppedEngineBeforeOwnedFrontend(t *testing.T) {
+	r, runtime := managedLifecycleRig(t, true, plan.StartApp)
+	runtime.engineStopped = true
+	r.active = false
+	r.facts.Input.Managed.NativeState = target.Known("stopped")
+	r.facts.Input.Managed.OwnedNativeState = target.Known("stopped")
+	r.facts.Input.Managed.Intent.Revision = 7
+	r.facts.Input.Managed.Intent.EngineRunning = false
+	r.facts.Input.Managed.Intent.FrontendRunning = false
+	r.facts.Input.Managed.Intent.IngressServing = false
+	p, err := plan.BuildLifecycle(r.facts.Input, plan.StartApp)
+	if err != nil || p.Kind == plan.Conflict {
+		t.Fatal(err, p.Conflicts)
+	}
+	r.plan = p
+	r.executor.Managed = guardedResumeRuntime{runtime}
+	if err := r.executor.Run(t.Context(), "resume-all", p, r.desired); err != nil {
+		t.Fatal("all-stopped resume failed", err)
+	}
+	if runtime.engineStopped || !r.active || r.state != Succeeded || r.committed {
+		t.Fatal("resume failed or created a release", runtime.engineStopped, r.active, r.state, r.committed)
+	}
+	var steps []string
+	for _, event := range r.events {
+		if event.Kind == "step" {
+			var payload ops.StepPayload
+			_ = json.Unmarshal(event.Payload, &payload)
+			if payload.Outcome == "completed" {
+				steps = append(steps, payload.Step)
+			}
+		}
+	}
+	if !slices.Equal(steps, []string{"preflight", "managed_resume", "managed_engine_start", "managed_engine_check", "managed_frontend_start", "managed_frontend_check", "managed_route", "managed_route_receipt"}) {
+		t.Fatal("engine/front readiness order changed", steps)
+	}
+	if _, valid := managedLifecycleRecoveryPrefix(r.events, p); !valid {
+		t.Fatal("resume steps cannot be recovered without repeating effects")
+	}
+	for _, effect := range r.effects {
+		if effect == "install_unit" || effect == "remove_unit" || effect == "commit" || effect == "pull_image" {
+			t.Fatal("resume changed installed artifacts", effect)
+		}
 	}
 }

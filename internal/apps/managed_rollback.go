@@ -15,7 +15,7 @@ func (s Service) managedRollback(ctx context.Context, snapshot target.Snapshot, 
 	if s.ManagedFacts == nil || s.LoadPolicy == nil || current.Managed == nil || release.Managed == nil || release.Managed.Frontend == nil || current.Managed.Frontend == nil || current.Managed.Database.BindingID != release.Managed.BindingID {
 		return RollbackPlan{}, result.New(result.Conflict, nil)
 	}
-	facts, err := s.ManagedFacts.ManagedFacts(ctx, current.Desired)
+	facts, err := s.ManagedFacts.ManagedFacts(ctx, plan.Input{Desired: current.Desired, Snapshot: snapshot, State: state, Image: current.Image})
 	if err != nil {
 		return RollbackPlan{}, err
 	}
@@ -34,7 +34,8 @@ func (s Service) managedRollback(ctx context.Context, snapshot target.Snapshot, 
 	if err != nil {
 		return RollbackPlan{}, err
 	}
-	facts, err = s.ManagedFacts.ManagedFacts(ctx, client)
+	facts.Desired = client
+	facts, err = s.ManagedFacts.ManagedFacts(ctx, facts)
 	if err != nil {
 		return RollbackPlan{}, err
 	}

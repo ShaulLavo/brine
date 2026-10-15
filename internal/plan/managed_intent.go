@@ -30,7 +30,10 @@ func DesiredComponentsForDeployment(m ManagedServicePlan) ManagedLifecyclePlan {
 
 func (m ManagedLifecyclePlan) Valid(action ChangeKind, service ManagedServicePlan, revision uint64) bool {
 	frontend := service.Frontend != nil
-	if service.State != data.EngineInitialized || m.Engine == frontend || m.Frontend != frontend || !m.Ingress || m.DesiredBeforeRevision != revision {
+	if service.State != data.EngineInitialized || m.Frontend != frontend || !m.Ingress || m.DesiredBeforeRevision != revision {
+		return false
+	}
+	if !frontend && !m.Engine || action != StartApp && m.Engine == frontend {
 		return false
 	}
 	if action == StopApp {

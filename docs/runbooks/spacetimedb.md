@@ -249,16 +249,31 @@ original fence and records a stopped desired revision. Engine, frontend and
 ingress stay stopped. Point expiry, source data, the original journal and remote
 backups remain unchanged.
 
-After successful abandonment, use ordinary lifecycle planning to resume the
-compatible app. Prepare a distinct fresh point before another reviewed data
-mutation. Abandonment never extends expired coverage or authorizes publication.
+After successful abandonment, plan ordinary lifecycle resume and apply that
+saved plan:
+
+```sh
+brine start APP --target TARGET --json
+brine apply START_PLAN_ID --target TARGET --json
+```
+
+For an affirmatively stopped managed scope, the start plan includes engine and
+frontend. Apply starts and checks the guarded engine first, then checks and
+starts the exact owned frontend under the current lifecycle desired state.
+Installed hashes, release, module and epoch stay unchanged. Planning reuses its
+collected inventory; apply preflight still reads fresh facts. A planning timeout
+without a saved plan or apply is not a start result. This source54 sequence has
+local tests; successful physical resume remains unproved.
+
+Prepare a distinct fresh point before another reviewed data mutation.
+Abandonment never extends expired coverage or authorizes publication.
 For a lost response, inspect the original operation and use its retained key.
 Do not clear its fence or infer success from an unjoined receipt.
 
-The [physical evidence](../evidence/p09-pi.md) records source52 installation
-and a public abandonment refusal before effects. The detached-requester fix is
-locally verified but physically unrun. Successful abandonment and ordinary
-resume remain required.
+The [physical evidence](../evidence/p09-pi.md) records successful source53
+abandonment with all components still stopped. The next ordinary start plan
+timed out without a saved plan or apply. Successful ordinary resume remains
+required; abandonment alone is not a start receipt.
 
 ## Review a module update
 

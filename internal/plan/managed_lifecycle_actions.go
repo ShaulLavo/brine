@@ -47,6 +47,9 @@ func buildManagedLifecycle(in Input, action ChangeKind) (Plan, error) {
 	p.Diff = nil
 	p.Changes = []Change{}
 	intent := &ManagedLifecyclePlan{Engine: current.Managed.Frontend == nil, Frontend: current.Managed.Frontend != nil, Ingress: true, EngineRunning: true, FrontendRunning: current.Managed.Frontend != nil, IngressServing: true}
+	if action == StartApp && in.Managed.NativeState.Status == target.KnownStatus && in.Managed.NativeState.Value != nil && *in.Managed.NativeState.Value == "stopped" {
+		intent.Engine = true
+	}
 	if in.Managed.Intent != nil {
 		intent.DesiredBeforeRevision = in.Managed.Intent.Revision
 	}
