@@ -101,7 +101,7 @@ func configOutput(cmd *cobra.Command, response result.Envelope, modes machineMod
 			return err
 		}
 	} else if p.Lifecycle != "" {
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Action: %s. Releases, routes and app data stay unchanged.\n", p.Lifecycle); err != nil {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Action: %s. Releases and app data stay unchanged.\n", p.Lifecycle); err != nil {
 			return err
 		}
 	}
