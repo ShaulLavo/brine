@@ -276,3 +276,37 @@ func TestManagedLifecycleStopsAfterRecordedWithdrawal(t *testing.T) {
 		}
 	}
 }
+
+func TestManagedFullStopStopsFrontendThenEngine(t *testing.T) {
+	r, runtime := managedLifecycleRig(t, true, plan.StopApp)
+	planned, err := plan.BuildEngineStop(r.facts.Input)
+	if err != nil || planned.Kind == plan.Conflict {
+		t.Fatal(err, planned.Conflicts)
+	}
+	r.plan = planned
+	if err = r.executor.Run(t.Context(), "material-stop", r.plan, r.desired); err != nil {
+		t.Fatal(err)
+	}
+	if r.state != Succeeded || r.active || !runtime.engineStopped {
+		t.Fatal("full stop left a component running", r.state, r.active, runtime.engineStopped)
+	}
+	frontend, engine := slices.Index(r.effects, "stop_unit"), slices.Index(r.effects, "managed_engine_stop")
+	if frontend < 0 || engine <= frontend {
+		t.Fatal("engine did not stop after frontend", r.effects)
+	}
+}
+
+func TestManagedFullStopRecoveryRecognizesBothStopReceipts(t *testing.T) {
+	r, _ := managedLifecycleRig(t, true, plan.StopApp)
+	planned, err := plan.BuildEngineStop(r.facts.Input)
+	if err != nil || planned.Kind == plan.Conflict {
+		t.Fatal(err, planned.Conflicts)
+	}
+	r.plan = planned
+	if err = r.executor.Run(t.Context(), "material-stop", r.plan, r.desired); err != nil {
+		t.Fatal(err)
+	}
+	if _, valid := managedLifecycleRecoveryPrefix(r.events, r.plan); !valid {
+		t.Fatal("completed full stop is not recoverable")
+	}
+}

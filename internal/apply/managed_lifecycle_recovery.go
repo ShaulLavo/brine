@@ -53,11 +53,14 @@ func (e *Executor) inspectManagedLifecycle(ctx context.Context, op Operation, p 
 func managedLifecycleRecoveryPrefix(events []Event, p plan.Plan) (ops.StepPayload, bool) {
 	steps := []string{"preflight"}
 	if p.Lifecycle != plan.StartApp {
-		component := "managed_engine_stop"
+		steps = append(steps, "managed_pause", "managed_withdraw")
 		if p.ManagedLifecycle.Frontend {
-			component = "managed_frontend_stop"
+			steps = append(steps, "managed_frontend_stop")
 		}
-		steps = append(steps, "managed_pause", "managed_withdraw", component, "managed_route_receipt")
+		if p.ManagedLifecycle.Engine {
+			steps = append(steps, "managed_engine_stop")
+		}
+		steps = append(steps, "managed_route_receipt")
 	}
 	if p.Lifecycle != plan.StopApp {
 		steps = append(steps, "managed_resume")

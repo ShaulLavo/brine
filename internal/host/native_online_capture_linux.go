@@ -217,7 +217,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 		return nil, err
 	}
 	defer live.close()
-	keys, err := readEngineMaterial(ctx, runtime.stateRoot, permit)
+	keys, err := readPublisherMaterial(ctx, runtime.stateRoot, permit)
 	if err != nil {
 		return nil, err
 	}

@@ -77,7 +77,7 @@ func newNativeMaterialCmd(deps Dependencies, modes *machineModes) *cobra.Command
 	status.Flags().StringVar(&lookupKey, "idempotency-key", "", "Inspect a lost response using the reported delivery key")
 	status.Flags().StringVar(&lookupApp, "app", "", "App for a key-based inspection")
 	status.Flags().StringVar(&lookupPlan, "preparation-plan", "", "Preparation plan for a key-based inspection")
-	group.AddCommand(set, status)
+	group.AddCommand(set, status, newNativeMaterialPlanCmd(deps, modes), newNativeMaterialActivateCmd(deps, modes))
 	return group
 }
 func writeNativeMaterialResult(cmd *cobra.Command, modes *machineModes, r nativematerial.Receipt) error {

@@ -234,7 +234,7 @@ func (w *publicationApplyWork) observeTransition(ctx context.Context, tree *engi
 	}
 	permit := w.opened.restored.permit
 	permit.Runtime = runtime.Clone()
-	material, err := readEngineMaterial(ctx, w.opened.preparation.StateRoot(), permit)
+	material, err := readStoredPublisherMaterial(ctx, w.opened.preparation.StateRoot(), permit)
 	material.clear()
 	if err != nil {
 		return zero, err

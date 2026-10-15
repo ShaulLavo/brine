@@ -16,6 +16,8 @@ import (
 	"time"
 )
 
+const nativePacketPublisherIdentity = "c20038e4dd4b2f6c1514cb9db3e08f907897b39b5d8120db97254a87cfa676e5"
+
 type nativePacketFixture struct {
 	key     *ecdsa.PrivateKey
 	private string
@@ -39,7 +41,7 @@ func newNativePacketFixture(t *testing.T) nativePacketFixture {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 10, 12, 12, 0, 0, 0, time.UTC)
-	return nativePacketFixture{key: key, private: string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})), public: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: public})), now: now, claims: map[string]any{"iss": "synthetic-issuer", "sub": "synthetic-subject", "hex_identity": strings.Repeat("a", 64), "iat": now.Unix(), "aud": []string{"synthetic-native"}}}
+	return nativePacketFixture{key: key, private: string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: private})), public: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: public})), now: now, claims: map[string]any{"iss": "synthetic-issuer", "sub": "synthetic-subject", "hex_identity": nativePacketPublisherIdentity, "iat": now.Unix(), "aud": []string{"synthetic-native"}}}
 }
 
 func (f nativePacketFixture) token(t *testing.T) string {

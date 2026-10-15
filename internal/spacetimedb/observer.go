@@ -162,7 +162,9 @@ func (r metadataReader) read(suffix string) (any, error) {
 	if err != nil {
 		return nil, ErrObservation
 	}
-	request.Header.Set("Authorization", "Bearer "+r.credential.bearer)
+	if r.credential.bearer != "" {
+		request.Header.Set("Authorization", "Bearer "+r.credential.bearer)
+	}
 	request.Header.Set("Accept", "application/json")
 	response, err := r.client.Do(request)
 	if err != nil {

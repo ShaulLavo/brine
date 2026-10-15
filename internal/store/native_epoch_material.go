@@ -37,6 +37,11 @@ func cloneNativeAllocation(receipt data.AllocationReceipt) data.AllocationReceip
 }
 
 func readNativeEpochMaterial(ctx context.Context, q dataQuerier, head data.EngineHeadRef, reserved ReservedEngine) (nativeEpochMaterial, error) {
+	var anchorErr error
+	head, anchorErr = materialEpochHead(ctx, q, head)
+	if anchorErr != nil {
+		return nativeEpochMaterial{}, anchorErr
+	}
 	var material nativeEpochMaterial
 	var raw []byte
 	err := q.QueryRowContext(ctx, "SELECT canonical FROM data_native_epoch_materials WHERE binding_id=? AND epoch_id=? AND runtime_version=?", head.BindingID, head.EpochID, head.Version).Scan(&raw)
@@ -88,6 +93,11 @@ func readInitialEngineAllocation(ctx context.Context, q dataQuerier, reserved Re
 }
 
 func projectEngineEpoch(ctx context.Context, q dataQuerier, reserved ReservedEngine, head data.EngineHeadRef) (ReservedEngine, *data.AllocationReceipt, error) {
+	var anchorErr error
+	head, anchorErr = materialEpochHead(ctx, q, head)
+	if anchorErr != nil {
+		return reserved, nil, anchorErr
+	}
 	if head.EpochID == reserved.Archive.EpochID {
 		return reserved, nil, nil
 	}

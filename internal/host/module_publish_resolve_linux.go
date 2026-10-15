@@ -127,7 +127,7 @@ func (w *publicationResolveWork) observe(ctx context.Context) (store.Publication
 	}
 	permit := w.facts.SourcePermit
 	permit.Runtime = w.facts.TargetRuntime.Clone()
-	material, err := readEngineMaterial(ctx, w.operations.runtime.stateRoot, permit)
+	material, err := readStoredPublisherMaterial(ctx, w.operations.runtime.stateRoot, permit)
 	material.clear()
 	if err != nil {
 		return zero, err

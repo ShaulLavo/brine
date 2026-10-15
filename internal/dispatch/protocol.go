@@ -74,6 +74,9 @@ var operations = map[string]operation{
 	"native_backup_status":                  {ReadOnly, decodeNativeBackupStatus},
 	"native_backup_policy_plan":             {Mutating, decodeNativeBackupPolicyPlan},
 	"native_backup_activate":                {Mutating, decodeNativeBackupPolicyActivate},
+	"engine_stop":                           {Mutating, decodeEngineStop},
+	"native_material_plan":                  {Mutating, decodeNativeMaterialPlan},
+	"native_material_activate":              {Mutating, decodeNativeMaterialActivate},
 	"native_material_set":                   {Mutating, decodeNativeMaterial},
 	"native_material_status":                {ReadOnly, decodeNativeMaterialInspect},
 	"native_recovery_set":                   {Mutating, decodeNativeRecovery},
@@ -343,6 +346,17 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		if err != nil {
 			return fail(result.Classify(err))
 		}
+	case EngineStopArgs:
+		value, err = s.engineStop(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+	case NativeMaterialPlanArgs, NativeMaterialActivateArgs:
+		value, err = s.materialActivation(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+
 	case NativeMaterialArgs:
 		if s.NativeMaterial == nil {
 			return fail(result.New(result.DependencyMissing, nil))

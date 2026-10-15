@@ -65,8 +65,22 @@ func TestEngineRuntimeCommitNeedsOwnedFenceAndKeepsStartupFenced(t *testing.T) {
 		t.Fatal("matching initialized ownership refused", err)
 	}
 	permit.Runtime.Secrets.Publisher.ExpiresAt = time.Now().UTC().Add(-time.Second)
-	if permit.AllowsVerification(time.Now().UTC()) {
-		t.Fatal("expired publisher metadata admitted startup")
+	if !permit.AllowsVerification(time.Now().UTC()) {
+		t.Fatal("expired publisher lease blocked startup")
+	}
+	for _, role := range []string{"private", "public", "auth"} {
+		current := permit
+		switch role {
+		case "private":
+			current.Runtime.Secrets.SigningPrivate.ExpiresAt = time.Now().UTC().Add(-time.Second)
+		case "public":
+			current.Runtime.Secrets.SigningPublic.ExpiresAt = time.Now().UTC().Add(-time.Second)
+		case "auth":
+			current.Runtime.Secrets.AuthPolicy.ExpiresAt = time.Now().UTC().Add(-time.Second)
+		}
+		if current.AllowsVerification(time.Now().UTC()) {
+			t.Fatal("expired serving material admitted startup", role)
+		}
 	}
 }
 

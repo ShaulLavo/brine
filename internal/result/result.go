@@ -70,6 +70,9 @@ const (
 	NativeCaptureCommitRefused    Code = "native_capture_commit_refused"
 )
 
+const NativeMaterialRequiresStop Code = "native_material_requires_stop"
+const NativeMaterialLeaseExpired Code = "native_material_lease_expired"
+
 const BackupAdmissionRefreshRequired Code = "backup_admission_refresh_required"
 
 type description struct {
@@ -79,6 +82,8 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
+	NativeMaterialRequiresStop:     {StateConflict, "Material activation requires a reviewed full stop. Plan and apply stop --engine, then review material activation again.", false},
+	NativeMaterialLeaseExpired:     {Policy, "The selected native material lease cannot cover the operation. Deliver renewed material and review its activation.", false},
 	BackupAdmissionRefreshRequired: {Policy, "Backup credential delivery refused: the operator policy changed. An explicit approved admission refresh is required before continuing.", false},
 	PersistentArchiveRequired:      {Policy, "Removal refused. Persistent data needs the P04-08 archive path; no data will be deleted.", false},
 	AppNotFound:                    {Validation, "The app has no committed Brine release.", false},

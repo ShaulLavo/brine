@@ -120,7 +120,7 @@ func (w *nativePrepareWork) stop(ctx context.Context, service Service) error {
 		return result.New(result.NativeCaptureLiveRefused, err)
 	}
 	defer attempt.close()
-	material, err := readEngineMaterial(ctx, w.runtime.stateRoot, w.permit)
+	material, err := readPublisherMaterial(ctx, w.runtime.stateRoot, w.permit)
 	if err != nil {
 		return err
 	}

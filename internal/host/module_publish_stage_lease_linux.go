@@ -73,7 +73,7 @@ func acquireInitialPublisherStage(ctx context.Context, source engineEmptySource,
 		}
 		source.initialStage.failureCode = "material_read"
 	}
-	material, err := readEngineMaterial(ctx, preparation.StateRoot(), source.permit)
+	material, err := readPublisherMaterial(ctx, preparation.StateRoot(), source.permit)
 	if err != nil {
 		return nil, datapublish.ErrRecord
 	}
@@ -131,7 +131,7 @@ func acquireRestoredStage(ctx context.Context, source *nativeRestoredSource, art
 	if err != nil {
 		return nil, datapublish.ErrRecord
 	}
-	material, err := readEngineMaterial(ctx, source.preparation.StateRoot(), source.permit)
+	material, err := readPublisherMaterial(ctx, source.preparation.StateRoot(), source.permit)
 	if err != nil {
 		return nil, datapublish.ErrRecord
 	}
@@ -151,7 +151,7 @@ func (l *publicationStageLease) sourceUnchanged(ctx context.Context) error {
 	if err != nil || !sameEnginePermit(l.permit, current) {
 		return datapublish.ErrRecord
 	}
-	material, err := readEngineMaterial(ctx, l.preparation.StateRoot(), current)
+	material, err := readPublisherMaterial(ctx, l.preparation.StateRoot(), current)
 	if err != nil {
 		return datapublish.ErrRecord
 	}

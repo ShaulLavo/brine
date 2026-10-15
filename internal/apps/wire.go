@@ -150,6 +150,9 @@ func DecodeConfigPlan(raw []byte) (ConfigPlan, error) {
 	if exact(raw, reflect.TypeFor[ConfigPlan]()) != nil || json.Unmarshal(raw, &p) != nil || !digestPattern.MatchString(p.PlanID) || p.Kind != plan.Update && p.Kind != plan.NoOp && p.Kind != plan.Conflict {
 		return ConfigPlan{}, strictjson.ErrObject
 	}
+	if p.ManagedLifecycle != nil && (p.Lifecycle != plan.StopApp && p.Lifecycle != plan.StartApp && p.Lifecycle != plan.RestartApp || !p.ManagedLifecycle.Ingress || !p.ManagedLifecycle.Engine && !p.ManagedLifecycle.Frontend) {
+		return ConfigPlan{}, strictjson.ErrObject
+	}
 	if p.SecretRetention != "" && (p.SecretRetention != "d5_retained_releases" || p.Lifecycle != plan.RemoveApp) {
 		return ConfigPlan{}, strictjson.ErrObject
 	}

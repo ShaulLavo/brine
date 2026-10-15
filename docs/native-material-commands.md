@@ -64,7 +64,36 @@ Replan ordinary deployment after publication succeeds.
 
 A later delivery says `stored_unreferenced`. It validates the current material
 and protected runtime, writes new immutable versions and leaves the current
-runtime unchanged. A separate reviewed activation is required to use them.
+runtime unchanged. On an initialized engine, select that delivery with a reviewed
+activation. Use the existing planned lifecycle for the signing reload:
+
+```sh
+brine stop game --engine --target "$target" --json
+brine apply "$stop_plan" --target "$target" --json
+brine data material plan game --delivery "$delivery_operation" --target "$target" --json
+brine data material activate "$material_plan" --target "$target" --json
+brine start game --target "$target" --json
+brine apply "$start_plan" --target "$target" --json
+```
+
+Wait for each lifecycle apply operation to succeed before continuing. `stop
+--engine` includes the engine and frontend and withdraws ingress. Ordinary `stop`
+keeps the engine running when the app has a frontend. Material activation itself
+starts no services. Its plan expires after fifteen minutes and binds the exact
+runtime, epoch, desired-state revision, policy and successful delivery. The plan
+reports whether signing material requires reload. Apply verifies stopped services
+and immutable files, preserves the publisher identity, then atomically selects a
+new runtime version. Repeating an applied plan returns its receipt. Changed state
+requires a fresh review. `native_material_requires_stop` means a full reviewed stop
+is still needed; `native_material_lease_expired` requires renewed material.
+
+Publisher expiry blocks publication and owner-authenticated backup checks. It
+does not block engine startup, serving checks, stop, ordinary deploy or rollback.
+Serving checks read database, owner, names and schema without the publisher token;
+publication also verifies the current module hash through its owner-only endpoint.
+Signing and auth-policy leases still govern the operations that use those roles.
+Older runtime records and signing files remain immutable so retained backup points
+can restore their recorded signing versions.
 
 Keep the reported idempotency key. Repeating the same request returns the same
 metadata, without repeating a private write. Reusing it for other material,

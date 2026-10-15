@@ -419,6 +419,7 @@ func TestNativeAbandonMigrationPreservesNativeJournalRows(t *testing.T) {
 	if err := state.db.QueryRowContext(t.Context(), "SELECT state FROM data_fences WHERE id=?", preparation.intent.FenceID).Scan(&fenceState); err != nil {
 		t.Fatal(err)
 	}
+	dropNativeMaterialActivationMigrationFixture(t, t.Context(), state)
 	abandonExec(t, state.db, "UPDATE schema_version SET version=28")
 	if err := state.migrate(t.Context()); err != nil {
 		t.Fatal(err)

@@ -18,6 +18,7 @@ func TestModulePublicationReviewMigrationPreservesActualPreparedPoint(t *testing
 	// Build the preceding real schema by withdrawing only the new publication
 	// tables from this genuine completed-point fixture. The registry then runs
 	// the production 23-to-24 path rather than a standalone table constructor.
+	dropNativeMaterialActivationMigrationFixture(t, ctx, state)
 	tx, cancel, err := state.beginWrite(ctx)
 	defer cancel()
 	if err != nil {

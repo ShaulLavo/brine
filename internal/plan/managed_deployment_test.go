@@ -176,3 +176,24 @@ func TestManagedPortsRefuseValuesThatWouldWrapTheRuntimePort(t *testing.T) {
 		t.Fatal("out-of-range frontend port accepted")
 	}
 }
+
+func TestManagedEngineStopIncludesFrontendAndEngineForMaterialReload(t *testing.T) {
+	in := managedInitializedFixture(t, true)
+	created, err := Build(in)
+	if err != nil || created.Kind == Conflict {
+		t.Fatal(err, created.Conflicts)
+	}
+	in.State.Releases = []CurrentRelease{{App: created.App, ID: "current", Desired: in.Desired, Image: created.Image, HostPort: created.HostPort, Secrets: []SecretBinding{}, Units: []target.Unit{}, CaddyFile: target.CaddyFile{Name: created.App + ".caddy", Hash: "sha256:" + strings.Repeat("a", 64)}, Managed: created.Managed}}
+	in.Snapshot.Apps = target.Known([]target.App{{Name: created.App, AllocatedHostPort: target.Known(created.HostPort), Image: target.Observation[target.Image]{Status: target.Unknown}, Secrets: target.Known([]target.Secret{}), QuadletUnits: target.Known([]target.Unit{})}})
+	stopped, err := BuildEngineStop(in)
+	if err != nil || len(stopped.Conflicts) != 0 || stopped.ManagedLifecycle == nil {
+		t.Fatal(err, stopped.Conflicts)
+	}
+	flags := stopped.ManagedLifecycle
+	if !flags.Engine || !flags.Frontend || flags.EngineRunning || flags.FrontendRunning || flags.IngressServing || !flags.Valid(StopApp, *stopped.Managed, stopped.ManagedIntentRevision) {
+		t.Fatal("full stop omitted a managed component")
+	}
+	if _, err = stopped.CanonicalBytes(); err != nil {
+		t.Fatal(err)
+	}
+}

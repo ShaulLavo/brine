@@ -171,7 +171,9 @@ func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desi
 		return result.New(result.Conflict, err)
 	}
 	var fresh plan.Plan
-	if p.Lifecycle != "" {
+	if p.Lifecycle == plan.StopApp && p.ManagedLifecycle != nil && p.ManagedLifecycle.Engine {
+		fresh, err = plan.BuildEngineStop(facts.Input)
+	} else if p.Lifecycle != "" {
 		fresh, err = plan.BuildLifecycle(facts.Input, p.Lifecycle)
 	} else {
 		fresh, err = plan.Build(facts.Input)
