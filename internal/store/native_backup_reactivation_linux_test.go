@@ -128,7 +128,9 @@ func checkNativeBackupReactivation(t *testing.T, interrupted bool) {
 	if err != nil || material.PolicySHA256 != active.PolicySHA256 || material.CredentialRecord.PolicyHash == current.Hash() {
 		t.Fatal("capture and recovery authorization still uses the credential's old policy", err)
 	}
+	assertNativeReactivatedLifecycle(t, s, desired)
 	assertNativeReactivatedPreparation(t, s, active, requester)
+	assertNativeReactivatedCredential(t, s, active, material)
 }
 
 func resumeNativeReactivation(t *testing.T, s *Store, op ops.Operation, activation *NativeBackupActivation) *NativeBackupInspection {
@@ -321,5 +323,31 @@ func assertNativeReactivatedConsumers(t *testing.T, s *Store, point NativePrepar
 	point.PolicySHA256 = strings.Repeat("0", 64)
 	if err := checkNativePreparedCurrentPolicy(t.Context(), tx, point); err == nil {
 		t.Fatal("old prepared point admitted after reactivation")
+	}
+}
+
+func assertNativeReactivatedLifecycle(t *testing.T, s *Store, desired policy.Desired) {
+	t.Helper()
+	in := nativeReactivationInput(t, s, desired)
+	var err error
+	in.State, err = s.LoadBrineState(t.Context(), in.Snapshot.Identity, *in.Snapshot.Generation.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Managed.OwnedNativeState = target.Known("running")
+	for _, action := range []plan.ChangeKind{plan.StartApp, plan.StopApp, plan.RestartApp} {
+		p, err := plan.BuildLifecycle(in, action)
+		if err != nil || p.Kind == plan.Conflict {
+			t.Errorf("lifecycle %s after successful reactivation: %v %v", action, p.Conflicts, err)
+		}
+	}
+}
+
+func assertNativeReactivatedCredential(t *testing.T, s *Store, active NativeBackupPolicy, material NativeRepositoryMaterial) {
+	t.Helper()
+	intent := nativeRepositoryIntent{record: nativeRepositoryIntentRecord{BindingID: active.BindingID, SourceEpochID: active.EpochID, PolicySHA256: active.PolicySHA256}, archive: data.ArchiveBinding{Destination: data.Destination{Reference: data.BackupDestinationRef(material.CredentialRecord.Destination), CredentialRef: material.CredentialReference}}}
+	result := NativeInitializedRepositoryResult{Scope: material.Scope, VerifiedAt: time.Now().UTC()}
+	if err := checkNativeInitializedCredential(t.Context(), s.db, intent, result); err != nil {
+		t.Error("reactivated credential cannot initialize the next epoch", err)
 	}
 }

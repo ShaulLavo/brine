@@ -382,22 +382,27 @@ func (o nativeBackupResolutionOperations) inspectActivation(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	v.unitsState, err = o.inspectActivationUnits(ctx, v.activation, stage)
+	return err
+}
+
+func (o nativeBackupResolutionOperations) inspectActivationUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata, stage string) (string, error) {
+	var err error
 	if stage == "prepared" {
-		if err = o.absentUnits(ctx, v.activation); err != nil {
-			return err
+		if err = o.absentUnits(ctx, metadata); err != nil {
+			return "", err
 		}
-		v.unitsState = "not_issued"
-	} else if err = o.verifyUnits(ctx, v.activation); err == nil {
-		v.unitsState = "verified"
+		return "not_issued", nil
+	} else if err = o.verifyUnits(ctx, metadata); err == nil {
+		return "verified", nil
 	} else if stage == "units_issued" {
-		if err = o.absentUnits(ctx, v.activation); err != nil {
-			return err
+		if err = o.absentUnits(ctx, metadata); err != nil {
+			return "", err
 		}
-		v.unitsState = "issued_absent"
+		return "issued_absent", nil
 	} else {
-		return err
+		return "", err
 	}
-	return nil
 }
 
 func (o nativeBackupResolutionOperations) inspectUpload(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved, client *restic.Client, repository restic.Repository) error {
