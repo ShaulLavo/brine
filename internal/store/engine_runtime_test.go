@@ -13,7 +13,7 @@ import (
 
 func engineRuntimeFixture(reserved ReservedEngine) data.EngineRuntime {
 	secret := func(reference string) data.EngineSecretVersion {
-		return data.EngineSecretVersion{Reference: reference, Version: 1, SHA256: strings.Repeat("a", 64), ExpiresAt: time.Now().UTC().Add(time.Hour)}
+		return data.EngineSecretVersion{Reference: reference, Version: 1, SHA256: strings.Repeat("a", 64), ExpiresAt: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)}
 	}
 	return data.EngineRuntime{BindingID: reserved.Database.BindingID, EpochID: reserved.Archive.EpochID, State: data.EngineInitialized, Image: data.SpacetimeDBImage, ManifestDigest: data.SpacetimeDBAMD64Manifest, ImageID: strings.Repeat("a", 64), Version: "2.11.0", Runtime: data.RuntimeIdentity{UID: 1000, GID: 1000}, HostPort: 23111, Database: data.NativeDatabaseIdentity(strings.Repeat("e", 64)), Publisher: data.NativePublisherIdentity(strings.Repeat("f", 64)), Names: []string{"game"}, Module: data.EngineModuleDefinition{Program: data.NativeProgramWireHash(strings.Repeat("b", 64)), Wasm: data.WasmSHA256(strings.Repeat("c", 64)), Schema: data.EngineSchemaDefinition{Marker: "game-v1", Canonicalizer: "spacetimedb-v10-expanded-v2", SHA256: strings.Repeat("d", 64)}}, Secrets: data.EngineSecrets{Publisher: secret("publisher"), SigningPrivate: secret("signing-private"), SigningPublic: secret("signing-public"), AuthPolicy: secret("auth-policy")}, MemoryMB: 256, PIDsLimit: 128, PagePoolMB: 64, StopSeconds: 10, StartupSeconds: 60, CopyBytes: 1 << 20, CopyFiles: 128, UnitSHA256: strings.Repeat("a", 64)}
 }
