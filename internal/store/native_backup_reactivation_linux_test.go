@@ -15,10 +15,17 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func TestNativeBackupReactivationOnInitializedEngine(t *testing.T) {
+	t.Run("normal", func(t *testing.T) { checkNativeBackupReactivation(t, false) })
+	t.Run("interrupted", func(t *testing.T) { checkNativeBackupReactivation(t, true) })
+}
+
+func checkNativeBackupReactivation(t *testing.T, interrupted bool) {
+	t.Helper()
 	s, original, _ := managedControlFixture(t)
 	ctx := t.Context()
 	_, desired, err := s.LoadPlan(ctx, original.Hash)
@@ -73,20 +80,36 @@ func TestNativeBackupReactivationOnInitializedEngine(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = activation.Close() })
 	metadata, err := activation.Metadata(ctx)
-	if err != nil || metadata.Material.CredentialRecord.PolicyHash == current.Hash() {
+	if err != nil || metadata.Material.PolicySHA256 != strings.TrimPrefix(current.Hash(), "sha256:") || metadata.Material.CredentialRecord.PolicyHash == current.Hash() {
 		t.Fatal("reactivation must reuse the original credential provenance", err)
 	}
 	if err := activation.BeginUnits(ctx); err != nil {
 		t.Fatal(err)
 	}
+	var inspection *NativeBackupInspection
+	if interrupted {
+		inspection = resumeNativeReactivation(t, s, op, activation)
+		activation, err = inspection.Activation(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	receipt, err := activation.Commit(ctx, NativeBackupActivationObservation{RepositoryID: previous.RepositoryID, UnitSHA256: previous.UnitSHA256, TimerSHA256: previous.TimerSHA256, RecoveryDeliveryID: previous.RecoveryDeliveryID})
 	if err != nil {
 		t.Fatal(err)
 	}
+	outcome, completed := abandonJSON(t, receipt), op.ID
+	if inspection != nil {
+		resolved, err := inspection.Complete(ctx, strings.Repeat("1", 64), outcome)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outcome, completed = abandonJSON(t, resolved), resolved.OperationID
+	}
 	if err := activation.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CompleteTask(ctx, op.ID, ops.Succeeded, ops.TaskOutcome{Receipt: abandonJSON(t, receipt)}); err != nil {
+	if err := s.CompleteTask(ctx, completed, ops.Succeeded, ops.TaskOutcome{Receipt: outcome}); err != nil {
 		t.Fatal(err)
 	}
 	active, err := s.ReadNativeBackupPolicy(ctx, previous.BindingID)
@@ -101,7 +124,51 @@ func TestNativeBackupReactivationOnInitializedEngine(t *testing.T) {
 	if err != nil || string(abandonJSON(t, before)) != string(abandonJSON(t, after)) {
 		t.Fatal("reactivation changed the live runtime, allocation or fences", err)
 	}
+	material, err := readNativeCurrentRepositoryMaterial(ctx, s.db, after)
+	if err != nil || material.PolicySHA256 != active.PolicySHA256 || material.CredentialRecord.PolicyHash == current.Hash() {
+		t.Fatal("capture and recovery authorization still uses the credential's old policy", err)
+	}
 	assertNativeReactivatedPreparation(t, s, active, requester)
+}
+
+func resumeNativeReactivation(t *testing.T, s *Store, op ops.Operation, activation *NativeBackupActivation) *NativeBackupInspection {
+	t.Helper()
+	ctx := t.Context()
+	if err := activation.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CompleteTask(ctx, op.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.InternalError}); err != nil {
+		t.Fatal(err)
+	}
+	i, err := s.OpenNativeBackupInspection(ctx, op.ID, op.Requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = i.Close() })
+	material, err := i.Material(ctx)
+	if err != nil || material.PolicySHA256 != activation.plan.PolicySHA256 || material.CredentialRecord.PolicyHash == "sha256:"+material.PolicySHA256 {
+		t.Fatal("interrupted reactivation used the credential's old policy", err)
+	}
+	review, err := i.Review(ctx, strings.Repeat("1", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := i.Close(); err != nil {
+		t.Fatal(err)
+	}
+	resolve, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.NativeBackupResolve, App: op.App, SecretRef: review.ID, RecoveryOf: op.ID}, op.Requester, "resolve-reactivation")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOperationState(ctx, resolve.ID, ops.Preflight); err != nil {
+		t.Fatal(err)
+	}
+	claimed, err := s.ClaimNativeBackupResolution(ctx, resolve.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = claimed.Close() })
+	return claimed
 }
 
 func nativeReactivationInput(t *testing.T, s *Store, desired policy.Desired) plan.Input {
@@ -172,6 +239,10 @@ func seedNativeReactivationPolicy(t *testing.T, s *Store, deployment plan.Plan, 
 	if err := s.CompleteTask(ctx, op.ID, ops.Succeeded, ops.TaskOutcome{Receipt: abandonJSON(t, recovery)}); err != nil {
 		t.Fatal(err)
 	}
+	var recoveryID string
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM data_native_recovery_deliveries WHERE operation_id=?", op.ID).Scan(&recoveryID); err != nil {
+		t.Fatal(err)
+	}
 	op, _, err = s.CreateOperation(ctx, ops.Intent{Kind: ops.NativeBackupActivate, App: deployment.App, SecretRef: id}, requester, "previous-backup")
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +250,7 @@ func seedNativeReactivationPolicy(t *testing.T, s *Store, deployment plan.Plan, 
 	if err := s.SetOperationState(ctx, op.ID, ops.Preflight); err != nil {
 		t.Fatal(err)
 	}
-	previous := NativeBackupPolicy{Format: "brine-native-backup-policy-v1", BindingID: scope.Database.BindingID, EpochID: scope.Archive.EpochID, Revision: 1, OperationID: op.ID, RevisionPlanID: id, DeploymentPlanID: deployment.Hash, DesiredSHA256: strings.TrimPrefix(deployment.DesiredHash, "sha256:"), PolicySHA256: strings.TrimPrefix(scope.PolicyHash, "sha256:"), RepositoryID: hash, CredentialReference: credential.CredentialRef, CredentialVersion: 1, CredentialReceiptID: credential.ID, RecoveryReference: input.Reference, RecoveryVersion: 1, RecoveryDeliveryID: input.ID, RecoverySHA256: hash, Backup: *desired.SpacetimePolicy, UnitSHA256: hash, TimerSHA256: hash, ActivatedAt: time.Now().UTC()}
+	previous := NativeBackupPolicy{Format: "brine-native-backup-policy-v1", BindingID: scope.Database.BindingID, EpochID: scope.Archive.EpochID, Revision: 1, OperationID: op.ID, RevisionPlanID: id, DeploymentPlanID: deployment.Hash, DesiredSHA256: strings.TrimPrefix(deployment.DesiredHash, "sha256:"), PolicySHA256: strings.TrimPrefix(scope.PolicyHash, "sha256:"), RepositoryID: hash, CredentialReference: credential.CredentialRef, CredentialVersion: 1, CredentialReceiptID: credential.ID, RecoveryReference: input.Reference, RecoveryVersion: 1, RecoveryDeliveryID: recoveryID, RecoverySHA256: hash, Backup: *desired.SpacetimePolicy, UnitSHA256: hash, TimerSHA256: hash, ActivatedAt: time.Now().UTC()}
 	raw := abandonJSON(t, previous)
 	abandonExec(t, s.db, "INSERT INTO data_native_backup_policies VALUES(?,?,?,?)", previous.BindingID, previous.Revision, previous.EpochID, raw)
 	receipt := nativecapture.BackupPolicyReceipt{Kind: string(ops.NativeBackupActivate), OperationID: op.ID, BindingID: string(previous.BindingID), EpochID: string(previous.EpochID), PlanID: id, Revision: 1, RepositoryID: hash, PolicySHA256: nativePointHash(raw), Outcome: "active"}
@@ -220,9 +291,35 @@ func assertNativeReactivatedPreparation(t *testing.T, s *Store, active NativeBac
 	if err != nil || prepared.intent.PolicySHA256 != active.PolicySHA256 {
 		t.Fatal("new preparation retained the previous policy", err)
 	}
+	point := NativePreparedPointView{BindingID: active.BindingID, EpochID: active.EpochID, DatabaseID: prepared.intent.DatabaseID, IncarnationID: prepared.intent.IncarnationID, RuntimeVersion: prepared.intent.RuntimeVersion, RuntimeSHA256: prepared.intent.RuntimeSHA256, AllocationSHA256: prepared.intent.AllocationSHA256, PolicySHA256: prepared.intent.PolicySHA256}
+	assertNativeReactivatedConsumers(t, s, point)
 	var retained CredentialRecord
 	var raw []byte
 	if err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE id=?", active.CredentialReceiptID).Scan(&raw); err != nil || json.Unmarshal(raw, &retained) != nil || retained.PolicyHash == "sha256:"+active.PolicySHA256 {
 		t.Fatal("reactivation rewrote historical credential provenance", err)
+	}
+}
+
+func assertNativeReactivatedConsumers(t *testing.T, s *Store, point NativePreparedPointView) {
+	t.Helper()
+	tx, err := s.db.BeginTx(t.Context(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err := checkNativePreparedCurrentPolicy(t.Context(), tx, point); err != nil {
+		t.Fatal("fresh preparation cannot enter consumption or abandonment", err)
+	}
+	facts, _, err := readNativeLiveRestoreCurrentTx(t.Context(), tx, nativePreparedPoint{view: point})
+	if err != nil || facts.PolicySHA256 != point.PolicySHA256 {
+		t.Fatal("live restore reads the previous admission", err)
+	}
+	head := ManagedRouteState{App: facts.App, BindingID: point.BindingID, EpochID: point.EpochID, RuntimeSHA256: point.RuntimeSHA256}
+	if err := nativeRouteWithdrawalCurrent(t.Context(), tx, head, "sha256:"+point.PolicySHA256, point); err != nil {
+		t.Fatal("fresh preparation cannot enter lifecycle routing", err)
+	}
+	point.PolicySHA256 = strings.Repeat("0", 64)
+	if err := checkNativePreparedCurrentPolicy(t.Context(), tx, point); err == nil {
+		t.Fatal("old prepared point admitted after reactivation")
 	}
 }

@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
@@ -22,17 +23,18 @@ type nativeBackupPolicyOperations struct {
 func admitNativeBackupPolicy(ctx context.Context, service Service, binding data.ReplicaBindingID) (store.NativeBackupPolicy, error) {
 	backup, err := service.Store.ReadNativeBackupPolicy(ctx, binding)
 	pol, policyErr := service.Policy.Load(ctx)
-	if err != nil || policyErr != nil {
+	if err != nil || policyErr != nil || pol.Hash() != "sha256:"+backup.PolicySHA256 {
 		return store.NativeBackupPolicy{}, result.New(result.PolicyRefused, nil)
-	}
-	deployment, desired, err := service.Store.LoadPlan(ctx, backup.DeploymentPlanID)
-	if err != nil || deployment.Managed == nil || deployment.Managed.Database.BindingID != binding || deployment.DesiredHash != "sha256:"+backup.DesiredSHA256 || desired.PolicyHash != "sha256:"+backup.PolicySHA256 || desired.SpacetimePolicy == nil || *desired.SpacetimePolicy != backup.Backup {
-		return store.NativeBackupPolicy{}, result.New(result.PolicyRefused, nil)
-	}
-	if err := pol.CheckNativeBackup(desired); err != nil {
-		return store.NativeBackupPolicy{}, err
 	}
 	return backup, nil
+}
+
+func checkNativePointPolicy(ctx context.Context, service Service, expected string) error {
+	current, err := service.Policy.Load(ctx)
+	if err != nil || current.Hash() != "sha256:"+expected {
+		return result.New(result.PolicyRefused, err)
+	}
+	return nil
 }
 
 func (o nativeBackupPolicyOperations) PlanPolicy(ctx context.Context, args dispatch.NativeBackupPolicyPlanArgs) (dispatch.NativeBackupPolicyPlanView, error) {
@@ -45,6 +47,12 @@ func (o nativeBackupPolicyOperations) PlanPolicy(ctx context.Context, args dispa
 		return dispatch.NativeBackupPolicyPlanView{}, result.New(result.PolicyRefused, nil)
 	}
 	plan, err := o.service.Store.SaveNativeBackupRevisionPlan(ctx, args.DeploymentPlanID, o.jobs.Requester)
+	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
+		return dispatch.NativeBackupPolicyPlanView{}, result.New(result.Conflict, nil)
+	}
+	if errors.Is(err, store.ErrInvalid) {
+		return dispatch.NativeBackupPolicyPlanView{}, result.New(result.InvalidUsage, nil)
+	}
 	if err != nil {
 		return dispatch.NativeBackupPolicyPlanView{}, err
 	}

@@ -1438,6 +1438,17 @@ are written privately before submission; operation journals contain references
 and hashes only. Native S3 credential delivery uses actual native archive scope
 and does not construct a SQLite replica.
 
+Native backup activation binds the complete current operator-policy hash. A
+policy-only edit of an unchanged managed app can produce a backup revision from
+a fresh connected deployment plan. Activating that revision records the new
+data admission atomically with the backup policy and preserves the runtime,
+allocation, fences, repository and immutable credential provenance. New
+preparations and verified captures use the activated policy hash. Recovery uses
+the selected backup or activation policy, rather than the credential delivery's
+historical hash. Existing prepared points remain bound to their old admission
+and refuse consumption after reactivation. Planning conflicts return typed
+`conflict` errors.
+
 Routine capture holds the binding launch guard while the native writer remains
 running. It copies selected owned history, checks captured prefixes independently,
 and derives the actual sole replica and bounded compressed expansion sizes.

@@ -212,9 +212,11 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 		}
 	}()
 	material, err := i.Material(ctx)
-	pol, policyErr := o.service.Policy.Load(ctx)
-	if err != nil || policyErr != nil || pol.Hash() != material.CredentialRecord.PolicyHash {
-		return nil, result.New(result.PolicyRefused, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkNativePointPolicy(ctx, o.service, material.PolicySHA256); err != nil {
+		return nil, err
 	}
 	v.material = material
 	if i.OriginalKind() == ops.NativePrepare {

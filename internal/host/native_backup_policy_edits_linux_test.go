@@ -20,7 +20,7 @@ import (
 )
 
 func TestNativeBackupsAcrossOperatorPolicyEdits(t *testing.T) {
-	for _, edit := range []string{"unchanged", "allow_live_restore", "destination"} {
+	for _, edit := range []string{"unchanged", "allow_live_restore", "destination", "remove_root", "add_root"} {
 		t.Run(edit, func(t *testing.T) { checkNativeBackupPolicyEdit(t, edit) })
 	}
 }
@@ -53,6 +53,10 @@ func checkNativeBackupPolicyEdit(t *testing.T, edit string) {
 		source = "allow_live_restore = true\n" + source
 	case "destination":
 		source = strings.Replace(source, "https://storage.example.com", "https://elsewhere.example.com", 1)
+	case "remove_root":
+		source = strings.Replace(source, string(f.desired.SpacetimeDB.PersistentRoot), "/srv/revoked-root", 1)
+	case "add_root":
+		source = strings.Replace(source, "persistent_roots = [", "persistent_roots = [\"/srv/other-root\", ", 1)
 	}
 	current, err := policy.Parse([]byte(source))
 	if err != nil {
@@ -75,9 +79,9 @@ func checkNativeBackupPolicyEdit(t *testing.T, edit string) {
 		} else {
 			accepted, err = operations.Capture(ctx, dispatch.NativeCaptureArgs{App: f.plan.App, Database: string(f.desired.SpacetimeDB.Name), IdempotencyKey: key})
 		}
-		if edit == "destination" {
+		if edit != "unchanged" {
 			if err == nil || result.Classify(err).Code() != result.PolicyRefused || len(launcher.ids) != 0 {
-				t.Fatalf("%s admitted a changed destination: %v", kind, err)
+				t.Fatalf("%s admitted %s before reactivation: %v", kind, edit, err)
 			}
 			continue
 		}

@@ -40,6 +40,9 @@ func (o nativeBackupOperations) Abandon(ctx context.Context, args dispatch.Nativ
 	if err != nil || point.SourceKind != "initialized" {
 		return jobs.Accepted{}, result.New(result.PolicyRefused, err)
 	}
+	if err := checkNativePointPolicy(ctx, o.service, point.PolicySHA256); err != nil {
+		return jobs.Accepted{}, err
+	}
 	_, _, app, err := o.service.Store.ReadNativePreparedStopExpectation(ctx, point.PointID)
 	if err != nil {
 		return jobs.Accepted{}, err
@@ -73,6 +76,9 @@ func (o nativeBackupOperations) TestRestore(ctx context.Context, args dispatch.N
 	}
 	point, err := o.service.Store.ReadNativeVerifiedPoint(ctx, args.PointID)
 	if err != nil {
+		return jobs.Accepted{}, err
+	}
+	if err := checkNativePointPolicy(ctx, o.service, point.PolicySHA256); err != nil {
 		return jobs.Accepted{}, err
 	}
 	app, err := o.service.Store.ActiveNativeBindingApp(ctx, point.BindingID)

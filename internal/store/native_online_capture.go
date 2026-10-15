@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -274,8 +273,7 @@ func (c *NativeOnlineCapture) Complete(ctx context.Context, extracted restic.Aut
 		}
 	}
 	now := time.Now().UTC()
-	v := NativeVerifiedPointView{Format: "brine-native-verified-point-v1", PointID: c.pointID, OperationID: c.operationID, BindingID: runtime.BindingID, EpochID: runtime.EpochID, DatabaseID: c.permit.Reserved.Database.DatabaseID, IncarnationID: c.permit.Reserved.Database.IncarnationID, GenerationID: record.GenerationID, RepositoryID: metadata.Scope.RepositoryID, SourceSHA256: observed.Source.SHA256(), CheckpointSHA256: checkpoint.SHA256(), ManifestSHA256: observed.Manifest.SHA256(), TransportSHA256: nativePointHash(transportRaw), SourceEvidenceSHA256: observed.SourceEvidence.SHA256(), RestoreEvidenceSHA256: observed.RestoredEvidence.SHA256(), ConfirmedBoundSHA256: observed.ConfirmedBound.SHA256(), FinalPairsSHA256: final.SHA256(), PolicySHA256: metadata.CredentialRecord.PolicyHash, DestinationSHA256: metadata.Scope.DestinationSHA256, CredentialReference: metadata.CredentialReference, CredentialVersion: metadata.Scope.CredentialVersion, RecoveryReference: metadata.RecoveryReference, RecoveryVersion: metadata.Scope.RecoveryVersion, CommittedOffset: observed.SourceEvidence.Offset(), CapturedAt: c.capturedAt, VerifiedAt: now, RetainUntil: now.Add(30 * 24 * time.Hour), LaterLoss: "unknown"}
-	v.PolicySHA256 = strings.TrimPrefix(v.PolicySHA256, "sha256:")
+	v := NativeVerifiedPointView{Format: "brine-native-verified-point-v1", PointID: c.pointID, OperationID: c.operationID, BindingID: runtime.BindingID, EpochID: runtime.EpochID, DatabaseID: c.permit.Reserved.Database.DatabaseID, IncarnationID: c.permit.Reserved.Database.IncarnationID, GenerationID: record.GenerationID, RepositoryID: metadata.Scope.RepositoryID, SourceSHA256: observed.Source.SHA256(), CheckpointSHA256: checkpoint.SHA256(), ManifestSHA256: observed.Manifest.SHA256(), TransportSHA256: nativePointHash(transportRaw), SourceEvidenceSHA256: observed.SourceEvidence.SHA256(), RestoreEvidenceSHA256: observed.RestoredEvidence.SHA256(), ConfirmedBoundSHA256: observed.ConfirmedBound.SHA256(), FinalPairsSHA256: final.SHA256(), PolicySHA256: metadata.PolicySHA256, DestinationSHA256: metadata.Scope.DestinationSHA256, CredentialReference: metadata.CredentialReference, CredentialVersion: metadata.Scope.CredentialVersion, RecoveryReference: metadata.RecoveryReference, RecoveryVersion: metadata.Scope.RecoveryVersion, CommittedOffset: observed.SourceEvidence.Offset(), CapturedAt: c.capturedAt, VerifiedAt: now, RetainUntil: now.Add(30 * 24 * time.Hour), LaterLoss: "unknown"}
 	if !nativeBundleEvidenceMatches(v, checkpoint, observed.SourceEvidence) || !nativeBundleEvidenceMatches(v, checkpoint, observed.RestoredEvidence) || checkNativeVerifiedBundleRecords(v, sourceRaw, observed.Manifest.Bytes(), transportRaw) != nil || !validNativeVerifiedPoint(v) {
 		return NativeVerifiedPointView{}, ErrConflict
 	}

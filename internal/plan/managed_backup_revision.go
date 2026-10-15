@@ -10,7 +10,7 @@ func ManagedBackupOnly(after, before policy.Desired) bool {
 	if after.SpacetimeDB == nil || before.SpacetimeDB == nil {
 		return false
 	}
-	changed := after.SpacetimeDB.RecoveryPasswordRef != before.SpacetimeDB.RecoveryPasswordRef || !reflect.DeepEqual(after.SpacetimePolicy, before.SpacetimePolicy) || !reflect.DeepEqual(after.BackupRetention, before.BackupRetention)
+	changed := after.PolicyHash != before.PolicyHash || after.SpacetimeDB.RecoveryPasswordRef != before.SpacetimeDB.RecoveryPasswordRef || !reflect.DeepEqual(after.SpacetimePolicy, before.SpacetimePolicy) || !reflect.DeepEqual(after.BackupRetention, before.BackupRetention)
 	if !changed {
 		return false
 	}

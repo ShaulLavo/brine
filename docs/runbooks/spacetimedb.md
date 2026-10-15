@@ -175,6 +175,23 @@ tokens, S3 credentials and the recovery password stay outside it. Preserve every
 immutable signing and recovery version needed by a retained point or archive.
 Brine does not mint or extend issuer credentials.
 
+Backups bind the complete operator-policy hash. After an operator-policy edit,
+including enabling `allow_live_restore`, save a fresh connected deployment plan
+for the unchanged app and reactivate backups:
+
+```sh
+brine plan brine.toml --target TARGET --json
+brine backup policy plan --deployment-plan CURRENT_DEPLOYMENT_PLAN_ID --target TARGET --json
+brine backup policy activate BACKUP_PLAN_ID --target TARGET --json
+```
+
+Wait for activation to succeed before capturing or preparing again. Reactivation
+reuses the existing repository and private material. It records the current
+policy admission without restarting the initialized engine. Newly prepared
+points bind that admission and can enter a separately granted live restore.
+Prepared points from the previous policy stay refused. Complete or abandon an
+unused preparation and resume the app before editing policy.
+
 ## Publish the first module and deploy
 
 Activate backups before preparing the exact empty allocation:
