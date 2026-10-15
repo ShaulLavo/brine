@@ -175,6 +175,45 @@ head. The reconstructed set had ten sites; the observed set had nine. Caddy's
 drift check correctly refused this mismatch. Successful ordinary ingress
 resume remains unproved.
 
+### Source56 resume, logic-only update and compatible rollback
+
+Executed CLI 0.1.56-dev came from branch `fix/p09-withdrawn-stop` (PR172), built
+with `scripts/build-cli-pair.sh` from clean trees. The final installed arm64 CLI
+SHA256 was
+`8262f15d98dc599959409a1756b9c848244696c3614604aa4a1610fb7fef391b`.
+Each helper replacement first stopped the frontend and engine units cleanly
+(engine exit 0, no OOM), because a running engine keeps the old helper bound and
+reports unknown native state.
+
+| Step | Actual result |
+| --- | --- |
+| Public stop on the source54 state | `01a13e146407c9d5276e4571a084bde1a5704df4c123` failed at `managed_withdraw`/`route_invalid` on the 0.1.54 helper. PR172 skips removal of a route already recorded as withdrawn. |
+| Public stop, then start | `01a13e185a8a2158ec01ae13f5deb8cd1e4962f74790` and `01a13e18eda426e0d66a35c0c37dd3a8bb670bfa5029` succeeded. Ingress was published again and the SDK confirmed all 144 rows. |
+| Exact preparation | `01a13e1cd35552c29ea4bd1e7a0b0dbc0d6beaa360fe` verified point `a5108468bb7dc84a02268ef7d0695bc2` with 44,127 ms maintenance. |
+| Logic-only module publication | `01a13e1e4be6148f1d3f28a7d421dc69bd2dc62a0a5c` published Wasm `7cc9e994…` and activated epoch `b84f41cb3631b5b117cc9fcabe7c14ad`. |
+| Frontend deployment | Planning refused until PR172 accepted the withdrawal after the completed transition. Operation `01a13e2609000e908fbd2c081219d2e39c2107b91a0c` then succeeded. |
+| Data and reducer change | 144 rows were preserved. A duplicate sequence was refused with `sequence already committed`. Confirmed write 145 succeeded. |
+| Compatible rollback | Planning took 21.7 seconds, beyond the old 15-second budget. Operation `01a13e2bd2d7ddaf0a2e4ff3ae48250e6c7a6864122c` restored the original frontend release. All 145 rows remained and the engine stayed on the new epoch. |
+| Live restore denial | `restore native-live plan` without the grant returned `policy_refused`. |
+
+### Source56 blockers
+
+Adding `allow_live_restore = true` changes the operator policy hash. The active
+native backup policy is bound to that hash, so `backup prepare` returned
+`policy_refused`, and `backup policy plan` for a current deployment plan returned
+`internal_error`. The original policy was restored byte for byte. Positive live
+restore did not run.
+
+After the restored policy, exact preparation
+`01a13e312df4345f4a5bb1b8962fa9d9634602cdbe51` on epoch `b84f…` withdrew ingress
+and stopped the frontend, then failed with `internal_error` while binding the
+running engine for stop. It ended `recovery_required` with the fence held. The
+engine unit still runs behind the withdrawn route. `backup recovery inspect`
+refuses with `conflicting control record` because
+`nativePreparedOriginalIdentity` accepts only two or six preparation events.
+This is the current Pi state. Archive, recreate and the held-fence reboot did not
+run.
+
 ## Earned amd64 results
 
 Fresh public enrollment and exact restricted assets were installed on the
@@ -290,10 +329,10 @@ keys, publisher tokens, remote credentials and inventories are omitted here.
 
 | Case | Current scope |
 | --- | --- |
-| Unused-point abandonment and ordinary resume | Source53 abandonment succeeded and released only the original fence. Source54 started and checked engine/frontend, then failed to publish ingress. Successful routed resume remains unproved. |
-| Genuine logic/additive/default module updates and compatible rollback | Published artifacts and finite recovery profiles exist. Actual update/paired-client/data-preservation and rollback cases remain. |
+| Unused-point abandonment and ordinary resume | Source53 abandonment succeeded. Source56 stop/start resumed routed ingress with all 144 rows. |
+| Genuine logic/additive/default module updates and compatible rollback | Source56 logic-only update and compatible rollback succeeded. Additive and default-column updates remain. Preparation after a changed-module publication is blocked (see Source56 blockers). |
 | Destructive/access/hook/manual/stale/artifact/source/role refusals | Historical native/pure-core facts exist. Assigned current whole-operation negatives remain. |
-| Live restore | Default-denied and separately granted positive restoration, new stopped epoch, original retention and compatible resume remain. |
+| Live restore | Default denial is proved. Granting it voids the backup policy activation (see Source56 blockers); positive restoration remains. |
 | Controlled interruption and held-fence reboot | Current selection/head-copy/checkpoint/fsync/upload/remote-verification/publish/swap/epoch/restore/archive boundaries and supported original recovery remain. Historical restart/observer proofs do not replace them. |
 | Other current fault cases | Competing locks/captures, credential expiry/outage, missing/corrupt members, metadata drift and uncertain/forced stop require their assigned bounded evidence. Reuse the [native prerequisite results](p09-runtime.md). |
 | Whole-binding archive and recreate | 30-day remote/key retention, original-scoped renewal, early-expiry/default-purge refusal, authorized eligible local purge and distinct same-name recreation remain. Expiry success needs a genuinely elapsed original deadline. |
