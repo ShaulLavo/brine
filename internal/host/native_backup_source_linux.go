@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -114,4 +115,22 @@ func observeNativeConfirmed(ctx context.Context, permit store.EnginePermit, mate
 	}
 	observed, err := spacetimedb.ObserveConfirmedPairs(ctx, endpoint, credential, expected, module.artifact.Bytes(), module.candidate.candidate.Schema(), spacetimedb.DefaultObserverLimits())
 	return observed.Record(), err
+}
+
+type nativePublicationArtifactSource interface {
+	ReadNativeCurrentPublicationArtifact(context.Context, data.ReplicaBindingID) (datapublish.Artifact, error)
+}
+
+func readNativeCurrentArtifact(ctx context.Context, source nativePublicationArtifactSource, root *os.Root, permit store.EnginePermit) (datapublish.Artifact, error) {
+	artifact, err := source.ReadNativeCurrentPublicationArtifact(ctx, permit.Runtime.BindingID)
+	if errors.Is(err, store.ErrNotFound) {
+		return readNativeProgramArtifact(ctx, root, permit)
+	}
+	if err != nil {
+		return datapublish.Artifact{}, err
+	}
+	if string(artifact.WasmSHA256()) != string(permit.Runtime.Module.Wasm) || string(artifact.ProgramWireHash()) != string(permit.Runtime.Module.Program) {
+		return datapublish.Artifact{}, errEngineSource
+	}
+	return artifact, nil
 }

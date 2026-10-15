@@ -187,6 +187,23 @@ versions. Publisher expiry prevents publication and owner-authenticated backup
 work, while ordinary start, serving checks, stop, deploy and rollback remain
 available. Brine never renews or re-signs the supplied token itself.
 
+Backups bind the complete operator-policy hash. After an operator-policy edit,
+including enabling `allow_live_restore`, save a fresh connected deployment plan
+for the unchanged app and reactivate backups:
+
+```sh
+brine plan brine.toml --target TARGET --json
+brine backup policy plan --deployment-plan CURRENT_DEPLOYMENT_PLAN_ID --target TARGET --json
+brine backup policy activate BACKUP_PLAN_ID --target TARGET --json
+```
+
+Wait for activation to succeed before capturing or preparing again. Reactivation
+reuses the existing repository and private material. It records the current
+policy admission without restarting the initialized engine. Newly prepared
+points bind that admission and can enter a separately granted live restore.
+Prepared points from the previous policy stay refused. Complete or abandon an
+unused preparation and resume the app before editing policy.
+
 ## Publish the first module and deploy
 
 Activate backups before preparing the exact empty allocation:
@@ -500,6 +517,14 @@ removal condition. Never use blanket host pruning.
 
 Use the existing pinned version until the
 [runtime and physical exit gates](../plans/09-spacetimedb.md#exit-gate) pass for
-an upgrade. HA, arbitrary point-in-time recovery and unqualified live-copy states
+an upgrade. After an operator atomically replaces `/usr/local/bin/brine`, a running
+engine retains the old read-only helper until its container stops. Brine recognizes
+that unlinked helper when the engine's other ownership checks still pass, so normal
+`brine stop APP` and `brine restart APP` plans remain available. Apply the restart
+plan for an engine-only app to stop the engine and mount the installed helper on
+start. A frontend app's restart affects only its frontend and does not replace
+the engine helper. New startup and publication still require the installed helper.
+
+HA, arbitrary point-in-time recovery and unqualified live-copy states
 remain unsupported. The [acceptance matrix](../TEST_MATRIX.md#phase-09-operator-command-and-evidence-matrix)
 lists the remaining evidence; this runbook does not complete it.

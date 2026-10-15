@@ -1,0 +1,78 @@
+//go:build linux
+
+package host
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+
+	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/podman"
+	"github.com/ShaulLavo/brine/internal/quadlet"
+	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/systemd"
+)
+
+func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx context.Context, i *store.NativeBackupInspection, v *nativeBackupObserved, expected store.NativeBackupPreparedExpectation) error {
+	backup, err := o.service.Store.ReadNativeBackupPolicy(ctx, i.BindingID())
+	pol, policyErr := o.service.Policy.Load(ctx)
+	if err != nil || policyErr != nil || pol.Hash() != "sha256:"+backup.PolicySHA256 {
+		return errEngineSource
+	}
+	manager, current, previous, err := o.runtime.preparedObservedRouteStates(ctx, o.service, expected.Routes)
+	if err != nil {
+		return err
+	}
+	if _, present := current.Files[expected.Routes.App+".caddy"]; present {
+		return errEngineSource
+	}
+	front := expected.Release.Managed.Frontend
+	if quadlet.VerifyCurrent(ctx, o.runtime.home, front.Unit.Name, front.Unit.Hash) != nil || verifyManagedFrontendLoaded(ctx, o.runtime.session, o.runtime.home, expected.Routes.App) != nil {
+		return errEngineSource
+	}
+	if err = inspectPreparedUnitStopped(ctx, archiveHost{session: o.runtime.session}, expected.Routes.App+".service"); err != nil {
+		return err
+	}
+	name, err := managedFrontendContainerName(expected.Routes.App)
+	if err != nil {
+		return err
+	}
+	state, err := podman.New(o.runtime.session).ContainerState(ctx, name)
+	if !managedFrontendStopped(state, err) {
+		return errEngineSource
+	}
+	observer := managedEngineObserver{state: o.runtime.state, stateRoot: o.runtime.stateRoot, home: o.runtime.home, session: o.runtime.session, units: systemd.New(o.runtime.session)}
+	engineState, err := observer.ownedState(ctx, expected.Permit)
+	if err != nil {
+		return err
+	}
+	if engineState == "stopped" {
+		v.lifetime, err = data.AcquireEngineLifetimeLock(ctx, o.runtime.stateRoot, i.BindingID())
+		if err != nil {
+			return err
+		}
+	}
+	if o.service.managedLoggingFacts == nil {
+		return errEngineSource
+	}
+	_, root, loaded, err := o.service.managedLoggingFacts(ctx)
+	if err != nil || !data.ValidCatalogHash(root) || !data.ValidCatalogHash(loaded) {
+		return errEngineSource
+	}
+	if err = manager.InspectLoadedChange(ctx, current, previous); err != nil {
+		return err
+	}
+	final, err := i.PreparedExpectation(ctx)
+	firstRaw, _ := json.Marshal(expected)
+	finalRaw, _ := json.Marshal(final)
+	if err != nil || string(firstRaw) != string(finalRaw) {
+		return errors.Join(errEngineSource, err)
+	}
+	v.stopNotIssued = true
+	v.unitsState = engineState
+	v.unstopped = expected
+	v.rootSHA256 = root
+	v.loadedSHA256 = loaded
+	return nil
+}

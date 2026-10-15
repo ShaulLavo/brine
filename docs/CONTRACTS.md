@@ -1440,6 +1440,17 @@ are written privately before submission; operation journals contain references
 and hashes only. Native S3 credential delivery uses actual native archive scope
 and does not construct a SQLite replica.
 
+Native backup activation binds the complete current operator-policy hash. A
+policy-only edit of an unchanged managed app can produce a backup revision from
+a fresh connected deployment plan. Activating that revision records the new
+data admission atomically with the backup policy and preserves the runtime,
+allocation, fences, repository and immutable credential provenance. New
+preparations and verified captures use the activated policy hash. Recovery uses
+the selected backup or activation policy, rather than the credential delivery's
+historical hash. Existing prepared points remain bound to their old admission
+and refuse consumption after reactivation. Planning conflicts return typed
+`conflict` errors.
+
 Routine capture holds the binding launch guard while the native writer remains
 running. It copies selected owned history, checks captured prefixes independently,
 and derives the actual sole replica and bounded compressed expansion sizes.
@@ -1494,6 +1505,14 @@ and actual loaded timer properties precede active policy. Transport deadlines
 stay within both the caller budget and admitted material expiry. Enrollment
 installs the independently published main native-reader0.0.5 platform pin;
 reader execution pulls its fixed digest only after affirmative local absence.
+A failed initialized preparation with no engine stop intent can be reviewed and
+released after its exact ingress withdrawal and frontend stop are proved.
+Inspection binds the current owned engine as running or stopped. Resolution
+releases only the original fence and records the withdrawn route and component
+intent, preserving the failed operation and creating no backup point. Ordinary
+`brine start` resumes the app. An issued unknown stop cannot use this path.
+For a published epoch, capture reads current Wasm from the retained publication
+review; the native bootstrap cache can still contain only the initial module.
 Stopped unpublished preparation can be inspected before any upload exists.
 Its original identity binds the immutable preparation intent, first stop proofs,
 and failed outcome. A `stopped_unpublished` observation requires the exact

@@ -42,7 +42,7 @@ func nativeAbandonTask(service Service, runtime nativeBackupRuntime) jobs.TaskHa
 		if err != nil {
 			return nil, err
 		}
-		if err := checkNativeAbandonPolicy(ctx, scoped, expected.Point.PolicySHA256); err != nil {
+		if err := checkNativePointPolicy(ctx, scoped, expected.Point.PolicySHA256); err != nil {
 			return nil, err
 		}
 		observed, err := observeNativeAbandonment(ctx, scoped, runtime, abandonment)
@@ -96,7 +96,7 @@ func observeNativeAbandonment(ctx context.Context, service Service, runtime nati
 	if err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
-	if err := checkNativeAbandonPolicy(ctx, service, finalExpected.Point.PolicySHA256); err != nil {
+	if err := checkNativePointPolicy(ctx, service, finalExpected.Point.PolicySHA256); err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
 	routeHash := sha256.Sum256(routeBytes)
@@ -165,14 +165,6 @@ func verifyNativeAbandonCode(ctx context.Context, runtime nativeBackupRuntime, a
 	state, err := client.ContainerState(ctx, name)
 	if !managedFrontendStopped(state, err) {
 		return errEngineSource
-	}
-	return nil
-}
-
-func checkNativeAbandonPolicy(ctx context.Context, service Service, expected string) error {
-	current, err := service.Policy.Load(ctx)
-	if err != nil || current.Hash() != "sha256:"+expected {
-		return result.New(result.PolicyRefused, err)
 	}
 	return nil
 }

@@ -211,8 +211,17 @@ running engine for stop. It ended `recovery_required` with the fence held. The
 engine unit still runs behind the withdrawn route. `backup recovery inspect`
 refuses with `conflicting control record` because
 `nativePreparedOriginalIdentity` accepts only two or six preparation events.
-This is the current Pi state. Archive, recreate and the held-fence reboot did not
-run.
+This was the source56 Pi state. Archive, recreate and the held-fence reboot did
+not run. The continuation below resolves that preparation.
+
+### Source57 preparation recovery
+
+Clean source `60d499e` installed CLI 0.1.57-dev after a clean engine stop.
+Inspection recognized source56 preparation `01a13e312df4345f4a5bb1b8962fa9d9634602cdbe51` before its engine stop intent.
+Reviewed resolver `01a1401fe2fe18924732ad0dcfaa7c63602b4ee5104a` released its original fence and retained its failure.
+The running source56 engine had an unlinked helper mount; its bootstrap Wasm also differed from the current published module.
+Ordinary start now refuses `unknown_facts` on `managed.native_state`; the stored publisher token is expired and native metadata reads return HTTP401.
+The app remains stopped with ingress withdrawn. The 145-row read and fresh prepare/abandon remain blocked on initialized publisher renewal.
 
 ## Earned amd64 results
 

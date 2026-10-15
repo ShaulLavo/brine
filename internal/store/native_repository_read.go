@@ -29,6 +29,7 @@ type NativeRepositoryRead struct {
 
 type NativeRepositoryMaterial struct {
 	Scope               restic.Scope
+	PolicySHA256        string
 	Location            restic.S3Location
 	CredentialReference string
 	CredentialRecord    CredentialRecord
@@ -250,7 +251,7 @@ func readNativeRepositoryMaterialLineage(ctx context.Context, q dataQuerier, poi
 		}
 	}
 	scope.CredentialVersion = policy.CredentialVersion
-	return NativeRepositoryMaterial{Scope: scope, Location: location, CredentialReference: policy.CredentialReference, CredentialReceiptID: policy.CredentialReceiptID, CredentialRecord: credential, RecoveryReference: policy.RecoveryReference, RecoveryDeliveryID: policy.RecoveryDeliveryID, RecoverySHA256: policy.RecoverySHA256}, nil
+	return NativeRepositoryMaterial{Scope: scope, PolicySHA256: policy.PolicySHA256, Location: location, CredentialReference: policy.CredentialReference, CredentialReceiptID: policy.CredentialReceiptID, CredentialRecord: credential, RecoveryReference: policy.RecoveryReference, RecoveryDeliveryID: policy.RecoveryDeliveryID, RecoverySHA256: policy.RecoverySHA256}, nil
 }
 
 func (r *NativeRepositoryRead) AdmitRepository(ctx context.Context, scope restic.Scope, action restic.RepositoryAction, grant string) error {

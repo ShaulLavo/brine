@@ -62,6 +62,52 @@ func TestEngineProfileMapsActualNamespaceViewAndRejectsForeignMembers(t *testing
 		t.Fatal("ordinary live directory writes refused")
 	}
 }
+
+func TestEngineRunningProfileAllowsAtomicallyReplacedHelper(t *testing.T) {
+	host, guest, mappings := engineProfileFixture(t)
+	guest.Helper.Inode++
+	guest.Helper.Size -= 4096
+	guest.Helper.Links = 0
+	t.Logf("installed helper inode=%d size=%d links=%d; running helper inode=%d size=%d links=%d", host.Helper.Inode, host.Helper.Size, host.Helper.Links, guest.Helper.Inode, guest.Helper.Size, guest.Helper.Links)
+	if !engineProfileRunningCommand.matches(host, guest, mappings) {
+		t.Fatal("running engine ownership rejected after atomic helper replacement")
+	}
+	if engineProfileStableCommand.matches(host, guest, mappings) || engineProfileStartingCommand.matches(host, guest, mappings) {
+		t.Fatal("new startup or publication accepted the replaced helper")
+	}
+	guest.PrivateKey.Inode++
+	if engineProfileRunningCommand.matches(host, guest, mappings) {
+		t.Fatal("foreign key admitted with a replaced helper")
+	}
+}
+
+func TestEngineRunningProfileRefusesForeignHelper(t *testing.T) {
+	for _, field := range []string{"linked", "owner", "writable", "device", "empty"} {
+		t.Run(field, func(t *testing.T) { testEngineRunningHelperAttack(t, field) })
+	}
+}
+
+func testEngineRunningHelperAttack(t *testing.T, field string) {
+	t.Helper()
+	host, guest, mappings := engineProfileFixture(t)
+	guest.Helper.Inode++
+	guest.Helper.Links = 0
+	switch field {
+	case "linked":
+		guest.Helper.Links = 1
+	case "owner":
+		guest.Helper.UID = 1000
+	case "writable":
+		guest.Helper.Mode = unix.S_IFREG | 0775
+	case "device":
+		guest.Helper.Device++
+	case "empty":
+		guest.Helper.Size = 0
+	}
+	if engineProfileRunningCommand.matches(host, guest, mappings) {
+		t.Fatal("foreign helper admitted", field)
+	}
+}
 func testEngineProfileMemberAttack(t *testing.T, host, guest engineMountProfile, m engineProfileMappings, field string) {
 	t.Helper()
 	node := *guest.PrivateKey

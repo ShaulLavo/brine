@@ -5,7 +5,9 @@ package host
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,11 +23,26 @@ import (
 
 func stoppedUnpublishedPrepareFixture(t *testing.T) (*nativePrepareWork, nativeMaterialFixture) {
 	t.Helper()
+	return stoppedUnpublishedPrepareAdmissionFixture(t, false)
+}
+
+func stoppedUnpublishedPrepareAdmissionFixture(t *testing.T, reactivated bool) (*nativePrepareWork, nativeMaterialFixture) {
+	t.Helper()
 	f := freshNativeMaterialFixture(t)
 	packet := freshNativeMaterialPacket(t)
 	defer clear(packet)
 	deliverNativeMaterialFixture(t, f, strings.Repeat("1", 32), packet)
 	ctx := context.Background()
+	if reactivated {
+		db, err := sql.Open("sqlite", filepath.Join(f.stateRoot, "control.db"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		if _, err := db.ExecContext(ctx, "INSERT INTO data_admissions VALUES(?,2,?)", f.plan.Managed.Database.DatabaseID, "sha256:"+strings.Repeat("9", 64)); err != nil {
+			t.Fatal(err)
+		}
+	}
 	requester, err := datainit.ParseRequester(f.service.Requester)
 	if err != nil {
 		t.Fatal(err)
@@ -67,6 +84,13 @@ func stoppedUnpublishedPrepareFixture(t *testing.T) (*nativePrepareWork, nativeM
 		t.Fatal(err)
 	}
 	return w, f
+}
+
+func TestReactivatedUnpublishedPreparationPreservesOriginalFence(t *testing.T) {
+	w, _ := stoppedUnpublishedPrepareAdmissionFixture(t, true)
+	if _, err := w.runtime.state.ReadNativeStoppedPermit(t.Context(), w.stopped); err != nil {
+		t.Fatal("new admission lost the original allocation fence", err)
+	}
 }
 
 func TestStoppedUnpublishedPreparationReachesInitialPublisherLease(t *testing.T) {

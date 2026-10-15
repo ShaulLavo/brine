@@ -24,9 +24,11 @@ func nativeHistoricalRestoreTask(service Service, runtime nativeBackupRuntime) j
 		}
 		defer func() { _ = claim.Close() }()
 		bundle, err := claim.Bundle(ctx)
-		pol, policyErr := service.Policy.Load(ctx)
-		if err != nil || policyErr != nil || pol.Hash() != "sha256:"+bundle.Point.PolicySHA256 {
-			return nil, result.New(result.PolicyRefused, nil)
+		if err != nil {
+			return nil, err
+		}
+		if err := checkNativePointPolicy(ctx, service, bundle.Point.PolicySHA256); err != nil {
+			return nil, err
 		}
 		ctx, cancel, err := nativeTransportContext(ctx, bundle.Material.Scope)
 		if err != nil {

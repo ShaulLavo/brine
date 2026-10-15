@@ -4,17 +4,37 @@ package host
 
 import (
 	"context"
+	"errors"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/store"
 )
 
 type nativeBackupPolicyOperations struct {
 	service Service
 	jobs    jobs.Service
+}
+
+func admitNativeBackupPolicy(ctx context.Context, service Service, binding data.ReplicaBindingID) (store.NativeBackupPolicy, error) {
+	backup, err := service.Store.ReadNativeBackupPolicy(ctx, binding)
+	pol, policyErr := service.Policy.Load(ctx)
+	if err != nil || policyErr != nil || pol.Hash() != "sha256:"+backup.PolicySHA256 {
+		return store.NativeBackupPolicy{}, result.New(result.PolicyRefused, nil)
+	}
+	return backup, nil
+}
+
+func checkNativePointPolicy(ctx context.Context, service Service, expected string) error {
+	current, err := service.Policy.Load(ctx)
+	if err != nil || current.Hash() != "sha256:"+expected {
+		return result.New(result.PolicyRefused, err)
+	}
+	return nil
 }
 
 func (o nativeBackupPolicyOperations) PlanPolicy(ctx context.Context, args dispatch.NativeBackupPolicyPlanArgs) (dispatch.NativeBackupPolicyPlanView, error) {
@@ -27,6 +47,12 @@ func (o nativeBackupPolicyOperations) PlanPolicy(ctx context.Context, args dispa
 		return dispatch.NativeBackupPolicyPlanView{}, result.New(result.PolicyRefused, nil)
 	}
 	plan, err := o.service.Store.SaveNativeBackupRevisionPlan(ctx, args.DeploymentPlanID, o.jobs.Requester)
+	if errors.Is(err, store.ErrConflict) || errors.Is(err, store.ErrNotFound) {
+		return dispatch.NativeBackupPolicyPlanView{}, result.New(result.Conflict, nil)
+	}
+	if errors.Is(err, store.ErrInvalid) {
+		return dispatch.NativeBackupPolicyPlanView{}, result.New(result.InvalidUsage, nil)
+	}
 	if err != nil {
 		return dispatch.NativeBackupPolicyPlanView{}, err
 	}

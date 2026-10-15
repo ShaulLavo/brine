@@ -95,6 +95,13 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 	if err = inspection.CheckReviewedObservation(ctx, observed.hash()); err != nil {
 		return nil, err
 	}
+	if observed.stopNotIssued {
+		completed, err := inspection.ReleaseUnstoppedPreparation(ctx, observed.hash(), observed.unitsState == "running", observed.rootSHA256, observed.loadedSHA256)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(completed)
+	}
 	originalReceipt, err := o.adopt(ctx, inspection, observed)
 	if err != nil {
 		return nil, err
@@ -129,6 +136,10 @@ type nativeBackupObserved struct {
 	repositoryID         string
 	configSHA256         string
 	unitsState           string
+	stopNotIssued        bool
+	unstopped            store.NativeBackupPreparedExpectation
+	rootSHA256           string
+	loadedSHA256         string
 	needsCapture         bool
 	preparedPermit       store.EnginePermit
 	sourceSealSHA256     string
@@ -139,6 +150,14 @@ type nativeBackupObserved struct {
 }
 
 func (v *nativeBackupObserved) hash() string {
+	if v.stopNotIssued {
+		raw, _ := json.Marshal(struct {
+			State        string
+			Expected     store.NativeBackupPreparedExpectation
+			Root, Loaded string
+		}{v.unitsState, v.unstopped, v.rootSHA256, v.loadedSHA256})
+		return nativeBackupBytesHash(raw)
+	}
 	if v.needsCapture {
 		permit, _ := json.Marshal(v.preparedPermit)
 		owner, _ := json.Marshal(v.initialOwner)
@@ -161,10 +180,17 @@ func (v *nativeBackupObserved) hash() string {
 }
 func (v *nativeBackupObserved) view(i *store.NativeBackupInspection) dispatch.NativeBackupInspectionView {
 	state := "verified_remote"
+	if v.stopNotIssued {
+		state = "stop_not_issued"
+	}
 	if v.needsCapture {
 		state = "stopped_unpublished"
 	}
-	return dispatch.NativeBackupInspectionView{OperationID: i.OriginalOperationID(), Kind: string(i.OriginalKind()), BindingID: string(i.BindingID()), EpochID: v.material.Scope.EpochID, ObservationSHA256: v.hash(), State: state, UnitsState: v.unitsState}
+	epoch := v.material.Scope.EpochID
+	if v.stopNotIssued {
+		epoch = string(v.unstopped.Permit.Runtime.EpochID)
+	}
+	return dispatch.NativeBackupInspectionView{OperationID: i.OriginalOperationID(), Kind: string(i.OriginalKind()), BindingID: string(i.BindingID()), EpochID: epoch, ObservationSHA256: v.hash(), State: state, UnitsState: v.unitsState}
 }
 func (v *nativeBackupObserved) close(ctx context.Context) error {
 	var err error
@@ -211,10 +237,25 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 			inspectErr = errors.Join(inspectErr, v.close(ctx))
 		}
 	}()
+	if i.OriginalKind() == ops.NativePrepare {
+		expected, err := i.PreparedExpectation(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if expected.StopNotIssued {
+			if err = o.inspectUnstoppedPreparation(ctx, i, v, expected); err != nil {
+				return nil, err
+			}
+			complete = true
+			return v, nil
+		}
+	}
 	material, err := i.Material(ctx)
-	pol, policyErr := o.service.Policy.Load(ctx)
-	if err != nil || policyErr != nil || pol.Hash() != material.CredentialRecord.PolicyHash {
-		return nil, result.New(result.PolicyRefused, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkNativePointPolicy(ctx, o.service, material.PolicySHA256); err != nil {
+		return nil, err
 	}
 	v.material = material
 	if i.OriginalKind() == ops.NativePrepare {
@@ -380,20 +421,54 @@ func (o nativeBackupResolutionOperations) inspectActivation(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	v.unitsState, err = o.inspectActivationUnits(ctx, v.activation, stage)
+	return err
+}
+
+func (o nativeBackupResolutionOperations) inspectActivationUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata, stage string) (string, error) {
+	if stage != "prepared" && o.verifyUnits(ctx, metadata) == nil {
+		return "verified", nil
+	}
+	if stage != "prepared" && stage != "units_issued" {
+		return "", errEngineSource
+	}
+	if metadata.Previous.Revision != 0 {
+		if err := o.verifyPreviousUnits(ctx, metadata); err != nil {
+			return "", err
+		}
+		if stage == "prepared" {
+			return "not_issued", nil
+		}
+		return "issued_previous", nil
+	}
+	if err := o.absentUnits(ctx, metadata); err != nil {
+		return "", err
+	}
 	if stage == "prepared" {
-		if err = o.absentUnits(ctx, v.activation); err != nil {
-			return err
-		}
-		v.unitsState = "not_issued"
-	} else if err = o.verifyUnits(ctx, v.activation); err == nil {
-		v.unitsState = "verified"
-	} else if stage == "units_issued" {
-		if err = o.absentUnits(ctx, v.activation); err != nil {
-			return err
-		}
-		v.unitsState = "issued_absent"
-	} else {
+		return "not_issued", nil
+	}
+	return "issued_absent", nil
+}
+
+func (o nativeBackupResolutionOperations) verifyPreviousUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata) error {
+	previous := metadata
+	previous.Plan.Backup = metadata.Previous.Backup
+	unit, timer := nativeBackupUnitBytes(previous)
+	if metadata.Previous.BindingID != metadata.Plan.BindingID || nativeBackupBytesHash(unit) != metadata.Previous.UnitSHA256 || nativeBackupBytesHash(timer) != metadata.Previous.TimerSHA256 {
+		return errEngineSource
+	}
+	if err := o.verifyUnits(ctx, previous); err != nil {
 		return err
+	}
+	root, err := nativeBackupConfigRoot(o.runtime.home)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	for _, suffix := range []string{".service.new", ".timer.new"} {
+		if _, err := root.Lstat(filepath.Join("systemd/user", nativeBackupUnitName(metadata)+suffix)); !os.IsNotExist(err) {
+			return errEngineSource
+		}
 	}
 	return nil
 }
@@ -474,7 +549,7 @@ func (o nativeBackupResolutionOperations) adoptActivation(ctx context.Context, i
 		}
 	}
 	unit, timer := nativeBackupUnitBytes(v.activation)
-	if v.unitsState == "not_issued" || v.unitsState == "issued_absent" {
+	if v.unitsState == "not_issued" || v.unitsState == "issued_absent" || v.unitsState == "issued_previous" {
 		if err = i.BeginResolutionUnits(ctx); err != nil {
 			return nil, err
 		}
