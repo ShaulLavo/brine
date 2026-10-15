@@ -51,6 +51,11 @@ func TestOperationBudgetsKeepStandardCallsShort(t *testing.T) {
 			t.Fatal("review budget does not cover read, work and teardown", operation)
 		}
 	}
+	for _, operation := range []string{"plan", "lifecycle", "rollback"} {
+		if OperationTimeout(operation) != PlanWorkTimeout || CallTimeout(operation) != RequestTimeout+PlanWorkTimeout+ReviewCleanupTimeout+SSHConnectTimeout {
+			t.Fatal("planning budget does not cover inventory and image resolution", operation)
+		}
+	}
 	if OperationTimeout("native_material_set") != 135*time.Second || CallTimeout("native_material_set") != 160*time.Second {
 		t.Fatal("material delivery budget does not cover pull, work, read, cleanup and SSH")
 	}
