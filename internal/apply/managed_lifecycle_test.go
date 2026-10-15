@@ -257,3 +257,22 @@ func TestManagedStartResumesStoppedEngineBeforeOwnedFrontend(t *testing.T) {
 		}
 	}
 }
+
+func TestManagedLifecycleStopsAfterRecordedWithdrawal(t *testing.T) {
+	for _, action := range []plan.ChangeKind{plan.StopApp, plan.RestartApp} {
+		r, _ := managedLifecycleRig(t, true, action)
+		r.facts.Routing = caddy.State{Generation: r.release.CaddyGeneration + 1, Files: map[string]string{}}
+		r.facts.Input.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: r.release.CaddyGeneration + 1, Files: []target.CaddyFile{}})
+		p, err := plan.BuildLifecycle(r.facts.Input, action)
+		if err != nil || p.Kind == plan.Conflict {
+			t.Fatal("withdrawn lifecycle", p.Conflicts, err)
+		}
+		r.plan = p
+		if err := r.executor.Run(context.Background(), "lifecycle", r.plan, r.desired); err != nil {
+			t.Fatal(action, err)
+		}
+		if r.state != Succeeded || slices.Contains(r.effects, "withdraw_route") {
+			t.Fatal("withdrawn route was removed again", action, r.state, r.effects)
+		}
+	}
+}

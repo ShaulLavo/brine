@@ -75,6 +75,11 @@ func (r *managedExecution) withdrawManagedRoutes(ctx context.Context) error {
 		return errors.New("managed route withdrawal required")
 	}
 	return x.step(ctx, "managed_withdraw", Quiescing, "route_invalid", func(ctx context.Context) error {
+		// Planning facts omit the site only after a recorded protected withdrawal.
+		if _, present := x.facts.Routing.Files[x.plan.App+".caddy"]; !present {
+			x.route = x.facts.Routing
+			return nil
+		}
 		result, err := routes.Withdraw(ctx, x.facts.Routing, x.plan.App)
 		x.route = result.Next
 		if result.Outcome == caddy.Unknown {
