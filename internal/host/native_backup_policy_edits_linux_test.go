@@ -30,7 +30,7 @@ func checkNativeBackupPolicyEdit(t *testing.T, edit string) {
 	f := freshNativeMaterialFixture(t)
 	ctx := t.Context()
 	id, hash := strings.Repeat("1", 32), strings.Repeat("2", 64)
-	backup := store.NativeBackupPolicy{Format: "brine-native-backup-policy-v1", BindingID: f.plan.Managed.Database.BindingID, EpochID: f.plan.Managed.Archive.EpochID, Revision: 1, OperationID: "backup-activation", RevisionPlanID: id, DeploymentPlanID: f.plan.Hash, DesiredSHA256: strings.TrimPrefix(f.plan.DesiredHash, "sha256:"), PolicySHA256: strings.TrimPrefix(f.desired.PolicyHash, "sha256:"), RepositoryID: hash, CredentialReference: "backup-credentials", CredentialVersion: 1, CredentialReceiptID: id, RecoveryReference: "recovery-password", RecoveryVersion: 1, RecoveryDeliveryID: id, RecoverySHA256: hash, Backup: *f.desired.SpacetimePolicy, UnitSHA256: hash, TimerSHA256: hash, ActivatedAt: time.Now().UTC()}
+	backup := store.NativeBackupPolicy{Format: "brine-native-backup-policy-v1", BindingID: f.plan.Managed.Database.BindingID, EpochID: f.plan.Managed.Archive.EpochID, Revision: 1, OperationID: "backup-activation", RevisionPlanID: id, DeploymentPlanID: f.plan.Hash, DesiredSHA256: strings.TrimPrefix(f.plan.DesiredHash, "sha256:"), PolicySHA256: strings.TrimPrefix(f.desired.PolicyHash, "sha256:"), RepositoryID: hash, CredentialReference: f.desired.BackupDestinations[0].CredentialRef, CredentialVersion: 1, CredentialReceiptID: id, RecoveryReference: string(f.desired.SpacetimeDB.RecoveryPasswordRef), RecoveryVersion: 1, RecoveryDeliveryID: id, RecoverySHA256: hash, Backup: *f.desired.SpacetimePolicy, UnitSHA256: hash, TimerSHA256: hash, ActivatedAt: time.Now().UTC()}
 	db, err := sql.Open("sqlite", filepath.Join(f.stateRoot, "control.db"))
 	if err != nil {
 		t.Fatal(err)
