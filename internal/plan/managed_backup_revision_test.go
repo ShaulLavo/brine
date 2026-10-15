@@ -2,11 +2,26 @@ package plan
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spec"
 )
+
+func TestManagedPolicyEditRequiresBackupReactivation(t *testing.T) {
+	in := managedInitializedFixture(t, true)
+	before := in.Desired
+	after := before
+	after.PolicyHash = "sha256:" + strings.Repeat("f", 64)
+	if !ManagedBackupOnly(after, before) {
+		t.Fatal("policy-only edit cannot enter backup reactivation")
+	}
+	after.SpacetimeDB = nil
+	if ManagedBackupOnly(after, before) {
+		t.Fatal("engine removal entered backup reactivation")
+	}
+}
 
 func TestManagedRecoveryReferenceChangeUsesOnlyBackupRevision(t *testing.T) {
 	in := managedInitializedFixture(t, true)
