@@ -123,11 +123,27 @@ normal_tests() {
 }
 
 race_tests() {
-  go test -race -p 1 -timeout 30m ./...
-  (
-    cd tools/webtransport-experiment
-    go test -race -count=1 -timeout 1m ./...
-  )
+  race_shard all
+}
+
+# race_shard runs one race-test slice. store and host each take about 25
+# minutes under -race, so CI runs them beside the remaining packages.
+race_shard() {
+  local packages
+  case $1 in
+    store) packages=(./internal/store/) ;;
+    host) packages=(./internal/host/) ;;
+    rest) mapfile -t packages < <(go list ./... | command grep -v -x -e github.com/ShaulLavo/brine/internal/store -e github.com/ShaulLavo/brine/internal/host) ;;
+    all) packages=(./...) ;;
+    *) echo "unknown race shard: $1" >&2; return 2 ;;
+  esac
+  go test -race -p 1 -timeout 30m "${packages[@]}"
+  if [[ $1 == rest || $1 == all ]]; then
+    (
+      cd tools/webtransport-experiment
+      go test -race -count=1 -timeout 1m ./...
+    )
+  fi
 }
 
 tests() {
@@ -147,10 +163,13 @@ case "${1:-all}" in
   test) tests ;;
   test-normal) normal_tests ;;
   test-race) race_tests ;;
+  test-race-store) race_shard store ;;
+  test-race-host) race_shard host ;;
+  test-race-rest) race_shard rest ;;
   lint) lint ;;
   structure) rules; deadcode; duplicates ;;
   vulnerability) vulnerability ;;
   fast) fast ;;
   format) format_check ;;
-  *) echo 'Usage: scripts/check.sh [all|test|test-normal|test-race|lint|structure|vulnerability|fast|format]' >&2; exit 2 ;;
+  *) echo 'Usage: scripts/check.sh [all|test|test-normal|test-race|test-race-store|test-race-host|test-race-rest|lint|structure|vulnerability|fast|format]' >&2; exit 2 ;;
 esac
