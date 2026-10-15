@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"path/filepath"
 	"strings"
 	"time"
@@ -171,12 +172,16 @@ func (r nativeBackupRuntime) observeNativeRestoreTransition(ctx context.Context,
 	if err = verifyNativeRestoreRecoveryUnits(ctx, r.home, recovery); err != nil {
 		return zero, err
 	}
-	route, err := r.state.ReadManagedRouteState(ctx, recovery.App)
-	if err != nil || route.Present || route.BindingID != view.Runtime.BindingID {
+	planned, err := r.state.LoadNativeLiveRestorePlan(ctx, view.Input.Common().Scope.PlanID)
+	if err != nil || planned.Spec().Facts.Head.BindingID != view.Runtime.BindingID {
+		return zero, errEngineSource
+	}
+	route, err := r.state.ReadNativePreparedRoutes(ctx, planned.Spec().Safety.PointID)
+	if err != nil || route.App != recovery.App {
 		return zero, errEngineSource
 	}
 	loaded, err := routes.Observe()
-	if err != nil || loaded.Generation != route.Generation || loaded.Files[recovery.App+".caddy"] != "" || routes.CheckDrift(loaded) != nil {
+	if err != nil || loaded.Generation != route.CurrentGeneration || !maps.Equal(loaded.Files, route.CurrentFiles) || loaded.Files[recovery.App+".caddy"] != "" || routes.CheckDrift(loaded) != nil {
 		return zero, errEngineSource
 	}
 	site, err := caddy.CommittedManagedSite(recovery.Desired, *recovery.Plan.Managed)

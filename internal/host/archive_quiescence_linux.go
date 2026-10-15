@@ -72,8 +72,9 @@ func (h archiveHost) serviceStopped(ctx context.Context, name string, allowAbsen
 	if fields["MainPID"] != "0" || fields["ControlPID"] != "0" || fields["ControlGroup"] != "" || fields["Job"] != "" {
 		return false, nil
 	}
-	absent := allowAbsent && fields["LoadState"] == "not-found" && fields["ActiveState"] == "inactive" && fields["SubState"] == "dead"
-	stopped := !allowAbsent && fields["LoadState"] == "loaded" && (fields["ActiveState"] == "inactive" && fields["SubState"] == "dead" || fields["ActiveState"] == "failed" && fields["SubState"] == "failed")
+	closed := fields["ActiveState"] == "inactive" && fields["SubState"] == "dead" || fields["ActiveState"] == "failed" && fields["SubState"] == "failed"
+	absent := allowAbsent && fields["LoadState"] == "not-found" && closed
+	stopped := !allowAbsent && fields["LoadState"] == "loaded" && closed
 	return absent || stopped, nil
 }
 func (h archiveHost) stopService(ctx context.Context, name string, allowAbsent bool) error {
