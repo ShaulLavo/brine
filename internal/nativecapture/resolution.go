@@ -43,10 +43,15 @@ func DecodeBackupResolutionReceipt(raw []byte) (BackupResolutionReceipt, error) 
 	if _, err := strictjson.Object(raw, fields...); err != nil {
 		return r, ErrInvalid
 	}
-	if json.Unmarshal(raw, &r) != nil || r.Kind != "native_backup_resolve" || !taskOperationID.MatchString(r.OperationID) || !hashPattern.MatchString(r.ReviewID) || !taskOperationID.MatchString(r.OriginalOperationID) || !idPattern.MatchString(r.BindingID) || !idPattern.MatchString(r.EpochID) || !hashPattern.MatchString(r.OriginalSHA256) || !hashPattern.MatchString(r.ObservationSHA256) || !hashPattern.MatchString(r.CompletionSHA256) || r.Outcome != "adopted" {
+	if json.Unmarshal(raw, &r) != nil || r.Kind != "native_backup_resolve" || !taskOperationID.MatchString(r.OperationID) || !hashPattern.MatchString(r.ReviewID) || !taskOperationID.MatchString(r.OriginalOperationID) || !idPattern.MatchString(r.BindingID) || !idPattern.MatchString(r.EpochID) || !hashPattern.MatchString(r.OriginalSHA256) || !hashPattern.MatchString(r.ObservationSHA256) || !hashPattern.MatchString(r.CompletionSHA256) || r.Outcome != "adopted" && r.Outcome != "released" {
 		return r, ErrInvalid
 	}
-	if r.OriginalKind == "native_backup_activate" {
+	if r.Outcome == "released" {
+		original, err := DecodePreparationReleaseReceipt(r.Receipt)
+		if err != nil || r.OriginalKind != "native_prepare" || original.OperationID != r.OriginalOperationID || original.BindingID != r.BindingID || original.EpochID != r.EpochID {
+			return r, ErrInvalid
+		}
+	} else if r.OriginalKind == "native_backup_activate" {
 		original, err := DecodeBackupPolicyReceipt(r.Receipt)
 		if err != nil || original.OperationID != r.OriginalOperationID || original.BindingID != r.BindingID || original.EpochID != r.EpochID {
 			return r, ErrInvalid

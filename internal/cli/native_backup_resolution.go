@@ -41,6 +41,10 @@ func addNativeBackupResolutionCommands(root *cobra.Command, deps Dependencies, m
 			if !ok {
 				return result.New(result.TransportInvalidResponse, nil)
 			}
+			if view.State == "stop_not_issued" {
+				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Original operation %s never issued its engine stop. Engine %s; ingress withdrawn. Review and resolve to release its fence, then start the app.\n", view.OperationID, view.UnitsState)
+				return err
+			}
 			if view.UnitsState != "" {
 				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Original operation %s: %s. Backup units %s. No write was repeated.\n", view.OperationID, view.State, view.UnitsState)
 				return err
@@ -52,7 +56,7 @@ func addNativeBackupResolutionCommands(root *cobra.Command, deps Dependencies, m
 		root.AddCommand(command)
 	}
 	var flags nativeTaskFlags
-	resolve := &cobra.Command{Use: "resolve REVIEW_ID --target NAME", Short: "Adopt the inspected remote effect into a new journaled operation", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	resolve := &cobra.Command{Use: "resolve REVIEW_ID --target NAME", Short: "Resolve inspected backup work through a reviewed operation", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(args[0]) {
 			return result.New(result.InvalidUsage, nil)
 		}
@@ -81,6 +85,10 @@ func addNativeBackupResolutionCommands(root *cobra.Command, deps Dependencies, m
 		receipt, ok := value.(nativecapture.BackupResolutionReceipt)
 		if !ok {
 			return result.New(result.TransportInvalidResponse, nil)
+		}
+		if receipt.Outcome == "released" {
+			_, err = fmt.Fprintf(cmd.OutOrStdout(), "Released the preparation fence through %s. Start the app to resume ingress. Original outcome remains unchanged.\n", receipt.OperationID)
+			return err
 		}
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Adopted original operation %s through %s. Original outcome remains unchanged.\n", receipt.OriginalOperationID, receipt.OperationID)
 		return err

@@ -12,12 +12,16 @@ import (
 )
 
 type NativeBackupPreparedExpectation struct {
-	Permit       EnginePermit
-	Stop         NativeStopObservation
-	Routes       NativePreparedRoutes
-	PointID      string
-	NeedsCapture bool
-	InitialOwner *NativeInitialOwnerObservation
+	Permit        EnginePermit
+	Stop          NativeStopObservation
+	Routes        NativePreparedRoutes
+	PointID       string
+	NeedsCapture  bool
+	StopNotIssued bool
+	Release       Release
+	Desired       ManagedDesiredState
+	Route         ManagedRouteState
+	InitialOwner  *NativeInitialOwnerObservation
 }
 
 func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (NativeBackupPreparedExpectation, error) {
@@ -42,11 +46,11 @@ func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (Nativ
 		return zero, ErrConflict
 	}
 	events, err := readNativePreparationEvents(ctx, tx, intent, raw)
-	if err != nil || len(events) != 2 && len(events) != 6 {
+	if err != nil || len(events) != 0 && len(events) != 2 && len(events) != 6 {
 		return zero, ErrConflict
 	}
 	var stopped NativeStopObservation
-	if json.Unmarshal(events[1].Proof, &stopped) != nil || !validNativeStop(stopped, intent.SourceKind) {
+	if len(events) > 0 && (json.Unmarshal(events[1].Proof, &stopped) != nil || !validNativeStop(stopped, intent.SourceKind)) {
 		return zero, &IntegrityError{}
 	}
 	var routeRaw []byte
@@ -66,6 +70,13 @@ func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (Nativ
 	capability := &NativePreparation{store: i.state, preparation: &EnginePreparation{root: i.state.dir, binding: i.binding, guard: i.guard}, intent: intent, raw: raw, inspection: i}
 	if err = checkNativePreparationCapability(ctx, tx, capability); err != nil {
 		return zero, err
+	}
+	if len(events) == 0 {
+		release, desired, route, err := nativeUnstoppedCurrent(ctx, tx, intent, i.original)
+		if err != nil {
+			return zero, err
+		}
+		return NativeBackupPreparedExpectation{Permit: permit, Routes: routes, PointID: intent.PointID, StopNotIssued: true, Release: release, Desired: desired, Route: route}, tx.Commit()
 	}
 	needsCapture, err := nativePreparedNeedsCapture(ctx, tx, intent, events)
 	if err != nil {
@@ -124,6 +135,10 @@ func nativePreparedOriginalIdentity(ctx context.Context, q dataQuerier, op ops.O
 		return nil, errors.Join(ErrConflict, err)
 	}
 	events, err := readNativePreparationEvents(ctx, q, intent, raw)
+	if err == nil && len(events) == 0 {
+		facts, err := nativeUnstoppedIdentity(ctx, q, intent, op)
+		return bytes.Join([][]byte{raw, facts}, nil), err
+	}
 	if err != nil || len(events) != 2 && len(events) != 6 || checkNativePreparedStopFacts(intent, events[0].Proof, events[1].Proof) != nil {
 		return nil, errors.Join(ErrConflict, err)
 	}

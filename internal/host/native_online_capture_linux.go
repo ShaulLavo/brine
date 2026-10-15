@@ -230,7 +230,7 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 	if err != nil {
 		return nil, err
 	}
-	artifact, err := readNativeProgramArtifact(ctx, liveSource, permit)
+	artifact, err := readNativeCurrentArtifact(ctx, runtime.state, liveSource, permit)
 	_ = liveSource.Close()
 	if err != nil {
 		return nil, err

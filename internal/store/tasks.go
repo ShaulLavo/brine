@@ -1,11 +1,13 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 )
 
@@ -29,6 +31,15 @@ func completeTaskTx(ctx context.Context, tx *sql.Tx, id string, state ops.State,
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 	if err != nil {
 		return err
+	}
+	if op.Kind == ops.NativeBackupResolve && op.State == ops.Succeeded && state == ops.Succeeded {
+		receipt, decodeErr := nativecapture.DecodeBackupResolutionReceipt(outcome.Receipt)
+		var stored []byte
+		canonical, marshalErr := json.Marshal(outcome)
+		readErr := tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", op.ID).Scan(&stored)
+		if decodeErr == nil && receipt.Outcome == "released" && marshalErr == nil && readErr == nil && bytes.Equal(canonical, stored) {
+			return nil
+		}
 	}
 	if op.State != ops.Preflight || !ops.CanTransitionFor(op.Kind, op.State, state) {
 		return &ops.StateConflictError{Current: op.State}

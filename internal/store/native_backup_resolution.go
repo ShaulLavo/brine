@@ -430,8 +430,10 @@ func readNativeBackupResolvedReceipt(ctx context.Context, q dataQuerier, origina
 	if err != nil || originalErr != nil || r.OriginalSHA256 != hash || r.OriginalSHA256 != review.OriginalSHA256 || r.ObservationSHA256 != review.ObservationSHA256 || r.BindingID != string(binding) {
 		return nil, &IntegrityError{}
 	}
-	if _, err = ops.DecodeTaskReceipt(original, r.Receipt); err != nil {
-		return nil, errors.Join(&IntegrityError{}, err)
+	if r.Outcome != "released" {
+		if _, err = ops.DecodeTaskReceipt(original, r.Receipt); err != nil {
+			return nil, errors.Join(&IntegrityError{}, err)
+		}
 	}
 	if err = checkNativeResolvedProducer(ctx, q, original, r.Receipt); err != nil {
 		return nil, err
