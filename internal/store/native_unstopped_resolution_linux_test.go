@@ -136,6 +136,10 @@ func testUnstoppedRelease(t *testing.T, running bool) {
 	if err != nil {
 		t.Fatal("reviewed unissued stop release", err)
 	}
+	committed, err := s.GetOperation(t.Context(), inspection.resolver)
+	if err != nil || committed.State != ops.Succeeded {
+		t.Fatal("fence release was not atomic with resolver success", err)
+	}
 	raw, _ := json.Marshal(receipt)
 	if err = s.CompleteTask(t.Context(), inspection.resolver, ops.Succeeded, ops.TaskOutcome{Receipt: raw}); err != nil {
 		t.Fatal(err)

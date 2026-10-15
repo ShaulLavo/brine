@@ -191,6 +191,9 @@ func (i *NativeBackupInspection) ReleaseUnstoppedPreparation(ctx context.Context
 			return zero, err
 		}
 	}
+	if err = completeTaskTx(ctx, tx, i.resolver, ops.Succeeded, ops.TaskOutcome{Receipt: completed}); err != nil {
+		return zero, err
+	}
 	return receipt, tx.Commit()
 }
 
