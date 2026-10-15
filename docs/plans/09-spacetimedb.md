@@ -191,10 +191,39 @@ Basic Pi command pass, 2026-10-15. Evidence is in [the final pass](../evidence/p
 
 - [x] Renew publisher material, activate it, start, and read 145 confirmed rows.
 - [x] Capture an online point and verify its remote restore.
-- [ ] Publish additive and default-column modules, preserving rows and checking the default.
+- [x] Publish the additive module and confirm all 145 rows remain.
+- [ ] Publish the default-column module and check its default. The supplied artifact removes the additive table; the ordered pass needs a sequential artifact or an approved restore between updates.
 - [ ] Grant live restore, reactivate backup policy, restore an earlier point, and restore the original policy.
 - [ ] Reboot while prepared, prove the fence holds, abandon, and start.
 - [ ] Archive the native binding and check same-name recreation when supplied material permits it.
+
+**Final pass blockers, 2026-10-15.** The supplied default-column Wasm is a
+branch from the original schema and removes the additive fixture's
+`fixture_note` table. Managed publication correctly requires an operator
+procedure for that change. Keep the ordered drill with a qualified sequential
+fixture, or move the already authorized historical restore between the updates.
+No default update, live restore, reboot or archive success is claimed.
+
+Frontend reattachment also needs a fresh reviewer. Reproduce by deploying the
+engine-only additive declaration with accepted original and additive schema
+markers, then planning and applying the matching frontend declaration. The plan
+has no conflicts. Its operation records completed `frontend_start`, then unknown
+`frontend_check` after ninety seconds. The frontend unit is failed, no frontend
+container exists, and its journal contains five generic permit failures about
+1.7 seconds apart. The database engine remains running. `brine resolve
+OPERATION_ID` refuses with `executor_failed`; `brine reconcile --dry-run` has no
+outcomes. Exact IDs are in [the final evidence](../evidence/p09-pi.md#final-pi-pass-2026-10-15).
+
+Start with `ManagedFrontendRuntime.Permit` in
+`internal/host/managed_frontend_permit_linux.go`, pending permit projection in
+`internal/store/managed_frontend_permit.go`, and active-operation readback in
+`internal/replicapermits/operations.go`. A read-only probe after failure matched
+the stored unit hash, loaded provenance and current native ownership. Host and
+frontend ports match. The failed operation's desired state still requests all
+components; the last committed release is engine-only. The pending active
+operation's startup checks were not directly observed. Preserve the failed
+operation, resolver and owned unit; do not replay a whole deployment or clear
+records to manufacture success.
 
 **Dependencies.** P09-03 to P09-07, a published multiarch fixture, real scoped S3 test destination/retention evidence supplied by the operator, and coordinator-supplied Pi client configuration.
 

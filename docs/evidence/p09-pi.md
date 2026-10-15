@@ -368,7 +368,29 @@ the managed route. Fixes are in [PR #178](https://github.com/ShaulLavo/brine/pul
 
 1. Publisher renewal and reviewed activation passed. Start `01a1410a9fa5aeb9aea56b76c6f9a8f6fb89e2fd3311` succeeded, the frontend returned HTTP 200, and the SDK read 145 rows.
 2. Online capture `01a1410b72d3f2c2a14e2c56c3cd54c0c2490f7484a8` verified point `287fc6da1d745e17eb933ee10775a47f` with zero maintenance. Native restore test `01a1410c563d0fc3868f3e1412139426f051fb2a51be` verified that same point.
-3. Module updates remain in progress. Renewed material exposed a frontend-release scope mismatch. Recovery `01a1411a480d7d80f0ca8bb2b8a97379613cf4eedb78` released the original preparation, and preparation `01a1411ba7edef139b3c1ccaf0dd038edd9025952af4` then verified with 45,634 ms maintenance. The supplied changed-schema declarations reused the original schema marker; they need distinct markers and a compatible recovery release. A later deployment also exposed a recovery identity that incorrectly depended on the current release head.
+3. Additive publication `01a141506df718371efc0c21650f40d5e41ba17ef078` and deployment `01a1415259a9b3ac5889c461355bc23bdd054485bfa9` passed with 145 confirmed rows. The default-column review refused because that supplied artifact removes `fixture_note`, which the additive artifact added. Completing both requires a sequential artifact or restoring the original schema between updates. Frontend reattachment then exposed the unresolved startup failure described below.
 4. Live restore and policy restoration have not run yet.
 5. Held-fence reboot, abandonment, and ordinary start have not run yet.
 6. Native archive and same-name recreation have not run yet.
+
+
+The pass fixed preparation after material renewal, recovery identity after a later
+release, and opaque schema-marker refusals. It also adds a specific refusal for
+schema changes outside managed publication. Failing-first focused regressions
+cover each code change. Distinct markers and an engine-only compatible recovery
+release were used for the actual additive publication. Original fixture inputs
+were preserved.
+
+Frontend reattachment plan
+`sha256:932a55a862065011fc660099d6a615d765742527aa6f154c91117463a5302ea3`
+failed in `frontend_check` after its startup guard refused all five starts.
+Operation `01a1415ff337a2c3f4d9bf2abd021fa416eb7f0db973` remains
+`recovery_required`. Resolver
+`01a14166a80e165c63d288e75c8b687b7df6aacb86f8` also returned
+`recovery_required` with `executor_failed`; dry-run reconciliation returned no
+outcomes. No frontend container exists. An independent read-only probe after the
+failure matched the recorded unit hash, loaded service provenance and current
+native ownership. The plan's frontend and host ports match. The startup guard's
+active-operation path remains unproved. No control records, fences or units were
+edited to bypass this failure. The engine remains running with the additive data.
+The original operator policy has not been changed.
