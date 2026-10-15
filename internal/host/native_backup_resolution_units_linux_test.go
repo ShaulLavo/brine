@@ -194,7 +194,7 @@ func checkNativeBackupPredecessorUnits(t *testing.T, stage string) {
 		t.Fatal("predecessor mistaken for installed replacement or absent units", state)
 	}
 	timerPath := filepath.Join(home, managedServiceDirectory, nativeBackupUnitName(metadata)+".timer")
-	retained, err := os.ReadFile(timerPath)
+	retained, err := os.ReadFile(timerPath) //nolint:gosec // Private test home and fixed unit name derive this path.
 	if err != nil || string(retained) != string(timer) {
 		t.Fatal("inspection changed predecessor units", err)
 	}
