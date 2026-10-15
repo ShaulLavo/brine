@@ -119,3 +119,20 @@ func TestArchiveRecoveryQuiescenceAcceptsStoppedOrAbsentButNeverStops(t *testing
 		}
 	}
 }
+
+func TestAbsentFailedUnitWithoutProcessesOrJobsIsStopped(t *testing.T) {
+	absent := strings.NewReplacer("LoadState=loaded", "LoadState=not-found", "ActiveState=inactive", "ActiveState=failed", "SubState=dead", "SubState=failed").Replace(archiveStopped)
+	host := archiveHostForTest(t, &archiveExecutor{show: absent})
+	stopped, err := host.serviceStopped(t.Context(), "removed-frontend.service", true)
+	if err != nil || !stopped {
+		t.Fatal("removed failed frontend blocks quiescence", stopped, err)
+	}
+	for _, field := range []string{"MainPID=0", "ControlPID=0", "ControlGroup=", "Job="} {
+		busy := strings.Replace(absent, field, field+"1", 1)
+		host = archiveHostForTest(t, &archiveExecutor{show: busy})
+		stopped, err = host.serviceStopped(t.Context(), "removed-frontend.service", true)
+		if err == nil && stopped {
+			t.Fatal("unsettled removed unit accepted", field)
+		}
+	}
+}
