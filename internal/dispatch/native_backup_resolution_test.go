@@ -65,3 +65,18 @@ func TestStoppedPreparationInspectionStateIsClosed(t *testing.T) {
 		}
 	}
 }
+
+func TestNativePreparationUnissuedStopInspectionStates(t *testing.T) {
+	for _, state := range []string{"running", "stopped"} {
+		view := NativeBackupInspectionView{OperationID: "prepare", Kind: "native_prepare", BindingID: strings.Repeat("a", 32), EpochID: strings.Repeat("b", 32), ObservationSHA256: strings.Repeat("c", 64), State: "stop_not_issued", UnitsState: state}
+		raw, _ := json.Marshal(view)
+		if _, err := DecodeNativeBackupInspectionView(raw); err != nil {
+			t.Fatal("known unissued engine stop refused", state, err)
+		}
+		view.Kind = "native_capture"
+		raw, _ = json.Marshal(view)
+		if _, err := DecodeNativeBackupInspectionView(raw); err == nil {
+			t.Fatal("capture gained preparation release state")
+		}
+	}
+}

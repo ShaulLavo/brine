@@ -84,6 +84,9 @@ func nativeBackupPolicyReceipt(op string, p NativeBackupRevisionPlan, hash strin
 	return nativecapture.BackupPolicyReceipt{Kind: string(ops.NativeBackupActivate), OperationID: op, BindingID: string(p.BindingID), EpochID: string(p.EpochID), PlanID: p.ID, Revision: v.Revision, PolicySHA256: hash, RepositoryID: v.RepositoryID, Outcome: "active"}
 }
 func checkNativeResolvedProducer(ctx context.Context, q dataQuerier, original ops.Operation, receipt json.RawMessage) error {
+	if r, err := nativecapture.DecodePreparationReleaseReceipt(receipt); err == nil {
+		return checkNativeReleasedPreparation(ctx, q, original, r)
+	}
 	if original.Kind == ops.NativeBackupActivate {
 		r, err := nativecapture.DecodeBackupPolicyReceipt(receipt)
 		var raw []byte

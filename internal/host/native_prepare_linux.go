@@ -118,7 +118,7 @@ func (w *nativePrepareWork) stop(ctx context.Context, service Service) error {
 	}
 	attempt, err := bindNativeStopAttempt(ctx, w.runtime.session, w.runtime.stateRoot, w.runtime.home, w.permit)
 	if err != nil {
-		return err
+		return result.New(result.NativeCaptureLiveRefused, err)
 	}
 	defer attempt.close()
 	material, err := readEngineMaterial(ctx, w.runtime.stateRoot, w.permit)
@@ -134,7 +134,7 @@ func (w *nativePrepareWork) stop(ctx context.Context, service Service) error {
 	if err != nil {
 		return err
 	}
-	artifact, err := readNativeProgramArtifact(ctx, root, w.permit)
+	artifact, err := readNativeCurrentArtifact(ctx, w.runtime.state, root, w.permit)
 	_ = root.Close()
 	if err != nil {
 		return err
