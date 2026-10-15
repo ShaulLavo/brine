@@ -357,3 +357,18 @@ part of the drill.
 The [phase plan](../plans/09-spacetimedb.md) remains unchecked for P09-02 through
 P09-09. Ordinary real-R2 success is earned; full physical acceptance and final
 cleanup remain incomplete.
+
+
+## Final Pi pass (2026-10-15)
+
+The plain command pass started from main `57aa699`, including PRs #173 through
+#177. The local amd64 client and installed arm64 helper came from
+`scripts/build-cli-pair.sh`. Confirmed SDK reads checked the fixture data through
+the managed route. Fixes are in [PR #178](https://github.com/ShaulLavo/brine/pull/178).
+
+1. Publisher renewal and reviewed activation passed. Start `01a1410a9fa5aeb9aea56b76c6f9a8f6fb89e2fd3311` succeeded, the frontend returned HTTP 200, and the SDK read 145 rows.
+2. Online capture `01a1410b72d3f2c2a14e2c56c3cd54c0c2490f7484a8` verified point `287fc6da1d745e17eb933ee10775a47f` with zero maintenance. Native restore test `01a1410c563d0fc3868f3e1412139426f051fb2a51be` verified that same point.
+3. Module updates remain in progress. Renewed material exposed a frontend-release scope mismatch. Recovery `01a1411a480d7d80f0ca8bb2b8a97379613cf4eedb78` released the original preparation, and preparation `01a1411ba7edef139b3c1ccaf0dd038edd9025952af4` then verified with 45,634 ms maintenance. The supplied changed-schema declarations reused the original schema marker; they need distinct markers and a compatible recovery release. A later deployment also exposed a recovery identity that incorrectly depended on the current release head.
+4. Live restore and policy restoration have not run yet.
+5. Held-fence reboot, abandonment, and ordinary start have not run yet.
+6. Native archive and same-name recreation have not run yet.

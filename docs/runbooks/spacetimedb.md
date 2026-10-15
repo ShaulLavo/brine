@@ -306,6 +306,10 @@ required; abandonment alone is not a start receipt.
 
 ## Review a module update
 
+Use a distinct schema marker when the canonical schema changes. Each marker
+names one immutable schema. The selected recovery release must explicitly accept
+the target marker. A compatible engine-only release can cover a client transition.
+
 Review init, update, lifecycle and scheduled-reducer effects with the exact Wasm
 and compatible retained recovery release. First update the desired declaration
 in `brine.toml` to the candidate Wasm and canonical schema sidecars. Select the

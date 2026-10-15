@@ -92,7 +92,9 @@ does not block engine startup, serving checks, stop, ordinary deploy or rollback
 Serving checks read database, owner, names and schema without the publisher token;
 publication also verifies the current module hash through its owner-only endpoint.
 Signing and auth-policy leases still govern the operations that use those roles.
-Older runtime records and signing files remain immutable so retained backup points
+Exact preparation accepts the retained frontend release through the recorded
+material activation chain. Renewing material does not require a new frontend
+release. Older runtime records and signing files remain immutable so retained backup points
 can restore their recorded signing versions.
 
 Keep the reported idempotency key. Repeating the same request returns the same

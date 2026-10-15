@@ -187,6 +187,15 @@ are in the [physical evidence](../evidence/p09-pi.md#source56-blockers).
 
 - [ ] **P09-08**
 
+Basic Pi command pass, 2026-10-15. Evidence is in [the final pass](../evidence/p09-pi.md#final-pi-pass-2026-10-15).
+
+- [x] Renew publisher material, activate it, start, and read 145 confirmed rows.
+- [x] Capture an online point and verify its remote restore.
+- [ ] Publish additive and default-column modules, preserving rows and checking the default.
+- [ ] Grant live restore, reactivate backup policy, restore an earlier point, and restore the original policy.
+- [ ] Reboot while prepared, prove the fence holds, abandon, and start.
+- [ ] Archive the native binding and check same-name recreation when supplied material permits it.
+
 **Dependencies.** P09-03 to P09-07, a published multiarch fixture, real scoped S3 test destination/retention evidence supplied by the operator, and coordinator-supplied Pi client configuration.
 
 **Work.** Use D3's standing Pi approval. Preserve remote access and back up operator-owned files before edits. Verify destination mount/free space before engine image pulls and restore staging; keep heavy local jobs in the shared queue. Deploy only disposable fixture state. Run actual arm64 rootless Quadlets and Caddy, create/publish with reviewed plans, connect a browser subscription, commit explicitly confirmed known markers, perform online native capture/encrypted upload/restore-test while writes continue, replace app code, perform the admitted module update and reboot. Run a separately authorized-by-policy fixture live restore. Cover S3 outage/credential expiry, competitor locks, signing-material recovery, stop timeout, partial active-head records, concurrent rotation/compaction, metadata drift and interrupted capture/publish/restore/epoch activation. Confirm app and engine permits block boot while fenced. Run the same bounded core capture/replay drill on disposable amd64 infrastructure if available; without actual amd64 execution, report that release blocker.

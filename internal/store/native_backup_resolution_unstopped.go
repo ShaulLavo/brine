@@ -67,11 +67,7 @@ func nativeUnstoppedFrontend(ctx context.Context, q dataQuerier, intent nativePr
 		return Release{}, nil, false, err
 	}
 	if count == 0 {
-		var id string
-		if err := q.QueryRowContext(ctx, "SELECT current_id FROM release_heads WHERE app=?", op.App).Scan(&id); err != nil {
-			return Release{}, nil, false, err
-		}
-		release, err := readRelease(ctx, q, op.App, id)
+		release, err := nativeUnstoppedOriginalRelease(ctx, q, intent, op.App)
 		if err != nil {
 			return Release{}, nil, false, err
 		}
@@ -81,6 +77,7 @@ func nativeUnstoppedFrontend(ctx context.Context, q dataQuerier, intent nativePr
 		raw, _ := json.Marshal(struct{ ReleaseID, FrontendStop string }{release.ID, "not_issued"})
 		return release, raw, false, nil
 	}
+
 	if count != 2 {
 		return Release{}, nil, false, ErrConflict
 	}
@@ -267,4 +264,35 @@ func checkNativeReleasedPreparation(ctx context.Context, q dataQuerier, original
 		return ErrConflict
 	}
 	return nil
+}
+
+func nativeUnstoppedOriginalRelease(ctx context.Context, q dataQuerier, intent nativePreparationIntent, app string) (Release, error) {
+	rows, err := q.QueryContext(ctx, "SELECT id,committed_at FROM releases WHERE app=? ORDER BY rowid DESC", app)
+	if err != nil {
+		return Release{}, err
+	}
+	defer func() { _ = rows.Close() }()
+	var selected string
+	var latest time.Time
+	for rows.Next() {
+		var id, raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			return Release{}, err
+		}
+		committed, err := time.Parse(time.RFC3339Nano, raw)
+		if err != nil {
+			return Release{}, &IntegrityError{}
+		}
+		if committed.After(intent.CreatedAt) || !committed.After(latest) {
+			continue
+		}
+		selected, latest = id, committed
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return Release{}, err
+	}
+	if selected == "" {
+		return Release{}, ErrConflict
+	}
+	return readRelease(ctx, q, app, selected)
 }
