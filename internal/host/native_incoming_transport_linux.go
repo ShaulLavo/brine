@@ -23,5 +23,9 @@ func prepareNativeIncomingTransport(ctx context.Context, incoming nativeIncoming
 	if err != nil {
 		return nativeIncomingTransport{}, err
 	}
-	return nativeIncomingTransport{ctx: ctx, cancel: func() {}, metadata: metadata}, nil
+	bounded, cancel, err := nativeTransportContext(ctx, metadata.Material.Scope)
+	if err != nil {
+		return nativeIncomingTransport{}, err
+	}
+	return nativeIncomingTransport{ctx: bounded, cancel: cancel, metadata: metadata}, nil
 }

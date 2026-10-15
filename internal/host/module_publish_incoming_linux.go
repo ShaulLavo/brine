@@ -10,15 +10,15 @@ import (
 )
 
 func initializePublicationIncoming(ctx context.Context, runtime nativeBackupRuntime, incoming *store.NativeIncomingRepository, transitionID string) (restic.InitializedRepository, error) {
-	metadata, err := incoming.Metadata(ctx)
-	if err != nil || metadata.IntentID != transitionID {
-		return restic.InitializedRepository{}, errEngineSource
-	}
-	ctx, cancel, err := nativeTransportContext(ctx, metadata.Material.Scope)
+	transport, err := prepareNativeIncomingTransport(ctx, incoming)
 	if err != nil {
 		return restic.InitializedRepository{}, err
 	}
-	defer cancel()
+	defer transport.cancel()
+	ctx, metadata := transport.ctx, transport.metadata
+	if metadata.IntentID != transitionID {
+		return restic.InitializedRepository{}, errEngineSource
+	}
 	client, repository, err := runtime.repositoryMaterial(ctx, metadata.Material, incoming, metadata.CreationGrantSHA256)
 	if err != nil {
 		return restic.InitializedRepository{}, err
