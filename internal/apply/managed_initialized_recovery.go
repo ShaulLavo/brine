@@ -36,6 +36,9 @@ func (e *Executor) inspectManagedInitialized(ctx context.Context, op Operation, 
 			return e.inspectManagedRoute(ctx, op, p, d, cursor, r)
 		}
 	}
+	if ops.InterruptedFrontendAttachment(events, p) {
+		return e.inspectManagedAttachment(ctx, op, p, d, events, r)
+	}
 	last, valid := managedInitializedPrefix(events, p)
 	if cursor, exact := ops.ManagedCreateRecoveryCursor(events, p); exact {
 		last, valid = cursor.Boundary, true

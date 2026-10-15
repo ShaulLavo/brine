@@ -76,7 +76,11 @@ func (r *managedExecution) compensate(ctx context.Context, cause error) error {
 			if e.Managed.EngineReady(ctx, x.plan) != nil {
 				return errors.New("managed engine changed before permit restoration")
 			}
-			return e.Managed.RestoreFrontendPermit(ctx, x.id, r.previousFrontendPermit)
+			owner := x.id
+			if x.managedAttachmentOwner != "" {
+				owner = x.managedAttachmentOwner
+			}
+			return e.Managed.RestoreFrontendPermit(ctx, owner, r.previousFrontendPermit)
 		}); err != nil {
 			return x.terminal(ctx, RecoveryRequired, errors.Join(cause, err))
 		}

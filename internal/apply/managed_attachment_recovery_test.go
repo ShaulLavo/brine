@@ -13,7 +13,7 @@ import (
 type attachmentRuntime struct{ *managedRuntimeFake }
 
 func (r attachmentRuntime) InterruptedFrontend(context.Context, string, plan.Plan, policy.Desired) error {
-	return nil
+	return r.call("interrupted_frontend")
 }
 
 func TestManagedInterruptedAttachmentResolvesBackToEngineOnlyRelease(t *testing.T) {
@@ -43,6 +43,18 @@ func TestManagedInterruptedAttachmentResolvesBackToEngineOnlyRelease(t *testing.
 	if err != nil || assessment.Action != RestorePrevious {
 		t.Fatalf("attachment remains stuck: %s %s %v", assessment.Action, assessment.Step, err)
 	}
+	r.facts.Input.State.Generation++
+	stale, err := r.executor.InspectResolution(context.Background(), resolver, source, p, r.desired, r.events)
+	if err != nil || stale.Action != RequireRecovery {
+		t.Fatal("changed generation authorized compensation", err, stale.Action)
+	}
+	r.facts.Input.State.Generation--
+	runtime.failure = "interrupted_frontend"
+	changed, err := r.executor.InspectResolution(context.Background(), resolver, source, p, r.desired, r.events)
+	if err != nil || changed.Action != RequireRecovery {
+		t.Fatal("changed frontend authorized compensation", err, changed.Action)
+	}
+	runtime.failure = ""
 	if err := r.executor.Recover(context.Background(), assessment); err == nil && r.state != RolledBack {
 		t.Fatal(err, r.state)
 	}

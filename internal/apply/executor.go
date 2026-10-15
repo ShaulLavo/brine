@@ -61,6 +61,7 @@ type execution struct {
 	managedFrontendStopped                  bool
 	managedFrontendStart                    ops.StepPayload
 	managedRouteOwner                       string
+	managedAttachmentOwner                  string
 	executor                                *Executor
 	id                                      string
 	plan                                    plan.Plan
