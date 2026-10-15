@@ -114,7 +114,7 @@ func (o nativeLiveRestoreOperations) task(ctx context.Context, op ops.Operation)
 		return nil, err
 	}
 	defer func() { _ = lifetime.Release() }()
-	stopped, err := o.runtime.reopenNativeRestoreStop(ctx, p, preparation, lifetime)
+	stopped, err := o.runtime.reopenNativeRestoreStop(ctx, p, preparation, lifetime, o.service)
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func (o nativeLiveRestoreOperations) task(ctx context.Context, op ops.Operation)
 	return json.Marshal(liverestore.Receipt{Format: "brine-native-live-restore-receipt-v1", OperationID: op.ID, PlanID: p.ID(), BindingID: a.BindingID, SelectedPointID: a.SelectedPointID, EpochID: a.IncomingEpochID, CompletionProofSHA256: event.ProofSHA256(), Outcome: "restored_stopped"})
 }
 
-func (r nativeBackupRuntime) reopenNativeRestoreStop(ctx context.Context, p liverestore.Plan, preparation *store.EnginePreparation, lifetime *data.EngineLock) (*store.NativeStoppedPreparation, error) {
+func (r nativeBackupRuntime) reopenNativeRestoreStop(ctx context.Context, p liverestore.Plan, preparation *store.EnginePreparation, lifetime *data.EngineLock, service Service) (*store.NativeStoppedPreparation, error) {
 	spec := p.Spec()
 	original, err := r.state.ReadNativePreparedStop(ctx, spec.Safety.PointID)
 	if err != nil || original.Mode != "clean_exit" {
@@ -188,9 +188,8 @@ func (r nativeBackupRuntime) reopenNativeRestoreStop(ctx context.Context, p live
 	if err != nil || !finished.Equal(original.FinishedAt) {
 		return nil, errEngineSource
 	}
-	route, err := r.state.ReadManagedRouteState(ctx, spec.Facts.App)
-	if err != nil || route.Present || route.BindingID != permit.Runtime.BindingID {
-		return nil, errEngineSource
+	if err := r.verifyRestoreIngress(ctx, service, spec.Safety.PointID, spec.Facts.App, permit.Runtime.BindingID); err != nil {
+		return nil, err
 	}
 	// The retained original completion is compared by Store to this fresh stop.
 	current := store.NativeStopObservation{Mode: "clean_exit", ContainerID: original.ContainerID, FinishedAt: finished, SourceAbsent: true, RestartJobsAbsent: true, IngressClosed: true}
@@ -323,4 +322,12 @@ func (o nativeLiveRestoreOperations) resolveTask(ctx context.Context, op ops.Ope
 	}
 	a := event.Attempt()
 	return json.Marshal(liverestore.Receipt{Format: "brine-native-live-restore-receipt-v1", OperationID: op.ID, PlanID: review.ID(), OriginalOperationID: op.RecoveryOf, BindingID: a.BindingID, SelectedPointID: a.SelectedPointID, EpochID: a.IncomingEpochID, CompletionProofSHA256: event.ProofSHA256(), Outcome: "restored_stopped"})
+}
+
+func (r nativeBackupRuntime) verifyRestoreIngress(ctx context.Context, service Service, pointID, app string, binding data.ReplicaBindingID) error {
+	route, err := r.state.ReadManagedRouteState(ctx, app)
+	if err != nil || route.Present || route.BindingID != binding {
+		return errEngineSource
+	}
+	return nil
 }
