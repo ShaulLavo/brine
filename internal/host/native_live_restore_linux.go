@@ -325,9 +325,20 @@ func (o nativeLiveRestoreOperations) resolveTask(ctx context.Context, op ops.Ope
 }
 
 func (r nativeBackupRuntime) verifyRestoreIngress(ctx context.Context, service Service, pointID, app string, binding data.ReplicaBindingID) error {
-	route, err := r.state.ReadManagedRouteState(ctx, app)
-	if err != nil || route.Present || route.BindingID != binding {
+	point, err := r.state.ReadNativePreparedPoint(ctx, pointID)
+	if err != nil || point.BindingID != binding {
 		return errEngineSource
 	}
-	return nil
+	record, err := r.state.ReadNativePreparedRoutes(ctx, pointID)
+	if err != nil || record.App != app {
+		return errEngineSource
+	}
+	_, current, _, err := r.preparedObservedRouteStates(ctx, service, record)
+	if err != nil {
+		return err
+	}
+	if _, present := current.Files[app+".caddy"]; present {
+		return errEngineSource
+	}
+	return ctx.Err()
 }

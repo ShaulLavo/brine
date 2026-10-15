@@ -181,7 +181,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	r.NativeBackupStatus = nativeBackupPolicyOperations{service: service, jobs: taskJobs}
 	r.NativeBackupPolicy = nativeBackupPolicyOperations{service: service, jobs: taskJobs}
 	r.Runner.TaskHandlers[ops.NativeBackupActivate] = nativeBackupActivationTask(service, stateDir, identity.HomeDir, session)
-	nativeRestore := nativeLiveRestoreOperations{service: service, jobs: taskJobs, runtime: nativeBackupRuntime{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session}, routes: manager}
+	nativeRestore := nativeLiveRestoreOperations{service: service, jobs: taskJobs, runtime: nativeRuntime, routes: manager}
 	r.NativeLiveRestore = nativeRestore
 	r.Runner.TaskHandlers[ops.NativeLiveRestore] = nativeRestore.task
 	r.Runner.TaskHandlers[ops.NativeLiveRestoreResolve] = nativeRestore.resolveTask

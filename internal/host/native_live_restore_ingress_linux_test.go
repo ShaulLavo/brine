@@ -29,4 +29,8 @@ func TestLiveRestoreUsesPreparedWithdrawalInsteadOfHistoricalServingReceipt(t *t
 	if err := runtime.verifyRestoreIngress(t.Context(), r.service, "4a88ac96c16d0c23e0f63c9832ac998b", r.original.App, r.original.Managed.Database.BindingID); err != nil {
 		t.Fatal("completed withdrawal refused", err)
 	}
+	adapter.adapted = r.adapted
+	if err := runtime.verifyRestoreIngress(t.Context(), r.service, "4a88ac96c16d0c23e0f63c9832ac998b", r.original.App, r.original.Managed.Database.BindingID); err == nil {
+		t.Fatal("loaded serving route accepted")
+	}
 }
