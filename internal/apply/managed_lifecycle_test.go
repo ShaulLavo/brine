@@ -295,3 +295,18 @@ func TestManagedFullStopStopsFrontendThenEngine(t *testing.T) {
 		t.Fatal("engine did not stop after frontend", r.effects)
 	}
 }
+
+func TestManagedFullStopRecoveryRecognizesBothStopReceipts(t *testing.T) {
+	r, _ := managedLifecycleRig(t, true, plan.StopApp)
+	planned, err := plan.BuildEngineStop(r.facts.Input)
+	if err != nil || planned.Kind == plan.Conflict {
+		t.Fatal(err, planned.Conflicts)
+	}
+	r.plan = planned
+	if err = r.executor.Run(t.Context(), "material-stop", r.plan, r.desired); err != nil {
+		t.Fatal(err)
+	}
+	if _, valid := managedLifecycleRecoveryPrefix(r.events, r.plan); !valid {
+		t.Fatal("completed full stop is not recoverable")
+	}
+}

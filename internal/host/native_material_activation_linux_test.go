@@ -144,8 +144,13 @@ func TestNativeMaterialExpiredPublisherCanStartAndRenewThroughReviewedActivation
 	if _, err := readEngineReplayInput(bytes.NewReader(request)); err != nil {
 		t.Fatal("copy startup refused expired publisher", err)
 	}
-	oldKey := filepath.Join(f.stateRoot, "engine-secrets", string(runtime.BindingID), "signing-private", "v1.secret")
-	original, err := os.ReadFile(oldKey)
+	materialRoot, err := engineOpenRoot(f.stateRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = materialRoot.Close() }()
+	oldKey := filepath.Join("engine-secrets", string(runtime.BindingID), "signing-private", "v1.secret")
+	original, err := materialRoot.ReadFile(oldKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +195,7 @@ func TestNativeMaterialExpiredPublisherCanStartAndRenewThroughReviewedActivation
 	if repeat != receipt {
 		t.Fatal("activation replay changed receipt")
 	}
-	retained, err := os.ReadFile(oldKey)
+	retained, err := materialRoot.ReadFile(oldKey)
 	defer clear(retained)
 	if err != nil || !bytes.Equal(retained, original) {
 		t.Fatal("older signing recovery version changed", err)

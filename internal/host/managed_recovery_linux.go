@@ -100,7 +100,7 @@ func (r managedRuntime) inspectManagedCompletion(ctx context.Context, operation 
 	return ctx.Err()
 }
 func (r managedRuntime) completedComponents(ctx context.Context, operation string, p plan.Plan, flags plan.ManagedLifecyclePlan) error {
-	stoppingFrontend := p.Lifecycle == plan.StopApp && p.ManagedLifecycle != nil && p.ManagedLifecycle.Frontend
+	stoppingFrontend := p.Lifecycle == plan.StopApp && p.ManagedLifecycle != nil && p.ManagedLifecycle.Frontend && !p.ManagedLifecycle.Engine
 	if stoppingFrontend {
 		permit, err := r.expected(ctx, p)
 		if err != nil {
