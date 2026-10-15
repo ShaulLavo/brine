@@ -45,8 +45,12 @@ func (o nativeMaterialOperations) DeliverMaterial(ctx context.Context, args disp
 	if err != nil || pol.Hash() != d.PolicyHash {
 		return nativematerial.Receipt{}, result.New(result.PolicyRefused, nil)
 	}
+	reserved, err := o.service.Store.ReadReservedEngine(ctx, p.Managed.Database.BindingID)
+	if err != nil || reserved.Database != p.Managed.Database || reserved.Archive != p.Managed.Archive {
+		return nativematerial.Receipt{}, result.New(result.Conflict, nil)
+	}
 	projection, err := o.service.Store.ReadManagedApp(ctx, args.App)
-	if err != nil || projection.Reserved.Database != p.Managed.Database || projection.Reserved.Archive != p.Managed.Archive {
+	if err != nil || projection.Reserved.Database != reserved.Database {
 		return nativematerial.Receipt{}, result.New(result.Conflict, nil)
 	}
 	prepared, err := o.service.Store.ReadManagedPreparation(ctx, p.Managed.Database.BindingID)

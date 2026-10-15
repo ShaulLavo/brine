@@ -5,18 +5,20 @@ package host
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
-	"encoding/base64"
-	"encoding/json"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/nativematerial"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
-	"strings"
+	"lukechampine.com/blake3"
 )
 
 func (o nativeMaterialOperations) PlanMaterial(ctx context.Context, args dispatch.NativeMaterialPlanArgs) (nativematerial.ActivationPlan, error) {
@@ -139,6 +141,20 @@ func materialPublisherMatches(token []byte, expected data.NativePublisherIdentit
 	defer clear(raw)
 	var claims struct {
 		Identity string `json:"hex_identity"`
+		Issuer   string `json:"iss"`
+		Subject  string `json:"sub"`
 	}
-	return err == nil && json.Unmarshal(raw, &claims) == nil && claims.Identity == string(expected)
+	if err != nil || json.Unmarshal(raw, &claims) != nil || claims.Identity != string(expected) || claims.Issuer == "" || claims.Subject == "" {
+		return false
+	}
+	// SpacetimeDB 2.11.0 crates/lib/src/identity.rs, Identity::from_claims.
+	hash := blake3.Sum256([]byte(claims.Issuer + "|" + claims.Subject))
+	var checksumInput [28]byte
+	checksumInput[0] = 0xc2
+	copy(checksumInput[2:], hash[:26])
+	checksum := blake3.Sum256(checksumInput[:])
+	identity := [32]byte{0xc2, 0x00}
+	copy(identity[2:6], checksum[:4])
+	copy(identity[6:], hash[:26])
+	return hex.EncodeToString(identity[:]) == string(expected)
 }
