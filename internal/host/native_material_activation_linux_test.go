@@ -34,7 +34,7 @@ func initializedMaterialFixture(t *testing.T) nativeMaterialFixture {
 	}
 	runtime.State = data.EngineInitialized
 	runtime.Database = data.NativeDatabaseIdentity(strings.Repeat("d", 64))
-	runtime.Publisher = data.NativePublisherIdentity(strings.Repeat("a", 64))
+	runtime.Publisher = data.NativePublisherIdentity(nativePacketPublisherIdentity)
 	runtime.Names = []string{f.desired.SpacetimeDB.Database}
 	runtime.Secrets.Publisher.ExpiresAt = time.Now().UTC().Add(-time.Minute)
 	prepared, err := f.service.Store.ReadManagedPreparation(ctx, runtime.BindingID)
@@ -222,5 +222,57 @@ func TestPublicationStageRequiresLivePublisherLease(t *testing.T) {
 	raw, _ = json.Marshal(request)
 	if _, err := readModuleStageInput(bytes.NewReader(raw)); err == nil {
 		t.Fatal("expired lease reached publication")
+	}
+}
+
+func TestNativeMaterialActivationRejectsChangedIdentityClaims(t *testing.T) {
+	for _, claim := range []string{"iss", "sub"} {
+		t.Run(claim, func(t *testing.T) { checkMaterialActivationClaim(t, claim) })
+	}
+}
+
+func checkMaterialActivationClaim(t *testing.T, claim string) {
+	t.Helper()
+	f := initializedMaterialFixture(t)
+	ctx := t.Context()
+	before, _, err := f.service.Store.ReadEngineHead(ctx, f.plan.Managed.Database.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wanted, err := f.service.Store.ReadManagedDesired(ctx, before.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	packet := newNativePacketFixture(t)
+	packet.now = time.Now().UTC()
+	packet.claims["iat"] = packet.now.Unix()
+	packet.claims[claim] = "different-owner-" + claim
+	raw := nativePacketJSON(t, packet.packet(t))
+	defer clear(raw)
+	delivery := deliverNativeMaterialFixture(t, f, strings.Repeat("3", 32), raw)
+	reviewed := materialActivationCall(t, f, "native_material_plan", dispatch.NativeMaterialPlanArgs{App: f.plan.App, DeliveryOperationID: delivery.OperationID}).(nativematerial.ActivationPlan)
+	_, err = (nativeMaterialOperations{service: f.service}).ActivateMaterial(ctx, dispatch.NativeMaterialActivateArgs{PlanID: reviewed.ID})
+	if err == nil || result.Classify(err).Code() != result.PolicyRefused {
+		t.Fatalf("changed %s with unchanged claimed identity activated: %v", claim, err)
+	}
+	after, _, err := f.service.Store.ReadEngineHead(ctx, before.BindingID)
+	if err != nil || after != before {
+		t.Fatal("refused credential changed runtime head", err)
+	}
+	actual, err := f.service.Store.ReadManagedDesired(ctx, before.BindingID)
+	if err != nil || actual != wanted {
+		t.Fatal("refused credential changed desired state", err)
+	}
+}
+
+func TestMaterialPublisherMatchesNativeIdentity(t *testing.T) {
+	packet := newNativePacketFixture(t)
+	if !materialPublisherMatches([]byte(packet.token(t)), data.NativePublisherIdentity(nativePacketPublisherIdentity)) {
+		t.Fatal("native identity for synthetic issuer and subject refused")
+	}
+	packet.claims["iss"], packet.claims["sub"] = "https://example.com", "owner"
+	packet.claims["hex_identity"] = "c2007358b5be9f977b0d2f6f3f381349106d568f8d15a75e76f0185df1a4b403"
+	if !materialPublisherMatches([]byte(packet.token(t)), "c2007358b5be9f977b0d2f6f3f381349106d568f8d15a75e76f0185df1a4b403") {
+		t.Fatal("native identity for alternate issuer and subject refused")
 	}
 }
