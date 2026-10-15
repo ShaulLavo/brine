@@ -488,6 +488,14 @@ removal condition. Never use blanket host pruning.
 
 Use the existing pinned version until the
 [runtime and physical exit gates](../plans/09-spacetimedb.md#exit-gate) pass for
-an upgrade. HA, arbitrary point-in-time recovery and unqualified live-copy states
+an upgrade. After an operator atomically replaces `/usr/local/bin/brine`, a running
+engine retains the old read-only helper until its container stops. Brine recognizes
+that unlinked helper when the engine's other ownership checks still pass, so normal
+`brine stop APP` and `brine restart APP` plans remain available. Apply the restart
+plan for an engine-only app to stop the engine and mount the installed helper on
+start. A frontend app's restart affects only its frontend and does not replace
+the engine helper. New startup and publication still require the installed helper.
+
+HA, arbitrary point-in-time recovery and unqualified live-copy states
 remain unsupported. The [acceptance matrix](../TEST_MATRIX.md#phase-09-operator-command-and-evidence-matrix)
 lists the remaining evidence; this runbook does not complete it.

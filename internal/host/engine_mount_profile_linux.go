@@ -60,7 +60,27 @@ type engineProfileCommandMode uint8
 const (
 	engineProfileStableCommand engineProfileCommandMode = iota
 	engineProfileStartingCommand
+	engineProfileRunningCommand
 )
+
+func (mode engineProfileCommandMode) matches(host, guest engineMountProfile, mappings engineProfileMappings) bool {
+	if mode != engineProfileRunningCommand {
+		return engineProfileMatches(host, guest, mappings)
+	}
+	if !engineProfileNodeMatches(host.Helper, guest.Helper, mappings) && !engineReplacedHelperMatches(host.Helper, guest.Helper, mappings) {
+		return false
+	}
+	host.Helper, guest.Helper = nil, nil
+	return engineProfileMatches(host, guest, mappings)
+}
+
+func engineReplacedHelperMatches(host, guest *engineProfileNode, mappings engineProfileMappings) bool {
+	// Atomic replacement unlinks the protected helper retained by the read-only bind.
+	return host != nil && guest != nil && host.Mode == unix.S_IFREG|0755 && host.UID == 0 && host.GID == 0 && host.Links == 1 &&
+		guest.Device == host.Device && guest.Inode != 0 && guest.Inode != host.Inode && guest.Mode == host.Mode &&
+		guest.UID == mappings.uid.namespaceID(0) && guest.GID == mappings.gid.namespaceID(0) &&
+		guest.Links == 0 && guest.Size > 0 && guest.Size <= 64<<20
+}
 
 func (p engineMountProfile) boundTo(identity engineProfileIdentity) bool {
 	return p.PrimaryTicks == identity.ticks && p.UserNamespace == identity.user && p.MountNamespace == identity.mount
@@ -335,7 +355,7 @@ func verifyEngineMountProfileCommand(ctx context.Context, session localexec.Sess
 		return err
 	}
 	identity := engineProfileIdentity{ticks: handle.ticks, user: user, mount: mount}
-	if mode == engineProfileStableCommand {
+	if mode != engineProfileStartingCommand {
 		identity.command, err = engineProcessFile(process, "cmdline")
 		if err != nil {
 			return err
@@ -350,7 +370,7 @@ func verifyEngineMountProfileCommand(ctx context.Context, session localexec.Sess
 		return errEngineSource
 	}
 	observed, err := decodeEngineMountProfile([]byte(result.Stdout))
-	if err != nil || !observed.boundTo(identity) || !engineProfileMatches(before, observed, mappings) {
+	if err != nil || !observed.boundTo(identity) || !mode.matches(before, observed, mappings) {
 		return errEngineSource
 	}
 	after, err := files.snapshot()

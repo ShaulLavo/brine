@@ -97,7 +97,7 @@ func bindEngineNative(ctx context.Context, session localexec.Session, container 
 		return nil, err
 	}
 	defer files.close()
-	if !engineNativeProfileRoot(files, permit) || verifyEngineMountProfile(ctx, session, container, handle, files) != nil || !engineAllocatedSource(permit) {
+	if !engineNativeProfileRoot(files, permit) || verifyEngineMountProfileCommand(ctx, session, container, handle, files, engineProfileRunningCommand) != nil || !engineAllocatedSource(permit) {
 		handle.close()
 		return nil, errEngineSource
 	}
