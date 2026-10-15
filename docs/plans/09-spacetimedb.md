@@ -171,6 +171,18 @@ are in the [physical evidence](../evidence/p09-pi.md#source56-blockers).
    operator stops the units. Document this in the upgrade runbook or make stop
    planning accept it.
 
+
+5. *Initialized publisher renewal blocks the Source57 continuation.* The stored
+   publisher JWT is expired. Native metadata observation with that exact role
+   returns HTTP401. After clean helper replacement and successful reviewed
+   release of the source56 preparation, `brine start APP --target TARGET --json
+   --no-input` returns a conflict with `unknown_facts` on `managed.native_state`.
+   No start apply or new preparation ran. `data material set` supports the
+   unpublished allocation, so implement a reviewed, versioned publisher-role
+   renewal for an initialized binding without changing signing roles or editing
+   the control DB. Then resume through ordinary start, confirm 145 rows, and run
+   one prepare/abandon. Source57 operation IDs are in the physical evidence.
+
 ### P09-08. Run the physical Pi and browser recovery drill
 
 - [ ] **P09-08**

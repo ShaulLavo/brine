@@ -5,7 +5,6 @@ package host
 import (
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -28,17 +27,17 @@ func TestNativePreparationAfterCompletedPublicationUsesCurrentReviewedArtifact(t
 	permit.Runtime.Module.Wasm = data.WasmSHA256(published.WasmSHA256())
 	permit.Runtime.Module.Program = data.NativeProgramWireHash(published.ProgramWireHash())
 	dir := t.TempDir()
-	if err = os.Mkdir(filepath.Join(dir, "program-bytes"), 0700); err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(dir, "program-bytes", "bootstrap.wasm"), old, 0600); err != nil {
-		t.Fatal(err)
-	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer root.Close()
+	defer func() { _ = root.Close() }()
+	if err = root.Mkdir("program-bytes", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err = root.WriteFile("program-bytes/bootstrap.wasm", old, 0600); err != nil {
+		t.Fatal(err)
+	}
 	if _, err = readNativeProgramArtifact(t.Context(), root, permit); err == nil {
 		t.Fatal("fixture cache already contains the published module")
 	}
