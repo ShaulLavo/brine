@@ -137,6 +137,11 @@ func TestNativeMaterialExpiredPublisherCanStartAndRenewThroughReviewedActivation
 		t.Fatal("startup consumed publisher", err)
 	}
 	signing.clear()
+	stored, err := readStoredPublisherMaterial(ctx, f.stateRoot, permit)
+	if err != nil || len(stored.publisher) == 0 {
+		t.Fatal("expired lease blocked stored-file inspection", err)
+	}
+	stored.clear()
 	if _, err := readPublisherMaterial(ctx, f.stateRoot, permit); err == nil {
 		t.Fatal("publication accepted expired lease")
 	}

@@ -71,6 +71,10 @@ func readPublisherMaterial(ctx context.Context, stateRoot string, permit store.E
 	if !permit.Runtime.PublishingSecretsAdmit(time.Now().UTC(), budget) {
 		return engineMaterial{}, errEngineSource
 	}
+	return readStoredPublisherMaterial(ctx, stateRoot, permit)
+}
+
+func readStoredPublisherMaterial(ctx context.Context, stateRoot string, permit store.EnginePermit) (engineMaterial, error) {
 	material, err := readEngineMaterial(ctx, stateRoot, permit)
 	if err != nil {
 		return engineMaterial{}, err
