@@ -24,7 +24,7 @@ func TestNativeAbandonRechecksLivePolicyWithoutAdmissionChange(t *testing.T) {
 	loader := &fakePolicy{p: original}
 	service := Service{Policy: loader}
 	pointPolicy := strings.TrimPrefix(original.Hash(), "sha256:")
-	if err := checkNativeAbandonPolicy(t.Context(), service, pointPolicy); err != nil {
+	if err := checkNativePointPolicy(t.Context(), service, pointPolicy); err != nil {
 		t.Fatal("matching live policy refused", err)
 	}
 	changed, err := policy.Parse([]byte(strings.Replace(string(raw), "max_maintenance_seconds = 120", "max_maintenance_seconds = 119", 1)))
@@ -32,11 +32,11 @@ func TestNativeAbandonRechecksLivePolicyWithoutAdmissionChange(t *testing.T) {
 		t.Fatal("policy fixture did not change", err)
 	}
 	loader.p = changed
-	if err := checkNativeAbandonPolicy(t.Context(), service, pointPolicy); err == nil || result.Classify(err).Code() != result.PolicyRefused {
+	if err := checkNativePointPolicy(t.Context(), service, pointPolicy); err == nil || result.Classify(err).Code() != result.PolicyRefused {
 		t.Fatal("changed live policy admitted with original point policy", err)
 	}
 	loader.p, loader.err = original, errors.New("policy unreadable")
-	if err := checkNativeAbandonPolicy(t.Context(), service, pointPolicy); err == nil || result.Classify(err).Code() != result.PolicyRefused {
+	if err := checkNativePointPolicy(t.Context(), service, pointPolicy); err == nil || result.Classify(err).Code() != result.PolicyRefused {
 		t.Fatal("unreadable policy admitted", err)
 	}
 }

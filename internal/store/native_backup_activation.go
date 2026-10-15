@@ -235,7 +235,7 @@ func nativeBackupActivationMetadataTx(ctx context.Context, tx *sql.Tx, a *Native
 	if previous.Revision != 0 && (previous.RecoveryVersion != recovery.Version || previous.RecoveryReference != recovery.Reference) {
 		return NativeBackupActivationMetadata{}, ErrConflict
 	}
-	return NativeBackupActivationMetadata{Plan: plan, Previous: previous, CreationGrantSHA256: nativePointHash(a.claim), Material: NativeRepositoryMaterial{Scope: scope, Location: location, CredentialReference: credential.CredentialRef, CredentialRecord: credential, CredentialReceiptID: credential.ID, RecoveryReference: recovery.Reference, RecoveryDeliveryID: recovery.ID, RecoverySHA256: recovery.SHA256}}, nil
+	return NativeBackupActivationMetadata{Plan: plan, Previous: previous, CreationGrantSHA256: nativePointHash(a.claim), Material: NativeRepositoryMaterial{Scope: scope, PolicySHA256: plan.PolicySHA256, Location: location, CredentialReference: credential.CredentialRef, CredentialRecord: credential, CredentialReceiptID: credential.ID, RecoveryReference: recovery.Reference, RecoveryDeliveryID: recovery.ID, RecoverySHA256: recovery.SHA256}}, nil
 }
 
 func (a *NativeBackupActivation) Metadata(ctx context.Context) (NativeBackupActivationMetadata, error) {
@@ -477,6 +477,13 @@ func (a *NativeBackupActivation) Commit(ctx context.Context, observed NativeBack
 		}
 	}
 	if _, err := tx.ExecContext(ctx, "INSERT INTO data_native_backup_policies VALUES(?,?,?,?)", p.BindingID, policy.Revision, p.EpochID, raw); err != nil {
+		return nativecapture.BackupPolicyReceipt{}, err
+	}
+	permit, err := readEnginePermit(ctx, tx, p.BindingID)
+	if err != nil {
+		return nativecapture.BackupPolicyReceipt{}, err
+	}
+	if err := recordDataAdmission(ctx, tx, permit.Reserved.Database.DatabaseID, "sha256:"+p.PolicySHA256); err != nil {
 		return nativecapture.BackupPolicyReceipt{}, err
 	}
 	if !a.active() {

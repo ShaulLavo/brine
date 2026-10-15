@@ -202,9 +202,11 @@ func runNativeOnlineCapture(ctx context.Context, service Service, runtime native
 		return nil, err
 	}
 	material, err := claim.Material(ctx)
-	pol, policyErr := service.Policy.Load(ctx)
-	if err != nil || policyErr != nil || pol.Hash() != material.CredentialRecord.PolicyHash {
+	if err != nil {
 		return nil, result.New(result.PolicyRefused, nil)
+	}
+	if _, err := admitNativeBackupPolicy(ctx, service, permit.Runtime.BindingID); err != nil {
+		return nil, err
 	}
 	containers, err := listEngineContainers(ctx, runtime.session)
 	if err != nil {

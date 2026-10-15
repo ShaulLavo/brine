@@ -40,6 +40,9 @@ func (o nativeBackupOperations) Abandon(ctx context.Context, args dispatch.Nativ
 	if err != nil || point.SourceKind != "initialized" {
 		return jobs.Accepted{}, result.New(result.PolicyRefused, err)
 	}
+	if err := checkNativePointPolicy(ctx, o.service, point.PolicySHA256); err != nil {
+		return jobs.Accepted{}, err
+	}
 	_, _, app, err := o.service.Store.ReadNativePreparedStopExpectation(ctx, point.PointID)
 	if err != nil {
 		return jobs.Accepted{}, err
@@ -54,10 +57,8 @@ func (o nativeBackupOperations) submit(ctx context.Context, app, database, key s
 	return o.submitBinding(ctx, binding, app, key, kind, "")
 }
 func (o nativeBackupOperations) submitBinding(ctx context.Context, binding data.ReplicaBindingID, app, key string, kind ops.Kind, pointID string) (jobs.Accepted, error) {
-	backup, err := o.service.Store.ReadNativeBackupPolicy(ctx, binding)
-	pol, policyErr := o.service.Policy.Load(ctx)
-	if err != nil || policyErr != nil || pol.Hash() != "sha256:"+backup.PolicySHA256 {
-		return jobs.Accepted{}, result.New(result.PolicyRefused, nil)
+	if _, err := admitNativeBackupPolicy(ctx, o.service, binding); err != nil {
+		return jobs.Accepted{}, err
 	}
 	requester, err := datainit.ParseRequester(o.jobs.Requester)
 	if err != nil {
@@ -75,6 +76,9 @@ func (o nativeBackupOperations) TestRestore(ctx context.Context, args dispatch.N
 	}
 	point, err := o.service.Store.ReadNativeVerifiedPoint(ctx, args.PointID)
 	if err != nil {
+		return jobs.Accepted{}, err
+	}
+	if err := checkNativePointPolicy(ctx, o.service, point.PolicySHA256); err != nil {
 		return jobs.Accepted{}, err
 	}
 	app, err := o.service.Store.ActiveNativeBindingApp(ctx, point.BindingID)

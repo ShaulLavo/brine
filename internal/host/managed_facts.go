@@ -45,6 +45,12 @@ func (s Service) managedFacts(ctx context.Context, desired policy.Desired, pol p
 			return apply.Facts{}, result.New(result.Conflict, nil)
 		}
 		managed.Database, managed.Archive = &database, &archive
+		backupHash, backupErr := s.Store.ReadNativeBackupDesiredHash(ctx, database.BindingID)
+		if backupErr == nil {
+			managed.BackupDesiredHash = backupHash
+		} else if !errors.Is(backupErr, store.ErrNotFound) {
+			return apply.Facts{}, backupErr
+		}
 		route, routeErr := s.Store.ReadManagedRouteState(ctx, string(desired.Name))
 		if routeErr == nil {
 			managed.RouteRevision = route.Revision

@@ -96,7 +96,7 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 	if previous != nil {
 		p.Diff = configurationDiff(in.Desired, p.Image, p.HostPort, p.Secrets, previous)
 	}
-	if previous != nil && ManagedBackupOnly(in.Desired, previous.Desired) {
+	if previous != nil && ManagedBackupOnly(in.Desired, previous.Desired) && facts.BackupDesiredHash != p.DesiredHash {
 		add(ManagedBackupRevisionRequired, "managed.backup_policy")
 	}
 	if previous != nil && previous.Managed != nil && previous.Managed.RuntimeSHA256 == managed.RuntimeSHA256 && reflect.DeepEqual(previous.Managed.Frontend, managed.Frontend) && configHash(previous.Desired, previous.Image, previous.HostPort, previous.Secrets) == p.ConfigHash && facts.NativeState.Value != nil && *facts.NativeState.Value == "running" {

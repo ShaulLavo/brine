@@ -262,3 +262,15 @@ func (s *Store) ReadNativeBackupRevisionPlanForPolicy(ctx context.Context, polic
 	}
 	return plan, nil
 }
+
+// ReadNativeBackupDesiredHash projects only a successfully activated revision.
+func (s *Store) ReadNativeBackupDesiredHash(ctx context.Context, binding data.ReplicaBindingID) (string, error) {
+	value, _, err := readNativeBackupPolicy(ctx, s.db, binding)
+	if err != nil {
+		return "", err
+	}
+	if err := checkNativeBackupPolicyOperation(ctx, s.db, value); err != nil {
+		return "", err
+	}
+	return "sha256:" + value.DesiredSHA256, nil
+}

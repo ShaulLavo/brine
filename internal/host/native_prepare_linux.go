@@ -54,10 +54,9 @@ func nativePrepareTask(service Service, stateRoot, home string, session nativeBa
 		if err != nil || input.Kind != ops.NativePrepare {
 			return nil, result.New(result.PolicyRefused, nil)
 		}
-		backup, err := service.Store.ReadNativeBackupPolicy(ctx, input.BindingID)
-		pol, policyErr := service.Policy.Load(ctx)
-		if err != nil || policyErr != nil || pol.Hash() != "sha256:"+backup.PolicySHA256 {
-			return nil, result.New(result.PolicyRefused, nil)
+		backup, err := admitNativeBackupPolicy(ctx, service, input.BindingID)
+		if err != nil {
+			return nil, err
 		}
 		ctx, cancel := context.WithTimeout(ctx, time.Duration(backup.Backup.MaxMaintenanceSeconds)*time.Second)
 		defer cancel()

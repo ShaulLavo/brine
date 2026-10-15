@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -67,9 +66,8 @@ func (s *Store) HoldNativePreparationFence(ctx context.Context, binding data.Rep
 }
 
 type unpublishedPreparationAuthority struct {
-	operation    string
-	fence        data.FenceID
-	policySHA256 string
+	operation string
+	fence     data.FenceID
 }
 
 func readUnpublishedPreparationAuthority(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID, database data.SpacetimeDBBinding, runtime data.EngineRuntime) (unpublishedPreparationAuthority, error) {
@@ -116,7 +114,7 @@ func readUnpublishedPreparationAuthority(ctx context.Context, q dataQuerier, bin
 	if err != nil || fenceOwner != op.ID {
 		return unpublishedPreparationAuthority{}, errors.Join(ErrConflict, err)
 	}
-	return unpublishedPreparationAuthority{operation: op.ID, fence: material.FenceID, policySHA256: strings.TrimPrefix(d.PolicyHash, "sha256:")}, nil
+	return unpublishedPreparationAuthority{operation: op.ID, fence: material.FenceID}, nil
 }
 
 // The immutable intent already binds the fence ID. Its protected owner is
@@ -144,7 +142,7 @@ func nativePreparationFenceOwner(ctx context.Context, q dataQuerier, i nativePre
 		return "", errors.Join(ErrConflict, err)
 	}
 	proven, err := readUnpublishedPreparationAuthority(ctx, q, i.BindingID, reserved.Database, runtime)
-	if err != nil || proven.operation != owner || proven.fence != i.FenceID || proven.policySHA256 != i.PolicySHA256 {
+	if err != nil || proven.operation != owner || proven.fence != i.FenceID {
 		return "", errors.Join(ErrConflict, err)
 	}
 	allocation, err := readInitialEngineAllocation(ctx, q, reserved)

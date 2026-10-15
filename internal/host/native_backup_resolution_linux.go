@@ -251,9 +251,11 @@ func (o nativeBackupResolutionOperations) inspect(ctx context.Context, i *store.
 		}
 	}
 	material, err := i.Material(ctx)
-	pol, policyErr := o.service.Policy.Load(ctx)
-	if err != nil || policyErr != nil || pol.Hash() != material.CredentialRecord.PolicyHash {
-		return nil, result.New(result.PolicyRefused, nil)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkNativePointPolicy(ctx, o.service, material.PolicySHA256); err != nil {
+		return nil, err
 	}
 	v.material = material
 	if i.OriginalKind() == ops.NativePrepare {
@@ -419,20 +421,54 @@ func (o nativeBackupResolutionOperations) inspectActivation(ctx context.Context,
 	if err != nil {
 		return err
 	}
+	v.unitsState, err = o.inspectActivationUnits(ctx, v.activation, stage)
+	return err
+}
+
+func (o nativeBackupResolutionOperations) inspectActivationUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata, stage string) (string, error) {
+	if stage != "prepared" && o.verifyUnits(ctx, metadata) == nil {
+		return "verified", nil
+	}
+	if stage != "prepared" && stage != "units_issued" {
+		return "", errEngineSource
+	}
+	if metadata.Previous.Revision != 0 {
+		if err := o.verifyPreviousUnits(ctx, metadata); err != nil {
+			return "", err
+		}
+		if stage == "prepared" {
+			return "not_issued", nil
+		}
+		return "issued_previous", nil
+	}
+	if err := o.absentUnits(ctx, metadata); err != nil {
+		return "", err
+	}
 	if stage == "prepared" {
-		if err = o.absentUnits(ctx, v.activation); err != nil {
-			return err
-		}
-		v.unitsState = "not_issued"
-	} else if err = o.verifyUnits(ctx, v.activation); err == nil {
-		v.unitsState = "verified"
-	} else if stage == "units_issued" {
-		if err = o.absentUnits(ctx, v.activation); err != nil {
-			return err
-		}
-		v.unitsState = "issued_absent"
-	} else {
+		return "not_issued", nil
+	}
+	return "issued_absent", nil
+}
+
+func (o nativeBackupResolutionOperations) verifyPreviousUnits(ctx context.Context, metadata store.NativeBackupActivationMetadata) error {
+	previous := metadata
+	previous.Plan.Backup = metadata.Previous.Backup
+	unit, timer := nativeBackupUnitBytes(previous)
+	if metadata.Previous.BindingID != metadata.Plan.BindingID || nativeBackupBytesHash(unit) != metadata.Previous.UnitSHA256 || nativeBackupBytesHash(timer) != metadata.Previous.TimerSHA256 {
+		return errEngineSource
+	}
+	if err := o.verifyUnits(ctx, previous); err != nil {
 		return err
+	}
+	root, err := nativeBackupConfigRoot(o.runtime.home)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
+	for _, suffix := range []string{".service.new", ".timer.new"} {
+		if _, err := root.Lstat(filepath.Join("systemd/user", nativeBackupUnitName(metadata)+suffix)); !os.IsNotExist(err) {
+			return errEngineSource
+		}
 	}
 	return nil
 }
@@ -513,7 +549,7 @@ func (o nativeBackupResolutionOperations) adoptActivation(ctx context.Context, i
 		}
 	}
 	unit, timer := nativeBackupUnitBytes(v.activation)
-	if v.unitsState == "not_issued" || v.unitsState == "issued_absent" {
+	if v.unitsState == "not_issued" || v.unitsState == "issued_absent" || v.unitsState == "issued_previous" {
 		if err = i.BeginResolutionUnits(ctx); err != nil {
 			return nil, err
 		}
