@@ -112,6 +112,14 @@ func (s *Store) ReadNativeAbandonmentOutcome(ctx context.Context, id string) (*o
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	outcome, err := readNativeAbandonmentOutcomeTx(ctx, tx, id)
+	if err != nil {
+		return nil, err
+	}
+	return outcome, tx.Commit()
+}
+
+func readNativeAbandonmentOutcomeTx(ctx context.Context, tx *sql.Tx, id string) (*ops.TaskOutcome, error) {
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 	if err != nil {
 		return nil, err
@@ -122,7 +130,7 @@ func (s *Store) ReadNativeAbandonmentOutcome(ctx context.Context, id string) (*o
 	var raw []byte
 	err = tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", id).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) && op.State == ops.Preflight {
-		return nil, tx.Commit()
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -179,5 +187,5 @@ func (s *Store) ReadNativeAbandonmentOutcome(ctx context.Context, id string) (*o
 	if err != nil || wanted.OperationID != op.ID || wanted.PlanID != release.PlanID || wanted.BindingID != point.view.BindingID || wanted.EpochID != point.view.EpochID || wanted.RuntimeSHA256 != point.view.RuntimeSHA256 || wanted.EngineRunning || wanted.FrontendRunning || wanted.IngressServing {
 		return nil, errors.Join(ErrConflict, err)
 	}
-	return &outcome, tx.Commit()
+	return &outcome, nil
 }
