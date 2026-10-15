@@ -60,7 +60,12 @@ type engineProfileCommandMode uint8
 const (
 	engineProfileStableCommand engineProfileCommandMode = iota
 	engineProfileStartingCommand
+	engineProfileRunningCommand
 )
+
+func (mode engineProfileCommandMode) matches(host, guest engineMountProfile, mappings engineProfileMappings) bool {
+	return engineProfileMatches(host, guest, mappings)
+}
 
 func (p engineMountProfile) boundTo(identity engineProfileIdentity) bool {
 	return p.PrimaryTicks == identity.ticks && p.UserNamespace == identity.user && p.MountNamespace == identity.mount
@@ -335,7 +340,7 @@ func verifyEngineMountProfileCommand(ctx context.Context, session localexec.Sess
 		return err
 	}
 	identity := engineProfileIdentity{ticks: handle.ticks, user: user, mount: mount}
-	if mode == engineProfileStableCommand {
+	if mode != engineProfileStartingCommand {
 		identity.command, err = engineProcessFile(process, "cmdline")
 		if err != nil {
 			return err
@@ -350,7 +355,7 @@ func verifyEngineMountProfileCommand(ctx context.Context, session localexec.Sess
 		return errEngineSource
 	}
 	observed, err := decodeEngineMountProfile([]byte(result.Stdout))
-	if err != nil || !observed.boundTo(identity) || !engineProfileMatches(before, observed, mappings) {
+	if err != nil || !observed.boundTo(identity) || !mode.matches(before, observed, mappings) {
 		return errEngineSource
 	}
 	after, err := files.snapshot()
