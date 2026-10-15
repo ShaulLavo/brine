@@ -9,7 +9,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-func buildManagedLifecycle(in Input, action ChangeKind) (Plan, error) {
+func buildManagedLifecycle(in Input, action ChangeKind, includeEngine bool) (Plan, error) {
 	if action != StartApp && action != StopApp && action != RestartApp || in.Managed == nil || in.Managed.Runtime == nil || in.Managed.Runtime.State != data.EngineInitialized {
 		return Plan{}, errors.New("managed initialized lifecycle required")
 	}
@@ -46,7 +46,7 @@ func buildManagedLifecycle(in Input, action ChangeKind) (Plan, error) {
 	p.Lifecycle = action
 	p.Diff = nil
 	p.Changes = []Change{}
-	intent := &ManagedLifecyclePlan{Engine: current.Managed.Frontend == nil, Frontend: current.Managed.Frontend != nil, Ingress: true, EngineRunning: true, FrontendRunning: current.Managed.Frontend != nil, IngressServing: true}
+	intent := &ManagedLifecyclePlan{Engine: includeEngine || current.Managed.Frontend == nil, Frontend: current.Managed.Frontend != nil, Ingress: true, EngineRunning: true, FrontendRunning: current.Managed.Frontend != nil, IngressServing: true}
 	if action == StartApp && in.Managed.NativeState.Status == target.KnownStatus && in.Managed.NativeState.Value != nil && *in.Managed.NativeState.Value == "stopped" {
 		intent.Engine = true
 	}
@@ -102,4 +102,9 @@ func managedStopConflicts(conflicts []Diagnostic, owned target.Observation[strin
 		result = append(result, Diagnostic{Code: UnknownFacts, Field: "managed.owned_native_state"})
 	}
 	return result
+}
+
+// BuildEngineStop reviews a full managed stop for signing-material reload.
+func BuildEngineStop(in Input) (Plan, error) {
+	return buildManagedLifecycle(in, StopApp, true)
 }

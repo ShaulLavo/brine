@@ -26,24 +26,21 @@ const privateEnginePort = 23991
 
 type engineReplayInput struct {
 	Runtime data.EngineRuntime `json:"runtime"`
-	Token   string             `json:"publisher_token"`
 }
 
 type engineReplayObservation struct {
 	Database      data.NativeDatabaseIdentity  `json:"database"`
 	Publisher     data.NativePublisherIdentity `json:"publisher"`
 	Names         []string                     `json:"names"`
-	Program       data.NativeProgramWireHash   `json:"program_wire_hash"`
 	Canonicalizer string                       `json:"canonicalizer"`
 	SchemaSHA256  string                       `json:"schema_sha256"`
 }
 
 func (o engineReplayObservation) matches(runtime data.EngineRuntime) bool {
-	return o.Database == runtime.Database && o.Publisher == runtime.Publisher && slices.Equal(o.Names, runtime.Names) && o.Program == runtime.Module.Program && o.Canonicalizer == runtime.Module.Schema.Canonicalizer && o.SchemaSHA256 == runtime.Module.Schema.SHA256
+	return o.Database == runtime.Database && o.Publisher == runtime.Publisher && slices.Equal(o.Names, runtime.Names) && o.Canonicalizer == runtime.Module.Schema.Canonicalizer && o.SchemaSHA256 == runtime.Module.Schema.SHA256
 }
 
-// RunEngineCopyObserver runs only in the owned copy-only container. Its private
-// stdin is separate from the public request protocol; credentials never return.
+// RunEngineCopyObserver checks replayed identity and schema in the owned copy-only container.
 func RunEngineCopyObserver(ctx context.Context, input io.Reader, output io.Writer) error {
 	if err := engineReplayContainment(); err != nil {
 		return err
@@ -52,7 +49,6 @@ func RunEngineCopyObserver(ctx context.Context, input io.Reader, output io.Write
 	if err != nil {
 		return err
 	}
-	defer func() { request.Token = "" }()
 	root, err := os.OpenRoot("/data")
 	if err != nil {
 		return errEngineSource
@@ -60,10 +56,6 @@ func RunEngineCopyObserver(ctx context.Context, input io.Reader, output io.Write
 	disabled := engineModuleHTTPDisabled(root)
 	_ = root.Close()
 	if !disabled {
-		return errEngineSource
-	}
-	credential, err := spacetimedb.NewPublisherCredential([]byte(request.Token))
-	if err != nil {
 		return errEngineSource
 	}
 	expected, err := spacetimedb.NewExpectedDatabase(string(request.Runtime.Database), string(request.Runtime.Publisher), request.Runtime.Names)
@@ -81,12 +73,12 @@ func RunEngineCopyObserver(ctx context.Context, input io.Reader, output io.Write
 		return errEngineSource
 	}
 	exited := command.Done()
-	observed, observeErr := waitEngineObservation(ctx, endpoint, credential, expected)
+	observed, observeErr := waitEngineObservation(ctx, endpoint, expected)
 	stopErr := stopEngineChild(ctx, command, exited, time.Duration(request.Runtime.StopSeconds)*time.Second)
 	if observeErr != nil || stopErr != nil || ctx.Err() != nil || !engineReplayAlone(request.Runtime.PIDsLimit) {
 		return errEngineSource
 	}
-	result := engineReplayObservation{Database: data.NativeDatabaseIdentity(observed.Database()), Publisher: data.NativePublisherIdentity(observed.Publisher()), Names: observed.Names(), Program: data.NativeProgramWireHash(observed.CurrentModule()), Canonicalizer: observed.Schema().Version(), SchemaSHA256: observed.Schema().SHA256()}
+	result := engineReplayObservation{Database: data.NativeDatabaseIdentity(observed.Database()), Publisher: data.NativePublisherIdentity(observed.Publisher()), Names: observed.Names(), Canonicalizer: observed.Schema().Version(), SchemaSHA256: observed.Schema().SHA256()}
 	if !result.matches(request.Runtime) {
 		return errEngineSource
 	}
@@ -99,19 +91,15 @@ func readEngineReplayInput(input io.Reader) (engineReplayInput, error) {
 		return engineReplayInput{}, errEngineSource
 	}
 	defer clear(raw)
-	fields, err := strictjson.Object(raw, "runtime", "publisher_token")
+	fields, err := strictjson.Object(raw, "runtime")
 	if err != nil {
 		return engineReplayInput{}, errEngineSource
 	}
 	runtime, err := strictjson.Value[data.EngineRuntime](fields["runtime"])
-	if err != nil || runtime.State != data.EngineInitialized || !runtime.SecretsAdmit(time.Now().UTC(), time.Duration(runtime.StartupSeconds)*time.Second) {
+	if err != nil || runtime.State != data.EngineInitialized || !runtime.ServingSecretsAdmit(time.Now().UTC(), time.Duration(runtime.StartupSeconds)*time.Second) {
 		return engineReplayInput{}, errEngineSource
 	}
-	token, err := strictjson.Value[string](fields["publisher_token"])
-	if err != nil || len(token) > 16<<10 {
-		return engineReplayInput{}, errEngineSource
-	}
-	return engineReplayInput{Runtime: runtime, Token: token}, nil
+	return engineReplayInput{Runtime: runtime}, nil
 }
 
 func engineReplayContainment() error {
@@ -171,18 +159,18 @@ func engineNativeArguments(runtime data.EngineRuntime, port uint16) []string {
 	return []string{"start", "--listen-addr", "127.0.0.1:" + strconv.FormatUint(uint64(port), 10), "--data-dir", "/data", "--jwt-pub-key-path", "/keys/public.pem", "--jwt-priv-key-path", "/keys/private.pem", "--page_pool_max_size", strconv.FormatInt(int64(runtime.PagePoolMB)<<20, 10), "--non-interactive"}
 }
 
-func waitEngineObservation(ctx context.Context, endpoint spacetimedb.PrivateEndpoint, credential spacetimedb.PublisherCredential, expected spacetimedb.ExpectedDatabase) (spacetimedb.Observation, error) {
+func waitEngineObservation(ctx context.Context, endpoint spacetimedb.PrivateEndpoint, expected spacetimedb.ExpectedDatabase) (spacetimedb.ServingObservation, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		connection, err := (&net.Dialer{Timeout: 100 * time.Millisecond}).DialContext(ctx, "tcp", "127.0.0.1:"+strconv.Itoa(privateEnginePort))
 		if err == nil {
 			_ = connection.Close()
-			return spacetimedb.ObserveCurrent(ctx, endpoint, credential, expected, spacetimedb.DefaultObserverLimits())
+			return spacetimedb.ObserveServing(ctx, endpoint, expected, spacetimedb.DefaultObserverLimits())
 		}
 		select {
 		case <-ctx.Done():
-			return spacetimedb.Observation{}, errEngineSource
+			return spacetimedb.ServingObservation{}, errEngineSource
 		case <-ticker.C:
 		}
 	}
@@ -248,7 +236,7 @@ func decodeEngineReplayObservation(raw []byte) (engineReplayObservation, error) 
 	if len(raw) > 64<<10 {
 		return engineReplayObservation{}, errEngineSource
 	}
-	if _, err := strictjson.Object(raw, "database", "publisher", "names", "program_wire_hash", "canonicalizer", "schema_sha256"); err != nil {
+	if _, err := strictjson.Object(raw, "database", "publisher", "names", "canonicalizer", "schema_sha256"); err != nil {
 		return engineReplayObservation{}, errEngineSource
 	}
 	var observed engineReplayObservation

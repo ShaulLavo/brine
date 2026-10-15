@@ -12,7 +12,7 @@ import (
 // Creating an unbound secret must not make restart implicitly rotate it.
 func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
 	if in.Desired.SpacetimeDB != nil && action != RemoveApp {
-		return buildManagedLifecycle(in, action)
+		return buildManagedLifecycle(in, action, false)
 	}
 	if action == ReviseReplica {
 		p, err := Build(in)

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/store"
@@ -44,8 +45,8 @@ func readEngineMaterial(ctx context.Context, stateRoot string, permit store.Engi
 	defer func() { _ = root.Close() }()
 	secrets := permit.Runtime.Secrets
 	base := filepath.Join("engine-secrets", string(permit.Runtime.BindingID))
-	roles := []string{"publisher", "signing-private", "signing-public", "auth-policy"}
-	versions := []data.EngineSecretVersion{secrets.Publisher, secrets.SigningPrivate, secrets.SigningPublic, secrets.AuthPolicy}
+	roles := []string{"signing-private", "signing-public", "auth-policy"}
+	versions := []data.EngineSecretVersion{secrets.SigningPrivate, secrets.SigningPublic, secrets.AuthPolicy}
 	values := make([][]byte, len(roles))
 	defer func() {
 		for _, value := range values {
@@ -59,11 +60,33 @@ func readEngineMaterial(ctx context.Context, stateRoot string, permit store.Engi
 			return engineMaterial{}, err
 		}
 	}
-	if len(values[0]) > 16<<10 || len(values[1]) == 0 || len(values[2]) == 0 || !engineAuthPolicy(values[3]) {
+	if len(values[0]) == 0 || len(values[1]) == 0 || !engineAuthPolicy(values[2]) {
 		return engineMaterial{}, errEngineSource
 	}
-	material := engineMaterialPaths(stateRoot, permit.Runtime)
-	material.publisher = append([]byte(nil), values[0]...)
+	return engineMaterialPaths(stateRoot, permit.Runtime), nil
+}
+
+func readPublisherMaterial(ctx context.Context, stateRoot string, permit store.EnginePermit) (engineMaterial, error) {
+	budget := time.Duration(permit.Runtime.StartupSeconds+permit.Runtime.StopSeconds+35) * time.Second
+	if !permit.Runtime.PublishingSecretsAdmit(time.Now().UTC(), budget) {
+		return engineMaterial{}, errEngineSource
+	}
+	material, err := readEngineMaterial(ctx, stateRoot, permit)
+	if err != nil {
+		return engineMaterial{}, err
+	}
+	root, err := engineOpenRoot(stateRoot)
+	if err != nil {
+		return engineMaterial{}, errEngineSource
+	}
+	defer func() { _ = root.Close() }()
+	secret := permit.Runtime.Secrets.Publisher
+	name := filepath.Join("engine-secrets", string(permit.Runtime.BindingID), "publisher", "v"+strconv.FormatUint(secret.Version, 10)+".secret")
+	material.publisher, err = readEnginePrivateFile(ctx, root, name, secret.SHA256, 16<<10)
+	if err != nil || len(material.publisher) == 0 {
+		material.clear()
+		return engineMaterial{}, errEngineSource
+	}
 	return material, nil
 }
 

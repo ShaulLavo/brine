@@ -50,7 +50,7 @@ func (s *Store) ReserveNativeMaterial(ctx context.Context, app, planID, requeste
 		return NativeMaterialInput{}, false, err
 	}
 	p, d, err := loadPlan(ctx, tx, planID)
-	if err != nil || p.App != app || p.Managed == nil || policy.ValidateManagedDesired(d) != nil || p.Managed.Database.BindingID != candidate.BindingID || p.Managed.Archive.EpochID != candidate.EpochID {
+	if err != nil || p.App != app || p.Managed == nil || policy.ValidateManagedDesired(d) != nil || p.Managed.Database.BindingID != candidate.BindingID {
 		return NativeMaterialInput{}, false, errors.Join(ErrConflict, err)
 	}
 	prepared, err := readManagedPreparation(ctx, tx, candidate.BindingID)
@@ -65,6 +65,9 @@ func (s *Store) ReserveNativeMaterial(ctx context.Context, app, planID, requeste
 	initial := errors.Is(headErr, ErrNotFound)
 	if headErr != nil && !initial {
 		return NativeMaterialInput{}, false, headErr
+	}
+	if initial && candidate.EpochID != p.Managed.Archive.EpochID {
+		return NativeMaterialInput{}, false, ErrConflict
 	}
 	if initial && (candidate.State != data.EngineUnpublished || candidate.Database != "" || candidate.Publisher != "" || len(candidate.Names) != 0) {
 		return NativeMaterialInput{}, false, ErrConflict
@@ -158,7 +161,7 @@ func readNativeMaterial(ctx context.Context, q dataQuerier, id string) (NativeMa
 func checkNativeMaterialScope(ctx context.Context, q dataQuerier, input NativeMaterialInput) error {
 	r := input.Receipt
 	p, d, err := loadPlan(ctx, q, r.PreparationPlanID)
-	if err != nil || p.App != r.App || p.Managed == nil || policy.ValidateManagedDesired(d) != nil || d.PolicyHash != input.PolicyHash || p.Managed.Database.BindingID != r.BindingID || p.Managed.Archive.EpochID != r.EpochID {
+	if err != nil || p.App != r.App || p.Managed == nil || policy.ValidateManagedDesired(d) != nil || d.PolicyHash != input.PolicyHash || p.Managed.Database.BindingID != r.BindingID {
 		return errors.Join(ErrConflict, err)
 	}
 	reserved, err := readReservedEngine(ctx, q, r.BindingID)

@@ -86,7 +86,7 @@ func preparePublicationTarget(ctx context.Context, state *store.Store, capabilit
 	}
 	permit := checkpoint.stage.source.permit
 	permit.Runtime = facts.Runtime.Clone()
-	material, err := readEngineMaterial(ctx, checkpoint.stage.source.preparation.StateRoot(), permit)
+	material, err := readPublisherMaterial(ctx, checkpoint.stage.source.preparation.StateRoot(), permit)
 	material.clear()
 	if err != nil {
 		return nil, err

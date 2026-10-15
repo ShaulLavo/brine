@@ -23,12 +23,13 @@ type Edit struct {
 	Action string `json:"action"`
 }
 type ConfigPlan struct {
-	SecretRetention string                  `json:"secret_retention,omitempty"`
-	Lifecycle       plan.ChangeKind         `json:"lifecycle,omitempty"`
-	PlanID          string                  `json:"plan_id"`
-	Kind            plan.Kind               `json:"kind"`
-	Diff            *plan.ConfigurationDiff `json:"diff"`
-	Conflicts       []plan.Diagnostic       `json:"conflicts"`
+	ManagedLifecycle *plan.ManagedLifecyclePlan `json:"managed_lifecycle,omitempty"`
+	SecretRetention  string                     `json:"secret_retention,omitempty"`
+	Lifecycle        plan.ChangeKind            `json:"lifecycle,omitempty"`
+	PlanID           string                     `json:"plan_id"`
+	Kind             plan.Kind                  `json:"kind"`
+	Diff             *plan.ConfigurationDiff    `json:"diff"`
+	Conflicts        []plan.Diagnostic          `json:"conflicts"`
 }
 
 func SpecFromDesired(d policy.Desired) spec.App { return d.App() }
@@ -154,7 +155,7 @@ func (s Service) saveConfig(ctx context.Context, p plan.Plan, d policy.Desired) 
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	out := ConfigPlan{Lifecycle: p.Lifecycle, PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}
+	out := ConfigPlan{ManagedLifecycle: p.ManagedLifecycle, Lifecycle: p.Lifecycle, PlanID: id, Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}
 	if p.Lifecycle == plan.RemoveApp {
 		out.SecretRetention = "d5_retained_releases"
 	}
@@ -182,6 +183,12 @@ func (s Service) ConfigSet(ctx context.Context, app string, edits []Edit) (Confi
 	return s.saveConfig(ctx, p, in.Desired)
 }
 func (s Service) Lifecycle(ctx context.Context, app string, action plan.ChangeKind) (ConfigPlan, error) {
+	return s.lifecycle(ctx, app, action, false)
+}
+func (s Service) EngineStop(ctx context.Context, app string) (ConfigPlan, error) {
+	return s.lifecycle(ctx, app, plan.StopApp, true)
+}
+func (s Service) lifecycle(ctx context.Context, app string, action plan.ChangeKind, includeEngine bool) (ConfigPlan, error) {
 	if action == plan.RemoveApp {
 		return s.remove(ctx, app)
 	}
@@ -206,7 +213,12 @@ func (s Service) Lifecycle(ctx context.Context, app string, action plan.ChangeKi
 			return ConfigPlan{}, err
 		}
 	}
-	p, err := plan.BuildLifecycle(in, action)
+	var p plan.Plan
+	if includeEngine {
+		p, err = plan.BuildEngineStop(in)
+	} else {
+		p, err = plan.BuildLifecycle(in, action)
+	}
 	if err != nil {
 		return ConfigPlan{}, err
 	}

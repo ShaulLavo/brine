@@ -27,15 +27,7 @@ func (r Receipt) Valid() bool {
 	if !operationPattern.MatchString(r.OperationID) || !data.ValidID(string(r.BindingID)) || !data.ValidID(string(r.EpochID)) || !appPattern.MatchString(r.App) || len(r.PreparationPlanID) != 71 || r.PreparationPlanID[:7] != "sha256:" || !data.ValidCatalogHash(r.PreparationPlanID[7:]) || r.Outcome != "configured_unpublished" && r.Outcome != "stored_unreferenced" && r.Outcome != "recovery_required" {
 		return false
 	}
-	values := []data.EngineSecretVersion{r.Secrets.Publisher, r.Secrets.SigningPrivate, r.Secrets.SigningPublic, r.Secrets.AuthPolicy}
-	seen := map[string]bool{}
-	for _, v := range values {
-		if v.Validate() != nil || seen[v.Reference] {
-			return false
-		}
-		seen[v.Reference] = true
-	}
-	return !r.Secrets.Publisher.ExpiresAt.IsZero()
+	return r.Secrets.Validate() == nil
 }
 func DecodeReceipt(raw []byte) (Receipt, error) {
 	if len(raw) > 8192 {

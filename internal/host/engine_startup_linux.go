@@ -224,7 +224,7 @@ func (r *EngineStartupRuntime) privateEngineProof(ctx context.Context, proof eng
 	if err != nil {
 		return engineRefusal(engineRefusalPrivateArgv, err)
 	}
-	input, err := json.Marshal(engineReplayInput{Runtime: proof.permit.Runtime, Token: string(proof.material.publisher)})
+	input, err := json.Marshal(engineReplayInput{Runtime: proof.permit.Runtime})
 	if err != nil {
 		return engineRefusal(engineRefusalPrivateInput, errEngineSource)
 	}

@@ -175,6 +175,18 @@ tokens, S3 credentials and the recovery password stay outside it. Preserve every
 immutable signing and recovery version needed by a retained point or archive.
 Brine does not mint or extend issuer credentials.
 
+To renew native publisher or signing material, deliver another private packet with
+`brine data material set`, then plan and apply `brine stop APP --engine`. Review
+`brine data material plan APP --delivery DELIVERY_OPERATION_ID` and apply it with
+`brine data material activate MATERIAL_PLAN_ID`. Finish with a fresh `brine start
+APP` plan and apply. Include `--target TARGET --json` on each command and wait for
+each lifecycle operation to succeed. See the [material commands](../native-material-commands.md)
+for the full sequence. Activation keeps the engine, frontend and ingress stopped
+and appends a runtime version; retained points keep their original signing
+versions. Publisher expiry prevents publication and owner-authenticated backup
+work, while ordinary start, serving checks, stop, deploy and rollback remain
+available. Brine never renews or re-signs the supplied token itself.
+
 ## Publish the first module and deploy
 
 Activate backups before preparing the exact empty allocation:

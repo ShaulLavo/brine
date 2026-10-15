@@ -157,19 +157,15 @@ func observeManagedMetadata(ctx context.Context, permit store.EnginePermit, mate
 	if err != nil {
 		return errEngineSource
 	}
-	credential, err := spacetimedb.NewPublisherCredential(material.publisher)
-	if err != nil {
-		return errEngineSource
-	}
 	expected, err := spacetimedb.NewExpectedDatabase(string(runtime.Database), string(runtime.Publisher), runtime.Names)
 	if err != nil {
 		return errEngineSource
 	}
-	observed, err := spacetimedb.ObserveCurrent(ctx, endpoint, credential, expected, spacetimedb.DefaultObserverLimits())
+	observed, err := spacetimedb.ObserveServing(ctx, endpoint, expected, spacetimedb.DefaultObserverLimits())
 	if err != nil {
 		return errEngineSource
 	}
-	evidence := engineReplayObservation{Database: data.NativeDatabaseIdentity(observed.Database()), Publisher: data.NativePublisherIdentity(observed.Publisher()), Names: observed.Names(), Program: data.NativeProgramWireHash(observed.CurrentModule()), Canonicalizer: observed.Schema().Version(), SchemaSHA256: observed.Schema().SHA256()}
+	evidence := engineReplayObservation{Database: data.NativeDatabaseIdentity(observed.Database()), Publisher: data.NativePublisherIdentity(observed.Publisher()), Names: observed.Names(), Canonicalizer: observed.Schema().Version(), SchemaSHA256: observed.Schema().SHA256()}
 	if !evidence.matches(runtime) {
 		return errEngineSource
 	}
@@ -177,7 +173,7 @@ func observeManagedMetadata(ctx context.Context, permit store.EnginePermit, mate
 }
 
 func (o managedEngineObserver) stopped(ctx context.Context, permit store.EnginePermit) error {
-	if o.state == nil || o.units == nil || !permit.AllowsVerification(time.Now().UTC()) {
+	if o.state == nil || o.units == nil || !permit.Identity.Allows(data.EngineSpacetimeDB) || permit.Runtime.Validate() != nil {
 		return errEngineSource
 	}
 	unit, err := systemd.ParseUnit(engineContainerName(permit.Runtime.BindingID) + ".service")
@@ -200,7 +196,7 @@ func (o managedEngineObserver) stopped(ctx context.Context, permit store.EngineP
 		return errEngineSource
 	}
 	current, err := o.state.ReadEnginePermit(ctx, permit.Runtime.BindingID)
-	if err != nil || !sameEnginePermit(permit, current) || !current.AllowsVerification(time.Now().UTC()) {
+	if err != nil || !sameEnginePermit(permit, current) || !current.Identity.Allows(data.EngineSpacetimeDB) {
 		return errEngineSource
 	}
 	pending, err = o.units.JobPending(ctx, unit)

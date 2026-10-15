@@ -33,7 +33,7 @@ func (m ManagedLifecyclePlan) Valid(action ChangeKind, service ManagedServicePla
 	if service.State != data.EngineInitialized || m.Frontend != frontend || !m.Ingress || m.DesiredBeforeRevision != revision {
 		return false
 	}
-	if !frontend && !m.Engine || action != StartApp && m.Engine == frontend {
+	if !frontend && !m.Engine || action == RestartApp && m.Engine == frontend {
 		return false
 	}
 	if action == StopApp {

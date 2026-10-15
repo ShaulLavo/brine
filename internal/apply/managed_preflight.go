@@ -22,7 +22,9 @@ func (r *managedExecution) preflight(ctx context.Context) error {
 		return err
 	}
 	fresh, err := plan.Build(facts.Input)
-	if p.Lifecycle != "" {
+	if p.Lifecycle == plan.StopApp && p.ManagedLifecycle != nil && p.ManagedLifecycle.Engine {
+		fresh, err = plan.BuildEngineStop(facts.Input)
+	} else if p.Lifecycle != "" {
 		fresh, err = plan.BuildLifecycle(facts.Input, p.Lifecycle)
 	}
 	if err != nil {

@@ -285,5 +285,5 @@ func readEnginePermitIdentity(ctx context.Context, tx *sql.Tx, p *EnginePermit) 
 // AllowsVerification admits stopped-source inspection only. Live launch still
 // requires the opaque source-bound proof and retained startup serialization.
 func (p EnginePermit) AllowsVerification(now time.Time) bool {
-	return p.Identity.Allows(data.EngineSpacetimeDB) && p.Runtime.Validate() == nil && p.Runtime.SecretsAdmit(now, time.Duration(p.Runtime.StartupSeconds)*time.Second)
+	return p.Identity.Allows(data.EngineSpacetimeDB) && p.Runtime.Validate() == nil && p.Runtime.ServingSecretsAdmit(now, time.Duration(p.Runtime.StartupSeconds)*time.Second)
 }

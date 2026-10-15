@@ -99,6 +99,18 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = view
+		case "native_material_plan":
+			p, err := nativematerial.DecodeActivationPlan(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = p
+		case "native_material_activate":
+			r, err := nativematerial.DecodeActivationReceipt(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = r
 		case "native_material_set", "native_material_status":
 			receipt, err := nativematerial.DecodeReceipt(fields["data"])
 			if err != nil {
@@ -203,7 +215,7 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 				return invalid()
 			}
 			value = p
-		case "config_set", "lifecycle":
+		case "config_set", "lifecycle", "engine_stop":
 			p, err := apps.DecodeConfigPlan(fields["data"])
 			if err != nil {
 				return invalid()

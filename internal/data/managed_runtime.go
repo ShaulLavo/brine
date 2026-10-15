@@ -126,7 +126,7 @@ func (r EngineRuntime) Validate() error {
 	if r.MemoryMB < 128 || r.MemoryMB > 65536 || r.PIDsLimit < 16 || r.PIDsLimit > 65536 || r.PagePoolMB < 16 || r.PagePoolMB >= r.MemoryMB || r.StopSeconds < 1 || r.StopSeconds > 60 || r.StartupSeconds < 1 || r.StartupSeconds > 300 || r.CopyBytes < 1 || r.CopyBytes > 1<<30 || r.CopyFiles < 1 || r.CopyFiles > 16384 || r.Module.Validate() != nil {
 		return ErrInvalid
 	}
-	if err := validateEngineSecrets(r.Secrets); err != nil {
+	if err := r.Secrets.Validate(); err != nil {
 		return err
 	}
 	if r.Names == nil || len(r.Names) > 16 || !slices.IsSorted(r.Names) {
@@ -149,7 +149,7 @@ func (r EngineRuntime) Validate() error {
 	return nil
 }
 
-func validateEngineSecrets(s EngineSecrets) error {
+func (s EngineSecrets) Validate() error {
 	values := []EngineSecretVersion{s.Publisher, s.SigningPrivate, s.SigningPublic, s.AuthPolicy}
 	seen := map[string]bool{}
 	for _, secret := range values {
@@ -164,13 +164,17 @@ func validateEngineSecrets(s EngineSecrets) error {
 	return nil
 }
 
-func (r EngineRuntime) SecretsAdmit(now time.Time, budget time.Duration) bool {
-	for _, secret := range []EngineSecretVersion{r.Secrets.Publisher, r.Secrets.SigningPrivate, r.Secrets.SigningPublic, r.Secrets.AuthPolicy} {
+func (r EngineRuntime) ServingSecretsAdmit(now time.Time, budget time.Duration) bool {
+	for _, secret := range []EngineSecretVersion{r.Secrets.SigningPrivate, r.Secrets.SigningPublic, r.Secrets.AuthPolicy} {
 		if !secret.ExpiresAt.IsZero() && !now.Add(budget).Before(secret.ExpiresAt) {
 			return false
 		}
 	}
 	return budget >= 0
+}
+
+func (r EngineRuntime) PublishingSecretsAdmit(now time.Time, budget time.Duration) bool {
+	return r.ServingSecretsAdmit(now, budget) && !r.Secrets.Publisher.ExpiresAt.IsZero() && now.Add(budget).Before(r.Secrets.Publisher.ExpiresAt)
 }
 
 func (m *EngineModuleDefinition) UnmarshalJSON(raw []byte) error {

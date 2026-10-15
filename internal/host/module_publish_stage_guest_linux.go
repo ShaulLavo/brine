@@ -276,7 +276,7 @@ func readModuleStageInput(input io.Reader) (moduleStageInput, error) {
 		return moduleStageInput{}, datapublish.ErrRecord
 	}
 	var request moduleStageInput
-	if json.Unmarshal(raw, &request) != nil || request.Runtime.Validate() != nil || len(request.Token) == 0 || len(request.Token) > 16<<10 || !request.Runtime.SecretsAdmit(time.Now().UTC(), time.Duration(request.Runtime.StartupSeconds+request.Runtime.StopSeconds+35)*time.Second) {
+	if json.Unmarshal(raw, &request) != nil || request.Runtime.Validate() != nil || len(request.Token) == 0 || len(request.Token) > 16<<10 || !request.Runtime.PublishingSecretsAdmit(time.Now().UTC(), time.Duration(request.Runtime.StartupSeconds+request.Runtime.StopSeconds+35)*time.Second) {
 		return moduleStageInput{}, datapublish.ErrRecord
 	}
 	if request.Action == moduleStagePublisher {

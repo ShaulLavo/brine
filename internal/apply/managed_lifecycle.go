@@ -94,7 +94,7 @@ func (r *managedExecution) withdrawManagedRoutes(ctx context.Context) error {
 func (r *managedExecution) stopManagedComponent(ctx context.Context) error {
 	x := r.x
 	if x.plan.ManagedLifecycle.Frontend {
-		return x.step(ctx, "managed_frontend_stop", Quiescing, "stop_failed", func(ctx context.Context) error {
+		if err := x.step(ctx, "managed_frontend_stop", Quiescing, "stop_failed", func(ctx context.Context) error {
 			if err := x.stop(ctx); err != nil {
 				return err
 			}
@@ -102,7 +102,12 @@ func (r *managedExecution) stopManagedComponent(ctx context.Context) error {
 				return &Error{Step: "managed_frontend_stop", Code: "interrupted"}
 			}
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
+	}
+	if !x.plan.ManagedLifecycle.Engine {
+		return nil
 	}
 	return x.step(ctx, "managed_engine_stop", Quiescing, "stop_failed", func(ctx context.Context) error {
 		if x.executor.Managed.EngineStopped(ctx, x.plan) == nil {

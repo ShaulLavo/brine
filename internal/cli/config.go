@@ -61,18 +61,28 @@ func newConfigCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	return parent
 }
 func newLifecycleCmd(deps Dependencies, modes *machineModes, verb string, action plan.ChangeKind) *cobra.Command {
+	var includeEngine bool
 	var flags operationFlags
 	cmd := &cobra.Command{Use: verb + " APP --target NAME", Short: "Plan to " + verb + " the app's owned unit", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if !dispatch.ValidApp(args[0]) {
 			return result.New(result.InvalidUsage, nil)
 		}
-		response, err := flags.call(cmd.Context(), deps, "lifecycle", dispatch.LifecycleArgs{App: args[0], Action: action})
+		var response result.Envelope
+		var err error
+		if includeEngine {
+			response, err = flags.call(cmd.Context(), deps, "engine_stop", dispatch.EngineStopArgs{App: args[0]})
+		} else {
+			response, err = flags.call(cmd.Context(), deps, "lifecycle", dispatch.LifecycleArgs{App: args[0], Action: action})
+		}
 		if err != nil {
 			return err
 		}
 		return configOutput(cmd, response, *modes, flags)
 	}}
 	flags.register(cmd)
+	if action == plan.StopApp {
+		cmd.Flags().BoolVar(&includeEngine, "engine", false, "Include the managed engine in the reviewed stop for material reload")
+	}
 	return cmd
 }
 func configOutput(cmd *cobra.Command, response result.Envelope, modes machineModes, flags operationFlags) error {
@@ -92,6 +102,11 @@ func configOutput(cmd *cobra.Command, response result.Envelope, modes machineMod
 		}
 	} else if p.Lifecycle != "" {
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Action: %s. Releases, routes and app data stay unchanged.\n", p.Lifecycle); err != nil {
+			return err
+		}
+	}
+	if p.ManagedLifecycle != nil {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Managed components: engine=%t frontend=%t ingress=%t.\n", p.ManagedLifecycle.Engine, p.ManagedLifecycle.Frontend, p.ManagedLifecycle.Ingress); err != nil {
 			return err
 		}
 	}
