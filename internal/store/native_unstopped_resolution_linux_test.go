@@ -15,7 +15,7 @@ import (
 	"time"
 )
 
-func unstoppedPreparationFixture(t *testing.T) (*Store, *NativePreparation, ops.Operation) {
+func unstoppedPreparationFixture(t *testing.T, recordFrontend ...bool) (*Store, *NativePreparation, ops.Operation) {
 	t.Helper()
 	ctx := t.Context()
 	s, p, deploy := managedControlStateFixtureAtRoot(t, true, false, "")
@@ -55,11 +55,13 @@ func unstoppedPreparationFixture(t *testing.T) (*Store, *NativePreparation, ops.
 	if err = s.RecordNativePreparedRoutes(ctx, prep, routes, true); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.RecordNativePreparedFrontendStop(ctx, prep, false); err != nil {
-		t.Fatal(err)
-	}
-	if err = s.RecordNativePreparedFrontendStop(ctx, prep, true); err != nil {
-		t.Fatal(err)
+	if len(recordFrontend) == 0 || recordFrontend[0] {
+		if err = s.RecordNativePreparedFrontendStop(ctx, prep, false); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.RecordNativePreparedFrontendStop(ctx, prep, true); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err = s.CompleteTask(ctx, op.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.InternalError}); err != nil {
 		t.Fatal(err)
@@ -213,5 +215,18 @@ func TestNativePreparationWithIssuedUnknownStopRefusesRelease(t *testing.T) {
 	if inspection, err := s.OpenNativeBackupInspection(t.Context(), original.ID, original.Requester); err == nil {
 		_ = inspection.Close()
 		t.Fatal("unknown issued stop admitted release")
+	}
+}
+
+func TestNativePreparationBeforeFrontendStopCanBeInspected(t *testing.T) {
+	s, _, op := unstoppedPreparationFixture(t, false)
+	inspection, err := s.OpenNativeBackupInspection(t.Context(), op.ID, op.Requester)
+	if err != nil {
+		t.Fatal("preparation without a frontend stop intent cannot be inspected", err)
+	}
+	defer func() { _ = inspection.Close() }()
+	expected, err := inspection.PreparedExpectation(t.Context())
+	if err != nil || !expected.StopNotIssued {
+		t.Fatal("unissued frontend and engine stops", err)
 	}
 }
