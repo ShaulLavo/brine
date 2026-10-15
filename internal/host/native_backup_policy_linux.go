@@ -5,16 +5,34 @@ package host
 import (
 	"context"
 
+	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/store"
 )
 
 type nativeBackupPolicyOperations struct {
 	service Service
 	jobs    jobs.Service
+}
+
+func admitNativeBackupPolicy(ctx context.Context, service Service, binding data.ReplicaBindingID) (store.NativeBackupPolicy, error) {
+	backup, err := service.Store.ReadNativeBackupPolicy(ctx, binding)
+	pol, policyErr := service.Policy.Load(ctx)
+	if err != nil || policyErr != nil {
+		return store.NativeBackupPolicy{}, result.New(result.PolicyRefused, nil)
+	}
+	deployment, desired, err := service.Store.LoadPlan(ctx, backup.DeploymentPlanID)
+	if err != nil || deployment.Managed == nil || deployment.Managed.Database.BindingID != binding || deployment.DesiredHash != "sha256:"+backup.DesiredSHA256 || desired.PolicyHash != "sha256:"+backup.PolicySHA256 || desired.SpacetimePolicy == nil || *desired.SpacetimePolicy != backup.Backup {
+		return store.NativeBackupPolicy{}, result.New(result.PolicyRefused, nil)
+	}
+	if err := pol.CheckNativeBackup(desired); err != nil {
+		return store.NativeBackupPolicy{}, err
+	}
+	return backup, nil
 }
 
 func (o nativeBackupPolicyOperations) PlanPolicy(ctx context.Context, args dispatch.NativeBackupPolicyPlanArgs) (dispatch.NativeBackupPolicyPlanView, error) {

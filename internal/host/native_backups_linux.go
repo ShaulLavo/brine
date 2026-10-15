@@ -54,10 +54,8 @@ func (o nativeBackupOperations) submit(ctx context.Context, app, database, key s
 	return o.submitBinding(ctx, binding, app, key, kind, "")
 }
 func (o nativeBackupOperations) submitBinding(ctx context.Context, binding data.ReplicaBindingID, app, key string, kind ops.Kind, pointID string) (jobs.Accepted, error) {
-	backup, err := o.service.Store.ReadNativeBackupPolicy(ctx, binding)
-	pol, policyErr := o.service.Policy.Load(ctx)
-	if err != nil || policyErr != nil || pol.Hash() != "sha256:"+backup.PolicySHA256 {
-		return jobs.Accepted{}, result.New(result.PolicyRefused, nil)
+	if _, err := admitNativeBackupPolicy(ctx, o.service, binding); err != nil {
+		return jobs.Accepted{}, err
 	}
 	requester, err := datainit.ParseRequester(o.jobs.Requester)
 	if err != nil {
