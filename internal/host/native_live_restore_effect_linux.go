@@ -179,12 +179,7 @@ func (r nativeBackupRuntime) observeNativeRestoreTransition(ctx context.Context,
 	if err = r.nativeRestoreQuiescent(ctx, recovery.App, view.Runtime, tree); err != nil {
 		return zero, err
 	}
-	units := recovery
-	if view.Cursor.Sequence == 0 {
-		units.Release = recovery.SourceRelease
-		units.SourceRelease = recovery.SourceRelease
-	}
-	if err = verifyNativeRestoreRecoveryUnits(ctx, r.home, units); err != nil {
+	if err = verifyNativeRestoreTransitionUnits(ctx, r.home, recovery, view, tree); err != nil {
 		return zero, err
 	}
 	planned, err := r.state.LoadNativeLiveRestorePlan(ctx, view.Input.Common().Scope.PlanID)
@@ -227,6 +222,15 @@ func (r nativeBackupRuntime) observeNativeRestoreTransition(ctx context.Context,
 		return zero, err
 	}
 	return store.NativeRestoreTransitionObservation{Layout: layout, UnitSHA256: unit, MaterialSHA256: strings.TrimPrefix(managedServiceHash(raw), "sha256:"), RecoveryCodeSHA256: recovery.CodeSHA256, RecoveryCompatibilitySHA256: recovery.CompatibilitySHA256, EngineAbsent: true, ApplicationAbsent: true, IngressClosed: true, PrivateReadersAbsent: true, ObservedAt: time.Now().UTC()}, nil
+}
+
+func verifyNativeRestoreTransitionUnits(ctx context.Context, home string, recovery store.NativeRestoreRecoveryCode, view store.NativeRestoreTransitionView, tree *engineTransitionTree) error {
+	units := recovery
+	if view.Cursor.Sequence == 0 {
+		units.Release = recovery.SourceRelease
+		units.SourceRelease = recovery.SourceRelease
+	}
+	return verifyNativeRestoreRecoveryUnits(ctx, home, units)
 }
 
 func verifyNativeRestoreRecoveryUnits(ctx context.Context, home string, recovery store.NativeRestoreRecoveryCode) error {
