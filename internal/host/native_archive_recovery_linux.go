@@ -23,6 +23,7 @@ type nativeArchiveRuntimeState struct {
 	units           nativeArchiveUnitFacts
 	enginePresent   bool
 	frontendPresent bool
+	backupPresent   bool
 }
 
 func (h archiveHost) nativeArchiveRecoveryRuntime(ctx context.Context, p archive.Plan) (nativeArchiveRuntimeState, error) {
@@ -70,7 +71,12 @@ func (h archiveHost) nativeArchiveRecoveryRuntime(ctx context.Context, p archive
 			return zero, err
 		}
 	}
-	return state, nil
+	backups, err := h.nativeArchiveBackups(ctx, p)
+	if err != nil {
+		return zero, err
+	}
+	state.backupPresent, err = backups.inspect(ctx)
+	return state, err
 }
 
 func (h archiveHost) inspectNativeArchiveRuntime(ctx context.Context, p archive.Plan) (archive.RuntimeInspection, error) {
@@ -78,12 +84,19 @@ func (h archiveHost) inspectNativeArchiveRuntime(ctx context.Context, p archive.
 	if err != nil {
 		return archive.RuntimeInspection{}, err
 	}
-	return archive.RuntimeInspection{Complete: !state.enginePresent && !state.frontendPresent}, nil
+	return archive.RuntimeInspection{Complete: !state.enginePresent && !state.frontendPresent && !state.backupPresent}, nil
 }
 
 func (h archiveHost) reconcileNativeArchiveRuntime(ctx context.Context, p archive.Plan) error {
 	state, err := h.nativeArchiveRecoveryRuntime(ctx, p)
 	if err != nil {
+		return err
+	}
+	backups, err := h.nativeArchiveBackups(ctx, p)
+	if err != nil {
+		return err
+	}
+	if err = backups.retire(ctx); err != nil {
 		return err
 	}
 	if state.frontendPresent {

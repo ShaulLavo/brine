@@ -1187,3 +1187,12 @@ quiescence checks. `TestRetainedNativeStopReadbackSurvivesPodmanRefresh` reprodu
 Podman omitting its transient stop-intent flag after reboot. Initial stop evidence
 still requires that flag. Retained readback requires the original container and
 exact exit time, a clean exit, no error and no live PID.
+
+### Native archive backup scheduler retirement
+
+Retirement stops the binding's timer before its service, removes both unit files
+and timer enablement, and requires manager absence before runtime retirement.
+Focused tests cover interrupted stop and removal, foreign unit files or loaded
+fragments, and preservation of another binding. Replaying a terminal retirement
+or resolver reconciles only its backup units and preserves the original receipt,
+including retention dates, while a recreated app is running.

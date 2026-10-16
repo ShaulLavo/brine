@@ -107,7 +107,7 @@ func (s Service) inspectRecovery(ctx context.Context, id data.ArchiveID) (p Plan
 // Reconcile adopts only positively inspected effects. A rename intent with its
 // recorded inode still at source authorizes one no-replace movement; that inode
 // already at archive authorizes only directory sync and the missing receipt.
-// Fences remain held, including after retirement. No service is started or stopped.
+// Fences remain held, including after retirement. No writer is started or stopped.
 func (s Service) Reconcile(ctx context.Context, id data.ArchiveID) (out Disposition, err error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
@@ -124,7 +124,10 @@ func (s Service) Reconcile(ctx context.Context, id data.ArchiveID) (out Disposit
 	if err != nil {
 		return out, err
 	}
-	if out.Stage == Retired || out.Stage == Abandoned {
+	if out.Stage == Retired {
+		return out, s.retireArchivedBackups(ctx, p)
+	}
+	if out.Stage == Abandoned {
 		return out, nil
 	}
 	if !inspection.CanReconcile {

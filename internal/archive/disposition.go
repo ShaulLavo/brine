@@ -111,7 +111,10 @@ func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (
 		return out, err
 	}
 	if exists {
-		if abandon && old.Stage == Abandoned || !abandon && old.Stage == Retired {
+		if !abandon && old.Stage == Retired {
+			return old, s.retireArchivedBackups(ctx, p)
+		}
+		if abandon && old.Stage == Abandoned {
 			return old, nil
 		}
 		if !abandon || old.Stage != AbandonIntent && old.Stage != CleanupIntent {

@@ -223,16 +223,12 @@ frontend are running, status is healthy and HTTPS returns 200. Historical port
 reservations and route ownership no longer block the new incarnation. Full
 P09-08 remains unchecked because the broader acceptance cases below are incomplete.
 
-**Remaining scheduler retirement.** Readback after archive and recreation found
-`brine-native-backup-583a6fc1ce74e7fe76b771118a3a8f3f.timer` still loaded, active
-and waiting. This timer predates the lane and was preserved. Reproduce with
-`systemctl --user list-units --all brine-native-backup-583a6fc1ce74e7fe76b771118a3a8f3f.timer`
-as the enrolled runner. `archive_quiescence_linux.go:186` takes the native branch
-in `StopReplicas`, proves native writers stopped, and returns without retiring the
-fixed backup service/timer. Add supported retirement of those exact hash-owned
-units, preserve retained remote history, and verify the timer cannot schedule
-work for the retired binding. No later timer firing was observed in this pass.
-This broader cleanup case is still part of P09-08's unchecked acceptance.
+**Scheduler retirement.** Archive runtime cleanup now stops the hash-owned backup
+timer before its service, removes their unit files and timer enablement, and
+requires their absence before advancing the archive journal. Recovery accepts
+owned partial removal. Reapplying the saved retirement plan reconciles only the
+original binding's backup units, without changing retention dates or stopping a
+recreated app. Broader P09-08 acceptance remains unchecked.
 
 Frontend recovery is no longer the blocker. Brine restored the previous
 database-only release through its compensation steps, and the corrected fixture
