@@ -50,7 +50,11 @@ Resolution retains the original recovery-required task outcome. Its new task can
 adopt known completed moves after directory sync and finish the new epoch. A source
 still present under a retained uncertain move is not blindly moved again. The
 restored engine and application remain stopped after completion. Replan the
-ordinary managed deployment before starting them.
+ordinary managed deployment before starting them. After restoring the original
+operator policy, reactivate backups through a matching deployment plan. An
+already deployed desired state can supply that plan. Subsequent preparation
+reads the exact reviewed Wasm from the selected historical publication, even
+when the engine's bootstrap cache contains an older module.
 
 ## Handle a refused review
 
