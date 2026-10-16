@@ -12,6 +12,15 @@ import (
 )
 
 func TestNativeArchiveConsumerUsesPreparedGeneration(t *testing.T) {
+	testNativeArchiveClaim(t, false)
+}
+
+func TestNativeArchiveClaimsAbandonedIncomingTree(t *testing.T) {
+	testNativeArchiveClaim(t, true)
+}
+
+func testNativeArchiveClaim(t *testing.T, abandoned bool) {
+	t.Helper()
 	s, prepared, point := nativeCompletedPointFixture(t)
 	ctx := t.Context()
 	original, err := s.GetOperation(ctx, prepared.intent.OperationID)
@@ -25,6 +34,11 @@ func TestNativeArchiveConsumerUsesPreparedGeneration(t *testing.T) {
 	p := archive.Plan{ID: "sha256:" + strings.Repeat("a", 64), ArchiveID: data.ArchiveID(strings.Repeat("b", 32)), Requester: original.Requester, PolicyHash: "sha256:" + point.PolicySHA256, Generation: point.Generation + 10, Candidate: archive.Candidate{App: original.App, Incarnation: point.IncarnationID}}
 	o := archive.Operation{ID: strings.Repeat("c", 32), PlanID: p.ID, ArchiveID: p.ArchiveID}
 	d := archive.NativeDatabase{Head: head, Binding: data.SpacetimeDBBinding{BindingID: point.BindingID}, Dependencies: []data.EngineEvidenceRef{{Kind: data.EnginePreparedPointEvidence, ID: point.PointID, EpochID: point.EpochID}}}
+	if abandoned {
+		incoming := strings.Repeat("d", 32)
+		abandonExec(t, s.db, "INSERT INTO data_native_repository_intents VALUES(?,?,?,?,?,?,?,?)", incoming, prepared.intent.OperationID, point.BindingID, strings.Repeat("e", 32), "endpoint", "bucket", "incoming", []byte(`{}`))
+		d.TransitionTrees = []archive.NativeTransitionTree{{TransitionID: incoming, Stage: data.EngineTransitionAbandoned, Optional: true}}
+	}
 	abandonExec(t, s.db, "INSERT INTO data_archive_plans VALUES(?,?,?)", p.ID, p.ArchiveID, []byte(`{}`))
 	abandonExec(t, s.db, "INSERT INTO data_archive_operations VALUES(?,?,?)", o.ID, p.ID, point.IncarnationID)
 	abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,'preflight',?,?,?,?,?)", "retire-generation", p.Requester, "retire-generation", timestamp(), timestamp(), ops.NativeRetire, p.Candidate.App, p.ID)
@@ -44,6 +58,6 @@ func TestNativeArchiveConsumerUsesPreparedGeneration(t *testing.T) {
 		t.Fatal("fixture archive head or policy differs", head, loaded.view.RuntimeVersion, loaded.view.RuntimeSHA256, loaded.view.EpochID, p.PolicyHash, loaded.view.PolicySHA256)
 	}
 	if _, err := s.claimNativeArchiveDatabase(ctx, tx, p, o, d, prepared.preparation.guard); err != nil {
-		t.Fatal("archive confused control generation with prepared data generation", err)
+		t.Fatal("archive claim refused current coverage or retained incoming tree", err)
 	}
 }
