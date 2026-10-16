@@ -44,3 +44,7 @@ func (s *Store) ReadNativeCurrentPublicationArtifact(ctx context.Context, bindin
 	}
 	return artifact, tx.Commit()
 }
+
+func nativePublicationArtifactEpoch(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID, epoch data.ReplicaEpochID) (data.ReplicaEpochID, error) {
+	return epoch, nil
+}
