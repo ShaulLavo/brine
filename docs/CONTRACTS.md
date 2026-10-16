@@ -1647,6 +1647,8 @@ its successful resolution and preservation proof, retains its reserved remote
 prefix and includes any private target tree in the archive. Incoming repository
 authority permits initialization and config readback, never snapshot upload.
 An abandoned publication that never created a target directory needs no move.
+Retirement releases its managed port reservations while retaining the original
+preparation records. A fresh incarnation may reserve those ports again.
 The plan binds complete local transition-tree identities and
 retention evidence. `apply` submits `native_retire` through the existing task
 runner and uses the existing ordered archive service.

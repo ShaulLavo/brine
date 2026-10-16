@@ -439,3 +439,36 @@ Temporary private tracing was removed from source and the Pi.
 
 Full Phase 09 acceptance remains incomplete. This pass does not claim archive
 success, same-name recreation, elapsed retention or production readiness.
+
+## Native archive continuation (2026-10-16)
+
+[PR #180](https://github.com/ShaulLavo/brine/pull/180) includes #179's preparation
+fixes. The three incoming reservations already had successful `source_preserved`
+resolutions. Archive had ignored those resolutions. It now verifies their
+preservation proofs and retains their prefixes and any private target trees.
+
+The original backup point `518de8a360ee4c598364c857a127c604` reported `verified`
+with unchanged historical failed captures, valid credentials, no missed interval
+and no held fence. Current health now follows the verified point. Active captures
+and later failures still affect health.
+
+Fresh preparation `01a1433d2a639b3a4ee83a4c2d5bed83bbf7eb99409f` succeeded.
+Archive apply `01a1433f1584d21ca8f7a7a923c6d3c8e0c862bd4117` retired archive
+`102470420a1ebbac3efa5350c44e4fa7`. Inspection reported `retired` with retention
+from `2026-10-16T05:47:04.95797836Z` through
+`2026-11-15T05:47:04.95797836Z`. The archive retains nine epochs and eight
+transition or publication targets, including all three abandoned reservations.
+
+The Pi also exposed two claim defects. Retirement used the host control
+generation instead of the exact point's data generation, then required every
+retained target to reference an admitted engine transition. Fresh private tracing
+confirmed each claim guard passed before that foreign-key failure. Focused
+regressions failed before both fixes and passed afterward. Tracing was removed
+and the clean paired helper restored before the successful retirement.
+
+Same-name allocation `01a143405d538a060341eb4be60c0d952358e3eab6ee` initially
+failed at preparation. Read-only control inspection found no new reservation or
+allocation. Its proposed ports were still reserved by the historical preparation
+for the retired incarnation, although inventory correctly offered them as free.
+The port reservation fix preserves historical preparation records and checks
+collisions against active incarnations.

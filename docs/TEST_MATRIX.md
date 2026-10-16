@@ -1117,7 +1117,9 @@ after its successful `source_preserved` resolution, with and without repository
 initialization. An unresolved attempt still refuses. An optional abandoned target
 may be absent, while a required transition tree may not. Backup health tests keep
 recent failures and active captures visible while allowing a current verified
-point to supersede older terminal failures.
+point to supersede older terminal failures. Retirement also releases managed
+preparation ports for a new incarnation while retaining historical preparations
+and refusing collisions with active reservations.
 
 Owned-file publication inspection preserves the exact verified point digest for
 both transition and historical generic seals. Retained-owner resume carries
