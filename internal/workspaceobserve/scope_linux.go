@@ -186,5 +186,5 @@ func ParseGrant(raw []byte) (bool, error) {
 }
 
 func protectedReadMode(mode os.FileMode) bool {
-	return mode == 0600 || mode == 0644
+	return mode == 0600 || mode == 0640 || mode == 0644
 }
