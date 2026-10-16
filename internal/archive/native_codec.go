@@ -2,6 +2,7 @@ package archive
 
 import (
 	"encoding/json"
+	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
 func strictNativeArchiveHead(raw []byte) error {
@@ -37,7 +38,18 @@ func nativeArchiveRetentionRecord(raw []byte) error {
 }
 
 func nativeArchiveTransitionRecord(raw []byte) error {
-	return exactArchiveObject(raw, []string{"transition_id", "stage", "seal"})
+	if err := exactArchiveObject(raw, []string{"transition_id", "stage", "seal"}, "optional"); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if value, present := fields["optional"]; present {
+		_, err := strictjson.Value[bool](value)
+		return err
+	}
+	return nil
 }
 
 func strictNativeArchiveAllocation(raw []byte) error {
