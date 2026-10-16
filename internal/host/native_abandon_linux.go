@@ -22,46 +22,58 @@ import (
 
 func nativeAbandonTask(service Service, runtime nativeBackupRuntime) jobs.TaskHandler {
 	return func(ctx context.Context, op ops.Operation) (receipt json.RawMessage, taskErr error) {
+		stage := "task-scope"
+		defer func() { e3Trace(runtime.stateRoot, stage, taskErr) }()
 		scoped, err := nativeAbandonTaskService(ctx, service, op)
 		if err != nil || runtime.state != scoped.Store {
 			return nil, result.New(result.PolicyRefused, err)
 		}
 		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
+		stage = "host-lock"
 		lock, err := scoped.Store.AcquireHostLock(ctx)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { taskErr = errors.Join(taskErr, lock.Release()) }()
+		stage = "open-capability"
 		abandonment, err := scoped.Store.OpenNativeAbandonment(ctx, op.ID)
 		if err != nil {
 			return nil, err
 		}
 		defer func() { taskErr = errors.Join(taskErr, abandonment.Close()) }()
+		stage = "expectation"
 		expected, err := abandonment.Expected(ctx)
 		if err != nil {
 			return nil, err
 		}
+		stage = "policy"
 		if err := checkNativePointPolicy(ctx, scoped, expected.Point.PolicySHA256); err != nil {
 			return nil, err
 		}
+		stage = "verify-code"
 		if err := verifyNativeAbandonCode(ctx, runtime, expected.App, expected); err != nil {
 			return nil, err
 		}
+		stage = "close-before-stop"
 		if err := abandonment.Close(); err != nil {
 			return nil, err
 		}
+		stage = "stop-units"
 		if err := stopNativeAbandonUnits(ctx, systemd.New(runtime.session), expected); err != nil {
 			return nil, err
 		}
+		stage = "reopen-capability"
 		abandonment, err = scoped.Store.OpenNativeAbandonment(ctx, op.ID)
 		if err != nil {
 			return nil, err
 		}
+		stage = "observe"
 		observed, err := observeNativeAbandonment(ctx, scoped, runtime, abandonment)
 		if err != nil {
 			return nil, err
 		}
+		stage = "complete"
 		completed, err := scoped.Store.CompleteNativeAbandonment(ctx, abandonment, observed)
 		if err != nil {
 			return nil, err
@@ -70,45 +82,57 @@ func nativeAbandonTask(service Service, runtime nativeBackupRuntime) jobs.TaskHa
 	}
 }
 
-func observeNativeAbandonment(ctx context.Context, service Service, runtime nativeBackupRuntime, abandonment *store.NativeAbandonment) (store.NativeAbandonObservation, error) {
+func observeNativeAbandonment(ctx context.Context, service Service, runtime nativeBackupRuntime, abandonment *store.NativeAbandonment) (observation store.NativeAbandonObservation, taskErr error) {
+	stage := "observe-expectation"
+	defer func() { e3Trace(runtime.stateRoot, stage, taskErr) }()
 	expected, err := abandonment.Expected(ctx)
 	if err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
+	stage = "observe-point"
 	point, stop, app, err := runtime.state.ReadNativePreparedStopExpectation(ctx, expected.Point.PointID)
 	if err != nil || point.PointSHA256 != expected.Point.PointSHA256 || app != expected.App {
 		return store.NativeAbandonObservation{}, errEngineSource
 	}
+	stage = "observe-record"
 	record, err := runtime.state.ReadNativePreparedRoutes(ctx, point.PointID)
 	if err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
+	stage = "observe-routes"
 	routes, current, previous, err := runtime.preparedObservedRouteStates(ctx, service, record)
 	if err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
+	stage = "observe-stop"
 	stop, err = runtime.inspectPreparedStop(ctx, app, expected.Permit, stop, routes, current, previous)
 	if err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
+	stage = "observe-code"
 	if err := verifyNativeAbandonCode(ctx, runtime, app, expected); err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
+	stage = "observe-source"
 	seal, err := inspectNativeAbandonSource(ctx, expected)
 	if err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
+	stage = "observe-route-hash"
 	routeBytes, err := json.Marshal(record)
 	if err != nil {
 		return store.NativeAbandonObservation{}, errEngineSource
 	}
+	stage = "observe-stop-again"
 	if _, err := runtime.inspectPreparedStop(ctx, app, expected.Permit, stop, routes, current, previous); err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
+	stage = "observe-final-expectation"
 	finalExpected, err := abandonment.Expected(ctx)
 	if err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
+	stage = "observe-final-policy"
 	if err := checkNativePointPolicy(ctx, service, finalExpected.Point.PolicySHA256); err != nil {
 		return store.NativeAbandonObservation{}, err
 	}
