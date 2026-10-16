@@ -85,15 +85,23 @@ type nativeStoppedState struct {
 }
 
 func decodeNativeStoppedState(raw []byte, id string, issued, observed time.Time) (time.Time, error) {
+	row, err := decodeNativeQuiescentState(raw, id, observed)
+	if err != nil || row.State.StoppedByUser == nil || !*row.State.StoppedByUser || row.State.FinishedAt.Before(issued) {
+		return time.Time{}, errEngineSource
+	}
+	return row.State.FinishedAt.UTC(), nil
+}
+
+func decodeNativeQuiescentState(raw []byte, id string, observed time.Time) (nativeStoppedState, error) {
 	var rows []nativeStoppedState
 	if len(raw) == 0 || len(raw) > 256<<10 || json.Unmarshal(raw, &rows) != nil || len(rows) != 1 || rows[0].ID != id {
-		return time.Time{}, errEngineSource
+		return nativeStoppedState{}, errEngineSource
 	}
 	s := rows[0].State
-	if s.Running == nil || *s.Running || s.PID == nil || *s.PID != 0 || s.ExitCode == nil || *s.ExitCode != 0 || s.OOMKilled == nil || *s.OOMKilled || s.StoppedByUser == nil || !*s.StoppedByUser || s.Error == nil || *s.Error != "" || s.FinishedAt == nil || s.FinishedAt.IsZero() || s.FinishedAt.Before(issued) || s.FinishedAt.After(observed) {
-		return time.Time{}, errEngineSource
+	if s.Running == nil || *s.Running || s.PID == nil || *s.PID != 0 || s.ExitCode == nil || *s.ExitCode != 0 || s.OOMKilled == nil || *s.OOMKilled || s.Error == nil || *s.Error != "" || s.FinishedAt == nil || s.FinishedAt.IsZero() || s.FinishedAt.After(observed) {
+		return nativeStoppedState{}, errEngineSource
 	}
-	return s.FinishedAt.UTC(), nil
+	return rows[0], nil
 }
 
 func (a *nativeStopAttempt) observation(ctx context.Context, session localexec.Session) (store.NativeStopObservation, error) {
@@ -141,5 +149,12 @@ func (a *nativeStopAttempt) close() {
 }
 
 func decodeNativeStoppedReadback(raw []byte, id string, finished, observed time.Time) (time.Time, error) {
-	return decodeNativeStoppedState(raw, id, finished, observed)
+	if finished.IsZero() {
+		return time.Time{}, errEngineSource
+	}
+	row, err := decodeNativeQuiescentState(raw, id, observed)
+	if err != nil || !row.State.FinishedAt.Equal(finished) {
+		return time.Time{}, errEngineSource
+	}
+	return row.State.FinishedAt.UTC(), nil
 }

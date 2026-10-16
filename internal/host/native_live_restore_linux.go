@@ -184,7 +184,7 @@ func (r nativeBackupRuntime) reopenNativeRestoreStop(ctx context.Context, p live
 	if err != nil {
 		return nil, errEngineSource
 	}
-	finished, err := decodeNativeStoppedState([]byte(inspected.Stdout), original.ContainerID, time.Time{}, time.Now().UTC())
+	finished, err := decodeNativeStoppedReadback([]byte(inspected.Stdout), original.ContainerID, original.FinishedAt, time.Now().UTC())
 	if err != nil || !finished.Equal(original.FinishedAt) {
 		return nil, errEngineSource
 	}
