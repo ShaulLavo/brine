@@ -1120,6 +1120,11 @@ recent failures and active captures visible while allowing a current verified
 point to supersede older terminal failures. Retirement also releases managed
 preparation ports for a new incarnation while retaining historical preparations
 and refusing collisions with active reservations.
+Route tests require archive retirement before a new binding can follow the prior
+route revision. Missing-receipt recovery observes an already loaded route without
+writing during inspection. The resolver rechecks components and Caddy, records
+only the missing metadata and completes health/release commit without replaying
+publication or startup.
 
 Owned-file publication inspection preserves the exact verified point digest for
 both transition and historical generic seals. Retained-owner resume carries

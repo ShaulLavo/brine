@@ -474,8 +474,8 @@ The port reservation fix preserves historical preparation records and checks
 collisions against active incarnations.
 
 The recreated allocation succeeded as
-`01a14346a4bdb0bf8669b24cf73f40ce690c20a0fa67`. Supplied signing material
-minted a fresh publisher lease. Recovery material and scoped credentials were
+`01a14346a4bdb0bf8669b24cf73f40ce690c20a0fa67`. Publisher renewal
+reused the supplied signing key. Recovery material and scoped credentials were
 delivered through Brine; backup activation
 `01a143483537c85b48ab9cd2b93a8a226aac3db8c772` succeeded. Initial preparation
 reached a verified point but cleanup and recovery inspection refused the
