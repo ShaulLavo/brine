@@ -32,7 +32,7 @@ func TestRestoredEpochUsesSelectedPublicationArtifact(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := nativePublicationArtifactEpoch(t.Context(), f.store.db, c.Scope.BindingID, c.NewEpochID); err == nil {
-		t.Fatal("unfinished restore supplied historical artifact authority")
+		t.Error("unfinished restore supplied historical artifact authority")
 	}
 	finish := advanceStoreTransition(t, f, activated, data.EngineTransitionFinishIntent, data.EngineLayoutPromoted)
 	tx, cancel2, err := f.store.beginWrite(t.Context())
