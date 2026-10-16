@@ -126,18 +126,18 @@ race_tests() {
   race_shard all
 }
 
-# race_shard runs one race-test slice. store and host each take about 25
-# minutes under -race, so CI runs them beside the remaining packages.
+# Pure-Go SQLite migration fixtures can exceed 30 minutes under -race.
+# Keep those two shards bounded inside the 45-minute CI job limit.
 race_shard() {
-  local packages
+  local packages timeout=30m
   case $1 in
-    store) packages=(./internal/store/) ;;
-    host) packages=(./internal/host/) ;;
+    store) packages=(./internal/store/); timeout=40m ;;
+    host) packages=(./internal/host/); timeout=40m ;;
     rest) mapfile -t packages < <(go list ./... | command grep -v -x -e github.com/ShaulLavo/brine/internal/store -e github.com/ShaulLavo/brine/internal/host) ;;
-    all) packages=(./...) ;;
+    all) packages=(./...); timeout=40m ;;
     *) echo "unknown race shard: $1" >&2; return 2 ;;
   esac
-  go test -race -p 1 -timeout 30m "${packages[@]}"
+  go test -race -p 1 -timeout "$timeout" "${packages[@]}"
   if [[ $1 == rest || $1 == all ]]; then
     (
       cd tools/webtransport-experiment
