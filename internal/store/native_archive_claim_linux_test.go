@@ -34,6 +34,16 @@ func TestNativeArchiveConsumerUsesPreparedGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	loaded, err := readNativePreparedPointTx(ctx, tx, point.PointID)
+	if err != nil {
+		t.Fatal("fixture prepared point", err)
+	}
+	if err := checkNativePointCurrent(ctx, tx, loaded.view); err != nil {
+		t.Fatal("fixture point is not current", err)
+	}
+	if loaded.view.RuntimeVersion != head.Version || loaded.view.RuntimeSHA256 != head.RuntimeSHA256 || loaded.view.EpochID != head.EpochID || p.PolicyHash != "sha256:"+loaded.view.PolicySHA256 {
+		t.Fatal("fixture archive head or policy differs", head, loaded.view.RuntimeVersion, loaded.view.RuntimeSHA256, loaded.view.EpochID, p.PolicyHash, loaded.view.PolicySHA256)
+	}
 	if _, err := s.claimNativeArchiveDatabase(ctx, tx, p, o, d, preparation.guard); err != nil {
 		t.Fatal("archive confused control generation with prepared data generation", err)
 	}
