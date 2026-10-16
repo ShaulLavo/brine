@@ -23,6 +23,7 @@ func TestNativeBackupStatusIgnoresHistoricalCaptureFailures(t *testing.T) {
 	abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,'recovery_required',?,?,?,?,?)", "old-capture", requester.String(), "old-capture", created, created, ops.NativeCapture, "managed", ref)
 	point := nativeVerifiedPointFixture(&NativePreparation{intent: nativePreparationIntent{BindingID: f.runtime.BindingID, EpochID: f.input.Common().Base.Head().EpochID}})
 	point.PointID, point.OperationID = strings.Repeat("d", 32), "new-capture"
+	abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,'succeeded',?,?,?,?,?)", point.OperationID, requester.String(), point.OperationID, timestamp(), timestamp(), ops.NativeCapture, "managed", ref)
 	abandonExec(t, s.db, "INSERT INTO data_native_verified_points VALUES(?,?,?,?,?)", point.PointID, point.OperationID, point.BindingID, point.EpochID, abandonJSON(t, point))
 	pending, err := countUnresolvedNativeCaptures(ctx, s.db, f.runtime.BindingID)
 	if err != nil || pending != 0 {

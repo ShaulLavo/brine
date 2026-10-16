@@ -68,6 +68,9 @@ func seedAbandonedArchivePublication(t *testing.T, f nativeTransitionFixture) na
 	if err != nil {
 		t.Fatal(err)
 	}
+	abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,'recovery_required',?,?,?,?,?)", consumer.applyOperationID, consumer.requester, consumer.applyOperationID, timestamp(), timestamp(), ops.ModulePublishApply, "managed", consumer.planID)
+	abandonExec(t, s.db, "INSERT INTO data_native_preparations VALUES(?,?,?,?,?,?)", consumer.pointID, c.Scope.ApplyOperationID, consumer.binding, consumer.epoch, c.FenceID, []byte(`{}`))
+	abandonExec(t, s.db, "INSERT INTO data_native_prepared_points VALUES(?,?,?,?)", consumer.pointID, consumer.binding, consumer.epoch, []byte(`{}`))
 	abandonExec(t, s.db, "INSERT INTO data_native_point_consumers VALUES(?,?,?,?,?,?,?,?,?,?,?)", consumer.pointID, consumer.kind, consumer.planID, consumer.applyOperationID, consumer.requester, consumer.binding, consumer.epoch, consumer.generation, consumer.generationID, consumer.policySHA256, raw)
 	a := reserved.Archive
 	a.EpochID = f.runtime.EpochID
@@ -78,6 +81,5 @@ func seedAbandonedArchivePublication(t *testing.T, f nativeTransitionFixture) na
 	r := nativeRepositoryIntentRecord{Format: "brine-native-repository-intent-v1", ID: c.Scope.ID, OperationID: consumer.applyOperationID, PlanID: consumer.planID, ConsumerSHA256: nativePointHash(raw), PointID: consumer.pointID, BindingID: consumer.binding, SourceEpochID: consumer.epoch, EpochID: a.EpochID, DatabaseID: c.Scope.DatabaseID, IncarnationID: c.Scope.IncarnationID, FenceID: c.FenceID, FenceOwnerOpID: c.FenceOwnerOperationID, RuntimeVersion: c.Base.Head().Version, RuntimeSHA256: c.Base.Head().RuntimeSHA256, PolicySHA256: consumer.policySHA256, Archive: a, ReservedAt: time.Now().UTC()}
 	intent := nativeRepositoryIntentValue(r, abandonJSON(t, r))
 	abandonExec(t, s.db, "INSERT INTO data_native_repository_intents VALUES(?,?,?,?,?,?,?,?)", r.ID, r.OperationID, r.BindingID, r.EpochID, a.Destination.Endpoint, a.Destination.Bucket, a.RemotePrefix, intent.raw)
-	abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,'recovery_required',?,?,?,?,?)", r.OperationID, consumer.requester, r.OperationID, timestamp(), timestamp(), ops.ModulePublishApply, "managed", r.PlanID)
 	return intent
 }
