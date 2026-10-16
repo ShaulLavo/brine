@@ -7,10 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/target"
+	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -51,9 +53,8 @@ func (h archiveHost) nativeArchiveFacts(ctx context.Context, c archive.Candidate
 		return zero, archive.ErrRefused
 	}
 	defer func() { _ = base.Close() }()
-	observer := engineTransitionTree{limits: limits}
 	for i := range d.TransitionTrees {
-		location, err := observer.inspectLocation(ctx, base, filepath.Join("transitions", d.TransitionTrees[i].TransitionID))
+		location, err := inspectNativeArchiveTree(ctx, base, d.TransitionTrees[i], limits)
 		seal, present := location.Tree()
 		if err == nil && location.Kind() == "absent" && d.TransitionTrees[i].Optional {
 			continue
@@ -74,6 +75,16 @@ func (h archiveHost) nativeArchiveFacts(ctx context.Context, c archive.Candidate
 	hash := sha256.Sum256(raw)
 	c.Databases[0] = archive.NativeDatabaseVariant(d)
 	return archive.Plan{Candidate: c, Generation: *snapshot.Generation.Value, PolicyHash: pol.Hash(), TargetHash: "sha256:" + hex.EncodeToString(hash[:])}, nil
+}
+
+func inspectNativeArchiveTree(ctx context.Context, root *os.Root, tree archive.NativeTransitionTree, limits engineCopyLimits) (data.EngineLocation, error) {
+	observer := engineTransitionTree{limits: limits}
+	if tree.Optional {
+		if _, err := root.Lstat("transitions"); errors.Is(err, os.ErrNotExist) {
+			return observer.inspectLocation(ctx, root, "transitions")
+		}
+	}
+	return observer.inspectLocation(ctx, root, filepath.Join("transitions", tree.TransitionID))
 }
 
 func (h archiveHost) verifyNativeArchiveUnits(ctx context.Context, c archive.Candidate) error {

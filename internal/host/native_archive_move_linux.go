@@ -41,8 +41,7 @@ func verifyNativeArchiveAbsentTree(ctx context.Context, binding data.SpacetimeDB
 		return err
 	}
 	defer func() { _ = base.Close() }()
-	observer := engineTransitionTree{limits: nativeArchiveTreeLimits()}
-	location, err := observer.inspectLocation(ctx, base, filepath.Join("transitions", tree.TransitionID))
+	location, err := inspectNativeArchiveTree(ctx, base, tree, nativeArchiveTreeLimits())
 	if err != nil || location.Kind() != "absent" {
 		return archive.ErrRefused
 	}
