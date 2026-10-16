@@ -19,6 +19,7 @@ type NativeBackupPreparedExpectation struct {
 	NeedsCapture    bool
 	FrontendStopped bool
 	StopNotIssued   bool
+	RoutesNotIssued bool
 	Release         Release
 	Desired         ManagedDesiredState
 	Route           ManagedRouteState
@@ -57,11 +58,14 @@ func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (Nativ
 	var routeRaw []byte
 	var routes NativePreparedRoutes
 	err = tx.QueryRowContext(ctx, "SELECT canonical FROM data_native_prepared_routes WHERE point_id=? AND stage='withdrawn'", intent.PointID).Scan(&routeRaw)
-	if err != nil || json.Unmarshal(routeRaw, &routes) != nil || routes.PointID != intent.PointID || routes.OperationID != i.original.ID || routes.App != i.original.App {
+	routesNotIssued := errors.Is(err, sql.ErrNoRows) && len(events) == 0
+	if routesNotIssued {
+		routes = NativePreparedRoutes{PointID: intent.PointID, OperationID: i.original.ID, App: i.original.App}
+	} else if err != nil || json.Unmarshal(routeRaw, &routes) != nil || routes.PointID != intent.PointID || routes.OperationID != i.original.ID || routes.App != i.original.App {
 		return zero, ErrConflict
 	}
 	canonical, _ := json.Marshal(routes)
-	if !bytes.Equal(canonical, routeRaw) {
+	if !routesNotIssued && !bytes.Equal(canonical, routeRaw) {
 		return zero, &IntegrityError{}
 	}
 	permit, err := readEnginePermit(ctx, tx, i.binding)
@@ -81,7 +85,7 @@ func (i *NativeBackupInspection) PreparedExpectation(ctx context.Context) (Nativ
 		if err != nil {
 			return zero, err
 		}
-		return NativeBackupPreparedExpectation{Permit: permit, Routes: routes, PointID: intent.PointID, StopNotIssued: true, FrontendStopped: frontendStopped, Release: release, Desired: desired, Route: route}, tx.Commit()
+		return NativeBackupPreparedExpectation{Permit: permit, Routes: routes, PointID: intent.PointID, StopNotIssued: true, RoutesNotIssued: routesNotIssued, FrontendStopped: frontendStopped, Release: release, Desired: desired, Route: route}, tx.Commit()
 	}
 	needsCapture, err := nativePreparedNeedsCapture(ctx, tx, intent, events)
 	if err != nil {

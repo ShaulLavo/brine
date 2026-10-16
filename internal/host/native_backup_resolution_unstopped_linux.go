@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/caddy"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -20,7 +21,7 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 	if err != nil || policyErr != nil || pol.Hash() != "sha256:"+backup.PolicySHA256 {
 		return errEngineSource
 	}
-	manager, current, previous, err := o.runtime.preparedObservedRouteStates(ctx, o.service, expected.Routes)
+	manager, current, previous, err := o.unstoppedRouteStates(ctx, expected)
 	if err != nil {
 		return err
 	}
@@ -67,9 +68,18 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 	v.stopNotIssued = true
 	v.unitsState = engineState
 	v.unstopped = expected
+	v.routeGeneration = current.Generation
 	v.rootSHA256 = root
 	v.loadedSHA256 = loaded
 	return nil
+}
+
+func (o nativeBackupResolutionOperations) unstoppedRouteStates(ctx context.Context, expected store.NativeBackupPreparedExpectation) (*caddy.Manager, caddy.State, caddy.State, error) {
+	if !expected.RoutesNotIssued {
+		return o.runtime.preparedObservedRouteStates(ctx, o.service, expected.Routes)
+	}
+	current, err := nativeCommittedRouteStates(ctx, o.service, o.runtime.routes)
+	return o.runtime.routes, current, current, err
 }
 
 func (o nativeBackupResolutionOperations) inspectUnstoppedFrontend(ctx context.Context, expected store.NativeBackupPreparedExpectation) (bool, error) {
