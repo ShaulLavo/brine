@@ -56,12 +56,15 @@ func (r nativeBackupRuntime) executeNativeLiveRestore(ctx context.Context, stage
 }
 
 func (r nativeBackupRuntime) initializeNativeRestoreRepository(ctx context.Context, incoming *store.NativeIncomingRepository, workspace string) (restic.InitializedRepository, error) {
-	transport, err := prepareNativeIncomingTransport(ctx, incoming)
+	metadata, err := incoming.Metadata(ctx)
 	if err != nil {
 		return restic.InitializedRepository{}, err
 	}
-	defer transport.cancel()
-	ctx, metadata := transport.ctx, transport.metadata
+	ctx, cancel, err := nativeTransportContext(ctx, metadata.Material.Scope)
+	if err != nil {
+		return restic.InitializedRepository{}, err
+	}
+	defer cancel()
 	material := metadata.Material
 	files := backupcredentials.Files{Root: filepath.Join(r.stateRoot, "credentials")}
 	receipt, err := files.Receipt(material.CredentialReference, material.Scope.CredentialVersion)
