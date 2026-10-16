@@ -225,7 +225,10 @@ stages and provide supported cancellation or retirement. Preserve their incoming
 reservations, initialized repository and staged trees. Do not retry initialization,
 delete records or remove directories to bypass archive admission. The unused
 archive preparation was abandoned through Brine and the original fixture was
-returned to service with its original operator policy. Archive and same-name
+returned to service with its original operator policy. A fresh online capture
+verified its current epoch with zero maintenance. Backup status remains degraded
+because older capture operations still lack resolution; activation and the new
+verified point do not clear those historical task outcomes. Archive and same-name
 recreation remain unchecked.
 
 Frontend recovery is no longer the blocker. Brine restored the previous
