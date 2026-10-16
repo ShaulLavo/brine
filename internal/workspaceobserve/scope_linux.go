@@ -54,7 +54,7 @@ func readProtected(path string, limit int64) ([]byte, error) {
 	file := os.NewFile(uintptr(fd), path)
 	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0600 && info.Mode().Perm() != 0644 || info.Size() > limit {
+	if err != nil || !info.Mode().IsRegular() || !protectedReadMode(info.Mode().Perm()) || info.Size() > limit {
 		return nil, ErrUnknown
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
@@ -183,4 +183,8 @@ func ParseGrant(raw []byte) (bool, error) {
 		return false, ErrUnknown
 	}
 	return permission.Allow, nil
+}
+
+func protectedReadMode(mode os.FileMode) bool {
+	return mode == 0600 || mode == 0644
 }
