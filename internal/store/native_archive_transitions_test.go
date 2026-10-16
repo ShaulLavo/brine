@@ -4,7 +4,14 @@ package store
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/datapublish"
+	"github.com/ShaulLavo/brine/internal/ops"
 )
 
 func TestNativeArchiveTransitionClosureRefusesAnUnfinishedRetainedTransition(t *testing.T) {
@@ -22,4 +29,55 @@ func TestNativeArchiveTransitionClosureRefusesAnUnfinishedRetainedTransition(t *
 	if err = f.store.db.QueryRowContext(ctx, "SELECT count(*) FROM data_archive_operations").Scan(&count); err != nil || count != 0 {
 		t.Fatal("readonly closure claimed an archive", err)
 	}
+}
+
+func TestNativeArchiveAcceptsPreservedPublicationWithoutAnEpoch(t *testing.T) {
+	f := newNativeTransitionFixture(t)
+	intent := seedAbandonedArchivePublication(t, f)
+	ctx := t.Context()
+	if _, err := f.store.ReadNativeArchiveTransitionClosure(ctx, f.runtime.BindingID); err == nil {
+		t.Fatal("unresolved publication admitted")
+	}
+	resolve := "resolve-abandoned-publication"
+	r := intent.record
+	receipt := datapublish.TaskReceipt{Format: "brine-module-publication-task-v1", Kind: string(ops.ModulePublishResolve), OperationID: resolve, ApplyOperationID: r.OperationID, PlanID: r.PlanID, PointID: r.PointID, BindingID: string(r.BindingID), OldEpochID: string(r.SourceEpochID), NewEpochID: string(r.EpochID), CompletionSHA256: strings.Repeat("a", 64), TransitionState: "not_admitted", Outcome: "source_preserved"}
+	abandonExec(t, f.store.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of) VALUES(?,?,?,'preflight',?,?,?,?,?,?)", resolve, f.input.Common().Scope.Requester, resolve, timestamp(), timestamp(), ops.ModulePublishResolve, "managed", r.PlanID, r.OperationID)
+	raw, _ := json.Marshal(receipt)
+	if err := f.store.CompleteTask(ctx, resolve, ops.Succeeded, ops.TaskOutcome{Receipt: raw}); err != nil {
+		t.Fatal(err)
+	}
+	closed, err := f.store.ReadNativeArchiveTransitionClosure(ctx, f.runtime.BindingID)
+	if err != nil || len(closed) != 0 {
+		t.Fatal("resolved publication without epoch blocks archive", err)
+	}
+	epochs, err := f.store.ReadEngineArchiveBindings(ctx, r.BindingID)
+	if err != nil || len(epochs) != 2 {
+		t.Fatal("abandoned repository prefix lost from retention", epochs, err)
+	}
+}
+
+func seedAbandonedArchivePublication(t *testing.T, f nativeTransitionFixture) nativeRepositoryIntent {
+	t.Helper()
+	s, c := f.store, f.input.Common()
+	reserved, err := s.ReadReservedEngine(t.Context(), c.Scope.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consumer := nativePointConsumer{kind: nativePointModulePublish, pointID: c.PreparedPoint.ID, planID: c.Scope.PlanID, applyOperationID: "abandoned-publication", requester: c.Scope.Requester, binding: c.Scope.BindingID, epoch: c.Base.Head().EpochID, generation: c.Scope.Generation, generationID: strings.Repeat("1", 32), policySHA256: strings.TrimPrefix(c.Scope.PolicyHash, "sha256:")}
+	raw, err := consumer.canonical()
+	if err != nil {
+		t.Fatal(err)
+	}
+	abandonExec(t, s.db, "INSERT INTO data_native_point_consumers VALUES(?,?,?,?,?,?,?,?,?,?,?)", consumer.pointID, consumer.kind, consumer.planID, consumer.applyOperationID, consumer.requester, consumer.binding, consumer.epoch, consumer.generation, consumer.generationID, consumer.policySHA256, raw)
+	a := reserved.Archive
+	a.EpochID = f.runtime.EpochID
+	a.RemotePrefix, err = data.RemotePrefix(a.Destination.BasePrefix, c.Scope.IncarnationID, c.Scope.DatabaseID, a.EpochID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := nativeRepositoryIntentRecord{Format: "brine-native-repository-intent-v1", ID: c.Scope.ID, OperationID: consumer.applyOperationID, PlanID: consumer.planID, ConsumerSHA256: nativePointHash(raw), PointID: consumer.pointID, BindingID: consumer.binding, SourceEpochID: consumer.epoch, EpochID: a.EpochID, DatabaseID: c.Scope.DatabaseID, IncarnationID: c.Scope.IncarnationID, FenceID: c.FenceID, FenceOwnerOpID: c.FenceOwnerOperationID, RuntimeVersion: c.Base.Head().Version, RuntimeSHA256: c.Base.Head().RuntimeSHA256, PolicySHA256: consumer.policySHA256, Archive: a, ReservedAt: time.Now().UTC()}
+	intent := nativeRepositoryIntentValue(r, abandonJSON(t, r))
+	abandonExec(t, s.db, "INSERT INTO data_native_repository_intents VALUES(?,?,?,?,?,?,?,?)", r.ID, r.OperationID, r.BindingID, r.EpochID, a.Destination.Endpoint, a.Destination.Bucket, a.RemotePrefix, intent.raw)
+	abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,'recovery_required',?,?,?,?,?)", r.OperationID, consumer.requester, r.OperationID, timestamp(), timestamp(), ops.ModulePublishApply, "managed", r.PlanID)
+	return intent
 }
