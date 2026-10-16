@@ -467,3 +467,18 @@ func assertNativeReactivatedAbandonment(t *testing.T, s *Store, active NativeBac
 	}
 	assertNativeReactivatedLifecycle(t, s, desired)
 }
+
+func TestNativeBackupReactivationAllowsCurrentDeployment(t *testing.T) {
+	f := newNativeAbandonFixture(t)
+	release, err := f.state.CurrentRelease(t.Context(), f.operation.App)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, desired, err := f.state.LoadPlan(t.Context(), release.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := checkNativeBackupOnlyPlan(t.Context(), f.state.db, release.App, desired); err != nil {
+		t.Fatal("backup reactivation refused the already deployed desired state", err)
+	}
+}
