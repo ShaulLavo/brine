@@ -13,7 +13,10 @@ import (
 )
 
 func TestNativeArchiveRechecksAbsentPublicationTree(t *testing.T) {
-	root := t.TempDir()
+	root := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
 	binding := data.SpacetimeDBBinding{Root: data.PersistentRoot(root)}
 	tree := archive.NativeTransitionTree{TransitionID: strings.Repeat("e", 32), Stage: data.EngineTransitionAbandoned, Optional: true}
 	if err := verifyNativeArchiveAbsentTree(t.Context(), binding, tree); err != nil {
