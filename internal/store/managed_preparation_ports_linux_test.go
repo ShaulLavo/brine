@@ -12,6 +12,10 @@ import (
 func TestManagedPreparationReusesRetiredPorts(t *testing.T) {
 	s, planned, op := managedControlFrontendFixture(t, true)
 	ctx := t.Context()
+	if planned.Managed.EnginePort > 65535 || planned.Managed.Frontend.Port > 65535 {
+		t.Fatal("fixture ports exceed native preparation range")
+		return
+	}
 	old := ManagedPreparation{BindingID: planned.Managed.Database.BindingID, PlanID: planned.Hash, OperationID: op.ID, EnginePort: uint16(planned.Managed.EnginePort), FrontendPort: uint16(planned.Managed.Frontend.Port), ConfigSHA256: strings.Repeat("7", 64)}
 	abandonExec(t, s.db, "INSERT INTO data_engine_preparations VALUES(?,?,?,?,?,?)", old.BindingID, old.PlanID, old.OperationID, old.EnginePort, old.FrontendPort, abandonJSON(t, old))
 	tx, err := s.db.BeginTx(ctx, nil)
