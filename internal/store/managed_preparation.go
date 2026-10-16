@@ -127,7 +127,7 @@ func admitManagedPorts(ctx context.Context, tx *sql.Tx, request ManagedPreparati
 			continue
 		}
 		var existing int
-		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_engine_preparations WHERE engine_port=? OR frontend_port=?", port, port).Scan(&existing); err != nil {
+		if err := tx.QueryRowContext(ctx, "SELECT count(*) FROM data_engine_preparations p JOIN data_replica_bindings b ON b.id=p.binding_id JOIN data_databases d ON d.id=b.database_id JOIN data_active_incarnations a ON a.incarnation_id=d.incarnation_id WHERE p.engine_port=? OR p.frontend_port=?", port, port).Scan(&existing); err != nil {
 			return err
 		}
 		if existing != 0 {
