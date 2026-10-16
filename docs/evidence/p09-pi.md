@@ -368,10 +368,10 @@ the managed route. Fixes are in [PR #178](https://github.com/ShaulLavo/brine/pul
 
 1. Publisher renewal and reviewed activation passed. Start `01a1410a9fa5aeb9aea56b76c6f9a8f6fb89e2fd3311` succeeded, the frontend returned HTTP 200, and the SDK read 145 rows.
 2. Online capture `01a1410b72d3f2c2a14e2c56c3cd54c0c2490f7484a8` verified point `287fc6da1d745e17eb933ee10775a47f` with zero maintenance. Native restore test `01a1410c563d0fc3868f3e1412139426f051fb2a51be` verified that same point.
-3. Additive publication `01a141506df718371efc0c21650f40d5e41ba17ef078` and deployment `01a1415259a9b3ac5889c461355bc23bdd054485bfa9` passed with 145 confirmed rows. The supplied default-column artifact removes the additive table. The coordinator approved restoring the original schema between those updates. The schema-removal guard remains intact; the default update has not run.
-4. Live-restore policy activation `01a141b74a858ef445c2f35f5af08525ce35bbb7456f` passed. Exact preparation `01a141d159a78e0ef86ab4b84bbd57b2a6a619206682` verified point `14034a1d61e56adc8147f4e87547348c`. Restore `01a141d241805cc8760d4a786048d7e2cba23c1e5b97`, selecting pre-additive point `287fc6da1d745e17eb933ee10775a47f`, stopped at `transition_intent`, sequence 4. Its target is staged, but no engine-transition input exists. The supported resolution review refuses at that missing transition. No successful live restore or original-policy reactivation is claimed.
-5. Held-fence reboot has not run. Unused preparation abandonment did pass independently, including operation `01a141cf455401ac0b380084624942b18ae4d2250267`, which released an expired unused preparation and left components stopped.
-6. Native archive and same-name recreation have not run.
+3. Additive publication `01a141506df718371efc0c21650f40d5e41ba17ef078` and deployment `01a1415259a9b3ac5889c461355bc23bdd054485bfa9` passed with 145 confirmed rows. The supplied default-column artifact removes the additive table. The coordinator approved restoring the original schema between those updates. The schema-removal guard remains intact; the default update passed in the continuation below.
+4. Live-restore policy activation `01a141b74a858ef445c2f35f5af08525ce35bbb7456f` passed. Exact preparation `01a141d159a78e0ef86ab4b84bbd57b2a6a619206682` verified point `14034a1d61e56adc8147f4e87547348c`. Restore `01a141d241805cc8760d4a786048d7e2cba23c1e5b97`, selecting pre-additive point `287fc6da1d745e17eb933ee10775a47f`, stopped at `transition_intent`, sequence 4. Its target is staged, but no engine-transition input exists. The supported resolution review refuses at that missing transition. The continuation below records supported recovery and original-policy reactivation.
+5. The continuation below records the held-fence reboot. Unused preparation abandonment did pass independently, including operation `01a141cf455401ac0b380084624942b18ae4d2250267`, which released an expired unused preparation and left components stopped.
+6. Native archive planning was refused by the historical publication reservations described below; same-name recreation has not run.
 
 Frontend recovery passed on the Pi. Resolver
 `01a141b0ab6eb5f3be832408ed60c390912cd5a771b8` restored the previous database-only
@@ -398,16 +398,44 @@ restore previously passed a 15-minute job context to a 10-minute repository
 scope and was refused before transport admission. Focused regressions failed
 before these fixes and passed afterwards.
 
-The last restore's repository journal contains `init_issued` without
-`init_unknown` or an initialized result. The current source remains stopped and
-fenced. Preserve its download, staged target, repository lease and original
-records. Do not repeat apply, clear its fence, or edit control records. The
-[phase plan](../plans/09-spacetimedb.md#p09-08-run-the-physical-pi-and-browser-recovery-drill)
-records the unresolved pre-transition recovery path. The temporary live-restore
-policy grant remains in place for that recovery; original policy restoration
-and backup reactivation remain required afterwards.
+The pre-transition restore interruption was recovered through Brine during the
+continuation below. The original failed task remains immutable; its restore
+journal is completed. The temporary live-restore policy grant was removed and
+backups were reactivated under the original policy.
 
 Earlier fixes in this pass cover preparation after material renewal, recovery
 identity after a later release, schema-marker conflicts and refusals for changes
 outside managed publication. Original fixture inputs remain preserved. Full
 Phase 09 acceptance remains incomplete.
+
+## Final Pi pass continuation (2026-10-16)
+
+[PR #179](https://github.com/ShaulLavo/brine/pull/179) starts from #178 and adds
+supported continuation before a restore transition is recorded. The original
+inspection returned `transition_intent`, sequence 4, and review returned
+`internal_error`. With the fix, fresh review and resolution completed without
+repeating extraction or an admitted repository creation.
+
+- Live restore resolution `01a14240f5017e05983c680a22396c2b7c0abf2a67e8` completed original attempt `01a141d241805cc8760d4a786048d7e2cba23c1e5b97`. Its journal reached `completed`, sequence 7. Deployment `01a14248ec4dd65d04e5d635ef5acd60aad92d47e173` then served 145 confirmed rows from the pre-additive schema.
+- The original operator policy was restored byte for byte. Backup activation `01a1424fce9d8ebcebd1e618fedb8e5ba1190eabc088` succeeded. A later activation, `01a1425ffbadbb2ed4c67a4a63107a893bc7c2284e77`, activated the default-column epoch.
+- Default-column publication `01a1425befd258204fb6b9dececf7fd5809d873177ce` and paired frontend deployment `01a1425e94c5a724375812c438f25b04d2034a5b03b5` succeeded. HTTP returned 200. The matching SDK confirmed 145 paired rows with `rating = 7` in both tables. The schema-removal guard remains unchanged.
+- Preparation `01a142609e34f399dd2012ca43808971595b39ee00ef` held point `133787e38f092ede55fa001cc846471f` across a real reboot. The boot ID changed, the fence remained held and no engine or frontend container started. Abandonment `01a1427c9112c6906a24708ea2341367c2198a4fda24` then succeeded, followed by start `01a1427e27db18f5bab8fc6d206c5615bac60f3d5999`. The matching SDK again confirmed 145 rows with the default value.
+- Archive preparation `01a1427f967120882a9a7bf217f6f743295ca213b3b4` verified point `339084a7e0f684f04ff531a65215205a`. Archive planning returned `policy_refused` before saving a plan. Three incomplete publication operations from October 14 have incoming repository reservations but no native epoch. One repository is initialized. The [phase plan](../plans/09-spacetimedb.md#p09-08-run-the-physical-pi-and-browser-recovery-drill) records their IDs and the guard. Archive and same-name recreation remain unverified.
+- Brine abandoned that unused archive point and returned the original app to service through start `01a14290e7f32659f4067d40e701317a8c59366bd565`. Its final SDK read still confirmed 145 rows with `rating = 7`. Online capture `01a14294f8e1a1ba4a9a4c451fbf4dd1acc53ce55632` then verified the current epoch with zero maintenance. Backup policy remained active, credentials were unexpired and no data fence remained held.
+
+Further fixes earned during this continuation cover observation after restoring
+the operator policy, reactivation for an already deployed desired state, exact
+historical Wasm lookup after restore and inspection of an engine-only preparation
+interrupted before its stop. That interrupted preparation was resolved through
+Brine before fresh preparation succeeded.
+
+The reboot exposed pending systemd restart jobs and Podman clearing its transient
+`StoppedByUser` field. Abandonment now stops only the verified owned units before
+fresh quiescence checks. Initial clean-stop evidence still requires deliberate
+stop intent. Retained readback instead checks the authenticated original container
+and exact exit time, zero exit code, no error and no live PID. The original
+receipt and data remain unchanged. Focused regressions failed before each fix.
+Temporary private tracing was removed from source and the Pi.
+
+Full Phase 09 acceptance remains incomplete. This pass does not claim archive
+success, same-name recreation, elapsed retention or production readiness.
