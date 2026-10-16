@@ -55,11 +55,13 @@ func unstoppedPreparationWithFrontendFixture(t *testing.T, frontend bool, record
 		t.Fatal(err)
 	}
 	routes := NativePreparedRoutes{PointID: prep.PointID(), OperationID: op.ID, App: p.App, PreviousGeneration: 1, PreviousFiles: map[string]string{p.App + ".caddy": "sha256:" + strings.Repeat("b", 64)}, CurrentGeneration: 2, CurrentFiles: map[string]string{}}
-	if err = s.RecordNativePreparedRoutes(ctx, prep, routes, false); err != nil {
-		t.Fatal(err)
-	}
-	if err = s.RecordNativePreparedRoutes(ctx, prep, routes, true); err != nil {
-		t.Fatal(err)
+	if len(recordFrontend) < 2 || recordFrontend[1] {
+		if err = s.RecordNativePreparedRoutes(ctx, prep, routes, false); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.RecordNativePreparedRoutes(ctx, prep, routes, true); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if len(recordFrontend) == 0 || recordFrontend[0] {
 		if err = s.RecordNativePreparedFrontendStop(ctx, prep, false); err != nil {
@@ -80,6 +82,18 @@ func unstoppedPreparationWithFrontendFixture(t *testing.T, frontend bool, record
 		t.Fatal(err)
 	}
 	return s, prep, op
+}
+
+func TestNativePreparationBeforeIngressIntentCanBeInspected(t *testing.T) {
+	s, _, op := unstoppedPreparationFixture(t, false, false)
+	inspection, err := s.OpenNativeBackupInspection(t.Context(), op.ID, op.Requester)
+	if err != nil {
+		t.Fatal("preparation before ingress intent cannot be inspected", err)
+	}
+	defer func() { _ = inspection.Close() }()
+	if _, err := inspection.PreparedExpectation(t.Context()); err != nil {
+		t.Fatal("preparation before ingress intent has no recovery expectation", err)
+	}
 }
 
 func TestNativePreparationBeforeEngineStopCanBeInspected(t *testing.T) {

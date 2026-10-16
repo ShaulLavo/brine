@@ -132,6 +132,27 @@ type withdrawalCaddy struct {
 	reloads int
 }
 
+func TestNativePreparationHonorsExistingRouteWithdrawal(t *testing.T) {
+	r := newNativeWithdrawalRig(t)
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "gen-2"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("gen-2", filepath.Join(root, "current")); err != nil {
+		t.Fatal(err)
+	}
+	adapter := &withdrawalCaddy{adapted: r.adapted}
+	manager, err := caddy.NewManager(root, adapter, adapter)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = manager.Close() }()
+	routes, err := nativeCommittedRouteStates(t.Context(), r.service, manager)
+	if err != nil || len(routes.Files) != 0 {
+		t.Fatal("preparation rejects the prior recorded ingress withdrawal", err)
+	}
+}
+
 func (*withdrawalCaddy) Validate(context.Context, string) error          { return nil }
 func (c *withdrawalCaddy) Adapt(context.Context, string) ([]byte, error) { return c.adapted, nil }
 func (c *withdrawalCaddy) ReadLoaded(context.Context) ([]byte, error)    { return c.adapted, nil }
