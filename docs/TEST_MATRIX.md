@@ -1112,6 +1112,13 @@ change no capture/workspace/point admission guard.
 
 ### Native archive source seal boundaries
 
+Archive regression tests retain an abandoned publication's repository prefix
+after its successful `source_preserved` resolution, with and without repository
+initialization. An unresolved attempt still refuses. An optional abandoned target
+may be absent, while a required transition tree may not. Backup health tests keep
+recent failures and active captures visible while allowing a current verified
+point to supersede older terminal failures.
+
 Owned-file publication inspection preserves the exact verified point digest for
 both transition and historical generic seals. Retained-owner resume carries
 its recorded digest through the upload and completion observation. Store tests
