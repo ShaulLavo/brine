@@ -1659,6 +1659,11 @@ preparation, current head, authenticated extraction, passive replay, confirmed
 marker, signing/recovery bundle and known reader disposal. Coverage JSON alone
 cannot authorize retirement. The owned engine service is retained locally before
 retirement; recovery secrets and remote repositories are preserved.
+Cleanup intent also covers the hash-owned backup timer and service. Stop the timer
+before the service, remove its enablement and unit files, and sync their parents.
+Runtime retirement requires both units absent with no processes or jobs. Recovery
+inspects partial removal before completing it. Reapplying a retired plan reconciles
+only its binding's backup units and preserves the original retirement receipt.
 
 After the application tree moves, each complete terminal transition directory
 moves into the archive's `native-transitions` directory through a separate durable

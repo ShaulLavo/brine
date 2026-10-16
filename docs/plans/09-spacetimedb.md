@@ -223,16 +223,26 @@ frontend are running, status is healthy and HTTPS returns 200. Historical port
 reservations and route ownership no longer block the new incarnation. Full
 P09-08 remains unchecked because the broader acceptance cases below are incomplete.
 
-**Remaining scheduler retirement.** Readback after archive and recreation found
-`brine-native-backup-583a6fc1ce74e7fe76b771118a3a8f3f.timer` still loaded, active
-and waiting. This timer predates the lane and was preserved. Reproduce with
-`systemctl --user list-units --all brine-native-backup-583a6fc1ce74e7fe76b771118a3a8f3f.timer`
-as the enrolled runner. `archive_quiescence_linux.go:186` takes the native branch
-in `StopReplicas`, proves native writers stopped, and returns without retiring the
-fixed backup service/timer. Add supported retirement of those exact hash-owned
-units, preserve retained remote history, and verify the timer cannot schedule
-work for the retired binding. No later timer firing was observed in this pass.
-This broader cleanup case is still part of P09-08's unchecked acceptance.
+**Scheduler retirement.** Archive runtime cleanup now stops the hash-owned backup
+timer before its service, removes their unit files and timer enablement, and
+requires their absence before advancing the archive journal. Recovery accepts
+owned partial removal. Reapplying the saved retirement plan reconciles only the
+original binding's backup units, without changing retention dates or stopping a
+recreated app. Broader P09-08 acceptance remains unchecked.
+
+**Remaining retired-source admission.** On the final archived fixture,
+`brine archive status ARCHIVE_ID --target TARGET --json` returns `degraded` with
+`credential_observation_refused`. A supported retirement replay traced through
+`ReadNativeArchiveFence` returned before backup-policy lookup or any unit access.
+The original archive claim and held fence remain, and the backup policy hashes
+match the installed files. Investigate `internal/store/native_archived_source.go:66`,
+including its prepared-point completion, claim and verification joins, on an
+authorized retired/recreated fixture before earning archive maintenance acceptance.
+This was reproduced on CLI 0.1.67-dev, commit `965deae`, after archive/recreation.
+No database rows, data files or units were edited for the diagnosis. Timer-only
+cleanup uses the retired journal and saved unit ownership, and does not require
+archived-source read authority. The private lane H handoff retains exact IDs and
+read-only diagnostic output for the coordinator.
 
 Frontend recovery is no longer the blocker. Brine restored the previous
 database-only release through its compensation steps, and the corrected fixture

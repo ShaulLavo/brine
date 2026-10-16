@@ -444,6 +444,12 @@ Save both `id` and `archive_id` from the archive plan. Apply selects its plan ID
 inspect and status select the archive ID. Resolve selects the original operation
 ID. These selectors are not interchangeable.
 
+Retirement stops and removes the binding's backup timer and service, including
+its timer enablement. Interrupted cleanup uses the normal retirement resolver.
+Reapplying the saved retirement plan with a new idempotency key reconciles these
+backup units for an already retired archive. It preserves the original retention
+deadline and never stops a recreated app with the same name.
+
 Retirement preserves current data, prior terminal transition trees, all remote
 epochs and recovery versions. Thirty-day retention starts after all moves
 complete. Recreating the app requires new identities and destination prefixes.
