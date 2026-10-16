@@ -139,3 +139,7 @@ func (a *nativeStopAttempt) close() {
 		a.native = nil
 	}
 }
+
+func decodeNativeStoppedReadback(raw []byte, id string, finished, observed time.Time) (time.Time, error) {
+	return decodeNativeStoppedState(raw, id, finished, observed)
+}
