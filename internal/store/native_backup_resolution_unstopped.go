@@ -27,12 +27,12 @@ func nativeUnstoppedIdentity(ctx context.Context, q dataQuerier, intent nativePr
 	if intent.SourceKind != "initialized" {
 		return nil, ErrConflict
 	}
-	var routes, frontend int
-	err := q.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM data_native_prepared_routes WHERE point_id=?),(SELECT count(*) FROM data_native_prepared_frontend_stops WHERE point_id=?)", intent.PointID, intent.PointID).Scan(&routes, &frontend)
+	var routesCount, frontendCount int
+	err := q.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM data_native_prepared_routes WHERE point_id=?),(SELECT count(*) FROM data_native_prepared_frontend_stops WHERE point_id=?)", intent.PointID, intent.PointID).Scan(&routesCount, &frontendCount)
 	if err != nil {
 		return nil, err
 	}
-	if routes == 0 && frontend == 0 {
+	if routesCount == 0 && frontendCount == 0 {
 		return []byte(`{"ingress":"not_issued","frontend_stop":"not_issued"}`), nil
 	}
 	var facts []byte
