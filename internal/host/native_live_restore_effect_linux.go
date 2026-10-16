@@ -225,11 +225,21 @@ func (r nativeBackupRuntime) observeNativeRestoreTransition(ctx context.Context,
 }
 
 func verifyNativeRestoreTransitionUnits(ctx context.Context, home string, recovery store.NativeRestoreRecoveryCode, view store.NativeRestoreTransitionView, tree *engineTransitionTree) error {
-	units := recovery
-	if view.Cursor.Sequence == 0 {
-		units.Release = recovery.SourceRelease
-		units.SourceRelease = recovery.SourceRelease
+	if view.Cursor.Sequence != 0 {
+		if err := verifyNativeRestoreRecoveryUnits(ctx, home, recovery); err == nil {
+			return nil
+		}
+		if view.Cursor.Sequence != 1 || view.Cursor.Stage != data.EngineTransitionPrepared {
+			return errEngineSource
+		}
 	}
+	layout, err := tree.inspect(ctx)
+	if err != nil || data.ClassifyEngineTransitionLayout(view.Input, layout) != data.EngineLayoutPrepared {
+		return errEngineSource
+	}
+	units := recovery
+	units.Release = recovery.SourceRelease
+	units.SourceRelease = recovery.Release
 	return verifyNativeRestoreRecoveryUnits(ctx, home, units)
 }
 
