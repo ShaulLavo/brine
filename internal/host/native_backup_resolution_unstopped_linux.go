@@ -93,7 +93,7 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedFrontend(ctx context.C
 	if props.ActiveState == "active" && props.SubState == "running" && stateErr == nil && state.Running && !expected.FrontendStopped {
 		return true, nil
 	}
-	if props.ActiveState != "inactive" || props.SubState != "dead" || !managedFrontendStopped(state, stateErr) {
+	if inspectPreparedUnitStopped(ctx, archiveHost{session: o.runtime.session}, unit.String()) != nil || !managedFrontendStopped(state, stateErr) {
 		return false, errEngineSource
 	}
 	return false, nil
