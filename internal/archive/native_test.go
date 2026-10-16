@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +49,11 @@ func TestNativeArchiveAllowsAbsentAbandonedPublicationTreeOnly(t *testing.T) {
 	p.ID, _ = p.Fingerprint()
 	if !p.Valid() {
 		t.Fatal("abandoned publication that never created a target blocked archive")
+	}
+	raw, _ := json.Marshal(p)
+	var decoded Plan
+	if err := json.Unmarshal(raw, &decoded); err != nil || !decoded.Valid() {
+		t.Fatal("abandoned publication tree failed archive plan round trip", err)
 	}
 	tree.Optional = false
 	p.Candidate.Databases[0] = NativeDatabaseVariant(native)
