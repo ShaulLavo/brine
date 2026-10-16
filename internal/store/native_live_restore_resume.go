@@ -31,7 +31,11 @@ func (s *Store) ResumeNativeLiveRestoreTransition(ctx context.Context, preparati
 	default:
 		return nil, ErrConflict
 	}
-	input, _, err := readEngineTransition(ctx, tx, retained.claim.Attempt().TransitionID)
+	target, err := readNativeRestoreTargetTx(ctx, tx, retained)
+	if err != nil {
+		return nil, err
+	}
+	input, err := nativeRestoreTransitionInput(retained, target)
 	if err != nil {
 		return nil, err
 	}
@@ -56,6 +60,9 @@ func (s *Store) ResumeNativeLiveRestoreTransition(ctx context.Context, preparati
 		return nil, err
 	}
 	layout := data.ClassifyEngineTransitionLayout(input, observed.Layout)
+	if cursor.Sequence == 0 && layout != data.EngineLayoutPrepared {
+		return nil, ErrConflict
+	}
 	if layout == data.EngineLayoutConflict || !observed.EngineAbsent || !observed.ApplicationAbsent || !observed.IngressClosed || !observed.PrivateReadersAbsent || observed.UnitSHA256 != target.runtime.UnitSHA256 || observed.MaterialSHA256 != target.record.MaterialSHA256 || observed.RecoveryCodeSHA256 != retained.plan.Spec().Recovery.CodeSHA256 || observed.RecoveryCompatibilitySHA256 != retained.plan.Spec().Recovery.CompatibilitySHA256 || observed.ObservedAt.IsZero() || observed.ObservedAt.Location() != time.UTC || observed.ObservedAt.Before(target.record.ObservedAt) || observed.ObservedAt.After(time.Now().UTC()) {
 		return nil, ErrConflict
 	}

@@ -28,8 +28,10 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 		return errEngineSource
 	}
 	front := expected.Release.Managed.Frontend
-	if quadlet.VerifyCurrent(ctx, o.runtime.home, front.Unit.Name, front.Unit.Hash) != nil || verifyManagedFrontendLoaded(ctx, o.runtime.session, o.runtime.home, expected.Routes.App) != nil {
-		return errEngineSource
+	if front != nil {
+		if quadlet.VerifyCurrent(ctx, o.runtime.home, front.Unit.Name, front.Unit.Hash) != nil || verifyManagedFrontendLoaded(ctx, o.runtime.session, o.runtime.home, expected.Routes.App) != nil {
+			return errEngineSource
+		}
 	}
 	v.frontendRunning, err = o.inspectUnstoppedFrontend(ctx, expected)
 	if err != nil {
@@ -72,6 +74,21 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 
 func (o nativeBackupResolutionOperations) inspectUnstoppedFrontend(ctx context.Context, expected store.NativeBackupPreparedExpectation) (bool, error) {
 	app := expected.Routes.App
+	if expected.Release.Managed.Frontend == nil {
+		stopped, err := (archiveHost{session: o.runtime.session}).stoppedOrAbsentService(ctx, app+".service")
+		if err != nil || !stopped {
+			return false, errEngineSource
+		}
+		name, err := managedFrontendContainerName(app)
+		if err != nil {
+			return false, err
+		}
+		state, err := podman.New(o.runtime.session).ContainerState(ctx, name)
+		if !managedFrontendStopped(state, err) {
+			return false, errEngineSource
+		}
+		return false, nil
+	}
 	unit, err := systemd.ParseUnit(app + ".service")
 	if err != nil {
 		return false, err

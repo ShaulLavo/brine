@@ -18,8 +18,13 @@ import (
 
 func unstoppedPreparationFixture(t *testing.T, recordFrontend ...bool) (*Store, *NativePreparation, ops.Operation) {
 	t.Helper()
+	return unstoppedPreparationWithFrontendFixture(t, true, recordFrontend...)
+}
+
+func unstoppedPreparationWithFrontendFixture(t *testing.T, frontend bool, recordFrontend ...bool) (*Store, *NativePreparation, ops.Operation) {
+	t.Helper()
 	ctx := t.Context()
-	s, p, deploy := managedControlStateFixtureAtRoot(t, true, false, "")
+	s, p, deploy := managedControlStateFixtureAtRoot(t, frontend, false, "")
 	wanted := commitAbandonFixtureRelease(t, s, p, deploy)
 	requester, err := datainit.ParseRequester("deploy:" + strings.Repeat("4", 64))
 	if err != nil {
@@ -291,5 +296,18 @@ func TestNativeReleasedPreparationSurvivesLaterRelease(t *testing.T) {
 	}
 	if err := checkNativeReleasedPreparation(t.Context(), s.db, original, disposition); err != nil {
 		t.Fatal("a later release invalidated the completed original recovery", err)
+	}
+}
+
+func TestUnstoppedEngineOnlyPreparationCanBeInspected(t *testing.T) {
+	s, _, op := unstoppedPreparationWithFrontendFixture(t, false, false)
+	inspection, err := s.OpenNativeBackupInspection(t.Context(), op.ID, op.Requester)
+	if err != nil {
+		t.Fatal("engine-only preparation without an issued stop cannot be inspected", err)
+	}
+	defer func() { _ = inspection.Close() }()
+	expected, err := inspection.PreparedExpectation(t.Context())
+	if err != nil || !expected.StopNotIssued || expected.Release.Managed.Frontend != nil {
+		t.Fatal("engine-only unissued stop expectation differs", err)
 	}
 }

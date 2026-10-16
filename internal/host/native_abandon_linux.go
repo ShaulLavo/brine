@@ -45,6 +45,19 @@ func nativeAbandonTask(service Service, runtime nativeBackupRuntime) jobs.TaskHa
 		if err := checkNativePointPolicy(ctx, scoped, expected.Point.PolicySHA256); err != nil {
 			return nil, err
 		}
+		if err := verifyNativeAbandonCode(ctx, runtime, expected.App, expected); err != nil {
+			return nil, err
+		}
+		if err := abandonment.Close(); err != nil {
+			return nil, err
+		}
+		if err := stopNativeAbandonUnits(ctx, systemd.New(runtime.session), expected); err != nil {
+			return nil, err
+		}
+		abandonment, err = scoped.Store.OpenNativeAbandonment(ctx, op.ID)
+		if err != nil {
+			return nil, err
+		}
 		observed, err := observeNativeAbandonment(ctx, scoped, runtime, abandonment)
 		if err != nil {
 			return nil, err
