@@ -14,7 +14,11 @@ import (
 const proofSchema26 = `
 CREATE TABLE schema_version(version INTEGER NOT NULL); INSERT INTO schema_version VALUES(26);
 CREATE TABLE operations(id TEXT PRIMARY KEY, plan_id TEXT, requester TEXT NOT NULL, idempotency_key TEXT NOT NULL, state TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, kind TEXT NOT NULL, app TEXT NOT NULL, secret_ref TEXT NOT NULL, recovery_of TEXT NOT NULL DEFAULT '', UNIQUE(requester,idempotency_key));
-CREATE TABLE data_replica_bindings(id TEXT PRIMARY KEY);
+CREATE TABLE data_replica_bindings(id TEXT PRIMARY KEY,database_id TEXT);
+CREATE TABLE data_databases(id TEXT PRIMARY KEY,incarnation_id TEXT);
+CREATE TABLE data_active_incarnations(app TEXT PRIMARY KEY,incarnation_id TEXT NOT NULL UNIQUE);
+CREATE TABLE data_engine_transition_inputs(id TEXT PRIMARY KEY,binding_id TEXT NOT NULL);
+CREATE TABLE data_native_repository_intents(id TEXT PRIMARY KEY,binding_id TEXT NOT NULL);
 CREATE TABLE plans(id TEXT PRIMARY KEY);
 CREATE TABLE data_archive_plans(id TEXT PRIMARY KEY,archive_id TEXT NOT NULL UNIQUE);
 CREATE TABLE data_native_archive_trees(archive_id TEXT NOT NULL,binding_id TEXT NOT NULL,transition_id TEXT NOT NULL,canonical BLOB NOT NULL,PRIMARY KEY(archive_id,transition_id));
