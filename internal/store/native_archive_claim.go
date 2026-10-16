@@ -25,7 +25,7 @@ func (s *Store) claimNativeArchiveDatabase(ctx context.Context, tx *sql.Tx, p ar
 	if err != nil || point.view.BindingID != d.Binding.BindingID || point.view.EpochID != d.Head.EpochID || point.view.RuntimeVersion != d.Head.Version || point.view.RuntimeSHA256 != d.Head.RuntimeSHA256 || p.PolicyHash != "sha256:"+strings.TrimPrefix(point.view.PolicySHA256, "sha256:") {
 		return zero, ErrConflict
 	}
-	consumer := nativePointConsumer{kind: nativePointRetire, pointID: point.view.PointID, planID: p.ID, applyOperationID: task, requester: p.Requester, binding: d.Binding.BindingID, epoch: d.Head.EpochID, generation: p.Generation, generationID: point.view.GenerationID, policySHA256: strings.TrimPrefix(p.PolicyHash, "sha256:")}
+	consumer := nativePointConsumer{kind: nativePointRetire, pointID: point.view.PointID, planID: p.ID, applyOperationID: task, requester: p.Requester, binding: d.Binding.BindingID, epoch: d.Head.EpochID, generation: point.view.Generation, generationID: point.view.GenerationID, policySHA256: strings.TrimPrefix(p.PolicyHash, "sha256:")}
 	point, err = s.claimNativePreparedPointTx(ctx, tx, guard, consumer)
 	if err != nil {
 		return zero, err

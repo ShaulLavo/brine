@@ -196,40 +196,43 @@ Basic Pi command pass, 2026-10-15. Evidence is in [the final pass](../evidence/p
 - [x] Publish the default-column module after restoring the original schema. Confirm 145 rows and `rating = 7` with the matching client.
 - [x] Complete live restore, restore the original policy, and reactivate backups.
 - [x] Reboot while prepared, prove the fence holds, abandon, and start.
-- [ ] Archive the native binding and check same-name recreation when supplied material permits it.
+- [x] Archive the native binding and check same-name recreation when supplied material permits it.
 
-**Archive blocker, 2026-10-16.** Live restore is recovered through Brine in
-[PR #179](https://github.com/ShaulLavo/brine/pull/179). Resolution
-`01a14240f5017e05983c680a22396c2b7c0abf2a67e8` completed the retained original
-attempt, preserved its failed task outcome and activated the restored epoch.
-The matching SDK subsequently read 145 rows. Default publication, original-policy
-backup reactivation, held-fence reboot, abandonment and restart also passed.
+**Archive continuation, 2026-10-16.** [PR #180](https://github.com/ShaulLavo/brine/pull/180)
+completed the basic archive and same-name recreation pass after #179's restore
+and preparation fixes. The [archive evidence](../evidence/p09-pi.md#native-archive-continuation-2026-10-16)
+records the exact commands and operations.
 
-Archive planning with fresh point `339084a7e0f684f04ff531a65215205a` returned
-`policy_refused`. Three older `module_publish_apply` operations retain incoming
-repository intents without native epochs. They predate this lane:
+The earlier archive refusal came from these incoming reservations without native
+epochs. Each already had a successful `source_preserved` resolution:
 
-- `01a13934698e32877fc2f2f78ed3597a9c276871c156`, incoming intent `c81a0c32c81246ab8fbbe62ee8956eaa`, has no lease or initialization event.
-- `01a1394cb28583e3d3bd1ea97a020a2f74f15224d2f2`, incoming intent `2ef1431d08b41368e7ceb9e871d1c6e8`, has no lease or initialization event.
-- `01a1396c9852935f9a85f7893d036669cc02119edeaa`, incoming intent `488e73b6fab8f7fe8bdce99a7e444954`, has a lease and an initialized repository result, but no engine transition.
+- `01a13934698e32877fc2f2f78ed3597a9c276871c156`, incoming intent `c81a0c32c81246ab8fbbe62ee8956eaa`, had no lease or initialization event.
+- `01a1394cb28583e3d3bd1ea97a020a2f74f15224d2f2`, incoming intent `2ef1431d08b41368e7ceb9e871d1c6e8`, had no lease or initialization event.
+- `01a1396c9852935f9a85f7893d036669cc02119edeaa`, incoming intent `488e73b6fab8f7fe8bdce99a7e444954`, had an initialized repository but no engine transition.
 
-Reproduce with `brine backup prepare APP --database main --target TARGET --json`,
-then `brine archive native plan APP --target TARGET --json`. Inspect
-`readNativeArchiveTransitionClosureTx` in `internal/store/native_archive_transitions.go`.
-Its incoming-intent/native-epoch join refuses these entries. All five recorded
-engine-transition cursors for this binding are completed, including the recovered
-restore. The current exact point and restore are therefore not the blocker.
+Archive now joins those resolution proofs, retains their remote prefixes and moves
+their private targets. Archive `102470420a1ebbac3efa5350c44e4fa7` is retired with
+retention through `2026-11-15T05:47:04.95797836Z`. Its nine epochs and eight targets
+remain retained after recreation. Current backup health reported `verified` for
+point `518de8a360ee4c598364c857a127c604` without changing historical failed tasks.
 
-Publication recovery must inspect the three original journals and private target
-stages and provide supported cancellation or retirement. Preserve their incoming
-reservations, initialized repository and staged trees. Do not retry initialization,
-delete records or remove directories to bypass archive admission. The unused
-archive preparation was abandoned through Brine and the original fixture was
-returned to service with its original operator policy. A fresh online capture
-verified its current epoch with zero maintenance. Backup status remains degraded
-because older capture operations still lack resolution; activation and the new
-verified point do not clear those historical task outcomes. Archive and same-name
-recreation remain unchecked.
+The original spec recreated the same name with a new incarnation, database,
+binding, epoch, remote prefix and native database identity. Supported resolution
+completed the new deployment after the route receipt was interrupted. Engine and
+frontend are running, status is healthy and HTTPS returns 200. Historical port
+reservations and route ownership no longer block the new incarnation. Full
+P09-08 remains unchecked because the broader acceptance cases below are incomplete.
+
+**Remaining scheduler retirement.** Readback after archive and recreation found
+`brine-native-backup-583a6fc1ce74e7fe76b771118a3a8f3f.timer` still loaded, active
+and waiting. This timer predates the lane and was preserved. Reproduce with
+`systemctl --user list-units --all brine-native-backup-583a6fc1ce74e7fe76b771118a3a8f3f.timer`
+as the enrolled runner. `archive_quiescence_linux.go:186` takes the native branch
+in `StopReplicas`, proves native writers stopped, and returns without retiring the
+fixed backup service/timer. Add supported retirement of those exact hash-owned
+units, preserve retained remote history, and verify the timer cannot schedule
+work for the retired binding. No later timer firing was observed in this pass.
+This broader cleanup case is still part of P09-08's unchecked acceptance.
 
 Frontend recovery is no longer the blocker. Brine restored the previous
 database-only release through its compensation steps, and the corrected fixture

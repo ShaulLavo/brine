@@ -32,7 +32,7 @@ func (e *Executor) inspectManagedInitialized(ctx context.Context, op Operation, 
 		if !exists && op.Kind == ops.Deploy && last.Step == "managed_commit" {
 			return r, nil
 		}
-		if !exists && (last.Step == "managed_route_check" || last.Outcome != "completed") {
+		if !exists && (last.Step == "managed_route_receipt" || last.Step == "managed_route_check" || last.Outcome != "completed") {
 			return e.inspectManagedRoute(ctx, op, p, d, cursor, r)
 		}
 	}

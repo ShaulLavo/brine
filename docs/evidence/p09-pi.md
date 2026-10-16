@@ -439,3 +439,76 @@ Temporary private tracing was removed from source and the Pi.
 
 Full Phase 09 acceptance remains incomplete. This pass does not claim archive
 success, same-name recreation, elapsed retention or production readiness.
+
+## Native archive continuation (2026-10-16)
+
+[PR #180](https://github.com/ShaulLavo/brine/pull/180) includes #179's preparation
+fixes. The three incoming reservations already had successful `source_preserved`
+resolutions. Archive had ignored those resolutions. It now verifies their
+preservation proofs and retains their prefixes and any private target trees.
+
+The original backup point `518de8a360ee4c598364c857a127c604` reported `verified`
+with unchanged historical failed captures, valid credentials, no missed interval
+and no held fence. Current health now follows the verified point. Active captures
+and later failures still affect health.
+
+Fresh preparation `01a1433d2a639b3a4ee83a4c2d5bed83bbf7eb99409f` succeeded.
+Archive apply `01a1433f1584d21ca8f7a7a923c6d3c8e0c862bd4117` retired archive
+`102470420a1ebbac3efa5350c44e4fa7`. Inspection reported `retired` with retention
+from `2026-10-16T05:47:04.95797836Z` through
+`2026-11-15T05:47:04.95797836Z`. The archive retains nine epochs and eight
+transition or publication targets, including all three abandoned reservations.
+
+The Pi also exposed two claim defects. Retirement used the host control
+generation instead of the exact point's data generation, then required every
+retained target to reference an admitted engine transition. Fresh private tracing
+confirmed each claim guard passed before that foreign-key failure. Focused
+regressions failed before both fixes and passed afterward. Tracing was removed
+and the clean paired helper restored before the successful retirement.
+
+Same-name allocation `01a143405d538a060341eb4be60c0d952358e3eab6ee` initially
+failed at preparation. Read-only control inspection found no new reservation or
+allocation. Its proposed ports were still reserved by the historical preparation
+for the retired incarnation, although inventory correctly offered them as free.
+The port reservation fix preserves historical preparation records and checks
+collisions against active incarnations.
+
+The recreated allocation succeeded as
+`01a14346a4bdb0bf8669b24cf73f40ce690c20a0fa67`. Publisher renewal
+reused the supplied signing key. Recovery material and scoped credentials were
+delivered through Brine; backup activation
+`01a143483537c85b48ab9cd2b93a8a226aac3db8c772` succeeded. Initial preparation
+reached a verified point but cleanup and recovery inspection refused the
+root-owned operator policy's `0640` mode. The workspace observer accepted only
+`0600` or `0644`, although ordinary policy loading accepted that file. With the
+reader fixed, inspection/review passed and resolution
+`01a1435959d9fcd20c94f92cd85b295b9e86d38515ca` adopted the original point. File
+ownership, permissions and policy content were preserved.
+
+Fresh preparation `01a14359b0513da879c5fc0bfe3d76255a2c13ba4476` verified point
+`9e2671a975df703d4b603bfa42b86149` and completed its cleanup. First publication
+`01a1435a770d837b1c81c8b53319ff3a5f81d354127f` published the original module.
+Deployment `01a1435b4312264162c1a785cfe298a3bc1cd1cc1ab6` started the engine and
+frontend, passed their checks and loaded ingress. Its route receipt was refused
+because the previous receipt still named the archived binding. Both plan and
+previous route had revision 24. A new binding now follows that history only with
+its predecessor's archive retirement proof.
+
+Resolver `01a1436cc3c5b4d2ff4ea8c0807c63b62ac4518e39df` completed that deployment.
+It proved the existing components and loaded route, recorded the missing receipt,
+ran direct/routed checks and committed the original-owner release. It did not
+repeat module publication or component startup. The original failed operation
+remains unchanged.
+
+The same app name now has incarnation `644eb74f1248a907142266033a439df8`, database
+`1c3370da67830decebbb750a2ec7b5aa`, binding
+`1fbe28fd378b1a0755b49f084604ff9e` and current epoch
+`b0e8b417d97891a66fcaaeb77d64f636`. Protected readback confirmed all four differ
+from the original app. Its reserved remote prefix and native database identity
+also differ. App status reports active engine/frontend units, healthy direct
+checks and no fence. The managed HTTPS health endpoint returns 200. Archive
+inspection after recreation still reports the original retired archive and the
+same November 15 retention deadline.
+
+The basic archive/recreation pass is complete. Elapsed retention, purge, full
+fault coverage and overall Phase 09 acceptance remain unverified.

@@ -35,6 +35,19 @@ func (h archiveHost) archiveNativeDatabaseTrees(ctx context.Context, p archive.P
 	return nil
 }
 
+func verifyNativeArchiveAbsentTree(ctx context.Context, binding data.SpacetimeDBBinding, tree archive.NativeTransitionTree) error {
+	base, err := engineOpenRoot(string(binding.Root))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = base.Close() }()
+	location, err := inspectNativeArchiveTree(ctx, base, tree, nativeArchiveTreeLimits())
+	if err != nil || location.Kind() != "absent" {
+		return archive.ErrRefused
+	}
+	return nil
+}
+
 func nativeArchivePreparedPointID(p archive.Plan, binding data.ReplicaBindingID) string {
 	for _, variant := range p.Candidate.Databases {
 		native, ok := variant.Native()
@@ -58,6 +71,9 @@ func (h archiveHost) moveNativeArchiveTree(ctx context.Context, p archive.Plan, 
 	lifetime := h.nativeLifetimes[binding.BindingID]
 	if !lifetime.HoldsLifetime(h.stateRoot, binding.BindingID) {
 		return archive.ErrRefused
+	}
+	if expected.Absent() {
+		return verifyNativeArchiveAbsentTree(ctx, binding, expected)
 	}
 	pointID := nativeArchivePreparedPointID(p, binding.BindingID)
 	point, err := h.service.Store.ReadNativePreparedPoint(ctx, pointID)

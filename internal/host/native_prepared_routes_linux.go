@@ -30,6 +30,7 @@ func nativeCommittedRouteStates(ctx context.Context, service Service, manager *c
 		return caddy.State{}, errEngineSource
 	}
 	routes.Generation = snapshot.CaddyConfig.Value.Generation
+	heads := []store.ManagedRouteState{}
 	for _, release := range state.Releases {
 		if release.HostPort > 65535 {
 			return caddy.State{}, errEngineSource
@@ -49,11 +50,20 @@ func nativeCommittedRouteStates(ctx context.Context, service Service, manager *c
 		if !current.Present {
 			continue
 		}
+		heads = append(heads, current)
 		site, err := caddy.CommittedManagedSite(release.Desired, *release.Managed)
 		if err != nil {
 			return caddy.State{}, err
 		}
 		routes.Files[release.CaddyFile.Name], routes.Sites[release.CaddyFile.Name] = current.FileHash, site
+	}
+	pol, err := service.Policy.Load(ctx)
+	if err != nil {
+		return caddy.State{}, err
+	}
+	routes, err = managedWithdrawnRouting(ctx, routes, heads, *snapshot.CaddyConfig.Value, pol.Hash(), service.Store)
+	if err != nil {
+		return caddy.State{}, err
 	}
 	if err := manager.CheckDrift(routes); err != nil {
 		return caddy.State{}, err

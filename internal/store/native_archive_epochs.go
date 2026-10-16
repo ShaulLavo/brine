@@ -25,7 +25,7 @@ func (s *Store) ReadEngineArchiveBindings(ctx context.Context, binding data.Repl
 	return bindings, tx.Commit()
 }
 
-func readEngineArchiveBindings(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID) ([]data.ArchiveBinding, error) {
+func readEngineArchiveBindings(ctx context.Context, q *sql.Tx, binding data.ReplicaBindingID) ([]data.ArchiveBinding, error) {
 	reserved, err := readReservedEngine(ctx, q, binding)
 	if err != nil {
 		return nil, err
@@ -46,6 +46,13 @@ func readEngineArchiveBindings(ctx context.Context, q dataQuerier, binding data.
 			return nil, errors.Join(&IntegrityError{}, err)
 		}
 		bindings = append(bindings, archive)
+	}
+	abandoned, err := readNativeArchiveAbandonedRepositories(ctx, q, binding)
+	if err != nil {
+		return nil, err
+	}
+	for _, intent := range abandoned {
+		bindings = append(bindings, intent.archive)
 	}
 	slices.SortFunc(bindings, func(a, b data.ArchiveBinding) int { return strings.Compare(string(a.EpochID), string(b.EpochID)) })
 	return bindings, nil

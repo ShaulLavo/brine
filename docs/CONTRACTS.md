@@ -1462,6 +1462,12 @@ signing recovery material. Authenticated remote extraction, complete persisted
 state equality, confirmed lower-bound inclusion and final-pair equality precede
 an immutable historical point. Later loss is unknown.
 
+Backup health uses the newest verified point in the current epoch. Failed or
+recovery-required captures started before that point no longer degrade current
+health. Their original outcomes remain available for inspection. Active captures,
+later failures, a held fence, expired credentials, stale verification and missed
+capture intervals still affect health.
+
 Exact preparation additionally retains its original fence and clean-stop
 observations, withdraws hash-owned ingress under the host lock, and holds the
 native lifetime lock. Its completed source reloads the retained generation and
@@ -1634,8 +1640,16 @@ unexplained layout refuses resolution and retains the fence for manual inspectio
 
 `archive native plan APP` reads an existing exact prepared point protecting the
 current initialized or positively unpublished native engine, every retained backup epoch and every terminal
-engine transition. Nonterminal transitions and unreserved incoming repositories
-refuse planning. The plan binds complete local transition-tree identities and
+engine transition. Nonterminal transitions and unresolved incoming repositories
+refuse planning. A publication resolved with `source_preserved` and no admitted
+transition may retain an incoming reservation without an epoch. Planning joins
+its successful resolution and preservation proof, retains its reserved remote
+prefix and includes any private target tree in the archive. Incoming repository
+authority permits initialization and config readback, never snapshot upload.
+An abandoned publication that never created a target directory needs no move.
+Retirement releases its managed port reservations while retaining the original
+preparation records. A fresh incarnation may reserve those ports again.
+The plan binds complete local transition-tree identities and
 retention evidence. `apply` submits `native_retire` through the existing task
 runner and uses the existing ordered archive service.
 

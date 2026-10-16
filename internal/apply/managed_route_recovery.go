@@ -26,6 +26,11 @@ type ManagedResolutionReleases interface {
 	CommitManagedResolutionRelease(context.Context, string, uint64, Release) error
 }
 
+type ManagedRecoveryRouteReceipt interface {
+	UnrecordedManagedRoute(context.Context, string, plan.Plan, policy.Desired) error
+	RecordRecoveredManagedRoute(context.Context, string, string, plan.Plan, policy.Desired, caddy.State) error
+}
+
 func (e *Executor) inspectManagedRoute(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, cursor ops.ManagedCreateCursor, r Recovery) (Recovery, error) {
 	last := cursor.Boundary
 	r.Step = last.Step
@@ -39,6 +44,12 @@ func (e *Executor) inspectManagedRoute(ctx context.Context, op Operation, p plan
 		}
 	}
 	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, managedRouteOwner: owner, managedFrontendStart: cursor.FrontendStart, managedFrontendWake: cursor.FrontendStart.Step == "" && last.Step == "managed_route_check" && (last.Outcome == "intent" || last.Outcome == "unknown")}
+	if last.Step == "managed_route_receipt" {
+		x.managedRouteReceipt = last
+	}
+	if x.managedRouteReceipt.Step != "" && owner == op.ID {
+		return r, nil
+	}
 	if p.Managed.Frontend != nil {
 		if e.Health == nil || e.Systemd == nil || e.Podman == nil || p.Image.ManifestDigest.Status != target.KnownStatus || p.Image.ManifestDigest.Value == nil {
 			return r, nil
@@ -81,15 +92,27 @@ func (x *execution) proveManagedRoute(ctx context.Context, allowStopped bool) er
 	if err != nil {
 		return err
 	}
-	if facts.Input.Desired.PolicyHash != p.PolicyHash || facts.Input.Desired.PolicyVersion != p.PolicyVersion || !reflect.DeepEqual(facts.Input.State.Target, p.Target) || p.ObservedGeneration.Status != target.KnownStatus || p.ObservedGeneration.Value == nil || *p.ObservedGeneration.Value > ^uint64(0)-2 || facts.Input.State.Generation != *p.ObservedGeneration.Value+2 {
+	if facts.Input.Desired.PolicyHash != p.PolicyHash || facts.Input.Desired.PolicyVersion != p.PolicyVersion || !reflect.DeepEqual(facts.Input.State.Target, p.Target) || p.ObservedGeneration.Status != target.KnownStatus || p.ObservedGeneration.Value == nil || *p.ObservedGeneration.Value > ^uint64(0)-2 {
 		return errors.New("managed recovery policy or generation changed")
+	}
+	unrecorded := x.managedRouteReceipt.Step != "" && x.managedRouteReceipt.Outcome != "completed" && facts.Input.State.Generation == *p.ObservedGeneration.Value+1
+	if !unrecorded && facts.Input.State.Generation != *p.ObservedGeneration.Value+2 {
+		return errors.New("managed recovery generation changed")
 	}
 	_, exists, err := e.Releases.CurrentRelease(ctx, p.App)
 	if err != nil || exists {
 		return errors.New("managed recovery release changed")
 	}
 	x.managedFrontendStopped = false
-	if err := e.Managed.CompletedManaged(ctx, x.managedRouteOwner, p, x.desired); err != nil {
+	if unrecorded {
+		receipt, ok := e.Managed.(ManagedRecoveryRouteReceipt)
+		if !ok || x.id == x.managedRouteOwner {
+			return errors.New("managed route receipt recovery unavailable")
+		}
+		if err := receipt.UnrecordedManagedRoute(ctx, x.managedRouteOwner, p, x.desired); err != nil {
+			return err
+		}
+	} else if err := e.Managed.CompletedManaged(ctx, x.managedRouteOwner, p, x.desired); err != nil {
 		stopped, ok := e.Managed.(ManagedRecoveryFrontend)
 		if !allowStopped || !ok || x.id == x.managedRouteOwner || p.Managed.Frontend == nil || stopped.StoppedManagedFrontend(ctx, x.managedRouteOwner, p, x.desired) != nil {
 			return err
@@ -139,6 +162,12 @@ func (x *execution) finishManagedRoute(ctx context.Context, r Recovery) error {
 	cancel()
 	if err != nil {
 		return x.terminal(ctx, RecoveryRequired, &Error{Step: r.Step, Code: "interrupted", Cause: err})
+	}
+	if r.Step == "managed_route_receipt" {
+		if err := x.recoverManagedRouteReceipt(ctx); err != nil {
+			return x.terminal(ctx, RecoveryRequired, &Error{Step: r.Step, Code: "interrupted", Cause: err})
+		}
+		r.Step = "managed_route_check"
 	}
 	if err := x.wakeManagedFrontend(ctx); err != nil {
 		return x.terminal(ctx, RecoveryRequired, err)
@@ -191,6 +220,27 @@ func (x *execution) finishManagedRoute(ctx context.Context, r Recovery) error {
 		}
 	}
 	return x.terminal(ctx, Succeeded, nil)
+}
+
+func (x *execution) recoverManagedRouteReceipt(ctx context.Context) error {
+	if x.facts.Input.State.Generation == *x.plan.ObservedGeneration.Value+1 {
+		receipt, ok := x.executor.Managed.(ManagedRecoveryRouteReceipt)
+		if !ok {
+			return errors.New("managed route receipt recovery unavailable")
+		}
+		effect, cancel := context.WithTimeout(ctx, x.executor.effectTimeout())
+		err := receipt.RecordRecoveredManagedRoute(effect, x.id, x.managedRouteOwner, x.plan, x.desired, x.route)
+		cancel()
+		if err != nil {
+			return err
+		}
+	}
+	if x.managedRouteReceipt.Outcome != "completed" {
+		if err := x.event(ctx, "managed_route_receipt", "completed", ""); err != nil {
+			return err
+		}
+	}
+	return x.event(ctx, "managed_route_check", "intent", "")
 }
 
 func (x *execution) wakeManagedFrontend(ctx context.Context) error {

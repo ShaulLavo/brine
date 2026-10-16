@@ -447,6 +447,10 @@ ID. These selectors are not interchangeable.
 Retirement preserves current data, prior terminal transition trees, all remote
 epochs and recovery versions. Thirty-day retention starts after all moves
 complete. Recreating the app requires new identities and destination prefixes.
+Failed publications resolved with `source_preserved` can be archived even when
+their incoming repositories never received an epoch. Brine keeps their reserved
+prefixes and any private target trees. Unresolved publications still need the
+module recovery flow before archive planning.
 For an interrupted retirement with an existing manifest:
 
 ```sh

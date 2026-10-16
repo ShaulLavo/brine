@@ -59,7 +59,7 @@ func ManagedCreateRecoveryCursor(events []Event, p plan.Plan) (ManagedCreateCurs
 		if !managedCreateOutcome(outcome, last.Outcome) {
 			return cursor, false
 		}
-		if last.Outcome == "unknown" && index < len(steps)-2 {
+		if last.Outcome == "unknown" && index < len(steps)-3 {
 			return cursor, false
 		}
 		outcome = last.Outcome
@@ -69,7 +69,7 @@ func ManagedCreateRecoveryCursor(events []Event, p plan.Plan) (ManagedCreateCurs
 		}
 	}
 	cursor.Boundary = last
-	return cursor, last.Step == "managed_route_check" || last.Step == "managed_commit"
+	return cursor, last.Step == "managed_route_receipt" || last.Step == "managed_route_check" || last.Step == "managed_commit"
 }
 
 func managedCreateOutcome(before, after string) bool {
