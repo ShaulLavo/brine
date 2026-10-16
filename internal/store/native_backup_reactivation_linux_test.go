@@ -478,7 +478,7 @@ func TestNativeBackupReactivationAllowsCurrentDeployment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkNativeBackupOnlyPlan(t.Context(), f.state.db, release.App, desired); err != nil {
+	if err := checkNativeBackupOnlyPlan(t.Context(), f.state.db, f.operation.App, desired); err != nil {
 		t.Fatal("backup reactivation refused the already deployed desired state", err)
 	}
 }
