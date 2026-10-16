@@ -316,6 +316,25 @@ func (o nativeLiveRestoreOperations) resolveTask(ctx context.Context, op ops.Ope
 	if err != nil {
 		return nil, err
 	}
+	if view.Cursor.Sequence == 0 {
+		incoming, err := o.service.Store.ResumeNativeRestoreIncomingRepository(ctx, capability)
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := incoming.Metadata(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if metadata.InitializationStage != "initialized" {
+			workspace := filepath.Join(string(reserved.Database.Root), "transitions", view.Input.Common().Scope.ID)
+			if _, err = o.runtime.initializeNativeRestoreRepository(ctx, incoming, workspace); err != nil {
+				return nil, err
+			}
+		}
+		if err = o.service.Store.PrepareResolvedNativeRestoreTransition(ctx, capability, incoming, observed); err != nil {
+			return nil, err
+		}
+	}
 	event, err := o.runtime.finishNativeLiveRestore(ctx, capability, preparation, lifetime, reserved.Database, o.routes)
 	if err != nil {
 		return nil, result.New(result.RecoveryRequired, nil)

@@ -6,7 +6,6 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/liverestore"
 )
 
@@ -26,5 +25,4 @@ func TestNativeRestoreReviewBeforeTransitionIsRecorded(t *testing.T) {
 	if err := f.store.db.QueryRowContext(ctx, "SELECT count(*) FROM data_engine_transition_inputs").Scan(&count); err != nil || count != 0 {
 		t.Fatal("inspection created a transition", err, count)
 	}
-	_ = data.EngineTransitionCursor{}
 }

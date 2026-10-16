@@ -18,10 +18,10 @@ original data tree when an effect is uncertain. A failed request does not author
 another extraction, repository initialization or tree overwrite. Keep those
 artifacts and the original signing and recovery versions.
 
-## Review a known transition
+## Review a retained target
 
-If the original attempt reached a protected target and recorded tree transition,
-request a fresh review:
+If the original attempt reached a protected target, request a fresh review.
+This includes `transition_intent` before the tree transition was recorded:
 
 ```sh
 brine restore native-live review-resolution OPERATION_ID --target TARGET --json
@@ -37,6 +37,15 @@ brine restore native-live resolve OPERATION_ID --review REVIEW_ID \
   --target TARGET --idempotency-key KEY --json
 ```
 
+Before a transition exists, the review requires the original tree to remain at
+its live location, the authenticated target to remain staged and the original
+epoch and preparation fence to remain current. Resolution reuses that retained
+target and incoming repository reservation. It creates the repository only when
+the initialization journal proves no creation was admitted. An admitted but
+uncertain initialization permits authenticated config readback only. A completed
+initialization is reused. Extraction is never repeated. The fresh resolver review
+does not reopen the expired stopped-source permit.
+
 Resolution retains the original recovery-required task outcome. Its new task can
 adopt known completed moves after directory sync and finish the new epoch. A source
 still present under a retained uncertain move is not blindly moved again. The
@@ -46,7 +55,7 @@ ordinary managed deployment before starting them.
 ## Handle a refused review
 
 If the host cannot prove the layout or process state, keep the fence held. The
-current resolver refuses uncertain extraction, uncertain repository creation,
+current resolver refuses uncertain extraction, an unverified repository,
 missing target preparation, foreign or replaced directories, running processes,
 changed secrets and changed code. It does not clear the fence by request syntax.
 
