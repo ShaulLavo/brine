@@ -3,7 +3,6 @@
 package store
 
 import (
-	"strings"
 	"testing"
 	"time"
 
@@ -21,12 +20,25 @@ func TestNativeBackupStatusIgnoresHistoricalCaptureFailures(t *testing.T) {
 	}
 	created := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
 	abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,'recovery_required',?,?,?,?,?)", "old-capture", requester.String(), "old-capture", created, created, ops.NativeCapture, "managed", ref)
-	point := nativeVerifiedPointFixture(&NativePreparation{intent: nativePreparationIntent{BindingID: f.runtime.BindingID, EpochID: f.input.Common().Base.Head().EpochID}})
-	point.PointID, point.OperationID = strings.Repeat("d", 32), "new-capture"
-	abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,'succeeded',?,?,?,?,?)", point.OperationID, requester.String(), point.OperationID, timestamp(), timestamp(), ops.NativeCapture, "managed", ref)
-	abandonExec(t, s.db, "INSERT INTO data_native_verified_points VALUES(?,?,?,?,?)", point.PointID, point.OperationID, point.BindingID, point.EpochID, abandonJSON(t, point))
-	pending, err := countUnresolvedNativeCaptures(ctx, s.db, f.runtime.BindingID)
+	pending, err := countUnresolvedNativeCaptures(ctx, s.db, f.runtime.BindingID, nil)
+	if err != nil || pending != 1 {
+		t.Fatal("failure without a verified point hidden", pending, err)
+	}
+	capturedAt := time.Now().UTC()
+	pending, err = countUnresolvedNativeCaptures(ctx, s.db, f.runtime.BindingID, &capturedAt)
 	if err != nil || pending != 0 {
 		t.Fatal("old capture failure still dominates a fresh verified point", pending, err)
+	}
+	for _, state := range []ops.State{ops.Failed, ops.RecoveryRequired, ops.Preflight, ops.LaunchUnknown} {
+		id := "capture-" + string(state)
+		at := timestamp()
+		if state == ops.Preflight || state == ops.LaunchUnknown {
+			at = created
+		}
+		abandonExec(t, s.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref) VALUES(?,?,?,?,?,?,?,?,?)", id, requester.String(), id, state, at, at, ops.NativeCapture, "managed", ref)
+	}
+	pending, err = countUnresolvedNativeCaptures(ctx, s.db, f.runtime.BindingID, &capturedAt)
+	if err != nil || pending != 4 {
+		t.Fatal("recent failures or active captures hidden by historical success", pending, err)
 	}
 }

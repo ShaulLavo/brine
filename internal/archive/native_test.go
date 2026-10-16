@@ -40,6 +40,23 @@ func TestNativeArchiveReviewRetainsEpochsAndTerminalTransitionTrees(t *testing.T
 	}
 }
 
+func TestNativeArchiveAllowsAbsentAbandonedPublicationTreeOnly(t *testing.T) {
+	p, native := nativeArchiveFixture(t)
+	tree := &native.TransitionTrees[0]
+	tree.Stage, tree.Optional, tree.Seal = data.EngineTransitionAbandoned, true, data.EngineTreeSeal{}
+	p.Candidate.Databases[0] = NativeDatabaseVariant(native)
+	p.ID, _ = p.Fingerprint()
+	if !p.Valid() {
+		t.Fatal("abandoned publication that never created a target blocked archive")
+	}
+	tree.Optional = false
+	p.Candidate.Databases[0] = NativeDatabaseVariant(native)
+	p.ID, _ = p.Fingerprint()
+	if p.Valid() {
+		t.Fatal("missing required transition tree admitted")
+	}
+}
+
 func TestNativeArchiveReviewRejectsMissingCurrentEpochAndRecoveryDependency(t *testing.T) {
 	p, native := nativeArchiveFixture(t)
 	native.Head.EpochID = data.ReplicaEpochID(strings.Repeat("0", 32))

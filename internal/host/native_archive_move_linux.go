@@ -28,9 +28,29 @@ func (h archiveHost) ArchiveNativeTrees(ctx context.Context, p archive.Plan) err
 
 func (h archiveHost) archiveNativeDatabaseTrees(ctx context.Context, p archive.Plan, native archive.NativeDatabase) error {
 	for _, tree := range native.TransitionTrees {
+		if tree.Absent() {
+			if err := verifyNativeArchiveAbsentTree(ctx, native.Binding, tree); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := h.moveNativeArchiveTree(ctx, p, native.Binding, tree); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func verifyNativeArchiveAbsentTree(ctx context.Context, binding data.SpacetimeDBBinding, tree archive.NativeTransitionTree) error {
+	base, err := engineOpenRoot(string(binding.Root))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = base.Close() }()
+	observer := engineTransitionTree{limits: nativeArchiveTreeLimits()}
+	location, err := observer.inspectLocation(ctx, base, filepath.Join("transitions", tree.TransitionID))
+	if err != nil || location.Kind() != "absent" {
+		return archive.ErrRefused
 	}
 	return nil
 }

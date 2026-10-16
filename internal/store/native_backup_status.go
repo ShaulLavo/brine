@@ -62,7 +62,7 @@ func (s *Store) NativeBackupStatus(ctx context.Context, app, database string) (n
 	}
 	expires := material.CredentialRecord.ExpiresAt
 	status.CredentialExpired = expires != nil && !time.Now().UTC().Before(*expires)
-	pending, err := countUnresolvedNativeCaptures(ctx, tx, binding)
+	pending, err := countUnresolvedNativeCaptures(ctx, tx, binding, status.CapturedAt)
 	if err != nil {
 		return nativecapture.BackupStatus{}, err
 	}
@@ -94,7 +94,7 @@ func nativeBackupInactiveStatus(ctx context.Context, q dataQuerier, permit Engin
 	return status, nil
 }
 
-func countUnresolvedNativeCaptures(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID) (int, error) {
+func countUnresolvedNativeCaptures(ctx context.Context, q dataQuerier, binding data.ReplicaBindingID, capturedAt *time.Time) (int, error) {
 	rows, err := q.QueryContext(ctx, "SELECT o.id FROM operations o JOIN data_native_task_inputs i ON i.id=o.secret_ref WHERE i.binding_id=? AND o.kind='native_capture' AND o.state IN ('launch_unknown','preflight','failed','recovery_required')", binding)
 	if err != nil {
 		return 0, err
@@ -116,6 +116,9 @@ func countUnresolvedNativeCaptures(ctx context.Context, q dataQuerier, binding d
 		op, err := nativeResolutionOperation(ctx, q, id)
 		if err != nil {
 			return 0, err
+		}
+		if capturedAt != nil && op.CreatedAt.Before(*capturedAt) && (op.State == ops.Failed || op.State == ops.RecoveryRequired) {
+			continue
 		}
 		if op.State != ops.RecoveryRequired {
 			pending++

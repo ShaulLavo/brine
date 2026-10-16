@@ -33,9 +33,7 @@ func readNativeArchiveTransitionClosureTx(ctx context.Context, tx *sql.Tx, bindi
 	if err != nil {
 		return nil, err
 	}
-	var pending int
-	err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_native_repository_intents i LEFT JOIN data_native_epochs e ON e.epoch_id=i.epoch_id AND e.binding_id=i.binding_id WHERE i.binding_id=? AND e.epoch_id IS NULL", binding).Scan(&pending)
-	if err != nil || pending != 0 {
+	if _, err = readNativeArchiveAbandonedRepositories(ctx, tx, binding); err != nil {
 		return nil, errors.Join(ErrConflict, err)
 	}
 	ids, err := nativeArchiveTransitionIDs(ctx, tx, binding)

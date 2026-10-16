@@ -151,6 +151,9 @@ func checkNativeArchiveTreesMoved(ctx context.Context, q dataQuerier, p archive.
 }
 func checkNativeArchiveDatabaseTreesMoved(ctx context.Context, q dataQuerier, id data.ArchiveID, native archive.NativeDatabase) error {
 	for _, tree := range native.TransitionTrees {
+		if tree.Absent() {
+			continue
+		}
 		m, err := readNativeArchiveTreeMove(ctx, q, id, tree.TransitionID)
 		if err != nil || m.Stage != "moved" || m.Tree != tree {
 			return ErrConflict

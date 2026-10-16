@@ -40,7 +40,9 @@ func TestNativeArchiveAcceptsPreservedPublicationWithoutAnEpoch(t *testing.T) {
 	}
 	resolve := "resolve-abandoned-publication"
 	r := intent.record
-	receipt := datapublish.TaskReceipt{Format: "brine-module-publication-task-v1", Kind: string(ops.ModulePublishResolve), OperationID: resolve, ApplyOperationID: r.OperationID, PlanID: r.PlanID, PointID: r.PointID, BindingID: string(r.BindingID), OldEpochID: string(r.SourceEpochID), NewEpochID: string(r.EpochID), CompletionSHA256: strings.Repeat("a", 64), TransitionState: "not_admitted", Outcome: "source_preserved"}
+	proof := []byte(`{"fixture":"source preserved"}`)
+	abandonExec(t, f.store.db, "INSERT INTO data_module_publication_proofs VALUES(?,?,?,?,?)", r.PlanID, "source_preservation", publicationPreservationProof, nativePointHash(proof), proof)
+	receipt := datapublish.TaskReceipt{Format: "brine-module-publication-task-v1", Kind: string(ops.ModulePublishResolve), OperationID: resolve, ApplyOperationID: r.OperationID, PlanID: r.PlanID, PointID: r.PointID, BindingID: string(r.BindingID), OldEpochID: string(r.SourceEpochID), NewEpochID: string(r.EpochID), CompletionSHA256: nativePointHash(proof), TransitionState: "not_admitted", Outcome: "source_preserved"}
 	abandonExec(t, f.store.db, "INSERT INTO operations(id,requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of) VALUES(?,?,?,'preflight',?,?,?,?,?,?)", resolve, f.input.Common().Scope.Requester, resolve, timestamp(), timestamp(), ops.ModulePublishResolve, "managed", r.PlanID, r.OperationID)
 	raw, _ := json.Marshal(receipt)
 	if err := f.store.CompleteTask(ctx, resolve, ops.Succeeded, ops.TaskOutcome{Receipt: raw}); err != nil {
@@ -53,6 +55,10 @@ func TestNativeArchiveAcceptsPreservedPublicationWithoutAnEpoch(t *testing.T) {
 	epochs, err := f.store.ReadEngineArchiveBindings(ctx, r.BindingID)
 	if err != nil || len(epochs) != 2 {
 		t.Fatal("abandoned repository prefix lost from retention", epochs, err)
+	}
+	seedNativeEpochRepositoryResult(t, f.store, intent)
+	if _, err := f.store.ReadNativeArchiveTransitionClosure(ctx, r.BindingID); err != nil {
+		t.Fatal("initialized but unused repository still blocks archive", err)
 	}
 }
 
@@ -81,5 +87,9 @@ func seedAbandonedArchivePublication(t *testing.T, f nativeTransitionFixture) na
 	r := nativeRepositoryIntentRecord{Format: "brine-native-repository-intent-v1", ID: c.Scope.ID, OperationID: consumer.applyOperationID, PlanID: consumer.planID, ConsumerSHA256: nativePointHash(raw), PointID: consumer.pointID, BindingID: consumer.binding, SourceEpochID: consumer.epoch, EpochID: a.EpochID, DatabaseID: c.Scope.DatabaseID, IncarnationID: c.Scope.IncarnationID, FenceID: c.FenceID, FenceOwnerOpID: c.FenceOwnerOperationID, RuntimeVersion: c.Base.Head().Version, RuntimeSHA256: c.Base.Head().RuntimeSHA256, PolicySHA256: consumer.policySHA256, Archive: a, ReservedAt: time.Now().UTC()}
 	intent := nativeRepositoryIntentValue(r, abandonJSON(t, r))
 	abandonExec(t, s.db, "INSERT INTO data_native_repository_intents VALUES(?,?,?,?,?,?,?,?)", r.ID, r.OperationID, r.BindingID, r.EpochID, a.Destination.Endpoint, a.Destination.Bucket, a.RemotePrefix, intent.raw)
+	index := publicationReviewBinding{pointID: r.PointID, binding: r.BindingID, requester: consumer.requester, generation: consumer.generation, generationID: consumer.generationID, pointSHA: strings.Repeat("a", 64), runtimeVersion: r.RuntimeVersion, runtimeSHA: r.RuntimeSHA256}
+	abandonExec(t, s.db, "INSERT INTO data_module_publication_reviews VALUES(?,?,?,?,?,?,?,?,?,?,?)", r.PlanID, index.pointID, index.binding, index.requester, index.generation, index.generationID, index.pointSHA, index.runtimeVersion, index.runtimeSHA, strings.Repeat("a", 64), []byte(`{}`))
+	claim := publicationClaim{PlanID: r.PlanID, PointID: r.PointID, ApplyOpID: r.OperationID, Requester: consumer.requester, BindingID: r.BindingID, OldEpochID: r.SourceEpochID, NewEpochID: r.EpochID, ConsumerSHA: r.ConsumerSHA256, RepositoryIntentID: r.ID, RepositoryIntentSHA: intent.hash}
+	abandonExec(t, s.db, "INSERT INTO data_module_publication_claims VALUES(?,?,?,?,?,?,?,?,?,?,?)", claim.PlanID, claim.PointID, claim.ApplyOpID, claim.Requester, claim.BindingID, claim.OldEpochID, claim.NewEpochID, claim.ConsumerSHA, claim.RepositoryIntentID, claim.RepositoryIntentSHA, abandonJSON(t, claim))
 	return intent
 }

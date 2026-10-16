@@ -55,6 +55,9 @@ func (h archiveHost) nativeArchiveFacts(ctx context.Context, c archive.Candidate
 	for i := range d.TransitionTrees {
 		location, err := observer.inspectLocation(ctx, base, filepath.Join("transitions", d.TransitionTrees[i].TransitionID))
 		seal, present := location.Tree()
+		if err == nil && location.Kind() == "absent" && d.TransitionTrees[i].Optional {
+			continue
+		}
 		if err != nil || !present {
 			return zero, archive.ErrRefused
 		}

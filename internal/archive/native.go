@@ -26,8 +26,11 @@ func (d NativeDatabase) valid(p Plan, root data.ArchiveTree) bool {
 	}
 	for i, tree := range d.TransitionTrees {
 		if !data.ValidID(tree.TransitionID) || tree.Stage != data.EngineTransitionCompleted && tree.Stage != data.EngineTransitionAbandoned ||
-			tree.Seal.Validate() != nil || tree.Seal.Root.Device != root.RootDevice || tree.Seal.Root.Inode != root.RootInode ||
+			tree.Optional && tree.Stage != data.EngineTransitionAbandoned ||
 			i > 0 && d.TransitionTrees[i-1].TransitionID >= tree.TransitionID {
+			return false
+		}
+		if !tree.Absent() && (tree.Seal.Validate() != nil || tree.Seal.Root.Device != root.RootDevice || tree.Seal.Root.Inode != root.RootInode) {
 			return false
 		}
 	}

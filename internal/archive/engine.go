@@ -31,6 +31,11 @@ type NativeTransitionTree struct {
 	TransitionID string                     `json:"transition_id"`
 	Stage        data.EngineTransitionStage `json:"stage"`
 	Seal         data.EngineTreeSeal        `json:"seal"`
+	Optional     bool                       `json:"optional,omitempty"`
+}
+
+func (t NativeTransitionTree) Absent() bool {
+	return t.Optional && t.Stage == data.EngineTransitionAbandoned && t.Seal == (data.EngineTreeSeal{})
 }
 
 type DatabaseReference struct {
