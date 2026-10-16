@@ -34,7 +34,7 @@ func (s *Store) RecordNativePreparedFrontendStop(ctx context.Context, preparatio
 	if err != nil {
 		return err
 	}
-	if checkNativePreparedRelease(ctx, tx, preparation.intent, release) != nil {
+	if checkNativePreparedRelease(ctx, tx, preparation.intent, release) != nil || release.Managed.Frontend == nil {
 		return ErrConflict
 	}
 	stage := "intent"
@@ -63,7 +63,7 @@ func (s *Store) RecordNativePreparedFrontendStop(ctx context.Context, preparatio
 }
 
 func checkNativePreparedRelease(ctx context.Context, q dataQuerier, intent nativePreparationIntent, release Release) error {
-	if release.Managed == nil || release.Managed.Frontend == nil || release.Managed.BindingID != intent.BindingID || release.Managed.EpochID != intent.EpochID {
+	if release.Managed == nil || release.Managed.BindingID != intent.BindingID || release.Managed.EpochID != intent.EpochID {
 		return ErrConflict
 	}
 	head := data.EngineHeadRef{BindingID: intent.BindingID, EpochID: intent.EpochID, Version: intent.RuntimeVersion, RuntimeSHA256: intent.RuntimeSHA256}

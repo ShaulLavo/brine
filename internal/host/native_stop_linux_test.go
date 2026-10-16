@@ -67,3 +67,25 @@ func TestNativeStopAttemptNeverTreatsMissingAuthorityAsClean(t *testing.T) {
 		t.Fatal("absent handle produced receipt")
 	}
 }
+
+func TestRetainedNativeStopReadbackSurvivesPodmanRefresh(t *testing.T) {
+	id := strings.Repeat("a", 64)
+	finished := time.Now().UTC().Add(-time.Minute)
+	raw, err := json.Marshal([]any{map[string]any{"Id": id, "State": map[string]any{"Running": false, "Pid": 0, "ExitCode": 0, "OOMKilled": false, "FinishedAt": finished, "Error": ""}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := decodeNativeStoppedState(raw, id, finished, time.Now().UTC()); err == nil {
+		t.Fatal("missing stop intent admitted a new clean stop")
+	}
+	actual, err := decodeNativeStoppedReadback(raw, id, finished, time.Now().UTC())
+	if err != nil || !actual.Equal(finished) {
+		t.Fatal("retained clean stop was lost after Podman cleared transient flags", err)
+	}
+	if _, err := decodeNativeStoppedReadback(raw, id, finished.Add(-time.Second), time.Now().UTC()); err == nil {
+		t.Fatal("changed exit time reused the original clean stop")
+	}
+	if _, err := decodeNativeStoppedReadback(raw, id, time.Time{}, time.Now().UTC()); err == nil {
+		t.Fatal("missing original receipt supplied readback authority")
+	}
+}

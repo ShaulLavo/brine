@@ -1462,6 +1462,12 @@ signing recovery material. Authenticated remote extraction, complete persisted
 state equality, confirmed lower-bound inclusion and final-pair equality precede
 an immutable historical point. Later loss is unknown.
 
+Backup health uses the newest verified point in the current epoch. Failed or
+recovery-required captures started before that point no longer degrade current
+health. Their original outcomes remain available for inspection. Active captures,
+later failures, a held fence, expired credentials, stale verification and missed
+capture intervals still affect health.
+
 Exact preparation additionally retains its original fence and clean-stop
 observations, withdraws hash-owned ingress under the host lock, and holds the
 native lifetime lock. Its completed source reloads the retained generation and
@@ -1618,18 +1624,32 @@ can settle only an observed original or reviewed artifact under that same intent
 
 `inspect` reads retained progress. `review-resolution` binds a fresh immutable
 review to the original operation, journal head, transition input and actual layout,
-material and code observations. `resolve` uses its own task operation and guards,
+material and code observations. Before a transition input exists, it derives the
+same input from the protected target and requires the original current epoch,
+held fence and untouched original/staged layout. Its fresh resolver authority
+can finish the retained incoming repository and admit that transition without
+reopening the expired stopped-source permit. Repository initialization runs only
+when no creation was admitted; uncertain creation permits config readback only,
+and a completed initialization is reused. `resolve` uses its own task operation and guards,
 keeps the original recovery-required outcome unchanged and completes known moves
 through observed layout and fsync adoption. It never repeats extraction or
-repository creation. Missing target preparation, uncertain extraction or an
+an admitted repository creation. Missing target preparation, uncertain extraction or an
 unexplained layout refuses resolution and retains the fence for manual inspection.
 
 ### Native archive retirement
 
 `archive native plan APP` reads an existing exact prepared point protecting the
 current initialized or positively unpublished native engine, every retained backup epoch and every terminal
-engine transition. Nonterminal transitions and unreserved incoming repositories
-refuse planning. The plan binds complete local transition-tree identities and
+engine transition. Nonterminal transitions and unresolved incoming repositories
+refuse planning. A publication resolved with `source_preserved` and no admitted
+transition may retain an incoming reservation without an epoch. Planning joins
+its successful resolution and preservation proof, retains its reserved remote
+prefix and includes any private target tree in the archive. Incoming repository
+authority permits initialization and config readback, never snapshot upload.
+An abandoned publication that never created a target directory needs no move.
+Retirement releases its managed port reservations while retaining the original
+preparation records. A fresh incarnation may reserve those ports again.
+The plan binds complete local transition-tree identities and
 retention evidence. `apply` submits `native_retire` through the existing task
 runner and uses the existing ordered archive service.
 
@@ -1639,6 +1659,11 @@ preparation, current head, authenticated extraction, passive replay, confirmed
 marker, signing/recovery bundle and known reader disposal. Coverage JSON alone
 cannot authorize retirement. The owned engine service is retained locally before
 retirement; recovery secrets and remote repositories are preserved.
+Cleanup intent also covers the hash-owned backup timer and service. Stop the timer
+before the service, remove its enablement and unit files, and sync their parents.
+Runtime retirement requires both units absent with no processes or jobs. Recovery
+inspects partial removal before completing it. Reapplying a retired plan reconciles
+only its binding's backup units and preserves the original retirement receipt.
 
 After the application tree moves, each complete terminal transition directory
 moves into the archive's `native-transitions` directory through a separate durable

@@ -91,7 +91,7 @@ func (h archiveHost) coverNativeArchive(ctx context.Context, p archive.Plan, d a
 		if err != nil {
 			return zero, archive.ErrRefused
 		}
-		finished, err := decodeNativeStoppedState([]byte(inspected.Stdout), original.ContainerID, time.Time{}, time.Now().UTC())
+		finished, err := decodeNativeStoppedReadback([]byte(inspected.Stdout), original.ContainerID, original.FinishedAt, time.Now().UTC())
 		if err != nil || !finished.Equal(original.FinishedAt) {
 			return zero, archive.ErrRefused
 		}

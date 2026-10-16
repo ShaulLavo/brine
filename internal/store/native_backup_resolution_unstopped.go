@@ -27,6 +27,14 @@ func nativeUnstoppedIdentity(ctx context.Context, q dataQuerier, intent nativePr
 	if intent.SourceKind != "initialized" {
 		return nil, ErrConflict
 	}
+	var routesCount, frontendCount int
+	err := q.QueryRowContext(ctx, "SELECT (SELECT count(*) FROM data_native_prepared_routes WHERE point_id=?),(SELECT count(*) FROM data_native_prepared_frontend_stops WHERE point_id=?)", intent.PointID, intent.PointID).Scan(&routesCount, &frontendCount)
+	if err != nil {
+		return nil, err
+	}
+	if routesCount == 0 && frontendCount == 0 {
+		return []byte(`{"ingress":"not_issued","frontend_stop":"not_issued"}`), nil
+	}
 	var facts []byte
 	var prior NativePreparedRoutes
 	for _, stage := range []string{"intent", "withdrawn"} {
@@ -103,7 +111,7 @@ func nativeUnstoppedFrontend(ctx context.Context, q dataQuerier, intent nativePr
 		facts = append(facts, raw...)
 	}
 	release, err := readRelease(ctx, q, op.App, previous.ReleaseID)
-	if err != nil || checkNativePreparedRelease(ctx, q, intent, release) != nil || release.Managed.Frontend.Unit.Name != previous.Unit || release.Managed.Frontend.Unit.Hash != previous.UnitSHA {
+	if err != nil || checkNativePreparedRelease(ctx, q, intent, release) != nil || release.Managed.Frontend == nil || release.Managed.Frontend.Unit.Name != previous.Unit || release.Managed.Frontend.Unit.Hash != previous.UnitSHA {
 		return Release{}, nil, false, ErrConflict
 	}
 	return release, facts, true, nil
@@ -139,13 +147,13 @@ func nativeUnstoppedCurrent(ctx context.Context, tx *sql.Tx, intent nativePrepar
 
 // ReleaseUnstoppedPreparation records disposition without inventing a clean stop
 // or backup point. Ordinary start owns the later component and ingress changes.
-func (i *NativeBackupInspection) ReleaseUnstoppedPreparation(ctx context.Context, observationSHA256 string, engineRunning, frontendRunning bool, rootSHA256, loadedSHA256 string) (nativecapture.BackupResolutionReceipt, error) {
+func (i *NativeBackupInspection) ReleaseUnstoppedPreparation(ctx context.Context, observationSHA256 string, engineRunning, frontendRunning bool, routeGeneration uint64, rootSHA256, loadedSHA256 string) (nativecapture.BackupResolutionReceipt, error) {
 	var zero nativecapture.BackupResolutionReceipt
 	if i.resolver == "" || observationSHA256 != i.review.ObservationSHA256 || !data.ValidCatalogHash(rootSHA256) || !data.ValidCatalogHash(loadedSHA256) {
 		return zero, ErrConflict
 	}
 	expected, err := i.PreparedExpectation(ctx)
-	if err != nil || !expected.StopNotIssued || expected.FrontendStopped && frontendRunning || frontendRunning && !engineRunning {
+	if err != nil || !expected.StopNotIssued || expected.FrontendStopped && frontendRunning || frontendRunning && !engineRunning || routeGeneration < expected.Route.Generation || !expected.RoutesNotIssued && routeGeneration != expected.Routes.CurrentGeneration {
 		return zero, ErrConflict
 	}
 	tx, cancel, err := i.state.beginWrite(ctx)
@@ -176,7 +184,7 @@ func (i *NativeBackupInspection) ReleaseUnstoppedPreparation(ctx context.Context
 	next.DesiredRevision = wanted.Revision
 	next.PlanID = release.PlanID
 	next.OperationID = i.resolver
-	next.Generation = expected.Routes.CurrentGeneration
+	next.Generation = routeGeneration
 	next.Present = false
 	next.FileHash = ""
 	next.RootSHA256 = rootSHA256

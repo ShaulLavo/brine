@@ -1112,6 +1112,20 @@ change no capture/workspace/point admission guard.
 
 ### Native archive source seal boundaries
 
+Archive regression tests retain an abandoned publication's repository prefix
+after its successful `source_preserved` resolution, with and without repository
+initialization. An unresolved attempt still refuses. An optional abandoned target
+may be absent, while a required transition tree may not. Backup health tests keep
+recent failures and active captures visible while allowing a current verified
+point to supersede older terminal failures. Retirement also releases managed
+preparation ports for a new incarnation while retaining historical preparations
+and refusing collisions with active reservations.
+Route tests require archive retirement before a new binding can follow the prior
+route revision. Missing-receipt recovery observes an already loaded route without
+writing during inspection. The resolver rechecks components and Caddy, records
+only the missing metadata and completes health/release commit without replaying
+publication or startup.
+
 Owned-file publication inspection preserves the exact verified point digest for
 both transition and historical generic seals. Retained-owner resume carries
 its recorded digest through the upload and completion observation. Store tests
@@ -1147,3 +1161,38 @@ Receipt corruption cases bind every retained scope and evidence hash during
 acknowledgement-loss adoption. Schema migration tests preserve existing task,
 input, outcome, and fence records. These local checks do not prove the Pi
 command path or remote recovery; both remain physical acceptance obligations.
+
+### Native restore before transition admission
+
+`TestNativeRestoreReviewBeforeTransitionIsRecorded` covers a protected target
+whose tree transition has not been recorded. Inspection leaves storage unchanged,
+refuses missing inputs after later restore stages and preserves a recorded cursor.
+The resolver still requires its original fence, current source head, real guards,
+fresh review and observed untouched layout before admitting that transition.
+
+`TestNativeWithdrawalAfterCompletedRestoreAllowsPolicyRestoration` covers
+observation after revoking the temporary live-restore grant. An unfinished
+transition still refuses that observation. Backup reactivation accepts the exact
+already deployed desired state without admitting application changes.
+
+`TestRestoredEpochUsesSelectedPublicationArtifact` follows a completed restore to
+its selected publication epoch and refuses an unfinished restore.
+`TestUnstoppedEngineOnlyPreparationCanBeInspected` covers recovery before an engine
+stop when the release has no frontend. These are local control-state regressions;
+the final Pi pass records their physical continuation separately.
+
+`TestNativeAbandonCancelsBootRestartJobsBeforeObservation` verifies that
+abandonment cancels only the owned frontend and engine jobs before fresh
+quiescence checks. `TestRetainedNativeStopReadbackSurvivesPodmanRefresh` reproduces
+Podman omitting its transient stop-intent flag after reboot. Initial stop evidence
+still requires that flag. Retained readback requires the original container and
+exact exit time, a clean exit, no error and no live PID.
+
+### Native archive backup scheduler retirement
+
+Retirement stops the binding's timer before its service, removes both unit files
+and timer enablement, and requires manager absence before runtime retirement.
+Focused tests cover interrupted stop and removal, foreign unit files or loaded
+fragments, and preservation of another binding. Replaying a terminal retirement
+or resolver reconciles only its backup units and preserves the original receipt,
+including retention dates, while a recreated app is running.

@@ -193,46 +193,56 @@ Basic Pi command pass, 2026-10-15. Evidence is in [the final pass](../evidence/p
 - [x] Capture an online point and verify its remote restore.
 - [x] Publish the additive module and confirm all 145 rows remain.
 - [x] Recover the failed frontend through Brine, deploy the corrected fixture, and confirm HTTP 200 with 145 rows.
-- [ ] Publish the default-column module and check its default. The approved sequence restores the original schema after the additive update and before this update.
-- [ ] Complete live restore, restore the original policy, and reactivate backups.
-- [ ] Reboot while prepared, prove the fence holds, abandon, and start.
-- [ ] Archive the native binding and check same-name recreation when supplied material permits it.
+- [x] Publish the default-column module after restoring the original schema. Confirm 145 rows and `rating = 7` with the matching client.
+- [x] Complete live restore, restore the original policy, and reactivate backups.
+- [x] Reboot while prepared, prove the fence holds, abandon, and start.
+- [x] Archive the native binding and check same-name recreation when supplied material permits it.
 
-**Final pass blocker, 2026-10-15.** Live restore
-`01a141d241805cc8760d4a786048d7e2cba23c1e5b97` remains recovery-required at
-`transition_intent`, sequence 4. The selected pre-additive point is
-`287fc6da1d745e17eb933ee10775a47f`; current safety point
-`14034a1d61e56adc8147f4e87547348c` is consumed. The authenticated download and
-native staged target exist. No corresponding engine-transition input exists.
-The repository intent is `90d26ce60cc091f5f017cf3870f14d04`; its initialization
-journal contains `init_issued` only, with no `init_unknown` or initialized result.
-The source remains stopped and fenced, with the temporary live-restore grant.
+**Archive continuation, 2026-10-16.** [PR #180](https://github.com/ShaulLavo/brine/pull/180)
+completed the basic archive and same-name recreation pass after #179's restore
+and preparation fixes. The [archive evidence](../evidence/p09-pi.md#native-archive-continuation-2026-10-16)
+records the exact commands and operations.
 
-Reproduce the supported refusal with `brine restore native-live inspect
-OPERATION_ID --target TARGET --json`, then `brine restore native-live
-review-resolution OPERATION_ID --target TARGET --json`. The former reports the
-stage above; the latter refuses. `inspectNativeRestoreTransitionTx` in
-`internal/store/native_live_restore_resolution.go` requires
-`readEngineTransition` before it can return a review target. That record is
-created only after incoming repository initialization in
-`executeNativeLiveRestore`, in
-`internal/host/native_live_restore_effect_linux.go`.
+The earlier archive refusal came from these incoming reservations without native
+epochs. Each already had a successful `source_preserved` resolution:
 
-The immediate initialization defect is fixed. The 15-minute detached job
-context exceeded the repository material's 10-minute scope. Incoming restore
-and publication initialization now use the same bounded transport constructor.
-The focused regression fails with the original deadline and passes after the
-fix. The first apply was also corrected to verify prepared ingress withdrawal,
-rather than require a historical lifecycle receipt to say stopped.
+- `01a13934698e32877fc2f2f78ed3597a9c276871c156`, incoming intent `c81a0c32c81246ab8fbbe62ee8956eaa`, had no lease or initialization event.
+- `01a1394cb28583e3d3bd1ea97a020a2f74f15224d2f2`, incoming intent `2ef1431d08b41368e7ceb9e871d1c6e8`, had no lease or initialization event.
+- `01a1396c9852935f9a85f7893d036669cc02119edeaa`, incoming intent `488e73b6fab8f7fe8bdce99a7e444954`, had an initialized repository but no engine transition.
 
-A fresh reviewer must define and implement supported recovery for this
-pre-transition state, without replaying extraction, blindly repeating init,
-or reopening an expired stopped-source mutation permit. Read the retained
-creation journal and target before deciding how to continue. Existing
-`NativeIncomingRepository` admission records `init_unknown` before running init;
-the current journal has not crossed that boundary. Preserve the original
-operation, consumer, fence and private stages. Restore the original operator
-policy and reactivate backups after supported completion or cancellation.
+Archive now joins those resolution proofs, retains their remote prefixes and moves
+their private targets. Archive `102470420a1ebbac3efa5350c44e4fa7` is retired with
+retention through `2026-11-15T05:47:04.95797836Z`. Its nine epochs and eight targets
+remain retained after recreation. Current backup health reported `verified` for
+point `518de8a360ee4c598364c857a127c604` without changing historical failed tasks.
+
+The original spec recreated the same name with a new incarnation, database,
+binding, epoch, remote prefix and native database identity. Supported resolution
+completed the new deployment after the route receipt was interrupted. Engine and
+frontend are running, status is healthy and HTTPS returns 200. Historical port
+reservations and route ownership no longer block the new incarnation. Full
+P09-08 remains unchecked because the broader acceptance cases below are incomplete.
+
+**Scheduler retirement.** Archive runtime cleanup now stops the hash-owned backup
+timer before its service, removes their unit files and timer enablement, and
+requires their absence before advancing the archive journal. Recovery accepts
+owned partial removal. Reapplying the saved retirement plan reconciles only the
+original binding's backup units, without changing retention dates or stopping a
+recreated app. Broader P09-08 acceptance remains unchecked.
+
+**Remaining retired-source admission.** On the final archived fixture,
+`brine archive status ARCHIVE_ID --target TARGET --json` returns `degraded` with
+`credential_observation_refused`. A supported retirement replay traced through
+`ReadNativeArchiveFence` returned before backup-policy lookup or any unit access.
+The original archive claim and held fence remain, and the backup policy hashes
+match the installed files. Investigate `internal/store/native_archived_source.go:66`,
+including its prepared-point completion, claim and verification joins, on an
+authorized retired/recreated fixture before earning archive maintenance acceptance.
+This was reproduced on CLI 0.1.67-dev, commit `965deae`, after archive/recreation.
+No database rows, data files or units were edited for the diagnosis. Timer-only
+cleanup uses the retired journal and saved unit ownership, and does not require
+archived-source read authority. The private lane H handoff retains exact IDs and
+read-only diagnostic output for the coordinator.
 
 Frontend recovery is no longer the blocker. Brine restored the previous
 database-only release through its compensation steps, and the corrected fixture

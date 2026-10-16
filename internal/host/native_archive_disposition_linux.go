@@ -54,6 +54,13 @@ func (h archiveHost) retireNativeArchiveRuntime(ctx context.Context, p archive.P
 	if err != nil {
 		return archive.ErrRefused
 	}
+	backups, err := h.nativeArchiveBackups(ctx, p)
+	if err != nil {
+		return err
+	}
+	if err = backups.retire(ctx); err != nil {
+		return err
+	}
 	if facts.frontend != nil {
 		unit := *facts.frontend
 		if h.units == nil || h.units.RemoveArchived(ctx, unit.Name, unit.Hash) != nil {
@@ -133,5 +140,10 @@ func (h archiveHost) nativeArchiveRuntimeAbsent(ctx context.Context, p archive.P
 	if err = h.verifyNativeArchiveClosedRoute(ctx, p); err != nil {
 		return false, err
 	}
-	return true, ctx.Err()
+	backups, err := h.nativeArchiveBackups(ctx, p)
+	if err != nil {
+		return false, err
+	}
+	present, err := backups.inspect(ctx)
+	return !present, err
 }

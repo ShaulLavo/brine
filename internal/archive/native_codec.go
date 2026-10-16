@@ -2,7 +2,43 @@ package archive
 
 import (
 	"encoding/json"
+	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/strictjson"
 )
+
+type nativeArchiveTreeRecord struct {
+	TransitionID string                     `json:"transition_id"`
+	Stage        data.EngineTransitionStage `json:"stage"`
+	Seal         *data.EngineTreeSeal       `json:"seal"`
+	Optional     bool                       `json:"optional,omitempty"`
+}
+
+func (t NativeTransitionTree) MarshalJSON() ([]byte, error) {
+	record := nativeArchiveTreeRecord{TransitionID: t.TransitionID, Stage: t.Stage, Optional: t.Optional}
+	if !t.Absent() {
+		record.Seal = &t.Seal
+	}
+	return json.Marshal(record)
+}
+
+func (t *NativeTransitionTree) UnmarshalJSON(raw []byte) error {
+	if err := nativeArchiveTransitionRecord(raw); err != nil {
+		return err
+	}
+	var record nativeArchiveTreeRecord
+	if err := json.Unmarshal(raw, &record); err != nil {
+		return err
+	}
+	if record.Optional && record.Stage != data.EngineTransitionAbandoned || record.Seal == nil && !record.Optional {
+		return ErrRefused
+	}
+	value := NativeTransitionTree{TransitionID: record.TransitionID, Stage: record.Stage, Optional: record.Optional}
+	if record.Seal != nil {
+		value.Seal = *record.Seal
+	}
+	*t = value
+	return nil
+}
 
 func strictNativeArchiveHead(raw []byte) error {
 	return exactArchiveObject(raw, []string{"binding_id", "epoch_id", "version", "runtime_sha256"})
@@ -37,7 +73,18 @@ func nativeArchiveRetentionRecord(raw []byte) error {
 }
 
 func nativeArchiveTransitionRecord(raw []byte) error {
-	return exactArchiveObject(raw, []string{"transition_id", "stage", "seal"})
+	if err := exactArchiveObject(raw, []string{"transition_id", "stage", "seal"}, "optional"); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if value, present := fields["optional"]; present {
+		_, err := strictjson.Value[bool](value)
+		return err
+	}
+	return nil
 }
 
 func strictNativeArchiveAllocation(raw []byte) error {

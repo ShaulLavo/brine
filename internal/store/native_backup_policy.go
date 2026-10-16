@@ -160,8 +160,16 @@ func checkNativeBackupOnlyPlan(ctx context.Context, q dataQuerier, app string, d
 		return errors.Join(ErrConflict, err)
 	}
 	_, previous, err := loadPlan(ctx, q, previousPlan)
-	if err != nil || !plan.ManagedBackupOnly(desired, previous) {
+	if err != nil {
 		return errors.Join(ErrConflict, err)
+	}
+	if plan.ManagedBackupOnly(desired, previous) {
+		return nil
+	}
+	currentRaw, currentErr := desired.CanonicalBytes()
+	previousRaw, previousErr := previous.CanonicalBytes()
+	if currentErr != nil || previousErr != nil || !bytes.Equal(currentRaw, previousRaw) {
+		return errors.Join(ErrConflict, currentErr, previousErr)
 	}
 	return nil
 }

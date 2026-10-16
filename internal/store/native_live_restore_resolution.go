@@ -23,7 +23,11 @@ func (s *Store) inspectNativeRestoreTransitionTx(ctx context.Context, tx *sql.Tx
 	if err != nil {
 		return nil, retained, nativeRestoreTarget{}, data.EngineTransition{}, data.EngineTransitionCursor{}, err
 	}
-	input, _, err := readEngineTransition(ctx, tx, retained.claim.Attempt().TransitionID)
+	target, err := readNativeRestoreTargetTx(ctx, tx, retained)
+	if err != nil {
+		return nil, retained, nativeRestoreTarget{}, data.EngineTransition{}, data.EngineTransitionCursor{}, err
+	}
+	input, err := nativeRestoreTransitionInput(retained, target)
 	if err != nil {
 		return nil, retained, nativeRestoreTarget{}, data.EngineTransition{}, data.EngineTransitionCursor{}, err
 	}
@@ -69,6 +73,9 @@ func (s *Store) ReviewNativeRestoreResolution(ctx context.Context, preparation *
 	defer func() { _ = tx.Rollback() }()
 	cap, retained, target, input, _, err := s.inspectNativeRestoreTransitionTx(ctx, tx, preparation, lifetime, originalID)
 	if err != nil || retained.plan.Spec().Requester != requester || pol.Hash() != "sha256:"+retained.plan.Spec().Facts.PolicySHA256 {
+		return zero, ErrConflict
+	}
+	if _, cursor, readErr := readNativeRestoreTransitionInput(ctx, tx, input, retained.current.Stage()); readErr != nil || cursor.Sequence == 0 && data.ClassifyEngineTransitionLayout(input, observed.Layout) != data.EngineLayoutPrepared {
 		return zero, ErrConflict
 	}
 	if err = checkNativeRestoreResumeObservation(ctx, cap, retained, target, input, observed); err != nil {

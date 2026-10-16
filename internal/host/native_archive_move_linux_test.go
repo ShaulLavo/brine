@@ -4,11 +4,37 @@ package host
 
 import (
 	"context"
+	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestNativeArchiveRechecksAbsentPublicationTree(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "private")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	binding := data.SpacetimeDBBinding{Root: data.PersistentRoot(root)}
+	tree := archive.NativeTransitionTree{TransitionID: strings.Repeat("e", 32), Stage: data.EngineTransitionAbandoned, Optional: true}
+	if err := verifyNativeArchiveAbsentTree(t.Context(), binding, tree); err != nil {
+		t.Fatal("publication that never created transitions refused", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "transitions"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyNativeArchiveAbsentTree(t.Context(), binding, tree); err != nil {
+		t.Fatal("publication that never created a target refused", err)
+	}
+	if err := os.Mkdir(filepath.Join(root, "transitions", tree.TransitionID), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyNativeArchiveAbsentTree(t.Context(), binding, tree); err == nil {
+		t.Fatal("tree appearing after review ignored")
+	}
+}
 
 func TestNativeArchiveWholeTreeMovePreservesOriginalAndRefusesReplacement(t *testing.T) {
 	ctx := context.Background()

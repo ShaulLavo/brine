@@ -59,6 +59,14 @@ func readNativeArchiveDatabase(ctx context.Context, tx *sql.Tx, id data.Database
 	for i, t := range closure {
 		trees[i] = archive.NativeTransitionTree{TransitionID: t.Input.Common().Scope.ID, Stage: t.Cursor.Stage}
 	}
+	abandoned, err := readNativeArchiveAbandonedRepositories(ctx, tx, binding)
+	if err != nil {
+		return zero, err
+	}
+	for _, intent := range abandoned {
+		trees = append(trees, archive.NativeTransitionTree{TransitionID: intent.creationID, Stage: data.EngineTransitionAbandoned, Optional: true})
+	}
+	slices.SortFunc(trees, func(a, b archive.NativeTransitionTree) int { return strings.Compare(a.TransitionID, b.TransitionID) })
 	return archive.NativeDatabase{Binding: permit.Reserved.Database, Head: head, State: permit.Runtime.State, Allocation: allocation, Epochs: epochs, Retention: []data.RetentionEvidence{}, Dependencies: dependencies, TransitionTrees: trees}, nil
 }
 

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/caddy"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/podman"
@@ -20,7 +21,7 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 	if err != nil || policyErr != nil || pol.Hash() != "sha256:"+backup.PolicySHA256 {
 		return errEngineSource
 	}
-	manager, current, previous, err := o.runtime.preparedObservedRouteStates(ctx, o.service, expected.Routes)
+	manager, current, previous, err := o.unstoppedRouteStates(ctx, expected)
 	if err != nil {
 		return err
 	}
@@ -28,8 +29,10 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 		return errEngineSource
 	}
 	front := expected.Release.Managed.Frontend
-	if quadlet.VerifyCurrent(ctx, o.runtime.home, front.Unit.Name, front.Unit.Hash) != nil || verifyManagedFrontendLoaded(ctx, o.runtime.session, o.runtime.home, expected.Routes.App) != nil {
-		return errEngineSource
+	if front != nil {
+		if quadlet.VerifyCurrent(ctx, o.runtime.home, front.Unit.Name, front.Unit.Hash) != nil || verifyManagedFrontendLoaded(ctx, o.runtime.session, o.runtime.home, expected.Routes.App) != nil {
+			return errEngineSource
+		}
 	}
 	v.frontendRunning, err = o.inspectUnstoppedFrontend(ctx, expected)
 	if err != nil {
@@ -65,13 +68,37 @@ func (o nativeBackupResolutionOperations) inspectUnstoppedPreparation(ctx contex
 	v.stopNotIssued = true
 	v.unitsState = engineState
 	v.unstopped = expected
+	v.routeGeneration = current.Generation
 	v.rootSHA256 = root
 	v.loadedSHA256 = loaded
 	return nil
 }
 
+func (o nativeBackupResolutionOperations) unstoppedRouteStates(ctx context.Context, expected store.NativeBackupPreparedExpectation) (*caddy.Manager, caddy.State, caddy.State, error) {
+	if !expected.RoutesNotIssued {
+		return o.runtime.preparedObservedRouteStates(ctx, o.service, expected.Routes)
+	}
+	current, err := nativeCommittedRouteStates(ctx, o.service, o.runtime.routes)
+	return o.runtime.routes, current, current, err
+}
+
 func (o nativeBackupResolutionOperations) inspectUnstoppedFrontend(ctx context.Context, expected store.NativeBackupPreparedExpectation) (bool, error) {
 	app := expected.Routes.App
+	if expected.Release.Managed.Frontend == nil {
+		stopped, err := (archiveHost{session: o.runtime.session}).stoppedOrAbsentService(ctx, app+".service")
+		if err != nil || !stopped {
+			return false, errEngineSource
+		}
+		name, err := managedFrontendContainerName(app)
+		if err != nil {
+			return false, err
+		}
+		state, err := podman.New(o.runtime.session).ContainerState(ctx, name)
+		if !managedFrontendStopped(state, err) {
+			return false, errEngineSource
+		}
+		return false, nil
+	}
 	unit, err := systemd.ParseUnit(app + ".service")
 	if err != nil {
 		return false, err

@@ -111,12 +111,15 @@ func nativeRouteWithdrawalCurrent(ctx context.Context, tx *sql.Tx, head ManagedR
 		return err
 	}
 	raw, err := json.Marshal(permit.Runtime)
-	if err != nil || point.BindingID != head.BindingID || point.EpochID != head.EpochID || point.RuntimeSHA256 != head.RuntimeSHA256 || policyHash != "sha256:"+point.PolicySHA256 || permit.Reserved.Database.DatabaseID != point.DatabaseID || permit.Reserved.Database.IncarnationID != point.IncarnationID || !managedAppOwns(ctx, tx, head.App, point.IncarnationID) || permit.Allocation == nil {
+	if err != nil || point.BindingID != head.BindingID || point.EpochID != head.EpochID || point.RuntimeSHA256 != head.RuntimeSHA256 || permit.Reserved.Database.DatabaseID != point.DatabaseID || permit.Reserved.Database.IncarnationID != point.IncarnationID || !managedAppOwns(ctx, tx, head.App, point.IncarnationID) || permit.Allocation == nil {
 		return ErrConflict
 	}
 	if permit.Runtime.EpochID != point.EpochID || nativePointHash(raw) != point.RuntimeSHA256 {
 		// A completed transition binds its own target runtime and allocation.
 		return nativeWithdrawalSuccessor(ctx, tx, point, permit.Runtime.EpochID, nativePointHash(raw))
+	}
+	if policyHash != "sha256:"+point.PolicySHA256 {
+		return ErrConflict
 	}
 	allocation, err := json.Marshal(permit.Allocation)
 	if err != nil || nativePointHash(allocation) != point.AllocationSHA256 {

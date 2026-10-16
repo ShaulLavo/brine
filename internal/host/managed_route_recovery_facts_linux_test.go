@@ -74,6 +74,11 @@ func (r managedFactsImages) Resolve(_ context.Context, reference spec.ImageRefer
 }
 func managedFactsRecoveryFixture(t *testing.T, configure ...func(*data.EngineRuntime)) (*deployRig, plan.Plan, ops.Operation, caddy.State) {
 	t.Helper()
+	return managedFactsRecoveryReceiptFixture(t, true, configure...)
+}
+
+func managedFactsRecoveryReceiptFixture(t *testing.T, recorded bool, configure ...func(*data.EngineRuntime)) (*deployRig, plan.Plan, ops.Operation, caddy.State) {
+	t.Helper()
 	stateRoot := t.TempDir()
 	r := newDeployRigAt(t, stateRoot)
 	ctx := context.Background()
@@ -189,18 +194,26 @@ func managedFactsRecoveryFixture(t *testing.T, configure ...func(*data.EngineRun
 	}
 	file := target.CaddyFile{Name: p.App + ".caddy", Hash: fmt.Sprintf("sha256:%x", sha256.Sum256(routeBytes))}
 	route := store.ManagedRouteState{App: p.App, BindingID: binding.BindingID, EpochID: runtime.EpochID, RuntimeSHA256: p.Managed.RuntimeSHA256, DesiredRevision: 1, PlanID: p.Hash, OperationID: source.ID, Revision: 1, Generation: 1, Present: true, FileHash: file.Hash, RootSHA256: strings.Repeat("b", 64), LoadedSHA256: strings.Repeat("c", 64)}
-	if _, err := r.store.CommitManagedRouteState(ctx, 0, route); err != nil {
-		t.Fatal(err)
+	if recorded {
+		if _, err := r.store.CommitManagedRouteState(ctx, 0, route); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := r.store.SetOperationState(ctx, source.ID, ops.Checking); err != nil {
 		t.Fatal(err)
 	}
-	for _, step := range []string{"preflight", "managed_desired", "engine_stage", "frontend_pull", "frontend_verify", "frontend_secrets", "frontend_stage", "engine_check", "frontend_install", "frontend_reload", "frontend_bind", "frontend_start", "frontend_check", "managed_route", "managed_route_receipt"} {
+	for _, step := range []string{"preflight", "managed_desired", "engine_stage", "frontend_pull", "frontend_verify", "frontend_secrets", "frontend_stage", "engine_check", "frontend_install", "frontend_reload", "frontend_bind", "frontend_start", "frontend_check", "managed_route"} {
 		appendHostRecoveryStep(t, r.store, source.ID, step, "intent")
 		appendHostRecoveryStep(t, r.store, source.ID, step, "completed")
 	}
-	appendHostRecoveryStep(t, r.store, source.ID, "managed_route_check", "intent")
-	appendHostRecoveryStep(t, r.store, source.ID, "managed_route_check", "unknown")
+	appendHostRecoveryStep(t, r.store, source.ID, "managed_route_receipt", "intent")
+	if recorded {
+		appendHostRecoveryStep(t, r.store, source.ID, "managed_route_receipt", "completed")
+		appendHostRecoveryStep(t, r.store, source.ID, "managed_route_check", "intent")
+		appendHostRecoveryStep(t, r.store, source.ID, "managed_route_check", "unknown")
+	} else {
+		appendHostRecoveryStep(t, r.store, source.ID, "managed_route_receipt", "unknown")
+	}
 	if err := r.store.SetOperationState(ctx, source.ID, ops.RecoveryRequired); err != nil {
 		t.Fatal(err)
 	}
@@ -218,6 +231,27 @@ func appendHostRecoveryStep(t *testing.T, state *store.Store, id, step, outcome 
 	raw, _ := json.Marshal(ops.StepPayload{Step: step, Outcome: outcome})
 	if _, err := state.AppendEvent(context.Background(), id, ops.Event{Kind: "step", Payload: raw}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManagedRecoveryFactsObserveMissingReceiptWithoutWritingIt(t *testing.T) {
+	r, p, source, expected := managedFactsRecoveryReceiptFixture(t, false)
+	ctx := t.Context()
+	_, desired, err := r.store.LoadPlan(ctx, p.Hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := operationFacts{service: r.service, desired: desired, recoveryPlan: p, recoveryOperation: source}
+	facts, err := reader.Read(ctx)
+	if err != nil || facts.Routing.Generation != expected.Generation || facts.Routing.Files[p.App+".caddy"] != expected.Files[p.App+".caddy"] || facts.Input.State.Generation != *p.ObservedGeneration.Value+1 {
+		t.Fatal("actual unrecorded route was not observed", err, facts.Routing)
+	}
+	if _, err := r.store.ReadManagedRouteState(ctx, p.App); !errors.Is(err, store.ErrNotFound) {
+		t.Fatal("facts reader invented a route receipt", err)
+	}
+	r.inventory.snapshot.CaddyConfig.Value.Files[0].Hash = "sha256:" + strings.Repeat("f", 64)
+	if _, err := reader.Read(ctx); err == nil {
+		t.Fatal("foreign unrecorded route accepted")
 	}
 }
 

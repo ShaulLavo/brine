@@ -11,6 +11,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/plan"
 )
 
 // ManagedRouteState retains deliberate route presence independently of immutable
@@ -70,6 +71,17 @@ func readManagedRouteState(ctx context.Context, q dataQuerier, app string) (Mana
 }
 
 func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wanted ManagedRouteState) (ManagedRouteState, error) {
+	return s.commitManagedRouteState(ctx, "", expected, wanted)
+}
+
+func (s *Store) CommitManagedResolutionRouteState(ctx context.Context, resolver string, expected uint64, wanted ManagedRouteState) (ManagedRouteState, error) {
+	if resolver == "" {
+		return ManagedRouteState{}, ErrInvalid
+	}
+	return s.commitManagedRouteState(ctx, resolver, expected, wanted)
+}
+
+func (s *Store) commitManagedRouteState(ctx context.Context, resolver string, expected uint64, wanted ManagedRouteState) (ManagedRouteState, error) {
 	if s.readOnly || !wanted.Valid() || wanted.Revision != expected+1 || expected >= math.MaxInt64 {
 		return ManagedRouteState{}, ErrInvalid
 	}
@@ -103,8 +115,16 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 	if err := tx.QueryRowContext(ctx, "SELECT COALESCE(plan_id,''),app,state FROM operations WHERE id=?", wanted.OperationID).Scan(&opPlan, &opApp, &state); err != nil {
 		return ManagedRouteState{}, err
 	}
-	if opPlan != wanted.PlanID || opApp != wanted.App || state != ops.Preparing && state != ops.Quiescing && state != ops.Starting && state != ops.Checking && state != ops.RollingBack {
+	if opPlan != wanted.PlanID || opApp != wanted.App {
 		return ManagedRouteState{}, ErrConflict
+	}
+	if resolver == "" && state != ops.Preparing && state != ops.Quiescing && state != ops.Starting && state != ops.Checking && state != ops.RollingBack {
+		return ManagedRouteState{}, ErrConflict
+	}
+	if resolver != "" {
+		if err := managedRouteResolutionOwner(ctx, tx, resolver, wanted, p); err != nil {
+			return ManagedRouteState{}, err
+		}
 	}
 	permit, err := readEnginePermit(ctx, tx, wanted.BindingID)
 	actualRuntime, _ := json.Marshal(permit.Runtime)
@@ -122,8 +142,15 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		return ManagedRouteState{}, err
 	}
-	if errors.Is(err, ErrNotFound) && expected != 0 || err == nil && (previous.Revision != expected || previous.BindingID != wanted.BindingID) {
+	if errors.Is(err, ErrNotFound) && expected != 0 || err == nil && previous.Revision != expected {
 		return ManagedRouteState{}, ErrConflict
+	}
+	if err == nil && previous.BindingID != wanted.BindingID {
+		var retired bool
+		err := tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM data_replica_bindings b JOIN data_databases d ON d.id=b.database_id JOIN data_archive_retirements r ON r.incarnation_id=d.incarnation_id WHERE b.id=? AND r.app=? AND NOT EXISTS(SELECT 1 FROM data_active_incarnations a WHERE a.incarnation_id=d.incarnation_id))", previous.BindingID, wanted.App).Scan(&retired)
+		if err != nil || !retired {
+			return ManagedRouteState{}, errors.Join(ErrConflict, err)
+		}
 	}
 	raw, err := json.Marshal(wanted)
 	if err != nil {
@@ -136,4 +163,42 @@ func (s *Store) CommitManagedRouteState(ctx context.Context, expected uint64, wa
 		return ManagedRouteState{}, err
 	}
 	return wanted, tx.Commit()
+}
+
+func managedRouteResolutionOwner(ctx context.Context, tx *sql.Tx, resolver string, wanted ManagedRouteState, p plan.Plan) error {
+	original, err := managedCommitOperation(ctx, tx, wanted.OperationID)
+	if err != nil || original.Kind != ops.Deploy || original.State != ops.RecoveryRequired || original.PlanID != p.Hash || original.App != p.App {
+		return ErrConflict
+	}
+	cursor, err := managedCreateCursor(ctx, tx, original.ID, p)
+	if err != nil || !pendingManagedRouteReceipt(cursor) {
+		return ErrConflict
+	}
+	current := original
+	for depth := 0; depth < 64; depth++ {
+		child, exists, err := managedResolutionChild(ctx, tx, current.ID)
+		if err != nil || !exists || child.Kind != ops.Resolve || child.RecoveryOf != current.ID || child.PlanID != p.Hash || child.App != p.App || child.SecretRef != original.SecretRef || managedResolutionReceipt(ctx, tx, child) != nil {
+			return ErrConflict
+		}
+		if child.ID == resolver {
+			return activeManagedRouteReceiptResolver(ctx, tx, child, p)
+		}
+		if child.State != ops.RecoveryRequired {
+			return ErrConflict
+		}
+		current = child
+	}
+	return ErrConflict
+}
+
+func activeManagedRouteReceiptResolver(ctx context.Context, tx *sql.Tx, resolver Operation, p plan.Plan) error {
+	cursor, err := managedCreateCursor(ctx, tx, resolver.ID, p)
+	if err != nil || resolver.State != ops.Checking || !pendingManagedRouteReceipt(cursor) {
+		return ErrConflict
+	}
+	return nil
+}
+
+func pendingManagedRouteReceipt(cursor ops.ManagedCreateCursor) bool {
+	return cursor.Boundary.Step == "managed_route_receipt" && (cursor.Boundary.Outcome == "intent" || cursor.Boundary.Outcome == "unknown") && cursor.FrontendStart.Step == ""
 }
