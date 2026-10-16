@@ -204,13 +204,9 @@ func (h archiveHost) RetireArchivedBackups(ctx context.Context, p archive.Plan) 
 	if !nativeArchiveCandidate(p.Candidate) {
 		return nil
 	}
-	d, _ := p.Candidate.Databases[0].Native()
 	disposition, exists, err := h.service.Store.ReadArchiveDisposition(ctx, p.ArchiveID)
 	if err != nil || !exists || disposition.Stage != archive.Retired {
 		return archive.ErrRefused
-	}
-	if _, err = h.service.Store.ReadNativeArchiveFence(ctx, p.ArchiveID, d.Binding.BindingID); err != nil {
-		return err
 	}
 	backups, err := h.nativeArchiveBackups(ctx, p)
 	if err != nil {
