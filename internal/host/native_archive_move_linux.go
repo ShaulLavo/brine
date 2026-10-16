@@ -28,12 +28,6 @@ func (h archiveHost) ArchiveNativeTrees(ctx context.Context, p archive.Plan) err
 
 func (h archiveHost) archiveNativeDatabaseTrees(ctx context.Context, p archive.Plan, native archive.NativeDatabase) error {
 	for _, tree := range native.TransitionTrees {
-		if tree.Absent() {
-			if err := verifyNativeArchiveAbsentTree(ctx, native.Binding, tree); err != nil {
-				return err
-			}
-			continue
-		}
 		if err := h.moveNativeArchiveTree(ctx, p, native.Binding, tree); err != nil {
 			return err
 		}
@@ -78,6 +72,9 @@ func (h archiveHost) moveNativeArchiveTree(ctx context.Context, p archive.Plan, 
 	lifetime := h.nativeLifetimes[binding.BindingID]
 	if !lifetime.HoldsLifetime(h.stateRoot, binding.BindingID) {
 		return archive.ErrRefused
+	}
+	if expected.Absent() {
+		return verifyNativeArchiveAbsentTree(ctx, binding, expected)
 	}
 	pointID := nativeArchivePreparedPointID(p, binding.BindingID)
 	point, err := h.service.Store.ReadNativePreparedPoint(ctx, pointID)
