@@ -91,3 +91,15 @@ func assertInvalidConfig(t *testing.T, field string, value string) {
 		t.Fatal("unsafe fixture environment was accepted")
 	}
 }
+
+func TestConfigAcceptsCompatibleSchemaMarkerList(t *testing.T) {
+	configure(t)
+	t.Setenv("BRINE_DB_MAIN_ACCEPTS", "brine-recovery-additive-v1,"+schemaMarker)
+	if _, err := loadConfig(); err != nil {
+		t.Fatal("compatible marker list refused", err)
+	}
+	t.Setenv("BRINE_DB_MAIN_ACCEPTS", schemaMarker+"-different")
+	if _, err := loadConfig(); err == nil {
+		t.Fatal("marker substring accepted")
+	}
+}

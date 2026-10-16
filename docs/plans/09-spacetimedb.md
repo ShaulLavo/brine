@@ -187,6 +187,61 @@ are in the [physical evidence](../evidence/p09-pi.md#source56-blockers).
 
 - [ ] **P09-08**
 
+Basic Pi command pass, 2026-10-15. Evidence is in [the final pass](../evidence/p09-pi.md#final-pi-pass-2026-10-15).
+
+- [x] Renew publisher material, activate it, start, and read 145 confirmed rows.
+- [x] Capture an online point and verify its remote restore.
+- [x] Publish the additive module and confirm all 145 rows remain.
+- [x] Recover the failed frontend through Brine, deploy the corrected fixture, and confirm HTTP 200 with 145 rows.
+- [ ] Publish the default-column module and check its default. The approved sequence restores the original schema after the additive update and before this update.
+- [ ] Complete live restore, restore the original policy, and reactivate backups.
+- [ ] Reboot while prepared, prove the fence holds, abandon, and start.
+- [ ] Archive the native binding and check same-name recreation when supplied material permits it.
+
+**Final pass blocker, 2026-10-15.** Live restore
+`01a141d241805cc8760d4a786048d7e2cba23c1e5b97` remains recovery-required at
+`transition_intent`, sequence 4. The selected pre-additive point is
+`287fc6da1d745e17eb933ee10775a47f`; current safety point
+`14034a1d61e56adc8147f4e87547348c` is consumed. The authenticated download and
+native staged target exist. No corresponding engine-transition input exists.
+The repository intent is `90d26ce60cc091f5f017cf3870f14d04`; its initialization
+journal contains `init_issued` only, with no `init_unknown` or initialized result.
+The source remains stopped and fenced, with the temporary live-restore grant.
+
+Reproduce the supported refusal with `brine restore native-live inspect
+OPERATION_ID --target TARGET --json`, then `brine restore native-live
+review-resolution OPERATION_ID --target TARGET --json`. The former reports the
+stage above; the latter refuses. `inspectNativeRestoreTransitionTx` in
+`internal/store/native_live_restore_resolution.go` requires
+`readEngineTransition` before it can return a review target. That record is
+created only after incoming repository initialization in
+`executeNativeLiveRestore`, in
+`internal/host/native_live_restore_effect_linux.go`.
+
+The immediate initialization defect is fixed. The 15-minute detached job
+context exceeded the repository material's 10-minute scope. Incoming restore
+and publication initialization now use the same bounded transport constructor.
+The focused regression fails with the original deadline and passes after the
+fix. The first apply was also corrected to verify prepared ingress withdrawal,
+rather than require a historical lifecycle receipt to say stopped.
+
+A fresh reviewer must define and implement supported recovery for this
+pre-transition state, without replaying extraction, blindly repeating init,
+or reopening an expired stopped-source mutation permit. Read the retained
+creation journal and target before deciding how to continue. Existing
+`NativeIncomingRepository` admission records `init_unknown` before running init;
+the current journal has not crossed that boundary. Preserve the original
+operation, consumer, fence and private stages. Restore the original operator
+policy and reactivate backups after supported completion or cancellation.
+
+Frontend recovery is no longer the blocker. Brine restored the previous
+database-only release through its compensation steps, and the corrected fixture
+then served HTTP 200 with 145 confirmed rows. An unloaded failed frontend with
+zero PIDs, no cgroup and no job also no longer blocks unused preparation
+abandonment. No control records or units were manually edited to produce these
+results. Exact operation IDs and qualification limits are in
+[the final evidence](../evidence/p09-pi.md#final-pi-pass-2026-10-15).
+
 **Dependencies.** P09-03 to P09-07, a published multiarch fixture, real scoped S3 test destination/retention evidence supplied by the operator, and coordinator-supplied Pi client configuration.
 
 **Work.** Use D3's standing Pi approval. Preserve remote access and back up operator-owned files before edits. Verify destination mount/free space before engine image pulls and restore staging; keep heavy local jobs in the shared queue. Deploy only disposable fixture state. Run actual arm64 rootless Quadlets and Caddy, create/publish with reviewed plans, connect a browser subscription, commit explicitly confirmed known markers, perform online native capture/encrypted upload/restore-test while writes continue, replace app code, perform the admitted module update and reboot. Run a separately authorized-by-policy fixture live restore. Cover S3 outage/credential expiry, competitor locks, signing-material recovery, stop timeout, partial active-head records, concurrent rotation/compaction, metadata drift and interrupted capture/publish/restore/epoch activation. Confirm app and engine permits block boot while fenced. Run the same bounded core capture/replay drill on disposable amd64 infrastructure if available; without actual amd64 execution, report that release blocker.

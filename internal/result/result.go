@@ -70,6 +70,10 @@ const (
 	NativeCaptureCommitRefused    Code = "native_capture_commit_refused"
 )
 
+const NativeModuleSchemaRefused Code = "native_module_schema_refused"
+
+const NativeSchemaMarkerConflict Code = "native_schema_marker_conflict"
+
 const NativeMaterialRequiresStop Code = "native_material_requires_stop"
 const NativeMaterialLeaseExpired Code = "native_material_lease_expired"
 
@@ -82,6 +86,8 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
+	NativeModuleSchemaRefused:      {Policy, "Managed publication cannot remove or change existing schema definitions. Use an additive module or a separate operator procedure.", false},
+	NativeSchemaMarkerConflict:     {StateConflict, "The schema marker already names a different schema. Use a distinct marker and a compatible recovery release.", false},
 	NativeMaterialRequiresStop:     {StateConflict, "Material activation requires a reviewed full stop. Plan and apply stop --engine, then review material activation again.", false},
 	NativeMaterialLeaseExpired:     {Policy, "The selected native material lease cannot cover the operation. Deliver renewed material and review its activation.", false},
 	BackupAdmissionRefreshRequired: {Policy, "Backup credential delivery refused: the operator policy changed. An explicit approved admission refresh is required before continuing.", false},

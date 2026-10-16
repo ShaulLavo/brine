@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 )
@@ -27,8 +28,8 @@ func loadConfig() (publicConfig, error) {
 	if os.Getenv("BRINE_DB_MAIN_ENGINE") != "spacetimedb" {
 		return publicConfig{}, errors.New("BRINE_DB_MAIN_ENGINE must be spacetimedb")
 	}
-	if os.Getenv("BRINE_DB_MAIN_ACCEPTS") != schemaMarker {
-		return publicConfig{}, errors.New("BRINE_DB_MAIN_ACCEPTS must match the compiled fixture marker")
+	if !slices.Contains(strings.Split(os.Getenv("BRINE_DB_MAIN_ACCEPTS"), ","), schemaMarker) {
+		return publicConfig{}, errors.New("BRINE_DB_MAIN_ACCEPTS must include the compiled fixture marker")
 	}
 	endpoint := os.Getenv("BRINE_DB_MAIN_URL")
 	if len(endpoint) > 4096 {

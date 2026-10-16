@@ -11,6 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/store"
+	"maps"
 	"path/filepath"
 	"time"
 )
@@ -166,13 +167,23 @@ func (h archiveHost) verifyNativeArchiveClosedRoute(ctx context.Context, p archi
 	if p.Candidate.ReleaseID == "" {
 		return h.verifyNativeUnpublishedArchiveRoute(ctx, p)
 	}
-	route, err := h.service.Store.ReadManagedRouteState(ctx, p.Candidate.App)
+	native, valid := p.Candidate.Databases[0].Native()
+	if !valid {
+		return archive.ErrRefused
+	}
+	pointID := ""
+	for _, ref := range native.Dependencies {
+		if ref.Kind == data.EnginePreparedPointEvidence && ref.EpochID == native.Head.EpochID {
+			pointID = ref.ID
+		}
+	}
+	route, err := h.service.Store.ReadNativePreparedRoutes(ctx, pointID)
 	routes, ok := h.routes.(apply.GenerationRoutes)
-	if err != nil || route.Present || !ok || routes.Manager == nil {
+	if err != nil || route.App != p.Candidate.App || !ok || routes.Manager == nil {
 		return archive.ErrRefused
 	}
 	loaded, err := routes.Manager.Observe()
-	if err != nil || loaded.Generation != route.Generation || loaded.Files[p.Candidate.App+".caddy"] != "" || routes.Manager.CheckDrift(loaded) != nil {
+	if err != nil || loaded.Generation != route.CurrentGeneration || !maps.Equal(loaded.Files, route.CurrentFiles) || loaded.Files[p.Candidate.App+".caddy"] != "" || routes.Manager.CheckDrift(loaded) != nil {
 		return archive.ErrRefused
 	}
 	release, err := h.service.Store.CurrentRelease(ctx, p.Candidate.App)

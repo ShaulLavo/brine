@@ -232,10 +232,14 @@ func (s *Store) RestoreManagedDesired(ctx context.Context, operation string, p p
 		return ManagedDesiredState{}, ErrConflict
 	}
 	current, err := readManagedDesired(ctx, tx, p.Managed.Database.BindingID)
-	if err != nil || current.OperationID != operation || current.PlanID != p.Hash || !current.Current(p.Managed.Database.BindingID, p.Managed.Archive.EpochID, p.Managed.RuntimeSHA256) {
+	if err != nil || current.PlanID != p.Hash || !current.Current(p.Managed.Database.BindingID, p.Managed.Archive.EpochID, p.Managed.RuntimeSHA256) {
+		return ManagedDesiredState{}, ErrConflict
+	}
+	if current.OperationID != operation && managedAttachmentRollbackOwner(ctx, tx, operation, current.OperationID, p) != nil {
 		return ManagedDesiredState{}, ErrConflict
 	}
 	wanted := current
+	wanted.OperationID = operation
 	wanted.Revision = p.ManagedIntentRevision + 2
 	wanted.FrontendRunning, wanted.IngressServing = false, false
 	if p.ManagedIntentRevision != 0 {

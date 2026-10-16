@@ -12,6 +12,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/podman"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
@@ -26,6 +27,9 @@ func (o modulePublications) Plan(ctx context.Context, request dispatch.ModulePla
 		return datapublish.ReviewView{}, datapublish.ErrRecord
 	}
 	planned, err := o.plan(ctx, request)
+	if errors.Is(err, datapublish.ErrOperatorProcedure) {
+		err = result.New(result.NativeModuleSchemaRefused, err)
+	}
 	return planned.ReviewView(), err
 }
 

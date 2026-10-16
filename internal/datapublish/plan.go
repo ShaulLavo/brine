@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"reflect"
 	"slices"
 	"time"
@@ -93,8 +94,11 @@ func (p *Plan) deriveRequirements() error {
 			return ErrRecord
 		}
 		diff, err := spacetimedb.CompareSchemas(p.source.schema, p.candidate.schema)
-		if err != nil || diff.Decision() != spacetimedb.StagedValidationRequired {
+		if err != nil {
 			return ErrRecord
+		}
+		if diff.Decision() != spacetimedb.StagedValidationRequired {
+			return errors.Join(ErrRecord, ErrOperatorProcedure)
 		}
 		p.diff = diff
 		p.requirements = diff.Requirements()

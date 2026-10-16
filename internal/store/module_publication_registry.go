@@ -9,6 +9,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/datapublish"
+	"github.com/ShaulLavo/brine/internal/result"
 )
 
 // Check the actual extracted candidate against immutable registered names
@@ -26,7 +27,7 @@ func checkPublicationCandidateRegistry(ctx context.Context, tx *sql.Tx, database
 		return schemaErr
 	}
 	if schemaErr == nil && !bytes.Equal(registered, expected) {
-		return ErrConflict
+		return result.New(result.NativeSchemaMarkerConflict, ErrConflict)
 	}
 	var module []byte
 	err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_engine_modules WHERE database_id=? AND program_wire_hash=?", database, candidate.ProgramWireHash()).Scan(&module)

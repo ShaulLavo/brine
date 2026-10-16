@@ -364,6 +364,9 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 		}
 		return e.run(ctx, x.id, x.plan, x.desired, &r)
 	case RestorePrevious:
+		if x.managedAttachmentOwner != "" {
+			return x.rollbackManagedAttachment(ctx)
+		}
 		journal, cancel := context.WithTimeout(ctx, journalTimeout)
 		defer cancel()
 		payload, _ := json.Marshal(struct {

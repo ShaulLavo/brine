@@ -334,6 +334,8 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `dependency_missing` | 3 | false | A required dependency is missing or incompatible. |
 | `policy_refused` | 4 | false | The operation was refused by policy. |
 | `policy_registry_denied` | 4 | false | The image registry or repository is not allowed by operator policy. |
+| `native_module_schema_refused` | 4 | false | Managed publication cannot remove or change existing schema definitions. Use an additive module or a separate operator procedure. |
+| `native_schema_marker_conflict` | 5 | false | The schema marker already names a different schema. Use a distinct marker and a compatible recovery release. |
 | `native_material_requires_stop` | 5 | false | Material activation requires a reviewed full stop. Plan and apply stop --engine, then review material activation again. |
 | `native_material_lease_expired` | 4 | false | The selected native material lease cannot cover the operation. Deliver renewed material and review its activation. |
 | `backup_admission_refresh_required` | 4 | false | Backup credential delivery refused: the operator policy changed. An explicit approved admission refresh is required before continuing. |
@@ -1506,7 +1508,9 @@ stay within both the caller budget and admitted material expiry. Enrollment
 installs the independently published main native-reader0.0.5 platform pin;
 reader execution pulls its fixed digest only after affirmative local absence.
 A failed initialized preparation with no engine stop intent can be reviewed and
-released after its exact ingress withdrawal and frontend stop are proved.
+released after its exact ingress withdrawal and component state are proved.
+Before a frontend stop intent exists, inspection can bind the owned frontend as
+running or stopped. An issued frontend stop still requires its completed proof.
 Inspection binds the current owned engine as running or stopped. Resolution
 releases only the original fence and records the withdrawn route and component
 intent, preserving the failed operation and creating no backup point. Ordinary

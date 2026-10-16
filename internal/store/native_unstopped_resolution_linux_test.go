@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
 	"strings"
@@ -15,7 +16,7 @@ import (
 	"time"
 )
 
-func unstoppedPreparationFixture(t *testing.T) (*Store, *NativePreparation, ops.Operation) {
+func unstoppedPreparationFixture(t *testing.T, recordFrontend ...bool) (*Store, *NativePreparation, ops.Operation) {
 	t.Helper()
 	ctx := t.Context()
 	s, p, deploy := managedControlStateFixtureAtRoot(t, true, false, "")
@@ -55,11 +56,13 @@ func unstoppedPreparationFixture(t *testing.T) (*Store, *NativePreparation, ops.
 	if err = s.RecordNativePreparedRoutes(ctx, prep, routes, true); err != nil {
 		t.Fatal(err)
 	}
-	if err = s.RecordNativePreparedFrontendStop(ctx, prep, false); err != nil {
-		t.Fatal(err)
-	}
-	if err = s.RecordNativePreparedFrontendStop(ctx, prep, true); err != nil {
-		t.Fatal(err)
+	if len(recordFrontend) == 0 || recordFrontend[0] {
+		if err = s.RecordNativePreparedFrontendStop(ctx, prep, false); err != nil {
+			t.Fatal(err)
+		}
+		if err = s.RecordNativePreparedFrontendStop(ctx, prep, true); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err = s.CompleteTask(ctx, op.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.InternalError}); err != nil {
 		t.Fatal(err)
@@ -129,10 +132,10 @@ func testUnstoppedRelease(t *testing.T, running bool) {
 		t.Fatal(err)
 	}
 	inspection, hash := claimUnstoppedResolution(t, s, original)
-	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), strings.Repeat("b", 64), running, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
+	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), strings.Repeat("b", 64), running, false, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
 		t.Fatal("changed review released fence")
 	}
-	receipt, err := inspection.ReleaseUnstoppedPreparation(t.Context(), hash, running, strings.Repeat("c", 64), strings.Repeat("d", 64))
+	receipt, err := inspection.ReleaseUnstoppedPreparation(t.Context(), hash, running, false, strings.Repeat("c", 64), strings.Repeat("d", 64))
 	if err != nil {
 		t.Fatal("reviewed unissued stop release", err)
 	}
@@ -168,7 +171,7 @@ func testUnstoppedRelease(t *testing.T, running bool) {
 	if err != nil || outcomeErr != nil || after != original || !bytes.Equal(beforeRaw, afterRaw) {
 		t.Fatal("original failure changed", err, outcomeErr)
 	}
-	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), hash, running, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
+	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), hash, running, false, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
 		t.Fatal("released preparation resolved twice")
 	}
 }
@@ -183,7 +186,7 @@ func TestNativeUnissuedStopResolutionRollsBackWithFenceRelease(t *testing.T) {
 	if _, err = s.db.ExecContext(t.Context(), `CREATE TRIGGER reject_unstopped_release BEFORE UPDATE ON data_fences BEGIN SELECT RAISE(ABORT,'fixture'); END;`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), hash, false, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
+	if _, err = inspection.ReleaseUnstoppedPreparation(t.Context(), hash, false, false, strings.Repeat("c", 64), strings.Repeat("d", 64)); err == nil {
 		t.Fatal("failed fence release committed disposition")
 	}
 	after, err := s.ReadManagedDesired(t.Context(), prep.intent.BindingID)
@@ -213,5 +216,80 @@ func TestNativePreparationWithIssuedUnknownStopRefusesRelease(t *testing.T) {
 	if inspection, err := s.OpenNativeBackupInspection(t.Context(), original.ID, original.Requester); err == nil {
 		_ = inspection.Close()
 		t.Fatal("unknown issued stop admitted release")
+	}
+}
+
+func TestNativePreparationBeforeFrontendStopCanBeInspected(t *testing.T) {
+	s, _, op := unstoppedPreparationFixture(t, false)
+	inspection, err := s.OpenNativeBackupInspection(t.Context(), op.ID, op.Requester)
+	if err != nil {
+		t.Fatal("preparation without a frontend stop intent cannot be inspected", err)
+	}
+	defer func() { _ = inspection.Close() }()
+	expected, err := inspection.PreparedExpectation(t.Context())
+	if err != nil || !expected.StopNotIssued {
+		t.Fatal("unissued frontend and engine stops", err)
+	}
+}
+
+func TestNativePreparationBeforeFrontendStopCanBeReleased(t *testing.T) {
+	s, prep, original := unstoppedPreparationFixture(t, false)
+	inspection, hash := claimUnstoppedResolution(t, s, original)
+	receipt, err := inspection.ReleaseUnstoppedPreparation(t.Context(), hash, true, true, strings.Repeat("c", 64), strings.Repeat("d", 64))
+	if err != nil || receipt.Outcome != "released" {
+		t.Fatal("unissued stops cannot release the original preparation", err)
+	}
+	wanted, err := s.ReadManagedDesired(t.Context(), prep.intent.BindingID)
+	if err != nil || !wanted.EngineRunning || !wanted.FrontendRunning || wanted.IngressServing {
+		t.Fatal("release changed observed component state", err, wanted)
+	}
+	op, err := s.GetOperation(t.Context(), original.ID)
+	if err != nil || op.State != ops.RecoveryRequired {
+		t.Fatal("release rewrote the original failure", err)
+	}
+	var disposition nativecapture.PreparationReleaseReceipt
+	if err := json.Unmarshal(receipt.Receipt, &disposition); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkNativeReleasedPreparation(t.Context(), s.db, original, disposition); err != nil {
+		t.Fatal("released preparation lost its observed running frontend", err)
+	}
+}
+
+func TestNativeReleasedPreparationSurvivesLaterRelease(t *testing.T) {
+	s, prep, original := unstoppedPreparationFixture(t, false)
+	inspection, hash := claimUnstoppedResolution(t, s, original)
+	receipt, err := inspection.ReleaseUnstoppedPreparation(t.Context(), hash, true, true, strings.Repeat("c", 64), strings.Repeat("d", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = inspection.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, before, err := nativeBackupOriginal(t.Context(), s.db, original.ID, original.Requester)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var disposition nativecapture.PreparationReleaseReceipt
+	if err = json.Unmarshal(receipt.Receipt, &disposition); err != nil {
+		t.Fatal(err)
+	}
+	release, err := s.CurrentRelease(t.Context(), original.App)
+	if err != nil {
+		t.Fatal(err)
+	}
+	release.ID = "later-release"
+	release, raw, err := normalizeRelease(release)
+	if err != nil {
+		t.Fatal(err)
+	}
+	abandonExec(t, s.db, "INSERT INTO releases VALUES(?,?,?,?,?,?)", original.App, release.ID, release.PlanID, raw, digest(raw), prep.intent.CreatedAt.Add(time.Nanosecond).Format(time.RFC3339Nano))
+	abandonExec(t, s.db, "UPDATE release_heads SET current_id=? WHERE app=?", release.ID, original.App)
+	_, _, after, err := nativeBackupOriginal(t.Context(), s.db, original.ID, original.Requester)
+	if err != nil || after != before {
+		t.Fatal("a later release changed the original recovery identity", err)
+	}
+	if err := checkNativeReleasedPreparation(t.Context(), s.db, original, disposition); err != nil {
+		t.Fatal("a later release invalidated the completed original recovery", err)
 	}
 }

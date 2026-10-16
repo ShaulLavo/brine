@@ -96,7 +96,7 @@ func (o nativeBackupResolutionOperations) task(ctx context.Context, op ops.Opera
 		return nil, err
 	}
 	if observed.stopNotIssued {
-		completed, err := inspection.ReleaseUnstoppedPreparation(ctx, observed.hash(), observed.unitsState == "running", observed.rootSHA256, observed.loadedSHA256)
+		completed, err := inspection.ReleaseUnstoppedPreparation(ctx, observed.hash(), observed.unitsState == "running", observed.frontendRunning, observed.rootSHA256, observed.loadedSHA256)
 		if err != nil {
 			return nil, err
 		}
@@ -136,6 +136,7 @@ type nativeBackupObserved struct {
 	repositoryID         string
 	configSHA256         string
 	unitsState           string
+	frontendRunning      bool
 	stopNotIssued        bool
 	unstopped            store.NativeBackupPreparedExpectation
 	rootSHA256           string
@@ -152,10 +153,11 @@ type nativeBackupObserved struct {
 func (v *nativeBackupObserved) hash() string {
 	if v.stopNotIssued {
 		raw, _ := json.Marshal(struct {
-			State        string
-			Expected     store.NativeBackupPreparedExpectation
-			Root, Loaded string
-		}{v.unitsState, v.unstopped, v.rootSHA256, v.loadedSHA256})
+			State           string
+			FrontendRunning bool
+			Expected        store.NativeBackupPreparedExpectation
+			Root, Loaded    string
+		}{v.unitsState, v.frontendRunning, v.unstopped, v.rootSHA256, v.loadedSHA256})
 		return nativeBackupBytesHash(raw)
 	}
 	if v.needsCapture {

@@ -357,3 +357,57 @@ part of the drill.
 The [phase plan](../plans/09-spacetimedb.md) remains unchecked for P09-02 through
 P09-09. Ordinary real-R2 success is earned; full physical acceptance and final
 cleanup remain incomplete.
+
+
+## Final Pi pass (2026-10-15)
+
+The plain command pass started from main `57aa699`, including PRs #173 through
+#177. The local amd64 client and installed arm64 helper came from
+`scripts/build-cli-pair.sh`. Confirmed SDK reads checked the fixture data through
+the managed route. Fixes are in [PR #178](https://github.com/ShaulLavo/brine/pull/178).
+
+1. Publisher renewal and reviewed activation passed. Start `01a1410a9fa5aeb9aea56b76c6f9a8f6fb89e2fd3311` succeeded, the frontend returned HTTP 200, and the SDK read 145 rows.
+2. Online capture `01a1410b72d3f2c2a14e2c56c3cd54c0c2490f7484a8` verified point `287fc6da1d745e17eb933ee10775a47f` with zero maintenance. Native restore test `01a1410c563d0fc3868f3e1412139426f051fb2a51be` verified that same point.
+3. Additive publication `01a141506df718371efc0c21650f40d5e41ba17ef078` and deployment `01a1415259a9b3ac5889c461355bc23bdd054485bfa9` passed with 145 confirmed rows. The supplied default-column artifact removes the additive table. The coordinator approved restoring the original schema between those updates. The schema-removal guard remains intact; the default update has not run.
+4. Live-restore policy activation `01a141b74a858ef445c2f35f5af08525ce35bbb7456f` passed. Exact preparation `01a141d159a78e0ef86ab4b84bbd57b2a6a619206682` verified point `14034a1d61e56adc8147f4e87547348c`. Restore `01a141d241805cc8760d4a786048d7e2cba23c1e5b97`, selecting pre-additive point `287fc6da1d745e17eb933ee10775a47f`, stopped at `transition_intent`, sequence 4. Its target is staged, but no engine-transition input exists. The supported resolution review refuses at that missing transition. No successful live restore or original-policy reactivation is claimed.
+5. Held-fence reboot has not run. Unused preparation abandonment did pass independently, including operation `01a141cf455401ac0b380084624942b18ae4d2250267`, which released an expired unused preparation and left components stopped.
+6. Native archive and same-name recreation have not run.
+
+Frontend recovery passed on the Pi. Resolver
+`01a141b0ab6eb5f3be832408ed60c390912cd5a771b8` restored the previous database-only
+release through Brine's compensation steps. The original operation and failed
+resolver remain in the journal. The actual frontend failure was its fixture's
+single-marker equality check. While deployment was active, its startup guard
+passed and containers repeatedly started, then exited. Running the immutable
+image with Brine's accepted-marker list reproduced the exit and error. The
+permit refusals came after the operation became terminal.
+
+The corrected fixture was published by [the fixture workflow](https://github.com/ShaulLavo/brine/actions/runs/38818306871)
+for both architectures. Its v1 image index is
+`sha256:4037148fcb4c4b1ddee3b19c97d7d8db87c847fc4768d5d93ab4f3f5013245cf`.
+Deployment `01a141d08b3ef58c0726a7a75896d8baa3cfbb02dc53` succeeded with this
+image, returned HTTP 200, and supplied 145 confirmed SDK rows before the next
+preparation stopped it.
+
+The continuation also fixed restore checks that mistook the historical serving
+receipt for current ingress. They now inspect the preparation's recorded
+withdrawal against Caddy. Quiescence recognizes an unloaded failed service only
+with zero PIDs, no cgroup and no job. Incoming repository initialization now
+shares a transport budget that ends before its material scope expires. The
+restore previously passed a 15-minute job context to a 10-minute repository
+scope and was refused before transport admission. Focused regressions failed
+before these fixes and passed afterwards.
+
+The last restore's repository journal contains `init_issued` without
+`init_unknown` or an initialized result. The current source remains stopped and
+fenced. Preserve its download, staged target, repository lease and original
+records. Do not repeat apply, clear its fence, or edit control records. The
+[phase plan](../plans/09-spacetimedb.md#p09-08-run-the-physical-pi-and-browser-recovery-drill)
+records the unresolved pre-transition recovery path. The temporary live-restore
+policy grant remains in place for that recovery; original policy restoration
+and backup reactivation remain required afterwards.
+
+Earlier fixes in this pass cover preparation after material renewal, recovery
+identity after a later release, schema-marker conflicts and refusals for changes
+outside managed publication. Original fixture inputs remain preserved. Full
+Phase 09 acceptance remains incomplete.

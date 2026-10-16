@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/ShaulLavo/brine/internal/data"
 	"time"
 )
 
@@ -33,7 +34,7 @@ func (s *Store) RecordNativePreparedFrontendStop(ctx context.Context, preparatio
 	if err != nil {
 		return err
 	}
-	if release.Managed == nil || release.Managed.Frontend == nil || release.Managed.BindingID != preparation.intent.BindingID || release.Managed.EpochID != preparation.intent.EpochID || release.Managed.RuntimeSHA256 != preparation.intent.RuntimeSHA256 {
+	if checkNativePreparedRelease(ctx, tx, preparation.intent, release) != nil {
 		return ErrConflict
 	}
 	stage := "intent"
@@ -59,4 +60,19 @@ func (s *Store) RecordNativePreparedFrontendStop(ctx context.Context, preparatio
 		return errors.Join(ErrConflict, err)
 	}
 	return tx.Commit()
+}
+
+func checkNativePreparedRelease(ctx context.Context, q dataQuerier, intent nativePreparationIntent, release Release) error {
+	if release.Managed == nil || release.Managed.Frontend == nil || release.Managed.BindingID != intent.BindingID || release.Managed.EpochID != intent.EpochID {
+		return ErrConflict
+	}
+	head := data.EngineHeadRef{BindingID: intent.BindingID, EpochID: intent.EpochID, Version: intent.RuntimeVersion, RuntimeSHA256: intent.RuntimeSHA256}
+	ancestor, err := materialRuntimeHead(ctx, q, head, release.Managed.RuntimeSHA256)
+	if err != nil {
+		return err
+	}
+	if ancestor.RuntimeSHA256 != release.Managed.RuntimeSHA256 {
+		return ErrConflict
+	}
+	return nil
 }

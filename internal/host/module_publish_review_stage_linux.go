@@ -4,6 +4,7 @@ package host
 
 import (
 	"context"
+	"errors"
 	"slices"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -33,6 +34,19 @@ func beginPublicationReviewWork(ctx context.Context, source *nativeRestoredSourc
 	}
 	if err := source.state.BindPublicationReviewRestore(ctx, preparation, source.extracted, source.parent, source.evidence); err != nil {
 		return nil, err
+	}
+	if source.original != nil {
+		bundle, err := source.state.ReadNativePreparedBundle(ctx, source.original.stopped)
+		if err != nil {
+			return nil, err
+		}
+		diff, err := spacetimedb.CompareSchemas(bundle.Schema(), extraction.candidate.Schema())
+		if err != nil {
+			return nil, err
+		}
+		if diff.Decision() != spacetimedb.StagedValidationRequired {
+			return nil, errors.Join(datapublish.ErrRecord, datapublish.ErrOperatorProcedure)
+		}
 	}
 	if err := preparePublicationWorkingCopy(ctx, source); err != nil {
 		return nil, err
