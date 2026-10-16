@@ -12,7 +12,7 @@ import (
 )
 
 func TestNativeArchiveConsumerUsesPreparedGeneration(t *testing.T) {
-	s, prepared, _, point := nativeCompletedPointFixture(t)
+	s, prepared, point := nativeCompletedPointFixture(t)
 	ctx := t.Context()
 	original, err := s.GetOperation(ctx, prepared.intent.OperationID)
 	if err != nil {
