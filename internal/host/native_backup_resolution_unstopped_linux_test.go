@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/store"
 )
@@ -102,7 +103,7 @@ func checkUnstoppedFrontend(t *testing.T, test unstoppedFrontendCase) {
 		t.Fatal(err)
 	}
 	operation := nativeBackupResolutionOperations{runtime: nativeBackupRuntime{session: session}}
-	expected := store.NativeBackupPreparedExpectation{FrontendStopped: test.frontendStopped}
+	expected := store.NativeBackupPreparedExpectation{FrontendStopped: test.frontendStopped, Release: store.Release{Managed: &ops.ManagedRelease{Frontend: &ops.ManagedFrontend{}}}}
 	expected.Routes.App = "game"
 	running, err := operation.inspectUnstoppedFrontend(t.Context(), expected)
 	if (err != nil) != test.wantError || running != test.wantRunning {

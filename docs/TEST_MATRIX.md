@@ -1147,3 +1147,29 @@ Receipt corruption cases bind every retained scope and evidence hash during
 acknowledgement-loss adoption. Schema migration tests preserve existing task,
 input, outcome, and fence records. These local checks do not prove the Pi
 command path or remote recovery; both remain physical acceptance obligations.
+
+### Native restore before transition admission
+
+`TestNativeRestoreReviewBeforeTransitionIsRecorded` covers a protected target
+whose tree transition has not been recorded. Inspection leaves storage unchanged,
+refuses missing inputs after later restore stages and preserves a recorded cursor.
+The resolver still requires its original fence, current source head, real guards,
+fresh review and observed untouched layout before admitting that transition.
+
+`TestNativeWithdrawalAfterCompletedRestoreAllowsPolicyRestoration` covers
+observation after revoking the temporary live-restore grant. An unfinished
+transition still refuses that observation. Backup reactivation accepts the exact
+already deployed desired state without admitting application changes.
+
+`TestRestoredEpochUsesSelectedPublicationArtifact` follows a completed restore to
+its selected publication epoch and refuses an unfinished restore.
+`TestUnstoppedEngineOnlyPreparationCanBeInspected` covers recovery before an engine
+stop when the release has no frontend. These are local control-state regressions;
+the final Pi pass records their physical continuation separately.
+
+`TestNativeAbandonCancelsBootRestartJobsBeforeObservation` verifies that
+abandonment cancels only the owned frontend and engine jobs before fresh
+quiescence checks. `TestRetainedNativeStopReadbackSurvivesPodmanRefresh` reproduces
+Podman omitting its transient stop-intent flag after reboot. Initial stop evidence
+still requires that flag. Retained readback requires the original container and
+exact exit time, a clean exit, no error and no live PID.

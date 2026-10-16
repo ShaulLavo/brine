@@ -103,7 +103,7 @@ func nativeUnstoppedFrontend(ctx context.Context, q dataQuerier, intent nativePr
 		facts = append(facts, raw...)
 	}
 	release, err := readRelease(ctx, q, op.App, previous.ReleaseID)
-	if err != nil || checkNativePreparedRelease(ctx, q, intent, release) != nil || release.Managed.Frontend.Unit.Name != previous.Unit || release.Managed.Frontend.Unit.Hash != previous.UnitSHA {
+	if err != nil || checkNativePreparedRelease(ctx, q, intent, release) != nil || release.Managed.Frontend == nil || release.Managed.Frontend.Unit.Name != previous.Unit || release.Managed.Frontend.Unit.Hash != previous.UnitSHA {
 		return Release{}, nil, false, ErrConflict
 	}
 	return release, facts, true, nil

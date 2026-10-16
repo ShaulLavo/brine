@@ -161,9 +161,15 @@ func (s *Store) readNativeRestoreTransitionTx(ctx context.Context, tx *sql.Tx, c
 	if err != nil {
 		return retained, target, input, cursor, err
 	}
-	input, cursor, err = readEngineTransition(ctx, tx, capability.attempt.TransitionID)
+	input, cursor, err = readNativeRestoreTransitionInput(ctx, tx, expected, retained.current.Stage())
 	if err != nil || input.SHA256() != expected.SHA256() || input.SHA256() != capability.inputSHA256 {
 		return retained, target, input, cursor, errors.Join(&IntegrityError{}, err)
+	}
+	if cursor.Sequence == 0 {
+		point, pointErr := readNativePreparedPointTx(ctx, tx, capability.attempt.PreparedPointID)
+		if pointErr != nil || checkNativePointCurrent(ctx, tx, point.view) != nil {
+			return retained, target, input, cursor, ErrConflict
+		}
 	}
 	if err = checkEngineTransitionFence(ctx, tx, input); err != nil {
 		return retained, target, input, cursor, err

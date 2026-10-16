@@ -27,12 +27,13 @@ type nativeRepositoryLeaseRecord struct {
 // NativeIncomingRepository retains the real claim guard and durable exclusive
 // lease. No public constructor accepts a repository scope or a creation grant.
 type NativeIncomingRepository struct {
-	store    *Store
-	guard    *data.EngineLock
-	intent   nativeRepositoryIntent
-	consumer nativePointConsumer
-	lease    nativeRepositoryLeaseRecord
-	leaseRaw []byte
+	store              *Store
+	guard              *data.EngineLock
+	intent             nativeRepositoryIntent
+	consumer           nativePointConsumer
+	lease              nativeRepositoryLeaseRecord
+	leaseRaw           []byte
+	resolveOperationID string
 }
 
 func (s *Store) claimNativeRepositoryCreationTx(ctx context.Context, tx *sql.Tx, guard *data.EngineLock, consumer nativePointConsumer, supplied nativeRepositoryIntent) (*NativeIncomingRepository, error) {
@@ -113,7 +114,7 @@ func (s *Store) readNativeIncomingRepositoryTx(ctx context.Context, tx *sql.Tx, 
 		return nativeRepositoryIntent{}, ErrConflict
 	}
 	intent, err := readNativeRepositoryIntentTx(ctx, tx, capability.intent.creationID)
-	if err != nil || !bytes.Equal(intent.raw, capability.intent.raw) || checkNativeIncomingRepositoryOperation(ctx, tx, capability.consumer) != nil {
+	if err != nil || !bytes.Equal(intent.raw, capability.intent.raw) || capability.checkOperation(ctx, tx) != nil {
 		return nativeRepositoryIntent{}, errors.Join(ErrConflict, err)
 	}
 	lease, raw, state, err := readNativeRepositoryCreationLease(ctx, tx, intent)

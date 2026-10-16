@@ -121,7 +121,7 @@ func (r nativeBackupRuntime) inspectPreparedStop(ctx context.Context, app string
 		if err != nil {
 			return store.NativeStopObservation{}, errEngineSource
 		}
-		finished, err := decodeNativeStoppedState([]byte(result.Stdout), container.ID, expected.FinishedAt, time.Now().UTC())
+		finished, err := decodeNativeStoppedReadback([]byte(result.Stdout), container.ID, expected.FinishedAt, time.Now().UTC())
 		if err != nil || !finished.Equal(expected.FinishedAt) {
 			return store.NativeStopObservation{}, errEngineSource
 		}

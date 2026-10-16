@@ -56,12 +56,15 @@ func (r nativeBackupRuntime) executeNativeLiveRestore(ctx context.Context, stage
 }
 
 func (r nativeBackupRuntime) initializeNativeRestoreRepository(ctx context.Context, incoming *store.NativeIncomingRepository, workspace string) (restic.InitializedRepository, error) {
-	transport, err := prepareNativeIncomingTransport(ctx, incoming)
+	metadata, err := incoming.Metadata(ctx)
 	if err != nil {
 		return restic.InitializedRepository{}, err
 	}
-	defer transport.cancel()
-	ctx, metadata := transport.ctx, transport.metadata
+	ctx, cancel, err := nativeTransportContext(ctx, metadata.Material.Scope)
+	if err != nil {
+		return restic.InitializedRepository{}, err
+	}
+	defer cancel()
 	material := metadata.Material
 	files := backupcredentials.Files{Root: filepath.Join(r.stateRoot, "credentials")}
 	receipt, err := files.Receipt(material.CredentialReference, material.Scope.CredentialVersion)
@@ -100,7 +103,12 @@ func (r nativeBackupRuntime) initializeNativeRestoreRepository(ctx context.Conte
 	if err = r.state.BeginNativeIncomingInitialization(ctx, incoming); err != nil {
 		return restic.InitializedRepository{}, err
 	}
-	initialized, err := client.Init(ctx, repository, workspace)
+	var initialized restic.InitializedRepository
+	if metadata.InitializationStage == "init_unknown" {
+		initialized, err = client.InspectInitialization(ctx, repository, workspace)
+	} else {
+		initialized, err = client.Init(ctx, repository, workspace)
+	}
 	if err != nil {
 		return restic.InitializedRepository{}, err
 	}
@@ -171,7 +179,12 @@ func (r nativeBackupRuntime) observeNativeRestoreTransition(ctx context.Context,
 	if err = r.nativeRestoreQuiescent(ctx, recovery.App, view.Runtime, tree); err != nil {
 		return zero, err
 	}
-	if err = verifyNativeRestoreRecoveryUnits(ctx, r.home, recovery); err != nil {
+	units := recovery
+	if view.Cursor.Sequence == 0 {
+		units.Release = recovery.SourceRelease
+		units.SourceRelease = recovery.SourceRelease
+	}
+	if err = verifyNativeRestoreRecoveryUnits(ctx, r.home, units); err != nil {
 		return zero, err
 	}
 	planned, err := r.state.LoadNativeLiveRestorePlan(ctx, view.Input.Common().Scope.PlanID)

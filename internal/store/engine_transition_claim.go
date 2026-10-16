@@ -23,6 +23,17 @@ func (s *Store) insertEngineTransitionTx(ctx context.Context, tx *sql.Tx, prepar
 	if err := checkTransitionOperation(ctx, tx, input); err != nil {
 		return zero, err
 	}
+	return s.insertGuardedEngineTransitionTx(ctx, tx, preparation, input, repositoryID)
+}
+
+func (s *Store) insertGuardedEngineTransitionTx(ctx context.Context, tx *sql.Tx, preparation *EnginePreparation, input data.EngineTransition, repositoryID string) (data.EngineTransitionCursor, error) {
+	var zero data.EngineTransitionCursor
+	if !s.transitionGuard(preparation, input) {
+		return zero, ErrConflict
+	}
+	if err := checkEngineTransitionFence(ctx, tx, input); err != nil {
+		return zero, err
+	}
 	if current, cursor, err := readEngineTransition(ctx, tx, input.Common().Scope.ID); err == nil {
 		if current.SHA256() != input.SHA256() {
 			return zero, ErrConflict

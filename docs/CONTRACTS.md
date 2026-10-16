@@ -1618,10 +1618,16 @@ can settle only an observed original or reviewed artifact under that same intent
 
 `inspect` reads retained progress. `review-resolution` binds a fresh immutable
 review to the original operation, journal head, transition input and actual layout,
-material and code observations. `resolve` uses its own task operation and guards,
+material and code observations. Before a transition input exists, it derives the
+same input from the protected target and requires the original current epoch,
+held fence and untouched original/staged layout. Its fresh resolver authority
+can finish the retained incoming repository and admit that transition without
+reopening the expired stopped-source permit. Repository initialization runs only
+when no creation was admitted; uncertain creation permits config readback only,
+and a completed initialization is reused. `resolve` uses its own task operation and guards,
 keeps the original recovery-required outcome unchanged and completes known moves
 through observed layout and fsync adoption. It never repeats extraction or
-repository creation. Missing target preparation, uncertain extraction or an
+an admitted repository creation. Missing target preparation, uncertain extraction or an
 unexplained layout refuses resolution and retains the fence for manual inspection.
 
 ### Native archive retirement

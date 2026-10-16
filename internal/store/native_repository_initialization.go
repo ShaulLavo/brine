@@ -17,6 +17,7 @@ type NativeIncomingRepositoryMetadata struct {
 	CredentialEpochID   data.ReplicaEpochID
 	CreationGrantSHA256 string
 	IntentID            string
+	InitializationStage string
 }
 
 type nativeRepositoryInitEvent struct {
@@ -55,6 +56,13 @@ func (r *NativeIncomingRepository) Metadata(ctx context.Context) (NativeIncoming
 	if err != nil || !r.active(r.store) {
 		return NativeIncomingRepositoryMetadata{}, errors.Join(ErrConflict, err)
 	}
+	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, nativePointHash(r.leaseRaw))
+	if err != nil {
+		return NativeIncomingRepositoryMetadata{}, err
+	}
+	if len(events) != 0 {
+		metadata.InitializationStage = events[len(events)-1].Stage
+	}
 	return metadata, tx.Commit()
 }
 
@@ -89,8 +97,14 @@ func (s *Store) BeginNativeIncomingInitialization(ctx context.Context, r *Native
 		return err
 	}
 	events, err := readNativeRepositoryInitEvents(ctx, tx, intent, nativePointHash(r.leaseRaw))
-	if err != nil || len(events) != 0 {
-		return errors.Join(ErrConflict, err)
+	if err != nil {
+		return err
+	}
+	if len(events) != 0 {
+		if r.resolveOperationID != "" {
+			return tx.Commit()
+		}
+		return ErrConflict
 	}
 	if _, err := nativeIncomingRepositoryMetadata(ctx, tx, intent); err != nil {
 		return err

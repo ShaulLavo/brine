@@ -184,7 +184,7 @@ func (r nativeBackupRuntime) reopenNativeRestoreStop(ctx context.Context, p live
 	if err != nil {
 		return nil, errEngineSource
 	}
-	finished, err := decodeNativeStoppedState([]byte(inspected.Stdout), original.ContainerID, time.Time{}, time.Now().UTC())
+	finished, err := decodeNativeStoppedReadback([]byte(inspected.Stdout), original.ContainerID, original.FinishedAt, time.Now().UTC())
 	if err != nil || !finished.Equal(original.FinishedAt) {
 		return nil, errEngineSource
 	}
@@ -315,6 +315,25 @@ func (o nativeLiveRestoreOperations) resolveTask(ctx context.Context, op ops.Ope
 	capability, err := o.service.Store.ResumeNativeLiveRestoreTransition(ctx, preparation, lifetime, op.RecoveryOf, op.ID, observed)
 	if err != nil {
 		return nil, err
+	}
+	if view.Cursor.Sequence == 0 {
+		incoming, err := o.service.Store.ResumeNativeRestoreIncomingRepository(ctx, capability)
+		if err != nil {
+			return nil, err
+		}
+		metadata, err := incoming.Metadata(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if metadata.InitializationStage != "initialized" {
+			workspace := filepath.Join(string(reserved.Database.Root), "transitions", view.Input.Common().Scope.ID)
+			if _, err = o.runtime.initializeNativeRestoreRepository(ctx, incoming, workspace); err != nil {
+				return nil, err
+			}
+		}
+		if err = o.service.Store.PrepareResolvedNativeRestoreTransition(ctx, capability, incoming, observed); err != nil {
+			return nil, err
+		}
 	}
 	event, err := o.runtime.finishNativeLiveRestore(ctx, capability, preparation, lifetime, reserved.Database, o.routes)
 	if err != nil {
