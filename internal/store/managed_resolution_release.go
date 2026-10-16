@@ -67,7 +67,7 @@ func managedResolutionCommitOwner(ctx context.Context, tx *sql.Tx, resolver stri
 		return ErrConflict
 	}
 	cursor, err := managedCreateCursor(ctx, tx, original.ID, p)
-	if err != nil || cursor.Boundary.Step != "managed_route_check" || cursor.FrontendStart.Step != "" {
+	if err != nil || cursor.Boundary.Step != "managed_route_check" && cursor.Boundary.Step != "managed_route_receipt" || cursor.FrontendStart.Step != "" {
 		return ErrConflict
 	}
 	current := original
