@@ -564,7 +564,7 @@ is either `{"kind":"environment","name":"CF_API_TOKEN"}` or
 the registry. Token files must already exist with mode 0600. Configuration
 fingerprints exclude credential references, local paths and values, so credential
 rotation preserves provider scope. There is no ambient login fallback or
-credential minting. Provider values never enter the host journal, app or browser.
+credential minting. Provider credential values never enter the host journal, app or browser.
 Edge and traffic profiles may use separate credentials and authorities.
 
 ### Native commands
