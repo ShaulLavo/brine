@@ -39,7 +39,9 @@ type SealedAction struct {
 	Current Observation `json:"current"`
 	// The operator observes these through their original scoped drivers. A DNS
 	// driver never receives authority to inspect another provider's edge account.
-	Prerequisites []Observation `json:"prerequisites"`
+	Prerequisites  []Observation `json:"prerequisites"`
+	OriginHealthy  bool          `json:"origin_healthy"`
+	OriginEvidence Fingerprint   `json:"origin_evidence"`
 }
 
 type ObservationRequest interface{ observationRequest() }
@@ -53,9 +55,14 @@ type PrepareStep struct {
 	Step       PlannedStep  `json:"step"`
 	Prior      OwnedReceipt `json:"prior"`
 }
+type NeedQualification struct {
+	Qualification Qualification  `json:"qualification"`
+	Receipts      []OwnedReceipt `json:"receipts"`
+}
 
-func (InspectIssued) observationRequest() {}
-func (PrepareStep) observationRequest()   {}
+func (InspectIssued) observationRequest()     {}
+func (PrepareStep) observationRequest()       {}
+func (NeedQualification) observationRequest() {}
 
 func (s InitialObservation) MarshalJSON() ([]byte, error) {
 	return json.Marshal(struct {

@@ -105,6 +105,7 @@ func (e Effect) Inspect(inspection Inspection) (Effect, Work, error) {
 			return e, nil, err
 		}
 		e.Completion = value.Evidence
+		e.Resources = value.Current.Resources
 	default:
 		return e, nil, ErrInvalid
 	}

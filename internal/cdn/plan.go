@@ -15,6 +15,8 @@ type PlanningContext struct {
 	PolicyHash Fingerprint    `json:"policy_hash"`
 	Previous   RevisionID     `json:"previous"`
 	Retained   []OwnedReceipt `json:"retained"`
+	Initial    []Observation  `json:"initial"`
+	RecoveryOf OperationID    `json:"recovery_of"`
 }
 
 type Plan struct {
@@ -58,7 +60,7 @@ func NewPlan(context PlanningContext, sample AssetSample, edge, traffic []Planne
 }
 
 func (p Plan) validate() error {
-	if p.Context.Attachment.Validate() != nil || !hashPattern.MatchString(string(p.Context.PolicyHash)) || len(p.Steps) == 0 || len(p.Steps) > MaxSteps {
+	if p.Context.Attachment.Validate() != nil || !hashPattern.MatchString(string(p.Context.PolicyHash)) || len(p.Steps) > MaxSteps {
 		return ErrInvalid
 	}
 	if (Qualification{Attachment: p.Context.Attachment, Sample: p.Sample}).Validate() != nil {
@@ -121,16 +123,28 @@ func normalizedContext(context PlanningContext) PlanningContext {
 		context.Attachment.Binding = binding
 	}
 	context.Retained = slices.Clone(context.Retained)
+	context.Initial = slices.Clone(context.Initial)
+	for index := range context.Initial {
+		context.Initial[index].Resources = normalizedResources(context.Initial[index].Resources)
+	}
+	slices.SortFunc(context.Initial, func(a, b Observation) int {
+		return strings.Compare(string(a.Profile.Reference), string(b.Profile.Reference))
+	})
 	for index := range context.Retained {
-		context.Retained[index].Resources = slices.Clone(context.Retained[index].Resources)
-		slices.SortFunc(context.Retained[index].Resources, func(a, b OwnedResource) int {
-			return strings.Compare(string(a.Kind)+"\n"+a.ID, string(b.Kind)+"\n"+b.ID)
-		})
+		context.Retained[index].Resources = normalizedResources(context.Retained[index].Resources)
 	}
 	slices.SortFunc(context.Retained, func(a, b OwnedReceipt) int {
 		return strings.Compare(string(a.Profile.Reference)+"\n"+string(a.Effect), string(b.Profile.Reference)+"\n"+string(b.Effect))
 	})
 	return context
+}
+
+func normalizedResources(resources []OwnedResource) []OwnedResource {
+	resources = slices.Clone(resources)
+	slices.SortFunc(resources, func(a, b OwnedResource) int {
+		return strings.Compare(string(a.Kind)+"\n"+a.ExactName+"\n"+a.ID, string(b.Kind)+"\n"+b.ExactName+"\n"+b.ID)
+	})
+	return resources
 }
 
 func (p PublicProof) Validate(attachment Attachment, sample AssetSample) error {
