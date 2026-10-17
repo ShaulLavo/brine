@@ -134,6 +134,24 @@ Host maintenance is planned like everything else:
 
 **Still out of reach for agents:** any shell or raw Podman, systemd or Caddy access; uninstalling or changing software Brine didn't install; other users' files; firewall, Tailscale and DNS changes; and creating or deleting cloud machines. The operator policy can narrow the allowlist further by operation class, but can't widen it past this list.
 
+### Post-enrollment operator permissions
+
+Registry repository-prefix and exact-domain permissions can change after setup through
+`brine permissions show/plan/apply/status`. The command uses explicitly selected
+operator admin SSH and the enrolled target's exact host-key pin and identity. It
+never adds a policy-write verb to the restricted deploy dispatcher or grants sudo
+to the runner. Human and agent remain one personal identity; the credential's
+existing authority still determines which channel can perform this operation.
+
+A separate root-owned journal retains reviewed before/after policy hashes and
+idempotent operations. The root helper serializes writers, records intent before
+atomic replacement and reconciles lost replies from actual file hashes. Unsettled
+operations fence another change. Rollback is a fresh inverse plan against current
+policy, not enrollment undo. This workflow changes only registry prefixes and
+exact domain entries; resource, disk, port, secret, database and CDN authority are
+outside its editable action set. Other policy fields remain semantically unchanged.
+An optional app label is audit metadata, not a new application authorization model.
+
 ## D9. Drops and git previews: Vercel-fast deploys on our own server
 
 Added 2026-10-09 by the owner. Deploying a website should take one command or one `git push`. Two new concepts sit beside full apps:

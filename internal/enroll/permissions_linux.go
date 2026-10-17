@@ -43,6 +43,10 @@ func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (
 	if err = protectedParents(permissionsDirectory + "/lock"); err != nil {
 		return PermissionsResponse{}, err
 	}
+	info, err := os.Lstat(permissionsDirectory)
+	if err != nil || info.Mode().Perm() != 0700 {
+		return PermissionsResponse{}, errPermissionsRefused
+	}
 	lock, err := permissionLock(permissionsDirectory + "/lock")
 	if err != nil {
 		return PermissionsResponse{}, err
@@ -114,9 +118,13 @@ func permissionRecordMetadata(info os.FileInfo) error {
 type diskPermissions struct{}
 
 func (diskPermissions) ReadPolicy() ([]byte, error) { return (diskOperatorPolicy{}).Read() }
-func (diskPermissions) WritePolicy(raw []byte) error {
-	if _, err := (diskOperatorPolicy{}).Read(); err != nil {
+func (diskPermissions) WritePolicy(expected string, raw []byte) error {
+	before, err := (diskOperatorPolicy{}).Read()
+	if err != nil {
 		return err
+	}
+	if permissionHash(before) != expected {
+		return result.New(result.Conflict, nil)
 	}
 	return atomicFile(operatorPolicyPath, raw, 0644)
 }
@@ -137,7 +145,14 @@ func (diskPermissions) LoadOperation(key string) (PermissionsOperation, bool, er
 	if errors.Is(err, os.ErrNotExist) {
 		return op, false, nil
 	}
+	if err == nil && !validPermissionsOperation(op, key) {
+		return op, false, errPermissionsRefused
+	}
 	return op, err == nil, err
+}
+
+func validPermissionsOperation(op PermissionsOperation, key string) bool {
+	return op.ID == key && permissionID.MatchString(op.PlanID) && permissionID.MatchString(op.BeforeHash) && permissionID.MatchString(op.AfterHash) && (op.State == "intent" || op.State == "succeeded")
 }
 func (d diskPermissions) PendingOperation() (string, error) {
 	entries, err := os.ReadDir(permissionsDirectory)
@@ -175,6 +190,9 @@ func readPermissionRecord(name string, value any) error {
 	}
 	if err = permissionRecordMetadata(info); err != nil {
 		return err
+	}
+	if info.Size() > 4<<20 {
+		return errPermissionsRefused
 	}
 	raw, err := boundedRead(path)
 	if err != nil {

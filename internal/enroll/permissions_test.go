@@ -19,7 +19,10 @@ type permissionMemory struct {
 }
 
 func (m *permissionMemory) ReadPolicy() ([]byte, error) { return m.raw, nil }
-func (m *permissionMemory) WritePolicy(raw []byte) error {
+func (m *permissionMemory) WritePolicy(expected string, raw []byte) error {
+	if permissionHash(m.raw) != expected {
+		return errors.New("stale write")
+	}
 	m.raw = raw
 	m.writes++
 	if m.failWriteAfter {
@@ -148,6 +151,26 @@ func TestPermissionsPendingUnknownFencesAnotherPlan(t *testing.T) {
 	}
 	if _, err = s.run(t.Context(), permissionApply(p, "a")); err == nil || m.writes != 1 {
 		t.Fatal("unknown third state overwritten")
+	}
+}
+
+func TestPermissionsStatusSettlesLostCompletionBeforeNextPlan(t *testing.T) {
+	s, m, p := permissionFixture(t)
+	m.failComplete = true
+	request := permissionApply(p, "a")
+	if _, err := s.run(t.Context(), request); err == nil {
+		t.Fatal("missing injected completion failure")
+	}
+	status, err := s.run(t.Context(), PermissionsRequest{Action: "status", IdempotencyKey: request.IdempotencyKey})
+	if err != nil || status.Operation.State != "succeeded" {
+		t.Fatal(status, err)
+	}
+	next, err := s.run(t.Context(), PermissionsRequest{Action: "plan", Changes: []operatorpolicy.PermissionAction{{Kind: operatorpolicy.AllowDomain, Domain: "other.example"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.run(t.Context(), permissionApply(*next.Plan, "b")); err != nil || m.writes != 2 {
+		t.Fatal("status left a completed operation fenced", err, m.writes)
 	}
 }
 func TestPermissionsCancellationBeforeIntentAndNoOp(t *testing.T) {

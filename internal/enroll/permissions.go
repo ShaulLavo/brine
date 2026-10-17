@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"regexp"
 
 	operatorpolicy "github.com/ShaulLavo/brine/internal/policy"
@@ -57,7 +56,7 @@ type PermissionsResponse struct {
 
 type permissionStore interface {
 	ReadPolicy() ([]byte, error)
-	WritePolicy([]byte) error
+	WritePolicy(string, []byte) error
 	SavePlan(permissionPlanRecord) error
 	LoadPlan(string) (permissionPlanRecord, error)
 	SaveOperation(PermissionsOperation) error
@@ -147,7 +146,7 @@ func (s permissionService) apply(ctx context.Context, request PermissionsRequest
 	if err != nil {
 		return PermissionsResponse{}, err
 	}
-	if p.Plan.EnrollmentID != s.enrollment || p.Plan.ID != request.PlanID || permissionHash(p.Before) != p.Plan.BeforeHash || permissionHash(p.After) != p.Plan.AfterHash {
+	if p.Plan.EnrollmentID != s.enrollment || p.Plan.ID != request.PlanID || !validPermissionsPlan(p) {
 		return PermissionsResponse{}, result.New(result.Conflict, nil)
 	}
 	op, exists, err := s.store.LoadOperation(request.IdempotencyKey)
@@ -185,7 +184,7 @@ func (s permissionService) apply(ctx context.Context, request PermissionsRequest
 		return PermissionsResponse{}, err
 	}
 	if current != p.Plan.AfterHash {
-		if err = s.store.WritePolicy(p.After); err != nil {
+		if err = s.store.WritePolicy(current, p.After); err != nil {
 			return PermissionsResponse{}, err
 		}
 	}
@@ -224,6 +223,9 @@ func (s permissionService) status(key string) (PermissionsResponse, error) {
 	op.State = "recovery_required"
 	if permissionHash(raw) == op.AfterHash {
 		op.State = "succeeded"
+		if err = s.store.SaveOperation(op); err != nil {
+			return PermissionsResponse{}, err
+		}
 	}
 	if permissionHash(raw) == op.BeforeHash {
 		op.State = "intent"
@@ -231,7 +233,15 @@ func (s permissionService) status(key string) (PermissionsResponse, error) {
 	return PermissionsResponse{Operation: &op}, nil
 }
 
-var errPermissionsRefused = errors.New("operator permission request refused")
+var errPermissionsRefused = result.New(result.PolicyRefused, nil)
+
+func validPermissionsPlan(record permissionPlanRecord) bool {
+	p := record.Plan
+	id := p.ID
+	p.ID = ""
+	raw, err := json.Marshal(p)
+	return err == nil && permissionHash(raw) == id && permissionHash(record.Before) == p.BeforeHash && permissionHash(record.After) == p.AfterHash
+}
 
 func validatePermissionsRequest(request PermissionsRequest) error {
 	valid := false

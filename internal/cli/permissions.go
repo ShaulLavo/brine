@@ -136,6 +136,9 @@ func newHostPermissionsCmd(deps Dependencies) *cobra.Command {
 		if err = decoder.Decode(&request); err != nil {
 			return result.New(result.InvalidUsage, err)
 		}
+		if err = decoder.Decode(new(any)); err != io.EOF {
+			return result.New(result.InvalidUsage, nil)
+		}
 		response, err := enroll.PermissionsHostOperation(cmd.Context(), request)
 		if err != nil {
 			return err
