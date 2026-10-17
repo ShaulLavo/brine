@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -127,23 +126,23 @@ func callPermissions(ctx context.Context, deps Dependencies, name, dir, admin st
 
 func newHostPermissionsCmd(deps Dependencies) *cobra.Command {
 	return &cobra.Command{Use: "permissions", Hidden: true, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		raw, err := io.ReadAll(io.LimitReader(deps.Stdin, 128<<10+1))
-		if err != nil || len(raw) > 128<<10 {
-			return result.New(result.InvalidUsage, err)
-		}
-		var request enroll.PermissionsRequest
-		decoder := json.NewDecoder(strings.NewReader(string(raw)))
-		decoder.DisallowUnknownFields()
-		if err = decoder.Decode(&request); err != nil {
-			return result.New(result.InvalidUsage, err)
-		}
-		if err = decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-			return result.New(result.InvalidUsage, nil)
-		}
-		response, err := enroll.PermissionsHostOperation(cmd.Context(), request)
+		response, err := executeHostPermissions(cmd.Context(), deps.Stdin, enroll.PermissionsHostOperation)
 		if err != nil {
 			return err
 		}
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), response))
 	}}
+}
+
+func executeHostPermissions(ctx context.Context, input io.Reader, execute func(context.Context, enroll.PermissionsRequest) (enroll.PermissionsResponse, error)) (enroll.PermissionsResponse, error) {
+	raw, err := io.ReadAll(io.LimitReader(input, 128<<10+1))
+	if err != nil || len(raw) > 128<<10 {
+		return enroll.PermissionsResponse{}, result.New(result.InvalidUsage, err)
+	}
+	defer clear(raw)
+	request, err := enroll.DecodePermissionsRequest(raw)
+	if err != nil {
+		return enroll.PermissionsResponse{}, result.New(result.InvalidUsage, err)
+	}
+	return execute(ctx, request)
 }

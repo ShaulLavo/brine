@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -100,13 +99,8 @@ func decodePermissionsResponse(raw []byte, request PermissionsRequest) (Permissi
 	if !bytes.Equal(bytes.TrimSpace(fields["error"]), []byte("null")) {
 		return invalid()
 	}
-	var response PermissionsResponse
-	decoder := json.NewDecoder(bytes.NewReader(fields["data"]))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(&response); err != nil {
-		return invalid()
-	}
-	if err = decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+	response, err := decodePermissionData(fields["data"], request.Action)
+	if err != nil {
 		return invalid()
 	}
 	if !validPermissionResponse(response, request) {
@@ -117,9 +111,20 @@ func decodePermissionsResponse(raw []byte, request PermissionsRequest) (Permissi
 
 func permissionsResponseError(raw []byte) (PermissionsResponse, error) {
 	var failure result.MachineError
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&failure); err != nil || !result.KnownCode(failure.Code) || failure.Details != nil {
+	fields, err := strictjson.Object(raw, "code", "message", "retryable")
+	if err != nil {
+		return PermissionsResponse{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	failure.Code, err = strictjson.Value[result.Code](fields["code"])
+	if err != nil || !result.KnownCode(failure.Code) {
+		return PermissionsResponse{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	failure.Message, err = strictjson.Value[string](fields["message"])
+	if err != nil {
+		return PermissionsResponse{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	failure.Retryable, err = strictjson.Value[bool](fields["retryable"])
+	if err != nil {
 		return PermissionsResponse{}, result.New(result.TransportInvalidResponse, nil)
 	}
 	domain := result.New(failure.Code, nil)
