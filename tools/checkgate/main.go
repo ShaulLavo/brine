@@ -193,6 +193,8 @@ func ruleFindings(root string) ([]finding, error) {
 	return findings, err
 }
 
+const cdnTestSupportPackage = "github.com/ShaulLavo/brine/internal/cdn/cdntest"
+
 func scanFile(name string, data []byte) ([]finding, error) {
 	set := token.NewFileSet()
 	file, err := parser.ParseFile(set, name, data, 0)
@@ -221,6 +223,9 @@ func scanFile(name string, data []byte) ([]finding, error) {
 			alias = imp.Name.Name
 		}
 		imports[alias] = path
+		if path == cdnTestSupportPackage && !isTest {
+			add("test-support-import", "import", "the CDN fixture may only be imported by tests", imp)
+		}
 		if alias == "." && !isTest {
 			add("dot-import", "import", "dot imports hide package authority", imp)
 		}
@@ -291,6 +296,11 @@ func deadcodeFindings(data []byte) ([]finding, error) {
 	for _, pkg := range packages {
 		if pkg.Path == "" || pkg.Funcs == nil {
 			return nil, errors.New("incomplete deadcode package")
+		}
+		// The source rule above excludes this shared serving fixture from every
+		// production import graph. Its callers are store, host and fixture tests.
+		if pkg.Path == cdnTestSupportPackage {
+			continue
 		}
 		for _, fn := range pkg.Funcs {
 			if pkg.Path == "" || fn.Name == "" || fn.Position.File == "" || fn.Position.Line <= 0 {
