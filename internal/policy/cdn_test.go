@@ -130,6 +130,8 @@ func TestCDNBindingRefusesConflictingIdentity(t *testing.T) {
 		{"another app hostname", func(b *cdn.Binding) { b.App = "other" }},
 		{"another target hostname", func(b *cdn.Binding) { b.Target = cdn.Hash([]byte("another-target")) }},
 		{"invalid app", func(b *cdn.Binding) { b.App = "Invalid" }},
+		{"invalid app underscore", func(b *cdn.Binding) { b.App = "bad_app" }},
+		{"invalid app final hyphen", func(b *cdn.Binding) { b.App = "bad-" }},
 		{"invalid reference", func(b *cdn.Binding) { b.Reference = "bad/reference" }},
 		{"wildcard hostname", func(b *cdn.Binding) { b.Hostname = "*.example.com" }},
 		{"crossed authority hostname", func(b *cdn.Binding) { b.TrafficAuthority.Hostname = "other.example.com" }},
@@ -140,6 +142,18 @@ func TestCDNBindingRefusesConflictingIdentity(t *testing.T) {
 			_, err := Parse(policyWithCDN(t, cdnBindingFixture("public"), other))
 			assertCDNPolicyRefusal(t, err, "policy.invalid_cdn_binding")
 		})
+	}
+}
+
+func TestCDNBindingUsesAppNameGrammar(t *testing.T) {
+	binding := cdnBindingFixture("public")
+	binding.App = "1"
+	p, err := Parse(policyWithCDN(t, binding))
+	if err != nil {
+		t.Fatal("valid numeric app name refused", err)
+	}
+	if _, ok := p.CDNBinding("public", "1"); !ok {
+		t.Fatal("numeric app name lookup failed")
 	}
 }
 

@@ -1,11 +1,9 @@
 package cdn
 
 import (
-	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -13,11 +11,14 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
 const ImmutableTTL = 31536000
 
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
+var appPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var hashPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 var extensionPattern = regexp.MustCompile(`^[a-z0-9]{1,10}$`)
 var prefixPattern = regexp.MustCompile(`^/(?:[A-Za-z0-9._~-]+/)+$`)
@@ -32,19 +33,36 @@ func ParseBinding(data []byte) (Binding, error) {
 	if len(data) > 64<<10 {
 		return binding, ErrInvalid
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&binding) != nil || decoder.Decode(new(any)) != io.EOF {
+	fields, err := strictjson.Object(data, "reference", "app", "target", "hostname", "origin", "cache", "allowed_edges", "traffic", "traffic_authority")
+	if err != nil || !exactBindingFields(fields) {
 		return Binding{}, ErrInvalid
 	}
-	if binding.Validate() != nil {
+	if json.Unmarshal(data, &binding) != nil || binding.Validate() != nil {
 		return Binding{}, ErrInvalid
 	}
 	return binding, nil
 }
 
+func exactBindingFields(fields map[string]json.RawMessage) bool {
+	for key, names := range map[string][]string{"origin": {"address", "host", "tls_name"}, "cache": {"prefix", "extensions", "ttl_seconds"}, "traffic": {"reference", "driver", "fingerprint"}, "traffic_authority": {"resource_id", "hostname", "before"}} {
+		if _, err := strictjson.Object(fields[key], names...); err != nil {
+			return false
+		}
+	}
+	profiles, err := strictjson.Value[[]json.RawMessage](fields["allowed_edges"])
+	if err != nil {
+		return false
+	}
+	for _, profile := range profiles {
+		if _, err := strictjson.Object(profile, "reference", "driver", "fingerprint"); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func (b Binding) Validate() error {
-	if !namePattern.MatchString(b.Reference) || !namePattern.MatchString(b.App) || !hashPattern.MatchString(string(b.Target)) || !hostname(b.Hostname) {
+	if !namePattern.MatchString(b.Reference) || !appPattern.MatchString(b.App) || !hashPattern.MatchString(string(b.Target)) || !hostname(b.Hostname) {
 		return ErrInvalid
 	}
 	u, err := url.Parse(b.Origin.Address)
