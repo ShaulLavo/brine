@@ -72,6 +72,9 @@ func (c Coordinator) Apply(ctx context.Context, request ApplyRequest) (Progress,
 	if err != nil {
 		return progress, err
 	}
+	if progress.Plan.ID != request.PlanID {
+		return Progress{}, cdn.ErrConflict
+	}
 	return c.run(ctx, progress)
 }
 
@@ -82,6 +85,9 @@ func (c Coordinator) Resume(ctx context.Context, operation cdn.OperationID) (Pro
 	progress, err := c.Host.Next(ctx, OperationRequest{Operation: operation})
 	if err != nil {
 		return progress, err
+	}
+	if progress.Operation != operation {
+		return Progress{}, cdn.ErrConflict
 	}
 	return c.run(ctx, progress)
 }
@@ -95,6 +101,9 @@ func (c Coordinator) run(ctx context.Context, progress Progress) (Progress, erro
 			return progress, err
 		}
 		next, stop, err := c.advance(ctx, progress)
+		if next.Operation != "" && (next.Operation != progress.Operation || next.Plan.ID != progress.Plan.ID) {
+			return progress, cdn.ErrConflict
+		}
 		if err != nil && next.Operation == "" {
 			return progress, err
 		}
