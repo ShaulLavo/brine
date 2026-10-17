@@ -1196,3 +1196,18 @@ Focused tests cover interrupted stop and removal, foreign unit files or loaded
 fragments, and preservation of another binding. Replaying a terminal retirement
 or resolver reconciles only its backup units and preserves the original receipt,
 including retention dates, while a recreated app is running.
+
+## Post-enrollment operator permissions
+
+Targeted controls are `TestPermissions*` in policy, enroll and CLI packages. They
+cover permission-only typed edits and inverse plans, preservation of every other
+canonical policy field, stale before-state, duplicate keys, lost write/completion
+acknowledgements, status reconciliation before the next plan, pending-operation
+fences, unknown third states, cancellation and no-op byte preservation. Operator
+transport tests bind the exact enrolled host pin and identity through the fixed
+admin helper without the restricted deploy key, reject malformed responses and
+never retry a lost response. Metadata controls reject non-root, writable, linked
+or symlinked journal files; the existing operator-policy tests cover protected
+policy metadata and edited-policy retention during unenrollment. CLI controls
+exercise noninteractive machine plans and reject unavailable capability setters.
+Physical host permission mutation remains separate operator acceptance.
