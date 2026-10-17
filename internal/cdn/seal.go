@@ -29,9 +29,10 @@ type PlannedStep struct {
 }
 
 type OwnedReceipt struct {
-	Effect    EffectID        `json:"effect"`
-	Profile   ProfileScope    `json:"profile"`
-	Resources []OwnedResource `json:"resources"`
+	Effect     EffectID        `json:"effect"`
+	Profile    ProfileScope    `json:"profile"`
+	Attachment Attachment      `json:"attachment"`
+	Resources  []OwnedResource `json:"resources"`
 }
 
 type SealedAction struct {
