@@ -6,7 +6,7 @@
 
 The `brine` binary is installed on each enrolled host and runs as a dedicated, unprivileged **runner user** (rootless Podman, systemd user services, lingering enabled). All durable state lives there: the control SQLite database (plans, releases, operations, events, the host mutation lock) sits in the runner's state directory, separate from app databases.
 
-The client (`brine` on a laptop or in an agent sandbox) holds only target configuration: SSH destination and pinned host key. It never holds plans, releases or operation state, so a human and an agent on different machines see the same plan IDs and operations.
+The client (`brine` on a laptop or in an agent sandbox) holds target configuration: SSH destination and pinned host key. D14 also permits private CDN provider profiles and local credential sources. Plans, releases and operation state remain authoritative on the host, so a human and an agent on different machines see the same plan IDs and operations.
 
 - **Transport:** the client runs the system OpenSSH binary with typed arguments, so `~/.ssh/config`, the SSH agent, `known_hosts` and Tailscale addressing work unchanged. No shell strings are built.
 - **Restricted dispatcher:** the runner's deploy key is installed with `restrict,command="/usr/local/bin/brine host serve"` (an absolute, operator-owned path) in `authorized_keys`. `brine host serve` ignores `SSH_ORIGINAL_COMMAND` for dispatch. It reads one bounded, versioned JSON request from stdin, checks it against an allowlist of operations and the operator policy, and writes one JSON response (or a JSONL event stream). That key cannot open a shell, forward ports or run Podman, systemd or Caddy directly. The binary, the policy file and `authorized_keys` are owned by root or the operator, and D7 says how they stay that way. This is the P06-01 authorization boundary.
@@ -14,6 +14,13 @@ The client (`brine` on a laptop or in an agent sandbox) holds only target config
 - **App services** are Quadlet units with `[Install] WantedBy=default.target`, so the runner's user manager starts them at boot through lingering. Generated Quadlet services can't be `systemctl enable`d like ordinary units.
 - **Enrollment and upgrades** use the operator's own admin SSH access, not the deploy key. `brine enroll` runs a read-only inventory, shows the complete list of changes, and applies only that list after the operator confirms. The list is fixed: the runner user and lingering, Brine's directories, the binary, the restricted deploy key, the Caddy polkit rule and import line (D4), and, if missing, the Debian `podman` and `caddy` packages. It never removes software.
 - **Offline plans** (`plan --offline`) run locally against a snapshot file and produce a plan file marked not applyable. They never enter the host's database.
+
+**CDN amendment, 2026-10-17.** D14 provider calls run in the operator process.
+The host records their canonical plan, each native write claim, results,
+observations and qualification. A disconnected client leaves durable pending
+work. The host reconciler never starts a deployment unit to replay a CDN write.
+The host lock covers local transactions, while app and hostname reservations
+remain held across unsettled provider work. Unrelated apps can continue.
 
 ## D2. Reference OS: Debian 13 (trixie)
 
@@ -65,6 +72,13 @@ Limits: Podman's default `file` driver stores values unencrypted with owner-only
 
 Other credentials follow the same rule. Registry pulls use the runner's Podman auth file (mode 0600). Litestream's S3-compatible storage credentials live in a runner-owned 0600 file loaded by the Litestream user unit, scoped per destination. Brine never mounts credential directories, the Podman socket or other runtime sockets into app containers.
 
+**CDN amendment, 2026-10-17.** Provider management credentials stay in the
+operator process. Private profiles select an explicit environment variable or
+an existing 0600 token file. Profile fingerprints bind provider scope, excluding
+the local credential source and value. Credential rotation therefore needs no
+CDN scope change. The host runner, app, browser, plans and logs receive no provider
+credential values. Brine neither mints credentials nor broadens their scopes.
+
 ## D6. Host ports for apps
 
 Containers publish only on `127.0.0.1`. Brine allocates each app a host port from a range set in target policy (default `20000-20999`), records it in the control database and keeps it stable across releases so a rollback doesn't need a route change. Inventory reports ports already in use, and allocation skips them.
@@ -105,6 +119,9 @@ The dispatcher's allowlist (D1) grows to cover:
 - **App lifecycle:** deploy, update config (environment, resources, domains, health), set and rotate secrets, restart, stop and start, roll back, remove.
 - **Diagnostics,** all read-only: status, logs, health, operation history and diffs, inventory, Caddy routing state, disk and memory use, and a `diagnose` report that gathers these for one app or the host.
 - **Backups:** status and test restores; live restores as a planned operation, gated by policy like purge (P04-09).
+- **CDN adjuncts:** plan, admit, resume and inspect D14 attachments through closed
+  edge and exact-hostname traffic actions. The operator executes each provider
+  write only after the host acknowledges its durable claim.
 - **Host operations:** updating the packages Brine manages (Podman, passt, Caddy, Litestream), restarting Caddy, cleaning Brine-owned leftovers such as old images, generations and releases, and rebooting. These come last (Phase 06), with the guarantees below.
 
 Rules for every mutating operation:
@@ -147,9 +164,10 @@ A separate root-owned journal retains reviewed before/after policy hashes and
 idempotent operations. The root helper serializes writers, records intent before
 atomic replacement and reconciles lost replies from actual file hashes. Unsettled
 operations fence another change. Rollback is a fresh inverse plan against current
-policy, not enrollment undo. This workflow changes only registry prefixes and
-exact domain entries; resource, disk, port, secret, database and CDN authority are
-outside its editable action set. Other policy fields remain semantically unchanged.
+policy, not enrollment undo. This workflow changes registry prefixes and exact
+domain entries. D14 adds exact typed CDN binding grants and revocations through
+the same reviewed admin path. Resource, disk, port, secret and database authority
+remain outside its editable action set. Other policy fields remain semantically unchanged.
 An optional app label is audit metadata, not a new application authorization model.
 
 ## D9. Drops and git previews: Vercel-fast deploys on our own server
@@ -396,3 +414,73 @@ Initial create and every module update, even logic-only updates, use separate re
 The [v2.11.0 license](https://github.com/clockworklabs/SpacetimeDB/blob/v2.11.0/LICENSE.txt) is BSL 1.1, not open source today. Its Additional Use Grant permits an application/service with **no more than one SpacetimeDB instance in production**, and excludes a commercial Database Service where third parties control schemas. Its stated change date is **2031-09-15**, with AGPLv3 and a linking exception as the change license. Record this actual tagged text, not the README's general four-year description.
 
 Hosting the owner's own game with owner-controlled schemas on one production instance fits that stated grant. It does not require publishing the game's source merely because it uses SpacetimeDB. Multiple production instances, HA or production sharding are not automatically licensed. Admission requires an operator license-use attestation covering the application/service across hosts, or recorded alternative license authority before permitting such a topology. Brine does not infer legal entitlement from a private hostname or a single enrolled host. Disposable fixture testing is not a second production instance. A staging restore must remain non-serving verification work, and license-use scope must cover it. This is an engineering reading of the pinned license, not legal advice.
+
+## D14. CDN attachments cache the enrolled app's origin
+
+Added 2026-10-17. Brine may manage a CDN attachment for an app on an enrolled
+host. Managed-platform application deployments remain outside Brine's scope.
+The exception covers typed CDN edge configuration and exact-hostname traffic
+changes that serve the existing origin. Cloudflare is the first provider.
+A local HTTP-origin fixture with two independent cache configurations proves
+the provider-neutral contract. It is not evidence for a second commercial vendor.
+
+The app keeps its full OCI origin and stable public asset URLs. Protected policy
+binds a reference, target, app, exact hostname, origin address and Host/TLS
+identity, immutable namespace, approved profile fingerprints and exact traffic
+authority. Binding references are unique. Alternate bindings may share one
+hostname only for the same target and app. Native `permissions plan` grants or
+revokes the exact typed binding through the existing root-admin channel.
+Enrollment gains no new permission or provider credential.
+
+CDN history is separate from app releases. Enable, switch, direct-origin disable
+and CDN rollback each create a new connected plan and revision. Ordinary deploy
+and app rollback keep CDN selection. An enabled attachment blocks app removal
+and loss of its public hostname until a reviewed disable settles. App removal
+retires a disabled attachment's incarnation, so a recreated app inherits nothing.
+The origin always serves the assets in its selected OCI. Components update
+together; no compatibility layer supports different running versions. No asset
+manifest, extracted asset store, object publication or pack copy is added.
+
+The enrolled host owns canonical plans, ordered step identities, resource IDs,
+ownership markers, native versions, before/desired fingerprints, claims, results,
+readback, reservations and committed revisions. Edge and traffic drivers are
+separate authorities. Provider-specific configuration and credential values stay
+in private operator profiles and adapters. No request supplies a generic URL,
+HTTP verb, executable payload or cloud resource graph.
+
+Each step seals fresh native state immediately before its first issue. A later
+step may depend on a confirmed earlier owned receipt. Issued actions never change.
+The host durably records one claim before acknowledging a permit, and each permit
+allows one native HTTP mutation. A lost permit or result acknowledgement never
+creates another writer. There is no lease expiry or automatic takeover.
+`NeedEffect`, `NeedObservation`, `Waiting` and `Finished` describe the next work.
+An acknowledgement needs independent exact readback. An unknown write needs real
+native completion evidence. A desired or absent GET alone cannot settle it.
+Cloudflare writes without such evidence can remain inspect-only.
+
+The host lock covers local transactions. An unsettled operation reserves its
+attachment, app and hostname across provider calls. Conflicting app operations
+refuse while unrelated apps continue. A new recovery plan may restore exact
+traffic after every issued write has a known outcome. Unknown cutover remains
+reserved and inspect-only. Even a zero-write plan requires fresh provider
+readback and public qualification before committing its revision.
+
+Before traffic activation, the operator verifies owned edge readiness and the
+healthy TLS origin. A DNS-only record with `workers_dev=false` is not proof of a
+public edge. After traffic acknowledgement and readback, enabled revision
+qualification requires two complete matching asset GETs and a later cache HIT.
+Direct-origin qualification requires matching origin bytes without edge cache
+markers. Both must pass before revision commit.
+The cache admits only declared public hash-named assets with a one-year immutable
+shared-cache policy. Browser Cache-Control and Pragma may be removed from the
+edge lookup only after all privacy and path checks. Requests with auth, cookies,
+Range or queries bypass caching. HTML, mutable indexes, redirects, errors and
+responses marked private/no-store, with Set-Cookie or with unsupported encodings
+also bypass caching.
+
+Operator HTTP proof and browser-network proof are distinct evidence methods.
+Live acceptance still requires an authorized provider run and a disposable
+browser issuing unchanged `fetch(..., {cache: "no-store"})` requests. Record the
+browser's emitted directives, complete-body hashes and a later HIT while bypassing
+any app-local object store. Enable, switch, eviction, disable and recovery need
+recorded evidence and cleanup. Local tests do not complete these live gates.

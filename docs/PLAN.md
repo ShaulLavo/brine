@@ -4,7 +4,20 @@
 
 **Product goal:** Vercel-fast deploys on your own server (D9): a small, fast, trustworthy self-hosted deployment tool on a single Linux VPS that an AI agent can run end to end (deploy, change, troubleshoot, remove and maintain, per D8) using stable JSON, with a person able to do the same through Charm.
 
-**Scope: your own Linux servers only** (owner, 2026-10-10). Brine deploys to hosts it enrolls: rootless Podman through Quadlet and systemd, Caddy in front, SQLite with Litestream, plus approved managed SpacetimeDB work in D13/Phase 09. Managed platforms such as Cloudflare Workers, Pages, D1, managed object-storage buckets, KV or Durable Objects are not Brine targets. They use their own declarative tooling (for Cloudflare, Wrangler and `wrangler.toml`). A future layer above Brine and Wrangler may present both; it is a separate project. Using S3-compatible object storage as an engine backup destination is in scope, for example Cloudflare R2. Brine accepts externally supplied scoped credentials; provider-specific credential minting and APIs are outside Brine. Phase 07 should reconsider hosting static drops on Cloudflare instead of the VPS. The main day-to-day workflow will be generic production plus per-PR preview deployments for any repository, public or tailnet-only per site (see Phase 07).
+**Scope: applications on your own enrolled Linux servers** (owner, 2026-10-10).
+Brine deploys rootless Podman through Quadlet and systemd, Caddy in front, SQLite
+with Litestream, plus approved managed SpacetimeDB work in D13/Phase 09.
+Application deployments to managed platforms such as Workers, Pages, D1, KV or
+Durable Objects remain out of scope. They use their own deployment tooling.
+
+D14 permits an optional CDN attachment that caches an enrolled app's existing
+origin. Brine manages its typed edge configuration and exact-hostname traffic
+changes through provider adapters. This does not make the CDN an application
+deployment target. S3-compatible engine backup destinations remain in scope.
+Provider credential minting and scope changes remain outside Brine. Phase 07
+should reconsider hosting static drops on Cloudflare instead of the VPS. The
+main workflow remains production and per-PR preview deployments for any
+repository, public or tailnet-only per site.
 
 **Trust model: a personal deployment service** (owner, 2026-10-10). Brine deploys code written by the owner and the owner's agents. It is not a multi-tenant host: strangers never upload code to it. Viewers of public sites and drops are untrusted *visitors*, but every deployed artifact comes from the owner or an agent using the owner's scoped credentials. Design isolation for that: protect the host from mistakes and from compromised dependencies, keep agents inside their policy, and keep apps from reading each other's secrets and data. Multi-tenant hardening for hostile uploaders (e.g. per-tenant sandboxes, hostile-code egress spikes) is not a goal; Phase 07 should simplify accordingly.
 
@@ -27,6 +40,26 @@ Phase 04 and Phase 09 acceptance remains incomplete. The welcome TUI uses
 Bubble Tea **v2** and Lip Gloss **v2**; the full operation UI remains later work.
 No production-readiness, zero-downtime or verified R2-restore claim follows from
 these implementations.
+
+## CDN adjunct delivery (D14)
+
+One optional attachment selects a protected immutable namespace and approved
+provider profile for an existing app. Enable, switch, direct-origin disable and
+CDN rollback use new connected plans. App deployment and rollback leave that
+selection alone. The existing OCI origin supplies cold and evicted objects.
+There is no asset inventory, extracted store, object publisher or enrollment change.
+
+The host owns canonical plans, once-only native write claims, observations,
+qualification, reservations and separate CDN revisions. Provider credentials
+resolve only in the operator process. Native admin permission plans manage exact
+typed bindings. Pending provider work reserves its app and hostname without
+holding the host lock across network calls. Unknown writes remain inspect-only.
+
+Cloudflare is the first provider. Real HTTP origin/cache fixtures prove the core
+contract with two independent configurations. Physical Cloudflare acceptance,
+unchanged browser `cache: "no-store"` GETs, all profile journeys and actual-host
+cleanup remain gates in [the test matrix](TEST_MATRIX.md#cdn-attachments-d14).
+Operator HTTP qualification does not complete browser acceptance.
 
 ## Default architecture
 
@@ -58,7 +91,9 @@ Existing **Hetzner + Tailscale** remain in place; no automatic teardown/reprovis
 - Prebuilt OCI images pinned by digest; build in CI or locally, not as an implicit VPS mutation.
 - Rootless Podman with Quadlet/systemd user services; Caddy runs independently on the host.
 - Managed deploys accept brief maintenance downtime. **Zero downtime is not claimed.**
-- One mutation at a time per host; read-only status/logs may run concurrently.
+- One local mutation at a time per host; read-only status/logs may run concurrently.
+  CDN provider work releases the host lock between local transactions and keeps
+  durable attachment, app and hostname reservations until settled.
 - Versioned app configuration, durable operation journal and release history.
 - Managed data lives outside releases. SQLite uses independent Litestream replication; Phase 09 adds a separately managed SpacetimeDB engine with online native snapshot/log archives and fenced data operations.
 - Agent mode requires stable, noninteractive structured output and limited credentials.
