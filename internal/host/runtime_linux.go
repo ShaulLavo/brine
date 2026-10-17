@@ -55,6 +55,10 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	if err != nil || validateRunnerStorage(ctx, session) != nil {
 		return nil, result.New(result.DependencyMissing, nil)
 	}
+	pullSession, err := session.WithTimeout(podman.PullTimeout)
+	if err != nil {
+		return nil, err
+	}
 	var state *store.Store
 	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
 	if preview {
@@ -122,7 +126,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	service.managedPreparation = preparation
 	service.managedAuthority = managed
 	service.managedLoggingFacts = caddyValidator{session}.loggingFacts
-	engine := apply.Executor{PersistentData: preparation, WriterStarts: DataWriterStarts{Store: state}, Compatibility: DataCompatibility{Store: state}, Journal: state, Releases: releases{state}, Plans: state, Podman: podman.New(session), Systemd: runtimeSystemd, Units: units, Health: policyHealth{loader}, Routes: apply.GenerationRoutes{
+	engine := apply.Executor{PersistentData: preparation, WriterStarts: DataWriterStarts{Store: state}, Compatibility: DataCompatibility{Store: state}, Journal: state, Releases: releases{state}, Plans: state, Podman: podman.NewWithPullSession(session, pullSession), Systemd: runtimeSystemd, Units: units, Health: policyHealth{loader}, Routes: apply.GenerationRoutes{
 		Manager: manager,
 		Main:    func(ctx context.Context) ([]byte, error) { return trustedRead(ctx, "/etc/caddy/Caddyfile", 1<<20) },
 		Site: func(d policy.Desired, port target.Port) (caddy.Site, error) {

@@ -3,9 +3,11 @@
 // an offline plan, acquires an agent credential, or rewinds application data.
 //
 // With context-honoring adapters, the maximum operation duration is
-// 32*E + 3*Hcandidate + 3*Hprevious + 10 minutes, where E is EffectTimeout
-// (one minute by default) and H is the validated startup deadline. At the
-// spec maximum of 3600 seconds per H and default E, this is 6 hours 42 minutes.
+// 30*E + 2*P + 3*Hcandidate + 3*Hprevious + 10 minutes, where E is EffectTimeout
+// (one minute by default), P is the image-pull budget (15 minutes by default),
+// and H is the validated startup deadline. At the spec maximum of 3600 seconds
+// per H and default E/P, this bound is 7 hours 10 minutes. The detached job's
+// 15-minute runtime limit independently caps ordinary deployment execution.
 // Caller cancellation can shorten execution. Rollback detaches cancellation
 // but retains a budget for effects, health probes, read-only reconciliation
 // of unknown outcomes and journal writes. Manager-job settlement uses E; health
@@ -52,7 +54,8 @@ type Executor struct {
 	PersistentData     PersistentData
 	ManagedPreparation ManagedPreparation
 	Managed            ManagedRuntime
-	// EffectTimeout bounds individual non-health steps. Zero uses one minute.
+	// EffectTimeout bounds individual non-health steps. Zero uses one minute,
+	// except deployment image pulls, which use podman.PullTimeout.
 	EffectTimeout time.Duration
 }
 
@@ -435,6 +438,9 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		return err
 	}
 	timeout := x.executor.effectTimeout()
+	if x.executor.EffectTimeout <= 0 && (name == "pull_image" || name == "frontend_pull") {
+		timeout = podman.PullTimeout
+	}
 	if name == "check_direct" || name == "check_routed" || managedHealthStep(x.plan, name) {
 		timeout = time.Duration(x.desired.Health.StartupDeadlineSeconds) * time.Second
 	}

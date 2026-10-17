@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
 )
@@ -88,9 +89,15 @@ type Adapter interface {
 	ContainerState(context.Context, Name) (ContainerState, error)
 }
 
-type Client struct{ session localexec.Session }
+const PullTimeout = 15 * time.Minute
 
-func New(session localexec.Session) *Client { return &Client{session} }
+type Client struct{ session, pullSession localexec.Session }
+
+func New(session localexec.Session) *Client { return NewWithPullSession(session, session) }
+
+func NewWithPullSession(session, pullSession localexec.Session) *Client {
+	return &Client{session: session, pullSession: pullSession}
+}
 func (c *Client) run(ctx context.Context, args []string, stdin []byte, mutation bool) (localexec.Result, error) {
 	return c.session.Execute(ctx, "podman", args, stdin, mutation)
 }
@@ -118,7 +125,7 @@ func (c *Client) Pull(ctx context.Context, image Image) error {
 	if image.value == "" {
 		return invalid()
 	}
-	_, e := c.run(ctx, []string{"pull", image.value}, nil, true)
+	_, e := c.pullSession.Execute(ctx, "podman", []string{"pull", image.value}, nil, true)
 	return e
 }
 func (c *Client) ImageExists(ctx context.Context, image Image) (bool, error) {
