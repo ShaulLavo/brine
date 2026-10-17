@@ -331,6 +331,28 @@ func TestUnknownNativeWriteRemainsInspectOnly(t *testing.T) {
 	}
 }
 
+func TestNoOpInspectionRefusesChangedNativeVersion(t *testing.T) {
+	f := newAPIFixture(t)
+	put := fixturePermit(t, f, cdn.PutEdge, cdn.EdgeConfiguration)
+	if _, err := f.adapter.Execute(t.Context(), put); err != nil {
+		t.Fatal(err)
+	}
+	permit := fixturePermit(t, f, cdn.SetEdgeExposure, cdn.EdgeExposure)
+	permit.Action.Resource.Version = "another-native-version"
+	inspection, err := f.adapter.Inspect(t.Context(), permit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, completed := inspection.(cdn.Completed); completed {
+		t.Fatal("no-op adopted a different native version")
+	}
+	effect := cdn.Effect{Permit: permit, Stage: cdn.Indeterminate}
+	result, _, err := effect.Inspect(inspection)
+	if err != nil || result.Stage != cdn.Indeterminate || len(f.writes) != 1 {
+		t.Fatal("changed no-op settled or issued another write", result.Stage, err)
+	}
+}
+
 func TestNativeOwnershipAndPermissionRefusals(t *testing.T) {
 	f := newAPIFixture(t)
 	f.denied = true

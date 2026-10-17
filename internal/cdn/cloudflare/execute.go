@@ -30,6 +30,9 @@ func (d *Adapter) Execute(ctx context.Context, permit cdn.Permit) (cdn.EffectRes
 	if !matchesBefore(permit.Action, current) {
 		return cdn.Refused{Effect: permit.Effect, Code: "native_state_changed"}, nil
 	}
+	if permit.Action.Expected == permit.Action.Desired {
+		return cdn.Acknowledged{Effect: permit.Effect, Receipt: fingerprint(current), Resources: current.Resources}, nil
+	}
 	response, resource, err := d.edgeMutation(ctx, permit)
 	if err != nil {
 		return mutationFailure(permit, err), nil
@@ -188,6 +191,9 @@ func (d *Adapter) executeTraffic(ctx context.Context, permit cdn.Permit) (cdn.Ef
 	}
 	if trafficFingerprint(before) != permit.Action.Expected || permit.Action.Resource.ID != before.ID || permit.Action.Resource.Version != before.ModifiedOn {
 		return cdn.Refused{Effect: permit.Effect, Code: "native_state_changed"}, nil
+	}
+	if permit.Action.Expected == permit.Action.Desired {
+		return cdn.Acknowledged{Effect: permit.Effect, Receipt: fingerprint(before), Resources: []cdn.OwnedResource{permit.Action.Resource}}, nil
 	}
 	next := before
 	next.Proxied = a.Mode == cdn.Enabled
