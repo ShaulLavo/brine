@@ -4,12 +4,14 @@ import (
 	"context"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/cdnoperator"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
 type Runtime struct {
+	CDN                      cdnoperator.Host
 	ModulePublications       dispatch.ModulePublicationOperations
 	Archives                 archive.Service
 	ArchiveMaintenance       archive.MaintenanceService

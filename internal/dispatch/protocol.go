@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/cdnoperator"
 	"github.com/ShaulLavo/brine/internal/datainit"
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/liverestore"
@@ -56,6 +57,15 @@ type operation struct {
 }
 
 var operations = map[string]operation{
+	"cdn_context":                           {ReadOnly, decodeCDNContext},
+	"cdn_plan":                              {Mutating, decodeCDNPlan},
+	"cdn_apply":                             {Mutating, decodeCDNApply},
+	"cdn_next":                              {ReadOnly, decodeCDNNext},
+	"cdn_seal":                              {Mutating, decodeCDNSeal},
+	"cdn_result":                            {Mutating, decodeCDNResult},
+	"cdn_inspect":                           {Mutating, decodeCDNInspection},
+	"cdn_proof":                             {Mutating, decodeCDNProof},
+	"cdn_status":                            {ReadOnly, decodeCDNStatus},
 	"archive_maintenance_plan":              {Mutating, decodeArchiveMaintenancePlan},
 	"archive_maintenance_apply":             {Mutating, decodeArchiveMaintenanceApply},
 	"archive_maintenance_resolve":           {Mutating, decodeArchiveMaintenanceResolve},
@@ -197,6 +207,7 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
+	CDN                    cdnoperator.Host
 	ModulePublications     ModulePublicationOperations
 	DataInitialization     DataInitializationOperations
 	BackupCredentials      BackupCredentialOperations
@@ -291,6 +302,11 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 	}
 	var value any
 	switch args := args.(type) {
+	case cdnoperator.PlanRequest, CDNSavePlanArgs, cdnoperator.ApplyRequest, cdnoperator.OperationRequest, cdnoperator.SealRequest, cdnoperator.ResultRequest, cdnoperator.InspectionRequest, cdnoperator.ProofRequest, cdnoperator.StatusRequest:
+		value, err = s.cdnOperation(ctx, args)
+		if err != nil {
+			return fail(CDNError(err))
+		}
 	case ArchiveMaintenancePlanArgs, ArchiveMaintenanceApplyArgs, ArchiveMaintenanceResolveArgs, ArchiveMaintenanceStatusArgs, ArchiveCredentialPlanArgs, ArchiveCredentialSetArgs:
 		checked, err := s.archiveMaintenance(ctx, args)
 		if err != nil {

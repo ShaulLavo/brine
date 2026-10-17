@@ -3,13 +3,15 @@ package dispatch
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/ShaulLavo/brine/internal/datainit"
-	"github.com/ShaulLavo/brine/internal/datapublish"
 
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
+	"github.com/ShaulLavo/brine/internal/cdn"
+	"github.com/ShaulLavo/brine/internal/cdnoperator"
 	enginedata "github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/datainit"
+	"github.com/ShaulLavo/brine/internal/datapublish"
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/liverestore"
 	"github.com/ShaulLavo/brine/internal/logs"
@@ -56,6 +58,30 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "cdn_context":
+			planning, err := decodeCDNPlanning(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = planning
+		case "cdn_plan":
+			var p cdn.Plan
+			if cdnoperator.DecodeExact(fields["data"], &p) != nil || p.Validate() != nil {
+				return invalid()
+			}
+			value = p
+		case "cdn_apply", "cdn_next", "cdn_seal", "cdn_result", "cdn_inspect", "cdn_proof":
+			var progress cdnoperator.Progress
+			if json.Unmarshal(fields["data"], &progress) != nil {
+				return invalid()
+			}
+			value = progress
+		case "cdn_status":
+			status, err := decodeCDNStatusResponse(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = status
 		case "archive_maintenance_plan":
 			p, err := decodeArchiveMaintenancePlanResponse(fields["data"])
 			if err != nil {
