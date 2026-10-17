@@ -70,6 +70,7 @@ func TestPermissionsOperatorSSHUsesPinnedHostAndFixedHelper(t *testing.T) {
 	if err = json.Unmarshal(ssh.command.Stdin, &request); err != nil || request.HostKey != target.PinnedHostKey || len(request.IdentityKey) != 32 {
 		t.Fatal("missing enrollment binding", err)
 	}
+	// #nosec G304 -- Read the exact known-host fixture created inside t.TempDir.
 	pin, err := os.ReadFile(filepath.Join(dir, "pins", "fixture.known_hosts"))
 	if err != nil || string(pin) != "brine-pin "+target.PinnedHostKey+"\n" {
 		t.Fatal("wrong operator host pin", err)

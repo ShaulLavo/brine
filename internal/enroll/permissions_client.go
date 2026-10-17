@@ -103,7 +103,7 @@ func decodePermissionsResponse(raw []byte, request PermissionsRequest) (Permissi
 	if err = decoder.Decode(&response); err != nil {
 		return invalid()
 	}
-	if err = decoder.Decode(new(any)); err != io.EOF {
+	if err = decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return invalid()
 	}
 	if !validPermissionResponse(response, request) {

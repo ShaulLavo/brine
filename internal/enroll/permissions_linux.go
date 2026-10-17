@@ -17,7 +17,7 @@ import (
 
 const permissionsDirectory = "/var/lib/brine-permissions"
 
-func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (PermissionsResponse, error) {
+func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (_ PermissionsResponse, err error) {
 	if os.Geteuid() != 0 || len(request.IdentityKey) != 32 {
 		return PermissionsResponse{}, result.New(result.PolicyRefused, nil)
 	}
@@ -26,7 +26,7 @@ func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (
 	if err != nil {
 		return PermissionsResponse{}, err
 	}
-	defer enrollmentLock.Close()
+	defer func() { err = errors.Join(err, enrollmentLock.Close()) }()
 	record, err := readRecord()
 	if err != nil || record.ID == "" || record.Journal.Phase != Enrolled {
 		return PermissionsResponse{}, errPermissionsRefused
@@ -51,7 +51,7 @@ func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (
 	if err != nil {
 		return PermissionsResponse{}, err
 	}
-	defer lock.Close()
+	defer func() { err = errors.Join(err, lock.Close()) }()
 	service := permissionService{store: diskPermissions{}, enrollment: record.ID}
 	return service.run(ctx, request)
 }
@@ -90,6 +90,7 @@ func permissionLock(path string) (*os.File, error) {
 	if err := protectedParents(path); err != nil {
 		return nil, err
 	}
+	// #nosec G304 -- Callers supply fixed root-owned lock paths; parents and the opened inode are checked.
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
 	if err != nil {
 		return nil, err

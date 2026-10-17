@@ -23,6 +23,7 @@ func TestPermissionsJournalRejectsUntrustedMetadata(t *testing.T) {
 	if err = permissionRecordMetadata(keyOwnershipInfo{info, 1000}); err == nil {
 		t.Fatal("runner-owned journal accepted")
 	}
+	// #nosec G302 -- Deliberately insecure fixture; the following check must reject it.
 	if err = os.Chmod(path, 0644); err != nil {
 		t.Fatal(err)
 	}
