@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"slices"
+	"strings"
 
 	"github.com/ShaulLavo/brine/internal/cdn"
 	"github.com/ShaulLavo/brine/internal/ops"
@@ -116,10 +118,70 @@ func admitCDNContext(ctx context.Context, tx *sql.Tx, p cdn.Plan) error {
 	if err != nil {
 		return err
 	}
-	if p.Context.Previous != head.Attachment.Revision || a.Owner != head.Attachment.Owner || a.Binding.Hostname != head.Attachment.Binding.Hostname || !reflect.DeepEqual(p.Context.Retained, head.Receipts) {
+	if p.Context.Previous != head.Attachment.Revision || a.Owner != head.Attachment.Owner || a.Binding.Hostname != head.Attachment.Binding.Hostname || !sameCDNReceipts(p.Context.Retained, head.Receipts) {
+		return ErrConflict
+	}
+	if !initialCDNMatchesRetained(p.Context.Initial, head.Receipts) {
 		return ErrConflict
 	}
 	return nil
+}
+
+func initialCDNMatchesRetained(initial []cdn.Observation, retained []cdn.OwnedReceipt) bool {
+	for _, observed := range initial {
+		if !observedCDNMatchesRetained(observed, retained) {
+			return false
+		}
+	}
+	return true
+}
+
+func observedCDNMatchesRetained(observed cdn.Observation, retained []cdn.OwnedReceipt) bool {
+	for _, resource := range observed.Resources {
+		if !resourceCDNMatchesRetained(observed.Profile, resource, retained) {
+			return false
+		}
+	}
+	return true
+}
+
+func resourceCDNMatchesRetained(profile cdn.ProfileScope, resource cdn.OwnedResource, retained []cdn.OwnedReceipt) bool {
+	for _, receipt := range retained {
+		if receipt.Profile != profile {
+			continue
+		}
+		if !receiptCDNResourceMatches(resource, receipt.Resources) {
+			return false
+		}
+	}
+	return true
+}
+
+func receiptCDNResourceMatches(resource cdn.OwnedResource, expected []cdn.OwnedResource) bool {
+	for _, old := range expected {
+		if old.Kind == resource.Kind && old.ExactName == resource.ExactName && old != resource {
+			return false
+		}
+	}
+	return true
+}
+
+func sameCDNReceipts(a, b []cdn.OwnedReceipt) bool {
+	return reflect.DeepEqual(sortedCDNReceipts(a), sortedCDNReceipts(b))
+}
+
+func sortedCDNReceipts(receipts []cdn.OwnedReceipt) []cdn.OwnedReceipt {
+	receipts = slices.Clone(receipts)
+	for index := range receipts {
+		receipts[index].Resources = slices.Clone(receipts[index].Resources)
+		slices.SortFunc(receipts[index].Resources, func(a, b cdn.OwnedResource) int {
+			return strings.Compare(string(a.Kind)+"\n"+a.ExactName+"\n"+a.ID, string(b.Kind)+"\n"+b.ExactName+"\n"+b.ID)
+		})
+	}
+	slices.SortFunc(receipts, func(a, b cdn.OwnedReceipt) int {
+		return strings.Compare(string(a.Profile.Reference)+"\n"+string(a.Effect), string(b.Profile.Reference)+"\n"+string(b.Effect))
+	})
+	return receipts
 }
 
 func releaseCDNRecovery(ctx context.Context, tx *sql.Tx, p cdn.Plan) error {

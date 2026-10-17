@@ -46,14 +46,14 @@ func priorCDNReceipt(status cdn.Status, index uint32) cdn.OwnedReceipt {
 	}
 	for _, observed := range status.Plan.Context.Initial {
 		if observed.Profile == status.Plan.Context.Attachment.Profile {
-			return cdn.OwnedReceipt{Effect: cdn.EffectID(cdn.Hash([]byte("initial:" + string(status.Plan.ID)))), Profile: observed.Profile, Resources: observed.Resources}
+			return cdn.OwnedReceipt{Effect: cdn.EffectID(cdn.Hash([]byte("initial:" + string(status.Plan.ID)))), Profile: observed.Profile, Attachment: status.Plan.Context.Attachment, Resources: observed.Resources}
 		}
 	}
 	return cdn.OwnedReceipt{}
 }
 
 func effectCDNReceipt(effect cdn.Effect) cdn.OwnedReceipt {
-	return cdn.OwnedReceipt{Effect: effect.Permit.Effect, Profile: effect.Permit.Action.Profile, Resources: effect.Resources}
+	return cdn.OwnedReceipt{Effect: effect.Permit.Effect, Profile: effect.Permit.Action.Profile, Attachment: effect.Permit.Action.Attachment, Resources: effect.Resources}
 }
 
 func (s *Store) NextCDN(ctx context.Context, operation string) (cdn.Work, error) {

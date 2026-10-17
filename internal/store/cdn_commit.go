@@ -3,6 +3,8 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -22,7 +24,7 @@ func finalCDNReceipts(status cdn.Status) []cdn.OwnedReceipt {
 		collectCDNResources(resources, receipt, status.Plan.Context.Attachment.Owner)
 	}
 	for _, observed := range status.Plan.Context.Initial {
-		receipt := cdn.OwnedReceipt{Effect: cdn.EffectID(cdn.Hash([]byte("initial:" + string(status.Plan.ID)))), Profile: observed.Profile, Resources: observed.Resources}
+		receipt := cdn.OwnedReceipt{Effect: cdn.EffectID(cdn.Hash([]byte("initial:" + string(status.Plan.ID)))), Profile: observed.Profile, Attachment: status.Plan.Context.Attachment, Resources: observed.Resources}
 		collectCDNResources(resources, receipt, status.Plan.Context.Attachment.Owner)
 	}
 	for _, effect := range status.Effects {
@@ -44,7 +46,7 @@ func collectCDNResources(resources map[cdnResourceKey]cdn.OwnedReceipt, receipt 
 			continue
 		}
 		key := cdnResourceKey{receipt.Profile, resource.Kind, resource.ExactName}
-		resources[key] = cdn.OwnedReceipt{Effect: receipt.Effect, Profile: receipt.Profile, Resources: []cdn.OwnedResource{resource}}
+		resources[key] = cdn.OwnedReceipt{Effect: receipt.Effect, Profile: receipt.Profile, Attachment: receipt.Attachment, Resources: []cdn.OwnedResource{resource}}
 	}
 }
 
@@ -87,13 +89,23 @@ func (s *Store) CommitCDN(ctx context.Context, operation string, proof cdn.Publi
 	}
 	revision := cdn.Revision{Attachment: a, Plan: status.Plan.ID, Operation: status.Operation, Proof: proof, Receipts: receipts, Readback: readback}
 	raw, _ := json.Marshal(revision)
-	_, err = tx.ExecContext(ctx, "INSERT INTO cdn_revisions VALUES(?,?,?,?)", a.Revision, a.Owner.App, a.Owner.Attachment, raw)
-	if err != nil {
-		return nil, err
+	head, headErr := readCDNRevision(ctx, tx, a.Owner.App, "")
+	if headErr != nil && !errors.Is(headErr, ErrNotFound) {
+		return nil, headErr
 	}
-	_, err = tx.ExecContext(ctx, "INSERT INTO cdn_heads VALUES(?,?) ON CONFLICT(app) DO UPDATE SET revision_id=excluded.revision_id", a.Owner.App, a.Revision)
-	if err != nil {
-		return nil, err
+	if headErr == nil && head.Attachment.Revision == a.Revision {
+		if len(status.Plan.Steps) != 0 || !reflect.DeepEqual(head.Attachment, a) {
+			return nil, ErrConflict
+		}
+	} else {
+		_, err = tx.ExecContext(ctx, "INSERT INTO cdn_revisions VALUES(?,?,?,?)", a.Revision, a.Owner.App, a.Owner.Attachment, raw)
+		if err != nil {
+			return nil, err
+		}
+		_, err = tx.ExecContext(ctx, "INSERT INTO cdn_heads VALUES(?,?) ON CONFLICT(app) DO UPDATE SET revision_id=excluded.revision_id", a.Owner.App, a.Revision)
+		if err != nil {
+			return nil, err
+		}
 	}
 	proofRaw, _ := json.Marshal(proof)
 	readbackRaw, _ := json.Marshal(readback)
