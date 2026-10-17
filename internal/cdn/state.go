@@ -39,7 +39,7 @@ func (e Effect) Next() Work {
 	case Planned:
 		return Waiting{Code: "claim_required"}
 	case Issued, Accepted, Indeterminate:
-		return NeedObservation{Permit: e.Permit}
+		return NeedObservation{Request: InspectIssued{Permit: e.Permit}}
 	case Confirmed:
 		return Finished{Operation: e.Permit.Operation, Revision: e.Permit.Action.Attachment.Revision, Succeeded: true}
 	case Rejected:
@@ -131,7 +131,7 @@ func (e Effect) checkResources(observed Observation) error {
 
 func containsResource(resources []OwnedResource, expected OwnedResource) bool {
 	for _, current := range resources {
-		if current.Kind == expected.Kind && current.ID == expected.ID && current.ExactName == expected.ExactName && current.Owner == expected.Owner && current.Fingerprint == expected.Fingerprint {
+		if current.Kind == expected.Kind && current.ID == expected.ID && current.ExactName == expected.ExactName && current.Owner == expected.Owner && current.Version == expected.Version && current.Fingerprint == expected.Fingerprint {
 			return true
 		}
 	}

@@ -204,14 +204,16 @@ type Qualification struct {
 
 type EdgeDriver interface {
 	Observe(context.Context, Attachment) (Observation, error)
-	Actions(Attachment, Observation) ([]Action, error)
+	Actions(Attachment, Observation) ([]PlannedStep, error)
+	Seal(context.Context, Attachment, PlannedStep, OwnedReceipt) (SealedAction, error)
 	Execute(context.Context, Permit) (EffectResult, error)
 	Inspect(context.Context, Permit) (Inspection, error)
 	Probe(context.Context, Qualification) (PublicProof, error)
 }
 type TrafficDriver interface {
 	Observe(context.Context, Attachment) (Observation, error)
-	Actions(Attachment, Observation) ([]Action, error)
+	Actions(Attachment, Observation) ([]PlannedStep, error)
+	Seal(context.Context, Attachment, PlannedStep, OwnedReceipt) (SealedAction, error)
 	Execute(context.Context, Permit) (EffectResult, error)
 	Inspect(context.Context, Permit) (Inspection, error)
 }
@@ -221,7 +223,7 @@ type NeedEffect struct {
 	Permit Permit `json:"permit"`
 }
 type NeedObservation struct {
-	Permit Permit `json:"permit"`
+	Request ObservationRequest `json:"request"`
 }
 type Waiting struct {
 	Code string `json:"code"`
