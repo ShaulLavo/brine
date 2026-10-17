@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const Version = "0.1.69-dev"
+const Version = "0.1.70-dev"
 
 // Dependencies supplies the process resources and services used by commands.
 // Callers provide every field. Execute owns presentation; callers own exit status.
@@ -39,6 +39,7 @@ type Dependencies struct {
 	HostOperationRunner        OperationRunner
 	OperationClient            OperationClient
 	LoadOperationTarget        func(string, string) (transport.Target, error)
+	PermissionClient           PermissionClient
 	HostLogs                   dispatch.LogReader
 	LogsClient                 LogsClient
 	HostApps                   dispatch.AppOperations
@@ -109,6 +110,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newLogsCmd(deps, &modes))
 	root.AddCommand(newDiagnoseCmd(deps, &modes))
 	root.AddCommand(newEnrollCmd(deps, &noInput, &modes))
+	root.AddCommand(newPermissionsCmd(deps, &modes))
 	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath, deps.DoctorRunner))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newApplyCmd(&jsonOutput, deps), newOperationStatusCmd(&jsonOutput, &modes, deps), newRollbackCmd(deps, &modes))

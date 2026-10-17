@@ -40,7 +40,7 @@ func (c Client) call(ctx context.Context, t Target, request dispatch.Request, re
 	if err != nil {
 		return result.Envelope{}, err
 	}
-	path, err := c.pin(t)
+	path, err := c.PinnedHostFile(t)
 	if err != nil {
 		return result.Envelope{}, err
 	}
@@ -102,7 +102,11 @@ func (c Client) call(ctx context.Context, t Target, request dispatch.Request, re
 	return response, nil
 }
 
-func (c Client) pin(t Target) (string, error) {
+// PinnedHostFile prepares the target's exact SSH host-key pin for an operator channel.
+func (c Client) PinnedHostFile(t Target) (string, error) {
+	if err := t.Validate(); err != nil {
+		return "", err
+	}
 	fail := func(err error) (string, error) { return "", result.New(result.TransportInvalidTarget, err) }
 	if !safePath(c.KnownHostsDir) {
 		return fail(nil)

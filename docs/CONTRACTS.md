@@ -477,6 +477,48 @@ The hidden `host run-op` refuses root and invalid operation IDs. It waits up to 
 
 `brine status --operation ID --target NAME [--after-cursor N]` makes one read-only poll. Human output shows the operation state and next cursor. JSON and JSONL each emit one envelope, not a stream yet. Ctrl-C cancels only this observer's transport call. Neither command sends a stop or cancel request for the host unit.
 
+### Operator permission changes after enrollment
+
+`brine permissions` uses a separate operator-admin SSH channel. Every command
+requires `--target NAME --admin SSH_DESTINATION`; `--config-dir` selects the existing
+private target directory. The exact target host-key pin is also applied to this
+admin connection. The root-only fixed `host permissions` helper verifies the
+existing enrollment identity. The restricted deployment key cannot select it.
+The commands support `--json`, `--jsonl` and `--no-input`; authorization comes from
+existing admin credentials and the reviewed plan, not an enrollment prompt.
+
+- `permissions show` returns the current policy hash and registry/domain lists.
+- `permissions plan` accepts repeatable `--allow-registry REGISTRY/REPOSITORY`,
+  `--revoke-registry REGISTRY/REPOSITORY`, `--allow-domain DOMAIN` and
+  `--revoke-domain DOMAIN`. Repository entries authorize that exact prefix and its
+  descendants under existing policy semantics. Domain edits address exact entries;
+  they do not remove a separately existing wildcard. `--app NAME` is optional audit
+  metadata. The result contains a retained plan ID, enrollment identity, before and
+  after byte hashes, both permission views, requested actions and a no-op flag.
+- `permissions apply --plan-id ID --idempotency-key KEY` requires the reviewed
+  64-hex plan ID and a stable 32-hex operation key. It checks current policy bytes
+  under root-owned locks, journals intent, atomically replaces only the policy and
+  reads it back before recording success. Reusing a key returns the same operation;
+  reusing it for another plan conflicts. No-op plans preserve the original bytes.
+- `permissions status --idempotency-key KEY` inspects that same journal and actual
+  policy. Known-after readback durably completes a lost acknowledgement without
+  rewriting policy; known-before remains pending. A third hash requires recovery
+  and is never overwritten. A pending operation fences a different apply.
+
+Plans and operations live under root-owned private `/var/lib/brine-permissions`;
+policy remains root-owned at `/etc/ssh/brine/operator-policy.toml`. The enrollment
+journal's original file provenance is untouched, so unenrollment still preserves
+operator-managed policy. Request fields are closed and bounded; resource limits,
+ports, disks, secrets, data permissions and CDN bindings cannot be edited by this
+command. Typed policy editing preserves all other fields. A new reviewed inverse
+allow/revoke plan performs rollback. This changes future deployment permission;
+it does not stop an application, remove its data or retroactively undo a release.
+
+If the admin connection disappears, inspect status using the same key. Resume the
+same reviewed apply only when its actual before-state is still known; never invent
+a second key to bypass an unresolved operation. These local journal tests are not
+evidence of a permissions change on a real enrolled server.
+
 ## App definition
 
 Strict versioned `brine.toml` for one trusted OCI web app. Unknown fields fail, app names/domains are canonicalized and validated, environment keys are checked, and image references must contain a digest. Disallow free-form Quadlet snippets, arbitrary shell hooks, host path mounts, raw proxy JSON, arbitrary Podman flags, and target endpoint injection.
