@@ -180,6 +180,7 @@ func (Observed) inspection()  {}
 func (Completed) inspection() {}
 
 type PublicProof struct {
+	Method         ProofMethod  `json:"method"`
 	Sample         AssetSample  `json:"sample"`
 	Source         ProfileScope `json:"source"`
 	ObservedAt     time.Time    `json:"observed_at"`
@@ -191,6 +192,13 @@ type PublicProof struct {
 	LaterHit       bool         `json:"later_hit"`
 	Evidence       Fingerprint  `json:"evidence"`
 }
+
+type ProofMethod string
+
+const (
+	OperatorHTTP   ProofMethod = "operator_http"
+	BrowserNetwork ProofMethod = "browser_network"
+)
 
 type AssetSample struct {
 	Path   string      `json:"path"`

@@ -117,7 +117,7 @@ func decodePrecondition(data []byte) (PreconditionSource, error) {
 }
 
 func (s PlannedStep) Validate(index uint32) error {
-	if !s.Profile.Valid() || !hashPattern.MatchString(string(s.Desired)) || s.ExactName == "" || len(s.ExactName) > 256 || actionResourceKind(s.Kind) != s.ResourceKind {
+	if !s.Profile.Valid() || !hashPattern.MatchString(string(s.Desired)) || s.ExactName == "" || len(s.ExactName) > 256 || s.ResourceKind == "" || actionResourceKind(s.Kind) != s.ResourceKind {
 		return ErrInvalid
 	}
 	switch source := s.Precondition.(type) {
@@ -158,6 +158,9 @@ func ValidateSealed(attachment Attachment, step PlannedStep, sealed SealedAction
 		return ErrConflict
 	}
 	if sealed.Current.Profile != step.Profile || sealed.Current.ObservedAt.IsZero() || action.Expected != sealed.Current.Fingerprint || !hashPattern.MatchString(string(action.Expected)) {
+		return ErrConflict
+	}
+	if prior.Effect != "" && !verifiedPrerequisite(prior, sealed.Prerequisites) {
 		return ErrConflict
 	}
 	switch source := step.Precondition.(type) {
