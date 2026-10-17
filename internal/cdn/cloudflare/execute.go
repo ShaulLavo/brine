@@ -24,7 +24,7 @@ func (d *Adapter) Execute(ctx context.Context, permit cdn.Permit) (cdn.EffectRes
 		return refusal(permit, err), nil
 	}
 	if err = d.readyForStep(permit.Action.Attachment, cdn.PlannedStep{Kind: permit.Action.Kind}, current); err != nil {
-		return cdn.Refused{Effect: permit.Effect, Code: "native_prerequisite_changed"}, nil
+		return cdn.Refused{Effect: permit.Effect, Code: "native_prerequisite_changed"}, nil //nolint:nilerr // the typed effect result records the refusal.
 	}
 	current = selected(current, permit.Action.Resource.Kind)
 	if !matchesBefore(permit.Action, current) {
@@ -206,7 +206,7 @@ func (d *Adapter) executeTraffic(ctx context.Context, permit cdn.Permit) (cdn.Ef
 	}
 	var actual dnsRecord
 	if decodeEnvelope(response, WriteDNS, &actual) != nil || actual.ID != before.ID || trafficFingerprint(actual) != permit.Action.Desired {
-		return cdn.Uncertain{Effect: permit.Effect, Code: "native_write_unsettled"}, nil
+		return cdn.Uncertain{Effect: permit.Effect, Code: "native_write_unsettled"}, nil //nolint:nilerr // the typed effect result keeps this mutation unsettled.
 	}
 	resource := permit.Action.Resource
 	resource.Version, resource.Fingerprint = actual.ModifiedOn, trafficFingerprint(actual)

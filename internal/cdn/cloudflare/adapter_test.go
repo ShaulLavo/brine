@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -334,8 +335,8 @@ func TestNativeOwnershipAndPermissionRefusals(t *testing.T) {
 	f := newAPIFixture(t)
 	f.denied = true
 	_, err := f.adapter.Observe(context.Background(), f.attachment)
-	api, ok := err.(*APIError)
-	if !ok || api.Kind != PermissionDenied || api.Permission != ReadWorkers {
+	var api *APIError
+	if !errors.As(err, &api) || api.Kind != PermissionDenied || api.Permission != ReadWorkers {
 		t.Fatalf("typed permission refusal required: %v", err)
 	}
 	if strings.Contains(err.Error(), "SECRET") {
@@ -345,8 +346,8 @@ func TestNativeOwnershipAndPermissionRefusals(t *testing.T) {
 	f.source = []byte("foreign")
 	f.settings.Tags = []string{"foreign-owner"}
 	_, err = f.adapter.Observe(context.Background(), f.attachment)
-	api, ok = err.(*APIError)
-	if !ok || api.Kind != OwnershipConflict || len(f.writes) != 0 {
+	api = nil
+	if !errors.As(err, &api) || api.Kind != OwnershipConflict || len(f.writes) != 0 {
 		t.Fatalf("foreign script must be preserved: %v", err)
 	}
 }
@@ -374,7 +375,7 @@ func TestWorkerSemanticContract(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	output, err := exec.CommandContext(ctx, node, "--test", "--test-reporter=tap", "worker.test.mjs").CombinedOutput()
+	output, err := exec.CommandContext(ctx, node, "--test", "--test-reporter=tap", "worker.test.mjs").CombinedOutput() // #nosec G204 -- node is resolved with LookPath for this fixed fixture command.
 	if err != nil {
 		t.Fatalf("Worker semantic fixtures: %v\n%s", err, output)
 	}
@@ -395,13 +396,13 @@ func TestLocalCredentialFileIsExplicitAndPrivate(t *testing.T) {
 	if err != nil || value != "fixture-token" {
 		t.Fatal("explicit private token unavailable")
 	}
-	if _, err = source(context.Background(), "other"); err != ErrCredential {
+	if _, err = source(context.Background(), "other"); !errors.Is(err, ErrCredential) {
 		t.Fatal("foreign credential reference admitted")
 	}
-	if err = os.Chmod(path, 0644); err != nil {
+	if err = os.Chmod(path, 0644); err != nil { // #nosec G302 -- this test deliberately makes the fixture world-readable to verify rejection.
 		t.Fatal(err)
 	}
-	if _, err = source(context.Background(), "operator"); err != ErrCredential {
+	if _, err = source(context.Background(), "operator"); !errors.Is(err, ErrCredential) {
 		t.Fatal("public credential file admitted")
 	}
 }

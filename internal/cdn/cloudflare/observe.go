@@ -3,6 +3,7 @@ package cloudflare
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -301,7 +302,7 @@ func multipartSource(reader *multipart.Reader) ([]byte, error) {
 	metadataSeen := false
 	for index := 0; index < 3; index++ {
 		part, err := reader.NextPart()
-		if err == io.EOF && len(source) > 0 {
+		if errors.Is(err, io.EOF) && len(source) > 0 {
 			return source, nil
 		}
 		if err != nil || index == 2 {

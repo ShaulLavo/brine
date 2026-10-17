@@ -65,7 +65,7 @@ func edgeAction(kind cdn.ResourceKind) cdn.ActionKind {
 func (d *Adapter) plannedStep(kind cdn.ActionKind, desired cdn.OwnedResource, current cdn.Observation, prior []cdn.PlannedStep) cdn.PlannedStep {
 	var precondition cdn.PreconditionSource = cdn.InitialObservation{Before: current.Fingerprint, Resource: current.Resources[0]}
 	if len(prior) > 0 {
-		precondition = cdn.PriorOwnedReceipt{StepIndex: uint32(len(prior) - 1)}
+		precondition = cdn.PriorOwnedReceipt{StepIndex: uint32(len(prior) - 1)} // #nosec G115 -- edgeSteps generates at most three steps; other callers pass nil.
 	}
 	return cdn.PlannedStep{Kind: kind, Profile: d.scope, ResourceKind: desired.Kind, ExactName: desired.ExactName, Desired: desired.Fingerprint, Precondition: precondition}
 }

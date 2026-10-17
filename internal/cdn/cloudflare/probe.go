@@ -88,7 +88,7 @@ func readProof(ctx context.Context, client *http.Client, url, host string) (proo
 	if err != nil {
 		return proofRead{}, cdn.ErrConflict
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	encoding := response.Header.Get("Content-Encoding")
 	if response.StatusCode != http.StatusOK || response.Header.Get("Content-Type") == "" || encoding != "" && encoding != "identity" {
 		return proofRead{}, cdn.ErrConflict

@@ -91,7 +91,7 @@ func (c nativeClient) call(ctx context.Context, method, path, contentType string
 	if err != nil {
 		return reply{}, requestFailure(method, permission, 0)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(response.Body, responseLimit+1))
 	if err != nil || len(raw) > responseLimit {
 		return reply{}, requestFailure(method, permission, response.StatusCode)

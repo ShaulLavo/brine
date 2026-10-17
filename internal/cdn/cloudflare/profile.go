@@ -100,11 +100,11 @@ func readToken(path string) (string, error) {
 	if err != nil || !before.Mode().IsRegular() || before.Mode().Perm() != 0600 || before.Size() > 4096 {
 		return "", ErrCredential
 	}
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- explicit operator credential file with metadata checked before and after open.
 	if err != nil {
 		return "", ErrCredential
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	actual, err := file.Stat()
 	if err != nil || !os.SameFile(before, actual) || actual.Mode().Perm() != 0600 {
 		return "", ErrCredential

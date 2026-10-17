@@ -1,3 +1,4 @@
+// Package cloudflare implements the Cloudflare CDN adapter.
 package cloudflare
 
 import (
