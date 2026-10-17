@@ -107,7 +107,7 @@ const (
 	RemoveEdge      ActionKind = "remove_edge"
 )
 
-// Each action authorizes exactly one native provider mutation.
+// Action authorizes exactly one native provider mutation.
 type Action struct {
 	Kind       ActionKind    `json:"kind"`
 	Attachment Attachment    `json:"attachment"`

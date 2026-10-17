@@ -25,7 +25,7 @@ func (s *Store) SaveCDNPlan(ctx context.Context, p cdn.Plan) (cdn.PlanID, error)
 	if err != nil {
 		return "", err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var old []byte
 	err = tx.QueryRowContext(ctx, "SELECT canonical FROM cdn_plans WHERE id=?", p.ID).Scan(&old)
 	if err == nil {
@@ -110,7 +110,7 @@ func loadCDNStatus(ctx context.Context, tx *sql.Tx, operation string) (cdn.Statu
 	if err != nil {
 		return status, op, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var index int
 		var permitRaw, record []byte
@@ -118,6 +118,7 @@ func loadCDNStatus(ctx context.Context, tx *sql.Tx, operation string) (cdn.Statu
 		if rows.Scan(&index, &permitRaw, &record) != nil || index != len(status.Effects) || json.Unmarshal(record, &effect) != nil || index >= len(p.Steps) {
 			return status, op, &IntegrityError{}
 		}
+		// #nosec G115 -- The index is nonnegative and below the validated MaxSteps bound.
 		permit, e := p.NewPermit(cdn.OperationID(operation), uint32(index), effect.Permit.Action)
 		permit.Claim = effect.Permit.Claim
 		encoded, _ := json.Marshal(effect.Permit)
@@ -134,7 +135,7 @@ func (s *Store) CDNStatus(ctx context.Context, operation string) (cdn.Status, er
 	if err != nil {
 		return cdn.Status{}, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	status, _, err := loadCDNStatus(ctx, tx, operation)
 	return status, err
 }

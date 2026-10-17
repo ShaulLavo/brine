@@ -40,7 +40,7 @@ INSERT INTO events VALUES('old',1,'state','preparing',X'','2026-01-01T00:00:00Z'
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = migrateCDNAttachments(ctx, tx); err != nil {
 		t.Fatal(err)
 	}

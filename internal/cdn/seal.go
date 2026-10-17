@@ -17,7 +17,7 @@ type PriorOwnedReceipt struct{ StepIndex uint32 }
 func (InitialObservation) preconditionSource() {}
 func (PriorOwnedReceipt) preconditionSource()  {}
 
-// A planned step binds identity and desired configuration, never a guessed
+// PlannedStep binds identity and desired configuration, never a guessed
 // precondition for a native resource that a prior write has yet to create.
 type PlannedStep struct {
 	Kind         ActionKind         `json:"kind"`

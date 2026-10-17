@@ -201,16 +201,18 @@ func (f *Fixture) fetch(r *http.Request, endpoint string) (Response, error) {
 	if err != nil {
 		return Response{}, err
 	}
+	// #nosec G704 -- Endpoint comes only from this fixture's loopback httptest servers.
 	request, err := http.NewRequestWithContext(r.Context(), r.Method, endpoint+r.URL.RequestURI(), bytes.NewReader(body))
 	if err != nil {
 		return Response{}, err
 	}
 	request.Host, request.Header = r.Host, r.Header.Clone()
+	// #nosec G704 -- The request targets the fixture-owned loopback endpoint above.
 	response, err := f.Client.Do(request)
 	if err != nil {
 		return Response{}, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err = io.ReadAll(io.LimitReader(response.Body, bodyLimit+1))
 	if err != nil || len(body) > bodyLimit {
 		return Response{}, cdn.ErrInvalid
@@ -247,7 +249,7 @@ func (f *Fixture) serveEdge(driver *Driver, w http.ResponseWriter, r *http.Reque
 	}
 	response, err := f.fetch(r, f.OriginURL)
 	if err != nil {
-		http.Error(w, "fixture origin failed", 502)
+		http.Error(w, "fixture origin failed", http.StatusBadGateway)
 		return
 	}
 	response.Header.Set("X-CDN-Endpoint", string(driver.profile.Reference))
@@ -289,7 +291,7 @@ func (f *Fixture) serveGateway(w http.ResponseWriter, r *http.Request) {
 	f.mu.Unlock()
 	response, err := f.fetch(r, endpoint)
 	if err != nil {
-		http.Error(w, "fixture traffic failed", 502)
+		http.Error(w, "fixture traffic failed", http.StatusBadGateway)
 		return
 	}
 	if endpoint == f.OriginURL {

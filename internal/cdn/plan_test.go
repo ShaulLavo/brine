@@ -3,6 +3,7 @@ package cdn
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 	"testing"
 )
 
@@ -19,6 +20,16 @@ func fixturePlan(t *testing.T) Plan {
 		t.Fatal(err)
 	}
 	return plan
+}
+
+func TestTrafficReceiptReferenceCannotWrapIntoEdgeSteps(t *testing.T) {
+	p := fixturePlan(t)
+	step := p.Steps[0]
+	step.Kind, step.Profile, step.ResourceKind, step.ExactName = SetTraffic, p.Context.Attachment.Binding.Traffic, HostnameTraffic, p.Context.Attachment.Binding.Hostname
+	step.Precondition = PriorOwnedReceipt{StepIndex: math.MaxUint32}
+	if _, err := NewPlan(p.Context, p.Sample, p.Steps, []PlannedStep{step}); err == nil {
+		t.Fatal("overflowing traffic dependency adopted an unrelated edge receipt")
+	}
 }
 
 func TestConnectedPlanHasCanonicalIdentityAndClosedSteps(t *testing.T) {

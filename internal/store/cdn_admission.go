@@ -22,7 +22,7 @@ func (s *Store) AdmitCDN(ctx context.Context, id cdn.PlanID, requester, key stri
 	if err != nil {
 		return ops.Operation{}, false, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	p, err := loadCDNPlan(ctx, tx, id)
 	if err != nil {
 		return ops.Operation{}, false, err

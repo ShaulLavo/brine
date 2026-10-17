@@ -39,11 +39,15 @@ func (a Attachment) Validate() error {
 }
 
 func NewPlan(context PlanningContext, sample AssetSample, edge, traffic []PlannedStep) (Plan, error) {
+	if len(edge) > MaxSteps || len(traffic) > MaxSteps-len(edge) {
+		return Plan{}, ErrInvalid
+	}
 	context = normalizedContext(context)
 	steps := append([]PlannedStep{}, edge...)
-	for _, step := range traffic {
-		if source, ok := step.Precondition.(PriorOwnedReceipt); ok {
-			step.Precondition = PriorOwnedReceipt{StepIndex: source.StepIndex + uint32(len(edge))}
+	for index, step := range traffic {
+		step, err := offsetTrafficStep(step, index, len(edge))
+		if err != nil {
+			return Plan{}, err
 		}
 		steps = append(steps, step)
 	}
@@ -57,6 +61,19 @@ func NewPlan(context PlanningContext, sample AssetSample, edge, traffic []Planne
 	}
 	p.ID = PlanID(Hash(canonical))
 	return p, nil
+}
+
+func offsetTrafficStep(step PlannedStep, index, offset int) (PlannedStep, error) {
+	source, ok := step.Precondition.(PriorOwnedReceipt)
+	if !ok {
+		return step, nil
+	}
+	if int(source.StepIndex) >= index {
+		return PlannedStep{}, ErrInvalid
+	}
+	// #nosec G115 -- Both step lists are bounded by MaxSteps before rebasing.
+	step.Precondition = PriorOwnedReceipt{StepIndex: source.StepIndex + uint32(offset)}
+	return step, nil
 }
 
 func (p Plan) validate() error {

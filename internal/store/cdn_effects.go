@@ -23,6 +23,7 @@ func nextCDN(status cdn.Status) cdn.Work {
 			return effect.Next()
 		}
 	}
+	// #nosec G115 -- Loaded effects are checked against the validated MaxSteps bound.
 	index := uint32(len(status.Effects))
 	if int(index) == len(status.Plan.Steps) {
 		return cdn.NeedObservation{Request: cdn.NeedQualification{Qualification: cdn.Qualification{Attachment: status.Plan.Context.Attachment, Sample: status.Plan.Sample}, Receipts: finalCDNReceipts(status)}}
@@ -70,7 +71,7 @@ func (s *Store) ClaimCDN(ctx context.Context, operation string, index uint32, se
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	status, op, err := loadCDNStatus(ctx, tx, operation)
 	if err != nil {
 		return nil, err
@@ -79,7 +80,7 @@ func (s *Store) ClaimCDN(ctx context.Context, operation string, index uint32, se
 	if int(index) < len(status.Effects) {
 		return nextCDN(status), nil
 	}
-	if status.State != string(ops.Preparing) || index != uint32(len(status.Effects)) || int(index) >= len(status.Plan.Steps) {
+	if status.State != string(ops.Preparing) || int(index) != len(status.Effects) || int(index) >= len(status.Plan.Steps) {
 		return nil, ErrConflict
 	}
 	work, ok := nextCDN(status).(cdn.NeedObservation)
@@ -152,7 +153,7 @@ func (s *Store) updateCDNEffect(ctx context.Context, operation, kind string, evi
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	status, _, err := loadCDNStatus(ctx, tx, operation)
 	if err != nil {
 		return nil, err

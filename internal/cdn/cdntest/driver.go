@@ -40,7 +40,7 @@ func (d *Driver) call(ctx context.Context, method, path string, value any, versi
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return cdn.ErrConflict
 	}
@@ -151,7 +151,7 @@ func (d *Driver) Execute(ctx context.Context, permit cdn.Permit) (cdn.EffectResu
 	var operation nativeOperation
 	err := d.call(ctx, http.MethodPost, "/state/"+string(d.profile.Reference), permit, permit.Action.Resource.Version, &operation)
 	if err != nil {
-		return cdn.Uncertain{Effect: permit.Effect, Code: "http_reply_unknown"}, nil
+		return cdn.Uncertain{Effect: permit.Effect, Code: "http_reply_unknown"}, nil //nolint:nilerr // An unknown write is a durable domain outcome, not a retryable transport error.
 	}
 	if operation.Refused {
 		return cdn.Refused{Effect: permit.Effect, Code: "conditional_conflict"}, nil

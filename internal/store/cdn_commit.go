@@ -56,7 +56,7 @@ func (s *Store) CommitCDN(ctx context.Context, operation string, proof cdn.Publi
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	status, op, err := loadCDNStatus(ctx, tx, operation)
 	if err != nil {
 		return nil, err
