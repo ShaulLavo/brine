@@ -61,6 +61,9 @@ func MakePlan(f Facts) (Plan, error) {
 	if version := f.Packages["fuse-overlayfs"]; version != "" && !regexp.MustCompile(`^(?:[0-9]+:)?1\.14(?:-|$)`).MatchString(version) {
 		return fail()
 	}
+	if version := f.Packages["polkitd"]; version != "" && !regexp.MustCompile(`^(?:[0-9]+:)?126(?:-|$)`).MatchString(version) {
+		return fail()
+	}
 	for _, candidate := range []struct{ name, pattern string }{
 		{"podman", `^(?:[0-9]+:)?5\.4(?:\.|-|$)`},
 		{"caddy", `^(?:[0-9]+:)?2\.6(?:\.|-|$)`},

@@ -39,6 +39,12 @@ func TestPreinstalledPolkitDaemonNeedsNoTransaction(t *testing.T) {
 	if err != nil || len(p.MissingPackages) != 0 {
 		t.Fatalf("installed polkit daemon scheduled for installation: %v %v", p.MissingPackages, err)
 	}
+	for _, version := range []string{"125-2", "127-1", "1260-1"} {
+		f.Packages["polkitd"] = version
+		if _, err := MakePlan(f); err == nil {
+			t.Fatalf("unqualified installed polkit daemon %q admitted", version)
+		}
+	}
 }
 
 func TestMinimalDebianEnrollmentPlansAllMandatoryPackages(t *testing.T) {
