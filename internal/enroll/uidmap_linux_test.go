@@ -48,15 +48,15 @@ func missingIDMapHelperRefuses(t *testing.T, helper string) {
 	}
 }
 
-func TestProbeReviewsMissingRootlessPrerequisitesWithoutRecommendations(t *testing.T) {
-	for _, name := range []string{"uidmap", "dbus-user-session"} {
-		t.Run(name, func(t *testing.T) { probeMissingRootlessPrerequisite(t, name) })
+func TestProbeReviewsMissingEnrollmentPrerequisitesWithoutRecommendations(t *testing.T) {
+	for _, name := range []string{"uidmap", "dbus-user-session", "polkitd"} {
+		t.Run(name, func(t *testing.T) { probeMissingEnrollmentPrerequisite(t, name) })
 	}
 }
 
-func probeMissingRootlessPrerequisite(t *testing.T, name string) {
+func probeMissingEnrollmentPrerequisite(t *testing.T, name string) {
 	t.Helper()
-	versions := map[string]string{"podman": "5.4.2+ds1-2+b2", "passt": "0.0~git20250503.587980c-2+deb13u1", "caddy": "2.6.2-12+deb13u1", "fuse-overlayfs": "1.14-1+b1", "uidmap": "1:4.17.4-2", "dbus-user-session": "1.16.2-2"}
+	versions := map[string]string{"podman": "5.4.2+ds1-2+b2", "passt": "0.0~git20250503.587980c-2+deb13u1", "caddy": "2.6.2-12+deb13u1", "fuse-overlayfs": "1.14-1+b1", "uidmap": "1:4.17.4-2", "dbus-user-session": "1.16.2-2", "polkitd": "126-2"}
 	version := versions[name]
 	blob := append([]byte{0, 0, 0, 11}, []byte("ssh-ed25519")...)
 	blob = append(blob, 0, 0, 0, 32)
@@ -87,7 +87,7 @@ func probeMissingRootlessPrerequisite(t *testing.T, name string) {
 	facts, err := p.Collect(context.Background())
 	// The later SSH audit intentionally lacks its fixture; package probing must
 	// already have bound the exact mandatory dependency by then.
-	if err == nil || !slices.Equal(facts.PackageInstall, []Package{{Name: name, Version: version}}) || len(facts.Packages) != 5 {
+	if err == nil || !slices.Equal(facts.PackageInstall, []Package{{Name: name, Version: version}}) || len(facts.Packages) != len(requiredPackages)-1 {
 		t.Fatalf("missing %s did not enter the exact package preview: %v %v", name, facts.PackageInstall, err)
 	}
 }

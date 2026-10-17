@@ -1031,6 +1031,14 @@ and its dependencies enter the same exact reviewed apt transaction; preinstalled
 packages remain untouched. Container process binding still requires the expected
 systemd user scope.
 
+Fresh enrollment also explicitly requires Debian's `polkitd` 126 package line.
+The package supplies `/etc/polkit-1/rules.d`, the authorization daemon and its
+system D-Bus activation. Without it, a minimal host cannot install the protected
+Caddy reload rule or authorize the runner's reload request. Missing polkitd and
+its dependencies enter the exact reviewed apt transaction before rule installation.
+Preinstalled packages remain untouched. Undo removes only the journaled rule and,
+when enrollment installed them, the verified transaction's packages.
+
 Private module descriptor and publication helpers admit two additional standard
 OCI masks observed on the Debian amd64 runtime. `/proc/acpi` must be a read-only
 tmpfs root with an actually empty, non-symlink directory of the observed root
