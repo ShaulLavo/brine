@@ -139,6 +139,11 @@ func ValidateEvent(e Event) error {
 	}
 	outcome := func(s string) bool { return slices.Contains([]string{"intent", "completed", "unknown"}, s) }
 	switch e.Kind {
+	case "cdn":
+		var p CDNPayload
+		if decode(&p, "plan_id", "effect", "stage", "evidence") != nil || !planID.MatchString(p.PlanID) || p.Effect != "" && !planID.MatchString(p.Effect) || p.Evidence != "" && !planID.MatchString(p.Evidence) || !slices.Contains([]string{"admitted", "issued", "accepted", "indeterminate", "confirmed", "rejected", "qualified", "superseded"}, p.Stage) {
+			return ErrInvalidEvent
+		}
 	case "plan_drift":
 		fields, err := strictjson.Object(e.Payload, "paths", "changed", "truncated")
 		if err != nil {

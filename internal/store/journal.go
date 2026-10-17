@@ -22,7 +22,7 @@ func newID() (string, error) {
 	return fmt.Sprintf("%012x%s", time.Now().UnixMilli(), hex.EncodeToString(entropy[:])), nil
 }
 func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requester, idempotencyKey string) (Operation, bool, error) {
-	if !ops.ValidIntent(intent) || len(requester) == 0 || len(requester) > 256 || len(idempotencyKey) == 0 || len(idempotencyKey) > 256 {
+	if intent.Kind == ops.CDN || !ops.ValidIntent(intent) || len(requester) == 0 || len(requester) > 256 || len(idempotencyKey) == 0 || len(idempotencyKey) > 256 {
 		return Operation{}, false, ErrInvalid
 	}
 	tx, cancel, err := s.beginWrite(ctx)
@@ -50,6 +50,12 @@ func (s *Store) CreateOperation(ctx context.Context, intent ops.Intent, requeste
 		}
 		app = p.App
 		planID = intent.PlanID
+		if e = guardCDNPlan(ctx, tx, p); e != nil {
+			return Operation{}, false, e
+		}
+	}
+	if err = guardCDNReservation(ctx, tx, app); err != nil {
+		return Operation{}, false, err
 	}
 	if intent.Kind == ops.Resolve {
 		source, e := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", intent.RecoveryOf))
