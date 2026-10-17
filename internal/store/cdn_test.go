@@ -13,6 +13,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/spec"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func cdnStoreFixture(t *testing.T) (*Store, *cdntest.Fixture, cdn.Attachment) {
@@ -38,6 +39,7 @@ func cdnStoreFixture(t *testing.T) (*Store, *cdntest.Fixture, cdn.Attachment) {
 	r.PlanID = id
 	r.Image = p.Image
 	r.HostPort = p.HostPort
+	r.Units = r.Units[:1]
 	if err = s.CommitRelease(t.Context(), "hello", r); err != nil {
 		t.Fatal(err)
 	}
@@ -416,5 +418,71 @@ func TestCDNStoreNativeVersionDriftCannotBeAdoptedByNoop(t *testing.T) {
 	}
 	if _, _, err = s.AdmitCDN(t.Context(), noop.ID, "operator", "drift"); !errors.Is(err, ErrConflict) {
 		t.Fatal("same configuration hash hid native version drift", err)
+	}
+}
+
+func cdnRemovePlanFixture(t *testing.T, s *Store) plan.Plan {
+	t.Helper()
+	r, err := s.CurrentRelease(t.Context(), "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, d, err := s.LoadPlan(t.Context(), r.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := fixture(t)
+	in.Desired = d
+	in.Snapshot.Generation = target.Known(uint64(1))
+	in.State, err = s.LoadBrineState(t.Context(), in.Snapshot.Identity, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.Snapshot.Apps = target.Known([]target.App{{Name: "hello", Image: target.Known(target.Image{Digest: r.Image.Digest, Platform: r.Image.Platform}), AllocatedHostPort: target.Known(r.HostPort), QuadletUnits: target.Known(r.Units), Secrets: target.Known([]target.Secret{})}})
+	in.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: r.CaddyGeneration, Files: []target.CaddyFile{r.CaddyFile}})
+	p, err := plan.BuildRemove(in)
+	if err != nil || p.Kind != plan.Update {
+		t.Fatal(p, err)
+	}
+	if _, err = s.SavePlan(t.Context(), p, d); err != nil {
+		t.Fatal(err)
+	}
+	return p
+}
+
+func TestCDNStoreRemovalRequiresDirectAndRetiresAttachmentIncarnation(t *testing.T) {
+	s, f, a := cdnStoreFixture(t)
+	p := cdnPlanFixture(t, s, f, a, "")
+	op, _, err := s.AdmitCDN(t.Context(), p.ID, "operator", "enable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cdnRunEffects(t, s, f, op.ID)
+	head := cdnQualify(t, s, f, op.ID)
+	removal := cdnRemovePlanFixture(t, s)
+	if _, _, err = s.CreateOperation(t.Context(), ops.Intent{Kind: ops.Deploy, PlanID: removal.Hash}, "operator", "remove-enabled"); !errors.Is(err, ErrConflict) {
+		t.Fatal("enabled CDN app admitted removal", err)
+	}
+	a.Mode = cdn.Direct
+	a.Revision = cdn.RevisionFor(a, cdn.Hash([]byte("policy")), head.Attachment.Revision)
+	disable := cdnPlanFixture(t, s, f, a, "")
+	direct, _, err := s.AdmitCDN(t.Context(), disable.ID, "operator", "direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cdnRunEffects(t, s, f, direct.ID)
+	cdnQualify(t, s, f, direct.ID)
+	remove, _, err := s.CreateOperation(t.Context(), ops.Intent{Kind: ops.Deploy, PlanID: removal.Hash}, "operator", "remove-disabled")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.RetireApp(t.Context(), remove.ID, "hello", a.SourceRelease); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CDNHead(t.Context(), "hello"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("retired app retained active CDN incarnation", err)
+	}
+	if _, err = s.CDNRevision(t.Context(), "hello", a.Revision); err != nil {
+		t.Fatal("retired CDN history disappeared", err)
 	}
 }

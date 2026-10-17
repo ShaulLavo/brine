@@ -73,6 +73,7 @@ func TestMaterialRevisionPreservesRestoredEpochAllocation(t *testing.T) {
 
 func dropNativeMaterialActivationMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
+	dropCDNMigrationFixture(t, ctx, s)
 	for _, table := range []string{"data_native_material_activations", "data_native_material_activation_plans"} {
 		if _, err := s.db.ExecContext(ctx, "DROP TABLE "+table); err != nil {
 			t.Fatal(err)
