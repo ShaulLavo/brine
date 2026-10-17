@@ -111,8 +111,9 @@ func scriptUpload(a cdn.Attachment) ([]byte, string, error) {
 	}
 	metadata, err := json.Marshal(struct {
 		MainModule string `json:"main_module"`
+		KeepAssets bool   `json:"keep_assets"`
 		scriptSettings
-	}{"worker.mjs", desiredSettings(a, source)})
+	}{"worker.mjs", false, desiredSettings(a, source)})
 	if err != nil {
 		return nil, "", err
 	}
@@ -133,6 +134,9 @@ func scriptUpload(a cdn.Attachment) ([]byte, string, error) {
 func uploadPart(writer *multipart.Writer, name, contentType string, value []byte) error {
 	headers := textproto.MIMEHeader{}
 	headers.Set("Content-Disposition", `form-data; name="`+name+`"`)
+	if name == "worker.mjs" {
+		headers.Set("Content-Disposition", `form-data; name="worker.mjs"; filename="worker.mjs"`)
+	}
 	headers.Set("Content-Type", contentType)
 	part, err := writer.CreatePart(headers)
 	if err != nil {

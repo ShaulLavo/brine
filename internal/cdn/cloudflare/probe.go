@@ -49,13 +49,28 @@ func (d *Adapter) Probe(ctx context.Context, q cdn.Qualification) (cdn.PublicPro
 	if err != nil {
 		return cdn.PublicProof{}, err
 	}
+	return d.publicProof(q, originRead, first, second)
+}
+
+func (d *Adapter) publicProof(q cdn.Qualification, originRead, first, second proofRead) (cdn.PublicProof, error) {
+	a := q.Attachment
 	matched := first.Digest == q.Sample.Digest && second.Digest == q.Sample.Digest
+	if !matched || originRead.Digest != q.Sample.Digest {
+		return cdn.PublicProof{}, cdn.ErrConflict
+	}
+	direct := a.Mode == cdn.Direct
+	if direct && (first.Cache != "" || second.Cache != "") {
+		return cdn.PublicProof{}, cdn.ErrConflict
+	}
+	if !direct && (a.Mode != cdn.Enabled || second.Cache != "HIT") {
+		return cdn.PublicProof{}, cdn.ErrConflict
+	}
 	evidence := fingerprint(struct {
 		Source                string
 		Origin, First, Second proofRead
 	}{"operator-http-full-get-v1", originRead, first, second})
 	return cdn.PublicProof{Method: cdn.OperatorHTTP, Sample: q.Sample, Source: d.scope, ObservedAt: time.Now().UTC(), Revision: a.Revision,
-		OriginHealthy: true, EdgeHealthy: matched, FullGETs: 2, HashesVerified: matched, LaterHit: second.Cache == "HIT", Evidence: evidence}, nil
+		OriginHealthy: true, EdgeHealthy: !direct, FullGETs: 2, HashesVerified: true, LaterHit: !direct, Evidence: evidence}, nil
 }
 
 func noRedirect(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }

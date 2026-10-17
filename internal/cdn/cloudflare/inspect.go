@@ -15,6 +15,9 @@ func desiredSettings(a cdn.Attachment, source []byte) scriptSettings {
 	settings.Observability.RedactQueryString = true
 	settings.Observability.Logs.Enabled = true
 	settings.Observability.Traces.Enabled = true
+	settings.CacheOptions = &nativeCacheOptions{Enabled: false, CrossVersionCache: false}
+	settings.Exports = map[string]nativeWorkerExport{"default": {Type: "worker", State: "created", Cache: &nativeEntrypointCache{Enabled: false}}}
+	settings.TailConsumers = make([]json.RawMessage, 0)
 	slices.Sort(settings.Tags)
 	return settings
 }

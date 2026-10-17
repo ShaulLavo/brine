@@ -21,19 +21,21 @@ import (
 )
 
 type apiFixture struct {
-	mu         sync.Mutex
-	adapter    *Adapter
-	attachment cdn.Attachment
-	source     []byte
-	settings   scriptSettings
-	exposure   exposure
-	routes     []route
-	record     dnsRecord
-	writes     []string
-	reads      []string
-	loseWrite  bool
-	denied     bool
-	denyWrites bool
+	mu             sync.Mutex
+	adapter        *Adapter
+	attachment     cdn.Attachment
+	source         []byte
+	settings       scriptSettings
+	exposure       exposure
+	routes         []route
+	record         dnsRecord
+	writes         []string
+	reads          []string
+	loseWrite      bool
+	denied         bool
+	denyWrites     bool
+	settingsFields map[string]any
+	metadataFields map[string]any
 }
 
 func profileFixture(t *testing.T) Profile {
@@ -103,6 +105,10 @@ func (f *apiFixture) serve(writer http.ResponseWriter, request *http.Request) {
 
 func (f *apiFixture) read(writer http.ResponseWriter, request *http.Request) {
 	path := request.URL.Path
+	if path == nativePath("accounts", f.adapter.client.profile.document.AccountID, "workers", "scripts") {
+		apiResponse(writer, []any{f.workerMetadata()})
+		return
+	}
 	if path == f.adapter.routePath() {
 		apiResponse(writer, f.routes)
 		return
@@ -118,7 +124,7 @@ func (f *apiFixture) read(writer http.ResponseWriter, request *http.Request) {
 	}
 	switch path {
 	case f.adapter.scriptPath(workerName(f.adapter.client.profile, f.attachment)) + "/settings":
-		apiResponse(writer, f.settings)
+		apiResponse(writer, f.workerSettings())
 	case f.adapter.scriptPath(workerName(f.adapter.client.profile, f.attachment)) + "/subdomain":
 		apiResponse(writer, f.exposure)
 	case f.adapter.scriptPath(workerName(f.adapter.client.profile, f.attachment)) + "/content/v2":
@@ -127,6 +133,26 @@ func (f *apiFixture) read(writer http.ResponseWriter, request *http.Request) {
 	default:
 		writer.WriteHeader(404)
 	}
+}
+
+func (f *apiFixture) workerSettings() map[string]any {
+	raw, _ := json.Marshal(f.settings)
+	var values map[string]any
+	_ = json.Unmarshal(raw, &values)
+	for key, value := range f.settingsFields {
+		values[key] = value
+	}
+	return values
+}
+
+func (f *apiFixture) workerMetadata() map[string]any {
+	settings := f.workerSettings()
+	values := map[string]any{"id": workerName(f.adapter.client.profile, f.attachment), "has_assets": false, "has_modules": true,
+		"cache_options": settings["cache_options"], "exports": settings["exports"]}
+	for key, value := range f.metadataFields {
+		values[key] = value
+	}
+	return values
 }
 
 func (f *apiFixture) mutate(writer http.ResponseWriter, request *http.Request) {
@@ -197,11 +223,22 @@ func (f *apiFixture) upload(request *http.Request) error {
 	if err != nil || metadata.FormName() != "metadata" {
 		return cdn.ErrInvalid
 	}
-	if json.NewDecoder(metadata).Decode(&f.settings) != nil {
+	raw, err := io.ReadAll(metadata)
+	if err != nil {
+		return err
+	}
+	var dispatch struct {
+		MainModule string `json:"main_module"`
+		KeepAssets *bool  `json:"keep_assets"`
+	}
+	if json.Unmarshal(raw, &dispatch) != nil || dispatch.MainModule != "worker.mjs" || dispatch.KeepAssets == nil || *dispatch.KeepAssets {
+		return cdn.ErrInvalid
+	}
+	if json.Unmarshal(raw, &f.settings) != nil {
 		return cdn.ErrInvalid
 	}
 	module, err := reader.NextPart()
-	if err != nil || module.FormName() != "worker.mjs" {
+	if err != nil || module.FormName() != "worker.mjs" || module.FileName() != "worker.mjs" {
 		return cdn.ErrInvalid
 	}
 	f.source, err = io.ReadAll(module)
@@ -580,5 +617,67 @@ func TestNativeWritePermissionFailureIsKnownRefusal(t *testing.T) {
 	}
 	if len(f.writes) != 1 || len(f.source) != 0 {
 		t.Fatal("refused native write changed provider state")
+	}
+}
+
+func TestNativeAutomaticCachingCannotBypassWorkerEligibility(t *testing.T) {
+	cases := []struct {
+		name               string
+		settings, metadata map[string]any
+	}{
+		{"global-cache", map[string]any{"cache_options": map[string]any{"enabled": true, "cross_version_cache": false}}, nil},
+		{"cross-version-cache", map[string]any{"cache_options": map[string]any{"enabled": false, "cross_version_cache": true}}, nil},
+		{"default-entrypoint-cache", nil, map[string]any{"exports": map[string]any{"default": map[string]any{"type": "worker", "cache": map[string]any{"enabled": true}}}}},
+		{"extra-entrypoint", nil, map[string]any{"exports": map[string]any{"default": map[string]any{"type": "worker", "cache": map[string]any{"enabled": false}}, "Other": map[string]any{"type": "worker", "cache": map[string]any{"enabled": true}}}}},
+		{"unknown-cache-state", map[string]any{"cache_options": nil}, nil},
+		{"unknown-export-state", nil, map[string]any{"exports": nil}},
+		{"asset-dispatch", nil, map[string]any{"has_assets": true}},
+	}
+	for _, entry := range cases {
+		t.Run(entry.name, func(t *testing.T) {
+			f := newAPIFixture(t)
+			source, _ := WorkerSource(f.attachment)
+			f.source = source
+			f.settings = desiredSettings(f.attachment, source)
+			f.settingsFields, f.metadataFields = entry.settings, entry.metadata
+			if _, err := f.adapter.Observe(context.Background(), f.attachment); err == nil {
+				t.Fatal("unexpected native dispatch state must be refused before route or traffic activation")
+			}
+			if len(f.writes) != 0 {
+				t.Fatal("readback refusal performed a mutation")
+			}
+		})
+	}
+}
+
+func TestDirectPublicProofRejectsRemainingCDNMarkers(t *testing.T) {
+	f := newAPIFixture(t)
+	f.attachment.Mode = cdn.Direct
+	digest := cdn.Hash([]byte("sample"))
+	q := cdn.Qualification{Attachment: f.attachment, Sample: cdn.AssetSample{Path: "/files/" + strings.TrimPrefix(string(digest), "sha256:") + ".bin", Digest: digest}}
+	read := proofRead{Digest: digest, Length: 6, ContentType: "application/octet-stream"}
+	proof, err := f.adapter.publicProof(q, read, read, read)
+	if err != nil || proof.EdgeHealthy || proof.LaterHit || !proof.HashesVerified {
+		t.Fatalf("direct proof must describe origin with no edge: %v %#v", err, proof)
+	}
+	for _, marker := range []string{"MISS", "BYPASS", "HIT"} {
+		marked := read
+		marked.Cache = marker
+		if _, err = f.adapter.publicProof(q, read, read, marked); err == nil {
+			t.Fatalf("direct proof accepted remaining CDN marker %s", marker)
+		}
+		if _, err = f.adapter.publicProof(q, read, marked, read); err == nil {
+			t.Fatalf("direct proof accepted first CDN marker %s", marker)
+		}
+	}
+	q.Attachment.Mode = cdn.Enabled
+	hit := read
+	hit.Cache = "HIT"
+	proof, err = f.adapter.publicProof(q, read, read, hit)
+	if err != nil || !proof.EdgeHealthy || !proof.LaterHit || !proof.HashesVerified {
+		t.Fatalf("enabled fullGET/HIT proof: %v %#v", err, proof)
+	}
+	if _, err = f.adapter.publicProof(q, read, read, read); err == nil {
+		t.Fatal("enabled proof accepted no actual later HIT")
 	}
 }

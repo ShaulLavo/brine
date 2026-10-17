@@ -47,12 +47,14 @@ async function match(cache, key) {
   catch { return undefined; }
 }
 
+const originFetchOptions = { cf: { cacheTtlByStatus: { '100-599': -1 } } };
+
 export function createHandler(policy, runtime = {
-  fetch: request => fetch(request),
+  fetch: (request, options) => fetch(request, options),
   cache: () => caches.open(policy.namespace),
 }) {
   return async function handle(request, ctx) {
-    if (!eligible(request, policy)) return runtime.fetch(request);
+    if (!eligible(request, policy)) return runtime.fetch(request, originFetchOptions);
     return cached(request, ctx, policy, runtime);
   };
 }
@@ -62,10 +64,10 @@ async function cached(request, ctx, policy, runtime) {
   const key = lookupRequest(request);
   let cache;
   try { cache = await runtime.cache(); }
-  catch { return forMethod(await runtime.fetch(originRequest), request.method); }
+  catch { return forMethod(await runtime.fetch(originRequest, originFetchOptions), request.method); }
   const hit = await match(cache, key);
   if (hit) return marked(hit, 'HIT', request.method);
-  const response = await runtime.fetch(originRequest);
+  const response = await runtime.fetch(originRequest, originFetchOptions);
   if (!cacheable(response)) return forMethod(response, request.method);
   const headers = new Headers(response.headers);
   headers.set('Cache-Control', `public, max-age=${policy.ttlSeconds}, immutable`);

@@ -12,13 +12,15 @@ const url = `https://${policy.hostname}${policy.prefix}${digest}.bin`;
 function fixture(responseFields = {}, status = 200, selectedPolicy = policy) {
   const entries = new Map();
   const origin = [];
+  const originOptions = [];
   const lookups = [];
   const writes = [];
   const pending = [];
   const keyOf = request => request.url;
   const handler = createHandler(selectedPolicy, {
-    async fetch(request) {
+    async fetch(request, options) {
       origin.push(request);
+      originOptions.push(options);
       return new Response(bytes, { status, headers: {
         'Content-Type': 'application/octet-stream', 'Content-Length': String(bytes.length),
         'Cache-Control': 'public, max-age=31536000, immutable', ...responseFields,
@@ -30,7 +32,7 @@ function fixture(responseFields = {}, status = 200, selectedPolicy = policy) {
     }; },
   });
   const context = { waitUntil(promise) { pending.push(promise); } };
-  return { origin, lookups, writes, entries,
+  return { origin, originOptions, lookups, writes, entries,
     async request(request = new Request(url)) {
       const response = await handler(request, context);
       await Promise.all(pending.splice(0));
@@ -56,6 +58,7 @@ test('game-shaped no-store requests share an explicit edge entry and preserve ex
   assert.equal(box.lookups[0].headers.get('accept'), 'application/octet-stream');
   assert.equal(box.origin[0].headers.get('cache-control'), 'no-cache');
   assert.equal(box.origin[0].redirect, 'manual');
+  assert.deepEqual(box.originOptions[0], { cf: { cacheTtlByStatus: { '100-599': -1 } } });
 });
 
 test('HEAD fills one full GET representation and preserves its length without a response body', async () => {
@@ -103,6 +106,7 @@ for (const entry of shared.cases) {
     assert.equal(box.writes.length, entry.eligible ? 1 : 0);
     if (entry.eligible) return;
     assert.equal(box.origin[0], request);
+    assert.deepEqual(box.originOptions[0], { cf: { cacheTtlByStatus: { '100-599': -1 } } });
     assert.equal(response.headers.get('x-brine-cdn-cache'), null);
   });
 }
