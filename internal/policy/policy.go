@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/cdn"
 	persistent "github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -63,6 +64,7 @@ type document struct {
 	BackupRetention      []persistent.RetentionEvidence   `toml:"backup_retention" json:"backup_retention,omitempty"`
 	Backup               *backupDocument                  `toml:"backup" json:"backup,omitempty"`
 	BackupDestinations   []persistent.Destination         `toml:"backup_destinations" json:"backup_destinations,omitempty"`
+	CDNBindings          []cdn.Binding                    `toml:"cdn_bindings" json:"cdn_bindings,omitempty"`
 	CaddyPort            uint16                           `toml:"caddy_port" json:"caddy_port,omitempty"`
 	SchemaVersion        int                              `toml:"schema_version" json:"schema_version"`
 	Version              string                           `toml:"version" json:"version"`
@@ -133,6 +135,24 @@ func (p Policy) AppPorts() PortRange {
 	return *p.config.AppPorts
 }
 
+func (p Policy) CDNBinding(reference, app string) (cdn.Binding, bool) {
+	if p.config == nil {
+		return cdn.Binding{}, false
+	}
+	for _, binding := range p.config.CDNBindings {
+		if binding.Reference == reference && binding.App == app {
+			return cloneCDNBinding(binding), true
+		}
+	}
+	return cdn.Binding{}, false
+}
+
+func cloneCDNBinding(binding cdn.Binding) cdn.Binding {
+	binding.Cache.Extensions = slices.Clone(binding.Cache.Extensions)
+	binding.AllowedEdges = slices.Clone(binding.AllowedEdges)
+	return binding
+}
+
 var revisionPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 var referencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,252}$`)
 
@@ -148,6 +168,9 @@ func Parse(data []byte) (Policy, error) {
 	var keys map[string]any
 	if err := toml.Unmarshal(data, &keys); err != nil || !exactKeys(keys) {
 		return bad("policy.invalid_document", "$", "invalid policy field or table shape")
+	}
+	if err := normalizeCDNBindings(&raw); err != nil {
+		return Policy{}, err
 	}
 	if _, err := normalizeBackup(raw.Backup); err != nil {
 		return Policy{}, err
@@ -284,7 +307,10 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "data_initialization", "spacetimedb", "allow_live_restore", "allow_archive_purge") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "data_initialization", "spacetimedb", "allow_live_restore", "allow_archive_purge", "cdn_bindings") {
+		return false
+	}
+	if v, ok := keys["cdn_bindings"]; ok && !exactCDNBindingRows(v) {
 		return false
 	}
 	for key, allowed := range map[string][]string{"spacetimedb": {"license_use", "license_authority", "capture_interval_seconds", "verification_interval_seconds", "max_remote_loss_seconds", "max_maintenance_seconds"}, "data_initialization": {"max_backup_age_seconds", "max_restore_test_age_seconds", "recovery_window_seconds"}, "backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
@@ -333,6 +359,75 @@ func exactKeys(keys map[string]any) bool {
 	}
 	return true
 }
+
+func normalizeCDNBindings(raw *document) error {
+	seenReferences := map[string]bool{}
+	hostOwners := map[string]string{}
+	for i, binding := range raw.CDNBindings {
+		canonical, err := binding.CanonicalBytes()
+		if err != nil || seenReferences[binding.Reference] {
+			return refuse("policy.invalid_cdn_binding", "cdn_bindings", "invalid or duplicate CDN binding")
+		}
+		owner := string(binding.Target) + ":" + binding.App
+		if prior, ok := hostOwners[binding.Hostname]; ok && prior != owner {
+			return refuse("policy.invalid_cdn_binding", "cdn_bindings", "CDN hostname must belong to one target and app")
+		}
+		normalized, err := cdn.ParseBinding(canonical)
+		if err != nil {
+			return refuse("policy.invalid_cdn_binding", "cdn_bindings", "CDN binding could not be canonicalized")
+		}
+		raw.CDNBindings[i] = normalized
+		seenReferences[binding.Reference] = true
+		hostOwners[binding.Hostname] = owner
+	}
+	slices.SortFunc(raw.CDNBindings, func(a, b cdn.Binding) int { return strings.Compare(a.Reference, b.Reference) })
+	return nil
+}
+
+func exactCDNBindingRows(value any) bool {
+	rows, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, row := range rows {
+		binding, ok := row.(map[string]any)
+		if !ok || !exactCDNBindingKeys(binding) {
+			return false
+		}
+	}
+	return true
+}
+
+func exactCDNBindingKeys(binding map[string]any) bool {
+	if !onlyKeys(binding, "reference", "app", "target", "hostname", "origin", "cache", "allowed_edges", "traffic", "traffic_authority") {
+		return false
+	}
+	for key, allowed := range map[string][]string{"origin": {"address", "host", "tls_name"}, "cache": {"prefix", "extensions", "ttl_seconds"}, "traffic": {"reference", "driver", "fingerprint"}, "traffic_authority": {"resource_id", "hostname", "before"}} {
+		if v, ok := binding[key]; ok && !onlyTableKeys(v, allowed...) {
+			return false
+		}
+	}
+	return onlyTableRowsKeys(binding["allowed_edges"], "reference", "driver", "fingerprint")
+}
+
+func onlyTableKeys(value any, allowed ...string) bool {
+	table, ok := value.(map[string]any)
+	return ok && onlyKeys(table, allowed...)
+}
+
+func onlyTableRowsKeys(value any, allowed ...string) bool {
+	rows, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, row := range rows {
+		if !onlyTableKeys(row, allowed...) {
+			return false
+		}
+	}
+	return true
+}
+
 func onlyKeys(m map[string]any, allowed ...string) bool {
 	for k := range m {
 		if !slices.Contains(allowed, k) {

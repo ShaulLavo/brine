@@ -27,39 +27,39 @@ type Owner struct {
 }
 
 type ProfileScope struct {
-	Reference   ProfileRef  `json:"reference"`
-	Driver      string      `json:"driver"`
-	Fingerprint Fingerprint `json:"fingerprint"`
+	Reference   ProfileRef  `toml:"reference" json:"reference"`
+	Driver      string      `toml:"driver" json:"driver"`
+	Fingerprint Fingerprint `toml:"fingerprint" json:"fingerprint"`
 }
 
 type Origin struct {
-	Address string `json:"address"`
-	Host    string `json:"host"`
-	TLSName string `json:"tls_name"`
+	Address string `toml:"address" json:"address"`
+	Host    string `toml:"host" json:"host"`
+	TLSName string `toml:"tls_name" json:"tls_name"`
 }
 
 type CachePolicy struct {
-	Prefix     string   `json:"prefix"`
-	Extensions []string `json:"extensions"`
-	TTLSeconds uint32   `json:"ttl_seconds"`
+	Prefix     string   `toml:"prefix" json:"prefix"`
+	Extensions []string `toml:"extensions" json:"extensions"`
+	TTLSeconds uint32   `toml:"ttl_seconds" json:"ttl_seconds"`
 }
 
 type Binding struct {
-	Reference        string           `json:"reference"`
-	App              string           `json:"app"`
-	Target           Fingerprint      `json:"target"`
-	Hostname         string           `json:"hostname"`
-	Origin           Origin           `json:"origin"`
-	Cache            CachePolicy      `json:"cache"`
-	AllowedEdges     []ProfileScope   `json:"allowed_edges"`
-	Traffic          ProfileScope     `json:"traffic"`
-	TrafficAuthority TrafficAuthority `json:"traffic_authority"`
+	Reference        string           `toml:"reference" json:"reference"`
+	App              string           `toml:"app" json:"app"`
+	Target           Fingerprint      `toml:"target" json:"target"`
+	Hostname         string           `toml:"hostname" json:"hostname"`
+	Origin           Origin           `toml:"origin" json:"origin"`
+	Cache            CachePolicy      `toml:"cache" json:"cache"`
+	AllowedEdges     []ProfileScope   `toml:"allowed_edges" json:"allowed_edges"`
+	Traffic          ProfileScope     `toml:"traffic" json:"traffic"`
+	TrafficAuthority TrafficAuthority `toml:"traffic_authority" json:"traffic_authority"`
 }
 
 type TrafficAuthority struct {
-	ResourceID string      `json:"resource_id"`
-	Hostname   string      `json:"hostname"`
-	Before     Fingerprint `json:"before"`
+	ResourceID string      `toml:"resource_id" json:"resource_id"`
+	Hostname   string      `toml:"hostname" json:"hostname"`
+	Before     Fingerprint `toml:"before" json:"before"`
 }
 
 type Mode string
