@@ -173,6 +173,23 @@ func TestPermissionsStatusSettlesLostCompletionBeforeNextPlan(t *testing.T) {
 		t.Fatal("status left a completed operation fenced", err, m.writes)
 	}
 }
+
+func TestPermissionsNoOpLostCompletionStatusSettlesOnce(t *testing.T) {
+	s, m, _ := permissionFixture(t)
+	plan, err := s.run(t.Context(), PermissionsRequest{Action: "plan", Changes: []operatorpolicy.PermissionAction{{Kind: operatorpolicy.RevokeDomain, Domain: "absent.example"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.failComplete = true
+	request := permissionApply(*plan.Plan, "a")
+	if _, err = s.run(t.Context(), request); err == nil {
+		t.Fatal("missing injected completion failure")
+	}
+	status, err := s.run(t.Context(), PermissionsRequest{Action: "status", IdempotencyKey: request.IdempotencyKey})
+	if err != nil || status.Operation.State != "succeeded" || m.ops[request.IdempotencyKey].State != "succeeded" || m.writes != 0 {
+		t.Fatal("no-op readback did not settle once", status, err, m.writes)
+	}
+}
 func TestPermissionsCancellationBeforeIntentAndNoOp(t *testing.T) {
 	s, m, p := permissionFixture(t)
 	ctx, cancel := context.WithCancel(t.Context())

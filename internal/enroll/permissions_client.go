@@ -92,6 +92,9 @@ func decodePermissionsResponse(raw []byte, request PermissionsRequest) (Permissi
 		return invalid()
 	}
 	if !ok {
+		if !bytes.Equal(bytes.TrimSpace(fields["data"]), []byte("null")) {
+			return invalid()
+		}
 		return permissionsResponseError(fields["error"])
 	}
 	if !bytes.Equal(bytes.TrimSpace(fields["error"]), []byte("null")) {
@@ -132,9 +135,18 @@ func validPermissionResponse(response PermissionsResponse, request PermissionsRe
 	case "show":
 		return response.PolicyHash != "" && response.Permissions != nil && response.Plan == nil && response.Operation == nil
 	case "plan":
-		return response.Plan != nil && permissionID.MatchString(response.Plan.ID) && response.Operation == nil && response.Permissions == nil
+		return response.Plan != nil && validPermissionPlanResponse(*response.Plan) && response.Operation == nil && response.Permissions == nil
 	case "apply", "status":
-		return response.Operation != nil && response.Operation.ID == request.IdempotencyKey && permissionID.MatchString(response.Operation.PlanID) && response.Plan == nil && response.Permissions == nil
+		return response.Operation != nil && validPermissionOperationResponse(*response.Operation, request) && response.Plan == nil && response.Permissions == nil
 	}
 	return false
+}
+
+func validPermissionPlanResponse(plan PermissionsPlan) bool {
+	return permissionID.MatchString(plan.ID) && permissionID.MatchString(plan.BeforeHash) && permissionID.MatchString(plan.AfterHash) && plan.EnrollmentID != "" && plan.NoOp == (plan.BeforeHash == plan.AfterHash)
+}
+
+func validPermissionOperationResponse(op PermissionsOperation, request PermissionsRequest) bool {
+	validState := op.State == "succeeded" || op.State == "intent" || op.State == "recovery_required"
+	return validState && op.ID == request.IdempotencyKey && permissionID.MatchString(op.PlanID) && (request.Action != "apply" || op.PlanID == request.PlanID)
 }

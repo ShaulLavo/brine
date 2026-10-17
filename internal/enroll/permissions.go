@@ -221,13 +221,13 @@ func (s permissionService) status(key string) (PermissionsResponse, error) {
 		return PermissionsResponse{}, err
 	}
 	op.State = "recovery_required"
-	if permissionHash(raw) == op.AfterHash {
+	switch permissionHash(raw) {
+	case op.AfterHash:
 		op.State = "succeeded"
 		if err = s.store.SaveOperation(op); err != nil {
 			return PermissionsResponse{}, err
 		}
-	}
-	if permissionHash(raw) == op.BeforeHash {
+	case op.BeforeHash:
 		op.State = "intent"
 	}
 	return PermissionsResponse{Operation: &op}, nil
