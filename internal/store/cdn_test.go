@@ -77,6 +77,12 @@ func cdnPlanFixture(t *testing.T, s *Store, f *cdntest.Fixture, a cdn.Attachment
 	if err != nil && !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}
+	if recovery != "" {
+		context.Retained, err = s.CDNReceipts(ctx, string(recovery))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
 	p, err := cdn.NewPlan(context, f.Sample, es, ts)
 	if err != nil {
 		t.Fatal(err)

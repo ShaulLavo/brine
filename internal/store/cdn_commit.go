@@ -18,6 +18,14 @@ type cdnResourceKey struct {
 	Name    string
 }
 
+func (s *Store) CDNReceipts(ctx context.Context, operation string) ([]cdn.OwnedReceipt, error) {
+	status, err := s.CDNStatus(ctx, operation)
+	if err != nil {
+		return nil, err
+	}
+	return finalCDNReceipts(status), nil
+}
+
 func finalCDNReceipts(status cdn.Status) []cdn.OwnedReceipt {
 	resources := map[cdnResourceKey]cdn.OwnedReceipt{}
 	for _, receipt := range status.Plan.Context.Retained {

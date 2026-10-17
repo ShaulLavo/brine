@@ -120,6 +120,10 @@ func (o cdnOperations) planningHistory(ctx context.Context, request cdnoperator.
 		if err != nil || source.Plan.Context.Attachment.Owner != planning.Context.Attachment.Owner || source.Plan.Context.Attachment.Owner.App != request.App {
 			return planning, cdn.ErrConflict
 		}
+		planning.Context.Retained, err = o.service.Store.CDNReceipts(ctx, string(request.RecoverOperation))
+		if err != nil {
+			return planning, err
+		}
 	}
 	return planning, nil
 }

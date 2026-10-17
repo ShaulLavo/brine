@@ -109,19 +109,41 @@ func admitCDNContext(ctx context.Context, tx *sql.Tx, p cdn.Plan) error {
 		return ErrConflict
 	}
 	head, err := readCDNRevision(ctx, tx, a.Owner.App, "")
+	retained, receiptErr := recoveryCDNReceipts(ctx, tx, p, head.Receipts)
+	if receiptErr != nil {
+		return receiptErr
+	}
 	if errors.Is(err, ErrNotFound) {
-		if p.Context.Previous != "" || len(p.Context.Retained) != 0 || a.Owner != cdn.AttachmentFor(a.Binding.Target, a.Owner.App, a.SourceRelease) {
+		if p.Context.Previous != "" || !sameCDNReceipts(p.Context.Retained, retained) || a.Owner != cdn.AttachmentFor(a.Binding.Target, a.Owner.App, a.SourceRelease) {
 			return ErrConflict
 		}
-		return nil
+		return checkCDNInitialReceipts(p.Context.Initial, retained)
 	}
 	if err != nil {
 		return err
 	}
-	if p.Context.Previous != head.Attachment.Revision || a.Owner != head.Attachment.Owner || a.Binding.Hostname != head.Attachment.Binding.Hostname || !sameCDNReceipts(p.Context.Retained, head.Receipts) {
+	if p.Context.Previous != head.Attachment.Revision || a.Owner != head.Attachment.Owner || a.Binding.Hostname != head.Attachment.Binding.Hostname || !sameCDNReceipts(p.Context.Retained, retained) {
 		return ErrConflict
 	}
-	if !initialCDNMatchesRetained(p.Context.Initial, head.Receipts) {
+	return checkCDNInitialReceipts(p.Context.Initial, retained)
+}
+
+func recoveryCDNReceipts(ctx context.Context, tx *sql.Tx, p cdn.Plan, retained []cdn.OwnedReceipt) ([]cdn.OwnedReceipt, error) {
+	if p.Context.RecoveryOf == "" {
+		return retained, nil
+	}
+	status, _, err := loadCDNStatus(ctx, tx, string(p.Context.RecoveryOf))
+	if err != nil {
+		return nil, err
+	}
+	if status.Plan.Context.Attachment.Owner != p.Context.Attachment.Owner {
+		return nil, ErrConflict
+	}
+	return finalCDNReceipts(status), nil
+}
+
+func checkCDNInitialReceipts(initial []cdn.Observation, retained []cdn.OwnedReceipt) error {
+	if !initialCDNMatchesRetained(initial, retained) {
 		return ErrConflict
 	}
 	return nil

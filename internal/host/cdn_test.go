@@ -127,6 +127,50 @@ func TestCDNOperatorHostWireServesSwitchDisableAndNoOp(t *testing.T) {
 	}
 }
 
+type failedCDNQualificationHost struct{ cdnoperator.Host }
+
+func (h failedCDNQualificationHost) Qualify(context.Context, cdnoperator.ProofRequest) (cdnoperator.Progress, error) {
+	return cdnoperator.Progress{}, errors.New("synthetic qualification failure after settled writes")
+}
+
+func TestCDNRecoveryRetainsUncommittedOriginalProviderReceipts(t *testing.T) {
+	rig, fixture, coordinator, request := cdnHostFixture(t)
+	host := coordinator.Host
+	coordinator.Host = failedCDNQualificationHost{Host: host}
+	p, err := coordinator.Plan(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	failed, err := coordinator.Apply(t.Context(), cdnoperator.ApplyRequest{PlanID: p.ID, IdempotencyKey: "failed-first-enable"})
+	if err == nil || failed.Operation == "" {
+		t.Fatal("qualification failure did not retain its operation", err)
+	}
+	coordinator.Host = host
+	request.Profile, request.RecoverOperation = fixture.EdgeB.Profile().Reference, failed.Operation
+	recovery, err := coordinator.Plan(t.Context(), request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasOriginalCDNReceipt(recovery.Context.Retained, p.Context.Attachment) {
+		t.Fatal("recovery plan lost the uncommitted provider's original attachment")
+	}
+	progress, err := coordinator.Apply(t.Context(), cdnoperator.ApplyRequest{PlanID: recovery.ID, IdempotencyKey: "recover-first-enable"})
+	assertCDNFinished(t, progress, err)
+	head, err := rig.store.CDNHead(t.Context(), "hello")
+	if err != nil || !hasOriginalCDNReceipt(head.Receipts, p.Context.Attachment) {
+		t.Fatal("recovery revision lost the original provider readback", err)
+	}
+}
+
+func hasOriginalCDNReceipt(receipts []cdn.OwnedReceipt, attachment cdn.Attachment) bool {
+	for _, receipt := range receipts {
+		if receipt.Profile == attachment.Profile && receipt.Attachment.Revision == attachment.Revision && len(receipt.Resources) != 0 && receipt.Resources[0].Kind == cdn.EdgeConfiguration {
+			return true
+		}
+	}
+	return false
+}
+
 func assertCDNFinished(t *testing.T, progress cdnoperator.Progress, err error) {
 	t.Helper()
 	finished, ok := progress.Work.(cdn.Finished)
