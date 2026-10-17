@@ -3,6 +3,7 @@ package enroll
 import (
 	"encoding/json"
 
+	"github.com/ShaulLavo/brine/internal/cdn"
 	operatorpolicy "github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
@@ -154,6 +155,16 @@ func decodePermissionChange(raw []byte) (operatorpolicy.PermissionAction, error)
 			return change, strictjson.ErrObject
 		}
 		change.Registry = &registry
+	case operatorpolicy.AllowCDNBinding, operatorpolicy.RevokeCDNBinding:
+		fields, err := strictjson.Object(raw, "kind", "cdn_binding")
+		if err != nil {
+			return change, err
+		}
+		binding, err := cdn.ParseBinding(fields["cdn_binding"])
+		if err != nil {
+			return change, strictjson.ErrObject
+		}
+		change.CDNBinding = &binding
 	default:
 		return change, strictjson.ErrObject
 	}
@@ -176,7 +187,7 @@ func decodePermissionChanges(raw []byte) ([]operatorpolicy.PermissionAction, err
 }
 
 func decodePermissionView(raw []byte) (operatorpolicy.Permissions, error) {
-	fields, err := strictjson.Object(raw, "registries", "domains")
+	fields, err := strictjson.Object(raw, "registries", "domains", "cdn_bindings")
 	if err != nil {
 		return operatorpolicy.Permissions{}, err
 	}
@@ -195,7 +206,26 @@ func decodePermissionView(raw []byte) (operatorpolicy.Permissions, error) {
 	if err != nil {
 		return operatorpolicy.Permissions{}, err
 	}
-	return operatorpolicy.Permissions{Registries: registries, Domains: domains}, nil
+	bindings, err := decodePermissionCDNBindings(fields["cdn_bindings"])
+	if err != nil {
+		return operatorpolicy.Permissions{}, err
+	}
+	return operatorpolicy.Permissions{Registries: registries, Domains: domains, CDNBindings: bindings}, nil
+}
+
+func decodePermissionCDNBindings(raw []byte) ([]cdn.Binding, error) {
+	values, err := strictjson.Value[[]json.RawMessage](raw)
+	if err != nil {
+		return nil, err
+	}
+	bindings := make([]cdn.Binding, len(values))
+	for i, value := range values {
+		bindings[i], err = cdn.ParseBinding(value)
+		if err != nil {
+			return nil, strictjson.ErrObject
+		}
+	}
+	return bindings, nil
 }
 
 func decodePermissionPlan(raw []byte) (PermissionsPlan, error) {

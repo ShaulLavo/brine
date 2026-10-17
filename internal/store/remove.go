@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/ShaulLavo/brine/internal/cdn"
 	"github.com/ShaulLavo/brine/internal/plan"
 )
 
@@ -39,6 +40,16 @@ func (s *Store) RetireApp(ctx context.Context, operationID, app, releaseID strin
 	if kind != "deploy" && kind != "resolve" || opApp != app || p.App != app || p.Lifecycle != plan.RemoveApp || p.Removal == nil || p.Removal.ReleaseID != releaseID {
 		return ErrInvalid
 	}
+	if err = guardCDNReservation(ctx, tx, app); err != nil {
+		return err
+	}
+	head, headErr := readCDNRevision(ctx, tx, app, "")
+	if headErr != nil && !errors.Is(headErr, ErrNotFound) {
+		return headErr
+	}
+	if headErr == nil && head.Attachment.Mode != cdn.Direct {
+		return ErrConflict
+	}
 	result, err := tx.ExecContext(ctx, "DELETE FROM release_heads WHERE app=? AND current_id=?", app, releaseID)
 	if err != nil {
 		return err
@@ -51,6 +62,9 @@ func (s *Store) RetireApp(ctx context.Context, operationID, app, releaseID strin
 		return ErrConflict
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO app_removals VALUES(?,?,?,?,?)", operationID, app, releaseID, planID, timestamp()); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM cdn_heads WHERE app=?", app); err != nil {
 		return err
 	}
 	return tx.Commit()

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/cdn"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	operatorpolicy "github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -47,7 +48,7 @@ func permissionsClientFixture(t *testing.T) (transport.Target, string) {
 }
 func TestPermissionsOperatorSSHUsesPinnedHostAndFixedHelper(t *testing.T) {
 	target, dir := permissionsClientFixture(t)
-	raw, err := json.Marshal(result.Success("brine host permissions", PermissionsResponse{PolicyHash: "sha256:" + strings.Repeat("a", 64), Permissions: &operatorpolicy.Permissions{Registries: []operatorpolicy.Registry{}, Domains: []string{}}}))
+	raw, err := json.Marshal(result.Success("brine host permissions", PermissionsResponse{PolicyHash: "sha256:" + strings.Repeat("a", 64), Permissions: &operatorpolicy.Permissions{Registries: []operatorpolicy.Registry{}, Domains: []string{}, CDNBindings: []cdn.Binding{}}}))
 	if err != nil {
 		t.Fatal(err)
 	}

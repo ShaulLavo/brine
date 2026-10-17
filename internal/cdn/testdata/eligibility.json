@@ -1,0 +1,189 @@
+{
+  "policy": {
+    "hostname": "game.example.test",
+    "prefix": "/objects/",
+    "extensions": [
+      "png",
+      "ogg"
+    ],
+    "ttl_seconds": 31536000
+  },
+  "cases": [
+    {
+      "name": "public-get",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": true
+    },
+    {
+      "name": "public-head",
+      "method": "HEAD",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": true
+    },
+    {
+      "name": "browser-no-store",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {
+        "Cache-Control": "no-cache, no-store",
+        "Pragma": "no-cache"
+      },
+      "eligible": true
+    },
+    {
+      "name": "wrong-host",
+      "method": "GET",
+      "url": "https://other.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "post",
+      "method": "POST",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "mutable-index",
+      "method": "GET",
+      "url": "https://game.example.test/objects/index.json",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "outside-prefix",
+      "method": "GET",
+      "url": "https://game.example.test/api/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "encoded-filename",
+      "method": "GET",
+      "url": "https://game.example.test/objects/%61aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "encoded-prefix",
+      "method": "GET",
+      "url": "https://game.example.test/%6fbjects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "encoded-slash",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa%2fpng",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "bare-query",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "query",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png?cache=1",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "parent-escape",
+      "method": "GET",
+      "url": "https://game.example.test/objects/../private/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "short-hash",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "uppercase-hash",
+      "method": "GET",
+      "url": "https://game.example.test/objects/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA.png",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "unsupported-extension",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "extra-extension",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png.js",
+      "headers": {},
+      "eligible": false
+    },
+    {
+      "name": "authorization",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {
+        "Authorization": "private"
+      },
+      "eligible": false
+    },
+    {
+      "name": "empty-authorization",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {
+        "Authorization": ""
+      },
+      "eligible": false
+    },
+    {
+      "name": "cookie",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {
+        "Cookie": "private"
+      },
+      "eligible": false
+    },
+    {
+      "name": "empty-cookie",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {
+        "Cookie": ""
+      },
+      "eligible": false
+    },
+    {
+      "name": "range",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {
+        "Range": "private"
+      },
+      "eligible": false
+    },
+    {
+      "name": "empty-range",
+      "method": "GET",
+      "url": "https://game.example.test/objects/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.png",
+      "headers": {
+        "Range": ""
+      },
+      "eligible": false
+    }
+  ]
+}

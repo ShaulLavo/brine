@@ -487,7 +487,8 @@ existing enrollment identity. The restricted deployment key cannot select it.
 The commands support `--json`, `--jsonl` and `--no-input`; authorization comes from
 existing admin credentials and the reviewed plan, not an enrollment prompt.
 
-- `permissions show` returns the current policy hash and registry/domain lists.
+- `permissions show` returns the current policy hash, registry and domain lists,
+  and exact typed CDN bindings.
 - `permissions plan` accepts repeatable `--allow-registry REGISTRY/REPOSITORY`,
   `--revoke-registry REGISTRY/REPOSITORY`, `--allow-domain DOMAIN` and
   `--revoke-domain DOMAIN`. Repository entries authorize that exact prefix and its
@@ -495,6 +496,12 @@ existing admin credentials and the reviewed plan, not an enrollment prompt.
   they do not remove a separately existing wildcard. `--app NAME` is optional audit
   metadata. The result contains a retained plan ID, enrollment identity, before and
   after byte hashes, both permission views, requested actions and a no-op flag.
+- `permissions plan --allow-cdn-binding FILE` and `--revoke-cdn-binding FILE`
+  accept repeatable strict JSON bindings bounded to 64 KiB each. Grants replace
+  the same reference through the reviewed before/after plan. Revocation requires
+  the full canonical binding to match when present; an absent binding is a no-op.
+  Mixed registry, domain and binding fields within one action refuse. Binding
+  JSON rejects unknown fields, aliases, duplicates and malformed nested objects.
 - `permissions apply --plan-id ID --idempotency-key KEY` requires the reviewed
   64-hex plan ID and a stable 32-hex operation key. It checks current policy bytes
   under root-owned locks, journals intent, atomically replaces only the policy and
@@ -509,15 +516,150 @@ Plans and operations live under root-owned private `/var/lib/brine-permissions`;
 policy remains root-owned at `/etc/ssh/brine/operator-policy.toml`. The enrollment
 journal's original file provenance is untouched, so unenrollment still preserves
 operator-managed policy. Request fields are closed and bounded; resource limits,
-ports, disks, secrets, data permissions and CDN bindings cannot be edited by this
-command. Typed policy editing preserves all other fields. A new reviewed inverse
+ports, disks, secrets and data permissions cannot be edited by this command.
+Typed policy editing preserves all other fields, including CDN bindings during
+registry or domain edits. A new reviewed inverse
 allow/revoke plan performs rollback. This changes future deployment permission;
-it does not stop an application, remove its data or retroactively undo a release.
+it does not stop an application, remove its data, mutate a provider or undo a release.
 
 If the admin connection disappears, inspect status using the same key. Resume the
 same reviewed apply only when its actual before-state is still known; never invent
 a second key to bypass an unresolved operation. These local journal tests are not
 evidence of a permissions change on a real enrolled server.
+
+## CDN attachments (D14)
+
+A CDN attachment caches a declared public immutable namespace from an enrolled
+app's existing HTTPS origin. The app keeps its full OCI image and public URLs.
+CDN selection has its own revision history. Ordinary deployment and app rollback
+leave that selection alone. Managed-platform application deployments remain out
+of scope. No asset inventory, manifest, extracted store, object publication,
+pack copy or enrollment change is part of this contract.
+
+### Policy and operator profiles
+
+Protected `cdn_bindings` policy binds `reference`, `app`, target fingerprint,
+exact `hostname`, origin address and Host/TLS identity, cache policy, allowed
+edge profile scopes, traffic profile scope and exact bootstrap traffic authority.
+Each profile scope contains its reference, driver and canonical fingerprint.
+References are globally unique. Alternate bindings may share a hostname only for
+the same target and app. An accessor returns an independent binding copy only
+for the matching app and reference. Optional absent bindings leave existing
+canonical policy hashes unchanged.
+
+Native admin permission plans manage these bindings. A binding grant authorizes
+future attachment operations; it does not perform a provider write. Application
+specs contain no CDN account, zone, credential or attachment fields.
+
+`--profiles PATH` selects a private 0600 operator registry. Its default is
+`brine/cdn-profiles.json` under the platform's user configuration directory.
+The registry has `schema_version: 1` and a `profiles` array. Each entry contains
+`name`, `driver`, `configuration` and `credential`. The Cloudflare configuration
+contains `schema_version`, `account_id`, `zone_id`, `worker_prefix`,
+`route_pattern`, `dns_record_id` and `credential_ref`.
+
+Credentials resolve only in the operator process. An explicit credential source
+is either `{"kind":"environment","name":"CF_API_TOKEN"}` or
+`{"kind":"file","path":"existing-token"}`. Relative token paths resolve beside
+the registry. Token files must already exist with mode 0600. Configuration
+fingerprints exclude credential references, local paths and values, so credential
+rotation preserves provider scope. There is no ambient login fallback or
+credential minting. Provider credential values never enter the host journal, app or browser.
+Edge and traffic profiles may use separate credentials and authorities.
+
+### Native commands
+
+The sample path names one existing full public asset with a canonical SHA-256
+basename and an approved extension. The path and filename digest are bound to
+the plan. The following examples use synthetic names and placeholders:
+
+~~~sh
+brine permissions plan --target staging --admin operator@host --allow-cdn-binding ./cdn-binding.json --json --no-input
+brine permissions apply --target staging --admin operator@host --plan-id PERMISSION_PLAN_ID --idempotency-key 0123456789abcdef0123456789abcdef --json --no-input
+brine cdn plan demo --binding public --profile edge-a --sample /assets/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.bin --target staging --json --no-input
+brine cdn apply --plan-id CDN_PLAN_ID --idempotency-key cdn-enable-demo --target staging --json --no-input
+brine cdn resume --operation OPERATION_ID --target staging --json --no-input
+brine cdn status --app demo --target staging --refresh --json --no-input
+~~~
+
+`cdn plan APP` requires `--binding`, `--profile`, `--sample` and `--target`.
+The default mode is `enabled`. A switch selects another approved profile through
+a new plan. `--mode direct` plans disable-to-origin. `--revision REVISION_ID`
+plans restoration of a retained CDN revision; binding, profile and mode must
+match that revision and remain authorized by current policy. Restoration uses
+the current app release and creates a new CDN revision.
+
+`cdn apply` admits one requester/idempotency operation and drives its provider
+work until `Waiting` or `Finished`. `cdn resume` continues from the host journal
+after a disconnect. `cdn status --app APP [--operation ID]` reads retained host
+history. `--refresh` adds fresh provider reads and full public GETs; it performs
+no native mutation and does not commit proof to the journal. `--config-dir`
+continues to select the pinned target directory, independently of `--profiles`.
+
+### Durable effects and revision commit
+
+The host retains the canonical plan, initial observations, ordered steps,
+resource IDs, ownership markers, native versions and before/desired fingerprints.
+It atomically admits the operation and reserves the attachment, app and hostname.
+The host lock covers local transactions, never provider network waits. Conflicting
+app deployment, rollback or removal refuses while reserved. Unrelated apps
+continue. An enabled attachment also blocks app removal and loss of its public
+hostname. Retiring a disabled app retires its attachment incarnation.
+
+The closed next-work variants are `NeedEffect`, `NeedObservation`, `Waiting` and
+`Finished`. An unissued step seals fresh native state before the host durably
+records and acknowledges its one claim. Dependencies reference strictly earlier
+confirmed owned receipts. Issued actions never change. One permit authorizes one
+native HTTP mutation for a closed action: `put_edge`, `set_edge_exposure`,
+`put_edge_route`, `set_traffic`, `remove_edge_route` or `remove_edge`.
+Edge and traffic drivers remain separate authorities. Prerequisite
+observations use the driver that owns each profile.
+
+A lost claim response gives subsequent clients inspect-only work. Lease expiry,
+client restart, timeout and desired-state GETs never grant another writer. An
+acknowledged write requires independent exact resource readback, including native
+version. An unknown write requires real native conditional or idempotent completion
+evidence. A single absent or desired GET cannot prove completion. Cloudflare
+operations without such evidence remain pending for inspection.
+
+`--recover-operation ID` on a new plan can supersede a reserved operation only
+after every issued write is confirmed or refused. The new plan explicitly selects
+its desired binding, profile and mode. Known post-cutover failure can therefore
+restore exact traffic through another reviewed plan. Unknown cutover cannot
+release its reservation or authorize a second writer.
+
+Before traffic activation, fresh edge ownership/configuration readiness and a
+healthy TLS-origin sample are required. `workers_dev=false` and a DNS-only record
+do not prove a publicly serving edge. After traffic acknowledgement and readback,
+revision commit requires fresh provider readback and public qualification.
+An already-desired zero-write plan follows the same qualification requirement.
+
+### Cache eligibility and proof
+
+Cache eligibility requires the declared canonical prefix, a SHA-256 basename,
+an approved bounded extension, full GET or HEAD, successful 200 response and a
+one-year immutable shared-cache policy. Preserve representation bytes, hash, type
+and length. Browser Cache-Control and Pragma may be excluded from the edge lookup
+only after privacy and canonical-path checks pass.
+
+Authorization or Cookie headers, including empty headers, Range, query strings
+and encoded path aliases bypass caching. HTML, mutable indexes, redirects, errors
+and responses marked private/no-store, with Set-Cookie or with unsupported
+encodings also bypass caching. Cloudflare uses generated
+generic Worker code, exact owned routes and records, and explicit
+`workers_dev=false`. It does not register an account namespace automatically.
+
+Proof binds its method, sample, selected profile, revision, time and evidence
+digest. Enabled mode requires a healthy origin and edge, at least two complete
+matching GETs and a later HIT. Direct mode requires healthy origin bytes without
+an edge cache marker or HIT. `operator_http` and `browser_network` are distinct
+methods. Operator qualification does not establish browser acceptance.
+
+Live acceptance requires a disposable browser context with two unchanged
+`fetch(..., {cache: "no-store"})` full GETs. Record emitted directives, complete-body
+hashes and a later HIT while bypassing the app's local object store. Check fresh
+HTML/index responses, uncached private/error paths, enable, switch, eviction,
+disable and recovery. Local fixture tests do not complete those live gates.
 
 ## App definition
 

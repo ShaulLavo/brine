@@ -1,38 +1,52 @@
 package policy
 
 import (
+	"bytes"
 	"errors"
 	"slices"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/cdn"
 	"github.com/pelletier/go-toml/v2"
 )
 
 type PermissionKind string
 
 const (
-	AllowRegistry  PermissionKind = "allow_registry"
-	RevokeRegistry PermissionKind = "revoke_registry"
-	AllowDomain    PermissionKind = "allow_domain"
-	RevokeDomain   PermissionKind = "revoke_domain"
+	AllowRegistry    PermissionKind = "allow_registry"
+	RevokeRegistry   PermissionKind = "revoke_registry"
+	AllowDomain      PermissionKind = "allow_domain"
+	RevokeDomain     PermissionKind = "revoke_domain"
+	AllowCDNBinding  PermissionKind = "allow_cdn_binding"
+	RevokeCDNBinding PermissionKind = "revoke_cdn_binding"
 )
 
 type PermissionAction struct {
-	Kind     PermissionKind `json:"kind"`
-	Registry *Registry      `json:"registry,omitempty"`
-	Domain   string         `json:"domain,omitempty"`
+	Kind       PermissionKind `json:"kind"`
+	Registry   *Registry      `json:"registry,omitempty"`
+	Domain     string         `json:"domain,omitempty"`
+	CDNBinding *cdn.Binding   `json:"cdn_binding,omitempty"`
 }
 
 type Permissions struct {
-	Registries []Registry `json:"registries"`
-	Domains    []string   `json:"domains"`
+	Registries  []Registry    `json:"registries"`
+	Domains     []string      `json:"domains"`
+	CDNBindings []cdn.Binding `json:"cdn_bindings"`
 }
 
 func (p Policy) Permissions() Permissions {
 	if p.config == nil {
 		return Permissions{}
 	}
-	return Permissions{Registries: cloneRegistries(p.config.AllowedRegistries), Domains: slices.Clone(p.config.AllowedDomains)}
+	return Permissions{Registries: cloneRegistries(p.config.AllowedRegistries), Domains: slices.Clone(p.config.AllowedDomains), CDNBindings: cloneCDNBindings(p.config.CDNBindings)}
+}
+
+func cloneCDNBindings(input []cdn.Binding) []cdn.Binding {
+	output := make([]cdn.Binding, len(input))
+	for i, binding := range input {
+		output[i] = cloneCDNBinding(binding)
+	}
+	return output
 }
 
 func cloneRegistries(input []Registry) []Registry {
@@ -50,6 +64,7 @@ func (p Policy) EditPermissions(actions []PermissionAction) (Policy, []byte, err
 	next := *p.config
 	next.AllowedRegistries = cloneRegistries(next.AllowedRegistries)
 	next.AllowedDomains = slices.Clone(next.AllowedDomains)
+	next.CDNBindings = cloneCDNBindings(next.CDNBindings)
 	seen := map[string]bool{}
 	for _, action := range actions {
 		key, err := applyPermission(&next, action)
@@ -73,7 +88,7 @@ func (p Policy) EditPermissions(actions []PermissionAction) (Policy, []byte, err
 func applyPermission(next *document, action PermissionAction) (string, error) {
 	switch action.Kind {
 	case AllowDomain, RevokeDomain:
-		if action.Registry != nil || action.Domain == "" || strings.Contains(action.Domain, "*") {
+		if action.Registry != nil || action.CDNBinding != nil || action.Domain == "" || strings.Contains(action.Domain, "*") {
 			return "", errors.New("expected an exact domain")
 		}
 		domain := strings.ToLower(action.Domain)
@@ -86,13 +101,44 @@ func applyPermission(next *document, action PermissionAction) (string, error) {
 		}
 		return "domain:" + domain, nil
 	case AllowRegistry, RevokeRegistry:
-		if action.Registry == nil || action.Domain != "" || len(action.Registry.RepositoryPrefixes) != 1 || action.Registry.RepositoryPrefixes[0] == "" {
+		if action.Registry == nil || action.CDNBinding != nil || action.Domain != "" || len(action.Registry.RepositoryPrefixes) != 1 || action.Registry.RepositoryPrefixes[0] == "" {
 			return "", errors.New("expected one registry repository prefix")
 		}
 		return editRegistry(next, action)
+	case AllowCDNBinding, RevokeCDNBinding:
+		if action.CDNBinding == nil || action.Registry != nil || action.Domain != "" {
+			return "", errors.New("expected one exact CDN binding")
+		}
+		return editCDNBinding(next, action)
 	default:
 		return "", errors.New("unknown permission action")
 	}
+}
+
+func editCDNBinding(next *document, action PermissionAction) (string, error) {
+	canonical, err := action.CDNBinding.CanonicalBytes()
+	if err != nil {
+		return "", errors.New("invalid CDN binding")
+	}
+	binding, err := cdn.ParseBinding(canonical)
+	if err != nil {
+		return "", errors.New("invalid CDN binding")
+	}
+	index := slices.IndexFunc(next.CDNBindings, func(value cdn.Binding) bool { return value.Reference == binding.Reference })
+	if action.Kind == AllowCDNBinding {
+		next.CDNBindings = slices.DeleteFunc(next.CDNBindings, func(value cdn.Binding) bool { return value.Reference == binding.Reference })
+		next.CDNBindings = append(next.CDNBindings, binding)
+		return "cdn_binding:" + binding.Reference, nil
+	}
+	if index < 0 {
+		return "cdn_binding:" + binding.Reference, nil
+	}
+	current, err := next.CDNBindings[index].CanonicalBytes()
+	if err != nil || !bytes.Equal(current, canonical) {
+		return "", errors.New("CDN revocation must match the exact binding")
+	}
+	next.CDNBindings = slices.Delete(next.CDNBindings, index, index+1)
+	return "cdn_binding:" + binding.Reference, nil
 }
 
 func editRegistry(next *document, action PermissionAction) (string, error) {

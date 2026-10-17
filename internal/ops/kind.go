@@ -12,6 +12,7 @@ type Kind string
 
 const (
 	Deploy                    Kind = "deploy"
+	CDN                       Kind = "cdn"
 	Resolve                   Kind = "resolve"
 	SecretSet                 Kind = "secret_set"
 	NativeMaterialSet         Kind = "native_material_set"
@@ -70,7 +71,7 @@ func ValidIntent(i Intent) bool {
 		return i.PlanID == "" && appName.MatchString(i.App) && (operationID.MatchString(i.SecretRef) || planID.MatchString(i.SecretRef))
 	case Reconcile:
 		return i.PlanID == "" && i.App == "" && i.SecretRef == ""
-	case NativeMaterialSet:
+	case NativeMaterialSet, CDN:
 		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef)
 	case SecretSet:
 		return i.PlanID == "" && appName.MatchString(i.App) && secretRef.MatchString(i.SecretRef) && len("brine."+i.App+"."+i.SecretRef+".v18446744073709551615") <= 253
@@ -105,7 +106,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 		return Transitions()
 	case NativeBackupResolve, Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativePrepareAbandon, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve, ArchiveMaintenanceApply, ArchiveMaintenanceResolve:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
-	case SecretSet, NativeMaterialSet:
+	case SecretSet, NativeMaterialSet, CDN:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
 	default:
 		return map[State][]State{}
@@ -164,6 +165,18 @@ func ValidateOperationEvent(op Operation, e Event) error {
 	if op.Kind == Reconcile || op.Kind.IsTask() {
 		if e.Kind != "launch" && e.Kind != "state" && e.Kind != "failure" {
 			return ErrInvalidEvent
+		}
+		return nil
+	}
+	if op.Kind == CDN {
+		if e.Kind != "state" && e.Kind != "cdn" {
+			return ErrInvalidEvent
+		}
+		if e.Kind == "cdn" {
+			var p CDNPayload
+			if json.Unmarshal(e.Payload, &p) != nil || p.PlanID != op.SecretRef {
+				return ErrInvalidEvent
+			}
 		}
 		return nil
 	}

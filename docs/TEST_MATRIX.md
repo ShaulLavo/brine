@@ -1211,3 +1211,52 @@ or symlinked journal files; the existing operator-policy tests cover protected
 policy metadata and edited-policy retention during unenrollment. CLI controls
 exercise noninteractive machine plans and reject unavailable capability setters.
 Physical host permission mutation remains separate operator acceptance.
+
+## CDN attachments (D14)
+
+This matrix defines acceptance. It does not record a live provider deployment or
+complete browser acceptance. Local HTTP-cache proof uses synthetic loopback
+resources and two independent cache configurations, not a second commercial CDN.
+
+| Case | Required evidence |
+| --- | --- |
+| CDN01: protected policy | Strict nested JSON and TOML reject unknown fields, aliases, duplicates, invalid app names, crossed traffic authority and conflicting hostname owners. Binding order is canonical. Lookup and permission views return independent copies. An absent optional binding preserves existing policy hashes. |
+| CDN02: native permission management | Plan, apply, duplicate apply, readback, exact revoke and absent-revoke no-op cross the typed admin boundary. Mixed action fields refuse. CDN edits preserve other policy fields; registry/domain edits preserve full CDN bindings through TOML serialization. Stale before-state and unknown writes retain the existing root-journal fence. |
+| CDN03: canonical plans | Plans bind target/app incarnation, current source release, policy hash, binding, selected scope, namespace, ordered step identities, initial observations and retained receipts. Future sealing cannot alter the fixed desired action. Old policy, source release, hostname ownership or CDN head refuses admission. |
+| CDN04: reservations and restart | Real SQLite transactions admit duplicate requester/key exactly once and reserve the attachment, app and hostname atomically. Conflicting deploy, rollback, hostname removal and app removal refuse; unrelated apps continue. Reopen the store after interruption and preserve every claim, result, observation, native version and reservation. |
+| CDN05: one native writer | Lose admission, permit and result replies separately. Delay the original native write beyond the next observer. A second caller gets inspect-only work, with no lease expiry or second mutation. A desired or absent GET cannot settle an unknown write. Only actual native completion evidence can do so, and that evidence survives restart. |
+| CDN06: fresh sealing | Refuse changed native ID/version, foreign ownership, stale initial state, fixed desired changes and forward/self receipt dependencies. A later step uses independent current observation of its confirmed earlier receipt. Observe cross-profile prerequisites through their original edge or traffic driver. |
+| CDN07: activation and qualification | Require owned edge configuration readiness and a healthy TLS-origin sample before exact traffic activation. DNS-only plus disabled workers.dev is not a public edge. After traffic acknowledgement/readback, require two complete matching public GETs and a later HIT before revision commit. Direct-origin proof rejects cache markers. |
+| CDN08: no-op and recovery | A zero-write already-desired plan still needs fresh readback and qualification. Proof failure cannot commit a revision. A known settled post-cutover failure can create an exact restore plan. Unknown issued work keeps the reservation and cannot transfer it to recovery. |
+| CDN09: actual HTTP journeys | Serve a real TLS origin behind a stable gateway. Enable cache A, switch to independent cache B, evict and refill from origin, disable to direct origin and recover through the same plans/effects. Compare full bytes and origin-hit counts. Remove task-created servers, goroutines and control resources. |
+| CDN10: Cloudflare adapter | Mock native API boundaries enforce one mutation per permit, exact Worker/route/record ownership, explicit workers_dev=false, bounded readback and refusal on foreign or unauthorized resources. Credential source selection does not change profile scope. Unknown nonconditional writes remain unsettled. No live-account success follows from these tests. |
+| CDN11: eligibility parity | Go and generated Worker consume the same eligibility fixture. Cover canonical hash paths, unchanged browser no-store/no-cache directives, empty/present auth and cookie headers, Range, queries, encoded aliases, mutable indexes, HTML, redirects, errors, private/no-store, Set-Cookie and unsupported encoding. Check full body hashes, content type and length. |
+| CDN12: history and incarnation | App deployment and rollback preserve CDN selection. CDN rollback creates a new revision from an authorized retained selection against the current app origin. An enabled attachment blocks removal; removal after settled disable retires the old incarnation, and recreation starts fresh. |
+
+Existing local controls include `TestCDN*` in policy, enroll and CLI;
+`TestBindingParser*`, `TestIssuedClaimIsNeverReplayedAndAbsentDoesNotComplete`,
+`TestUnknownWriteCannotCompleteFromDesiredGET`,
+`TestNativeCompletionEvidenceSurvivesStatePersistence`, `TestFreshSealing*` and
+`TestConfirmedResourceVersionCannotDrift` in the CDN core. The real HTTP fixture
+covers `TestStableURLSwitchEvictionAndDisableUseActualBytes` and
+`TestUnknownReplyPendingWriteNeedsNativeCompletion`. Worker semantic tests and
+Cloudflare native API tests remain local adapter evidence. Host/store/dispatch
+integration and required CI must pass on the final integrated source.
+
+Live acceptance remains unchecked:
+
+- [ ] Apply the attachment through Brine on an explicitly authorized enrolled
+  fixture with current scoped credentials. Record origin health, native readback,
+  exact public route and the committed CDN revision.
+- [ ] In a disposable browser context, issue two unchanged
+  `fetch(..., {cache: "no-store"})` full GETs to one existing hash-named asset.
+  Bypass the app's local object store. Record browser-emitted Cache-Control and
+  Pragma, hash both complete bodies and require a later observed HIT.
+- [ ] Verify fresh HTML and index responses, and uncached error, private and
+  authority-bearing paths. Operator HTTP proof alone cannot satisfy this case.
+- [ ] Record enable, profile switch, eviction/refill, disable and recovery using
+  the same stable public URL. Verify ordinary app rollback leaves CDN selection
+  unchanged. Do not add stale-client/version compatibility to pass this drill.
+- [ ] Install teardown before setup, record pre-existing resources, and verify
+  cleanup on every actual provider and host. Retain only the small review
+  evidence; name any retained resource, owner and removal condition.

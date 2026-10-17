@@ -23,6 +23,8 @@ func TestRules(t *testing.T) {
 		{"exec dot", "internal/plan/a.go", `package p; import . "os/exec"`, "exec-import"},
 		{"exec runner", "internal/localexec/a.go", `package p; import "os/exec"`, ""},
 		{"exec tests", "internal/plan/a_test.go", `package p; import "os/exec"`, ""},
+		{"fixture production refused", "internal/host/a.go", `package p; import "github.com/ShaulLavo/brine/internal/cdn/cdntest"`, "test-support-import"},
+		{"fixture tests allowed", "internal/host/a_test.go", `package p; import "github.com/ShaulLavo/brine/internal/cdn/cdntest"`, ""},
 		{"rand", "internal/plan/a.go", `package p; import "math/rand"`, "weak-random"},
 		{"rand v2", "internal/plan/a.go", `package p; import "math/rand/v2"`, "weak-random"},
 		{"TLS literal", "internal/plan/a.go", `package p; var x = struct{ InsecureSkipVerify bool }{InsecureSkipVerify:true}`, "insecure-tls"},
@@ -140,6 +142,14 @@ func TestDeadcodeUsesQualifiedSymbols(t *testing.T) {
 	}
 	if len(filterAllowed(got, allow)) != 0 {
 		t.Fatal("deliberate entry point was not exempted")
+	}
+}
+
+func TestDeadcodeExcludesOnlyStructurallyTestOnlyFixture(t *testing.T) {
+	input := []byte(`[{"Path":"github.com/ShaulLavo/brine/internal/cdn/cdntest","Funcs":[{"Name":"New","Position":{"File":"internal/cdn/cdntest/fixture.go","Line":12}}]},{"Path":"github.com/ShaulLavo/brine/internal/cdn","Funcs":[{"Name":"Unused","Position":{"File":"internal/cdn/plan.go","Line":12}}]}]`)
+	got, err := deadcodeFindings(input)
+	if err != nil || len(got) != 1 || got[0].Key != "github.com/ShaulLavo/brine/internal/cdn.Unused" {
+		t.Fatal("test support exclusion hid production code", got, err)
 	}
 }
 
