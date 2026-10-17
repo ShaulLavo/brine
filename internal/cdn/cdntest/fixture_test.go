@@ -143,7 +143,7 @@ func TestUnknownReplyPendingWriteNeedsNativeCompletion(t *testing.T) {
 	if _, ok := result.(cdn.Uncertain); !ok {
 		t.Fatalf("lost reply: %#v", result)
 	}
-	<-gate.Started
+	await(t, gate.Started)
 	effect, err = effect.Record(result)
 	if err != nil {
 		t.Fatal(err)
@@ -168,6 +168,53 @@ func TestUnknownReplyPendingWriteNeedsNativeCompletion(t *testing.T) {
 	effect, _, err = effect.Inspect(completed)
 	if err != nil || effect.Stage != cdn.Confirmed || f.NativeWrites(f.EdgeA.Profile().Reference) != 1 {
 		t.Fatalf("completion: %#v %v", effect, err)
+	}
+}
+
+func await(t *testing.T, signal <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-signal:
+	case <-time.After(2 * time.Second):
+		t.Fatal("fixture signal timed out")
+	}
+}
+
+func TestNativeIdempotencyLedgerAndConditionalWrite(t *testing.T) {
+	f := cdntest.New(t)
+	a := f.Attachment(f.EdgeA.Profile().Reference)
+	permit := apply(t, f.EdgeA, a, "idempotent")
+	if _, err := f.EdgeA.Execute(t.Context(), permit); err != nil {
+		t.Fatal(err)
+	}
+	if f.NativeWrites(f.EdgeA.Profile().Reference) != 1 {
+		t.Fatal("native idempotency key executed twice")
+	}
+	b := f.Attachment(f.EdgeB.Profile().Reference)
+	observed, _ := f.EdgeB.Observe(t.Context(), b)
+	steps, _ := f.EdgeB.Actions(b, observed)
+	sealed, err := f.EdgeB.Seal(t.Context(), b, steps[0], cdn.OwnedReceipt{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	delayed := cdn.Permit{Operation: "conditional", Effect: "conditional-effect", Claim: "writer", Action: sealed.Action}
+	gate := f.DelayNext(f.EdgeB.Profile().Reference)
+	if _, err := f.EdgeB.Execute(t.Context(), delayed); err != nil {
+		t.Fatal(err)
+	}
+	await(t, gate.Started)
+	f.Foreign(f.EdgeB.Profile().Reference)
+	close(gate.Release)
+	await(t, gate.Finished)
+	inspection, err := f.EdgeB.Inspect(t.Context(), delayed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := inspection.(cdn.Completed); ok {
+		t.Fatal("conditional conflict falsely completed")
+	}
+	if f.NativeWrites(f.EdgeB.Profile().Reference) != 0 {
+		t.Fatal("delayed conditional write overwrote foreign resource")
 	}
 }
 

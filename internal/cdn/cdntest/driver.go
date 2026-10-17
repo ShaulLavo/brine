@@ -77,6 +77,9 @@ func (d *Driver) Actions(attachment cdn.Attachment, observed cdn.Observation) ([
 	if attachment.Binding.Validate() != nil || observed.Profile != d.profile {
 		return nil, cdn.ErrInvalid
 	}
+	if !d.traffic && attachment.Mode == cdn.Direct {
+		return nil, nil
+	}
 	resource := d.resource(attachment, observed)
 	if resource.Owner != attachment.Owner {
 		return nil, cdn.ErrConflict
@@ -137,6 +140,14 @@ func (d *Driver) Execute(ctx context.Context, permit cdn.Permit) (cdn.EffectResu
 	if permit.Action.Profile != d.profile || permit.Claim == "" || permit.Effect == "" {
 		return nil, cdn.ErrInvalid
 	}
+	kind := cdn.PutEdge
+	if d.traffic {
+		kind = cdn.SetTraffic
+	}
+	identity := d.identity(permit.Action.Attachment)
+	if permit.Action.Kind != kind || permit.Action.Resource.Kind != identity.Kind || permit.Action.Resource.ID != identity.ID || permit.Action.Resource.ExactName != identity.ExactName {
+		return nil, cdn.ErrInvalid
+	}
 	var operation nativeOperation
 	err := d.call(ctx, http.MethodPost, "/state/"+string(d.profile.Reference), permit, permit.Action.Resource.Version, &operation)
 	if err != nil {
@@ -152,6 +163,9 @@ func (d *Driver) Inspect(ctx context.Context, permit cdn.Permit) (cdn.Inspection
 	var operation nativeOperation
 	if err := d.call(ctx, http.MethodGet, "/effect/"+string(permit.Effect), nil, "", &operation); err != nil {
 		return nil, err
+	}
+	if operation.Permit.Effect != "" && !reflect.DeepEqual(operation.Permit, permit) {
+		return nil, cdn.ErrConflict
 	}
 	current, err := d.Observe(ctx, permit.Action.Attachment)
 	if err != nil {
@@ -303,6 +317,7 @@ func (f *Fixture) replay(w http.ResponseWriter, previous *nativeOperation, permi
 func (f *Fixture) complete(n *node, operation *nativeOperation, gate *Gate) {
 	defer f.wg.Done()
 	if gate != nil {
+		defer close(gate.Finished)
 		close(gate.Started)
 		select {
 		case <-gate.Release:

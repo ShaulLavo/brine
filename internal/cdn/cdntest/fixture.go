@@ -2,6 +2,7 @@
 package cdntest
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -26,8 +27,9 @@ type Response struct {
 }
 
 type Gate struct {
-	Started chan struct{}
-	Release chan struct{}
+	Started  chan struct{}
+	Release  chan struct{}
+	Finished chan struct{}
 }
 
 type node struct {
@@ -73,6 +75,7 @@ func New(t testing.TB) *Fixture {
 	t.Cleanup(f.close)
 	f.OriginURL = f.start(http.HandlerFunc(f.serveOrigin))
 	transport := f.servers[0].Client().Transport.(*http.Transport).Clone()
+	transport.DisableCompression = true
 	transport.TLSClientConfig = transport.TLSClientConfig.Clone()
 	transport.TLSClientConfig.MinVersion = tls.VersionTLS12
 	f.Client = &http.Client{Transport: transport, Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
@@ -159,7 +162,7 @@ func (f *Fixture) DropReply(profile cdn.ProfileRef) {
 func (f *Fixture) DelayNext(profile cdn.ProfileRef) *Gate {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	gate := &Gate{Started: make(chan struct{}), Release: make(chan struct{})}
+	gate := &Gate{Started: make(chan struct{}), Release: make(chan struct{}), Finished: make(chan struct{})}
 	f.nodes[profile].gate = gate
 	return gate
 }
@@ -194,7 +197,11 @@ func writeResponse(w http.ResponseWriter, r *http.Request, response Response) {
 }
 
 func (f *Fixture) fetch(r *http.Request, endpoint string) (Response, error) {
-	request, err := http.NewRequestWithContext(r.Context(), r.Method, endpoint+r.URL.RequestURI(), nil)
+	body, err := requestBody(r)
+	if err != nil {
+		return Response{}, err
+	}
+	request, err := http.NewRequestWithContext(r.Context(), r.Method, endpoint+r.URL.RequestURI(), bytes.NewReader(body))
 	if err != nil {
 		return Response{}, err
 	}
@@ -204,11 +211,22 @@ func (f *Fixture) fetch(r *http.Request, endpoint string) (Response, error) {
 		return Response{}, err
 	}
 	defer response.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(response.Body, bodyLimit+1))
+	body, err = io.ReadAll(io.LimitReader(response.Body, bodyLimit+1))
 	if err != nil || len(body) > bodyLimit {
 		return Response{}, cdn.ErrInvalid
 	}
 	return Response{Status: response.StatusCode, Header: response.Header.Clone(), Body: body}, nil
+}
+
+func requestBody(r *http.Request) ([]byte, error) {
+	if r.Body == nil {
+		return nil, nil
+	}
+	body, err := io.ReadAll(io.LimitReader(r.Body, bodyLimit+1))
+	if err != nil || len(body) > bodyLimit {
+		return nil, cdn.ErrInvalid
+	}
+	return body, nil
 }
 
 func (f *Fixture) edgeHandler(driver *Driver) func(http.ResponseWriter, *http.Request) {
@@ -244,15 +262,22 @@ func (f *Fixture) serveEdge(driver *Driver, w http.ResponseWriter, r *http.Reque
 }
 
 func cacheable(response Response, digest cdn.Fingerprint) bool {
-	control := strings.ToLower(response.Header.Get("Cache-Control"))
-	typeName := strings.ToLower(strings.Split(response.Header.Get("Content-Type"), ";")[0])
+	typeName := strings.TrimSpace(strings.ToLower(strings.Split(response.Header.Get("Content-Type"), ";")[0]))
 	if response.Status != 200 || cdn.Hash(response.Body) != digest || len(response.Header.Values("Set-Cookie")) != 0 || response.Header.Get("Content-Encoding") != "" {
 		return false
 	}
 	if typeName == "text/html" || typeName == "application/xhtml+xml" || response.Header.Get("Vary") != "" {
 		return false
 	}
-	return strings.Contains(control, "public") && strings.Contains(control, "immutable") && strings.Contains(control, "max-age=31536000") && !strings.Contains(control, "private") && !strings.Contains(control, "no-store") && !strings.Contains(control, "no-cache")
+	return immutableDirectives(response.Header.Get("Cache-Control"))
+}
+
+func immutableDirectives(value string) bool {
+	directives := map[string]bool{}
+	for _, directive := range strings.Split(strings.ToLower(value), ",") {
+		directives[strings.TrimSpace(directive)] = true
+	}
+	return directives["public"] && directives["immutable"] && directives["max-age=31536000"] && len(directives) == 3
 }
 
 func (f *Fixture) serveGateway(w http.ResponseWriter, r *http.Request) {
