@@ -14,10 +14,11 @@ const (
 )
 
 type Effect struct {
-	Permit    Permit          `json:"permit"`
-	Stage     EffectStage     `json:"stage"`
-	Receipt   Fingerprint     `json:"receipt"`
-	Resources []OwnedResource `json:"resources"`
+	Permit     Permit          `json:"permit"`
+	Stage      EffectStage     `json:"stage"`
+	Receipt    Fingerprint     `json:"receipt"`
+	Completion Fingerprint     `json:"completion"`
+	Resources  []OwnedResource `json:"resources"`
 }
 
 // Claim is persisted by the host transaction before NeedEffect leaves the host.
@@ -103,6 +104,7 @@ func (e Effect) Inspect(inspection Inspection) (Effect, Work, error) {
 		if err := e.checkResources(value.Current); err != nil {
 			return e, nil, err
 		}
+		e.Completion = value.Evidence
 	default:
 		return e, nil, ErrInvalid
 	}

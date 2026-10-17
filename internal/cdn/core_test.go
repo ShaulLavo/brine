@@ -72,6 +72,31 @@ func TestCacheEligibilityPreservesPublicNoStoreRequests(t *testing.T) {
 	}
 }
 
+func TestCacheRejectsEncodedAliasesAndNoncanonicalPrefixes(t *testing.T) {
+	policy := fixtureBinding().Cache
+	request := httptest.NewRequest("GET", "https://game.example.test/objects/%61"+strings.Repeat("a", 63)+".png", nil)
+	if _, ok := policy.AssetDigest(request, "game.example.test"); ok {
+		t.Error("encoded filename alias eligible")
+	}
+	for _, prefix := range []string{"/with space/", "/control\n/", "/café/", "/wild*/", "/" + strings.Repeat("a", 256) + "/"} {
+		policy.Prefix = prefix
+		if policy.Validate() == nil {
+			t.Errorf("noncanonical prefix accepted: %q", prefix)
+		}
+	}
+}
+
+func TestCacheRejectsPresentEmptyPrivateHeaders(t *testing.T) {
+	policy := fixtureBinding().Cache
+	for _, header := range []string{"Authorization", "Cookie", "Range"} {
+		request := httptest.NewRequest("GET", "https://game.example.test/objects/"+strings.Repeat("a", 64)+".png", nil)
+		request.Header.Set(header, "")
+		if _, ok := policy.AssetDigest(request, "game.example.test"); ok {
+			t.Errorf("empty %s header eligible", header)
+		}
+	}
+}
+
 func fixtureEffect() Effect {
 	binding := fixtureBinding()
 	owner := Owner{Target: binding.Target, App: binding.App, Incarnation: "app-1", Attachment: "attachment-1"}
@@ -155,5 +180,45 @@ func TestUnknownWriteCannotCompleteFromDesiredGET(t *testing.T) {
 	}
 	if _, ok := restored.Next().(NeedObservation); !ok {
 		t.Fatal("restart reopened effect claim")
+	}
+}
+
+func TestQualificationBindsOneCanonicalPublicAsset(t *testing.T) {
+	effect := fixtureEffect()
+	assetPath := "/objects/" + strings.Repeat("a", 64) + ".png"
+	sample, err := NewAssetSample(effect.Permit.Action.Attachment.Binding.Cache, assetPath)
+	if err != nil || sample.Digest != Fingerprint("sha256:"+strings.Repeat("a", 64)) {
+		t.Fatal("sample does not derive its hash", err)
+	}
+	qualification := Qualification{Attachment: effect.Permit.Action.Attachment, Sample: sample}
+	if qualification.Validate() != nil {
+		t.Fatal("valid sample refused")
+	}
+	qualification.Sample.Digest = Hash([]byte("another asset"))
+	if qualification.Validate() == nil {
+		t.Fatal("forged sample hash accepted")
+	}
+	for _, input := range []string{"https://other.example/objects/a.png", assetPath + "?private=1", "/objects/%61" + strings.Repeat("a", 63) + ".png", "/api/private"} {
+		if _, err := NewAssetSample(effect.Permit.Action.Attachment.Binding.Cache, input); err == nil {
+			t.Errorf("unsafe sample accepted: %q", input)
+		}
+	}
+}
+
+func TestNativeCompletionEvidenceSurvivesStatePersistence(t *testing.T) {
+	effect, _, _ := fixtureEffect().Claim("writer")
+	proof := Hash([]byte("native completion observation"))
+	current := Observation{Profile: effect.Permit.Action.Profile, Fingerprint: effect.Permit.Action.Desired, ObservedAt: time.Now().UTC()}
+	confirmed, _, err := effect.Inspect(Completed{Effect: effect.Permit.Effect, Current: current, Evidence: proof})
+	if err != nil || confirmed.Completion != proof {
+		t.Fatal("native evidence lost", err)
+	}
+	encoded, err := json.Marshal(confirmed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored Effect
+	if json.Unmarshal(encoded, &restored) != nil || restored.Completion != proof {
+		t.Fatal("stored state lost native completion evidence")
 	}
 }

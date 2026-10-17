@@ -20,6 +20,7 @@ const ImmutableTTL = 31536000
 var namePattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,62}$`)
 var hashPattern = regexp.MustCompile(`^sha256:[a-f0-9]{64}$`)
 var extensionPattern = regexp.MustCompile(`^[a-z0-9]{1,10}$`)
+var prefixPattern = regexp.MustCompile(`^/(?:[A-Za-z0-9._~-]+/)+$`)
 
 func Hash(data []byte) Fingerprint {
 	sum := sha256.Sum256(data)
@@ -83,7 +84,7 @@ func hostname(value string) bool {
 }
 
 func (p CachePolicy) Validate() error {
-	if p.Prefix == "/" || !strings.HasPrefix(p.Prefix, "/") || !strings.HasSuffix(p.Prefix, "/") || path.Clean(p.Prefix)+"/" != p.Prefix || strings.ContainsAny(p.Prefix, "%?#\\") || p.TTLSeconds != ImmutableTTL || len(p.Extensions) == 0 || len(p.Extensions) > 16 {
+	if len(p.Prefix) > 256 || !prefixPattern.MatchString(p.Prefix) || path.Clean(p.Prefix)+"/" != p.Prefix || p.TTLSeconds != ImmutableTTL || len(p.Extensions) == 0 || len(p.Extensions) > 16 {
 		return ErrInvalid
 	}
 	seen := map[string]bool{}
@@ -111,7 +112,7 @@ func (p CachePolicy) AssetDigest(request *http.Request, host string) (Fingerprin
 	if request == nil || request.URL == nil || request.Host != host || request.Method != http.MethodGet && request.Method != http.MethodHead || request.URL.RawQuery != "" || request.URL.ForceQuery {
 		return "", false
 	}
-	if request.Header.Get("Authorization") != "" || request.Header.Get("Cookie") != "" || request.Header.Get("Range") != "" {
+	if request.URL.EscapedPath() != request.URL.Path || len(request.Header.Values("Authorization")) != 0 || len(request.Header.Values("Cookie")) != 0 || len(request.Header.Values("Range")) != 0 {
 		return "", false
 	}
 	if !strings.HasPrefix(request.URL.Path, p.Prefix) {
@@ -121,4 +122,28 @@ func (p CachePolicy) AssetDigest(request *http.Request, host string) (Fingerprin
 	base, extension, found := strings.Cut(file, ".")
 	digest := Fingerprint("sha256:" + base)
 	return digest, found && hashPattern.MatchString(string(digest)) && slices.Contains(p.Extensions, extension)
+}
+
+func NewAssetSample(policy CachePolicy, assetPath string) (AssetSample, error) {
+	if policy.Validate() != nil || !strings.HasPrefix(assetPath, "/") {
+		return AssetSample{}, ErrInvalid
+	}
+	u, err := url.ParseRequestURI(assetPath)
+	if err != nil || u.IsAbs() || u.Host != "" {
+		return AssetSample{}, ErrInvalid
+	}
+	request := &http.Request{Method: http.MethodGet, Host: "qualification.invalid", URL: u}
+	digest, ok := policy.AssetDigest(request, request.Host)
+	if !ok {
+		return AssetSample{}, ErrInvalid
+	}
+	return AssetSample{Path: assetPath, Digest: digest}, nil
+}
+
+func (q Qualification) Validate() error {
+	sample, err := NewAssetSample(q.Attachment.Binding.Cache, q.Sample.Path)
+	if err != nil || sample != q.Sample {
+		return ErrInvalid
+	}
+	return q.Attachment.Binding.Validate()
 }

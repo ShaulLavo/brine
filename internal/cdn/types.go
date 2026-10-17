@@ -180,13 +180,26 @@ func (Observed) inspection()  {}
 func (Completed) inspection() {}
 
 type PublicProof struct {
-	Revision       RevisionID  `json:"revision"`
-	OriginHealthy  bool        `json:"origin_healthy"`
-	EdgeHealthy    bool        `json:"edge_healthy"`
-	FullGETs       uint32      `json:"full_gets"`
-	HashesVerified bool        `json:"hashes_verified"`
-	LaterHit       bool        `json:"later_hit"`
-	Evidence       Fingerprint `json:"evidence"`
+	Sample         AssetSample  `json:"sample"`
+	Source         ProfileScope `json:"source"`
+	ObservedAt     time.Time    `json:"observed_at"`
+	Revision       RevisionID   `json:"revision"`
+	OriginHealthy  bool         `json:"origin_healthy"`
+	EdgeHealthy    bool         `json:"edge_healthy"`
+	FullGETs       uint32       `json:"full_gets"`
+	HashesVerified bool         `json:"hashes_verified"`
+	LaterHit       bool         `json:"later_hit"`
+	Evidence       Fingerprint  `json:"evidence"`
+}
+
+type AssetSample struct {
+	Path   string      `json:"path"`
+	Digest Fingerprint `json:"digest"`
+}
+
+type Qualification struct {
+	Attachment Attachment  `json:"attachment"`
+	Sample     AssetSample `json:"sample"`
 }
 
 type EdgeDriver interface {
@@ -194,7 +207,7 @@ type EdgeDriver interface {
 	Actions(Attachment, Observation) ([]Action, error)
 	Execute(context.Context, Permit) (EffectResult, error)
 	Inspect(context.Context, Permit) (Inspection, error)
-	Probe(context.Context, Attachment) (PublicProof, error)
+	Probe(context.Context, Qualification) (PublicProof, error)
 }
 type TrafficDriver interface {
 	Observe(context.Context, Attachment) (Observation, error)
