@@ -589,6 +589,11 @@ plans restoration of a retained CDN revision; binding, profile and mode must
 match that revision and remain authorized by current policy. Restoration uses
 the current app release and creates a new CDN revision.
 
+If a sealed step already has its desired fingerprint, the adapter sends no
+provider write. Exact independent readback can settle that step only while the
+original resource identity, version and ownership still match. Unknown writes
+that change state still require their native acknowledgement or completion proof.
+
 `cdn apply` admits one requester/idempotency operation and drives its provider
 work until `Waiting` or `Finished`. `cdn resume` continues from the host journal
 after a disconnect. `cdn status --app APP [--operation ID]` reads retained host

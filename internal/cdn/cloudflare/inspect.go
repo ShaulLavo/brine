@@ -59,6 +59,12 @@ func (d *Adapter) Inspect(ctx context.Context, permit cdn.Permit) (cdn.Inspectio
 		return nil, err
 	}
 	current = selected(current, permit.Action.Resource.Kind)
+	// Execute never sends a native write for an already-desired precondition.
+	// Exact independent readback therefore completes a zero-write step, even
+	// when its acknowledgement was lost. Other unknown writes stay unsettled.
+	if permit.Action.Expected == permit.Action.Desired && matchesBefore(permit.Action, current) {
+		return cdn.Completed{Effect: permit.Effect, Current: current, Evidence: fingerprint(current)}, nil
+	}
 	relation := cdn.Diverged
 	if current.Fingerprint == permit.Action.Expected {
 		relation = cdn.Before
@@ -73,7 +79,7 @@ func (d *Adapter) Inspect(ctx context.Context, permit cdn.Permit) (cdn.Inspectio
 }
 
 func (d *Adapter) admitPermit(p cdn.Permit) error {
-	if p.Operation == "" || p.Effect == "" || p.Claim == "" || p.Action.Profile != d.scope || p.Action.Expected == p.Action.Desired {
+	if p.Operation == "" || p.Effect == "" || p.Claim == "" || p.Action.Profile != d.scope {
 		return cdn.ErrInvalid
 	}
 	if err := d.admit(p.Action.Attachment); err != nil {

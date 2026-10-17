@@ -107,7 +107,8 @@ const (
 	RemoveEdge      ActionKind = "remove_edge"
 )
 
-// Action authorizes exactly one native provider mutation.
+// Action authorizes at most one native provider mutation. An already-desired
+// precondition completes by exact readback without a provider write.
 type Action struct {
 	Kind       ActionKind    `json:"kind"`
 	Attachment Attachment    `json:"attachment"`
