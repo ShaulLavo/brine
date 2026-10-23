@@ -4,7 +4,7 @@ Read [AGENTS.md](AGENTS.md), the [decisions](docs/DECISIONS.md) and the relevant
 
 ## Install tools and hooks
 
-The repository pins Go 1.27.2, golangci-lint 2.14.0 and Lefthook 2.1.15 in `mise.toml`. The module still declares Go 1.26 as its minimum. With [mise](https://mise.jdx.dev/) installed:
+The repository pins Go 1.27.3, golangci-lint 2.14.0 and Lefthook 2.1.15 in `mise.toml`. The module still declares Go 1.26 as its minimum. With [mise](https://mise.jdx.dev/) installed:
 
 ```sh
 mise trust
