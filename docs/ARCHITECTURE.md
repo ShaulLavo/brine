@@ -23,6 +23,20 @@ Enrollment installs a deploy key whose `authorized_keys` entry forces `brine hos
 
 This is the idea the rest depends on. An agent holding the deploy key can plan and apply what the operator allowed, and nothing else. Root-owned files and an SSH drop-in make the restriction hard to remove from the runner account ([D7](DECISIONS.md#d7-the-runner-cant-replace-its-own-ssh-restriction)).
 
+## Admin access and deploy access are different credentials
+
+Brine uses two kinds of SSH access, and they never mix.
+
+| | Admin access | Deploy access |
+| --- | --- | --- |
+| Who holds it | The operator, with their own SSH login (`root` or a user with `sudo`) | You, or an agent, through the key you passed to `enroll` |
+| Server account | The operator's account | The `brine` runner account, forced into `brine host serve` |
+| What it can do | Set up and undo enrollment, and change the registry and domain allow lists | Plan and apply what the operator policy allows, then check status, logs and recovery |
+| Commands | `brine enroll`, `brine permissions` (both take an admin destination) | Every other connected command, through `--target NAME` |
+| Can edit the policy | Yes: `permissions` for registries and domains, a root edit of the file for everything else | No |
+
+The deploy key cannot widen its own permissions. To let it use a new registry, domain or secret, the operator does that with admin access. See [Deploy an app](guides/deploy-an-app.md#allow-your-registry-and-domain) for the commands.
+
 ## Apply is a recorded operation, not a script
 
 ```mermaid
