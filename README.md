@@ -1,3 +1,6 @@
+<p align="center">
+  <img alt="A glass jar of brine on a wooden shelf with a small server rack pickled inside it. A cable runs from the jar to a laptop." src="docs/assets/hero.webp">
+</p>
 <h1 align="center">Brine</h1>
 <p align="center">Deploy containerized apps to a Linux server you own. Review a plan, apply it by ID, and let a coding agent drive the same commands through JSON.</p>
 <p align="center"><a href="https://github.com/ShaulLavo/brine/actions/workflows/ci.yml"><img alt="Go CI status" src="https://github.com/ShaulLavo/brine/actions/workflows/ci.yml/badge.svg"></a></p>
