@@ -1,6 +1,6 @@
 # Native engine bundles
 
-The [selected engine publication](../../docs/evidence/p09-native-engine.md) records
+The selected engine publication records
 the actual image and both platform/configuration identities used for new allocations.
 
 `prepare.py` verifies the upstream archive and shutdown patch before applying

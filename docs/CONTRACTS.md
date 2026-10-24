@@ -4,14 +4,14 @@
 
 ## App-owned UDP and WebTransport (D10, Phase 08; implementation pending)
 
-The [UDP-only delivery](plans/08-udp.md) owns policy-approved UDP allocation,
+The UDP-only delivery owns policy-approved UDP allocation,
 publishing, inventory and lifecycle recovery. The app owns its game protocol,
 authentication and any app-managed TLS. Plain UDP requires no certificate,
 WebTransport declaration or echo-health interface. Its endpoint facts contain
 the approved client address, port, protocol and exposure, not a guessed
 WebTransport URL. Implementation remains pending.
 
-Optional TLS file delivery is P08-11 in [the extension plan](plans/08-webtransport.md).
+Optional TLS file delivery is P08-11 in the extension plan.
 `file_secrets` binds immutable app-scoped certificate/key versions.
 App-managed hashes leave short-lived certificate rotation and trusted browser
 `serverCertificateHashes` delivery to the app, with no Brine key injection or
@@ -890,7 +890,7 @@ table.
 
 `ObserveCurrent` accepts a validated literal-loopback location, privately resolved publisher credential, expected native database/publisher/name binding and bounded deadline. Location validation is not ownership or startup authority. It performs fixed info/names/environment/schema-v10/environment GETs, requires matching current module wire identities and returns no credentials or raw headers. SQL/WS hooks are not an observer substitute. Host callers retain control serialization and establish actual runtime ownership. The module wire identity is native Keccak-256 represented through little-endian u256, distinct from Wasm SHA-256 and native digest display.
 
-Initialized startup verification must recover current persisted `st_module` in a private stopped-source copy with external bootstrap `program-bytes` inaccessible. Historical control plus missing replicas can otherwise reconstruct matching initial metadata and empty data. The original stays stopped and unchanged; verifier effects stay contained. Host/store ownership, process/job/lifetime absence, source seals, fences, epoch and startup serialization construct the opaque startup proof. The P09-02 manual experiment does not construct that production proof or enable live starts. Exact data coverage also requires independently qualified native framing/high-water and replay evidence, not metadata equality or native `Complete` alone. See [the pinned runtime contract](evidence/p09-runtime.md).
+Initialized startup verification must recover current persisted `st_module` in a private stopped-source copy with external bootstrap `program-bytes` inaccessible. Historical control plus missing replicas can otherwise reconstruct matching initial metadata and empty data. The original stays stopped and unchanged; verifier effects stay contained. Host/store ownership, process/job/lifetime absence, source seals, fences, epoch and startup serialization construct the opaque startup proof. The P09-02 manual experiment does not construct that production proof or enable live starts. Exact data coverage also requires independently qualified native framing/high-water and replay evidence, not metadata equality or native `Complete` alone. See the pinned runtime contract.
 
 Shared startup proof binds explicit engine, incarnation, database, binding and epoch IDs, local destination ownership, settled source state and an affirmative unfenced/released state. The SQLite runtime then independently verifies the exact Litestream configuration and hash. A common identity proof is not an engine-service permit by itself. Missing/unknown engine, fence or ownership and cross-engine evidence refuse startup. Existing durable-fence, credential, reboot and archive rules remain in force.
 
@@ -939,7 +939,7 @@ ownership, credentials, jobs, and remote storage acceptance remain required.
 
 ### Candidate schema and publication records (P09-06 core)
 
-`spacetimedb.DecodeDescriptorV10` requires exactly one `V10` envelope and delegates body validation to `CanonicalSchemaV10`. It accepts metadata, not proof that a Wasm artifact produced it. Pinned native `extract-schema` executes guest initialization and description code; protected extraction must contain those effects and establish the artifact/schema binding. The six captured native descriptors and their content pins are retained with [the core evidence](evidence/p09-schema-publication.md).
+`spacetimedb.DecodeDescriptorV10` requires exactly one `V10` envelope and delegates body validation to `CanonicalSchemaV10`. It accepts metadata, not proof that a Wasm artifact produced it. Pinned native `extract-schema` executes guest initialization and description code; protected extraction must contain those effects and establish the artifact/schema binding. The six captured native descriptors and their content pins are retained with the core evidence.
 
 `CompareSchemas` returns immutable changes and required checks. Every update, including equal schemas with changed code, requires guest review and preserved-data verification. New tables require independent new-table data evidence. Appended U8 defaults require old-column projection and default-value evidence. Removal, rename, reordering, type/access changes and changes to existing keys, indexes, constraints, sequences or defaults require a separate operator procedure. Unqualified appended defaults refuse. Callable, lifecycle and scheduler changes add explicit effects qualification. No result says an update is safe to apply.
 

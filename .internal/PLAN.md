@@ -1,6 +1,6 @@
 # Brine implementation roadmap
 
-**Status: Approved.** No deployment functionality is implemented by writing this file. Architecture decisions live in [DECISIONS.md](DECISIONS.md) and take precedence over older wording here.
+**Status: Approved.** No deployment functionality is implemented by writing this file. Architecture decisions live in [DECISIONS.md](../docs/DECISIONS.md) and take precedence over older wording here.
 
 **Product goal:** Vercel-fast deploys on your own server (D9): a small, fast, trustworthy self-hosted deployment tool on a single Linux VPS that an AI agent can run end to end (deploy, change, troubleshoot, remove and maintain, per D8) using stable JSON, with a person able to do the same through Charm.
 
@@ -33,7 +33,7 @@ initialization, schema-preserving deployment and isolated restore checks.
 Managed SpacetimeDB commands implement private roles, backup policy, online
 capture, exact preparation, passive restore tests, reviewed publication, gated
 live restore, archive retirement and unused exact-preparation abandonment. Use
-the [operator runbook](runbooks/spacetimedb.md) for their required sequence. The
+the [operator runbook](../docs/runbooks/spacetimedb.md) for their required sequence. The
 [physical evidence](evidence/p09-pi.md) records first publication, Pi browser
 execution and ordinary online capture with real R2 replay on both architectures.
 Phase 04 and Phase 09 acceptance remains incomplete. The welcome TUI uses
@@ -140,4 +140,4 @@ coordinates with P07-01; transport previews retain both phases' authorization ga
 
 A checked task has implementation, tests, relevant documentation, and the exact acceptance evidence requested. A plan can fail if assumptions about OS versions or third-party integration prove false; record a short architecture decision and update downstream tasks rather than pretending compatibility.
 
-Every mutation identifies the target, verifies ownership, journals intent before external effects, and returns a traceable operation ID. Destructive infrastructure activity is out of scope. Application rollback **must not** roll back databases. See [contracts](CONTRACTS.md), [test matrix](TEST_MATRIX.md), [architecture](ARCHITECTURE.md), and [agent instructions](../AGENTS.md).
+Every mutation identifies the target, verifies ownership, journals intent before external effects, and returns a traceable operation ID. Destructive infrastructure activity is out of scope. Application rollback **must not** roll back databases. See [contracts](../docs/CONTRACTS.md), [test matrix](TEST_MATRIX.md), [architecture](../docs/ARCHITECTURE.md), and [agent instructions](../AGENTS.md).

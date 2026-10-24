@@ -64,7 +64,7 @@ The initialized-start experiment copies a stopped source into a fresh Bubblewrap
 
 The probe's stdout is scrubbed JSON. Source logs, fixture keys, user tokens, and failed copies remain in private scratch for inspection. Cleanup stops only its own processes. The operator removes only the generated directory after preserving needed evidence. No real host, service, Pi, or S3 storage is used by default CI. Running this on another host requires that host's separate fixture authorization.
 
-The wider physical receipts in [P09 runtime evidence](../../docs/evidence/p09-runtime.md) cover torn tails, metadata drift, shutdown failures, JWT ingress, and OCI behavior. This core gate does not repeat every physical case or replace the later Brine/R2 drill. The exact-state native-reader and production fence/startup composition remain later integration work.
+The wider physical receipts in P09 runtime evidence cover torn tails, metadata drift, shutdown failures, JWT ingress, and OCI behavior. This core gate does not repeat every physical case or replace the later Brine/R2 drill. The exact-state native-reader and production fence/startup composition remain later integration work.
 
 ## Check without a real runtime
 

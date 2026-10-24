@@ -1,6 +1,6 @@
 # Phase plans
 
-Start with [the roadmap](../PLAN.md) and [decisions](../DECISIONS.md), then read [contracts](../CONTRACTS.md) and [the test matrix](../TEST_MATRIX.md). **None of these tasks are complete merely because the plan was written.** Check items only when implemented, tested, and documented.
+Start with [the roadmap](../PLAN.md) and [decisions](../../docs/DECISIONS.md), then read [contracts](../../docs/CONTRACTS.md) and [the test matrix](../TEST_MATRIX.md). **None of these tasks are complete merely because the plan was written.** Check items only when implemented, tested, and documented.
 
 | Order | File | Focus |
 | --- | --- | --- |

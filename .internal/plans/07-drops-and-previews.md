@@ -1,6 +1,6 @@
 # Phase 07: Drops and git previews
 
-**Status: Approved** (owner, 2026-10-09). Design in [D9](../DECISIONS.md). Unchecked tasks describe required behavior, not shipped guarantees.
+**Status: Approved** (owner, 2026-10-09). Design in [D9](../../docs/DECISIONS.md). Unchecked tasks describe required behavior, not shipped guarantees.
 
 **Goal:** deploying an owner-authored website takes one command or one `git push`. A drop is a temporary static site or small server with a short link. A branch or pull request gets a preview. Production still builds in CI and deploys through a separate credential.
 

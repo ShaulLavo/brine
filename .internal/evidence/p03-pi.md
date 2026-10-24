@@ -57,7 +57,7 @@ enrollment options differ from durable intent
 operator SSH command failed; inspect and reconcile the host before retrying
 ```
 
-`internal/enroll/host_linux.go:359-360` refuses a changed binary hash after recorded binary intent. [The enrollment contract](../CONTRACTS.md#operator-enrollment) explicitly excludes treating a different binary as an enrollment rerun. A documented operator update path remains missing.
+`internal/enroll/host_linux.go:359-360` refuses a changed binary hash after recorded binary intent. [The enrollment contract](../../docs/CONTRACTS.md#operator-enrollment) explicitly excludes treating a different binary as an enrollment rerun. A documented operator update path remains missing.
 
 A separate operator session reported that supported undo also refused with `unrecorded runtime data refused`, then Caddy tree drift. That session reported manual withdrawal of journaled artifacts and fresh enrollment. This lane did not perform or independently verify that withdrawal. Those reports are follow-ups to reproduce, not evidence that every used host is impossible to unenroll. The installation and undo findings remain under P06-03 and P06-05.
 

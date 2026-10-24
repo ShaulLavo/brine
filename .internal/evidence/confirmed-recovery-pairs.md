@@ -92,7 +92,7 @@ process and filesystem ownership, source identity and verifier disposal.
 
 Production host/journal composition remains a separate acceptance gate. These
 local fixture checks do not prove an R2 restore or a working migration command.
-The [database contracts](CONTRACTS.md#database-and-recovery) and
-[native capture test matrix](TEST_MATRIX.md#native-capture-structural-prerequisites-p09-05--t35)
+The [database contracts](../../docs/CONTRACTS.md#database-and-recovery) and
+[native capture test matrix](../TEST_MATRIX.md#native-capture-structural-prerequisites-p09-05--t35)
 retain those wider requirements. P09-05 and P09-06 remain unchecked until their
 full acceptance evidence exists.

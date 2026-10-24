@@ -287,7 +287,7 @@ rollback. Update the repository's full `CREATE TABLE` schema to describe the
 resulting catalog; keep migration SQL separate from that initialization file.
 
 **That executor is not yet shipped.** Follow
-[P04-07's implementation gate](plans/04-sqlite-and-backups.md#p04-07-policy-delivery-and-implementation-gate)
+P04-07's implementation gate
 before planning a live schema change; there is no supported migration command to
 copy from this page. Keep the current schema until that reviewed flow is available,
 or arrange a separate explicitly authorized operator procedure with the same

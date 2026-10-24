@@ -79,7 +79,7 @@ Brine needs only:
 
 - [x] **P10-05 Docs: "Using a database".** One page: the contract above, a minimal `brine.toml`, a schema file, and short, complete examples for TypeScript (`bun:sqlite` and `better-sqlite3`), Rust (`rusqlite`) and Go (`modernc` or `mattn/go-sqlite3`), each opening `BRINE_DB_MAIN_PATH`, enabling WAL and busy timeout, and checking the marker. Include how to add a column later (points to the reviewed migration flow) and what custom SQLite builds may and may not do. Replace the manual steps in `docs/data-initialization.md`.
 
-  The walkthrough is [Using a database](../using-a-database.md), linked from
+  The walkthrough is [Using a database](../../docs/using-a-database.md), linked from
   the README and initialization reference. Its spec parses and its SQL compiles
   with Brine's schema compiler. The extracted Go example builds with the existing
   modernc dependency; Go and Bun examples open a local initialized fixture and

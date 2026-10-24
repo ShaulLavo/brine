@@ -4,8 +4,8 @@ Brine is an **agent-first deployment CLI** with a beautiful Charm human interfac
 
 ## Start here
 
-1. Read [the roadmap](docs/PLAN.md), [decisions](docs/DECISIONS.md) and [contracts](docs/CONTRACTS.md).
-2. Read the relevant phase file in [docs/plans](docs/plans/README.md).
+1. Read [the roadmap](.internal/PLAN.md), [decisions](docs/DECISIONS.md) and [contracts](docs/CONTRACTS.md).
+2. Read the relevant phase file in [docs/plans](.internal/plans/README.md).
 3. Inspect the **actual code**, not just planning documents. The CLI implements validation, offline and connected planning, enrollment, detached stateless deployment, app and operation status, logs, diagnosis, reconciliation, terminal recovery resolution, configuration/secret changes, lifecycle plans, rollback and stateless removal. `doctor` checks local dependencies; `tui` remains a welcome screen. Persistent app data and Litestream/R2 restore are not shipped.
 4. Pick **one task ID** with completed dependencies. Implement and test it in a reviewable change.
 5. Update task checkboxes only when behavior and acceptance evidence exist.
@@ -41,4 +41,4 @@ go build ./cmd/brine
 git diff --check
 ~~~
 
-Add tests from [TEST_MATRIX.md](docs/TEST_MATRIX.md) for the affected behavior. Report which checks ran and what was not verified. Mock tests are not evidence of a working deploy or successful R2 restore.
+Add tests from [TEST_MATRIX.md](.internal/TEST_MATRIX.md) for the affected behavior. Report which checks ran and what was not verified. Mock tests are not evidence of a working deploy or successful R2 restore.

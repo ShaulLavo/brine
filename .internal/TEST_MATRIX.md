@@ -110,7 +110,7 @@ T34 has local typed-boundary acceptance evidence. T35 has the qualified prerequi
 
 ## Phase 09 operator command and evidence matrix
 
-The [operator runbook](runbooks/spacetimedb.md) describes current public commands.
+The [operator runbook](../docs/runbooks/spacetimedb.md) describes current public commands.
 This matrix maps execution to evidence still required for phase acceptance.
 Retain scrubbed commands, exact pins and matching operation receipts. Do not
 convert source checks or accepted tasks into physical success claims.
@@ -193,7 +193,7 @@ Neither P09-06 nor T39 is completed by this source unit.
 
 ## T16 schema policy acceptance, physical completion pending
 
-D12 and the [Schema migrations contract](CONTRACTS.md#schema-migrations) define these gates. P04-07's policy documents alone are not passing behavioral evidence. Connected declaration/current-schema admission, fresh writer permits and reviewed first initialization now exist, but existing-schema migration and the physical incompatible-rollback drill remain open.
+D12 and the [Schema migrations contract](../docs/CONTRACTS.md#schema-migrations) define these gates. P04-07's policy documents alone are not passing behavioral evidence. Connected declaration/current-schema admission, fresh writer permits and reviewed first initialization now exist, but existing-schema migration and the physical incompatible-rollback drill remain open.
 
 - Persistent create and update plans without complete per-database declarations conflict with `schema_compatibility_required` and have no executable changes. Config/start paths cannot bypass admission. Removing a data reference cannot disguise existing persistence. Strict parsing refuses unsupported startup migration modes. Existing stateless plans remain unchanged.
 - Known schema incompatibility conflicts with `schema_incompatible`. Unknown or contradictory current schema conflicts with `schema_state_unknown`. Declaration ordering preserves canonical hashes. Changed current schema invalidates a stored plan at apply before effects. Initial table creation uses the separate reviewed schema-change workflow.

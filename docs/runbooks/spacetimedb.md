@@ -1,11 +1,11 @@
 # Operate a managed SpacetimeDB app
 
 Phase 09 is Approved and incomplete. These commands describe the implemented
-operator flow. The [physical evidence](../evidence/p09-pi.md) records first
+operator flow. The physical evidence records first
 publication, Pi browser writes and ordinary online capture with real R2 replay
 on both architectures. Module updates, live restore, archive, assigned fault
 cases and final delivery remain incomplete. Keep the
-[phase tasks](../plans/09-spacetimedb.md) unchecked until their full evidence exists.
+phase tasks unchecked until their full evidence exists.
 
 Use an enrolled target and its restricted personal identity. Replace uppercase
 arguments with declared names or IDs returned by Brine. Save each reviewed plan,
@@ -46,7 +46,7 @@ bash scripts/build-cli-pair.sh OUTPUT_DIRECTORY
    Enroll through the [existing enrollment flow](../CONTRACTS.md#operator-enrollment).
    Keep the target configuration and private input files outside the repository.
 2. Select the pinned engine from
-   [selected native engine](../evidence/p09-native-engine.md). Enrollment installs the
+   selected native engine. Enrollment installs the
    passive reader's [architecture-specific artifact pins](../../internal/enroll/native_reader.go).
    Select the immutable
    frontend image and matching Wasm/client artifacts from the
@@ -299,7 +299,7 @@ Abandonment never extends expired coverage or authorizes publication.
 For a lost response, inspect the original operation and use its retained key.
 Do not clear its fence or infer success from an unjoined receipt.
 
-The [physical evidence](../evidence/p09-pi.md) records successful source53
+The physical evidence records successful source53
 abandonment with all components still stopped. The next ordinary start plan
 timed out without a saved plan or apply. Successful ordinary resume remains
 required; abandonment alone is not a start receipt.
@@ -530,7 +530,7 @@ consumers stop. Report retained archives and original trees with size, owner and
 removal condition. Never use blanket host pruning.
 
 Use the existing pinned version until the
-[runtime and physical exit gates](../plans/09-spacetimedb.md#exit-gate) pass for
+runtime and physical exit gates pass for
 an upgrade. After an operator atomically replaces `/usr/local/bin/brine`, a running
 engine retains the old read-only helper until its container stops. Brine recognizes
 that unlinked helper when the engine's other ownership checks still pass, so normal
@@ -540,5 +540,5 @@ start. A frontend app's restart affects only its frontend and does not replace
 the engine helper. New startup and publication still require the installed helper.
 
 HA, arbitrary point-in-time recovery and unqualified live-copy states
-remain unsupported. The [acceptance matrix](../TEST_MATRIX.md#phase-09-operator-command-and-evidence-matrix)
+remain unsupported. The acceptance matrix
 lists the remaining evidence; this runbook does not complete it.

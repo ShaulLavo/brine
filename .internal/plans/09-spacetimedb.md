@@ -1,6 +1,6 @@
 # Phase 09: Managed SpacetimeDB
 
-**Status: Approved.** Decision [D13](../DECISIONS.md#d13-spacetimedb-is-a-managed-data-engine-alongside-sqlite) governs this phase. No task is complete because this plan exists.
+**Status: Approved.** Decision [D13](../../docs/DECISIONS.md#d13-spacetimedb-is-a-managed-data-engine-alongside-sqlite) governs this phase. No task is complete because this plan exists.
 
 ## Goal and delivery limits
 
@@ -15,7 +15,7 @@ They include stopped allocation, private roles, backup policy, online capture,
 exact preparation, isolated native restore tests, reviewed module publication,
 separately granted live restore, native archive and maintenance, and unused-point
 abandonment. Cobra and the restricted dispatcher call the same recorded engine.
-The [operator runbook](../runbooks/spacetimedb.md) describes their sequence.
+The [operator runbook](../../docs/runbooks/spacetimedb.md) describes their sequence.
 
 The [physical evidence](../evidence/p09-pi.md) records first publication on both
 architectures, a Pi browser write, and ordinary continuing-write capture followed

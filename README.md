@@ -6,13 +6,13 @@ Agent-first self-hosted deployments, with a human-friendly Charm CLI.
 
 An experiment for running personal applications on enrolled Linux servers. Routine deployments use a deterministic command API; the full terminal interface is still planned.
 
-> **Status: deployment and reviewed first-database initialization implemented.** Brine supports enrollment, connected planning, detached deployment, app and operation status, logs, diagnosis, reconciliation, recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical test](docs/evidence/p03-pi.md) passed on the authorized test host. This is not a production-readiness or zero-downtime claim. The one-command SQLite workflow is implemented; the remaining Phase 04 backup, migration, removal and recovery acceptance gates are still open. The Charm TUI is currently a welcome screen.
+> **Status: deployment and reviewed first-database initialization implemented.** Brine supports enrollment, connected planning, detached deployment, app and operation status, logs, diagnosis, reconciliation, recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical test](.internal/evidence/p03-pi.md) passed on the authorized test host. This is not a production-readiness or zero-downtime claim. The one-command SQLite workflow is implemented; the remaining Phase 04 backup, migration, removal and recovery acceptance gates are still open. The Charm TUI is currently a welcome screen.
 
 Managed SpacetimeDB commands implement stopped allocation, private role delivery,
 backup activation, online capture and isolated restore tests, reviewed module
 publication, separately gated live restore and whole-binding archive retirement.
 The [operator runbook](docs/runbooks/spacetimedb.md) gives their required order.
-The [physical evidence](docs/evidence/p09-pi.md) records first publication, Pi
+The [physical evidence](.internal/evidence/p09-pi.md) records first publication, Pi
 browser writes and online real R2 capture/replay on both architectures. Phase 09
 module-update, live-restore, archive, assigned fault and final-delivery acceptance
 remains incomplete.
@@ -148,7 +148,7 @@ No destructive operation should bypass authorization boundaries, durable operati
 
 ## Build plan
 
-Start with the [implementation roadmap](docs/PLAN.md), then the [phase-by-phase task list](docs/plans/README.md). These documents include [command contracts](docs/CONTRACTS.md), a [failure/acceptance test matrix](docs/TEST_MATRIX.md), and [agent instructions](AGENTS.md). Use completed task checkboxes and recorded evidence to distinguish implemented behavior from future work.
+Start with the [implementation roadmap](.internal/PLAN.md), then the [phase-by-phase task list](.internal/plans/README.md). These documents include [command contracts](docs/CONTRACTS.md), a [failure/acceptance test matrix](.internal/TEST_MATRIX.md), and [agent instructions](AGENTS.md). Use completed task checkboxes and recorded evidence to distinguish implemented behavior from future work.
 
 For app-owned SQLite, start with [Using a database](docs/using-a-database.md).
 It covers the schema file, one-command first deployment and ordinary driver

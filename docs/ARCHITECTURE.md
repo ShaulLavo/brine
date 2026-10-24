@@ -25,7 +25,7 @@ Human CLI / welcome TUI       Agent JSON / non-interactive CLI
 
 Caddy, Podman, Quadlet/systemd and the SQLite control store are integrated. Deployment effects run on the enrolled host, not the laptop. Routine client credentials use restricted SSH dispatch and operator policy rather than unrestricted root access. Debian 13 is the reference server platform; Hetzner and Tailscale are operator choices, not mandatory providers or transport prerequisites.
 
-The CLI implements stateless planning and deployment, release and operation status, bounded logs, read-only diagnosis, reconciliation, supported terminal recovery resolution, environment/secret and lifecycle plans, rollback and stateless removal. The [Phase 03 physical evidence](evidence/p03-pi.md) records deployment, rollback, interrupted-operation recovery, reboot and final removal. Those drills do not prove production readiness or zero downtime.
+The CLI implements stateless planning and deployment, release and operation status, bounded logs, read-only diagnosis, reconciliation, supported terminal recovery resolution, environment/secret and lifecycle plans, rollback and stateless removal. The [Phase 03 physical evidence](../.internal/evidence/p03-pi.md) records deployment, rollback, interrupted-operation recovery, reboot and final removal. Those drills do not prove production readiness or zero downtime.
 
 Persistent application data has separate engine-specific operations. SQLite uses
 declared app-owned files and independent Litestream replication. Managed
@@ -35,7 +35,7 @@ operations stop writers under a durable fence and consume a fresh prepared point
 Reviewed publication and live restore verify privately, preserve the original
 tree and activate a new stopped epoch. A fresh managed deployment starts it.
 The [SpacetimeDB runbook](runbooks/spacetimedb.md) describes the public commands;
-the [physical evidence](evidence/p09-pi.md) records first publication, Pi browser
+the [physical evidence](../.internal/evidence/p09-pi.md) records first publication, Pi browser
 execution and online real R2 replay on both architectures. Changed-module, live
 restore, archive, assigned faults and final delivery remain incomplete.
 
@@ -62,9 +62,9 @@ deployment ([D12](DECISIONS.md#d12-app-schema-changes-are-separate-from-deployme
 ## Next physical acceptance test
 
 Complete the shared SQLite recovery gate and the
-[Phase 09 Pi/browser drill](plans/09-spacetimedb.md#p09-08-run-the-physical-pi-and-browser-recovery-drill).
+[Phase 09 Pi/browser drill](../.internal/plans/09-spacetimedb.md#p09-08-run-the-physical-pi-and-browser-recovery-drill).
 Reuse the earned ordinary online capture/replay core on arm64 and amd64 from
-[the physical evidence](evidence/p09-pi.md). Complete compatible code/module
+[the physical evidence](../.internal/evidence/p09-pi.md). Complete compatible code/module
 changes, live restore, held-fence reboot/interruption and archive retention.
 Record remaining resource measurements, final installed merged binaries and
 actual-host teardown. The phase exit remains pending.

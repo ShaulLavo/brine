@@ -85,7 +85,7 @@ Containers publish only on `127.0.0.1`. Brine allocates each app a host port fro
 
 ## D7. The runner can't replace its own SSH restriction
 
-Added 2026-10-08 after the [Pi runtime spike](spikes/pi-runtime.md). It replaces D1's ownership sentence for the restricted key.
+Added 2026-10-08 after the Pi runtime spike. It replaces D1's ownership sentence for the restricted key.
 
 Making `authorized_keys` root-owned isn't enough. If the runner owns any parent directory, it can rename `.ssh` and put back an unrestricted key. The spike demonstrated this.
 
@@ -191,16 +191,16 @@ Added 2026-10-09 by the owner. Deploying a website should take one command or on
 
 **CI previews, separate authority.** Builds happen in CI. Preview and production credentials are separate; the dispatcher checks verb, environment, repository, and resource scopes for plan/apply. Preview keys never request production plans or touch production secrets. No fork-PR previews in v1; never use `pull_request_target` with fork checkout. Hostnames derive from stable repository ID, PR number, and a collision-resistant incarnation suffix; branch text is display only. Close-event cleanup targets the exact incarnation. The GitHub App is deferred outside the phase gate.
 
-All mutations, including static drops, depend on P03-01 to P03-05 and P03-07. P07-12 safety gates precede public drops. Phase 07 runs on the test Pi are covered by D3's standing approval; any other host needs explicit owner authorization naming the target and actions. The [Phase 07 plan](plans/07-drops-and-previews.md) defines dependencies, timing fixtures, and negative security tests.
+All mutations, including static drops, depend on P03-01 to P03-05 and P03-07. P07-12 safety gates precede public drops. Phase 07 runs on the test Pi are covered by D3's standing approval; any other host needs explicit owner authorization naming the target and actions. The Phase 07 plan defines dependencies, timing fixtures, and negative security tests.
 
 ## D10. WebTransport starts with app-terminated QUIC on approved UDP ports
 
-**Status: Approved design amendment, implementation pending**, 2026-10-10. The owner requires WebTransport. The [Phase 08 plan](plans/08-webtransport.md) records checked upstream versions, alternatives, tasks and evidence gates. This entry narrows D6 and extends D5 for that implementation; it does not authorize a live host change.
+**Status: Approved design amendment, implementation pending**, 2026-10-10. The owner requires WebTransport. The Phase 08 plan records checked upstream versions, alternatives, tasks and evidence gates. This entry narrows D6 and extends D5 for that implementation; it does not authorize a live host change.
 
 D2 and D4 remain unchanged for the initial mode. Debian Caddy can serve HTTP/3 but cannot proxy WebTransport sessions. As checked on 2026-10-10, even upstream stable v2.11.7 lacks that released capability. Experimental upstream PR #7669 and prerequisite #7976 are unmerged. Upgrading to a stable Caddy build alone is not a solution.
 
 **UDP-first delivery amendment, owner, 2026-10-13.** The
-[UDP game-server plan](plans/08-udp.md) owns the initial transport delivery.
+UDP game-server plan owns the initial transport delivery.
 Its protocol-independent declaration admits one direct UDP port beside ordinary
 Caddy HTTPS. D6's loopback-only rule remains the default; the new exception is
 an explicit UDP endpoint admitted by root-owned policy with an exact approved
@@ -357,7 +357,7 @@ Persistent declarations, observed schema compatibility gates and reviewed empty 
 
 ## D13. SpacetimeDB is a managed data engine alongside SQLite
 
-**Status: Approved, managed commands implemented; physical acceptance incomplete.** The original design was approved on 2026-10-10. Current earned results and remaining gates are in [the integration evidence](evidence/p09-pi.md). The owner wants a browser-served Bevy/Wasm game with a Rust server and potentially SpacetimeDB on the owner's enrolled Linux servers. [Phase 09](plans/09-spacetimedb.md) implements this decision. This document does not ship another engine or authorize a production-host change.
+**Status: Approved, managed commands implemented; physical acceptance incomplete.** The original design was approved on 2026-10-10. Current earned results and remaining gates are in the integration evidence. The owner wants a browser-served Bevy/Wasm game with a Rust server and potentially SpacetimeDB on the owner's enrolled Linux servers. Phase 09 implements this decision. This document does not ship another engine or authorize a production-host change.
 
 ### Scope and engine boundary
 
@@ -383,7 +383,7 @@ Research checked on **2026-10-10**. Moving docs describe current behavior, while
 
 ### Backup and restore choice
 
-**Routine backups use online native snapshots and commitlog archival with existing encrypted backup tooling.** A bounded arm64 v2.11.0 pilot captured while the source kept writing, uploaded through restic 0.19.1 to scoped R2 storage, downloaded and replayed four private copies. Three completed-log captures omitted an observed tail. The fourth included a bounded active-head copy and recovered all 1,311 rows observed before capture. Fixed database/module/control metadata and signing material were recovered. This establishes feasibility, not general zero loss or an atomic whole-server live copy. See the [scrubbed pilot evidence](evidence/p09-online-pilot.md).
+**Routine backups use online native snapshots and commitlog archival with existing encrypted backup tooling.** A bounded arm64 v2.11.0 pilot captured while the source kept writing, uploaded through restic 0.19.1 to scoped R2 storage, downloaded and replayed four private copies. Three completed-log captures omitted an observed tail. The fourth included a bounded active-head copy and recovered all 1,311 rows observed before capture. Fixed database/module/control metadata and signing material were recovered. This establishes feasibility, not general zero loss or an atomic whole-server live copy. See the scrubbed pilot evidence.
 
 Select a completed native snapshot, its required completed log suffix and a bounded active-head copy under the pinned engine's proven rules. Stage a private immutable capture and authenticate its member hashes, byte bounds, database/module/schema identity, epoch and protected recovery dependencies. Routine capture does not stop writers, close ingress or require LVM, ZFS or Btrfs snapshots. P09-02/P09-05 must prove snapshot completeness and durable offsets, partial active-head records, concurrent rotation/compaction and metadata consistency before admission. Completed-segment archival does not provide a fixed wall-clock loss bound under sparse writes. A sealed segment path is not an immutable object: the engine may rewrite or compress it. Capture an owned file descriptor/content identity and prove replay of the captured bytes, rather than trusting its name.
 

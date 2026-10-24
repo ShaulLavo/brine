@@ -5,8 +5,8 @@ protected storage, enrollment and passive-reader prerequisite slice. Its local
 checks do not complete physical acceptance. Subsequent implementation connects
 native capture, preparation, restore tests, publication, live restore and
 retirement through the request dispatcher. Use the
-[operator runbook](runbooks/spacetimedb.md) and
-[backup command contract](native-backup-commands.md) for the current flow.
+[operator runbook](../docs/runbooks/spacetimedb.md) and
+[backup command contract](../docs/native-backup-commands.md) for the current flow.
 
 ## Historical prerequisite behavior
 

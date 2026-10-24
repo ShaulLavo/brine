@@ -350,7 +350,7 @@ keys, publisher tokens, remote credentials and inventories are omitted here.
 Source52 adds `backup abandon` for a successful initialized unused exact point,
 including an expired point. It releases only that original fence after fresh
 reproof and leaves all components stopped. It neither extends coverage nor starts
-a service. The [operator runbook](../runbooks/spacetimedb.md#abandon-an-unused-exact-preparation)
+a service. The [operator runbook](../../docs/runbooks/spacetimedb.md#abandon-an-unused-exact-preparation)
 describes this separate procedure. No manual fence, journal or clock rewrite is
 part of the drill.
 

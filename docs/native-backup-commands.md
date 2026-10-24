@@ -6,7 +6,7 @@ history and signing recovery material, uploads it, then independently restores
 and verifies it. Preparation withdraws owned ingress and proves a clean stop
 before making exact coverage. Both retain unknown effects for inspection.
 
-The [physical evidence](evidence/p09-pi.md) records ordinary online capture and
+The physical evidence records ordinary online capture and
 same-point real R2 native tests on arm64 and amd64, plus a Pi browser write.
 Assigned faults, full mutation/recovery/archive acceptance and final delivery
 remain incomplete. Passing unit tests does not establish those results.
