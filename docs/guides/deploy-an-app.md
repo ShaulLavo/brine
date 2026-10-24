@@ -6,10 +6,11 @@ This guide changes a real server. Enrollment installs packages and an SSH restri
 
 You need:
 
-- A Debian 13 server (amd64 or arm64) that you can reach by SSH as root, or as a user with non-interactive sudo.
+- A Debian 13 server (amd64 or arm64), because enrollment requires systemd 257, cgroup v2 and Debian's Podman 5.4 packages. You must be able to reach it you can reach by SSH as root, or as a user with non-interactive sudo.
 - A digest-pinned image in a registry that needs no login. Brine reads only anonymous registry tokens.
 - A DNS name for the app that points at the server.
-- A built `brine` binary, plus `ssh`, `scp`, `ssh-keygen`, `jq` and `openssl` on your machine. See [Getting started](../getting-started.md#build-the-cli).
+- A built `brine` binary. See [Getting started](../getting-started.md#build-the-cli).
+- `ssh` and `scp` on your machine, because enrollment connects and copies the binary with them. `ssh-keygen` makes the deploy key, `openssl` makes idempotency keys, and `jq` reads the JSON output.
 - A server whose SSH host key your machine already trusts. Enrollment connects with `StrictHostKeyChecking=yes`, so run `ssh root@server.example.com true` once first and accept the key.
 - Outbound HTTPS from the server. Enrollment downloads pinned Litestream and restic releases on the server and installs missing Debian packages.
 

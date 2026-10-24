@@ -34,7 +34,7 @@ Brine stopped because it could not prove what state the server is in. It never s
 
 **Symptom:** exit 0, `kind` is `conflict`, and `conflicts` lists codes such as `runtime_unavailable` or `unknown_facts`.
 
-A conflict plan is a normal result that carries no executable changes. Never apply it. `runtime_unavailable` means the host lacks a required runtime (the `field` says which). `unknown_facts` means Brine could not measure something and will not guess. Fix the host or the app definition, then plan again. [Getting started](getting-started.md#meet-a-conflict-plan) shows a real conflict plan.
+A conflict plan is a normal result that carries no executable changes. Never apply it. `runtime_unavailable` means the host lacks a required runtime (the `field` says which). `unknown_facts` means Brine could not measure something and will not guess. Fix the host or the app definition, then plan again. [Getting started](getting-started.md#preview-a-plan-for-an-unenrolled-host) shows a real conflict plan.
 
 ## The operator policy refused the app
 

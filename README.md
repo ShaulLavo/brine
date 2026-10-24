@@ -42,7 +42,7 @@ Brine is pre-1.0 and experimental. Output above is trimmed from a real run.
 
 ## Quick start
 
-You need Go 1.26 or newer and `ssh`. These steps run on your laptop and touch no server.
+You need Go 1.26 or newer, because `go.mod` declares `go 1.26.0`, and `ssh`, which `brine doctor` checks for and connected commands run. These steps run on your laptop and touch no server.
 
 ```sh
 git clone https://github.com/ShaulLavo/brine
@@ -59,14 +59,12 @@ There are no release binaries yet, so building from source is the only install p
 
 ## What you can do
 
-| Task | Where |
-| --- | --- |
-| Preview a deploy without a server | [Getting started](docs/getting-started.md) |
-| Enroll a server, then plan, apply, roll back and remove an app | [Deploy an app](docs/guides/deploy-an-app.md) |
-| Give an app a SQLite database with backups | [Using a database](docs/using-a-database.md) |
-| Run a managed SpacetimeDB app | [SpacetimeDB runbook](docs/runbooks/spacetimedb.md) |
-| Fix a failed or stuck operation | [Troubleshooting](docs/troubleshooting.md) |
-| Look up a command, flag or config key | [Commands](docs/reference/commands.md), [Configuration](docs/reference/configuration.md) |
+- Preview a deploy without a server: [Getting started](docs/getting-started.md)
+- Enroll a server, then plan, apply, roll back and remove an app: [Deploy an app](docs/guides/deploy-an-app.md)
+- Give an app a SQLite database with backups: [Using a database](docs/using-a-database.md)
+- Run a managed SpacetimeDB app: [SpacetimeDB runbook](docs/runbooks/spacetimedb.md)
+- Fix a failed or stuck operation: [Troubleshooting](docs/troubleshooting.md)
+- Look up a command, flag or config key: [Commands](docs/reference/commands.md), [Configuration](docs/reference/configuration.md)
 
 ## How it works
 

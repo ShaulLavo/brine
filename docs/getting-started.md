@@ -2,7 +2,7 @@
 
 In this tutorial we check an app definition against an operator policy, preview three deployment plans, and read the same plans as JSON. Everything runs on your laptop against sample files in `examples/offline/`. No server is involved, and nothing here deploys anything.
 
-You need Go 1.26 or newer, `ssh`, and `jq` for the last step. Output below comes from a real run of this checkout.
+You need Go 1.26 or newer, because `go.mod` declares `go 1.26.0`. You need `ssh` because `brine doctor` checks for it and connected commands run it. The last step needs `jq` to pick fields out of the JSON. Output below comes from a real run of this checkout.
 
 ## Build the CLI
 
@@ -53,7 +53,7 @@ Policy: operator-1
 Environment: 1 keys (values hidden), secrets: 0 references
 ```
 
-Now break it. Point the app at a domain the policy does not allow:
+Point the app at a domain the policy does not allow:
 
 ```sh
 sed 's/hello.example.com/hello.evil.org/' examples/offline/brine.toml > /tmp/bad.toml
@@ -118,7 +118,7 @@ Plan hash: sha256:a3e6dddf45d98cdd5123092e1e0c4635a47c554babb2aa9497d65b244360b9
 
 Nothing differs between the definition and what runs, so the plan is a `no-op`.
 
-## Meet a conflict plan
+## Preview a plan for an unenrolled host
 
 The third snapshot describes a host that is not enrolled:
 
