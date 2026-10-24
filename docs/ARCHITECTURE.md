@@ -1,74 +1,72 @@
-# Brine architecture
+# Architecture
 
-## Goal
+Brine is a small deployment system for one Linux server, driven by a person or a coding agent. It borrows the hard parts from software that already works (Caddy, Podman, systemd, SQLite, Litestream) and adds the part those tools lack: a reviewed plan, a recorded operation, and a credential that can do nothing else.
 
-One modest deployment system operated by humans and coding agents on enrolled Linux servers. Prefer dependable existing software over a custom container runtime or a miniature PaaS.
+This page explains why the pieces are arranged as they are. For commands, see the [command reference](reference/commands.md). For the reasons behind each choice, see [DECISIONS](DECISIONS.md).
 
-## Implemented layers
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/architecture.dark.svg">
+  <img alt="The brine CLI on your machine talks over one restricted SSH key to brine host serve on the enrolled server. The dispatcher checks operator policy, journals intent in a control SQLite database, and launches a detached job that pulls the image, restarts the Podman app and stages a Caddy route." src="assets/architecture.light.svg">
+</picture>
 
-~~~text
-Human CLI / welcome TUI       Agent JSON / non-interactive CLI
-             \                         /
-                       Go CLI client
-                restricted SSH dispatcher
-                             |
-         plans / apply / status / diagnose / recovery
-                             |
-          SQLite control state and operation journal
-                             |
-                 systemd jobs / Quadlet
-                             |
-                        Podman apps
-                             |
-                    host Caddy proxy
-~~~
+*The dashed box on the right is the only place Brine changes anything. The client never runs Podman, systemd or Caddy itself.*
 
-Caddy, Podman, Quadlet/systemd and the SQLite control store are integrated. Deployment effects run on the enrolled host, not the laptop. Routine client credentials use restricted SSH dispatch and operator policy rather than unrestricted root access. Debian 13 is the reference server platform; Hetzner and Tailscale are operator choices, not mandatory providers or transport prerequisites.
+## The client is thin and the server keeps the state
 
-The CLI implements stateless planning and deployment, release and operation status, bounded logs, read-only diagnosis, reconciliation, supported terminal recovery resolution, environment/secret and lifecycle plans, rollback and stateless removal. The [Phase 03 physical evidence](../.internal/evidence/p03-pi.md) records deployment, rollback, interrupted-operation recovery, reboot and final removal. Those drills do not prove production readiness or zero downtime.
+The same `brine` binary runs on your machine and on the server. On the server it runs as an unprivileged runner user with rootless Podman and systemd user services. All durable state lives there: plans, releases, operations and events sit in a control SQLite database, separate from any app database. A person on a laptop and an agent in a sandbox therefore see the same plan IDs and the same operations ([D1](DECISIONS.md#d1-brine-runs-on-the-host-the-laptop-is-a-client)).
 
-Persistent application data has separate engine-specific operations. SQLite uses
-declared app-owned files and independent Litestream replication. Managed
-SpacetimeDB uses a separate pinned standalone service, private immutable roles,
-online native snapshot/log captures and encrypted remote storage. Exact data
-operations stop writers under a durable fence and consume a fresh prepared point.
-Reviewed publication and live restore verify privately, preserve the original
-tree and activate a new stopped epoch. A fresh managed deployment starts it.
-The [SpacetimeDB runbook](runbooks/spacetimedb.md) describes the public commands;
-the [physical evidence](../.internal/evidence/p09-pi.md) records first publication, Pi browser
-execution and online real R2 replay on both architectures. Changed-module, live
-restore, archive, assigned faults and final delivery remain incomplete.
+The client holds only the target: an SSH destination and a pinned host key. It reaches the server through the system OpenSSH binary with typed arguments, so your `~/.ssh/config`, SSH agent and Tailscale addressing keep working. Brine never builds a shell string.
 
-## Planned layers
+## One forced command is the whole API
 
-The full Charm operation UI remains later presentation work; today's TUI is a
-welcome screen. Phase 04 and Phase 09 still require their shared physical
-recovery and failure drills. Implemented commands do not establish successful
-R2 recovery or phase completion. Application schema changes remain separate from
-deployment ([D12](DECISIONS.md#d12-app-schema-changes-are-separate-from-deployment)).
+Enrollment installs a deploy key whose `authorized_keys` entry forces `brine host serve`. That command ignores whatever the client asked to run. It reads one bounded JSON request, checks the operation against an allowlist and the root-owned operator policy, and writes one JSON response. The key cannot open a shell, forward a port or reach Podman, systemd or Caddy directly.
+
+This is the idea the rest depends on. An agent holding the deploy key can plan and apply what the operator allowed, and nothing else. Root-owned files and an SSH drop-in make the restriction hard to remove from the runner account ([D7](DECISIONS.md#d7-the-runner-cant-replace-its-own-ssh-restriction)).
+
+## Apply is a recorded operation, not a script
+
+```mermaid
+sequenceDiagram
+  participant C as brine CLI
+  participant D as brine host serve
+  participant S as control SQLite
+  participant J as brine-op unit
+  C->>D: plan (over SSH)
+  D->>S: save plan under its hash
+  D-->>C: plan_id, kind, conflicts
+  C->>D: apply plan_id with idempotency key
+  D->>S: create operation bound to the key
+  D->>J: launch a transient user unit
+  D-->>C: accepted, operation_id
+  J->>S: revalidate plan, journal each step
+  J->>J: pull image, render Quadlet, stage Caddy, start, check health
+  C->>D: status --operation
+  D-->>C: state and events
+```
+
+Read it from the top. `plan` saves a plan and returns an ID. `apply` creates the operation first, then starts a transient systemd user unit that does the work, and answers `accepted` before any of it finishes. A dropped SSH session cannot stop the job, and the same idempotency key always finds the same operation. The unit's state is not authoritative, because transient units do not survive a reboot. The control database is, and a boot-time reconcile unit settles any operation it shows as unfinished.
+
+An operation ends in `succeeded`, `failed`, `rolled_back` or `recovery_required`. The last one means Brine could not prove the host state. It refuses to guess, and the recovery commands (`diagnose`, `reconcile`, `resolve`) are separate steps a person or agent chooses.
+
+## Caddy config is generated whole and validated first
+
+Brine owns one directory of Caddy files, one per app, rendered from typed fields only: the site address, a `reverse_proxy` to the app's loopback port, and fixed headers. Each change renders a complete new generation, validates it with `caddy validate`, repoints a symlink and reloads. A failed reload points back at the previous generation ([D4](DECISIONS.md#d4-caddy-a-brine-owned-config-set-validated-whole-reloaded-through-systemd)). The trade-off is that a compromised runner can reroute any domain on the host, so the dispatcher and policy are the boundary, not file ownership.
+
+## Data is separate from releases
+
+An app image and an app database have different identities and different authority. Rolling an app back never rewinds its data. SQLite databases are declared in `brine.toml`, live under policy-approved roots, and replicate asynchronously through Litestream to S3-compatible storage. A restore test restores into an isolated directory and checks the result, and it never touches the live file. Managed SpacetimeDB follows the same rule with its own commands, fenced operations and encrypted native backups ([D11](DECISIONS.md#d11-persistent-sqlite-uses-a-mapped-app-user-and-a-host-litestream-unit), [D13](DECISIONS.md#d13-spacetimedb-is-a-managed-data-engine-alongside-sqlite)). See [Reviewed first-database initialization](data-initialization.md).
 
 ## Guardrails
 
-- **Plan before apply**. Inspect plan kind, conflicts and intended changes. A conflict plan is a successful planning result, not permission to apply. Never infer approval from a flag an unprivileged agent can set.
-- **No default root access** for routine agent operations. Keep destructive host operations behind separate credentials and operator policy.
-- **Machine-readable behavior**. JSON stdout, diagnostics stderr, stable exit categories, operation IDs and no prompts in `--no-input` mode.
-- **Acceptance is not completion**. Save the idempotency key before mutation and poll the returned operation ID. Diagnose and reconcile uncertain outcomes before retrying.
-- **Target context stays explicit**. Follow-up commands retain the selected target and explicit configuration directory.
-- **Data is separate from releases**. Declared app-owned data, schema changes and live restore have independent identities and authority.
-- **Rollbacks**. App image rollback is not a database rewind. Database restore is an explicit separate operation.
-- **Backups**. SQLite replication is asynchronous. SpacetimeDB captures online native history at the admitted cadence. Test remote recovery privately; reported cadence does not establish zero loss.
-- **Honest availability**. Zero downtime is a future capability, not something Quadlet or Caddy grants automatically.
+- **Plan before apply.** A conflict plan is a successful result and never permission to apply. An unprivileged agent cannot set a flag that implies approval.
+- **No default root access.** Routine operations never get a root shell. Destructive host operations need separate credentials and operator policy.
+- **Machine-readable by default.** JSON on stdout, diagnostics on stderr, stable exit categories, operation IDs, and no prompts under `--no-input`.
+- **Acceptance is not completion.** Save the idempotency key before a mutation, then poll the operation ID.
+- **Target context stays explicit.** Follow-up commands keep the same `--target` and `--config-dir`.
+- **Honest availability.** Zero downtime is not claimed. Brief downtime during a deploy is accepted.
 
-## Next physical acceptance test
+## Trust model and non-goals
 
-Complete the shared SQLite recovery gate and the
-[Phase 09 Pi/browser drill](../.internal/plans/09-spacetimedb.md#p09-08-run-the-physical-pi-and-browser-recovery-drill).
-Reuse the earned ordinary online capture/replay core on arm64 and amd64 from
-[the physical evidence](../.internal/evidence/p09-pi.md). Complete compatible code/module
-changes, live restore, held-fence reboot/interruption and archive retention.
-Record remaining resource measurements, final installed merged binaries and
-actual-host teardown. The phase exit remains pending.
+Brine is a personal deployment service. It deploys code written by the owner and the owner's agents, with the owner's scoped credentials. Visitors to a deployed site are untrusted, but no stranger uploads code. Isolation is designed to protect the host from mistakes and compromised dependencies, to keep agents inside policy, and to keep apps from reading each other's secrets. Hostile-uploader hardening is not a goal.
 
-## Non-goals
-
-Multi-server orchestration, a custom container engine, Kubernetes, a web dashboard, and creating or deleting cloud machines.
+Non-goals: multi-server orchestration, a custom container engine, Kubernetes, a web dashboard, and creating or deleting cloud machines. See [Status and limits](status.md).
