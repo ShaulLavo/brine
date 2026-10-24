@@ -1,11 +1,10 @@
 # Operate a managed SpacetimeDB app
 
-Phase 09 is Approved and incomplete. These commands describe the implemented
-operator flow. The physical evidence records first
-publication, Pi browser writes and ordinary online capture with real R2 replay
-on both architectures. Module updates, live restore, archive, assigned fault
-cases and final delivery remain incomplete. Keep the
-phase tasks unchecked until their full evidence exists.
+Managed SpacetimeDB support is incomplete. These commands describe the implemented
+operator flow. Test evidence covers first publication, browser writes on a
+Raspberry Pi and ordinary online capture with real R2 replay on both
+architectures. Module updates, live restore, archive, fault cases and final
+delivery are not yet shown on hardware.
 
 Use an enrolled target and its restricted personal identity. Replace uppercase
 arguments with declared names or IDs returned by Brine. Save each reviewed plan,
@@ -56,7 +55,7 @@ bash scripts/build-cli-pair.sh OUTPUT_DIRECTORY
 3. Declare `engine = "spacetimedb"` under `[[databases]]`. Include the app-owned
    root, nested service, module artifacts, schema compatibility, resource bounds,
    backup destination and separate secret references. Use the
-   [managed declaration contract](../CONTRACTS.md#managed-spacetimedb-deployment-and-lifecycle-p09-04).
+   [managed declaration contract](../CONTRACTS.md#managed-spacetimedb-deployment-and-lifecycle).
    Keep declared Wasm and schema sidecars inside the spec directory without
    symlink components. Sidecars describe input; protected staging still verifies
    the actual module and schema before publication.
@@ -291,18 +290,17 @@ frontend. Apply starts and checks the guarded engine first, then checks and
 starts the exact owned frontend under the current lifecycle desired state.
 Installed hashes, release, module and epoch stay unchanged. Planning reuses its
 collected inventory; apply preflight still reads fresh facts. A planning timeout
-without a saved plan or apply is not a start result. This source54 sequence has
-local tests; successful physical resume remains unproved.
+without a saved plan or apply is not a start result. This sequence has local tests;
+successful physical resume remains unproved.
 
 Prepare a distinct fresh point before another reviewed data mutation.
 Abandonment never extends expired coverage or authorizes publication.
 For a lost response, inspect the original operation and use its retained key.
 Do not clear its fence or infer success from an unjoined receipt.
 
-The physical evidence records successful source53
-abandonment with all components still stopped. The next ordinary start plan
-timed out without a saved plan or apply. Successful ordinary resume remains
-required; abandonment alone is not a start receipt.
+On the test host, abandonment succeeded with all components still stopped. The
+next ordinary start plan timed out without a saved plan or apply. Successful
+ordinary resume is not yet shown; abandonment alone is not a start receipt.
 
 ## Review a module update
 
@@ -523,7 +521,7 @@ pending.
 ## Finish the drill and requalify upgrades
 
 Keep scrubbed commands, receipts, immutable artifact pins, confirmed marker
-comparisons and resource measurements in the physical evidence report. Verify
+comparisons and resource measurements in a private report. Verify
 teardown on the actual execution host. Remove task-owned readers, staging,
 transferred binaries, browser profiles, test images and routes after their
 consumers stop. Report retained archives and original trees with size, owner and
@@ -540,5 +538,4 @@ start. A frontend app's restart affects only its frontend and does not replace
 the engine helper. New startup and publication still require the installed helper.
 
 HA, arbitrary point-in-time recovery and unqualified live-copy states
-remain unsupported. The acceptance matrix
-lists the remaining evidence; this runbook does not complete it.
+remain unsupported.

@@ -1,7 +1,7 @@
 # SQLite physical-drill fixture
 
 This deliberately small, unauthenticated HTTP app is for disposable private
-Phase 04 drills, not production or public exposure. It shares Brine's module
+SQLite backup drills, not production or public exposure. It shares Brine's module
 and fixed schema observer so marker/catalog rules do not drift. Its row shape
 matches the restore checker's `fixture_commits` sentinel.
 
@@ -64,7 +64,7 @@ with the reviewed statements. Do not add that table to the SQL file or execute
 schema.sql at app startup. Prepare data and establish the required independently
 verified empty backup point before initialization. The app bypasses none of
 those gates. Schema-file behavior is verified locally; the updated physical
-drill remains unverified until P10-06.
+drill remains unverified.
 
 ## HTTP drill contract
 

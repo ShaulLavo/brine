@@ -1,6 +1,6 @@
 # Managed engine startup
 
-The managed SpacetimeDB service uses one foreground supervisor. These primitives do not admit deployment, first publication, application rollback, or live data restore. P09-04 remains incomplete until the lifecycle and physical gates pass.
+The managed SpacetimeDB service uses one foreground supervisor. These primitives do not admit deployment, first publication, application rollback, or live data restore. Managed deployment stays incomplete until the lifecycle and physical gates pass.
 
 ## Owned records
 

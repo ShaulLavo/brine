@@ -66,7 +66,7 @@ The plan no longer matches the server, or another operation holds the host lock.
 
 **Symptom:** `persistent_archive_required`, exit 4.
 
-Removal refuses and deletes nothing. Retiring a persistent SQLite app is not implemented yet (task P04-08 is open). For a managed SpacetimeDB app, follow [Archive and retain the app](runbooks/spacetimedb.md#archive-and-retain-the-app).
+Removal refuses and deletes nothing. Retiring a persistent SQLite app is not implemented yet . For a managed SpacetimeDB app, follow [Archive and retain the app](runbooks/spacetimedb.md#archive-and-retain-the-app).
 
 ## A command asks for input or a terminal
 

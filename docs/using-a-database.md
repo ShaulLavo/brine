@@ -6,7 +6,7 @@ releases your app. Your app uses an ordinary SQLite driver: no Brine SDK,
 connection service or migration-on-startup hook is needed.
 
 First initialization and one-command deployment are implemented. Existing-schema
-migration execution is not yet implemented (P04-07); the last section explains
+migration execution is not yet implemented; the last section explains
 that boundary. This page is not a production-readiness or verified-backup claim.
 
 ## The file contract
@@ -286,9 +286,8 @@ DDL plus the new marker/catalog, and explicit compatibility for application
 rollback. Update the repository's full `CREATE TABLE` schema to describe the
 resulting catalog; keep migration SQL separate from that initialization file.
 
-**That executor is not yet shipped.** Follow
-P04-07's implementation gate
-before planning a live schema change; there is no supported migration command to
+**That executor is not yet shipped.** Do not
+plan a live schema change with Brine; there is no supported migration command to
 copy from this page. Keep the current schema until that reviewed flow is available,
 or arrange a separate explicitly authorized operator procedure with the same
 backup, fencing and verification guarantees. Never substitute a startup migration.

@@ -6,8 +6,9 @@ history and signing recovery material, uploads it, then independently restores
 and verifies it. Preparation withdraws owned ingress and proves a clean stop
 before making exact coverage. Both retain unknown effects for inspection.
 
-The physical evidence records ordinary online capture and
-same-point real R2 native tests on arm64 and amd64, plus a Pi browser write.
+Test evidence covers ordinary online capture and
+same-point native tests against real R2 on arm64 and amd64, plus a browser write
+on a Raspberry Pi.
 Assigned faults, full mutation/recovery/archive acceptance and final delivery
 remain incomplete. Passing unit tests does not establish those results.
 
@@ -117,10 +118,10 @@ Abandonment leaves original point bytes, expiry, journals, data and remote
 backups unchanged. It never supplies fresh mutation coverage. After successful
 abandonment, ordinary start and a new exact preparation are separate operations.
 The [runbook procedure](runbooks/spacetimedb.md#abandon-an-unused-exact-preparation)
-describes the required original-operation handling. Actual source53 abandonment
-released only its original fence and left all components stopped. The later
-ordinary start plan timed out without a saved plan or apply; successful ordinary
-resume remains required. The earlier source52 refusal is retained unchanged.
+describes the required original-operation handling. On the test host, abandonment
+released only its original fence and left all components stopped. The ordinary
+start plan that followed timed out without a saved plan or apply; successful
+ordinary resume is not yet shown.
 
 ## Test a retained remote point
 

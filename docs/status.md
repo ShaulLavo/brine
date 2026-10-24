@@ -47,9 +47,9 @@ Brine is pre-1.0 and experimental. It has one maintainer, no release and no tag.
 
 ## What has been tested on real hardware
 
-The maintainer ran the deploy, rollback, killed-client, interrupted-operation recovery, reboot and removal drills on one Raspberry Pi (arm64, Debian 13). The same host ran SQLite initialization, a persistent-app release and an isolated restore from S3-compatible storage. Managed SpacetimeDB first publication and online capture with replay to R2 ran on both arm64 and amd64.
+Deploy, rollback, killed-client, interrupted-operation recovery, reboot and removal drills have run on one Raspberry Pi (arm64, Debian 13). The same host ran SQLite initialization, a persistent-app release and an isolated restore from S3-compatible storage. Managed SpacetimeDB first publication and online capture with replay to R2 ran on both arm64 and amd64.
 
-Those drills do not amount to a production-readiness claim. The test records are maintainer working notes and are not published here. Local unit and integration tests use fakes, and CI does not touch a server.
+Those drills do not amount to a production-readiness claim. Local unit and integration tests use fakes, and CI does not touch a server.
 
 ## License
 

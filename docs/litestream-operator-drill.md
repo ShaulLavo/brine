@@ -1,8 +1,8 @@
 # Protected Litestream operator drill
 
-Status: Approved for the disposable D3 host only.
+Use this drill only on a disposable test host ([D3](DECISIONS.md#d3-test-host-the-owners-raspberry-pi)).
 
-Enrollment installs Litestream for new hosts. Upgrading an already enrolled host is a Phase 06 operation and is not implemented. Do not replay enrollment or alter its journal to add the tool. This drill is an operator installation, not proof of enrollment or enrollment undo. It changes no app, database, credential, service, SSH setting or firewall. Leave the executable installed for later Phase 04 drills.
+Enrollment installs Litestream for new hosts. Upgrading an already enrolled host is not implemented. Do not replay enrollment or alter its journal to add the tool. This drill is an operator installation, not proof of enrollment or enrollment undo. It changes no app, database, credential, service, SSH setting or firewall. Leave the executable installed for later SQLite backup drills.
 
 ## Credential packet format
 
@@ -37,4 +37,4 @@ stat -c '%a %u %g %h' /opt /opt/brine /opt/brine/litestream \
 
 Require version `0.5.17`, the same executable hash as verified scratch, root ownership, non-writable parents, executable mode 0755 and a single link. The `inventory.LitestreamCollector` additionally reports the executable hash and exact-path version, refusing unknown protection or a changing hash. A running tool is not proof of S3 access or recoverability.
 
-For enrollment acceptance, a fresh disposable host still needs the displayed confirmation list, apply, interrupted-install reconciliation, drift refusal and undo drills. For credentials, later integration must supply committed scope/policy/fence readers and the operation journal, restart only the corresponding replica through P04-02's typed boundary, and verify real externally scoped S3 access. No provider-specific API or credential minting belongs in this drill.
+For enrollment acceptance, a fresh disposable host still needs the displayed confirmation list, apply, interrupted-install reconciliation, drift refusal and undo drills. For credentials, later integration must supply committed scope/policy/fence readers and the operation journal, restart only the corresponding replica through the typed replica boundary, and verify real externally scoped S3 access. No provider-specific API or credential minting belongs in this drill.

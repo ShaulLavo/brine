@@ -1,6 +1,6 @@
 # Encrypted archive transport core
 
-This package transports a private staged capture through pinned restic 0.19.1. It does not capture a live native engine, verify native replay, start a service, release a fence, or authorize publish, restore, retirement, or purge. P09-05 remains open until those managed operations and real remote acceptance ship.
+This package transports a private staged capture through pinned restic 0.19.1. It does not capture a live native engine, verify native replay, start a service, release a fence, or authorize publish, restore, retirement, or purge. Those managed operations and real remote acceptance are not complete.
 
 `Seal` produces a deterministic USTAR envelope. Its canonical manifest binds the database binding, epoch, capture, module artifact SHA-256, and control checkpoint SHA-256. The envelope contains `manifest.json`, a synthetic `data` directory, then the exact sorted manifest members. Members have private modes, normalized relative paths, byte sizes, and SHA-256 hashes. Directories use mode 0700 and files use mode 0600. Links, devices, foreign ownership/devices, special modes, traversal, unsupported names, PAX/GNU extensions, duplicates, extra members, corrupt bytes, quota overflow, and unexplained physical tails refuse. Native hard-linked input must first be staged as independent ordinary files.
 

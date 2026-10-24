@@ -1,6 +1,6 @@
 # Contributing to Brine
 
-Read [AGENTS.md](AGENTS.md), the [decisions](docs/DECISIONS.md) and the relevant phase plan in `.internal/plans/` before changing behavior. Local tests use fakes. They do not authorize contacting or modifying a host.
+Read [AGENTS.md](AGENTS.md) and the [decisions](docs/DECISIONS.md) before changing behavior. Local tests use fakes. They do not authorize contacting or modifying a host.
 
 ## Install tools and hooks
 
@@ -89,4 +89,4 @@ New findings should be fixed. When a deliberate entry point or clone is necessar
 
 ## Limits
 
-These checks do not prove a deployment, restore, authorization boundary or hardware recovery drill. They do not scan private host state. The deployment and restore gates in `.internal/TEST_MATRIX.md` still need their specified physical evidence.
+These checks do not prove a deployment, restore, authorization boundary or hardware recovery drill. They do not scan private host state. Deployment and restore behavior still needs physical evidence from an authorized disposable host.

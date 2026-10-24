@@ -2,7 +2,7 @@
 
 **Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` remains a welcome screen. Do not infer that every contract below is shipped.
 
-## App-owned UDP and WebTransport (D10, Phase 08; implementation pending)
+## App-owned UDP and WebTransport (D10; not implemented yet)
 
 The UDP-only delivery owns policy-approved UDP allocation,
 publishing, inventory and lifecycle recovery. The app owns its game protocol,
@@ -11,16 +11,16 @@ WebTransport declaration or echo-health interface. Its endpoint facts contain
 the approved client address, port, protocol and exposure, not a guessed
 WebTransport URL. Implementation remains pending.
 
-Optional TLS file delivery is P08-11 in the extension plan.
+Optional TLS file delivery is a later extension.
 `file_secrets` binds immutable app-scoped certificate/key versions.
 App-managed hashes leave short-lived certificate rotation and trusted browser
 `serverCertificateHashes` delivery to the app, with no Brine key injection or
 claim of normal public trust. WebTransport browser/draft interoperability is
 application evidence, separate from UDP deployment readiness.
 
-Default readiness combines existing HTTP health with ownership of the exact expected UDP mapping/listener. Protocol-session verification and remote UDP reachability are separate facts and remain unverified unless actually probed. Optional WebTransport health requires an explicit bounded echo contract or a supported app-specific protocol; ordinary-health Rust servers do not implement it merely to deploy. P08-05 specifies the optional nonce exchange and refusal budgets. A successful HTTP/3 GET never substitutes for that opted-in protocol check. Shared UDP 443 and private previews remain separately gated.
+Default readiness combines existing HTTP health with ownership of the exact expected UDP mapping/listener. Protocol-session verification and remote UDP reachability are separate facts and remain unverified unless actually probed. Optional WebTransport health requires an explicit bounded echo contract or a supported app-specific protocol; ordinary-health Rust servers do not implement it merely to deploy. The optional nonce exchange and refusal budgets are still to be specified. A successful HTTP/3 GET never substitutes for that opted-in protocol check. Shared UDP 443 and private previews remain separately gated.
 
-## App database environment (P10-01)
+## App database environment
 
 Apps need no Brine SDK. They use any standard-format SQLite build or driver
 and open the container path Brine supplies. Each declared database receives:
@@ -52,12 +52,11 @@ database and do not weaken D11/D12 startup checks.
 
 Local spec, policy, plan, presentation and Quadlet tests establish this contract.
 The SQLite fixture now requires `BRINE_DB_MAIN_PATH`. Container environment and
-SQLite behavior on physical hardware remain unverified here; P10-06 owns that
-Pi drill.
+SQLite behavior on physical hardware remain unverified; no hardware drill has run.
 
 ## Command surface
 
-### Managed SpacetimeDB deployment and lifecycle (P09-04)
+### Managed SpacetimeDB deployment and lifecycle
 
 The app declaration accepts one `[[databases]]` entry with
 `engine = "spacetimedb"`, the existing alias/root/backup-destination fields and
@@ -155,7 +154,7 @@ the sidecar creates no schema registration or initializer. Host dispatch never
 opens the client paths. Reviewed private staging must prove actual module/schema and
 register its marker before startup authority exists. A sidecar cannot grant it.
 
-### Managed ingress logging admission (P09-04)
+### Managed ingress logging admission
 
 The pure `caddy.VerifyManagedLogging` helper reads complete adapted JSON before
 managed route admission. It requires an explicit protected default logger and
@@ -187,7 +186,7 @@ explicitly authorized change. D4 still forbids routine Brine operations from
 editing the root Caddyfile after enrollment. See the
 [operator logging prerequisite](managed-ingress-logging.md) for the pinned
 snippet and local admission/log probe. Production caller wiring and physical
-ingress qualification remain separate P09-04 gates.
+ingress qualification remain separate gates.
 
 ~~~text
 brine init [directory]
@@ -203,9 +202,9 @@ brine rollback APP [--release RELEASE_ID] --target staging
 brine config set APP KEY=VALUE --target staging        # env, resources, domains, health
 brine secret set APP NAME --target staging             # value from stdin; stores a new immutable version, unbound until applied
 brine restart|stop|start APP --target staging
-brine remove APP --target staging                      # stateless removal plan; data archival waits for P04-08 (D8)
+brine remove APP --target staging                      # stateless removal plan; persistent data archival is not implemented (D8)
 brine data purge ARCHIVE_ID --target staging           # only if policy allows agent purge (D8)
-brine restore live APP --backup BACKUP_ID --target staging   # only if policy allows (D8, P04-09)
+brine restore live APP --backup BACKUP_ID --target staging   # only if policy allows (D8)
 brine diagnose [APP] --target staging                  # read-only report
 brine host update --target staging                     # Brine-managed packages only (D8)
 brine host restart-caddy --target staging              # affects every site on the host (D8)
@@ -216,9 +215,9 @@ brine restore test APP --target staging
 brine tui --target staging
 ~~~
 
-Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Every mutating command above (`config set`, `restart`/`stop`/`start`, `rollback`, `remove`, `data purge`, `restore live` and the `host` verbs) returns a **plan**, and nothing changes until `brine apply PLAN_ID` (D8). `--apply` may combine the two for agents when policy allows. It still records the plan and journals the operation. The one exception is `secret set`, which stores an immutable new version that stays unreferenced (D5) until a plan binds it, so it never changes a running app on its own. P03-09 `remove` supports stateless apps only. Persistent apps are refused until P04-08 supplies immutable archival; permanent deletion remains the separate, explicitly reviewed `data purge` under current target and path authorization.
+Plan is read-only with respect to runtime/proxy/data; it stores the plan in the target's control database (D1). `plan --offline` compares to a supplied snapshot and yields a **non-applyable** preview. Applying always refers to a recorded immutable plan and revalidates target identity, policy, observed generation, and artifact hashes. Every mutating command above (`config set`, `restart`/`stop`/`start`, `rollback`, `remove`, `data purge`, `restore live` and the `host` verbs) returns a **plan**, and nothing changes until `brine apply PLAN_ID` (D8). `--apply` may combine the two for agents when policy allows. It still records the plan and journals the operation. The one exception is `secret set`, which stores an immutable new version that stays unreferenced (D5) until a plan binds it, so it never changes a running app on its own. `remove` supports stateless apps only. Persistent apps are refused until immutable archival exists; permanent deletion remains the separate, explicitly reviewed `data purge` under current target and path authorization.
 
-### Local validation and offline planning (P01-04)
+### Local validation and offline planning
 
 `validate` and `plan --offline` read only local regular files. Neither performs network, SSH, subprocess, runtime, proxy or control-database operations. Both require exactly one app path and a nonempty explicit `--policy`. Specs and policies are bounded to 1 MiB each; snapshots and committed-state files to 16 MiB each. Invalid arguments, unreadable inputs, invalid specs, malformed snapshots and malformed committed state return `invalid_usage` with exit 2. Policy decode or enforcement refusals return `policy_refused` with exit 4. Diagnostics never echo input values or paths.
 
@@ -278,7 +277,7 @@ A response that accepts a background operation says **accepted**, not **deployed
 
 ### Local client doctor
 
-`brine doctor` checks the **local client machine only**. It never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to P06-02. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
+`brine doctor` checks the **local client machine only**. It never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to the connected commands. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
 
 The local client requires `ssh`, the system OpenSSH executable used for transport. `git` is optional for working with app source repositories. Missing or failed optional tools do not fail doctor. A missing required tool or a failed required version probe returns `dependency_missing` and exit 3. This identifies a missing or unverified dependency, not a minimum supported version policy.
 
@@ -367,7 +366,7 @@ Human output identifies the local scope and shows each tool's requirement and ve
 
 The domain error model lives in `internal/result` and has no Cobra or Charm dependency. Error causes remain available for internal inspection but are never rendered. Wrapped context cancellation takes priority over other categories. `internal/cli.Execute` owns the complete invocation response, including Cobra failures. `NewRootCommand` constructs a command tree for embedded use but does not own final error presentation. `main` maps the returned error to the exit status.
 
-## Bounded app logs (P03-06 logs)
+## Bounded app logs
 
 `brine logs APP --target NAME --tail N [--since RFC3339]` reads the enrolled target configuration from the same client directory as `enroll`. `--config-dir` overrides that directory. Tail defaults to 100 and must be between 1 and 1000. `--since` accepts only an RFC3339 timestamp with fixed-width date/time fields, a dot for fractional seconds (up to nanosecond precision), and timezone hours/minutes in range. The runner parses it with `time.RFC3339` and passes normalized UTC to Podman as a separate argument. Journal expressions, paths and extra options are refused.
 
@@ -387,9 +386,9 @@ Unit lifecycle logs remain a separate, ownership-checked journal source in diagn
 
 Redaction is **best-effort**, not a promise that unknown secret values can be identified. Brine never retrieves plaintext Podman secret values to build a redaction list. Quoted values are matched with escape awareness, including escaped quotes and backslashes. Patterns cover secret-looking assignment/JSON keys, bearer credentials, URL passwords, token-like strings of at least 32 characters, and private-key blocks (including blocks spanning returned entries). The client validates and sanitizes structured messages again. False positives are intentional. Arbitrary prose secrets, unusual encodings, or private-key tails whose opening marker is outside the requested window may evade these patterns. Applications must not log secrets.
 
-The scrubbed Debian 13 volatile-journal fixture records the coordinator's actual exit 1 and permission-denial stderr. Failing-first tests reproduce the app-log failure with that fixture, then prove Podman app logs remain available independently of unreadable journals. Podman output fixtures follow the pinned 5.4 serialization and are synthetic, not captured deployed-app logs. The older Debian journal JSON fixture is a scrubbed system journal record because the operator's initial user-unit queries had no entries. These fixtures and generator goldens do not replace post-merge verification of a deployed app, runtime file-size enforcement or restricted dispatcher access on the device.
+The scrubbed Debian 13 volatile-journal fixture records the actual exit 1 and permission-denial stderr. Failing-first tests reproduce the app-log failure with that fixture, then prove Podman app logs remain available independently of unreadable journals. Podman output fixtures follow the pinned 5.4 serialization and are synthetic, not captured deployed-app logs. The older Debian journal JSON fixture is a scrubbed system journal record because the operator's initial user-unit queries had no entries. These fixtures and generator goldens do not replace post-merge verification of a deployed app, runtime file-size enforcement or restricted dispatcher access on the device.
 
-## App status and rollback planning (P03-06)
+## App status and rollback planning
 
 These endpoints use trusted `HostApps` dependencies, like the existing detached-job endpoints. The production host composition supplies the target store, inventory and policy; missing dependencies still fail closed. Tests cover the service, SQLite store and dispatcher/client chain with fixtures. They do not claim a real deployment or rollback on a host.
 
@@ -409,11 +408,11 @@ App `--json` emits one report envelope. App `--jsonl` emits one `data: {"event":
 
 The service loads the selected release's exact desired input through `LoadPlan(release.PlanID)`, collects live inventory and current `BrineState`, runs the normal planner with the selected release's image metadata, and saves the resulting plan through `SavePlan`. Ownership, drift, port and secret-version selection remain the normal planner's rules. Applying still requires `brine apply PLAN_ID`, including freshness and current operator-policy checks under the host lock. The response has `plan_id`, `release_id`, `compatibility`, `kind`, the usual old-to-new `diff`, and `conflicts`. Both JSON and JSONL emit one envelope. A conflict is a completed planning result with no executable changes, not permission to apply.
 
-Compatibility is `stateless_compatible` only when both exact desired inputs have the frozen v1 stateless shape and schema version 1, matching the executor's rule. The Go conversion deliberately stops compiling if `policy.Desired` gains fields. Any unknown or schema-boundary compatibility returns `recovery_required` before saving. Persistent-data compatibility follows the approved D12 [Schema migrations contract](#schema-migrations), with its implementation gated on P04-01. App rollback never rewinds SQLite data, restores a database, rotates release heads or launches an operation while planning.
+Compatibility is `stateless_compatible` only when both exact desired inputs have the frozen v1 stateless shape and schema version 1, matching the executor's rule. The Go conversion deliberately stops compiling if `policy.Desired` gains fields. Any unknown or schema-boundary compatibility returns `recovery_required` before saving. Persistent-data compatibility follows the approved D12 [Schema migrations contract](#schema-migrations), whose implementation is not complete. App rollback never rewinds SQLite data, restores a database, rotates release heads or launches an operation while planning.
 
-### Config, secret and lifecycle operations (P03-08)
+### Config, secret and lifecycle operations
 
-These commands use injected `HostConfig` and `HostSecrets` services. Production wiring and physical-host evidence remain later wave gates. Planning does not change a running app.
+These commands use injected `HostConfig` and `HostSecrets` services. Production wiring and physical-host evidence are not complete. Planning does not change a running app.
 
 `brine config set APP KEY=VALUE... --target NAME` starts from the current release's exact stored desired input through `LoadPlan(release.PlanID)`. A bare key sets an environment variable; `environment.KEY` is explicit. Repeat `--unset KEY` to remove environment keys. Other accepted assignments are `resources.memory_mb`, `resources.pids_limit`, `health.path`, `health.expected_status`, `health.startup_deadline_seconds`, `health.timeout_seconds` and `secrets.ENV=REFERENCE`. `domains.add=DOMAIN` and `domains.remove=DOMAIN` edit domains. No image, executable, path, unit or arbitrary field assignment is accepted. Up to 128 edits are allowed, each key at most 256 bytes and value at most 32 KiB; the transport's total request bound still applies.
 
@@ -431,7 +430,7 @@ A `secret_set` operation has empty `plan_id`, validated `app` and `secret_ref`, 
 
 The closed `secret_version` event contains only `name` and `outcome`, with outcome `intent`, `completed` or `unknown`. The name must satisfy the exact dotted grammar and match the operation's app/reference. Allocation takes the maximum version from live Podman names and all durable assignments, including failed or uncertain attempts. It journals intent before creation, so a delayed unknown creation cannot make a later operation reuse its name. After a timeout or crash, read-only existence checks can prove completion; absent or unreadable evidence becomes recovery-required rather than a blind create retry. The returned `operation_id`, `version_name` and `bound:false` describe storage only. A later config or initial deployment plan must explicitly bind the reference before apply. Old versions stay available for retained releases.
 
-## Restricted dispatcher and client transport (first half of P02-02)
+## Restricted dispatcher and client transport
 
 `brine host serve` is hidden and always speaks JSON, independent of presentation flags. Command resolution selects dispatcher setup before interpreting presentation flags, including leading global flags such as `brine --json host serve`. Every argument after `serve` is ignored. It refuses effective UID 0 before reading stdin. Before clearing the environment, it captures only the authentication marker set by enrollment's root-owned forced command and the byte length of `SSH_ORIGINAL_COMMAND`. Only that byte length appears on stderr. That variable never selects an operation or contributes response text. A pipe read deadline limits incomplete requests to five seconds. Regular files, which do not support read deadlines, are read through a bounded buffer with a five-second timer and cancellation signal. Unsupported deadlines on other input types are still refused. The dispatcher separately bounds request reading to fifteen seconds and closes closable input on cancellation. Ordinary calls have a fifteen-second deadline covering request reading and processing; inventory implementations must honor cancellation. Enrollment must still enforce D7. Clearing the environment inside a binary cannot undo code run by a login shell or dynamic loader before it starts.
 
@@ -457,9 +456,9 @@ Connection establishment is limited to five seconds, keepalive failure to one fi
 
 `module_publish_plan`, `native_backup_inspect` and `native_backup_review` restore and read an exact remote point synchronously. After strict request validation, their host work budget is nine minutes, matching the existing native transport work limit. Their complete client call budget is ten minutes thirty seconds: fifteen seconds for request reading, nine minutes for work, seventy seconds for bounded cleanup and five seconds for connection establishment. The cleanup reserve covers the existing maximum sixty-second native stop plus ten-second teardown. Original caller cancellation and earlier deadlines still apply. Cleanup uses its existing separate bounded contexts; the reserve does not extend work. The descriptor deadline remains twenty seconds. `module_publish_inspect`, live-restore planning, status and other ordinary calls retain fifteen seconds. Point and material expiry, unknown-outcome handling and the no-retry rule are unchanged.
 
-Operator enrollment and live restricted-key/PAM/startup-file verification are described below. The initial protocol and fake-SSH tests alone do not establish the full P06-01 production boundary.
+Operator enrollment and live restricted-key/PAM/startup-file verification are described below. The initial protocol and fake-SSH tests alone do not establish the full production boundary.
 
-### Detached apply and operation polling (P03-03)
+### Detached apply and operation polling
 
 These endpoints are tested with injected store/executor interfaces and fake host processes. The production host composition now supplies those dependencies and operator-policy authorization. Neither these tests nor the command's presence prove a working deployment or a real systemd disconnect drill.
 
@@ -704,7 +703,7 @@ A plan binds desired spec hash, target identity, observed generation, image inde
 
 ### Pure planner contract, schema 1
 
-`internal/plan.Build(Input)` accepts `policy.Desired`, `target.Snapshot`, caller-supplied pinned image metadata and `plan.BrineState`. It performs no I/O and reads no clock. The returned plan owns its memory. Treat it as immutable after hashing. Expiry, creation time, approval, transport provenance and offline/not-applyable status belong in a caller-owned envelope, never inside the hashed plan. Offline provenance must remain explicitly not applyable when P01-04 and P01-05 add their presentations and files.
+`internal/plan.Build(Input)` accepts `policy.Desired`, `target.Snapshot`, caller-supplied pinned image metadata and `plan.BrineState`. It performs no I/O and reads no clock. The returned plan owns its memory. Treat it as immutable after hashing. Expiry, creation time, approval, transport provenance and offline/not-applyable status belong in a caller-owned envelope, never inside the hashed plan. Offline provenance must remain explicitly not applyable when presentations and files are added.
 
 `target.Snapshot` is the single inventory contract. `LiveCaddyFiles` records the domains actually served by each root or imported file, including files outside the Brine generation. Each file has a stable identifier, an observed app association and an explicit domains observation. Exact Brine-rendered files in the measured current generation use their filename; other files use opaque identifiers. Inventory first proves whole disk-adapted/live JSON equivalence. Before attributing generation files, it applies the same D4 root lexer as enrollment and publication: the fixed generation import must be unique, top-level and a standalone physical line. Imports inside snippets, site blocks, named routes or imported files cannot establish app provenance. Inventory then matches each standalone import's complete route occurrences against the whole configuration. Unmatched occurrences remain root-owned, including overlapping domains and catchalls. An app association requires the selected generation's measured file hash and byte-for-byte reconstruction with the Brine renderer, not just a filename. Unresolvable source imports or unmatched routes leave live provenance unknown. Planning still binds that observation to the committed release's filename, hash and domains. `PortOwners` records app associations, process names and systemd units for bound listeners. Empty app associations mean unrelated or unattributed software, never ownership permission. A used existing app port without affirmative ownership conflicts. Domain ownership is never guessed from a filename. Known empty arrays are affirmative observations, not defaults; unknown required observations conflict.
 
@@ -791,9 +790,9 @@ Scalar changes have `from` and `to`, in that order, with the original typed imag
 
 Human output orders configuration changes by the fields above, then lists operations in planner order. It uses `+` for additions, `~` with `old -> new` for changed scalar settings and secret names/versions, and `-` for removals. Domain additions and removals stay distinct rather than pairing unrelated names. Environment lines say added, removed or changed without values. Routing generations show their recorded old/new values. No literal environment setting is available in a serialized plan; a future apply implementation must obtain the normalized desired configuration from authorized control state and verify its hash before constructing runtime artifacts.
 
-The target identity, observed generation and policy version/hash are explicit preconditions for a later apply under the host lock. P01-03 records and fingerprints these preconditions; it does not implement freshness checking or authorize mutation.
+The target identity, observed generation and policy version/hash are explicit preconditions for a later apply under the host lock. Planning records and fingerprints these preconditions; it does not implement freshness checking or authorize mutation.
 
-### Connected apply validation (P03-02)
+### Connected apply validation
 
 Freshness uses replan-and-compare under the host mutation lock. Apply loads the stored canonical plan and exact normalized desired input, collects live inventory, and loads the host's current operator policy and `plan.BrineState`. After verifying the desired input against that policy, it reruns `plan.Build` and proceeds only when the resulting hash equals the recorded plan hash. A mismatch is a stale-plan refusal in exit category 5, not permission to replace the plan. The store verifies `DesiredHash` and a separate digest of the canonical plan bytes on save/load. Those checks detect changed stored bytes; they do not prove freshness or operator authorization. Control schema 10 also retains the exact canonical decision-input document used to compute the plan hash, atomically with the plan. It contains normalized desired input, projected snapshot facts, committed release state and the unhashed plan. The input document is private control data, bounded to 16 MiB, immutable and verified against the plan hash on load. It is not a public presentation or a replacement for fresh inventory.
 
@@ -813,11 +812,11 @@ The JSON envelope contains `schema_version`, canonical `plan`, `hash`, `applyabl
 
 `New`, `Decode`, `Write` and `Read` share the 16 MiB limit on the exact bytes persisted, including the terminal newline. `Decode` checks both input size and canonical output size because JSON escaping can expand content. It rejects duplicate keys, unknown fields, noncanonical field-name casing at every nesting level, trailing JSON, unknown envelope or plan schemas, absent or forged offline markers and missing creation metadata. It recomputes the plan from the retained inputs and compares the complete canonical plan, hash and snapshot bindings. `Read` also verifies the filename. Corrupted content returns `IntegrityError`; unknown versions return `SchemaError`; malformed input returns a fixed `DecodeError` that does not echo values. The schema accepts secret references and immutable version IDs, never a secret-value field. Literal environment settings remain governed by the existing spec and policy contract; the file layer does not guess whether arbitrary text is a credential. No file checksum authenticates creation metadata, and these files never grant permission to apply.
 
-Use a small SQLite control database **on the target**, owned by the runner user, for plans, releases, operations and append-only ordered events (D1). Clients keep only target configuration. It is **separate** from app SQLite databases and needs its own recovery story. Use a bounded connection pool, transactions around local state only, and migrations. Choose a maintained SQLite Go driver in a deliberate dependency PR.
+Use a small SQLite control database **on the target**, owned by the runner user, for plans, releases, operations and append-only ordered events (D1). Clients keep only target configuration. It is **separate** from app SQLite databases and needs its own recovery story. Use a bounded connection pool, transactions around local state only, and migrations. Use a maintained SQLite Go driver.
 
 A deployment writes intent and operation state durably *before* changing files, Quadlet units, containers or proxy routes. Each tool boundary has a typed adapter with bounded outputs and timeouts. Acquire a per-host lock **before** checking plan freshness; one mutation per target. Reconcile observed state after crashes: neither subprocess exit status nor client timeout alone proves an external change succeeded or failed.
 
-### Target control store (P03-01)
+### Target control store
 
 `internal/store.Open(stateDir)` opens `control.db` in an existing private runner state directory. The Linux-only store refuses a symlink database or lock file. Before opening SQLite, the store securely opens or creates the database, WAL and shared-memory files without following symlinks, verifies effective-user ownership, and enforces mode 0600. It also verifies state-directory ownership and enforces mode 0700. Foreign-owned files or directories refuse. The pinned pure-Go driver is `modernc.org/sqlite` v1.60.1, so Linux amd64 and arm64 builds need no cgo. Each connection enables WAL, `synchronous=FULL`, foreign keys and a 5000-ms busy timeout. The pool holds one connection. Immediate transactions serialize local writes across processes; no transaction performs runtime, network or filesystem-adapter operations.
 
@@ -853,13 +852,13 @@ Rootless does **not** mean safe for an untrusted agent. A deployment identity th
 
 SQLite data, WAL and related files live in durable per-app directories independent of release images. Run **one independent Litestream replicator per database/destination** (matching a tested Litestream release), with separately scoped S3-compatible storage credentials and destination paths. Replication is asynchronous and may lose recent writes when the VPS dies. Do not start competing replicas writing the same destination.
 
-`restore test` writes into a new isolated directory or disposable fixture, checks `PRAGMA integrity_check`, verifies expected application invariants and reports recovery-point information if available. It **never overwrites the production DB**. Until P04-09 ships, live restore stays an explicitly approved operator runbook; after that it is the policy-gated `restore live` plan (D8). Database storage or backup deletion is never part of image cleanup.
+`restore test` writes into a new isolated directory or disposable fixture, checks `PRAGMA integrity_check`, verifies expected application invariants and reports recovery-point information if available. It **never overwrites the production DB**. Until it ships, live restore stays an explicitly approved operator runbook; after that it is the policy-gated `restore live` plan (D8). Database storage or backup deletion is never part of image cleanup.
 
 ## Persistent data and replication
 
-**SQLite foundation with remaining Phase 04 acceptance gates.** D11 governs the implemented identities, observation, preparation, replication and isolated verification below. Phase 04 tracks remaining lifecycle and physical evidence. Existing schema-1 stateless apps remain valid.
+**SQLite foundation; lifecycle and physical evidence remain open.** D11 governs the implemented identities, observation, preparation, replication and isolated verification below. Existing schema-1 stateless apps remain valid.
 
-### Typed engine boundary (P09-01)
+### Typed engine boundary
 
 Current database declarations, bindings, schema definitions/observations, restore points and verification requests/receipts are concrete SQLite types. Their canonical JSON fields, field order, plan hashes and receipt bytes remain unchanged. Existing retained records decode as SQLite because their schema is a concrete SQLite record, never because a filename ends in `.db`. No historical plan or immutable evidence is rewritten and no store migration is needed for this extraction.
 
@@ -868,7 +867,7 @@ Current database declarations, bindings, schema definitions/observations, restor
 The existing TOML declaration defaults to SQLite at parsing. An explicit
 `engine = "sqlite"` produces the same normalized input and canonical desired/plan
 bytes. Managed `engine = "spacetimedb"` declarations use the separate
-[managed deployment contract](#managed-spacetimedb-deployment-and-lifecycle-p09-04)
+[managed deployment contract](#managed-spacetimedb-deployment-and-lifecycle)
 and protected native operations. Unknown engines refuse before effects.
 
 SQLite observation, snapshot capture and isolated verification use bounded
@@ -876,10 +875,10 @@ engine dispatch to their fixed adapters. The operation owner retains fence,
 writer-quiescence, journal and source-identity checks. SpacetimeDB uses the
 [protected native capture flow](#native-backup-command-execution), whose
 capabilities require actual owned source, repository, material and replay proof.
-The original P09-01 extraction did not admit those native effects; subsequent
+The typed engine boundary itself does not admit those native effects, and the
 composition does not complete their physical acceptance.
 
-P09-02 supplies the qualified `internal/spacetimedb` primitives consumed by the
+The qualified `internal/spacetimedb` primitives are consumed by the
 native composition. `CanonicalSchemaV10` returns immutable bounded schema
 evidence using `spacetimedb-v10-expanded-v2`. Named declaration sets are sorted
 after positional type-reference expansion; ordered columns, variants, parameters,
@@ -890,13 +889,13 @@ table.
 
 `ObserveCurrent` accepts a validated literal-loopback location, privately resolved publisher credential, expected native database/publisher/name binding and bounded deadline. Location validation is not ownership or startup authority. It performs fixed info/names/environment/schema-v10/environment GETs, requires matching current module wire identities and returns no credentials or raw headers. SQL/WS hooks are not an observer substitute. Host callers retain control serialization and establish actual runtime ownership. The module wire identity is native Keccak-256 represented through little-endian u256, distinct from Wasm SHA-256 and native digest display.
 
-Initialized startup verification must recover current persisted `st_module` in a private stopped-source copy with external bootstrap `program-bytes` inaccessible. Historical control plus missing replicas can otherwise reconstruct matching initial metadata and empty data. The original stays stopped and unchanged; verifier effects stay contained. Host/store ownership, process/job/lifetime absence, source seals, fences, epoch and startup serialization construct the opaque startup proof. The P09-02 manual experiment does not construct that production proof or enable live starts. Exact data coverage also requires independently qualified native framing/high-water and replay evidence, not metadata equality or native `Complete` alone. See the pinned runtime contract.
+Initialized startup verification must recover current persisted `st_module` in a private stopped-source copy with external bootstrap `program-bytes` inaccessible. Historical control plus missing replicas can otherwise reconstruct matching initial metadata and empty data. The original stays stopped and unchanged; verifier effects stay contained. Host/store ownership, process/job/lifetime absence, source seals, fences, epoch and startup serialization construct the opaque startup proof. The manual experiment does not construct that production proof or enable live starts. Exact data coverage also requires independently qualified native framing/high-water and replay evidence, not metadata equality or native `Complete` alone. See the pinned runtime contract.
 
 Shared startup proof binds explicit engine, incarnation, database, binding and epoch IDs, local destination ownership, settled source state and an affirmative unfenced/released state. The SQLite runtime then independently verifies the exact Litestream configuration and hash. A common identity proof is not an engine-service permit by itself. Missing/unknown engine, fence or ownership and cross-engine evidence refuse startup. Existing durable-fence, credential, reboot and archive rules remain in force.
 
-Persistent allocated/unknown desired and plan goldens, a historical SQLite restore-receipt golden, engine-tag refusal tests and store/permit tests establish this local boundary. No physical SpacetimeDB behavior is claimed. D13 and Phase 09 require routine online native snapshot/log archival with existing encrypted tooling and separately fenced exact data operations.
+Persistent allocated/unknown desired and plan goldens, a historical SQLite restore-receipt golden, engine-tag refusal tests and store/permit tests establish this local boundary. No physical SpacetimeDB behavior is claimed. D13 requires routine online native snapshot/log archival with existing encrypted tooling and separately fenced exact data operations.
 
-### Native capture structural prerequisites (P09-05)
+### Native capture structural prerequisites
 
 `internal/nativecapture` owns bounded records under `brine-native-capture-v1` for
 SpacetimeDB `2.11.0`, upstream commit
@@ -937,7 +936,7 @@ This unit supplies no filesystem bridge, uploader, native reader, receipt,
 fence, startup permission, or public dispatch. Real contained replay, managed
 ownership, credentials, jobs, and remote storage acceptance remain required.
 
-### Candidate schema and publication records (P09-06 core)
+### Candidate schema and publication records
 
 `spacetimedb.DecodeDescriptorV10` requires exactly one `V10` envelope and delegates body validation to `CanonicalSchemaV10`. It accepts metadata, not proof that a Wasm artifact produced it. Pinned native `extract-schema` executes guest initialization and description code; protected extraction must contain those effects and establish the artifact/schema binding. The six captured native descriptors and their content pins are retained with the core evidence.
 
@@ -947,7 +946,7 @@ ownership, credentials, jobs, and remote storage acceptance remain required.
 
 The private cursor separates immutable preparation ownership from the apply operation and consumer claim. It sequences restore, preflight, publication, data verification, disposal and an external final-transition receipt. Unknown outcomes permit inspection and matching observation only. A proven unperformed publication still consumes that attempt. `DecodeCursor` requires an exact record hash loaded independently from protected retained state. Computing the expected hash from supplied cursor bytes does not prevent rewinding history. Store composition must atomically retain each record/hash and compare-and-swap its head, authenticate proof references and enforce one consumer per point/plan.
 
-These records grant no mutation, swap, epoch activation or fence-release authority. Protected extraction, exact-point consumption, staged data/projection/effects evidence, store/jobs/host wiring and physical acceptance remain required. P09-06 and T39 remain unchecked.
+These records grant no mutation, swap, epoch activation or fence-release authority. Protected extraction, exact-point consumption, staged data/projection/effects evidence, store/jobs/host wiring and physical acceptance remain required. Publication is not complete.
 
 ### Definition and typed identities
 
@@ -970,7 +969,7 @@ Per-database `sync_interval` is a positive Go duration string, default `1m`. Ope
 An admitted sync/snapshot-only change is a `revise_replica` lifecycle. It preserves the application unit, route, port, image, secrets and replica epoch. Each exact config is published at its content-addressed immutable path; the stable control socket and lifetime-lock inode do not change. A durable per-binding cursor records pending storage, config publication, stop intent, observed stop, binding commitment, start intent and observed activation. Service replacement and the append-only binding revision commit run under the lifetime lock, and fresh replica permits gate activation. Unknown stop/start attempts are inspected, never reissued. A held fence permits only storing the pending revision: no config publication, binding activation or replica/app restart occurs until safe resume. Successful activation commits only release metadata so an unchanged cadence is subsequently a no-op. This is activation evidence, not remote durability evidence.
 
 
-`spec.App` gains `Runtime *RuntimeIdentity` and `Databases []Database`; `RuntimeIdentity` holds `UID uint32` and `GID uint32`. `Database` holds typed `DatabaseName`, `PersistentRoot`, `ContainerMountPath`, `DatabaseFilename` and `BackupDestinationRef`. Runtime is required for databases, UID/GID are 1..65535, and every database writer uses those identities. Database names/destination references are 1..63 lowercase ASCII letters/digits/hyphens, starting with a letter. Filenames are one 1..128-byte ASCII basename, start with a letter/digit, and allow letters/digits/dot/underscore/hyphen, except `.` / `..` and names ending in `-wal`, `-shm`, `-journal` or `-litestream`. No slashes, interpolation, control characters or symlinks. At most 16 databases; names are unique. Mount paths are clean absolute POSIX directories; refuse root, overlapping mounts and system/secret/runtime paths (`/proc`, `/sys`, `/dev`, `/run`, `/etc` and their descendants). `persistent_root` exactly matches an authorized policy entry, not an arbitrary descendant. Database filename/mount identity changes on an existing database refuse pending an explicit data move design. Migrations are separate P04-07 plans, never deploy side effects.
+`spec.App` gains `Runtime *RuntimeIdentity` and `Databases []Database`; `RuntimeIdentity` holds `UID uint32` and `GID uint32`. `Database` holds typed `DatabaseName`, `PersistentRoot`, `ContainerMountPath`, `DatabaseFilename` and `BackupDestinationRef`. Runtime is required for databases, UID/GID are 1..65535, and every database writer uses those identities. Database names/destination references are 1..63 lowercase ASCII letters/digits/hyphens, starting with a letter. Filenames are one 1..128-byte ASCII basename, start with a letter/digit, and allow letters/digits/dot/underscore/hyphen, except `.` / `..` and names ending in `-wal`, `-shm`, `-journal` or `-litestream`. No slashes, interpolation, control characters or symlinks. At most 16 databases; names are unique. Mount paths are clean absolute POSIX directories; refuse root, overlapping mounts and system/secret/runtime paths (`/proc`, `/sys`, `/dev`, `/run`, `/etc` and their descendants). `persistent_root` exactly matches an authorized policy entry, not an arbitrary descendant. Database filename/mount identity changes on an existing database refuse pending an explicit data move design. Migrations are separate plans, never deploy side effects.
 
 `policy.Desired` carries the normalized runtime and databases in canonical bytes and `DesiredHash`. Add `backup_destinations` to root-owned policy as typed records containing `reference`, HTTPS `endpoint`, explicit `region`, `bucket`, `base_prefix`, `path_style`, `credential_ref`, and protected lifecycle-verification identity/freshness. No credential value or parent API token is policy/state. Plans bind the destination record/hash, selected root and quota observation. Refuse unknown destinations and unverified filesystem/mapping/retention facts.
 
@@ -1040,7 +1039,7 @@ only, never a second rename or an automatic data rewind.
 
 Deploy/update/rollback preserve incarnation/data/binding and may leave replication running. Removal/live restore require independent app-writer and replica-process/lock quiescence, not `systemctl stop` exit alone. Before freeze, verify a fresh remote restore point covering the recorded marker/TXID. Unknown upload/stop/swap outcomes enter reconciliation. No retry starts a competing writer. Archive retention begins at committed removal, lasts 30 days and is keyed only by archive ID. Recreation never reuses its incarnation or replica prefix. Purge/expiry recheck all live path and destination references immediately before deleting local archived data. They never delete remote backup objects or prefixes; Brine has no provider-delete authority. Local metadata and all recorded remote epochs stay bound to that archive.
 
-An archive must distinguish `never_written` from initialized data. The former requires exact allocation device/inode evidence, a fresh affirmative empty observation, no application writer history and settled initialization attempts. It retains that evidence rather than claiming a remote restore receipt. Its local data retention also lasts 30 days from committed retirement; ID-only early purge still requires its own explicit reviewed plan and apply under the single enrolled identity, not an operator/agent role flag. Initialized or unknown data cannot use this exception. Initialized data needs the independently verified fresh remote restore point and restorable backup retention described above; unknown data refuses. These archive and expiry rules are execution requirements for P04-08, not completed removal behavior.
+An archive must distinguish `never_written` from initialized data. The former requires exact allocation device/inode evidence, a fresh affirmative empty observation, no application writer history and settled initialization attempts. It retains that evidence rather than claiming a remote restore receipt. Its local data retention also lasts 30 days from committed retirement; ID-only early purge still requires its own explicit reviewed plan and apply under the single enrolled identity, not an operator/agent role flag. Initialized or unknown data cannot use this exception. Initialized data needs the independently verified fresh remote restore point and restorable backup retention described above; unknown data refuses. These archive and expiry rules are execution requirements, not completed removal behavior.
 
 The enrolled archive preparation command is `brine host archive-prepare APP --plan`, followed by `brine host archive-prepare APP --plan-id PLAN_ID`. This is synchronous preparation, not detached removal and not a remote dispatcher operation. Its immutable plan records an archive ID, the active incarnation and optional release, allocation and root/source device/inode identities, ID-derived source/archive paths, every recorded replica epoch and destination, and schema/invariant declarations. Policy, target identity and inventory generation are rechecked before claiming an attempt. Unsettled initialization, unknown ownership, replaced directories and held fences refuse.
 
@@ -1062,9 +1061,9 @@ Completed matching dispositions return their retained receipts without repeating
 Live restore separately journals its safety restore point, quiescence, verified isolated copy, original bundle preservation and swap. It creates a new epoch with empty local metadata before replication resumes; the pre-restore epoch remains recorded for recovery. Application rollback never rewinds data.
 ### Schema evidence and fenced backup preparation
 
-P04-01 adds `SchemaDefinition{Database, Marker, CatalogSHA256}` entries beside D12's compatibility declarations. Each accepted marker resolves to exactly one immutable definition; marker remapping in an incarnation refuses. `SchemaObservation` is a tagged union of `allocated_empty`, `verified_empty`, `verified_schema` and `unknown`, with database identity, observed time, marker/catalog fingerprint when known and fixed unknown reason. Reserved `brine-empty-v1` represents affirmatively empty data, not a missing-file fallback.
+The schema contract adds `SchemaDefinition{Database, Marker, CatalogSHA256}` entries beside D12's compatibility declarations. Each accepted marker resolves to exactly one immutable definition; marker remapping in an incarnation refuses. `SchemaObservation` is a tagged union of `allocated_empty`, `verified_empty`, `verified_schema` and `unknown`, with database identity, observed time, marker/catalog fingerprint when known and fixed unknown reason. Reserved `brine-empty-v1` represents affirmatively empty data, not a missing-file fallback.
 
-The observer opens only an ownership/containment-verified existing file using SQLite `mode=ro`, including its verified WAL/SHM siblings, and reads integrity/schema in one consistent transaction. The fixed `brine_schema_marker` table has columns `id INTEGER PRIMARY KEY CHECK(id=1)`, `marker TEXT NOT NULL`, `catalog_sha256 TEXT NOT NULL`, exactly one row with `id=1`, and no other columns/triggers. Validate its structure before trusting the row. Compute SHA-256 of the normative catalog serialization below, ordered by binary `(type,name)`. Exclude `sqlite_*`, the verified marker table and `_litestream_seq`/`_litestream_lock` only when their structures match pinned v0.5.17 definitions. Do not include rootpage. Measured hash must equal both marker-row hash and declared immutable definition. Corruption, missing/nonmatching definitions/markers or malformed internal tables are unknown. An empty valid database has no application objects/marker table. Missing DB is empty only with a fresh untouched allocation receipt and no siblings/history; otherwise missing, zero-byte, inaccessible or unreadable data is unknown. SQLite `mode=ro` is logically read-only but may touch SHM/locking bookkeeping; it does not initialize a database. Never use `immutable=1` to read live WAL data. Acceptance cases include absent SHM, nonwritable SHM and concurrent WAL commits: verify a consistent observed transaction where SQLite can safely read it, otherwise return unknown without creating a missing DB, broadening permissions or skipping WAL. Existing owned SHM bookkeeping is permitted, not an ownership/permission repair. P04-01 carries evidence/declarations through canonical planning and enforces D12 refusals; all start/compensation/reconcile paths freshly observe.
+The observer opens only an ownership/containment-verified existing file using SQLite `mode=ro`, including its verified WAL/SHM siblings, and reads integrity/schema in one consistent transaction. The fixed `brine_schema_marker` table has columns `id INTEGER PRIMARY KEY CHECK(id=1)`, `marker TEXT NOT NULL`, `catalog_sha256 TEXT NOT NULL`, exactly one row with `id=1`, and no other columns/triggers. Validate its structure before trusting the row. Compute SHA-256 of the normative catalog serialization below, ordered by binary `(type,name)`. Exclude `sqlite_*`, the verified marker table and `_litestream_seq`/`_litestream_lock` only when their structures match pinned v0.5.17 definitions. Do not include rootpage. Measured hash must equal both marker-row hash and declared immutable definition. Corruption, missing/nonmatching definitions/markers or malformed internal tables are unknown. An empty valid database has no application objects/marker table. Missing DB is empty only with a fresh untouched allocation receipt and no siblings/history; otherwise missing, zero-byte, inaccessible or unreadable data is unknown. SQLite `mode=ro` is logically read-only but may touch SHM/locking bookkeeping; it does not initialize a database. Never use `immutable=1` to read live WAL data. Acceptance cases include absent SHM, nonwritable SHM and concurrent WAL commits: verify a consistent observed transaction where SQLite can safely read it, otherwise return unknown without creating a missing DB, broadening permissions or skipping WAL. Existing owned SHM bookkeeping is permitted, not an ownership/permission repair. Planning carries evidence/declarations through canonical planning and enforces D12 refusals; all start/compensation/reconcile paths freshly observe.
 
 The normative catalog bytes are Go `encoding/json.Marshal` of a non-nil `[][4]any` row array with the four fields above. Names/types/SQL strings are exact SQLite UTF-8 strings, not normalized SQL; SQL NULL is JSON `null`. Preserve Go's default HTML escaping and U+2028/U+2029 escaping. No indentation, trailing newline, maps or alternate JSON canonicalizer. Sorting is bytewise `(type,name)` after exclusions. Golden acceptance vectors include these exact bytes and SHA-256 values:
 
@@ -1084,7 +1083,7 @@ Golden tests also cover SQL NULL, Unicode, U+2028/U+2029, HTML escaping, row ord
 
 ## Schema migrations
 
-**Approved under D12.** Release compatibility checks and reviewed empty-data initialization are implemented. General schema migration execution remains a design target. This contract preserves D11's data layout, mount lifecycle and replication guarantees. It applies to app databases, not control-database upgrades.
+**Governed by D12.** Release compatibility checks and reviewed empty-data initialization are implemented. General schema migration execution remains a design target. This contract preserves D11's data layout, mount lifecycle and replication guarantees. It applies to app databases, not control-database upgrades.
 
 ### Client schema files
 
@@ -1122,7 +1121,7 @@ The app spec accepts a `schema_compatibility` array with one entry per declared 
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `database` | validated database reference | Refers to the app's P04-01 database declaration, never a host path or backup destination. |
+| `database` | validated database reference | Refers to the app's database declaration, never a host path or backup destination. |
 | `accepts` | nonempty set of bounded schema markers | Exact schemas this release can read and write without a schema change. No wildcards, ranges or inferred ordering. |
 | `startup` | enum with only `preserve` | Startup, restart, normal writes and health checks do not change schema. |
 
@@ -1166,12 +1165,12 @@ This typed design is reserved for later automation. It introduces neither a work
 - A database-reference-sorted array of transitions. Each binds the immutable database identity, observed source schema marker and destination marker.
 - A reviewed, digest-pinned migration image with its selected platform manifest, a bounded container-local executable and separate typed arguments. No host shell, user-supplied host executable, raw runtime flags, arbitrary mounts or SQL in deploy input.
 - A content-addressed review receipt bound to the exact transitions, image, invocation and checks. Review is bound to the immutable plan applied by the same restricted-channel personal identity (D8/D12); no separate operator identity or migration grant exists. A request's `approved` boolean or `--yes` cannot replace that review.
-- A restore-point record per database with the immutable backup ID, backup destination identity, source schema marker, recovered checkpoint, snapshot time, verification time and successful P04-05 restore-test receipt ID. Credentials, literal data and local restore paths are absent from public presentations and events.
+- A restore-point record per database with the immutable backup ID, backup destination identity, source schema marker, recovered checkpoint, snapshot time, verification time and successful restore-test receipt ID. Credentials, literal data and local restore paths are absent from public presentations and events.
 - A typed validation set with SQLite integrity checks, expected destination marker and reviewed app invariant-check artifact references. Checks run through bounded adapters, not free-form host hooks.
 - A tagged rollback policy. Initial automation accepts only `app_compatible`, listing the current release when present and the designated retained rollback release IDs with their verified declarations. For empty-data initialization, the intended first release must accept the destination schema. There is no old writer to restore, and failed or partial initialization requires recovery rather than data deletion. An operator-only breaking-change procedure uses `recovery_only` and records compatible forward recovery code and the live restore runbook. It is not routine automation authority.
 - Operator bounds `max_backup_age_seconds`, `max_restore_test_age_seconds` and `recovery_window_seconds`, all explicit positive values. No unbounded or guessed freshness default. The restore points remain retained through the operation and at least the recovery window after completion. Absolute expiry belongs outside the canonical fingerprint, while the selected evidence and bounds remain hashed.
 
-P04-04 must prove the chosen backup is available and covers its recorded recovery point. P04-05 must restore that exact point into an isolated nonpublic path, pass `PRAGMA integrity_check` and the declared app invariants, and verify its schema marker. The point must remain retained throughout the migration and its recorded recovery window. Merely running Litestream, reporting low lag or reusing an unrelated successful drill is insufficient.
+Backup verification must prove the chosen backup is available and covers its recorded recovery point. Restore verification must restore that exact point into an isolated nonpublic path, pass `PRAGMA integrity_check` and the declared app invariants, and verify its schema marker. The point must remain retained throughout the migration and its recorded recovery window. Merely running Litestream, reporting low lag or reusing an unrelated successful drill is insufficient.
 
 Planning reads those receipts and records immutable intent. It does not stop an app, make a backup, mutate schema or perform a live restore. Before schema mutation, apply acquires the host lock, revalidates ownership and policy, quiesces all app writers and the affected replicators, and establishes that each verified point covers the exact pre-migration data. If unbacked writes followed the snapshot, coverage is unknown, receipts expired or a backup disappeared, apply refuses before mutation. Preparation must produce fresh verified points and a new plan. Apply cannot silently replace the bound restore point. The backup preparation workflow must support a verified point while writers remain quiesced.
 
@@ -1185,15 +1184,15 @@ Rollback planning compares the selected immutable release's declaration with eac
 
 Apply revalidates that comparison under the host lock before effects. Automatic deployment compensation, reconcile and resolve also need fresh schema proof before restoring an old unit or starting its writer, even if the candidate never reached healthy or schema mutation occurred outside deployment. The proof must cover the destination writer and every database it uses. `stateless_compatible` applies only to affirmatively stateless desired and observed data state. `compatibility_verified` requires current schema evidence and the destination release's declaration. It is not a reusable approval for any later schema. Unproven compensation becomes `recovery_required` rather than `rolled_back`.
 
-A down migration is itself a new reviewed migration. Live restore is a different planned operation under D8's operator-owned `allow_live_restore`, default false. Until that operation ships, P04-06's separately approved operator runbook governs live restore. The recovery decision records possible lost writes and establishes the restored schema before any app start. Neither an app rollback request nor a schema initialization/migration plan authorizes data restoration.
+A down migration is itself a new reviewed migration. Live restore is a different planned operation under D8's operator-owned `allow_live_restore`, default false. Until that operation ships, a separately approved operator runbook governs live restore. The recovery decision records possible lost writes and establishes the restored schema before any app start. Neither an app rollback request nor a schema initialization/migration plan authorizes data restoration.
 
 ### Delivery and acceptance gates
 
-No code changes implement this contract in P04-07. Today `spec.App`, `policy.Desired`, inventory and committed release state do not identify an app's persistent databases or current schema. The existing `persistent_roots` policy field is only an allowed-root list. It cannot distinguish a persistent app from a stateless app. Strict v1 specs reject undeclared data and migration fields. The executor and app rollback planner deliberately freeze the supported stateless desired shape, so adding persistent fields requires an explicit classification change rather than inheriting `stateless_compatible`.
+Migration execution is not implemented. Today `spec.App`, `policy.Desired`, inventory and committed release state do not identify an app's persistent databases or current schema. The existing `persistent_roots` policy field is only an allowed-root list. It cannot distinguish a persistent app from a stateless app. Strict v1 specs reject undeclared data and migration fields. The executor and app rollback planner deliberately freeze the supported stateless desired shape, so adding persistent fields requires an explicit classification change rather than inheriting `stateless_compatible`.
 
-P04-01 must carry the release declaration through strict parsing, normalization, canonical hashes, retained desired inputs, inventory, planning, presentations and apply revalidation when it adds persistent support. It must implement the missing-declaration refusal in the same change. Persistent support cannot ship first with this gate postponed. P04-07 remains unchecked until that behavior and the relevant T16 evidence exist. Migration execution additionally waits for P04-04 and P04-05, operator authorization and interruption tests.
+Persistent support carries the release declaration through strict parsing, normalization, canonical hashes, retained desired inputs, inventory, planning, presentations and apply revalidation, and implements the missing-declaration refusal in the same change. Migration execution additionally needs backup and restore verification, operator authorization and interruption tests.
 
-Required tests include missing and incomplete declarations with no changes, incompatible candidate and rollback targets, unknown current schema, first-deploy initialization, config/start paths, removal of a data reference, unchanged stateless behavior, canonical declaration ordering and stale schema at apply. T16 also needs ordinary compensation, reconcile and resolve tests after an observed breaking schema change. Later migration tests cover missing, stale, mismatched or unavailable restore points, invalid protected policy, partial schema changes, interrupted journal boundaries and no blind replay or database restore. Mock coverage is not a verified S3-compatible storage point. A separately authorized physical drill must migrate a fixture, refuse incompatible app rollback without changing data, and verify an isolated restore of the recorded point from actual S3-compatible storage.
+Required tests include missing and incomplete declarations with no changes, incompatible candidate and rollback targets, unknown current schema, first-deploy initialization, config/start paths, removal of a data reference, unchanged stateless behavior, canonical declaration ordering and stale schema at apply. Tests also need ordinary compensation, reconcile and resolve tests after an observed breaking schema change. Later migration tests cover missing, stale, mismatched or unavailable restore points, invalid protected policy, partial schema changes, interrupted journal boundaries and no blind replay or database restore. Mock coverage is not a verified S3-compatible storage point. A separately authorized physical drill must migrate a fixture, refuse incompatible app rollback without changing data, and verify an isolated restore of the recorded point from actual S3-compatible storage.
 
 ## Source references
 
@@ -1279,7 +1278,7 @@ Evidence is synthetic. Tests cover each rule, read-only database behavior, fake 
 Secret allocation journal writes each receive a fresh bounded detached context, independent of runtime-list and durable-version read deadlines. The transactional secret-version intent append is itself the name reservation, not a separate allocation write: either the reservation and intent commit together, or neither exists. Podman creation starts only after that commit; a failed intent consumes no version and causes no runtime create. Unknown committed reservations remain unavailable for reuse.
 
 
-### Stateless application removal (P03-09)
+### Stateless application removal
 
 `brine remove APP --target NAME` records a plan, not a deletion. Apply it through
 `brine apply PLAN_ID --target NAME`. The authenticated mutating `lifecycle`
@@ -1319,7 +1318,7 @@ An observed orphan artifact is a conflict, not proof of an uninstalled app.
 
 Active persistent incarnations, committed volume units and mounted-data
 directives refuse with `persistent_archive_required` (exit 4) before effects
-and explain that P04-08 archival is required. Active incarnation ownership is
+and explain that archival is required. Active incarnation ownership is
 loaded from the same control-store transaction as release heads; a missing
 release is not proof of absence. Prepared, settled-empty and successfully
 initialized incarnations without a release all refuse. Initialization attempts,
@@ -1343,7 +1342,7 @@ subprocesses at all five effect boundaries. This does not prove a working real
 Caddy/Podman/systemd removal, SSH disconnect or physical-host reboot.
 
 
-P03-09 review regressions: routing reconstruction uses strict routing syntax and
+Routing reconstruction uses strict routing syntax and
 immutable committed desired input, not today's deployment authorization. The
 complete candidate still binds owned hashes and is validated/adapted by Caddy.
 Revoked registry/domain/resource/secret permissions cannot authorize a redeploy,
@@ -1511,7 +1510,7 @@ bounded regular 0600 file in the same JSON packet format as `backup credentials
 set` stdin. Existing delivered credentials are reused. Missing credentials stop
 before apply and print a copyable deploy command naming the required file.
 
-### Retained archive maintenance requirements (P04-08)
+### Retained archive maintenance requirements
 
 Retained maintenance plans bind the original archive plan, immutable retirement timestamp and thirty-day deadline, current enrolled requester/policy/target, and the exact archives-parent device/inode for every recorded tree. Early purge requires a distinct reviewed purge plan and apply. Expiry refuses before the exact deadline. A saved plan is not execution authority: recovery requires a durable deletion intent. Deletion journals each tree's intent and receipt; an unknown outcome inspects/adopts only that tree and namespace. A replaced archives parent cannot make an undeleted bundle appear absent. Traversal uses pinned no-follow directory handles and refuses symlinks, hard links, special files, foreign devices/ownership, unsafe modes and bounded-traversal overflow. Host and original replica lifetime locks precede the first deletion intent. Retirement, manifests, bindings, fences, remote prefixes and maintenance history remain immutable. No maintenance interface has remote-delete authority.
 
@@ -1548,7 +1547,7 @@ operation IDs. `--no-wait` returns acceptance only. A terminal receipt binds
 Verification reports `verified`; purge/expiry report `local_deleted`.
 Native retirement keeps its separate `archive native inspect`/`resolve` flow.
 
-Maintenance admits the original prepared root, exact original held fence and current destination/target policy, checks the original replica managers and both source/archive mounts, and ignores a fresh unrelated app-name writer. Initialized verification independently restores the original source into a private isolated workspace. Original exact-version credentials remain usable until renewed; archive renewals select only their exact sealed original scope. Physical/provider acceptance remains required; P04-08 and T22 remain unchecked.
+Maintenance admits the original prepared root, exact original held fence and current destination/target policy, checks the original replica managers and both source/archive mounts, and ignores a fresh unrelated app-name writer. Initialized verification independently restores the original source into a private isolated workspace. Original exact-version credentials remain usable until renewed; archive renewals select only their exact sealed original scope. Physical/provider acceptance remains required.
 
 Retained local deletion never crosses mounts, including same-device bind mounts. Directory opens below the admitted root require Linux `openat2` with `RESOLVE_NO_XDEV`, `RESOLVE_NO_SYMLINKS` and `RESOLVE_BENEATH`; namespace and traversal checks require known matching `statx` mount IDs. Preflight rejects mounted live data before unlinking any archive entry. Unknown mount evidence or unsupported kernel facilities refuse deletion; there is no weaker traversal fallback.
 
