@@ -6,8 +6,6 @@ Brine changes real servers. It installs packages and an SSH restriction during e
 
 Use GitHub's private vulnerability reporting: open the repository's **Security** tab and choose **Report a vulnerability**, or go to <https://github.com/ShaulLavo/brine/security/advisories/new>.
 
-If that page is not available, open a public issue titled "Security contact request". Put no details in it. The maintainer will reply with a private channel.
-
 Include the commit or version (`brine version`), what you did, what happened, and what you expected. Redact real hostnames, keys, tokens and backup credentials. A report with a reproduction against fixture data is easiest to act on.
 
 There is no bug bounty and no response-time commitment. Brine is a personal project.

@@ -1,6 +1,6 @@
 # Status and limits
 
-Brine is pre-1.0 and experimental. It has one maintainer, no release, no tag and no license. This page says what works, what does not exist yet, and what has been tested on real hardware.
+Brine is pre-1.0 and experimental. It has one maintainer, no release and no tag. This page says what works, what does not exist yet, and what has been tested on real hardware.
 
 ## Stability
 
@@ -53,4 +53,4 @@ Those drills do not amount to a production-readiness claim. The test records are
 
 ## License
 
-No license has been chosen. Without one, the code is visible but nobody has permission to copy, modify or redistribute it.
+[MIT](../LICENSE).

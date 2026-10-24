@@ -78,7 +78,7 @@ The `brine` binary runs on your machine and also on the server. On the server, `
 
 ## Status
 
-Pre-1.0, experimental, single maintainer. There is no release, tag or license yet. Details are in [Status and limits](docs/status.md).
+Pre-1.0, experimental, single maintainer. There is no release or tag yet. Details are in [Status and limits](docs/status.md).
 
 - **Works today:** enrollment, connected and offline planning, detached deploy, status, logs, diagnosis, reconcile, rollback, config and secret changes, start/stop/restart, stateless removal, SQLite databases with Litestream backups and restore checks.
 - **Implemented, acceptance incomplete:** managed SpacetimeDB commands and the remaining SQLite backup drills.
@@ -88,4 +88,4 @@ Pre-1.0, experimental, single maintainer. There is no release, tag or license ye
 
 ## License, contributing, security
 
-No license has been chosen, so no one has permission to reuse the code yet. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks, [AGENTS.md](AGENTS.md) for coding agents, and [SECURITY.md](SECURITY.md) to report a vulnerability.
+[MIT](LICENSE). See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks, [AGENTS.md](AGENTS.md) for coding agents, and [SECURITY.md](SECURITY.md) to report a vulnerability.
