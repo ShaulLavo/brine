@@ -83,6 +83,10 @@ golangci-lint run --new-from-merge-base= --new=false --issues-exit-code=0 \
 
 New findings should be fixed. When a deliberate entry point or clone is necessary, edit its specific allowance in a reviewed change and explain why. `checkgate --write-baseline` exists for explicit initial capture and reviewed maintenance only. Neither CI nor the hook writes baselines.
 
+## Update the docs
+
+`docs/reference/commands.md` comes from the CLI's `--help` text. After you add or change a command or flag, regenerate it with the command at the top of that file. `docs/CONTRACTS.md` holds the error-code table that `go test ./internal/result` checks row by row. The [docs index](docs/README.md) lists every public page.
+
 ## Limits
 
 These checks do not prove a deployment, restore, authorization boundary or hardware recovery drill. They do not scan private host state. The deployment and restore gates in `.internal/TEST_MATRIX.md` still need their specified physical evidence.

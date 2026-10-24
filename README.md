@@ -1,162 +1,91 @@
-# Brine
+<h1 align="center">Brine</h1>
+<p align="center">Deploy containerized apps to a Linux server you own. Review a plan, apply it by ID, and let a coding agent drive the same commands through JSON.</p>
+<p align="center"><a href="https://github.com/ShaulLavo/brine/actions/workflows/ci.yml"><img alt="Go CI status" src="https://github.com/ShaulLavo/brine/actions/workflows/ci.yml/badge.svg"></a></p>
 
-**Your apps. Your server. Under control.**
+```text
+$ ./brine validate examples/offline/brine.toml --policy examples/offline/policy.toml
+Valid app hello
+Image: ghcr.io/team/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+Domains: hello.example.com
+Container port: 3000
+Policy: operator-1
+Environment: 1 keys (values hidden), secrets: 0 references
 
-Agent-first self-hosted deployments, with a human-friendly Charm CLI.
+$ ./brine plan examples/offline/brine.toml --offline --snapshot examples/offline/fresh-host.json --policy examples/offline/policy.toml
+OFFLINE PLAN — NOT APPLYABLE
+create  hello
++ image: sha256:aaaaaaaaaaaa... (linux/arm64, manifest unknown)
++ domain: hello.example.com
++ host port: 20000
++ resources: 512 MiB, 128 PIDs
+~ render app service
+~ routing generation: 0 -> 1
+~ restart app
+```
 
-An experiment for running personal applications on enrolled Linux servers. Routine deployments use a deterministic command API; the full terminal interface is still planned.
+Brine is pre-1.0 and experimental. Output above is trimmed from a real run.
 
-> **Status: deployment and reviewed first-database initialization implemented.** Brine supports enrollment, connected planning, detached deployment, app and operation status, logs, diagnosis, reconciliation, recovery resolution, configuration and secret changes, lifecycle plans, rollback and stateless removal. The [Phase 03 physical test](.internal/evidence/p03-pi.md) passed on the authorized test host. This is not a production-readiness or zero-downtime claim. The one-command SQLite workflow is implemented; the remaining Phase 04 backup, migration, removal and recovery acceptance gates are still open. The Charm TUI is currently a welcome screen.
+## Why Brine
 
-Managed SpacetimeDB commands implement stopped allocation, private role delivery,
-backup activation, online capture and isolated restore tests, reviewed module
-publication, separately gated live restore and whole-binding archive retirement.
-The [operator runbook](docs/runbooks/spacetimedb.md) gives their required order.
-The [physical evidence](.internal/evidence/p09-pi.md) records first publication, Pi
-browser writes and online real R2 capture/replay on both architectures. Phase 09
-module-update, live-restore, archive, assigned fault and final-delivery acceptance
-remains incomplete.
+- **Plan, then apply.** `brine plan` saves a plan on the server. `brine apply PLAN_ID` runs that plan after checking it is still fresh and still allowed by the operator policy.
+- **Safe to retry.** You choose an idempotency key before `apply`. If the connection drops, the same key finds the same operation instead of starting a second one. Accepted does not mean finished: you poll `brine status --operation ID`.
+- **Narrow credentials.** The deploy key can run one forced command, `brine host serve`. It gets no shell, no Podman socket and no root. The operator policy decides which images, domains and secrets it can use.
+- **Built for agents.** `--json` prints exactly one envelope on stdout. `--no-input` forbids prompts. Exit codes separate usage errors (2), policy refusals (4), stale plans (5) and "recover first" (6).
+- **Existing tools underneath.** Caddy for HTTPS, rootless Podman with Quadlet and systemd for containers, SQLite for control state, and Litestream for app databases.
 
-## Components
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/architecture.dark.svg">
+  <img alt="The brine CLI on your machine talks over one restricted SSH key to brine host serve on the enrolled server. The dispatcher checks operator policy, journals intent in a control SQLite database, and launches a detached job that pulls the image, restarts the Podman app and stages a Caddy route." src="docs/assets/architecture.light.svg">
+</picture>
 
-| Responsibility | Component | Current scope |
-| --- | --- | --- |
-| HTTPS / proxy | Caddy | Owned routing, validation, reload and health checks |
-| Containers | Podman | Digest-pinned images and immutable secret versions |
-| Service lifecycle | Quadlet + systemd | Owned app units, detached jobs and boot reconciliation |
-| Control state | SQLite | Durable plans, releases and operation records |
-| Persistent app databases | SQLite | Prepared storage, reviewed first initialization and schema-preserving releases |
-| Managed data engine | Standalone SpacetimeDB | Private roles, reviewed publication, fenced data operations and separate service/frontend permits; Phase 09 acceptance remains open |
-| App backups | Litestream to S3-compatible storage, including R2 | Credential delivery, replication units and isolated restore checks; full Phase 04 acceptance remains open |
-| Native engine backups | Encrypted native snapshot/log archives to S3-compatible storage | Online capture, exact preparation, passive restore tests and status; full Phase 09 acceptance remains open |
-| Private administration | Tailscale | Operator-managed access, not a deployment prerequisite |
-| Reference cloud host | Hetzner | Deployment is limited to enrolled Linux servers, not one provider |
-| Human UI | Charm | Welcome screen now; full operation UI planned |
+*Everything that changes the server goes through `brine host serve`. The detached job keeps running if your SSH session drops.*
 
-The reference server platform is Debian 13. The CLI can run on a laptop; deployment effects run on the enrolled server through restricted SSH credentials and operator policy.
+## Quick start
 
-## Run locally
+You need Go 1.26 or newer and `ssh`. These steps run on your laptop and touch no server.
 
-Requires a recent Go toolchain.
+```sh
+git clone https://github.com/ShaulLavo/brine
+cd brine
+go build -o brine ./cmd/brine
+./brine doctor
+./brine validate examples/offline/brine.toml --policy examples/offline/policy.toml
+./brine plan examples/offline/brine.toml --offline --snapshot examples/offline/fresh-host.json --policy examples/offline/policy.toml
+```
 
-~~~sh
-go run ./cmd/brine version
-go run ./cmd/brine doctor
-go run ./cmd/brine doctor --json --no-input
-go run ./cmd/brine tui
-go run ./cmd/brine validate examples/offline/brine.toml --policy examples/offline/policy.toml
-go run ./cmd/brine plan examples/offline/brine.toml --offline --snapshot examples/offline/fresh-host.json --policy examples/offline/policy.toml
-go run ./cmd/brine plan examples/offline/brine.toml --offline --snapshot examples/offline/host-with-app.json --policy examples/offline/policy.toml --state examples/offline/brine-state.json
-go test ./...
-~~~
+`doctor` prints `ssh` and `git` versions. The last command prints the `create` plan shown above, plus a plan hash. Offline plans are previews and cannot be applied.
 
-Offline plans are previews and cannot be applied. Connected plans are stored on the selected target and revalidated before execution.
+There are no release binaries yet, so building from source is the only install path. Continue with [Getting started](docs/getting-started.md) to read a plan, see a conflict plan and use the JSON mode.
 
-## Agent workflow
+## What you can do
 
-Use `--json` for one response or `--jsonl` for supported event streams, with `--no-input` to forbid prompts. Keep the same `--target` and any explicit `--config-dir` throughout the workflow.
+| Task | Where |
+| --- | --- |
+| Preview a deploy without a server | [Getting started](docs/getting-started.md) |
+| Enroll a server, then plan, apply, roll back and remove an app | [Deploy an app](docs/guides/deploy-an-app.md) |
+| Give an app a SQLite database with backups | [Using a database](docs/using-a-database.md) |
+| Run a managed SpacetimeDB app | [SpacetimeDB runbook](docs/runbooks/spacetimedb.md) |
+| Fix a failed or stuck operation | [Troubleshooting](docs/troubleshooting.md) |
+| Look up a command, flag or config key | [Commands](docs/reference/commands.md), [Configuration](docs/reference/configuration.md) |
 
-1. Run `plan` and inspect its `kind` and `conflicts`. A successful response can contain a conflict plan. Fix the input or host condition and plan again; do not apply a conflict plan.
-2. Save an idempotency key **before** calling `apply PLAN_ID --idempotency-key KEY`. If the response is lost, the saved key identifies the same operation. Do not invent a new key to retry an uncertain mutation.
-3. Acceptance is not completion. Save the returned operation ID and poll `status --operation OPERATION_ID`. Judge the recorded terminal outcome, not the acceptance response.
-4. After an uncertain outcome, use read-only `diagnose` and `reconcile --dry-run` to inspect it. Reconciliation and supported `resolve` operations are separate recovery actions; do not blindly repeat the original mutation.
-5. Treat app rollback and data recovery separately. App rollback never rewinds a database. Read-only restore tests verify remote backups in isolated directories; they never rewind a live database.
+## How it works
 
-Secret values enter through stdin, never command-line arguments. Secret ingestion is bounded and cancellable, including an unfinished pipe. Embedded CLI callers must lend stdin exclusively for the invocation. Files and in-memory readers are supported; other blocking readers must implement `ReadContext(context.Context, []byte) (int, error)`. Brine never closes a borrowed input stream.
+The `brine` binary runs on your machine and also on the server. On the server, `brine host serve` reads one bounded JSON request per SSH connection, checks it against an allowlist and the root-owned operator policy, and writes one JSON response. Planning changes nothing on the server except saving the plan under its hash. `apply` journals the operation, then starts a transient systemd user unit that does the work, so a dropped connection leaves a durable record instead of a half-run script. [Architecture](docs/ARCHITECTURE.md) walks through the layers, and [DECISIONS](docs/DECISIONS.md) records why they look this way.
 
-The machine response contract is versioned and tested, but is not yet a stable public API. See [command contracts](docs/CONTRACTS.md) for response and exit semantics.
+## Docs
 
-## Persistent preparation (Phase 04)
+[Getting started](docs/getting-started.md) · [Guides](docs/README.md#guides) · [Concepts](docs/ARCHITECTURE.md) · [Reference](docs/README.md#reference) · [Decisions](docs/DECISIONS.md) · [All docs](docs/README.md)
 
-A new persistent app needs a separate approved allocation before credential
-delivery, reviewed schema initialization and deployment:
+## Status
 
-~~~sh
-brine data prepare brine.toml --target NAME --json
-brine apply PREPARATION_PLAN_ID --target NAME --idempotency-key SAVED_KEY --json
-~~~
+Pre-1.0, experimental, single maintainer. There is no release, tag or license yet. Details are in [Status and limits](docs/status.md).
 
-The first command only saves a plan. It freezes the incarnation, database,
-replica binding and epoch identities, private paths and backup credential scope.
-Applying that plan provisions the pinned mapping-probe image, measures the
-policy-authorized filesystem and UID/GID mapping, and records untouched private
-allocations. It does not create SQLite files, deliver credentials, initialize or
-migrate schemas, publish units, start writers or replication, or change routes.
-Inventory and planning only observe existing allocations; missing data is not
-proof of an empty database. An interrupted partial preparation is inspected,
-never blindly replayed. The physical Phase 04 acceptance gates remain open.
+- **Works today:** enrollment, connected and offline planning, detached deploy, status, logs, diagnosis, reconcile, rollback, config and secret changes, start/stop/restart, stateless removal, SQLite databases with Litestream backups and restore checks.
+- **Implemented, acceptance incomplete:** managed SpacetimeDB commands and the remaining SQLite backup drills.
+- **Not built:** the full Charm interface (`brine tui` shows a welcome screen), static drops, git previews, UDP and WebTransport publishing, migrations for existing databases.
+- **Platforms:** the server must be Debian 13 on amd64 or arm64. The client builds and runs on macOS arm64 and Linux. Windows is untested.
+- **Evidence:** one physical Raspberry Pi (arm64) has run the deploy, rollback, recovery and reboot drills. That is not a production-readiness or zero-downtime claim.
 
-## Backup credentials and restore checks
+## License, contributing, security
 
-For an app with multiple databases, keep the same explicit `--database` selector
-in credential planning, private delivery and restore tests:
-
-~~~sh
-brine backup credentials plan APP --database main --target NAME --json
-brine backup credentials set APP --database main --target NAME --plan-id PLAN_ID --json < PRIVATE_PACKET_FILE
-brine restore test APP --database main --target NAME --json
-brine restore test APP --database main --target NAME --txid HEX --json
-brine restore test APP --database main --target NAME --point POINT_ID --json
-~~~
-
-Private credential packets enter through stdin, never command-line arguments.
-Delivery installs an immutable version. For an already committed binding it stops
-only that database's replica, commits its new credential reference under the host
-and replica lifetime locks, and starts that replica with a fresh permit. It never
-restarts the application or creates another epoch. Held fences allow storage but
-refuse activation. After an uncertain reply, resubmit the same plan and identical
-packet to inspect and resume its recorded effect cursor, not blindly restart.
-Restore checks and replica credential activation run in detached, bounded jobs.
-The CLI waits by polling operation status, not by holding a long SSH request;
-individual dispatcher and transport requests retain their 15-second deadlines.
-Use `--no-wait` on either command to receive an accepted operation ID immediately,
-then retrieve its durable terminal receipt with
-`brine status --operation OPERATION_ID --target NAME --json`. Disconnecting an
-observer does not cancel the job. Credential packets are stored privately before
-launch; jobs and status contain only references and checked receipts, never keys.
-
-An expired interrupted rotation is inspected before any lifetime refusal. A
-fresh credential version atomically supersedes its pending cursor after actual
-replica and unit state is settled. Supersession is recorded; expired credentials
-are never restarted, including when expiry passes during an activation.
-
-Receipts report activation, credential age and any issuer-supplied expiry. An
-operator policy change requires an explicit approved admission refresh before
-another delivery; credential delivery never silently re-admits a database.
-
-A successful activation includes a bounded signed read-only listing of the exact
-epoch prefix. An empty listing proves access, **not** that a backup exists.
-`restore test` uses read-only authorization, committed schema declarations and
-optional typed `restore_invariants` (`row_count`, `non_null`, `integer_range`). It
-checks full SQLite integrity, foreign keys and the fixed schema marker/catalog
-inside an isolated read-only transaction. No live SQLite path, upload or sync
-barrier is used. Latest and explicit transaction checks are recoverability
-evidence, not prepared restore points. `--point` accepts only immutable exact
-point evidence with its recorded schema and snapshot hash/size or upload barrier.
-Possible loss is reported as unknown unless independent coverage proves a bound.
-No success here claims that a physical deployment or full R2 recovery drill ran.
-
-## Next work
-
-- Remaining Phase 04 backup, recovery and persistent removal acceptance drills.
-- Phase 09 Pi/browser and amd64 recovery, interruption and archive acceptance.
-- Separate, policy-gated application schema changes.
-- A full Charm TUI sharing the command API's operation engine.
-- Later drops, git previews and approved WebTransport support.
-
-No destructive operation should bypass authorization boundaries, durable operation records or recovery tests.
-
-## Build plan
-
-Start with the [implementation roadmap](.internal/PLAN.md), then the [phase-by-phase task list](.internal/plans/README.md). These documents include [command contracts](docs/CONTRACTS.md), a [failure/acceptance test matrix](.internal/TEST_MATRIX.md), and [agent instructions](AGENTS.md). Use completed task checkboxes and recorded evidence to distinguish implemented behavior from future work.
-
-For app-owned SQLite, start with [Using a database](docs/using-a-database.md).
-It covers the schema file, one-command first deployment and ordinary driver
-examples. See [initialization and recovery](docs/data-initialization.md) for the
-operation guarantees, and [Architecture](docs/ARCHITECTURE.md) for the system.
-For managed SpacetimeDB, use the [operator runbook](docs/runbooks/spacetimedb.md)
-and its separate native backup, publication and recovery commands.
-
-## License
-
-No license has been chosen yet. Public visibility does not imply an open-source license.
+No license has been chosen, so no one has permission to reuse the code yet. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and checks, [AGENTS.md](AGENTS.md) for coding agents, and [SECURITY.md](SECURITY.md) to report a vulnerability.
