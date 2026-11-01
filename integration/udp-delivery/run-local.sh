@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export PATH=$HOME/.local/share/mise/shims:$PATH
+export GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GONOPROXY=none
 : "${TMPDIR:?set a task-owned TMPDIR on /work}"
 if (( $# != 1 )); then
   echo 'Usage: integration/udp-delivery/run-local.sh NEW_EVIDENCE_DIRECTORY' >&2
@@ -27,9 +28,9 @@ mkdir -m 700 "$evidence"
 scratch=$(mktemp -d "$TMPDIR/udp-delivery.XXXXXX")
 export GOTMPDIR=$scratch
 cd "$repo_dir"
-go test -count=1 -timeout 30s -v ./fixtures/udp-echo/... ./integration/udp-delivery > "$evidence/tests.txt" 2>&1
-go test -race -count=1 -timeout 1m ./fixtures/udp-echo/... ./integration/udp-delivery > "$evidence/race.txt" 2>&1
-go vet ./fixtures/udp-echo/... ./integration/udp-delivery > "$evidence/vet.txt" 2>&1
+go test -mod=readonly -count=1 -timeout 30s -v ./fixtures/udp-echo/... ./integration/udp-delivery > "$evidence/tests.txt" 2>&1
+go test -mod=readonly -race -count=1 -timeout 1m ./fixtures/udp-echo/... ./integration/udp-delivery > "$evidence/race.txt" 2>&1
+go vet -mod=readonly ./fixtures/udp-echo/... ./integration/udp-delivery > "$evidence/vet.txt" 2>&1
 fixtures/udp-echo/build.sh "$scratch/release-a" release-a
 fixtures/udp-echo/build.sh "$scratch/release-a-repeat" release-a
 fixtures/udp-echo/build.sh "$scratch/release-b" release-b
@@ -38,6 +39,8 @@ if cmp -s "$scratch/release-a/amd64/udp-echo-server" "$scratch/release-b/amd64/u
   echo 'Distinct releases produced identical server binaries.' >&2
   exit 1
 fi
+cp "$scratch/release-a/build.txt" "$evidence/release-a-build.txt"
+cp "$scratch/release-b/build.txt" "$evidence/release-b-build.txt"
 cp "$scratch/release-a/SHA256SUMS" "$evidence/release-a-SHA256SUMS"
 cp "$scratch/release-b/SHA256SUMS" "$evidence/release-b-SHA256SUMS"
 python3 integration/udp-delivery/smoke.py "$scratch/release-a" "$scratch/release-b" "$evidence"

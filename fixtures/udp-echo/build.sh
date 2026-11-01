@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 export PATH=$HOME/.local/share/mise/shims:$PATH
+export GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GONOPROXY=none
 if (( $# != 2 )); then
   echo 'Usage: fixtures/udp-echo/build.sh NEW_OUTPUT_DIRECTORY RELEASE' >&2
   exit 2

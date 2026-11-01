@@ -114,7 +114,10 @@ tag in a Brine drill.
 
 `integration/udp-delivery/run-local.sh` records its baseline before setup,
 installs teardown first and runs unit, real loopback, race and subprocess
-checks. It compares repeat cross-builds and distinguishes two release binaries.
+checks. Before its first Go command it disables toolchain, proxy and checksum
+downloads, including private-module proxy exceptions. Tests, vet and builds use
+read-only module mode. It compares repeat cross-builds and distinguishes two
+release binaries, retaining their small source/toolchain build receipts.
 The subprocess driver verifies native non-root execution, HTTP health, counters,
 UDP nonce replies, wrong-release refusal and failed HTTP health. Its cleanup
 waits for each child, verifies socket release and removes task binaries.
