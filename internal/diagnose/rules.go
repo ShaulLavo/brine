@@ -62,6 +62,9 @@ func Findings(r Report) []Finding {
 		for _, rule := range appRules {
 			add(rule, a)
 		}
+		for _, rule := range udpReasonRules {
+			add(rule, a)
+		}
 	}
 	return out
 }

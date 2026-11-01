@@ -200,7 +200,7 @@ func TestDriftUnknownAndEveryArtifact(t *testing.T) {
 	a := &(*s.Apps.Value)[0]
 	release.Units = *a.QuadletUnits.Value
 	s.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{{App: "demo", Domains: target.Known([]string{})}})
-	if got := drift(s, "demo", release, Known(policy.Desired{})); got.Value == nil || len(*got.Value) != 0 {
+	if got := drift(s, "demo", release, Known(policy.Desired{}), nil); got.Value == nil || len(*got.Value) != 0 {
 		t.Fatal(got)
 	}
 	tests := []struct {
@@ -227,14 +227,14 @@ func TestDriftUnknownAndEveryArtifact(t *testing.T) {
 			}
 			a := &(*s.Apps.Value)[0]
 			tt.change(&s, a)
-			got := drift(s, "demo", expected, Known(policy.Desired{}))
+			got := drift(s, "demo", expected, Known(policy.Desired{}), nil)
 			if got.Value == nil || !reflect.DeepEqual(*got.Value, []string{tt.code}) {
 				t.Fatal(got)
 			}
 		})
 	}
 	a.Image = target.Observation[target.Image]{Status: target.Unknown}
-	if got := drift(s, "demo", release, Known(policy.Desired{})); got.Status != "unknown" {
+	if got := drift(s, "demo", release, Known(policy.Desired{}), nil); got.Status != "unknown" {
 		t.Fatal(got)
 	}
 }
@@ -447,7 +447,7 @@ func TestDriftSharesAppScopedDomainEvidence(t *testing.T) {
 				desired = unknown[policy.Desired]("store_unavailable")
 			}
 			s.LiveCaddyFiles = target.Known([]target.LiveCaddyFile{file})
-			got := drift(s, "demo", r, desired)
+			got := drift(s, "demo", r, desired, nil)
 			if scenario == "own_domains" {
 				if got.Value == nil || !reflect.DeepEqual(*got.Value, []string{"domains"}) {
 					t.Fatal(got)

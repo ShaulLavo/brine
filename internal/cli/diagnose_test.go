@@ -190,3 +190,7 @@ func TestEveryDiagnosisSuggestionIsRegistered(t *testing.T) {
 		}
 	}
 }
+
+func (diagnoseStore) LoadBrineState(context.Context, target.Identity, uint64) (plan.BrineState, error) {
+	return plan.BrineState{}, nil
+}

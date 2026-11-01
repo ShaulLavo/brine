@@ -1,0 +1,7 @@
+hello
+  Current: current, plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa, image sha256:bbbbbbbbbbbb, port 20000, domains hello.example.com
+  Previous known-good: previous, plan sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc, image sha256:dddddddddddd, port 20000, domains hello.example.com
+  Last operation: op-failed (failed)
+  Unit: active; direct health: healthy
+  Drift: in_sync
+  UDP: public game.example.com:4433, bind 203.0.113.10:4433, container 7777; reservations [udp-op active at 203.0.113.10:4433, incarnation sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd]; local not_ready (socket_missing); remote unverified; ready false

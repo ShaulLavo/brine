@@ -46,11 +46,12 @@ type Report struct {
 	Apps []Status `json:"apps"`
 }
 type Release struct {
-	ID          string        `json:"id"`
-	PlanID      string        `json:"plan_id"`
-	ImageDigest string        `json:"image_digest"`
-	Port        target.Port   `json:"port"`
-	Domains     []spec.Domain `json:"domains"`
+	UDP         *plan.UDPAllocation `json:"udp,omitempty"`
+	ID          string              `json:"id"`
+	PlanID      string              `json:"plan_id"`
+	ImageDigest string              `json:"image_digest"`
+	Port        target.Port         `json:"port"`
+	Domains     []spec.Domain       `json:"domains"`
 }
 type Health struct {
 	UnitActive target.Observation[bool] `json:"unit_active"`
@@ -61,6 +62,7 @@ type Drift struct {
 	Fields []string `json:"fields"`
 }
 type Status struct {
+	UDP           *UDPStatus     `json:"udp,omitempty"`
 	App           string         `json:"app"`
 	Current       *Release       `json:"current"`
 	Previous      *Release       `json:"previous"`
@@ -94,11 +96,15 @@ func (s Service) observed(ctx context.Context) (target.Snapshot, plan.BrineState
 	return snap, state, err
 }
 func (s Service) releaseView(ctx context.Context, r ops.Release) (Release, error) {
-	_, desired, err := s.Store.LoadPlan(ctx, r.PlanID)
+	stored, desired, err := s.Store.LoadPlan(ctx, r.PlanID)
 	if err != nil {
 		return Release{}, err
 	}
-	return Release{ID: r.ID, PlanID: r.PlanID, ImageDigest: r.Image.Digest, Port: r.HostPort, Domains: desired.Domains}, nil
+	var udp *plan.UDPAllocation
+	if stored.UDP != nil {
+		udp = stored.UDP.Next
+	}
+	return Release{UDP: udp, ID: r.ID, PlanID: r.PlanID, ImageDigest: r.Image.Digest, Port: r.HostPort, Domains: desired.Domains}, nil
 }
 func (s Service) Status(ctx context.Context, app string) (Report, error) {
 	report := Report{Apps: []Status{}}
@@ -115,7 +121,7 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 		if err != nil {
 			return report, err
 		}
-		item := Status{App: r.App, Current: &Release{ID: r.ID, PlanID: current.PlanID, ImageDigest: r.Image.Digest, Port: r.HostPort, Domains: r.Desired.Domains}, Health: Health{UnitActive: target.Observation[bool]{Status: target.Unknown}, Direct: "not_checked"}}
+		item := Status{App: r.App, UDP: UDPStatusFor(snap, state.UDP, r), Current: &Release{UDP: r.UDP, ID: r.ID, PlanID: current.PlanID, ImageDigest: r.Image.Digest, Port: r.HostPort, Domains: r.Desired.Domains}, Health: Health{UnitActive: target.Observation[bool]{Status: target.Unknown}, Direct: "not_checked"}}
 		previous, err := s.Store.PreviousRelease(ctx, r.App)
 		if err == nil {
 			v, e := s.releaseView(ctx, previous)
@@ -151,7 +157,7 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 				}
 			}
 		}
-		if r.Desired.App().HasAppContainer() && item.Drift.State != "drifted" && observedPortMatches(snap, r) && item.Health.UnitActive.Value != nil && *item.Health.UnitActive.Value && probes < DirectProbeLimit {
+		if r.Desired.App().HasAppContainer() && !httpDrifted(item.Drift) && observedPortMatches(snap, r) && item.Health.UnitActive.Value != nil && *item.Health.UnitActive.Value && probes < DirectProbeLimit {
 			if deadline, ok := ctx.Deadline(); !ok || time.Until(deadline) > DirectProbeTimeout {
 				probe := s.Probe
 				if probe == nil {
@@ -168,6 +174,9 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 			}
 		}
 		report.Apps = append(report.Apps, item)
+	}
+	if err := s.appendUDPReservations(ctx, snap, state, app, &report); err != nil {
+		return report, err
 	}
 	if err := s.appendManagedReservations(ctx, state, app, &report); err != nil {
 		return report, err
@@ -269,6 +278,10 @@ func CompareDrift(s target.Snapshot, r plan.CurrentRelease) Drift {
 	}
 	if observed != nil {
 		a := observed
+		if r.UDP != nil || a.UDPPublication.Status == target.KnownStatus {
+			known, equal := udpMappingComparison(*a, r.UDP)
+			check("udp", known, equal)
+		}
 		check("image", a.Image.Status == target.Absent || a.Image.Status == target.KnownStatus && a.Image.Value != nil, a.Image.Value != nil && a.Image.Value.Digest == r.Image.Digest && a.Image.Value.Platform == r.Image.Platform)
 		check("port", a.AllocatedHostPort.Status == target.Absent || a.AllocatedHostPort.Status == target.KnownStatus && a.AllocatedHostPort.Value != nil, a.AllocatedHostPort.Value != nil && *a.AllocatedHostPort.Value == r.HostPort)
 		units := slices.Clone(r.Units)

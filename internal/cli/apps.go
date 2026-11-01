@@ -78,6 +78,9 @@ func appStatus(cmd *cobra.Command, deps Dependencies, flags operationFlags, mode
 		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\n  Current: %s\n  Previous known-good: %s\n  Last operation: %s\n  Unit: %s; direct health: %s\n  Drift: %s%s\n", a.App, currentReleaseText(a.Current), previous, op, active, direct, a.Drift.State, driftText(a.Drift.Fields)); err != nil {
 			return err
 		}
+		if err := printUDPStatus(cmd.OutOrStdout(), a); err != nil {
+			return err
+		}
 	}
 	return nil
 }

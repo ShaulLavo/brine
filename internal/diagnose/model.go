@@ -8,9 +8,11 @@ import (
 	"slices"
 	"time"
 
+	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -117,6 +119,8 @@ type RecentOperation struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 type App struct {
+	UDP              *apps.UDPStatus         `json:"udp,omitempty"`
+	UDPRemnants      []plan.UDPEndpoint      `json:"udp_remnants,omitempty"`
 	Name             string                  `json:"name"`
 	Unit             Fact[Unit]              `json:"unit"`
 	ContainerRunning Fact[bool]              `json:"container_running"`
@@ -166,6 +170,14 @@ func DecodeReport(raw []byte) (Report, error) {
 			return bad()
 		}
 		names[a.Name] = true
+		if a.UDP != nil && !a.UDP.Valid(a.Name) {
+			return bad()
+		}
+		for _, endpoint := range a.UDPRemnants {
+			if endpoint.Validate() != nil {
+				return bad()
+			}
+		}
 		if a.Unit.Value != nil {
 			u := *a.Unit.Value
 			if u.Name != a.Name+".service" && u.Name != "brine-"+a.Name+".service" {
@@ -184,11 +196,11 @@ func DecodeReport(raw []byte) (Report, error) {
 			}
 		}
 		if a.Drift.Value != nil {
-			if *a.Drift.Value == nil || len(*a.Drift.Value) > 8 {
+			if *a.Drift.Value == nil || len(*a.Drift.Value) > 9 {
 				return bad()
 			}
 			for _, change := range *a.Drift.Value {
-				if !slices.Contains([]string{"app_missing", "units", "image", "host_port", "secret_bindings", "caddy_file", "caddy_file_missing", "domains"}, change) {
+				if !slices.Contains([]string{"app_missing", "units", "image", "host_port", "secret_bindings", "caddy_file", "caddy_file_missing", "domains", "udp"}, change) {
 					return bad()
 				}
 			}
