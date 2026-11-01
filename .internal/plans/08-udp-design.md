@@ -7,7 +7,9 @@ P08-02, P08-03, P08-04, P08-06 and P08-08 implement. The task checkboxes stay
 in [08-udp.md](08-udp.md). [D10](../../docs/DECISIONS.md#d10-webtransport-starts-with-app-terminated-quic-on-approved-udp-ports)
 remains the authority; nothing here widens it.
 
-Written against `afc6f3c6`. Recheck the named files before each task.
+Written against `afc6f3c6`. The incarnation, reservation transition, proof,
+resume and rollback sections were revised against `876c7b13`. Recheck the
+named files before each task.
 
 ## What Brine does and does not do
 
@@ -51,7 +53,8 @@ meets the requirement.
    permits, initialization, restore or archive authority.
 6. **Stop keeps the reservation.** A stopped app keeps its allocation and
    reports no live listener. Only a committed removal, or a committed release
-   without `[udp]`, releases it, and only after absence is proved.
+   whose plan retires that endpoint, releases it, and only after that exact
+   endpoint's absence is proved.
 7. **No environment injection.** Brine does not add `BRINE_UDP_*` variables.
    The app's own environment names its advertised authority. Plan review and
    status show the client address and port so a mismatch is visible.
@@ -59,6 +62,10 @@ meets the requirement.
    overlaps `app_ports` or ports 80, 443 and 2019. TCP and UDP allocations are
    still kept in separate observations; this rule only removes the case where
    one Brine allocation could shadow the other's number.
+9. **An app incarnation is its founding plan.** Each live release head records
+   the hash of the plan whose release created it. Removal ends it; reusing the
+   name founds a new one. UDP claims, plans and ownership proofs bind to it.
+   Stateless apps get it without any data authority.
 
 ## App definition (`internal/spec`)
 
@@ -236,42 +243,111 @@ UDP socket **overlaps** it when the ports match and any of these is true:
   so dual-stack is assumed);
 - the candidate is a wildcard (refused earlier, listed for completeness).
 
-An overlapping socket is explained only when it carries an affirmative `App`
-equal to the planned app **and** that app's measured `UDPPublication` matches
-the endpoint. Everything else, including empty ownership, is foreign.
+An overlapping socket is explained only when all of these hold:
+
+- it carries an affirmative `App` equal to the planned app;
+- that app's measured `UDPPublication` matches the endpoint;
+- the app's observed unit hashes equal its current release's units, whose
+  `# Brine-owned plan=` marker names the plan that binds the head's
+  incarnation (during apply, `check_udp` uses this operation's rendered unit);
+- the app holds the `active` row for that endpoint in that incarnation.
+
+With no live head nothing is explained, so a recreated name never inherits a
+socket from an earlier incarnation. Everything else, including empty
+ownership, is foreign.
 
 A TCP socket never explains, blocks or overlaps a UDP endpoint. A UDP socket
 never explains a TCP one.
+
+## App incarnation
+
+Phase 08 requires UDP ownership to bind an immutable app incarnation, and an
+app name is not one: `RetireApp` deletes the release head but keeps history,
+and `target.App.RuntimeAbsent` lets a later deploy reuse the name.
+`BrineState.DataIncarnations` covers persistent data only, and a stateless
+app must not need data authority to get an identity.
+
+The incarnation ID is the hash of the plan whose committed release created the
+live release head.
+
+| Event | Incarnation |
+| --- | --- |
+| First committed release of a name (a `Create` plan) | Founded: the head insert sets `release_heads.incarnation_id = release.PlanID` |
+| Later release, rollback or replica revision | Unchanged: the head upsert never updates the column |
+| `RetireApp` | Ended with the deleted head. Retained releases keep their plans |
+| Name reused after removal | A new `Create` plan at a later generation founds a new ID |
+| `Create` that fails or rolls back | Founds nothing. Its claim is reverted before `Failed` or `RolledBack`; a `recovery_required` end keeps it for resolution (below) |
+
+The plan hash is the right key because it is fixed before any effect. It is
+also identical for a deploy and every `resolve` successor, since
+`resolutionFamilyAvailable` requires one `PlanID` across the family. A release
+ID would not work: a resolution commits under the successor's ID. The hash is
+unique per head because it binds the observed generation, and every commit or
+removal advances that generation. One `Create` plan can therefore found at most
+one head.
+
+The migration rebuilds `release_heads` with `incarnation_id TEXT NOT NULL`,
+filled in from each existing head's current release `plan_id`. No existing
+release has UDP, so nothing refers to an older value. Release blobs, HTTP plans
+and HTTP decision inputs do not change. The column reaches the planner only
+through `BrineState.UDP`, which `Build` removes for apps with no UDP
+involvement.
 
 ## Planning (`internal/plan`)
 
 ```go
 // internal/plan/udp.go
-type UDPAllocation struct {
-	ReservationID string           `json:"reservation_id,omitempty"` // empty only for a new allocation
-	Family        string           `json:"family"`                   // "ipv4" | "ipv6"
-	BindAddress   string           `json:"bind_address"`
-	ClientAddress string           `json:"client_address"`
-	Exposure      spec.UDPExposure `json:"exposure"`
-	HostPort      target.Port      `json:"host_port"`
-	ContainerPort target.Port      `json:"container_port"`
-	GrantHash     string           `json:"grant_hash"` // sha256 of the canonical grant JSON
+type AppIncarnation struct {
+	App string `json:"app"`
+	ID  string `json:"id"` // release_heads.incarnation_id
 }
 
-// A reservation is the host-side endpoint only. The container port lives in
-// the release's UDPAllocation and may change without touching the reservation.
-type UDPReservation struct {
-	ID          string      `json:"id"`
-	App         string      `json:"app"`
-	State       string      `json:"state"` // staged | active | releasing
-	Family      string      `json:"family"`
+type UDPEndpoint struct {
+	Family      string      `json:"family"` // "ipv4" | "ipv6", derived from BindAddress
 	BindAddress string      `json:"bind_address"`
 	HostPort    target.Port `json:"host_port"`
 }
 
+// UDPAllocation is configuration: what one release publishes.
+type UDPAllocation struct {
+	Endpoint      UDPEndpoint      `json:"endpoint"`
+	ContainerPort target.Port      `json:"container_port"`
+	ClientAddress string           `json:"client_address"`
+	Exposure      spec.UDPExposure `json:"exposure"`
+	GrantHash     string           `json:"grant_hash"` // sha256 of the canonical grant JSON
+}
+
+// UDPReservation is one durable row that is not released.
+type UDPReservation struct {
+	ID          string      `json:"id"` // "udp-" + claiming operation ID
+	App         string      `json:"app"`
+	Incarnation string      `json:"incarnation"`
+	State       string      `json:"state"`           // staged | active | releasing
+	Owner       string      `json:"owner,omitempty"` // operation holding a staged or releasing row
+	Endpoint    UDPEndpoint `json:"endpoint"`
+}
+
+type UDPState struct {
+	Incarnations []AppIncarnation `json:"incarnations"` // every live head
+	Reservations []UDPReservation `json:"reservations"` // every row not released
+}
+
+// UDPPlan is the plan's whole UDP intent and reservation transition.
+// A claim (a new staged row on Next's endpoint) is implied by Next != nil && Keep == "".
+type UDPPlan struct {
+	Incarnation string          `json:"incarnation,omitempty"` // empty only in a Create plan: this plan founds it
+	Exact       *UDPEndpoint    `json:"exact,omitempty"`       // rollback's selected endpoint
+	Next        *UDPAllocation  `json:"next,omitempty"`        // nil: no UDP after this plan
+	Keep        string          `json:"keep,omitempty"`        // active row kept unchanged
+	Retire      *UDPReservation `json:"retire,omitempty"`      // active row this plan releases
+}
+
+// ResolvedIncarnation returns p.Hash for a Create plan, else p.UDP.Incarnation.
+func (p Plan) ResolvedIncarnation() string
+
 const (
-	ReserveUDP ChangeKind = "reserve_udp"
-	ReleaseUDP ChangeKind = "release_udp"
+	ReserveUDP ChangeKind = "reserve_udp" // presentation of a claim
+	ReleaseUDP ChangeKind = "release_udp" // presentation of a retire
 )
 
 const (
@@ -280,41 +356,75 @@ const (
 	UDPPortsExhausted     ConflictCode = "udp_ports_exhausted"
 	UDPBindUnavailable    ConflictCode = "udp_bind_address_unavailable"
 	UDPRuntimeUnsupported ConflictCode = "udp_runtime_unsupported"
+	UDPUnsettled          ConflictCode = "udp_reservation_unsettled"
 )
 
-// Plan gains:            UDP *UDPAllocation `json:"udp,omitempty"`
-// Change gains:          UDP *UDPAllocation `json:"udp,omitempty"`
-// Quadlet gains:         UDP *UDPAllocation `json:"udp,omitempty"`
-// CurrentRelease gains:  UDP *UDPAllocation `json:"udp,omitempty"`
-// BrineState gains:      UDPReservations []UDPReservation `json:"udp_reservations,omitempty"`
+// Plan gains:            UDP *UDPPlan          `json:"udp,omitempty"`
+// Change gains:          UDP *UDPEndpoint      `json:"udp,omitempty"`
+// Quadlet gains:         UDP *UDPAllocation    `json:"udp,omitempty"` // always Plan.UDP.Next
+// CurrentRelease gains:  UDP *UDPAllocation    `json:"udp,omitempty"` // its own plan's UDP.Next
+// Removal gains:         UDP *UDPReservation   `json:"udp,omitempty"` // active row the removal releases
+// BrineState gains:      UDP *UDPState         `json:"udp,omitempty"`
+// Input gains:           UDPExact *UDPEndpoint // rollback, and rebuilds of a plan with Exact
 ```
+
+`LoadBrineState` fills `UDP` on every load and fills `CurrentRelease.UDP` from
+the release's stored plan, so releases need no schema change. Execution reads
+`Plan.UDP`; the two change kinds exist only for plan review.
+
+The transition is a property of `Plan.UDP`:
+
+| Transition | `Retire` | `Keep` | `Next` | Claim |
+| --- | --- | --- | --- | --- |
+| none (`Plan.UDP == nil`) | | | | |
+| create | | | B | B |
+| retain (container port may change) | | A | A | |
+| move | A | | B | B |
+| release only | A | | nil | |
 
 `Build` decides UDP after the HTTP port, in this order:
 
-1. No `Desired.UDP` and no reservation for the app: no UDP payload at all.
-2. `Desired.UDP` set: the grant's bind address must be in `LocalAddresses`
-   (`udp_bind_address_unavailable`); unknown observations add `unknown_facts`
-   at `udp_sockets` or `local_addresses`. The observed `passt` version must be
-   known (`udp_runtime_unsupported` otherwise).
-3. If the app holds a non-released reservation whose endpoint is still inside
-   the current grant, retain it (`ReservationID` set, no `reserve_udp`).
-4. Otherwise allocate the lowest port in the grant range with no overlapping
-   foreign socket and no other app's non-released reservation on that
-   address and port. None free: `udp_ports_exhausted`. A single-port grant
-   whose port is taken: `udp_port_owned`. Emit `reserve_udp`.
-5. A retained endpoint with an overlapping foreign socket: `udp_port_owned`.
-   A changed container port alone keeps the reservation and re-renders.
-6. If the app holds a reservation that the new desired input no longer covers
-   (no `[udp]`, or the endpoint moved), emit `release_udp` for the old one.
+1. **Projection.** The app is UDP-involved when `Desired.UDP`, its current
+   release's `UDP`, `UDPExact` or any of its rows is set. If not, `Build` sets
+   `in.State.UDP = nil` before `canonicalState`, emits no UDP payload and
+   leaves the decision input byte-identical. Otherwise it keeps this app's
+   incarnation, this app's rows and other apps' rows that overlap a candidate
+   endpoint. The candidates are the grant range on its bind address, the app's
+   active endpoint and `UDPExact`.
+2. **Unsettled rows.** Any `staged` or `releasing` row of this app gives
+   `udp_reservation_unsettled` at field `udp.reservation`. Only the row's owner
+   family settles it, through its own resume or `brine resolve`. A later plan
+   never adopts, releases or ignores it, and this includes plans with no
+   `[udp]`.
+3. **Incarnation.** `Incarnation` is the head's ID when a current release
+   exists, and empty for `Create`. An active row in another incarnation, an
+   active row with no head, or a disagreement between the active row and
+   `CurrentRelease.UDP` is `artifact_drift` at `udp.reservation`.
+4. **No `Desired.UDP`.** An active row A becomes `Retire`. With no row, there
+   is no UDP payload.
+5. **`Desired.UDP`.** The grant's bind address must be in `LocalAddresses`
+   (`udp_bind_address_unavailable`). Unknown `udp_sockets` or
+   `local_addresses` give `unknown_facts`, and the observed `passt` version must
+   be known (`udp_runtime_unsupported`). Choose the endpoint:
+   - if `UDPExact` is set, use it unchanged. It must equal the grant's bind
+     address and lie in its range (`udp_denied`).
+   - otherwise keep the active endpoint A while the grant still covers it;
+   - otherwise take the lowest port in the range with no overlapping socket and
+     no other app's row (`udp_ports_exhausted`; `udp_port_owned` for a taken
+     single-port grant).
+   An unexplained overlapping socket or another app's row on the chosen
+   endpoint gives `udp_port_owned`. If the endpoint equals A, `Keep = A.ID`.
+   Otherwise the plan claims it and retires A when A exists.
+6. **Changes.** Emit `reserve_udp` for a claim and `release_udp` for a
+   retire. A plan is `NoOp` only when the transition is none or retain and the
+   configuration hash is equal.
 
-`configHash` and `configurationDiff` include `UDPAllocation` (without
-`ReservationID`, which is identity, not configuration). The diff field is `udp`.
-
-Decision facts extend `portAdmissionSnapshot`: `UDPSockets` is projected to
-sockets whose port lies in this app's grant range or retained allocation, on any
-overlapping address. `LocalAddresses` is projected to one boolean, "grant bind
-address present". Ephemeral UDP client sockets elsewhere cannot stale a plan;
-a new socket in the granted range does.
+`configHash` and `configurationDiff` include `Next`. They leave out
+`Incarnation` and row IDs, which are identity, not configuration. The diff
+field is `udp`. Decision facts extend `portAdmissionSnapshot`: `UDPSockets` is
+projected to sockets that overlap a candidate endpoint, and `LocalAddresses`
+to one boolean, "grant bind address present". Ephemeral UDP client sockets
+elsewhere cannot stale a plan; a new socket in the granted range does.
 
 Concurrent plans can compute the same free port. Only one can commit: apply
 rechecks decision facts under the host mutation lock, and the store's unique
@@ -323,40 +433,57 @@ defense in depth.
 
 ## Persisted state (`internal/store`)
 
-One migration, the next schema version after 33:
+One migration, the next schema version after 33. It also adds the
+`release_heads.incarnation_id` column described above.
 
 ```sql
 CREATE TABLE udp_reservations(
-  id TEXT PRIMARY KEY,                        -- 'udp-' || creating operation id
+  id TEXT PRIMARY KEY,                     -- 'udp-' || claiming operation id
   app TEXT NOT NULL,
+  incarnation TEXT NOT NULL,               -- plan's resolved incarnation
   family TEXT NOT NULL CHECK(family IN ('ipv4','ipv6')),
   bind_address TEXT NOT NULL,
   host_port INTEGER NOT NULL CHECK(host_port BETWEEN 1024 AND 65535),
   state TEXT NOT NULL CHECK(state IN ('staged','active','releasing','released')),
+  owner TEXT REFERENCES operations(id),    -- holder of a staged or releasing row
   created_by TEXT NOT NULL REFERENCES operations(id),
   released_by TEXT REFERENCES operations(id),
-  canonical BLOB NOT NULL CHECK(length(canonical)<=4096));
-CREATE UNIQUE INDEX udp_live_app ON udp_reservations(app) WHERE state IN ('staged','active');
+  canonical BLOB NOT NULL CHECK(length(canonical)<=4096),
+  CHECK((state IN ('staged','releasing')) = (owner IS NOT NULL)),
+  CHECK((state = 'released') = (released_by IS NOT NULL)));
 CREATE UNIQUE INDEX udp_live_endpoint ON udp_reservations(bind_address,host_port) WHERE state<>'released';
+CREATE UNIQUE INDEX udp_one_claim ON udp_reservations(app) WHERE state='staged';
+CREATE UNIQUE INDEX udp_one_holder ON udp_reservations(app) WHERE state IN ('active','releasing');
 CREATE TRIGGER udp_reservations_no_delete BEFORE DELETE ON udp_reservations BEGIN SELECT RAISE(ABORT,'retained reservation'); END;
-CREATE TRIGGER udp_reservation_identity BEFORE UPDATE OF id,app,family,bind_address,host_port,created_by,canonical ON udp_reservations BEGIN SELECT RAISE(ABORT,'immutable reservation'); END;
+CREATE TRIGGER udp_reservation_identity BEFORE UPDATE OF id,app,incarnation,family,bind_address,host_port,created_by,canonical ON udp_reservations BEGIN SELECT RAISE(ABORT,'immutable reservation'); END;
 ```
 
-Allowed state edges, enforced by a trigger like `legal_transition`:
-`staged -> active`, `staged -> released`, `active -> releasing`,
-`releasing -> released`, `releasing -> active` (a failed release rolls back to
-the still-running mapping).
+A `legal_transition`-style trigger allows only `staged -> active`,
+`staged -> released`, `active -> releasing`, `releasing -> released` and
+`releasing -> active`. A released row never returns: a later claim on the same
+endpoint inserts a new row. Rows do not count toward `Store.Generation`, so
+preparing a reservation never makes the operation's own plan stale.
 
-A container-port-only change keeps the reservation and re-renders the unit.
-Moving to a different endpoint happens in one deploy: `reserve_udp` moves the
-old row `active -> releasing` and inserts the new `staged` row in the same
-transaction, so an app never has two `staged` or `active` rows. Commit settles
-both; a failed deploy reverses both.
+The **owner family** of an operation is the operation itself plus its
+`recovery_of` ancestors with the same plan ID, the chain that
+`resolutionFamilyAvailable` already walks. Store methods change a `staged` or
+`releasing` row only when its `owner` is in the acting operation's family.
 
-Releases and plans need no schema change: `UDP` lives in their existing
-canonical JSON blobs. `reserveCommittedPorts` gains a sibling that loads every
-non-released row into `BrineState.UDPReservations` and
-`ControlInventory`, so stopped, failed and unknown apps keep their endpoints.
+| Method | Step | One transaction | Repeat and read-back |
+| --- | --- | --- | --- |
+| `PrepareUDP(op, p)` | `prepare_udp` | Retire row `active -> releasing`, owner `op`; then insert `udp-<op>` as `staged`, owner `op`, incarnation `p.ResolvedIncarnation()` | Rows already prepared by the family: success, no write. Any other shape: `ErrConflict` |
+| `UDPPreparation(op, p)` | reconcile, recovery | Read only: `unprepared`, `prepared`, `committed`, `reverted` or `unresolved` | |
+| `RevertUDP(op, p)` | `revert_udp`, `rollback_udp` | Claim `staged -> released`, `released_by = op`; then Retire `releasing -> active`, owner cleared | Already reverted: success, no write |
+| `CommitRelease` (extended) | `commit` | Existing release insert and head upsert; Retire `releasing -> released`; then claim `staged -> active`; assert the Keep row is still active; assert every touched row's incarnation equals `incarnation_id` | Existing read-back, plus the rows' committed shape |
+| `RetireApp` (extended) | `retire_app` | Existing head delete; `Removal.UDP` row `releasing -> released`. Refuses if the app holds any other row that is not released | Existing `AppRetired`, plus the row |
+
+`udp_one_holder` covers `active` and `releasing`, so a move commit must release
+the old row before activating the claim; the statement order above does that.
+A revert may run in either order; it releases the claim first.
+
+`reserveCommittedPorts` gains a sibling that loads every row that is not
+released into `ControlInventory` for status. Planning reads rows only through
+`BrineState.UDP`; they are not snapshot facts.
 
 ## Rendering (`internal/quadlet`)
 
@@ -370,67 +497,186 @@ PublishPort=203.0.113.10:4433:4433/udp
 
 IPv6 renders as `[2001:db8::10]:4433:4433/udp`. `Render` refuses when the
 allocation's grant hash, exposure or container port differ from
-`Desired.UDP`, when the host port is outside the grant, or when a `reserve_udp`
-change disagrees with the allocation. `validateDesired` must add the `udp`
+`Desired.UDP`, when the host port is outside the grant, or when
+`Quadlet.UDP` differs from `Plan.UDP.Next`. `validateDesired` must add the `udp`
 table to its TOML reconstruction, or every UDP unit fails validation. No
 `Network=`, capability, `PodmanArgs` or host socket line is added.
 
 ## Apply, lifecycle and recovery (`internal/apply`)
 
-For an app with UDP intent, `deploymentSteps` inserts two steps; apps without
-UDP keep today's list exactly:
+`deploymentSteps(p plan.Plan, d policy.Desired)` derives the step list from the
+plan, not from desired input alone. With `Plan.UDP == nil` the list is exactly
+today's:
 
 ```text
 preflight, pull_image, verify_image, ensure_secrets, [prepare_data],
-reserve_udp, stage_unit, quiesce_old, install_unit, reload_units, start_unit,
-check_direct, check_udp, publish_route, check_routed, commit
+[prepare_udp], stage_unit, quiesce_old, install_unit, reload_units, start_unit,
+check_direct, [check_udp], [check_udp_retired], publish_route, check_routed, commit
 ```
 
-A deploy that only releases UDP adds `check_udp_absent` after `check_direct`
-instead of `reserve_udp` and `check_udp`.
+- `prepare_udp` runs when the plan claims or retires: `PrepareUDP`, before the
+  old writer stops.
+- `check_udp` runs when `Next` is set.
+- `check_udp_retired` runs when `Retire` is set.
 
-| Step | Effect | Unknown outcome |
+The recovery prefix and the resolution state map gain the same names:
+`prepare_udp` is `Preparing`, and both checks are `Checking`.
+
+### Endpoint proofs
+
+Both proofs are read-only, bounded by the existing startup deadline, shared
+with status, and safe to re-run. An unknown observation makes either proof
+unknown, never true. Neither proof removes, stops or edits anything it finds.
+
+- **`UDPReady(app, allocation, unitHash)`**: the installed unit has hash
+  `unitHash` and exactly one `/udp` line equal to the allocation. `podman
+  inspect` shows a running container in network mode `pasta` with exactly the
+  expected TCP binding plus this UDP binding. Exactly one owned `UNCONN`
+  socket sits at the exact endpoint, with no other overlapping socket.
+- **`UDPAbsent(app, endpoint)`**: the app's installed unit, if any, has no
+  `/udp` line for the endpoint; the app's container, if any, has no binding
+  for it; and no observed UDP socket overlaps it, whoever owns it. The proof
+  names one endpoint, so the app's legitimate publication on another endpoint
+  does not affect it. A move always changes the endpoint, and exact grant
+  addresses rule out a wildcard replacement, so the replacement socket never
+  overlaps the retired endpoint.
+
+### Transitions and proofs
+
+| Transition | Before commit | Commit transaction | Compensation proof after the old unit is restored | Compensation transaction |
+| --- | --- | --- | --- | --- |
+| create B | `UDPReady(B)` | claim `staged -> active`; head founded with `incarnation_id = p.Hash` | `UDPAbsent(B)` after `rollback_unit` | `RevertUDP`: claim released |
+| retain A | `UDPReady(A, next)` | Keep row asserted active | `UDPReady(A, previous)` | none |
+| move A to B | `UDPReady(B)` and `UDPAbsent(A)` | A `releasing -> released`, then B `staged -> active` | `UDPReady(A, previous)` and `UDPAbsent(B)` | `RevertUDP`: B released, then A active |
+| release A | `UDPAbsent(A)` | A `releasing -> released` | `UDPReady(A, previous)` | `RevertUDP`: A active |
+| remove app, A | `UDPAbsent(A)` after unit removal | `RetireApp`: head deleted, A released | none: removal never compensates | |
+
+A healthy B with a remnant at A fails `check_udp_retired`. The failure is
+`udp_unready`, which enters rollback. A restored HTTP service with A missing,
+or a B still present after restoration, fails the compensation proof and ends
+`recovery_required` with both rows unchanged.
+
+### Failure handling
+
+The executor's existing paths gain these UDP steps:
+
+1. **Nothing quiesced or installed.** This covers a failure in `stage_unit`,
+   a `prepare_udp` read back as not applied, or a stale resume. If the family
+   journaled a `prepare_udp` intent, `x.fail` runs `revert_udp` (`RevertUDP`,
+   state `Preparing`, so the existing `Preparing -> Failed` edge still
+   applies) before the `Failed` terminal. No runtime
+   proof is needed. The journal shows no `quiesce_old` or `install_unit`
+   intent, so the old publication was never touched and no unit of this
+   operation exists. An unknown result is read back with `UDPPreparation`, and
+   an unresolved read ends `recovery_required`.
+2. **Quiesced or installed.** After the existing rollback steps, rollback adds
+   `rollback_udp_check`, the compensation proof from the table, then
+   `rollback_udp` (`RevertUDP`; skipped for retain), then `RolledBack`. A
+   failed or unknown proof ends `recovery_required` and leaves the rows alone.
+   Rollback paths created during resolution gain the same two names.
+3. **Codes that already end `recovery_required`** (`journal_failed`,
+   `reload_unknown`, `interrupted`, `rollback_failed`) still do. Their rows
+   keep their owner. Only that family's resume or `brine resolve` settles
+   them, using the same proofs.
+
+As a result, `Failed`, `RolledBack` and `Succeeded` are never reached while
+this family holds a `staged` or `releasing` row. Tests assert this after every
+failure injection.
+
+### Operation-bound resume
+
+After `prepare_udp`, the store holds this operation's own expected effects: a
+staged claim, and possibly a releasing retire. A plain rebuild would see
+those effects as drift. Every fresh-plan comparison of a UDP plan therefore
+first undoes exactly this family's preparation and nothing else:
+
+```go
+// internal/plan/udp_resume.go
+
+// UnapplyUDP returns s as it was before family's prepare_udp for p: it drops
+// the one staged claim on p.UDP.Next owned by family with p's resolved
+// incarnation, and returns p.UDP.Retire from releasing to active. prepared
+// reports whether that shape was found. Any other family-owned row, or an
+// expected row with another endpoint, incarnation or state, is an error and
+// the plan cannot resume. Rows of other families pass through unchanged.
+func UnapplyUDP(s BrineState, p Plan, family []string) (out BrineState, prepared bool, err error)
+
+// RebuildInput sets in.UDPExact = p.UDP.Exact and applies UnapplyUDP.
+func RebuildInput(in Input, p Plan, family []string) (Input, bool, error)
+```
+
+The three existing comparisons call `RebuildInput` before building: host
+`Executor.Run` (family `[op]`), `apply.Executor.run` preflight (the op plus its
+resolution owners) and `inspectRecovery`. The original plan, its allocation
+and its hash stay unchanged. Reservation state is never dropped from hashes;
+another family's claim, or a new socket in the granted range, still makes the
+rebuilt plan differ.
+
+`inspectRecovery` changes in two places:
+
+- A `prepare_udp` boundary without a completed outcome is read back.
+  `prepared` marks the step completed. `unprepared` leaves it uncompleted, so
+  `ResumeForward` runs the single idempotent transaction again; this repeats
+  no unknown effect. `unresolved` requires recovery.
+- When the rebuild differs and neither `quiesced` nor `installed` is set, a
+  prepared family now chooses `RestorePrevious` instead of `RequireRecovery`.
+  `Recover` then reaches `x.fail`, which reverts the reservation and ends
+  `Failed`.
+
+| Kill point | Read-back | Decision |
 | --- | --- | --- |
-| `reserve_udp` | One store transaction inserts the `staged` row and its journal event. Runs before the old writer stops. | None. The transaction either committed or not; resume reads the row by operation id. |
-| `check_udp` | Read-only. Requires the unit file's exact `/udp` line, `podman inspect` running with network mode `pasta` and exactly the expected TCP and UDP bindings, and one owned `UNCONN` socket at the endpoint with no foreign overlap. Bounded by the existing startup deadline. | Re-run; it has no effect. |
-| `check_udp_absent` | Read-only proof: no `/udp` line, no UDP binding in `podman inspect`, and no socket overlapping the old endpoint. | Re-run. |
-| `commit` | Existing release commit also moves `staged -> active` and `releasing -> released` in the same transaction. | Existing commit inspection. |
+| `prepare_udp` intent, transaction not committed | `unprepared` | `ResumeForward` if the rebuild is equal; `prepare_udp` runs once |
+| `prepare_udp` intent, transaction committed | `prepared` | Mark completed; `ResumeForward` if the rebuild is equal |
+| `prepare_udp` completed, before `stage_unit` | `prepared` | `UnapplyUDP`, equal rebuild, `ResumeForward`; no second insert |
+| Before `quiesce_old` with a foreign claim or socket since planning | `prepared` | `RestorePrevious`, `revert_udp`, `Failed` |
+| After `quiesce_old` or `install_unit` | any | Existing `RestorePrevious`, plus the compensation proof and revert |
+| `commit` intent or unknown | `committed` | Existing commit read-back, plus the rows' committed shape: `FinishSucceeded` |
 
-Failure handling uses the existing paths:
+### Lifecycle, rollback and removal
 
-- A failed `check_udp` is a health failure (`udp_unready`). The executor
-  restores the previous unit as today. If the previous release had no UDP,
-  rollback runs `check_udp_absent` and marks the staged row `released`. If
-  absence cannot be proved, the operation ends `recovery_required` and the row
-  stays `staged`, which keeps blocking that endpoint.
-- `reconcileUnknown` compares the observed unit, container and now the UDP
-  publication against the plan before resolving `install_unit`, `start_unit`
-  and `stop_unit`. Unknown is inspected, never replayed.
-- SIGKILL or reboot between steps: resume reads the journal and the
-  reservation row. A `staged` row with no committed release is resolved by
-  inspection: if the new unit is installed and `check_udp` passes, continue;
-  otherwise follow the failure path above.
+- `stop_app` keeps the row `active`. Status shows the endpoint as reserved
+  with no expected listener. There is no UDP step.
+- `start_app` and `restart_app` add `check_udp` against the current release's
+  allocation after `check_direct`. `BuildLifecycle` refuses with
+  `udp_reservation_unsettled` while the app has an unsettled row.
+- **Rollback** (`apps.Service.Rollback`). When the selected release's stored
+  plan has `UDP.Next`, the current release has UDP, or the app has a row, the
+  stateless path does three things:
+  1. It takes `selected := stored.UDP.Next.Endpoint` (nil when the selected
+     release had no UDP).
+  2. It renormalizes the selected desired input under the current policy:
+     `policy.Normalize(desired.App(), pol)`, as `managed_rollback.go` already
+     does. The current grant replaces the historical one. A revoked grant or a
+     changed exposure refuses `policy.udp_denied`. The container port and HTTP
+     fields stay as selected.
+  3. It builds with `UDPExact: selected`.
 
-Lifecycle plans (`internal/apply/lifecycle.go`):
+  Step 5 above then restores that exact endpoint or conflicts; it never
+  reallocates. HTTP-only rollbacks keep today's path unchanged.
 
-- `stop_app`: the reservation stays `active`. Status shows the endpoint as
-  reserved with no expected listener. No UDP step.
-- `start_app` and `restart_app`: add `check_udp` after `check_direct`.
-- Rollback (`internal/apps` rollback service): the normal planner runs on the
-  selected release's desired input against current policy. The retained
-  reservation is reused when the grant still covers it; a revoked grant makes
-  the rollback plan conflict with `udp_denied`. Rollback to a release without
-  UDP emits `release_udp`. Stateless compatibility is unchanged because
-  `Stateless()` ignores UDP.
-- `remove_app` (`internal/apply/remove.go`): after the unit and route are gone,
-  `check_udp_absent` must pass before the retirement commit moves the row to
-  `released`. Failure ends `recovery_required` with the row `releasing`.
+  | Case | Plan |
+  | --- | --- |
+  | Selected R1 used A, current uses B, grant covers both | move: claim A, retire B |
+  | A has a foreign socket or another app's row | `udp_port_owned` |
+  | A outside the current grant | `udp_denied` |
+  | A's historical row released | claim A as a new row; never `released -> active` |
+  | Selected release from an earlier incarnation | claim A under the current incarnation; old rows untouched |
+  | Selected release had no UDP | release only: retire the current row |
+
+- **Removal** (`internal/apply/remove.go`). `BuildRemove` puts the active row
+  in `Removal.UDP`; an unsettled row conflicts. The steps become `preflight,
+  [prepare_udp], withdraw_route, stop_unit, remove_unit, reload_units,
+  [check_udp_retired], retire_app`. Every failure keeps removal's existing
+  `recovery_required` result. A prepared row stays `releasing` under its
+  owner. Removal recovery reads the row against `Removal.UDP`: `active` means
+  `prepare_udp` was not applied, `releasing` under the family means it was,
+  and `released` together with `AppRetired` means retirement committed.
   Persistent removal still goes through the archive path; UDP grants no data
   authority.
 
-Terminal recovery resolution (`brine resolve`) treats a `staged` or `releasing`
-row as part of the operation's owned state: resolution may only settle it with
-the same read-only proofs.
+Terminal recovery resolution (`brine resolve`) needs no new mechanism. The
+successor's family includes the source, so its continuation or compensation
+settles the source's rows with the same proofs, and with nothing else.
 
 ## Status, diagnosis and output
 
@@ -452,7 +698,8 @@ a nullable `udp` allocation. The human view shows one line per published app.
 }
 ```
 
-- `reservation`: `staged`, `active`, `releasing`.
+- `reservation`: `staged`, `active` or `releasing`. An unsettled row also
+  reports its owner operation, the one `brine resolve` acts on.
 - `local`: `ready`, `not_ready`, `stopped` or `unknown`. `ready` needs the same
   facts as `check_udp`. HTTP health stays in `health.direct`; overall app
   readiness requires both.
@@ -490,7 +737,8 @@ P08-04 may build its status and diagnosis output in parallel and rebase.
 
 | Requirement | Test | Where |
 | --- | --- | --- |
-| No UDP intent leaves apps unchanged | Golden: existing spec, desired bytes, plan and unit are byte-identical; B unchanged after A's grant | `spec`, `policy`, `plan`, `quadlet` tests |
+| No UDP intent leaves apps unchanged | Golden: existing spec, desired bytes, plan payload, decision input and unit are byte-identical with no relevant rows (`BrineState.UDP` projected away); B unchanged after A's grant | `spec`, `policy`, `plan`, `quadlet` tests |
+| Incarnation is immutable and name reuse is not ownership | Head founded with the `Create` plan hash and kept by updates, rollbacks and resolution commits; remove then recreate the same name gives a new ID; a socket attributed to the name with no live head is foreign; migration backfill | `store/udp_reservations_test.go`, `plan/udp_test.go` (T22, T26) |
 | Deny by default | Spec with `[udp]` and no grant, wrong exposure, grant for another app: `policy.udp_denied`, no plan saved | `policy`, `apps` service tests |
 | Unknown fields, bad ports, wildcards | Parser and policy tables, including `0.0.0.0`, `::`, `::ffff:a.b.c.d`, port 80, range overlapping `app_ports` | `spec/udp_test.go`, `policy/udp_test.go` |
 | Foreign ownership refuses before effects | Planner tables: equal address, IPv4 wildcard, `::`, `*`, empty owner, other app's reservation; TCP on same number does not conflict | `plan/udp_test.go` (T28) |
@@ -501,9 +749,14 @@ P08-04 may build its status and diagnosis output in parallel and rebase.
 | HTTP healthy plus missing or foreign UDP is not ready | Collector fakes: missing socket, foreign cgroup, extra binding, `slirp4netns` mode | `inventory`, `apps` status goldens (T29) |
 | Owned socket does not imply remote reachability | `remote` stays `unverified` in every status golden | `apps` goldens (T29) |
 | Restart, stop and start keep ownership | Lifecycle executor tests; stopped status shows reservation without listener | `apply/lifecycle_test.go` |
-| Rollback restores mapping and reservation | Failed `check_udp` restores previous; rollback to no-UDP release proves absence then releases | `apply` tests (T30) |
-| Removal leaves no socket or claim | Absence proof required; remnant gives `recovery_required` and keeps the row | `apply/remove_test.go`, `inventory/absence_test.go` (T30) |
-| Interruption at each new boundary | Kill after `reserve_udp`, during `check_udp`, before and after commit, during release; resume inspects | `apply/recovery_test.go`, real subprocess kills (T30) |
+| Plan-driven transitions | Create, retain (including container-port-only), move, release only and remove produce the exact `Plan.UDP` and step list; retain inserts no row; an unsettled row of another family, including a no-`[udp]` input with a `releasing` remnant, gives `udp_reservation_unsettled` | `plan/udp_test.go`, `apply` step tests (T30) |
+| Store transitions | Every legal and illegal edge on real SQLite; move commit and revert order against both unique indexes; a row owned outside the family is untouched; `RetireApp` refuses stray rows; a staged row with another incarnation is never activated | `store/udp_reservations_test.go` (T26, T30) |
+| Compensation at every boundary | `stage_unit` failure after `prepare_udp` reverts and ends `Failed`; injected failure or unknown result at `prepare_udp`, `revert_udp`, `rollback_udp` and `commit`; no `Failed`, `RolledBack` or `Succeeded` with a family-owned unsettled row | `apply/executor_test.go`, `apply/unknown_test.go` (T30) |
+| Endpoint-specific proofs | Healthy B plus a remnant at A refuses commit and rolls back; restored HTTP with A missing, and B lingering after restoration, end `recovery_required` with rows unchanged; unknown observation on either side; no socket is touched | `apply` tests, `inventory/absence_test.go` (T28, T30) |
+| Rollback restores the selected endpoint | Historical A and current B under a grant covering both moves to A; A occupied; A no longer granted; A's row released gives a new row; release from an earlier incarnation; rollback to a release without UDP retires the row | `apps` rollback tests, `apply` tests (T30) |
+| Removal leaves no socket or claim | Absence proof required; a remnant gives `recovery_required` and keeps the row `releasing`; removal recovery reads each row state | `apply/remove_test.go`, `apply/remove_recovery_test.go` (T22, T30) |
+| Operation-bound resume | Kill before and after the `prepare_udp` transaction commits, and after its completion record but before `stage_unit`, resume with one row; a foreign claim or socket since planning refuses resume and reverts; checked through `InspectRecovery`, the resumed executor preflight, host `Executor.Run` and `InspectResolution` | `plan/udp_resume_test.go`, `apply/recovery_test.go`, `apply/resolution_test.go` (T26, T30) |
+| Interruption at each new boundary | Real subprocess kills at `prepare_udp`, `check_udp`, `check_udp_retired`, `revert_udp`, `rollback_udp`, before and after commit and during removal; resume inspects | `apply/recovery_test.go`, real subprocess kills (T30) |
 | Real UDP through the managed publication | Physical drill below | P08-08 evidence |
 
 ## Physical evidence (P08-08)
