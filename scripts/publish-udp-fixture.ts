@@ -19,7 +19,7 @@ type BuiltImage = { release: string; config: string; archive: string; archiveSHA
 type BootstrapState = { source: string; packageState: "absent"; packageWrite: "not_started" | "complete" | "unknown" };
 type PackageMetadata = { name: string; package_type: string; visibility: string; repository: { full_name: string } };
 type PackageRead = { status: number; value?: unknown };
-type RegistryObservation = { tag: string; status: "absent" | "present" | "unknown"; raw?: string; digest?: string; error?: string };
+type RegistryObservation = { tag: string; status: "absent" | "absent-by-package-metadata" | "present" | "unknown"; raw?: string; digest?: string; error?: string };
 type PublicationDecision = { decision: "retry" | "success" | "stop"; tag: string; manifestDigest?: string; configDigest?: string; indexDigest?: string; platforms?: Arch[]; reference?: string; reason?: string };
 type PlatformPublicationIntent = { tag: string; source: string; release: string; platform: Arch; config: string };
 type IndexPublicationIntent = { tag: string; platformRefs: Record<Arch, string> };
@@ -171,10 +171,14 @@ export function verifyBootstrapPackage(value: unknown): PackageMetadata {
   return info as unknown as PackageMetadata;
 }
 
-export function verifyBootstrapPreflight(packageRead: PackageRead, tags: readonly RegistryObservation[]): { packageState: "absent"; tags: string[] } {
+export function verifyBootstrapPreflight(packageRead: PackageRead, tags: readonly RegistryObservation[]): { packageState: "absent"; tags: string[]; tagObservations: Array<{ tag: string; status: RegistryObservation["status"] }> } {
   requireThat(packageRead.status === 404 && packageRead.value === undefined, "Bootstrap requires the exact package to be absent; use public_access_confirmed for an existing package");
-  requireThat(tags.every(tag => tag.status === "absent"), "Bootstrap requires every run-scoped tag or digest to be absent");
-  return { packageState: "absent", tags: tags.map(tag => tag.tag) };
+  requireThat(tags.every(tag => tag.status === "absent" || tag.status === "absent-by-package-metadata"), "Bootstrap requires every run-scoped tag or digest to be absent");
+  return {
+    packageState: "absent",
+    tags: tags.map(tag => tag.tag),
+    tagObservations: tags.map(tag => ({ tag: tag.tag, status: tag.status })),
+  };
 }
 
 export function classifyPackageRead(packageRead: PackageRead): "absent" | "public" | "unknown" {
@@ -280,7 +284,7 @@ async function anonymousTagObservation(tag: string): Promise<RegistryObservation
       headers: { Authorization: `Bearer ${bearer}`, Accept: "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json" },
       redirect: "error", signal: AbortSignal.timeout(15_000),
     });
-    if (response.status === 404) return { tag, status: "absent" };
+    if (response.status === 403 || response.status === 404) return { tag, status: "absent-by-package-metadata", error: `anonymous tag read returned ${response.status}; only package metadata 404 can classify it as absent` };
     if (response.status !== 200) return { tag, status: "unknown", error: `anonymous tag read failed with status ${response.status}` };
     const raw = new TextDecoder("utf-8", { fatal: true }).decode(await responseBytes(response, maxJSON));
     return { tag, status: "present", raw, digest: sha256(raw) };
