@@ -129,7 +129,7 @@ APP_ENV = "production"
 
 ## Operator policy
 
-The operator owns this file. On an enrolled server it is `/etc/ssh/brine/operator-policy.toml`, root-owned. Enrollment installs a default only when none exists. The default allows no registries, domains or secrets, and sets app ports 20000 to 20999, a 512 MiB memory ceiling, a 128 PID ceiling, a 1 GiB disk reserve and `caddy_port = 443`. `brine permissions` edits registries, domains and CDN bindings. Every other key needs a manual edit as root.
+The operator owns this file. On an enrolled server it is `/etc/ssh/brine/operator-policy.toml`, root-owned. Enrollment installs a default only when none exists. The default allows no registries, domains or secrets, and sets app ports 20000 to 20999, a 512 MiB memory ceiling, a 128 PID ceiling, a 1 GiB disk reserve and `caddy_port = 443`. `brine permissions` edits registries, domains, CDN bindings and exact per-app secret-reference grants. Every other key needs a manual edit as root.
 
 ### Top-level keys
 
@@ -152,7 +152,7 @@ The operator owns this file. On an enrolled server it is `/etc/ssh/brine/operato
 | --- | --- | --- |
 | `allowed_registries` | array of `{host, repository_prefixes}` | `host` is an exact ASCII registry host with an optional port. A prefix matches that repository and its descendants. A host with no prefixes allows nothing. Aliases are not expanded: `docker.io/library/alpine` and `docker.io/alpine` are different. |
 | `allowed_domains` | array of strings | Exact names or `*.suffix`. A wildcard matches one or more subdomain labels, never the apex. |
-| `allowed_secrets` | table of app name to array of references | An absent app may use no secrets. References are case-sensitive. |
+| `allowed_secrets` | table of app name to array of references | An absent app may use no secrets. References are case-sensitive. `permissions plan --secret-app APP --allow-secret-ref REF` grants one pair; `--revoke-secret-ref REF` removes it. `--app` is audit-only. |
 
 An empty or missing allow list denies everything.
 
