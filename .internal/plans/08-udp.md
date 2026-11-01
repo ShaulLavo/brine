@@ -88,7 +88,7 @@ unrelated listeners intact. Do not add compatibility paths for old binaries.
 
 ## Execute the tasks
 
-- [ ] **P08-02** Add strict UDP declarations, policy and deterministic plans.
+- [x] **P08-02** Add strict UDP declarations, policy and deterministic plans.
   Extend canonical hashes, offline snapshots, configuration diffs, immutable
   desired input, store migrations and reservations. Keep denied plans free of
   host effects. Bind freshness to admitted UDP ranges and retained allocations,
@@ -100,6 +100,7 @@ unrelated listeners intact. Do not add compatibility paths for old binaries.
   independent ownership. Concurrent plans cannot claim one UDP allocation.
   **Evidence:** T26/T28 and existing T02-T05/T17/T23. Run parser/policy tables,
   deterministic plan goldens, stale-plan cases and real store reservation tests.
+  Local implementation and check receipts are in [P08-02 evidence](../evidence/p08-02.md).
 
 - [ ] **P08-03** Publish the admitted UDP mapping through rootless Quadlet.
   Render an explicit approved address and `/udp` alongside the existing TCP
@@ -167,6 +168,6 @@ through Brine's restricted channel. Real remote UDP works on the approved
 network, both runtime architectures are recorded, and failure recovery preserves
 ownership. SpacetimeDB production readiness remains its own Phase 09 gate.
 
-Start P08-02 now. Continue P08-03 and P08-04 after its contracts land, then
+Continue P08-03 and P08-04 after the P08-02 contracts land, then
 P08-06 and P08-08. Previews, shared ingress, TLS delivery and protocol probes
 are separate deliveries and cannot hold this exit gate open.
