@@ -95,7 +95,7 @@ func (tc udpRuntimeCase) check(t *testing.T) {
 		out = strings.ReplaceAll(out, tc.old, tc.new)
 	}
 	r := fakeRunner{"podman --remote=false inspect --type container --format " + testRuntimePortFormat + " systemd-api": out}
-	got := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
+	got, _ := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
 	if (got.Status == target.KnownStatus) != tc.known {
 		t.Fatalf("publication=%+v", got)
 	}
@@ -185,7 +185,7 @@ func TestStoppedPublicationRequiresExplicitCompleteRuntime(t *testing.T) {
 		{`{"name":"systemd-api","running":false,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, target.Unknown},
 	} {
 		r := fakeRunner{"podman --remote=false inspect --type container --format " + testRuntimePortFormat + " systemd-api": tc.record}
-		got := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
+		got, _ := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
 		if got.Status != tc.want {
 			t.Fatalf("runtime %s: got %s, want %s", tc.record, got.Status, tc.want)
 		}

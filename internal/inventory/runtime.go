@@ -31,7 +31,7 @@ func samePublicationMapping(a, b publication) bool {
 }
 
 // Runtime observations never grant replacement authority. Only committed state does.
-func (c Collector) livePublication(ctx context.Context, units []target.Unit) target.Observation[publication] {
+func (c Collector) livePublication(ctx context.Context, units []target.Unit) (target.Observation[publication], error) {
 	unknownPort := unknown[publication]()
 	container := ""
 	for _, u := range units {
@@ -39,17 +39,22 @@ func (c Collector) livePublication(ctx context.Context, units []target.Unit) tar
 			continue
 		}
 		if container != "" {
-			return unknownPort
+			return unknownPort, nil
 		}
 		container = strings.TrimSuffix(u.Name, ".container")
 	}
 	if container == "" {
-		return unknownPort
+		return unknownPort, nil
 	}
 	out, err := c.probe(ctx, runtimeOutputLimit, "podman", "--remote=false", "inspect", "--type", "container", "--format", runtimePortFormat, "systemd-"+container)
 	if err != nil {
-		return unknownPort
+		return unknownPort, err
 	}
+	return parsePublication(out, container), nil
+}
+
+func parsePublication(out, container string) target.Observation[publication] {
+	unknownPort := unknown[publication]()
 	var runtime struct {
 		Name    string                      `json:"name"`
 		Running *bool                       `json:"running"`

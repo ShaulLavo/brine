@@ -2,9 +2,11 @@ package inventory
 
 import (
 	"context"
+	"errors"
 	"sort"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -31,8 +33,8 @@ func (c Collector) appPublication(ctx context.Context, app *target.App, units []
 	activity, stopped := c.appActivity(ctx, units)
 	app.UnitActive = &activity
 	inactive[app.Name] = stopped
-	measured := c.livePublication(ctx, units)
-	if stopped && (measured.Status == target.Absent || c.containerAbsent(ctx, app.Name)) {
+	measured, inspectErr := c.livePublication(ctx, units)
+	if stopped && (measured.Status == target.Absent || inspectErr != nil && !errors.Is(inspectErr, localexec.ErrOutputLimit) && c.containerAbsent(ctx, app.Name)) {
 		app.UDPPublication = absent[target.UDPPublication]()
 	}
 	if measured.Status != target.KnownStatus || stopped {

@@ -26,7 +26,8 @@ func (c Collector) absence(ctx context.Context, s *target.Snapshot, artifacts ap
 	candidates := []int{}
 	for i, app := range *s.Apps.Value {
 		state, recorded := states[app.Name]
-		if app.UnitsAbsent() && (!recorded || state.Status == target.Absent && control.Target != nil) {
+		retired := recorded && state.Status == target.Absent && (control.Target != nil || state.NeverReleased)
+		if app.UnitsAbsent() && (!recorded || retired) {
 			candidates = append(candidates, i)
 		}
 	}

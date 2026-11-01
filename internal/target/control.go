@@ -1,7 +1,7 @@
 package target
 
 // ControlInventory is a coherent read of durable ownership, not a runtime
-// snapshot. An omitted app has no release history or unfinished removal.
+// snapshot. An omitted app has no release history, UDP claims or unfinished removal.
 type ControlInventory struct {
 	UDPReservations     []ControlUDPReservation
 	Generation          uint64
@@ -17,6 +17,7 @@ type ControlApp struct {
 	Name            string
 	UDP             *ControlUDPRelease
 	Status          Status
+	NeverReleased   bool // No release ever committed; runtime/history absence still needs proof.
 	RetiredPorts    []Port
 	RetiredUDP      *Observation[[]ControlUDPEndpoint]
 	PortReservation *CommittedPortReservation

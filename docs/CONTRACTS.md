@@ -132,6 +132,9 @@ represented independently make socket evidence unknown, not a deduplicated proof
 A known inactive unit, unchanged committed units, measured publication absence
 and no overlapping socket report stopped while retaining the active reservation.
 Failed or transitional unit states alone do not prove stopped publication absence.
+An empty container listing never overrides a successful inspect that reports a
+running container, retained bindings or incomplete data. Listing-based absence
+is considered only when inspect is unavailable; truncated inspect remains unknown.
 
 The local states are `ready`, `not_ready`, `stopped` and `unknown`. Their closed
 reasons are `mapping_missing`, `mapping_mismatch`, `network_mode_unsupported`,
@@ -144,7 +147,11 @@ Absent UDP status fields are omitted for HTTP-only apps. Remote UDP is always
 Read-only historical discovery inspects at most 64 released reservation rows per
 app, plus one overflow row. It validates immutable identities and never feeds
 released rows into planning ownership. Removed heads and older incarnations
-remain discoverable. Incomplete history or socket evidence remains unknown.
+remain discoverable, including claims released before any release committed.
+Inventory discovers those app identities even without units or retained secrets.
+A never-committed app with only released claims still needs complete measured
+runtime and historical endpoint absence or legitimate reuse evidence. Live
+unsettled claims and incomplete history or socket evidence cannot prove absence.
 An endpoint legitimately explained by a different current live reservation is
 not an old app's unexplained remnant. Bind-address availability is a separate
 readiness fact, not a reason to reattribute a current socket to history.
