@@ -199,6 +199,9 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 		return result, err
 	}
 	for _, app := range apps {
+		if err := retainedUDPInventory(ctx, tx, &app); err != nil {
+			return result, err
+		}
 		if unsettled[app.Name] {
 			app.Status = target.Unknown
 		}

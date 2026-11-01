@@ -131,6 +131,11 @@ unrelated listeners intact. Do not add compatibility paths for old binaries.
   ready. An owned local UDP socket does not imply remote reachability. A
   client probe records its vantage, timestamp and actual result separately.
   **Evidence:** T28/T29, collector-to-planner tests and readiness/output goldens.
+  [P08-04 evidence](../evidence/p08-04.md) covers the completed read-only source
+  implementation, pending parent independent review. It includes the actual
+  missing-inode refusal shape and bounded retired endpoint discovery. This checks source observations, not executable UDP deployment.
+  Diagnostic-capable arm64 ownership, amd64/public delivery and the physical
+  lifecycle remain unchecked under P08-03/P08-08. No P08-06 guard is removed.
 
 - [ ] **P08-06** Connect UDP to apply, rollback, removal and recovery.
   Depends on P08-02 through P08-04 and the Phase 03 physical gate. Stage the

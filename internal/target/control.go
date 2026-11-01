@@ -15,8 +15,10 @@ type ControlInventory struct {
 // without treating historical allocations as current reservations.
 type ControlApp struct {
 	Name            string
+	UDP             *ControlUDPRelease
 	Status          Status
 	RetiredPorts    []Port
+	RetiredUDP      *Observation[[]ControlUDPEndpoint]
 	PortReservation *CommittedPortReservation
 }
 
@@ -33,6 +35,21 @@ type ControlUDPReservation struct {
 	Incarnation string
 	State       string
 	Owner       string
+	Family      string
+	BindAddress string
+	HostPort    Port
+}
+
+// ControlUDPRelease binds measured ownership to an immutable live head. It is
+// collector input only, never a reservation or permission to publish.
+type ControlUDPRelease struct {
+	Incarnation string
+	PlanID      string
+	Units       []Unit
+	Publication UDPPublication
+}
+
+type ControlUDPEndpoint struct {
 	Family      string
 	BindAddress string
 	HostPort    Port

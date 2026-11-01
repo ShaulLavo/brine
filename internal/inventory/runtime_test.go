@@ -173,3 +173,21 @@ func checkPinnedUDPBinding(t *testing.T, field string) {
 		t.Fatalf("unbound publication=%+v", got)
 	}
 }
+
+func TestStoppedPublicationRequiresExplicitCompleteRuntime(t *testing.T) {
+	for _, tc := range []struct {
+		record string
+		want   target.Status
+	}{
+		{`{"name":"systemd-api","running":false,"unit":"api.service","ports":{}}`, target.Absent},
+		{`{"name":"systemd-api","unit":"api.service","ports":{}}`, target.Unknown},
+		{`{"name":"systemd-api","running":false,"unit":"api.service"}`, target.Unknown},
+		{`{"name":"systemd-api","running":false,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, target.Unknown},
+	} {
+		r := fakeRunner{"podman --remote=false inspect --type container --format " + testRuntimePortFormat + " systemd-api": tc.record}
+		got := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
+		if got.Status != tc.want {
+			t.Fatalf("runtime %s: got %s, want %s", tc.record, got.Status, tc.want)
+		}
+	}
+}

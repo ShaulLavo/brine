@@ -32,6 +32,7 @@ type LogReader interface {
 }
 type ControlStore interface {
 	LoadBrineState(context.Context, target.Identity, uint64) (plan.BrineState, error)
+	UDPHistory(context.Context, string) (store.UDPHistory, error)
 	AppNames(context.Context) ([]string, error)
 	RecentOperations(context.Context, string, int) ([]ops.OperationRecord, error)
 	CurrentRelease(context.Context, string) (ops.Release, error)
@@ -175,9 +176,13 @@ func (r Reader) Read(parent context.Context, request Request) (Report, error) {
 		}
 	}
 	udpState := r.udpState(ctx, snapshot)
-	names := []string{}
+	var ownership *plan.UDPState
 	if udpState != nil {
-		for _, row := range udpState.Reservations {
+		ownership = udpState.UDP
+	}
+	names := []string{}
+	if ownership != nil {
+		for _, row := range ownership.Reservations {
 			names = append(names, row.App)
 		}
 	}
@@ -214,7 +219,9 @@ func (r Reader) Read(parent context.Context, request Request) (Report, error) {
 		if !appName.MatchString(name) {
 			continue
 		}
-		report.Apps = append(report.Apps, r.app(ctx, snapshot, name, udpState))
+		a := r.app(ctx, snapshot, name, ownership)
+		r.udpRemnants(ctx, snapshot, udpState, &a)
+		report.Apps = append(report.Apps, a)
 	}
 	report.Findings = Findings(report)
 	if err := parent.Err(); err != nil {
@@ -521,4 +528,13 @@ func (d DiskStore) LoadBrineState(ctx context.Context, id target.Identity, gener
 	}
 	defer func() { _ = s.Close() }()
 	return s.LoadBrineState(ctx, id, generation)
+}
+
+func (d DiskStore) UDPHistory(ctx context.Context, app string) (store.UDPHistory, error) {
+	s, err := d.open(ctx)
+	if err != nil {
+		return store.UDPHistory{}, err
+	}
+	defer func() { _ = s.Close() }()
+	return s.UDPHistory(ctx, app)
 }

@@ -113,42 +113,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	apps := make([]target.App, 0, len(byApp))
 	for app, units := range byApp {
 		sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
-		a := target.App{UDPPublication: unknown[target.UDPPublication](), Name: app, Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known(units), Secrets: unknown[[]target.Secret]()}
-		if runnerIdentity {
-			if len(units) > 0 {
-				active := unknown[bool]()
-				for _, unit := range units {
-					if strings.HasSuffix(unit.Name, ".container") {
-						state, err := c.probe(ctx, scalarOutputLimit, "systemctl", "--user", "show", strings.TrimSuffix(unit.Name, ".container")+".service", "--property=ActiveState", "--value")
-						if err == nil {
-							switch state {
-							case "active", "reloading", "refreshing":
-								active = target.Known(true)
-							case "inactive":
-								inactive[app] = true
-								active = target.Known(false)
-							case "failed", "activating", "deactivating", "maintenance":
-								active = target.Known(false)
-							}
-						}
-					}
-				}
-				a.UnitActive = &active
-				measured := c.livePublication(ctx, units)
-				if measured.Status == target.KnownStatus && !inactive[app] {
-					publications[app] = *measured.Value
-					a.AllocatedHostPort = target.Known(measured.Value.Host)
-				}
-			}
-			observed := []target.Secret{}
-			for _, secret := range secrets {
-				if strings.HasPrefix(secret.Name, "brine."+app+".") {
-					observed = append(observed, secret)
-				}
-			}
-			sort.Slice(observed, func(i, j int) bool { return observed[i].Name < observed[j].Name })
-			a.Secrets = target.Known(observed)
-		}
+		a := c.runtimeApp(ctx, app, units, runnerIdentity, publications, inactive, secrets)
 		apps = append(apps, a)
 	}
 	sort.Slice(apps, func(i, j int) bool { return apps[i].Name < apps[j].Name })

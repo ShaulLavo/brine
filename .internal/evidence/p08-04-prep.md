@@ -1,5 +1,8 @@
 # P08-04 status and diagnosis preparation
 
+This is the retained preparation checkpoint. [P08-04](p08-04.md) records the
+collector integration and current source evidence after P08-03 landed.
+
 Status: partial implementation. P08-04 remains unchecked. This checkpoint stages
 read-only output while P08-03 owns the shared collector files. UDP execution stays
 disabled. No deployment or physical readiness claim follows.

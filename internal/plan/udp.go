@@ -334,11 +334,13 @@ func udpOccupied(in Input, e UDPEndpoint, active *UDPReservation, release *Curre
 			return true
 		}
 	}
+	count := 0
 	for _, socket := range *in.Snapshot.UDPSockets.Value {
 		if !e.Overlaps(socket.Address, socket.Port) {
 			continue
 		}
-		if !explainedUDP(socket, e, active, release, current) {
+		count++
+		if count > 1 || !explainedUDP(socket, e, active, release, current) {
 			return true
 		}
 	}

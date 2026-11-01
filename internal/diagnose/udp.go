@@ -7,7 +7,9 @@ import (
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/target"
+	"github.com/ShaulLavo/brine/internal/udpready"
 )
 
 type releasePlan struct {
@@ -15,7 +17,7 @@ type releasePlan struct {
 	Desired policy.Desired
 }
 
-func (r Reader) udpState(ctx context.Context, snapshot target.Snapshot) *plan.UDPState {
+func (r Reader) udpState(ctx context.Context, snapshot target.Snapshot) *plan.BrineState {
 	if r.Store == nil {
 		return nil
 	}
@@ -29,23 +31,73 @@ func (r Reader) udpState(ctx context.Context, snapshot target.Snapshot) *plan.UD
 	if err != nil {
 		return nil
 	}
-	return state.UDP
+	return &state
 }
 
-func retiredUDPRemnants(snapshot target.Snapshot, p plan.Plan) []plan.UDPEndpoint {
-	if p.UDP == nil || p.UDP.Retire == nil || snapshot.UDPSockets.Status != target.KnownStatus || snapshot.UDPSockets.Value == nil {
-		return nil
+func (r Reader) udpRemnants(ctx context.Context, snapshot target.Snapshot, state *plan.BrineState, a *App) {
+	candidates := a.UDPRemnants
+	a.UDPRemnants = nil
+	if r.Store == nil {
+		return
 	}
-	endpoint := p.UDP.Retire.Endpoint
-	if p.UDP.Next != nil && p.UDP.Next.Endpoint == endpoint {
-		return nil
+	history, err := bounded(ctx, ProbeTimeout, func(ctx context.Context) (store.UDPHistory, error) { return r.Store.UDPHistory(ctx, a.Name) })
+	candidates = append(candidates, history.Endpoints...)
+	if err != nil || !history.Complete {
+		markUDPUnknown(a)
+		return
 	}
-	for _, socket := range *snapshot.UDPSockets.Value {
-		if endpoint.Overlaps(socket.Address, socket.Port) {
-			return []plan.UDPEndpoint{endpoint}
+	if len(candidates) == 0 {
+		return
+	}
+	if snapshot.UDPSockets.Value == nil || snapshot.UDPSockets.Status != target.KnownStatus || state == nil || state.UDP == nil {
+		markUDPUnknown(a)
+		return
+	}
+	seen := map[plan.UDPEndpoint]bool{}
+	for _, endpoint := range candidates {
+		if seen[endpoint] {
+			continue
+		}
+		seen[endpoint] = true
+		if unexplainedUDPEndpoint(snapshot, *state, endpoint) {
+			a.UDPRemnants = append(a.UDPRemnants, endpoint)
 		}
 	}
-	return nil
+}
+
+func unexplainedUDPEndpoint(snapshot target.Snapshot, state plan.BrineState, endpoint plan.UDPEndpoint) bool {
+	for _, socket := range *snapshot.UDPSockets.Value {
+		if endpoint.Overlaps(socket.Address, socket.Port) && !currentUDPSocket(snapshot, state, socket) {
+			return true
+		}
+	}
+	return false
+}
+
+func currentUDPSocket(snapshot target.Snapshot, state plan.BrineState, socket target.UDPSocket) bool {
+	if socket.App == "" {
+		return false
+	}
+	for _, current := range state.Releases {
+		if current.App != socket.App || current.UDP == nil {
+			continue
+		}
+		status := apps.UDPStatusFor(snapshot, state.UDP, current)
+		if status == nil || status.Incarnation == "" || len(status.Reservations) != 1 || status.Reservation != "active" || status.Owner != "" {
+			return false
+		}
+		row := status.Reservations[0]
+		return row.Incarnation == status.Incarnation && row.Endpoint == current.UDP.Endpoint && udpready.Owns(snapshot, current.App, *current.UDP, current.Units)
+	}
+	return false
+}
+
+func markUDPUnknown(a *App) {
+	if a.UDP == nil {
+		a.UDP = &apps.UDPStatus{Protocol: "udp", Reservations: []plan.UDPReservation{}, Remote: "unverified"}
+	}
+	a.UDP.Local = udpready.Unknown
+	a.UDP.LocalReasons = []string{"observation_unknown"}
 }
 
 var udpReasonRules = []rule{

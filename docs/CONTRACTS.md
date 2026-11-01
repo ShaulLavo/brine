@@ -2,7 +2,7 @@
 
 **Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` remains a welcome screen. Do not infer that every contract below is shipped.
 
-## App-owned UDP and WebTransport (D10; planning only)
+## App-owned UDP and WebTransport (D10; execution gated)
 
 The UDP-only delivery owns policy-approved UDP allocation,
 publishing, inventory and lifecycle recovery. The app owns its game protocol,
@@ -63,9 +63,14 @@ IPv6 wildcard and `*` conservatively cover both families.
 
 Raw snapshots require `udp_sockets` and `local_addresses` observations, and
 each app requires `udp_publication`. UDP inventory uses bounded
-`ss -H -lunpe`; local addresses use bounded `ip -j addr show`. This stage
-records UDP sockets conservatively without claiming app ownership. Extended
-inode-based runtime ownership is not yet activated. `UsedPorts` remains the
+`ss -H -lunpe`; local addresses use bounded `ip -j addr show`. The collector
+attributes UDP only after proving one process's stable start time,
+cgroup and repeated FD-to-UDP-inode identity. PID/FD or a process name without
+`ino:` never proves ownership. The measured pasta publication must match the
+unchanged owned unit and its exact plan marker, the live head's committed unit
+hashes and immutable incarnation, and its single active reservation. Staged,
+releasing, headless and earlier-incarnation claims cannot explain a socket.
+`UsedPorts` remains the
 conservative TCP/UDP numeric union used by HTTP admission. Observed scoped
 IPv6 addresses lose their zone, mapped IPv6 addresses become IPv4, and observed
 multicast sockets remain visible. An unparsed UDP address makes UDP evidence
@@ -114,7 +119,46 @@ ports, unsupported protocols and invalid addresses refuse the observation.
 Unbound image `EXPOSE` entries allocate no host port. Pinned unit parsing accepts
 only the renderer's TCP and bracketed-IPv6 or IPv4 UDP grammar. TCP ownership
 requires both mappings to match the measured runtime, not just the HTTP port.
-These parsers do not activate UDP ownership, readiness or lifecycle execution.
+These observations do not activate UDP lifecycle execution.
+
+### Local UDP readiness and retained endpoints
+
+Status and diagnosis share the same local evaluator. Ready requires the exact
+publication, matching unit hashes, known unit activity, the bind address on the
+host and exactly one owned UDP socket with no extra overlapping socket. HTTP
+health remains separate, and overall app readiness requires both. Missing or
+truncated observations never become ready. Duplicate sockets that cannot be
+represented independently make socket evidence unknown, not a deduplicated proof.
+A known inactive unit, unchanged committed units, measured publication absence
+and no overlapping socket report stopped while retaining the active reservation.
+Failed or transitional unit states alone do not prove stopped publication absence.
+
+The local states are `ready`, `not_ready`, `stopped` and `unknown`. Their closed
+reasons are `mapping_missing`, `mapping_mismatch`, `network_mode_unsupported`,
+`socket_missing`, `socket_foreign`, `bind_address_absent` and
+`observation_unknown`. UDP status exposes the committed endpoint, incarnation,
+reservation rows and unsettled owner. Release records retain their UDP allocation.
+Absent UDP status fields are omitted for HTTP-only apps. Remote UDP is always
+`unverified`; no readiness probe sends UDP or checks the application protocol.
+
+Read-only historical discovery inspects at most 64 released reservation rows per
+app, plus one overflow row. It validates immutable identities and never feeds
+released rows into planning ownership. Removed heads and older incarnations
+remain discoverable. Incomplete history or socket evidence remains unknown.
+An endpoint legitimately explained by a different current live reservation is
+not an old app's unexplained remnant. Bind-address availability is a separate
+readiness fact, not a reason to reattribute a current socket to history.
+Inventory also refuses retired-runtime
+absence when historical endpoint evidence is incomplete or unexplained.
+Diagnosis recommends only status, logs and operator inspection, never socket
+cleanup or network-policy changes.
+
+The arm64 Pi kernel `6.18.39+rpt-rpi-v8` lacks `CONFIG_INET_UDP_DIAG` and its
+`udp_diag` module. Its actual `ss -H -lunpe` output includes UDP PID/FD but no
+inode and therefore refuses local readiness. Existing mapping, HTTP and TCP
+proofs are not affirmative UDP ownership. A diagnostic-capable arm64 setup,
+amd64 ownership and real public or tailnet delivery remain physical prerequisites.
+No module, kernel, package, taint or reboot change is part of these observations.
 
 ## App database environment
 

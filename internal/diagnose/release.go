@@ -25,7 +25,9 @@ func (r Reader) currentApp(ctx context.Context, snapshot target.Snapshot, udpSta
 	p := stored.Value.Plan
 	desired := stored.Value.Desired
 	a.UDP = diagnosticUDP(snapshot, udpState, a.Name, p, current.Units)
-	a.UDPRemnants = retiredUDPRemnants(snapshot, p)
+	if p.UDP != nil && p.UDP.Retire != nil {
+		a.UDPRemnants = []plan.UDPEndpoint{p.UDP.Retire.Endpoint}
+	}
 	var allocation *plan.UDPAllocation
 	if p.UDP != nil {
 		allocation = p.UDP.Next

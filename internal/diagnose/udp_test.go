@@ -124,7 +124,7 @@ func TestUDPDiagnosticReaderFindsRetiredEndpointRemnant(t *testing.T) {
 	reader := fixtureReader()
 	control := reader.Store.(fakeStore)
 	allocation := plan.UDPAllocation{Endpoint: plan.UDPEndpoint{Family: "ipv4", BindAddress: "203.0.113.10", HostPort: 4433}}
-	reader.Store = retiredUDPStore{udpStore{fakeStore: control, allocation: allocation}}
+	reader.Store = retiredUDPStore{udpStore{fakeStore: control, allocation: allocation, state: plan.BrineState{UDP: &plan.UDPState{}}}}
 	snapshot := fixtureSnapshot()
 	snapshot.UDPSockets = target.Known([]target.UDPSocket{{Address: "::", Port: 4433}})
 	reader.Inventory = fakeInventory{snapshot: snapshot}
@@ -147,4 +147,93 @@ func TestUDPDiagnosticReaderFindsRetiredEndpointRemnant(t *testing.T) {
 	if _, err = DecodeReport(raw); err != nil {
 		t.Fatal(err, string(raw))
 	}
+}
+
+type udpHistoryStore struct {
+	udpStore
+	history    store.UDPHistory
+	historyErr error
+	removed    bool
+}
+
+func (s udpHistoryStore) UDPHistory(context.Context, string) (store.UDPHistory, error) {
+	return s.history, s.historyErr
+}
+func (s udpHistoryStore) CurrentRelease(ctx context.Context, name string) (ops.Release, error) {
+	if s.removed {
+		return ops.Release{}, store.ErrNotFound
+	}
+	return s.udpStore.CurrentRelease(ctx, name)
+}
+func TestReleasedUDPRemnantDiscoveryAndReassignment(t *testing.T) {
+	for _, name := range []string{"removed head", "older incarnation", "different live app explains socket", "same live app new incarnation explains socket", "current owner missing bind address", "current owner unknown bind address", "unknown sockets", "truncated history", "history failure", "unknown ownership", "scoped"} {
+		t.Run(name, func(t *testing.T) { checkUDPHistoricalRemnant(t, name) })
+	}
+}
+func checkUDPHistoricalRemnant(t *testing.T, name string) {
+	t.Helper()
+	reader := fixtureReader()
+	endpoint := plan.UDPEndpoint{Family: "ipv4", BindAddress: "203.0.113.10", HostPort: 4433}
+	snapshot := fixtureSnapshot()
+	snapshot.UDPSockets = target.Known([]target.UDPSocket{{Address: endpoint.BindAddress, Port: 4433}})
+	state := plan.BrineState{UDP: &plan.UDPState{Incarnations: []plan.AppIncarnation{}, Reservations: []plan.UDPReservation{}}}
+	history := store.UDPHistory{Endpoints: []plan.UDPEndpoint{endpoint}, Complete: true}
+	source := udpHistoryStore{udpStore: udpStore{fakeStore: reader.Store.(fakeStore), state: state}, history: history, removed: true}
+	switch name {
+	case "older incarnation":
+		source.removed = false
+	case "different live app explains socket", "same live app new incarnation explains socket", "current owner missing bind address", "current owner unknown bind address":
+		app := "other"
+		if name == "same live app new incarnation explains socket" {
+			app = "demo"
+		}
+		allocation := plan.UDPAllocation{Endpoint: endpoint, ContainerPort: 7777}
+		id := "sha256:" + strings.Repeat("d", 64)
+		active := target.Known(true)
+		units := []target.Unit{{Name: app + ".container", Hash: id}}
+		snapshot.Apps = target.Known([]target.App{{Name: app, UnitActive: &active, QuadletUnits: target.Known(units), UDPPublication: target.Known(target.UDPPublication{BindAddress: endpoint.BindAddress, HostPort: 4433, ContainerPort: 7777, NetworkMode: "pasta"})}})
+		snapshot.LocalAddresses = target.Known([]string{endpoint.BindAddress})
+		(*snapshot.UDPSockets.Value)[0] = target.UDPSocket{Address: endpoint.BindAddress, Port: 4433, App: app, Process: "pasta", Unit: app + ".service"}
+		source.state.UDP.Incarnations = []plan.AppIncarnation{{App: app, ID: id}}
+		source.state.UDP.Reservations = []plan.UDPReservation{{ID: "udp-new", App: app, Incarnation: id, State: "active", Endpoint: endpoint}}
+		source.state.Releases = []plan.CurrentRelease{{App: app, Units: units, UDP: &allocation}}
+		if name == "current owner missing bind address" {
+			snapshot.LocalAddresses = target.Known([]string{})
+		}
+		if name == "current owner unknown bind address" {
+			snapshot.LocalAddresses = target.Observation[[]string]{Status: target.Unknown}
+		}
+	case "unknown sockets":
+		snapshot.UDPSockets = target.Observation[[]target.UDPSocket]{Status: target.Unknown}
+	case "truncated history":
+		source.history.Complete = false
+	case "history failure":
+		source.historyErr = store.ErrInvalid
+	case "unknown ownership":
+		source.state.UDP = nil
+	}
+	reader.Store = source
+	reader.Inventory = fakeInventory{snapshot: snapshot}
+	reader.Runner = nil
+	report, err := reader.Read(t.Context(), Request{App: "demo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := report.Apps[0]
+	if len(report.Apps) != 1 || a.Name != "demo" {
+		t.Fatal("scope lost", report)
+	}
+	want := name == "removed head" || name == "older incarnation" || name == "scoped"
+	if (len(a.UDPRemnants) > 0) != want {
+		t.Fatalf("remnants=%+v, want=%v", a, want)
+	}
+	if strings.HasPrefix(name, "unknown") || name == "truncated history" || name == "history failure" {
+		if a.UDP == nil || !slices.Contains(a.UDP.LocalReasons, "observation_unknown") {
+			t.Fatal("lost unknown history evidence", a)
+		}
+	}
+}
+
+func (s fakeStore) UDPHistory(context.Context, string) (store.UDPHistory, error) {
+	return store.UDPHistory{Endpoints: []plan.UDPEndpoint{}, Complete: true}, s.err
 }

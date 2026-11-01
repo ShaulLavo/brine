@@ -194,3 +194,7 @@ func TestEveryDiagnosisSuggestionIsRegistered(t *testing.T) {
 func (diagnoseStore) LoadBrineState(context.Context, target.Identity, uint64) (plan.BrineState, error) {
 	return plan.BrineState{}, nil
 }
+
+func (diagnoseStore) UDPHistory(context.Context, string) (store.UDPHistory, error) {
+	return store.UDPHistory{Endpoints: []plan.UDPEndpoint{}, Complete: true}, nil
+}

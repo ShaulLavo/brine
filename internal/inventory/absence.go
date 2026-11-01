@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -67,6 +68,9 @@ func (c Collector) absence(ctx context.Context, s *target.Snapshot, artifacts ap
 }
 
 func listenersAbsent(s target.Snapshot, app target.ControlApp, udpPorts []target.Port) bool {
+	if !retiredUDPAbsent(s, app) {
+		return false
+	}
 	for _, owner := range *s.PortOwners.Value {
 		if owner.App == app.Name || app.Name != "" && (owner.Unit == app.Name+".service" || owner.Unit == "brine-"+app.Name+".service") {
 			return false
@@ -97,4 +101,39 @@ func listenersAbsent(s target.Snapshot, app target.ControlApp, udpPorts []target
 		}
 	}
 	return true
+}
+
+func retiredUDPAbsent(s target.Snapshot, app target.ControlApp) bool {
+	if app.RetiredUDP == nil {
+		return true
+	}
+	if app.RetiredUDP.Value == nil || app.RetiredUDP.Status != target.KnownStatus {
+		return false
+	}
+	if len(*app.RetiredUDP.Value) == 0 {
+		return true
+	}
+	if s.UDPSockets.Value == nil || s.UDPSockets.Status != target.KnownStatus {
+		return false
+	}
+	for _, e := range *app.RetiredUDP.Value {
+		endpoint := plan.UDPEndpoint{Family: e.Family, BindAddress: e.BindAddress, HostPort: e.HostPort}
+		if !retiredUDPEndpointAbsent(s, endpoint) {
+			return false
+		}
+	}
+	return true
+}
+
+func retiredUDPEndpointAbsent(s target.Snapshot, endpoint plan.UDPEndpoint) bool {
+	count := 0
+	explained := true
+	for _, socket := range *s.UDPSockets.Value {
+		if !endpoint.Overlaps(socket.Address, socket.Port) {
+			continue
+		}
+		count++
+		explained = explained && socket.App != "" && socket.Address == endpoint.BindAddress
+	}
+	return count == 0 || count == 1 && explained
 }

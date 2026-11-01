@@ -149,3 +149,16 @@ func checkSockets(o target.Observation[[]target.UDPSocket], app string, e plan.U
 	}
 	return []string{}
 }
+
+// Owns excludes bind-address availability: losing an address can make a current
+// publication unready without turning its socket into another app's remnant.
+func Owns(s target.Snapshot, app string, allocation plan.UDPAllocation, units []target.Unit) bool {
+	a := observedApp(s, app)
+	if a == nil || a.QuadletUnits.Status != target.KnownStatus || a.QuadletUnits.Value == nil || len(units) == 0 || !sameUnits(units, *a.QuadletUnits.Value) {
+		return false
+	}
+	if a.UnitActive == nil || a.UnitActive.Status != target.KnownStatus || a.UnitActive.Value == nil || !*a.UnitActive.Value {
+		return false
+	}
+	return len(checkMapping(a.UDPPublication, allocation)) == 0 && len(checkSockets(s.UDPSockets, app, allocation.Endpoint)) == 0
+}

@@ -52,13 +52,16 @@ func (c Collector) livePublication(ctx context.Context, units []target.Unit) tar
 	}
 	var runtime struct {
 		Name    string                      `json:"name"`
-		Running bool                        `json:"running"`
+		Running *bool                       `json:"running"`
 		Unit    string                      `json:"unit"`
 		Network string                      `json:"network"`
 		Ports   map[string][]runtimeBinding `json:"ports"`
 	}
-	if json.Unmarshal([]byte(out), &runtime) != nil || !runtime.Running || runtime.Name != "systemd-"+container || runtime.Unit != container+".service" {
+	if json.Unmarshal([]byte(out), &runtime) != nil || runtime.Running == nil || runtime.Name != "systemd-"+container || runtime.Unit != container+".service" {
 		return unknownPort
+	}
+	if !*runtime.Running {
+		return stoppedPublication(runtime.Ports)
 	}
 	var published publication
 	for protocol, bindings := range runtime.Ports {
@@ -117,4 +120,20 @@ func (p *publication) addRuntimeBinding(protocol string, bindings []runtimeBindi
 	}
 	p.UDPAddress, p.UDPHost, p.UDPContainer = bindings[0].HostIP, host, inside
 	return true
+}
+
+func (p publication) udpPublication() target.UDPPublication {
+	return target.UDPPublication{BindAddress: p.UDPAddress, HostPort: p.UDPHost, ContainerPort: p.UDPContainer, NetworkMode: p.NetworkMode}
+}
+
+func stoppedPublication(ports map[string][]runtimeBinding) target.Observation[publication] {
+	if ports == nil {
+		return unknown[publication]()
+	}
+	for _, bindings := range ports {
+		if len(bindings) != 0 {
+			return unknown[publication]()
+		}
+	}
+	return absent[publication]()
 }
