@@ -30,7 +30,7 @@ func managedLifecycleRig(t *testing.T, frontend bool, action plan.ChangeKind) (*
 	r.facts.Input.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: r.release.CaddyGeneration, Files: []target.CaddyFile{r.release.CaddyFile}})
 	if frontend {
 		front := r.release.Managed.Frontend
-		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: r.plan.App, Image: target.Observation[target.Image]{Status: target.Unknown}, AllocatedHostPort: target.Known(front.Port), QuadletUnits: target.Known([]target.Unit{front.Unit}), Secrets: target.Known([]target.Secret{})}})
+		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: r.plan.App, Image: target.Observation[target.Image]{Status: target.Unknown}, AllocatedHostPort: target.Known(front.Port), QuadletUnits: target.Known([]target.Unit{front.Unit}), Secrets: target.Known([]target.Secret{})}})
 	}
 	r.facts.Input.Managed.Intent = &plan.ManagedIntentFacts{Revision: 1, EpochID: m.Archive.EpochID, RuntimeSHA256: m.RuntimeSHA256, Current: true, EngineRunning: true, FrontendRunning: frontend, IngressServing: true}
 	r.facts.Input.Managed.RouteRevision = 1
@@ -187,7 +187,7 @@ func testManagedLifecycleRecovery(t *testing.T, frontend bool, action plan.Chang
 	r.facts.Routing = caddy.State{Generation: r.release.CaddyGeneration + 1, Files: files}
 	if frontend && action != plan.StopApp {
 		front := r.plan.Managed.Frontend
-		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: r.plan.App, Image: target.Known(target.Image{Digest: front.Image.Digest, Platform: front.Image.Platform}), AllocatedHostPort: target.Known(front.Port)}})
+		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: r.plan.App, Image: target.Known(target.Image{Digest: front.Image.Digest, Platform: front.Image.Platform}), AllocatedHostPort: target.Known(front.Port)}})
 	}
 	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
 	recovery, err := r.executor.InspectRecovery(context.Background(), Operation{ID: "lifecycle", PlanID: r.plan.Hash, Kind: "deploy", App: r.plan.App, State: Checking}, r.plan, r.desired, r.events)

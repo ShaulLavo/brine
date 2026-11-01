@@ -65,6 +65,7 @@ type permissionStore interface {
 }
 
 type permissionService struct {
+	udpHeld    func(context.Context, string) (bool, error)
 	store      permissionStore
 	enrollment string
 }
@@ -97,7 +98,7 @@ func (s permissionService) run(ctx context.Context, request PermissionsRequest) 
 		view := parsed.Permissions()
 		return PermissionsResponse{PolicyHash: parsed.Hash(), Permissions: &view}, nil
 	case "plan":
-		return s.plan(request)
+		return s.plan(ctx, request)
 	case "apply":
 		return s.apply(ctx, request)
 	case "status":
@@ -107,7 +108,7 @@ func (s permissionService) run(ctx context.Context, request PermissionsRequest) 
 	}
 }
 
-func (s permissionService) plan(request PermissionsRequest) (PermissionsResponse, error) {
+func (s permissionService) plan(ctx context.Context, request PermissionsRequest) (PermissionsResponse, error) {
 	if request.AppLabel != "" && !targetName.MatchString(request.AppLabel) {
 		return PermissionsResponse{}, result.New(result.InvalidUsage, nil)
 	}
@@ -117,6 +118,9 @@ func (s permissionService) plan(request PermissionsRequest) (PermissionsResponse
 	}
 	before, err := operatorpolicy.Parse(raw)
 	if err != nil {
+		return PermissionsResponse{}, err
+	}
+	if err := s.checkUDPRevocations(ctx, request.Changes); err != nil {
 		return PermissionsResponse{}, err
 	}
 	after, bytes, err := before.EditPermissions(request.Changes)
@@ -173,6 +177,11 @@ func (s permissionService) apply(ctx context.Context, request PermissionsRequest
 	current := permissionHash(raw)
 	if current != p.Plan.BeforeHash && (!exists || current != p.Plan.AfterHash) {
 		return PermissionsResponse{}, result.New(result.Conflict, nil)
+	}
+	if current != p.Plan.AfterHash {
+		if err := s.checkUDPRevocations(ctx, p.Plan.Changes); err != nil {
+			return PermissionsResponse{}, err
+		}
 	}
 	if !exists {
 		op = PermissionsOperation{ID: request.IdempotencyKey, PlanID: request.PlanID, State: "intent", BeforeHash: p.Plan.BeforeHash, AfterHash: p.Plan.AfterHash}

@@ -49,7 +49,7 @@ func TestRootlessListenerOwnership(t *testing.T) {
 				f.files["/proc/4242/cgroup"] = tc.cgroup
 			}
 			r := fakeRunner{
-				"uname -m": "aarch64", "ss -H -ltnpe": tc.listener, "ss -H -lunp": "",
+				"uname -m": "aarch64", "ss -H -ltnpe": tc.listener, "ss -H -lunpe": "",
 				"podman --remote=false secret ls --format {{.ID}} {{.Name}}":                                    "",
 				"podman --remote=false inspect --type container --format " + runtimePortFormat + " systemd-api": `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`,
 			}
@@ -177,7 +177,7 @@ func TestSocketIdentityBeforeAppAttribution(t *testing.T) {
 			f.dirs[dir] = []fs.DirEntry{fixtureEntry("api.container")}
 			f.files[dir+"/api.container"] = "# Brine-owned plan=sha256:" + strings.Repeat("a", 64) + "\n[Container]\nPublishPort=127.0.0.1:20080:8080\n"
 			f.files["/proc/4242/cgroup"] = group
-			r := fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": tc.output, "ss -H -lunp": "", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "", "podman --remote=false inspect --type container --format " + runtimePortFormat + " systemd-api": `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`}
+			r := fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": tc.output, "ss -H -lunpe": "", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "", "podman --remote=false inspect --type container --format " + runtimePortFormat + " systemd-api": `{"name":"systemd-api","running":true,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`}
 			snapshot, err := (Collector{FS: f, Runner: r, IdentityKey: []byte("fixture")}).Collect(context.Background())
 			if err != nil {
 				t.Fatal(err)
@@ -204,7 +204,7 @@ func TestListenerSocketStates(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := target.Snapshot{}
-			r := fakeRunner{"ss -H -ltnpe": tc.tcp, "ss -H -lunp": tc.udp}
+			r := fakeRunner{"ss -H -ltnpe": tc.tcp, "ss -H -lunpe": tc.udp}
 			(Collector{FS: baseFixture(), Runner: r}).listeners(context.Background(), &s, "/home/brine", nil)
 			if s.UsedPorts.Value == nil || !slices.Equal(*s.UsedPorts.Value, tc.want) {
 				t.Fatalf("ports=%+v want=%v", s.UsedPorts, tc.want)

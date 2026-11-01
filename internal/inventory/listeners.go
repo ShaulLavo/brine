@@ -3,8 +3,10 @@ package inventory
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -15,90 +17,37 @@ import (
 var processPattern = regexp.MustCompile(`\("([^"\n]+)",pid=([0-9]+),fd=([0-9]+)\)`)
 var safeToken = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
+type listenerInventory struct {
+	ports      map[target.Port]bool
+	udpUnknown bool
+	udpPorts   []target.Port
+	sockets    map[target.UDPSocket]bool
+	owners     map[target.PortOwner]bool
+}
+
 func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home string, publications map[string]publication) target.Observation[[]target.Port] {
 	bindings := c.listenerBindings(ctx, s, home, publications)
-	ports := map[target.Port]bool{}
-	udpPorts := []target.Port{}
-	owners := map[target.PortOwner]bool{}
-	// ss includes both IPv4 and IPv6; unconnected UDP binds have no ownership proof.
-	for _, protocol := range []string{"-ltnpe", "-lunp"} {
-		out, e := c.probe(ctx, listenerOutputLimit, "ss", "-H", protocol)
-		if e != nil {
+	found := listenerInventory{ports: map[target.Port]bool{}, udpPorts: []target.Port{}, sockets: map[target.UDPSocket]bool{}, owners: map[target.PortOwner]bool{}}
+	for _, protocol := range []string{"-ltnpe", "-lunpe"} {
+		if err := c.collectListenerProtocol(ctx, protocol, bindings, &found); err != nil {
 			return unknown[[]target.Port]()
 		}
-		for _, line := range strings.Split(out, "\n") {
-			if strings.TrimSpace(line) == "" {
-				continue
-			}
-			f := strings.Fields(line)
-			if len(f) < 5 {
-				return unknown[[]target.Port]()
-			}
-			state := "LISTEN"
-			if protocol == "-lunp" {
-				state = "UNCONN"
-			}
-			if f[0] != state {
-				if f[0] == "ESTAB" {
-					continue
-				}
-				return unknown[[]target.Port]()
-			}
-			if protocol == "-lunp" && f[4] != "*:*" && f[4] != "0.0.0.0:*" && f[4] != "[::]:*" {
-				continue
-			}
-			address := f[3]
-			i := strings.LastIndexByte(address, ':')
-			if i < 0 {
-				return unknown[[]target.Port]()
-			}
-			n, e := strconv.ParseUint(address[i+1:], 10, 16)
-			if e != nil || n == 0 {
-				return unknown[[]target.Port]()
-			}
-			port := target.Port(n)
-			ports[port] = true
-			if protocol == "-lunp" {
-				udpPorts = append(udpPorts, port)
-				continue
-			}
-			matches := processPattern.FindAllStringSubmatch(line, -1)
-			if len(matches) == 0 {
-				owners[target.PortOwner{Port: port}] = true
-				continue
-			}
-			for _, match := range matches {
-				owner := target.PortOwner{Port: port}
-				if safeToken.MatchString(match[1]) {
-					owner.Process = match[1]
-				}
-				data, e := c.FS.ReadFile(ctx, "/proc/"+match[2]+"/cgroup")
-				if e == nil {
-					owner.Unit = unitFromCgroup(string(data))
-					cgroup, unified := strings.CutPrefix(strings.TrimSpace(string(data)), "0::")
-					if unified && !strings.ContainsRune(cgroup, '\n') && address[:i] == "127.0.0.1" {
-						for path, binding := range bindings {
-							if binding.Port == port && (cgroup == path || strings.HasPrefix(cgroup, path+"/")) && c.ownsSocket(ctx, match[2], match[3], socketInode(line), string(data)) {
-								owner.App = binding.App
-							}
-						}
-					}
-				}
-				owners[owner] = true
-			}
-		}
 	}
-	ps := make([]target.Port, 0, len(ports))
-	for p := range ports {
-		ps = append(ps, p)
+	ports := make([]target.Port, 0, len(found.ports))
+	for port := range found.ports {
+		ports = append(ports, port)
 	}
-	sort.Slice(ps, func(i, j int) bool { return ps[i] < ps[j] })
-	os := make([]target.PortOwner, 0, len(owners))
-	for o := range owners {
-		os = append(os, o)
+	slices.Sort(ports)
+	sockets := make([]target.UDPSocket, 0, len(found.sockets))
+	for socket := range found.sockets {
+		sockets = append(sockets, socket)
 	}
-	sort.Slice(os, func(i, j int) bool {
-		a, b := os[i], os[j]
+	owners := make([]target.PortOwner, 0, len(found.owners))
+	for owner := range found.owners {
+		owners = append(owners, owner)
+	}
+	sort.Slice(owners, func(i, j int) bool {
+		a, b := owners[i], owners[j]
 		if a.Port != b.Port {
 			return a.Port < b.Port
 		}
@@ -107,11 +56,116 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home strin
 		}
 		return a.Process < b.Process
 	})
-	s.UsedPorts = target.Known(ps)
-	s.PortOwners = target.Known(os)
-	// Keep UDP evidence separate: TCP ownership cannot account for a UDP socket
-	// on the same port. No UDP ownership proof is currently collected.
-	return target.Known(udpPorts)
+	s.UDPSockets = target.Known(sockets)
+	if found.udpUnknown {
+		s.UDPSockets = unknown[[]target.UDPSocket]()
+	}
+	s.UsedPorts = target.Known(ports)
+	s.PortOwners = target.Known(owners)
+	return target.Known(found.udpPorts)
+}
+
+type listenerLine struct {
+	Address string
+	Port    target.Port
+	Text    string
+}
+
+func (c Collector) collectListenerProtocol(ctx context.Context, protocol string, bindings map[string]listenerBinding, found *listenerInventory) error {
+	out, err := c.probe(ctx, listenerOutputLimit, "ss", "-H", protocol)
+	if err != nil {
+		return err
+	}
+	for _, text := range strings.Split(out, "\n") {
+		line, err := parseListenerLine(text, protocol)
+		if err != nil {
+			return err
+		}
+		if line == nil {
+			continue
+		}
+		if err := c.recordListener(ctx, *line, protocol, bindings, found); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func parseListenerLine(text, protocol string) (*listenerLine, error) {
+	if strings.TrimSpace(text) == "" {
+		return nil, nil
+	}
+	f := strings.Fields(text)
+	if len(f) < 5 {
+		return nil, fmt.Errorf("invalid listener record")
+	}
+	state := "LISTEN"
+	if protocol == "-lunpe" {
+		state = "UNCONN"
+	}
+	if f[0] == "ESTAB" {
+		return nil, nil
+	}
+	if f[0] != state {
+		return nil, fmt.Errorf("unknown listener state")
+	}
+	if protocol == "-lunpe" && f[4] != "*:*" && f[4] != "0.0.0.0:*" && f[4] != "[::]:*" {
+		return nil, nil
+	}
+	index := strings.LastIndexByte(f[3], ':')
+	if index < 0 {
+		return nil, fmt.Errorf("invalid listener address")
+	}
+	address, port := f[3][:index], f[3][index+1:]
+	n, err := strconv.ParseUint(port, 10, 16)
+	if err != nil || n == 0 {
+		return nil, fmt.Errorf("invalid listener port")
+	}
+	return &listenerLine{Address: address, Port: target.Port(n), Text: text}, nil
+}
+
+func (c Collector) recordListener(ctx context.Context, line listenerLine, protocol string, bindings map[string]listenerBinding, found *listenerInventory) error {
+	found.ports[line.Port] = true
+	if protocol == "-lunpe" {
+		found.udpPorts = append(found.udpPorts, line.Port)
+		socket, ok := observedUDPSocket(line.Address, line.Port, line.Text)
+		if !ok {
+			found.udpUnknown = true
+			return nil
+		}
+		found.sockets[socket] = true
+		return nil
+	}
+	matches := processPattern.FindAllStringSubmatch(line.Text, -1)
+	if len(matches) == 0 {
+		found.owners[target.PortOwner{Port: line.Port}] = true
+	}
+	for _, match := range matches {
+		found.owners[c.tcpListenerOwner(ctx, line, match, bindings)] = true
+	}
+	return nil
+}
+
+func (c Collector) tcpListenerOwner(ctx context.Context, line listenerLine, match []string, bindings map[string]listenerBinding) target.PortOwner {
+	owner := target.PortOwner{Port: line.Port}
+	if safeToken.MatchString(match[1]) {
+		owner.Process = match[1]
+	}
+	data, err := c.FS.ReadFile(ctx, "/proc/"+match[2]+"/cgroup")
+	if err != nil {
+		return owner
+	}
+	owner.Unit = unitFromCgroup(string(data))
+	group, unified := strings.CutPrefix(strings.TrimSpace(string(data)), "0::")
+	if !unified || strings.ContainsRune(group, '\n') || line.Address != "127.0.0.1" {
+		return owner
+	}
+	for path, binding := range bindings {
+		if binding.Port == line.Port && (group == path || strings.HasPrefix(group, path+"/")) && c.ownsSocket(ctx, match[2], match[3], socketInode(line.Text), string(data)) {
+			owner.App = binding.App
+		}
+	}
+	return owner
 }
 
 func unitFromCgroup(data string) string {
@@ -295,4 +349,22 @@ func processStart(stat, pid string) (uint64, bool) {
 	}
 	start, err := strconv.ParseUint(fields[19], 10, 64)
 	return start, err == nil && start > 0
+}
+
+func observedUDPSocket(address string, port target.Port, line string) (target.UDPSocket, bool) {
+	address = strings.Trim(address, "[]")
+	if address != "*" {
+		parsed, err := netip.ParseAddr(address)
+		if err != nil {
+			return target.UDPSocket{}, false
+		}
+		address = parsed.WithZone("").Unmap().String()
+	}
+	socket := target.UDPSocket{Address: address, Port: port}
+	matches := processPattern.FindAllStringSubmatch(line, -1)
+	if len(matches) == 1 && safeToken.MatchString(matches[0][1]) {
+		socket.Process = matches[0][1]
+	}
+	// P08-04 adds affirmative UDP ownership from the extended inode evidence.
+	return socket, true
 }

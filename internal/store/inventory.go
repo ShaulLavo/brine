@@ -26,6 +26,11 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 	if err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)+(SELECT COUNT(*) FROM data_engine_preparations)+(SELECT COUNT(*) FROM data_engine_desired_states)+(SELECT COUNT(*) FROM data_engine_route_states)").Scan(&result.Generation); err != nil {
 		return result, err
 	}
+	udp, err := readUDPState(ctx, tx)
+	if err != nil {
+		return result, err
+	}
+	reserveUDPInventory(udp, &result)
 	result.ManagedReservations, err = readManagedReservations(ctx, tx)
 	if err != nil {
 		return result, err

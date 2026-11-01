@@ -123,7 +123,7 @@ func TestSampledSnapshotDecisionFacts(t *testing.T) {
 	snapshotLeafPaths(document, "", &paths)
 	slices.Sort(paths)
 	for _, path := range paths {
-		if path == "free_disk_bytes.value" {
+		if path == "free_disk_bytes.value" || strings.Contains(path, "udp_publication") || strings.HasPrefix(path, "udp_sockets") || strings.HasPrefix(path, "local_addresses") {
 			continue
 		}
 		status := strings.HasSuffix(path, ".status")
@@ -291,20 +291,22 @@ func TestSnapshotFieldsHaveExplicitClassification(t *testing.T) {
 		reflect.TypeFor[data.RetentionEvidence]():       {"destination", "endpoint", "bucket", "base_prefix", "verification_id", "verified_at", "freshness_seconds", "no_object_expiration"},
 		reflect.TypeFor[data.SQLiteSchemaObservation](): {"state", "database_id", "observed_at", "marker", "catalog_sha256", "unknown_reason"},
 
-		reflect.TypeFor[target.Snapshot]():                 {"persistent_data", "schema_version", "identity", "os", "arch", "versions", "cgroup_v2", "runner", "generation", "caddy_config", "apps", "used_ports", "live_caddy_files", "port_owners", "free_disk_bytes"},
+		reflect.TypeFor[target.Snapshot]():                 {"persistent_data", "schema_version", "identity", "os", "arch", "versions", "cgroup_v2", "runner", "generation", "caddy_config", "apps", "used_ports", "live_caddy_files", "port_owners", "udp_sockets", "local_addresses", "free_disk_bytes"},
 		reflect.TypeFor[target.Identity]():                 {"id", "host_key_fingerprint"},
 		reflect.TypeFor[target.OS]():                       {"id", "version"},
 		reflect.TypeFor[target.Versions]():                 {"systemd", "podman", "passt", "caddy", "litestream"},
 		reflect.TypeFor[target.Runner]():                   {"user", "linger"},
 		reflect.TypeFor[target.CaddyConfigSet]():           {"generation", "files"},
 		reflect.TypeFor[target.CaddyFile]():                {"name", "hash"},
-		reflect.TypeFor[target.App]():                      {"committed_port_reservation", "unit_active", "name", "image", "allocated_host_port", "quadlet_units", "secrets"},
+		reflect.TypeFor[target.App]():                      {"committed_port_reservation", "unit_active", "name", "image", "allocated_host_port", "quadlet_units", "secrets", "udp_publication"},
 		reflect.TypeFor[target.CommittedPortReservation](): {"release_id", "port"},
 		reflect.TypeFor[target.Image]():                    {"digest", "platform"},
 		reflect.TypeFor[target.Platform]():                 {"os", "arch"},
 		reflect.TypeFor[target.Unit]():                     {"name", "hash"},
 		reflect.TypeFor[target.Secret]():                   {"name", "id"},
 		reflect.TypeFor[target.LiveCaddyFile]():            {"name", "app", "domains"},
+		reflect.TypeFor[target.UDPSocket]():                {"address", "port", "app", "process", "unit"},
+		reflect.TypeFor[target.UDPPublication]():           {"bind_address", "host_port", "container_port", "network_mode"},
 		reflect.TypeFor[target.PortOwner]():                {"port", "app", "process", "unit"},
 		reflect.TypeFor[target.Observation[bool]]():        {"status", "value"},
 	}

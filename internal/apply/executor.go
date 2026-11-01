@@ -97,6 +97,9 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 }
 
 func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.Desired, recovery *Recovery) error {
+	if err := plan.RefuseUDPExecution(p, d); err != nil {
+		return err
+	}
 	if e.Journal == nil {
 		return &Error{Step: "preflight", Code: "journal_failed", State: Failed}
 	}

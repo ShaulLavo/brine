@@ -12,8 +12,9 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 )
 
-// OpenReadOnly neither creates state files nor changes permissions or schema.
-// SQLite may use existing WAL shared memory, but SQL writes are refused.
+// OpenReadOnly refuses SQL writes and does not change permissions or schema.
+// SQLite may create or update WAL sidecars. Use OpenSnapshotReadOnly when the
+// live filesystem must remain unchanged.
 func OpenReadOnly(ctx context.Context, stateDir string) (*Store, error) {
 	dir, err := filepath.Abs(stateDir)
 	if err != nil {

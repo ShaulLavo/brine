@@ -121,7 +121,7 @@ func (i *fakeInventory) Collect(ctx context.Context) (target.Snapshot, error) {
 	if err != nil {
 		return snap, err
 	}
-	snap.Apps = target.Known([]target.App{{Name: "hello", Image: target.Known(target.Image{Digest: release.Image.Digest, Platform: release.Image.Platform}), AllocatedHostPort: target.Known(release.HostPort), QuadletUnits: target.Known(release.Units), Secrets: target.Known([]target.Secret{})}})
+	snap.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "hello", Image: target.Known(target.Image{Digest: release.Image.Digest, Platform: release.Image.Platform}), AllocatedHostPort: target.Known(release.HostPort), QuadletUnits: target.Known(release.Units), Secrets: target.Known([]target.Secret{})}})
 	snap.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: release.CaddyGeneration, Files: []target.CaddyFile{release.CaddyFile}})
 	domains := []string{}
 	for _, d := range d.Domains {

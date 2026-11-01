@@ -20,6 +20,8 @@ CREATE TABLE data_active_incarnations(app TEXT PRIMARY KEY,incarnation_id TEXT N
 CREATE TABLE data_engine_transition_inputs(id TEXT PRIMARY KEY,binding_id TEXT NOT NULL);
 CREATE TABLE data_native_repository_intents(id TEXT PRIMARY KEY,binding_id TEXT NOT NULL);
 CREATE TABLE plans(id TEXT PRIMARY KEY);
+CREATE TABLE releases(app TEXT,id TEXT,plan_id TEXT,PRIMARY KEY(app,id));
+CREATE TABLE release_heads(app TEXT PRIMARY KEY,current_id TEXT NOT NULL,previous_id TEXT);
 CREATE TABLE data_archive_plans(id TEXT PRIMARY KEY,archive_id TEXT NOT NULL UNIQUE);
 CREATE TABLE data_native_archive_trees(archive_id TEXT NOT NULL,binding_id TEXT NOT NULL,transition_id TEXT NOT NULL,canonical BLOB NOT NULL,PRIMARY KEY(archive_id,transition_id));
 CREATE TABLE data_engine_preparations(binding_id TEXT PRIMARY KEY,plan_id TEXT NOT NULL,operation_id TEXT NOT NULL,engine_port INTEGER NOT NULL UNIQUE,frontend_port INTEGER,canonical BLOB NOT NULL);

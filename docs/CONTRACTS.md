@@ -2,14 +2,14 @@
 
 **Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` remains a welcome screen. Do not infer that every contract below is shipped.
 
-## App-owned UDP and WebTransport (D10; not implemented yet)
+## App-owned UDP and WebTransport (D10; planning only)
 
 The UDP-only delivery owns policy-approved UDP allocation,
 publishing, inventory and lifecycle recovery. The app owns its game protocol,
 authentication and any app-managed TLS. Plain UDP requires no certificate,
 WebTransport declaration or echo-health interface. Its endpoint facts contain
 the approved client address, port, protocol and exposure, not a guessed
-WebTransport URL. Implementation remains pending.
+WebTransport URL. Publication and runtime lifecycle execution remain unavailable.
 
 Optional TLS file delivery is a later extension.
 `file_secrets` binds immutable app-scoped certificate/key versions.
@@ -19,6 +19,80 @@ claim of normal public trust. WebTransport browser/draft interoperability is
 application evidence, separate from UDP deployment readiness.
 
 Default readiness combines existing HTTP health with ownership of the exact expected UDP mapping/listener. Protocol-session verification and remote UDP reachability are separate facts and remain unverified unless actually probed. Optional WebTransport health requires an explicit bounded echo contract or a supported app-specific protocol; ordinary-health Rust servers do not implement it merely to deploy. The optional nonce exchange and refusal budgets are still to be specified. A successful HTTP/3 GET never substitutes for that opted-in protocol check. Shared UDP 443 and private previews remain separately gated.
+
+### UDP planning and authority
+
+The strict optional `[udp]` table has two required fields, `container_port`
+and `exposure`. Ports are 1024 through 65535. Exposure is exactly `public`
+or `tailnet`. Arrays, unknown fields, host bind overrides and managed
+SpacetimeDB declarations refuse. Omission means no UDP intent and no new
+canonical desired or plan fields for an uninvolved HTTP-only app.
+
+An exact per-app `[[udp_grants]]` policy entry supplies `app`, `exposure`,
+`bind_address`, `client_address` and `host_ports = { min, max }`. The bind
+address is a canonical, specified IPv4 or IPv6 literal, never a wildcard,
+multicast, mapped IPv6 or zoned address. The client address is a canonical IP
+literal or lowercase DNS name and is never resolved. Ranges contain at most
+64 unprivileged ports and cannot overlap the HTTP app range or 80, 443 and
+2019. Grants on the same address cannot overlap. No grant or a different
+exposure gives `policy.udp_denied`, using machine error `policy_refused`.
+
+`permissions plan --allow-udp-grant FILE` accepts one strict JSON grant per
+file, bounded to 4096 bytes. `--revoke-udp-grant APP` removes only that app's
+grant. The existing operator-admin plan/apply channel reviews exact before
+and after policy hashes. Revocation checks durable reservations both at plan
+and apply time under the runner mutation lock. A live or unreadable
+reservation refuses. The restricted deploy credential gains no grant-editing
+authority. The internal `host udp-grant-check` helper only reads the enrolled
+runner's existing control state and cannot edit policy or reservations.
+It reads a bounded, WAL-aware private copy without opening live SQLite files
+or reacquiring the mutation lock held by the operator. A missing database
+proves no reservations only in an owned private empty directory or one
+containing only its empty, private, regular mutation lock. Residual WAL, SHM,
+unknown contents and unreadable state refuse admission without repair.
+
+Connected plans carry `udp` with an optional `next` allocation, `keep` active
+row ID and `retire` old reservation. Allocations bind family, exact address,
+host port, container port, exposure, client address and grant hash. The lowest
+free covered port is selected unless the existing endpoint remains covered
+or rollback supplies an exact endpoint. Stopped apps retain their claims.
+A name without a live head cannot explain a namesake socket. Ownership also
+requires the active row's incarnation, measured mapping and committed unit
+hashes. Unknown observations refuse. IPv4 wildcard sockets cover IPv4;
+IPv6 wildcard and `*` conservatively cover both families.
+
+Raw snapshots require `udp_sockets` and `local_addresses` observations, and
+each app requires `udp_publication`. UDP inventory uses bounded
+`ss -H -lunpe`; local addresses use bounded `ip -j addr show`. This stage
+records UDP sockets conservatively without claiming app ownership. Extended
+inode-based runtime ownership is not yet activated. `UsedPorts` remains the
+conservative TCP/UDP numeric union used by HTTP admission. Observed scoped
+IPv6 addresses lose their zone, mapped IPv6 addresses become IPv4, and observed
+multicast sockets remain visible. An unparsed UDP address makes UDP evidence
+unknown without discarding numeric occupancy or TCP ownership facts. These
+observation rules do not widen the stricter grant or publication addresses.
+UDP admission never treats a TCP owner as proof for UDP. Offline UDP planning needs explicit
+Brine state with `udp.incarnations` and `udp.reservations`; omission is unknown,
+not an inferred empty reservation set. HTTP-only decision facts omit all UDP
+measurements and state. UDP decision facts retain only overlapping candidates
+and whether the grant's bind address is present, so unrelated socket churn
+does not change freshness.
+
+Control schema 34 records an immutable founding plan hash in each release
+head, without allocating persistent app data. Updates retain it. A removed
+head ends the incarnation; a later create founds another one. The migration
+backfills existing heads from their current release's plan. UDP reservation
+rows are retained, have immutable identity and unique live endpoints, permit
+only the approved staged/active/releasing/released transitions, and do not
+advance control generation. Planning reads them separately from snapshot
+observations. Transactional runtime preparation and settlement remain disabled.
+
+Every UDP-involved plan is a conflict with `udp_execution_unavailable` and
+no executable changes. Direct renderer, host executor, apply executor and
+release commits refuse UDP before effects. Direct retirement refuses live
+UDP reservations. P08-06 removes these guards only with complete publication,
+readiness, rollback, removal and recovery support. No UDP unit publication,
+network policy change, protocol health or remote reachability is claimed here.
 
 ## App database environment
 

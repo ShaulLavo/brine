@@ -289,7 +289,7 @@ func managedFreshInput(t *testing.T, s *Store, original plan.Plan, runtime data.
 		t.Fatal(err)
 	}
 	frontend := release.Managed.Frontend
-	in.Snapshot.Apps = target.Known([]target.App{{Name: original.App, Image: target.Known(target.Image{Digest: frontend.Image.Digest, Platform: frontend.Image.Platform}), AllocatedHostPort: target.Known(frontend.Port), QuadletUnits: target.Known([]target.Unit{frontend.Unit}), Secrets: target.Known([]target.Secret{})}})
+	in.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: original.App, Image: target.Known(target.Image{Digest: frontend.Image.Digest, Platform: frontend.Image.Platform}), AllocatedHostPort: target.Known(frontend.Port), QuadletUnits: target.Known([]target.Unit{frontend.Unit}), Secrets: target.Known([]target.Secret{})}})
 	in.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: release.CaddyGeneration, Files: []target.CaddyFile{release.CaddyFile}})
 	native, err := s.ReadEnginePermit(ctx, runtime.BindingID)
 	if err != nil {

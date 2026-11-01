@@ -184,7 +184,7 @@ func TestManagedEngineStopIncludesFrontendAndEngineForMaterialReload(t *testing.
 		t.Fatal(err, created.Conflicts)
 	}
 	in.State.Releases = []CurrentRelease{{App: created.App, ID: "current", Desired: in.Desired, Image: created.Image, HostPort: created.HostPort, Secrets: []SecretBinding{}, Units: []target.Unit{}, CaddyFile: target.CaddyFile{Name: created.App + ".caddy", Hash: "sha256:" + strings.Repeat("a", 64)}, Managed: created.Managed}}
-	in.Snapshot.Apps = target.Known([]target.App{{Name: created.App, AllocatedHostPort: target.Known(created.HostPort), Image: target.Observation[target.Image]{Status: target.Unknown}, Secrets: target.Known([]target.Secret{}), QuadletUnits: target.Known([]target.Unit{})}})
+	in.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: created.App, AllocatedHostPort: target.Known(created.HostPort), Image: target.Observation[target.Image]{Status: target.Unknown}, Secrets: target.Known([]target.Secret{}), QuadletUnits: target.Known([]target.Unit{})}})
 	stopped, err := BuildEngineStop(in)
 	if err != nil || len(stopped.Conflicts) != 0 || stopped.ManagedLifecycle == nil {
 		t.Fatal(err, stopped.Conflicts)

@@ -223,7 +223,7 @@ func testManagedCommittedRecovery(t *testing.T, frontend, resolve bool) {
 	}
 	r.facts.Routing = caddy.State{Generation: r.release.CaddyGeneration, Files: map[string]string{r.release.CaddyFile.Name: r.release.CaddyFile.Hash}}
 	if frontend {
-		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: r.plan.App, Image: target.Known(target.Image{Digest: r.plan.Managed.Frontend.Image.Digest, Platform: r.plan.Managed.Frontend.Image.Platform}), AllocatedHostPort: target.Known(r.plan.Managed.Frontend.Port)}})
+		r.facts.Input.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: r.plan.App, Image: target.Known(target.Image{Digest: r.plan.Managed.Frontend.Image.Digest, Platform: r.plan.Managed.Frontend.Image.Platform}), AllocatedHostPort: target.Known(r.plan.Managed.Frontend.Port)}})
 	}
 	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
 	r.failOutcome = ""

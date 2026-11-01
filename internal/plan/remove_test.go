@@ -28,7 +28,7 @@ func TestRemovePlanOwnershipAndNoOp(t *testing.T) {
 		t.Fatalf("absent %+v %v", p, err)
 	}
 	in.State.Releases = []CurrentRelease{}
-	in.Snapshot.Apps = target.Known([]target.App{{Name: "hello", Image: target.Observation[target.Image]{Status: target.Unknown}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Unknown}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}})
+	in.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "hello", Image: target.Observation[target.Image]{Status: target.Unknown}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Unknown}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}})
 	p, err = BuildRemove(in)
 	if err != nil || p.Kind != Conflict {
 		t.Fatalf("unowned %+v %v", p, err)
@@ -58,7 +58,7 @@ func TestRemoveRetainedResourcesAreNotAnOwnedDeployment(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			in := fixture(t, "ready-arm64")
-			app := target.App{Name: "hello", Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{{Name: "brine.hello.db.v1", ID: "retained"}})}
+			app := target.App{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "hello", Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{{Name: "brine.hello.db.v1", ID: "retained"}})}
 			tc.change(&app)
 			in.Snapshot.Apps = target.Known([]target.App{app})
 			p, err := BuildRemove(in)

@@ -18,7 +18,7 @@ func retainedFixture(t *testing.T) (Collector, fakeRunner, plan.Input) {
 	f.files["/etc/passwd"] = "brine:x:1001:1001::/home/brine:/bin/sh\n"
 	f.files["/proc/self/status"] = "Uid:\t1001\t1001\t1001\t1001\n"
 	f.dirs["/home/brine/.config/containers/systemd"] = []os.DirEntry{}
-	r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine.fixture.fixture-token.v1", "podman --remote=false ps --all --format {{.Names}} {{.Label \"PODMAN_SYSTEMD_UNIT\"}}": "", "ss -H -ltnpe": "", "ss -H -lunp": ""}
+	r := fakeRunner{"uname -m": "aarch64", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": "fixture-id brine.fixture.fixture-token.v1", "podman --remote=false ps --all --format {{.Names}} {{.Label \"PODMAN_SYSTEMD_UNIT\"}}": "", "ss -H -ltnpe": "", "ss -H -lunpe": ""}
 	raw, err := os.ReadFile("../target/testdata/ready-arm64.json")
 	if err != nil {
 		t.Fatal(err)
@@ -152,10 +152,10 @@ func TestRetainedAbsenceRequiresAffirmativeEvidence(t *testing.T) {
 			r["podman --remote=false ps --all --format "+containerInventoryFormat] = "bad container row"
 		}},
 		{"unowned listener", func(_ *Collector, r fakeRunner) { r["ss -H -ltnpe"] = "LISTEN 0 128 127.0.0.1:20000 0.0.0.0:*" }},
-		{"unowned UDP listener", func(_ *Collector, r fakeRunner) { r["ss -H -lunp"] = "UNCONN 0 0 *:20000 *:*" }},
+		{"unowned UDP listener", func(_ *Collector, r fakeRunner) { r["ss -H -lunpe"] = "UNCONN 0 0 *:20000 *:*" }},
 		{"unreadable listeners", func(_ *Collector, r fakeRunner) { delete(r, "ss -H -ltnpe") }},
-		{"unreadable UDP listeners", func(_ *Collector, r fakeRunner) { delete(r, "ss -H -lunp") }},
-		{"malformed UDP listeners", func(_ *Collector, r fakeRunner) { r["ss -H -lunp"] = "unreadable row" }},
+		{"unreadable UDP listeners", func(_ *Collector, r fakeRunner) { delete(r, "ss -H -lunpe") }},
+		{"malformed UDP listeners", func(_ *Collector, r fakeRunner) { r["ss -H -lunpe"] = "unreadable row" }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, r, in := retainedFixture(t)
@@ -181,7 +181,7 @@ func TestRetainedAbsenceRequiresAffirmativeEvidence(t *testing.T) {
 
 func TestRetiredAllocationCanBeOwnedByAnotherApp(t *testing.T) {
 	c, _, _ := retainedFixture(t)
-	s := target.Snapshot{Apps: target.Known([]target.App{{Name: "fixture", Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}}), Generation: target.Known(uint64(2)), UsedPorts: target.Known([]target.Port{20000}), PortOwners: target.Known([]target.PortOwner{{Port: 20000, App: "another"}})}
+	s := target.Snapshot{Apps: target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "fixture", Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}}), Generation: target.Known(uint64(2)), UsedPorts: target.Known([]target.Port{20000}), PortOwners: target.Known([]target.PortOwner{{Port: 20000, App: "another"}})}
 	state, err := c.StateInventory(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -205,11 +205,11 @@ func TestRetiredTCPAllocationDoesNotHideUDPRemnant(t *testing.T) {
 			f.links["/proc/4242/fd/6"] = "socket:[77777]"
 			r["ss -H -ltnpe"] = `LISTEN 0 128 127.0.0.1:20000 0.0.0.0:* users:(("pasta",pid=4242,fd=6)) ino:77777 sk:1`
 			if udp {
-				r["ss -H -lunp"] = "UNCONN 0 0 *:20000 *:*"
+				r["ss -H -lunpe"] = "UNCONN 0 0 *:20000 *:*"
 			}
 			in.Snapshot.Apps = target.Known([]target.App{
-				{Name: "fixture", Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{{ID: "fixture-id", Name: "brine.fixture.fixture-token.v1"}})},
-				{Name: "another", Image: target.Known(target.Image{Digest: in.Image.Digest, Platform: in.Image.Platform}), AllocatedHostPort: target.Known(target.Port(20000)), QuadletUnits: target.Known([]target.Unit{{Name: "another.container", Hash: digest([]byte(unit))}}), Secrets: target.Known([]target.Secret{})},
+				{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "fixture", Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{{ID: "fixture-id", Name: "brine.fixture.fixture-token.v1"}})},
+				{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "another", Image: target.Known(target.Image{Digest: in.Image.Digest, Platform: in.Image.Platform}), AllocatedHostPort: target.Known(target.Port(20000)), QuadletUnits: target.Known([]target.Unit{{Name: "another.container", Hash: digest([]byte(unit))}}), Secrets: target.Known([]target.Secret{})},
 			})
 			c.RunnerUser = "brine"
 			udpPorts := c.listeners(context.Background(), &in.Snapshot, "/home/brine", map[string]publication{"another": {Host: 20000, Container: 8080}})

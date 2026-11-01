@@ -12,6 +12,7 @@ import (
 	"strings"
 	"syscall"
 
+	operatorpolicy "github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
 )
 
@@ -22,6 +23,9 @@ func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (
 		return PermissionsResponse{}, result.New(result.PolicyRefused, nil)
 	}
 	defer clear(request.IdentityKey)
+	if err := validatePermissionsRequest(request); err != nil {
+		return PermissionsResponse{}, err
+	}
 	enrollmentLock, err := permissionLock(recordDir + "/lock")
 	if err != nil {
 		return PermissionsResponse{}, err
@@ -52,7 +56,15 @@ func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (
 		return PermissionsResponse{}, err
 	}
 	defer func() { err = errors.Join(err, lock.Close()) }()
-	service := permissionService{store: diskPermissions{}, enrollment: record.ID}
+	var mutationLock *os.File
+	if requestsUDPRevocation(request) {
+		mutationLock, err = lockUDPGrantState(ctx, home+"/.local/state/brine/mutation.lock", record.UID, record.GID)
+		if err != nil {
+			return PermissionsResponse{}, errPermissionsRefused
+		}
+		defer func() { err = errors.Join(err, mutationLock.Close()) }()
+	}
+	service := permissionService{store: diskPermissions{}, enrollment: record.ID, udpHeld: operatorUDPGrantHeld}
 	return service.run(ctx, request)
 }
 
@@ -207,4 +219,20 @@ func savePermissionRecord(name string, value any) error {
 		return err
 	}
 	return atomicFile(filepath.Join(permissionsDirectory, name), raw, 0600)
+}
+
+func requestsUDPRevocation(request PermissionsRequest) bool {
+	if request.Action == "apply" {
+		record, err := (diskPermissions{}).LoadPlan(request.PlanID)
+		if err != nil {
+			return true
+		}
+		request.Changes = record.Plan.Changes
+	}
+	for _, c := range request.Changes {
+		if c.Kind == operatorpolicy.RevokeUDPGrant {
+			return true
+		}
+	}
+	return false
 }

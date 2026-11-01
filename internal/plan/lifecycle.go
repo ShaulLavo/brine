@@ -11,6 +11,7 @@ import (
 // BuildLifecycle keeps the committed bindings, including old secret versions.
 // Creating an unbound secret must not make restart implicitly rotate it.
 func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
+	in = projectUDP(in)
 	if in.Desired.SpacetimeDB != nil && action != RemoveApp {
 		return buildManagedLifecycle(in, action, false)
 	}
@@ -123,5 +124,5 @@ func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	return finish(p, desired, facts, state)
+	return finishUDP(p, in, desired, facts, state)
 }

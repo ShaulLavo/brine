@@ -561,7 +561,7 @@ func TestOtherAppCommittedPortRemainsReservedWithoutRuntimeEvidence(t *testing.T
 			if status == target.Unknown {
 				active = target.Known(false)
 			}
-			in.Snapshot.Apps = target.Known([]target.App{{Name: "other", UnitActive: &active, AllocatedHostPort: target.Observation[target.Port]{Status: status}, Image: target.Observation[target.Image]{Status: target.Unknown}, QuadletUnits: target.Known(existing.Units), Secrets: target.Known([]target.Secret{})}})
+			in.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "other", UnitActive: &active, AllocatedHostPort: target.Observation[target.Port]{Status: status}, Image: target.Observation[target.Image]{Status: target.Unknown}, QuadletUnits: target.Known(existing.Units), Secrets: target.Known([]target.Secret{})}})
 			p := build(t, in)
 			if p.Kind != Create || p.HostPort != existing.HostPort+1 {
 				t.Fatalf("other app blocks admission or loses reservation: %+v", p)

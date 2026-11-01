@@ -55,6 +55,9 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 }
 
 func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, owners []string) (r Recovery, inspectErr error) {
+	if err := plan.RefuseUDPExecution(p, d); err != nil {
+		return Recovery{Action: RequireRecovery}, err
+	}
 	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}, resolutionOwners: owners}
 	defer func() { r.decision, r.boundary = r.Action, r.Step }()
 	forwardSteps := deploymentSteps(d)
@@ -337,6 +340,9 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 		return errors.New("apply: invalid recovery assessment")
 	}
 	x := r.execution
+	if err := plan.RefuseUDPExecution(x.plan, x.desired); err != nil {
+		return err
+	}
 	if err := x.prepareResolution(ctx, r.resolutionState); err != nil {
 		return err
 	}

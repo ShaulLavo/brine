@@ -83,15 +83,17 @@ type Input struct {
 	Desired  policy.Desired
 	Snapshot target.Snapshot
 	// Image is manifest metadata supplied by the caller, never looked up by Build.
-	Image   Image
-	State   BrineState
-	Managed *ManagedFacts
+	Image    Image
+	State    BrineState
+	UDPExact *UDPEndpoint
+	Managed  *ManagedFacts
 }
 
 // BrineState comes from the target control database, not host observation. It
 // binds committed releases to the snapshot identity and control generation.
 // Releases must be non-nil; [] affirmatively records no committed releases.
 type BrineState struct {
+	UDP                 *UDPState                       `json:"udp,omitempty"`
 	Target              target.Identity                 `json:"target"`
 	Generation          uint64                          `json:"generation"`
 	Releases            []CurrentRelease                `json:"releases"`
@@ -107,6 +109,7 @@ type DataIncarnation struct {
 }
 
 type CurrentRelease struct {
+	UDP             *UDPAllocation      `json:"udp,omitempty"`
 	App             string              `json:"app"`
 	ID              string              `json:"id"`
 	Desired         policy.Desired      `json:"desired"`
@@ -148,6 +151,7 @@ const (
 // Change is a tagged payload. Build populates exactly the payload named by Kind.
 // BindSecret references an existing immutable version; it never creates a value.
 type Change struct {
+	UDP        *UDPEndpoint     `json:"udp,omitempty"`
 	Kind       ChangeKind       `json:"kind"`
 	Allocation *PortAllocation  `json:"allocation,omitempty"`
 	Image      *Image           `json:"image,omitempty"`
@@ -164,6 +168,7 @@ type PortAllocation struct {
 	Port target.Port `json:"port"`
 }
 type Quadlet struct {
+	UDP             *UDPAllocation  `json:"udp,omitempty"`
 	DataMounts      []data.Mount    `json:"data_mounts,omitempty"`
 	Desired         policy.Desired  `json:"desired"`
 	EnvironmentKeys []string        `json:"environment_keys"`
@@ -192,6 +197,7 @@ type ReplicaPrevious struct {
 }
 
 type Plan struct {
+	UDP                   *UDPPlan              `json:"udp,omitempty"`
 	ManagedPreview        *ManagedBlueprint     `json:"managed_preview,omitempty"`
 	SchemaArtifacts       []data.SchemaArtifact `json:"schema_artifacts,omitempty"`
 	DatabaseEnvironment   []policy.Environment  `json:"database_environment,omitempty"`
@@ -270,6 +276,10 @@ func Build(in Input) (Plan, error) {
 	if value := in.Image.ManifestDigest.Value; value != nil {
 		detached := *value
 		in.Image.ManifestDigest.Value = &detached
+	}
+	in = projectUDP(in)
+	if in.Desired.SpacetimeDB != nil && udpInvolved(in) {
+		return Plan{}, ErrUDPExecutionUnavailable
 	}
 	if in.Desired.SpacetimeDB != nil {
 		if in.Managed != nil && in.Managed.Runtime != nil && in.Managed.Runtime.State == data.EngineInitialized {
@@ -381,7 +391,7 @@ func Build(in Input) (Plan, error) {
 		add(StaleState, "brine_state")
 	}
 	if len(p.Conflicts) > 0 {
-		return finish(p, desired, snapshot, state)
+		return finishUDP(p, in, desired, snapshot, state)
 	}
 	var release *CurrentRelease
 	for _, r := range in.State.Releases {
@@ -532,7 +542,8 @@ func Build(in Input) (Plan, error) {
 			}
 		}
 	}
-	p.ConfigHash = configHash(in.Desired, in.Image, p.HostPort, p.Secrets)
+	planUDP(in, &p, release, current, add)
+	p.ConfigHash = udpConfigHash(in.Desired, in.Image, p.HostPort, p.Secrets, p.UDP)
 
 	if release != nil {
 		reconcileCommittedCaddy(*release, caddy.Files, *in.Snapshot.LiveCaddyFiles.Value, add)
@@ -549,7 +560,7 @@ func Build(in Input) (Plan, error) {
 		add(ArtifactDrift, "app.ownership")
 	}
 	if len(p.Conflicts) > 0 {
-		return finish(p, desired, snapshot, state)
+		return finishUDP(p, in, desired, snapshot, state)
 	}
 	p.Kind = Create
 	if release != nil {
@@ -568,7 +579,7 @@ func Build(in Input) (Plan, error) {
 			}
 		}
 		if len(p.Conflicts) > 0 {
-			return finish(p, desired, snapshot, state)
+			return finishUDP(p, in, desired, snapshot, state)
 		}
 		if caddy.Generation == ^uint64(0) {
 			return Plan{}, fmt.Errorf("Caddy generation exhausted")
@@ -589,7 +600,7 @@ func Build(in Input) (Plan, error) {
 		}
 		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{DataMounts: slices.Clone(p.DataMounts), Desired: quadletDesired, EnvironmentKeys: environmentKeys, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
 	}
-	return finish(p, desired, snapshot, state)
+	return finishUDP(p, in, desired, snapshot, state)
 }
 
 func reconcileCommittedCaddy(release CurrentRelease, files []target.CaddyFile, liveFiles []target.LiveCaddyFile, add func(ConflictCode, string)) {
@@ -746,6 +757,9 @@ func canonicalState(state BrineState) ([]byte, error) {
 	state = BrineState{}
 	if e = json.Unmarshal(raw, &state); e != nil {
 		return nil, e
+	}
+	if err := canonicalUDPState(state.UDP); err != nil {
+		return nil, err
 	}
 	if err := canonicalManagedReservations(state.ManagedReservations); err != nil {
 		return nil, err

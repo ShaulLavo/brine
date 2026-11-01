@@ -29,6 +29,7 @@ type Health struct {
 // Treat the returned value as immutable. CanonicalBytes also sorts a defensive
 // copy so serialization stays deterministic if a caller reorders collections.
 type Desired struct {
+	UDP                 *UDPDesired       `json:"udp,omitempty"`
 	SpacetimeDB         *spec.SpacetimeDB `json:"spacetimedb,omitempty"`
 	SpacetimePolicy     *SpacetimePolicy  `json:"spacetime_policy,omitempty"`
 	DatabaseEnvironment []Environment     `json:"database_environment,omitempty"`
@@ -58,7 +59,16 @@ type Desired struct {
 	MinimumFreeDiskBytes uint64                           `json:"minimum_free_disk_bytes"`
 }
 
+type UDPDesired struct {
+	ContainerPort spec.Port        `json:"container_port"`
+	Exposure      spec.UDPExposure `json:"exposure"`
+	Grant         UDPGrant         `json:"grant"`
+}
+
 func (d Desired) CanonicalBytes() ([]byte, error) {
+	if d.UDP != nil && (d.SpacetimeDB != nil || d.UDP.ContainerPort < 1024 || d.UDP.Grant.App != string(d.Name) || d.UDP.Exposure != d.UDP.Grant.Exposure || d.UDP.Grant.Validate(d.AppPorts) != nil) {
+		return nil, data.ErrInvalid
+	}
 	if d.SpacetimeDB == nil && d.SpacetimePolicy != nil {
 		return nil, data.ErrInvalid
 	}
@@ -118,6 +128,9 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 	if p.config == nil {
 		return Desired{}, refuse("policy.required", "$", "explicit operator policy is required")
 	}
+	if input.SpacetimeDB != nil && input.UDP != nil {
+		return Desired{}, refuse("policy.invalid_spec", "udp", "UDP is unsupported for managed apps")
+	}
 	if input.SpacetimeDB != nil {
 		return normalizeManaged(input, p)
 	}
@@ -132,6 +145,13 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		secrets[name] = string(ref)
 	}
 	raw := map[string]any{"schema_version": input.SchemaVersion, "name": string(input.Name), "image": string(input.Image), "container_port": int(input.ContainerPort), "domains": domains, "environment": input.Environment, "secrets": secrets}
+	if input.UDP != nil {
+		grant, ok := p.UDPGrant(string(input.Name))
+		if !ok || grant.Exposure != input.UDP.Exposure {
+			return Desired{}, refuse("policy.udp_denied", "udp", "UDP publication is not granted for this app")
+		}
+		raw["udp"] = map[string]any{"container_port": int(input.UDP.ContainerPort), "exposure": string(input.UDP.Exposure)}
+	}
 	raw["health"] = map[string]any{
 		"path":                     string(input.Health.Path),
 		"expected_status":          input.Health.ExpectedStatus,
@@ -238,6 +258,13 @@ func Normalize(input spec.App, p Policy) (Desired, error) {
 		}
 	}
 	d := Desired{SchemaVersion: SchemaVersion, Name: app.Name, Image: app.Image, ContainerPort: app.ContainerPort, Domains: app.Domains, Health: Health{Path: app.Health.Path, ExpectedStatus: app.Health.ExpectedStatus, StartupDeadlineSeconds: app.Health.StartupDeadlineSeconds, TimeoutSeconds: app.Health.TimeoutSeconds}, Resources: resources, Environment: []Environment{}, Secrets: []Secret{}, PolicyVersion: c.Version, PolicyHash: p.hash, AppPorts: *c.AppPorts, MinimumFreeDiskBytes: *c.MinimumFreeDiskBytes}
+	if app.UDP != nil {
+		grant, ok := p.UDPGrant(string(app.Name))
+		if !ok || grant.Exposure != app.UDP.Exposure {
+			return Desired{}, refuse("policy.udp_denied", "udp", "UDP publication is not granted for this app")
+		}
+		d.UDP = &UDPDesired{ContainerPort: app.UDP.ContainerPort, Exposure: app.UDP.Exposure, Grant: grant}
+	}
 	d.Runtime = app.Runtime
 	d.Databases = app.Databases
 	d.SchemaCompatibility = app.SchemaCompatibility
@@ -297,6 +324,9 @@ func (d Desired) App() spec.App {
 		return managedApp(d)
 	}
 	a := spec.App{SchemaVersion: d.SchemaVersion, Name: d.Name, Image: d.Image, ContainerPort: d.ContainerPort, Domains: slices.Clone(d.Domains), Health: spec.Health{Path: d.Health.Path, ExpectedStatus: d.Health.ExpectedStatus, StartupDeadlineSeconds: d.Health.StartupDeadlineSeconds, TimeoutSeconds: d.Health.TimeoutSeconds}, Resources: &spec.Resources{MemoryMB: d.Resources.MemoryMB, PIDsLimit: d.Resources.PIDsLimit}, Environment: map[string]string{}, Secrets: map[string]spec.SecretReference{}, Databases: slices.Clone(d.Databases), SchemaCompatibility: slices.Clone(d.SchemaCompatibility), SchemaDefinitions: slices.Clone(d.SchemaDefinitions), SchemaArtifacts: slices.Clone(d.SchemaArtifacts), RestoreInvariants: slices.Clone(d.RestoreInvariants)}
+	if d.UDP != nil {
+		a.UDP = &spec.UDP{ContainerPort: d.UDP.ContainerPort, Exposure: d.UDP.Exposure}
+	}
 	if d.Runtime != nil {
 		r := *d.Runtime
 		a.Runtime = &r

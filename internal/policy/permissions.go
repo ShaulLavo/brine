@@ -13,6 +13,8 @@ import (
 type PermissionKind string
 
 const (
+	AllowUDPGrant    PermissionKind = "allow_udp_grant"
+	RevokeUDPGrant   PermissionKind = "revoke_udp_grant"
 	AllowRegistry    PermissionKind = "allow_registry"
 	RevokeRegistry   PermissionKind = "revoke_registry"
 	AllowDomain      PermissionKind = "allow_domain"
@@ -24,6 +26,8 @@ const (
 )
 
 type PermissionAction struct {
+	UDPGrant   *UDPGrant         `json:"udp_grant,omitempty"`
+	UDPApp     string            `json:"udp_app,omitempty"`
 	Kind       PermissionKind    `json:"kind"`
 	Registry   *Registry         `json:"registry,omitempty"`
 	Domain     string            `json:"domain,omitempty"`
@@ -32,6 +36,7 @@ type PermissionAction struct {
 }
 
 type Permissions struct {
+	UDPGrants      []UDPGrant          `json:"udp_grants"`
 	Registries     []Registry          `json:"registries"`
 	Domains        []string            `json:"domains"`
 	CDNBindings    []cdn.Binding       `json:"cdn_bindings"`
@@ -42,7 +47,7 @@ func (p Policy) Permissions() Permissions {
 	if p.config == nil {
 		return Permissions{}
 	}
-	return Permissions{Registries: cloneRegistries(p.config.AllowedRegistries), Domains: slices.Clone(p.config.AllowedDomains), CDNBindings: cloneCDNBindings(p.config.CDNBindings), AllowedSecrets: cloneAllowedSecrets(p.config.AllowedSecrets)}
+	return Permissions{UDPGrants: append([]UDPGrant{}, p.config.UDPGrants...), Registries: cloneRegistries(p.config.AllowedRegistries), Domains: slices.Clone(p.config.AllowedDomains), CDNBindings: cloneCDNBindings(p.config.CDNBindings), AllowedSecrets: cloneAllowedSecrets(p.config.AllowedSecrets)}
 }
 
 func cloneCDNBindings(input []cdn.Binding) []cdn.Binding {
@@ -69,6 +74,7 @@ func (p Policy) EditPermissions(actions []PermissionAction) (Policy, []byte, err
 	next.AllowedRegistries = cloneRegistries(next.AllowedRegistries)
 	next.AllowedDomains = slices.Clone(next.AllowedDomains)
 	next.CDNBindings = cloneCDNBindings(next.CDNBindings)
+	next.UDPGrants = slices.Clone(next.UDPGrants)
 	next.AllowedSecrets = cloneAllowedSecrets(next.AllowedSecrets)
 	if err := applyPermissions(&next, actions); err != nil {
 		return Policy{}, nil, err
@@ -106,6 +112,12 @@ func applyPermissions(next *document, actions []PermissionAction) error {
 }
 
 func applyPermission(next *document, action PermissionAction) (string, error) {
+	if action.Kind == AllowUDPGrant || action.Kind == RevokeUDPGrant {
+		return editUDPGrant(next, action)
+	}
+	if action.UDPGrant != nil || action.UDPApp != "" {
+		return "", errors.New("unexpected UDP permission payload")
+	}
 	switch action.Kind {
 	case AllowDomain, RevokeDomain:
 		if action.Registry != nil || action.CDNBinding != nil || action.Secret != nil || action.Domain == "" || strings.Contains(action.Domain, "*") {
@@ -191,4 +203,28 @@ func editRegistry(next *document, action PermissionAction) (string, error) {
 		next.AllowedRegistries = slices.Delete(next.AllowedRegistries, index, index+1)
 	}
 	return "registry:" + r.Host + "/" + prefix, nil
+}
+
+func editUDPGrant(next *document, action PermissionAction) (string, error) {
+	if action.Registry != nil || action.Domain != "" || action.CDNBinding != nil || action.Secret != nil {
+		return "", errors.New("mixed UDP permission")
+	}
+	app := action.UDPApp
+	if action.Kind == AllowUDPGrant {
+		ports := PortRange{}
+		if next.AppPorts != nil {
+			ports = *next.AppPorts
+		}
+		if action.UDPGrant == nil || action.UDPApp != "" || action.UDPGrant.Validate(ports) != nil {
+			return "", errors.New("invalid UDP grant")
+		}
+		app = action.UDPGrant.App
+	} else if action.UDPGrant != nil || !udpAppPattern.MatchString(app) {
+		return "", errors.New("invalid UDP revocation")
+	}
+	next.UDPGrants = slices.DeleteFunc(next.UDPGrants, func(g UDPGrant) bool { return g.App == app })
+	if action.Kind == AllowUDPGrant {
+		next.UDPGrants = append(next.UDPGrants, *action.UDPGrant)
+	}
+	return "udp:" + app, nil
 }

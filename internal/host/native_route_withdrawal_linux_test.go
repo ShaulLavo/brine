@@ -102,7 +102,7 @@ func newNativeWithdrawalRig(t *testing.T) nativeWithdrawalRig {
 	}
 	snapshot.Versions.Caddy = target.Known("2.10.2")
 	front := release.Managed.Frontend
-	snapshot.Apps = target.Known([]target.App{{Name: original.App, Image: target.Known(target.Image{Digest: front.Image.Digest, Platform: front.Image.Platform}), AllocatedHostPort: target.Known(front.Port), QuadletUnits: target.Known([]target.Unit{front.Unit}), Secrets: target.Known([]target.Secret{})}})
+	snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: original.App, Image: target.Known(target.Image{Digest: front.Image.Digest, Platform: front.Image.Platform}), AllocatedHostPort: target.Known(front.Port), QuadletUnits: target.Known([]target.Unit{front.Unit}), Secrets: target.Known([]target.Secret{})}})
 	snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: 2, Files: []target.CaddyFile{}})
 	adapted, err := os.ReadFile("../caddy/testdata/managed-adapted.json")
 	if err != nil {

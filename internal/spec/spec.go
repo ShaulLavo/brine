@@ -43,6 +43,7 @@ type SchemaDefinition = data.SQLiteSchemaDefinition
 
 type App struct {
 	SpacetimeDB         *SpacetimeDB
+	UDP                 *UDP
 	RestoreInvariants   []data.RestoreInvariant
 	Runtime             *RuntimeIdentity
 	Databases           []Database
@@ -100,6 +101,11 @@ type rawApp struct {
 	Resources           *rawResources          `toml:"resources"`
 	Environment         map[string]any         `toml:"environment"`
 	Secrets             map[string]any         `toml:"secrets"`
+	UDP                 *rawUDP                `toml:"udp"`
+}
+type rawUDP struct {
+	ContainerPort any `toml:"container_port"`
+	Exposure      any `toml:"exposure"`
 }
 type rawHealth struct {
 	Path                   any `toml:"path"`
@@ -150,7 +156,8 @@ func Parse(data []byte) (App, error) {
 }
 
 var schemaFields = map[string][]string{
-	"$":                                 {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "restore_invariants"},
+	"$":                                 {"schema_version", "name", "image", "container_port", "domains", "health", "resources", "environment", "secrets", "runtime", "databases", "schema_compatibility", "restore_invariants", "udp"},
+	"$.udp":                             {"container_port", "exposure"},
 	"$.databases.spacetimedb":           {"image", "version", "database", "module", "runtime", "resources", "publisher", "signing_private", "signing_public", "auth"},
 	"$.databases.spacetimedb.module":    {"file", "schema", "marker"},
 	"$.databases.spacetimedb.runtime":   {"uid", "gid"},
@@ -381,6 +388,29 @@ func validate(raw rawApp) (App, error) {
 	}
 	if err := validatePersistence(raw, &app); err != nil {
 		return App{}, err
+	}
+	if raw.UDP != nil {
+		if raw.UDP.ContainerPort == nil || raw.UDP.Exposure == nil {
+			return App{}, refusal("spec.required", "udp", "container_port and exposure are required")
+		}
+		port, err := integer(raw.UDP.ContainerPort, "udp.container_port")
+		if err != nil {
+			return App{}, err
+		}
+		if port < 1024 || port > 65535 {
+			return App{}, refusal("spec.invalid_port", "udp.container_port", "port must be between 1024 and 65535")
+		}
+		exposure, err := text(raw.UDP.Exposure, "udp.exposure")
+		if err != nil {
+			return App{}, err
+		}
+		if exposure != string(UDPPublic) && exposure != string(UDPTailnet) {
+			return App{}, refusal("spec.invalid_udp", "udp.exposure", "exposure must be public or tailnet")
+		}
+		if app.SpacetimeDB != nil {
+			return App{}, refusal("spec.udp_managed_unsupported", "udp", "UDP is not supported for managed SpacetimeDB apps")
+		}
+		app.UDP = &UDP{ContainerPort: Port(port), Exposure: UDPExposure(exposure)}
 	}
 	return app, nil
 }

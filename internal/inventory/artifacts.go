@@ -113,7 +113,7 @@ func (c Collector) apps(ctx context.Context, s *target.Snapshot, home string, ex
 	apps := make([]target.App, 0, len(byApp))
 	for app, units := range byApp {
 		sort.Slice(units, func(i, j int) bool { return units[i].Name < units[j].Name })
-		a := target.App{Name: app, Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known(units), Secrets: unknown[[]target.Secret]()}
+		a := target.App{UDPPublication: unknown[target.UDPPublication](), Name: app, Image: unknown[target.Image](), AllocatedHostPort: unknown[target.Port](), QuadletUnits: target.Known(units), Secrets: unknown[[]target.Secret]()}
 		if runnerIdentity {
 			if len(units) > 0 {
 				active := unknown[bool]()

@@ -17,6 +17,7 @@ One file describes one app. `schema_version` is the only supported version, `1`.
 | `image` | string | yes, unless engine-only | Explicit registry and repository, pinned with `@sha256:` and a 64-hex digest. A tag is allowed before the digest. |
 | `container_port` | integer | yes, unless engine-only | 1024 to 65535. |
 | `domains` | array of strings | yes | At least one. ASCII DNS names with two or more labels. No IP addresses, no `xn--` labels, no duplicates. Folded to lowercase. |
+| `udp` | table | no | Planning only. See [`[udp]`](#udp). |
 | `health` | table | no | See [`[health]`](#health). |
 | `resources` | table | no | See [`[resources]`](#resources). |
 | `environment` | table of strings | no | See [`[environment]`](#environment-and-secrets). |
@@ -25,6 +26,18 @@ One file describes one app. `schema_version` is the only supported version, `1`.
 | `databases` | array of tables | no | See [`[[databases]]`](#databases). |
 | `schema_compatibility` | array of tables | no | See [`[[schema_compatibility]]`](#schema_compatibility). |
 | `restore_invariants` | array of tables | no | See [`[[restore_invariants]]`](#restore_invariants). |
+
+### `[udp]`
+
+| Key | Type | Rule |
+| --- | --- | --- |
+| `container_port` | integer | Required. 1024 to 65535. |
+| `exposure` | string | Required. Exactly `public` or `tailnet`. |
+
+One table is accepted for stateless and SQLite apps, never managed SpacetimeDB.
+HTTP configuration remains required. The operator must grant the exact app and
+exposure. Every UDP plan currently conflicts with `udp_execution_unavailable`;
+no publication, lifecycle or remote reachability is enabled.
 
 ### `[health]`
 
@@ -129,7 +142,7 @@ APP_ENV = "production"
 
 ## Operator policy
 
-The operator owns this file. On an enrolled server it is `/etc/ssh/brine/operator-policy.toml`, root-owned. Enrollment installs a default only when none exists. The default allows no registries, domains or secrets, and sets app ports 20000 to 20999, a 512 MiB memory ceiling, a 128 PID ceiling, a 1 GiB disk reserve and `caddy_port = 443`. `brine permissions` edits registries, domains, CDN bindings and exact per-app secret-reference grants. Every other key needs a manual edit as root.
+The operator owns this file. On an enrolled server it is `/etc/ssh/brine/operator-policy.toml`, root-owned. Enrollment installs a default only when none exists. The default allows no registries, domains or secrets, and sets app ports 20000 to 20999, a 512 MiB memory ceiling, a 128 PID ceiling, a 1 GiB disk reserve and `caddy_port = 443`. `brine permissions` edits registries, domains, CDN bindings, UDP grants and exact per-app secret-reference grants. Every other key needs a manual edit as root.
 
 ### Top-level keys
 
@@ -153,6 +166,7 @@ The operator owns this file. On an enrolled server it is `/etc/ssh/brine/operato
 | `allowed_registries` | array of `{host, repository_prefixes}` | `host` is an exact ASCII registry host with an optional port. A prefix matches that repository and its descendants. A host with no prefixes allows nothing. Aliases are not expanded: `docker.io/library/alpine` and `docker.io/alpine` are different. |
 | `allowed_domains` | array of strings | Exact names or `*.suffix`. A wildcard matches one or more subdomain labels, never the apex. |
 | `allowed_secrets` | table of app name to array of references | An absent app may use no secrets. References are case-sensitive. `permissions plan --secret-app APP --allow-secret-ref REF` grants one pair; `--revoke-secret-ref REF` removes it. `--app` is audit-only. |
+| `udp_grants` | array of `{app, exposure, bind_address, client_address, host_ports}` | One exact per-app grant, with a specified literal bind address and at most 64 unprivileged ports outside the HTTP range. `permissions plan --allow-udp-grant FILE` accepts strict JSON up to 4096 bytes. `--revoke-udp-grant APP` refuses live or unreadable reservations. See [UDP planning](../CONTRACTS.md#udp-planning-and-authority). |
 
 An empty or missing allow list denies everything.
 

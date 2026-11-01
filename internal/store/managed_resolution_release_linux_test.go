@@ -262,7 +262,7 @@ func testManagedRoutePublicExecutor(t *testing.T, interruptedCommit bool) {
 	}
 	host := &managedCommitHost{state: s, owner: source.ID, route: caddy.State{Generation: expected.CaddyGeneration, Files: map[string]string{expected.CaddyFile.Name: expected.CaddyFile.Hash}}}
 	facts := apply.Facts{Routing: host.route, Input: plan.Input{Desired: d, State: plan.BrineState{Target: p.Target, Generation: generation}}}
-	facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
+	facts.Input.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
 	executor := apply.Executor{Journal: s, Releases: managedCommitReleases{s}, Managed: host, Routes: host, Health: host, Facts: apply.FactsFunc(func(context.Context) (apply.Facts, error) { return facts, nil }), Systemd: &systemd.Fake{IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return true, nil }}, Podman: &podman.Fake{SecretExistsFunc: func(context.Context, podman.Name) (bool, error) { return true, nil }}}
 	if interruptedCommit {
 		claimManagedRouteCommit(t, s, resolver.ID)
@@ -327,7 +327,7 @@ func TestManagedRouteRecoveryWakesOnlyTheOriginalOwnedFrontendOnce(t *testing.T)
 			}
 			host := &managedCommitHost{state: s, owner: source.ID, stopped: true, route: caddy.State{Generation: expected.CaddyGeneration, Files: map[string]string{expected.CaddyFile.Name: expected.CaddyFile.Hash}}}
 			facts := apply.Facts{Routing: host.route, Input: plan.Input{Desired: d, State: plan.BrineState{Target: p.Target, Generation: generation}}}
-			facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
+			facts.Input.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
 			starts := 0
 			system := &systemd.Fake{IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return !host.stopped, nil }, StartFunc: func(ctx context.Context, unit systemd.Unit) error {
 				starts++
@@ -423,7 +423,7 @@ func TestManagedWakeCommittedReleaseResolutionSettlesTerminalWithoutAnotherStart
 	}
 	host := &managedCommitHost{state: s, owner: source.ID, stopped: true, route: caddy.State{Generation: expected.CaddyGeneration, Files: map[string]string{expected.CaddyFile.Name: expected.CaddyFile.Hash}}}
 	facts := apply.Facts{Routing: host.route, Input: plan.Input{Desired: d, State: plan.BrineState{Target: p.Target, Generation: generation}}}
-	facts.Input.Snapshot.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
+	facts.Input.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{expected.Managed.Frontend.Unit})}})
 	starts := 0
 	executor := apply.Executor{Journal: failedManagedTerminal{s}, Releases: managedCommitReleases{s}, Managed: host, Routes: host, Health: host, Facts: apply.FactsFunc(func(context.Context) (apply.Facts, error) { return facts, nil }), Systemd: &systemd.Fake{IsActiveFunc: func(context.Context, systemd.Unit) (bool, error) { return !host.stopped, nil }, StartFunc: func(context.Context, systemd.Unit) error { starts++; host.stopped = false; return nil }}, Podman: &podman.Fake{SecretExistsFunc: func(context.Context, podman.Name) (bool, error) { return true, nil }}}
 	events, err := s.EventsAfter(ctx, resolver.ID, 0, 1024)

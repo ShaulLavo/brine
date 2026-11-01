@@ -183,6 +183,30 @@ func Encode(s Snapshot) ([]byte, error) {
 }
 
 func canonicalizeOwnership(s *Snapshot) {
+	if s.UDPSockets.Value != nil {
+		slices.SortFunc(*s.UDPSockets.Value, func(a, b UDPSocket) int {
+			if n := strings.Compare(a.Address, b.Address); n != 0 {
+				return n
+			}
+			if a.Port < b.Port {
+				return -1
+			}
+			if a.Port > b.Port {
+				return 1
+			}
+			if n := strings.Compare(a.App, b.App); n != 0 {
+				return n
+			}
+			if n := strings.Compare(a.Process, b.Process); n != 0 {
+				return n
+			}
+			return strings.Compare(a.Unit, b.Unit)
+		})
+	}
+	if s.LocalAddresses.Value != nil {
+		slices.Sort(*s.LocalAddresses.Value)
+	}
+
 	if s.LiveCaddyFiles.Value != nil {
 		slices.SortFunc(*s.LiveCaddyFiles.Value, func(a, b LiveCaddyFile) int { return strings.Compare(a.Name, b.Name) })
 		for _, file := range *s.LiveCaddyFiles.Value {
