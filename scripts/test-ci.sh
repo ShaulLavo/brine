@@ -46,8 +46,8 @@ done
 for path in internal/example.go internal/testdata/input.md fixtures/app/README.md docs/testdata/input.md docs/Fixtures/input.md docs/fixture/input.md docs/example.go docs/example.toml docs/assets/new.wasm .github/workflows/ci.yml scripts/check.sh go.sum mise.toml unknown.txt; do
   check_scope "$path" "$path" full
 done
-check_scope docs/old.md docs/new.md docs
-check_scope docs/removed.md '' docs
+check_scope docs/old.md docs/new.md full
+check_scope docs/removed.md '' full
 check_scope internal/example.go docs/example.md full
 check_scope docs/example.md internal/example.go full
 check_scope internal/deleted.go '' full
