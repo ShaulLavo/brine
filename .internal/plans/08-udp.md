@@ -3,6 +3,9 @@
 **Status: Approved**, owner, 2026-10-13. Deliver this before transport previews.
 This plan owns P08-02, P08-03, P08-04, P08-06 and P08-08. Their checkboxes
 live here. [WebTransport extensions](08-webtransport.md) retain the other tasks.
+[The implementation design](08-udp-design.md) fixes the types, schema, steps,
+file ownership and test mapping for these tasks; follow it when this plan's
+wording leaves a choice open.
 
 **Goal:** deploy a digest-pinned game server with its ordinary HTTP endpoint
 and one direct UDP port. The game owns its protocol, authentication and any
@@ -62,7 +65,9 @@ health packet and claims no game session or browser WebTransport verification.
 
 ## Current implementation and edit boundaries
 
-Written against `6c9eb48`. Recheck these paths before implementation:
+Written against `6c9eb48` and rechecked at `afc6f3c6` for
+[the implementation design](08-udp-design.md), which lists the exact seams.
+Recheck these paths before implementation:
 
 - `internal/spec/spec.go` has one `ContainerPort` and HTTP `Health`.
 - `internal/policy/policy.go` has one `AppPorts` range. Add explicit UDP policy.
@@ -143,7 +148,7 @@ unrelated listeners intact. Do not add compatibility paths for old binaries.
   Missing external evidence stays unknown. Persistent/managed data and unrelated
   routes/listeners remain unchanged. No browser, QUIC or TLS claim follows.
   **Evidence:** T27-T30 and T06-T11/T22/T23. Retain scrubbed commands, receipts,
-  architecture/image pins and resource cleanup in `docs/evidence/p08-udp.md`.
+  architecture/image pins and resource cleanup in `.internal/evidence/p08-udp.md`.
   Record pre-existing resources and install teardown before setup. Check cleanup
   on the actual host and give every retained fixture a cleanup owner/condition.
 
