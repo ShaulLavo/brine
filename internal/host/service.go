@@ -153,7 +153,7 @@ type Executor struct {
 
 func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
 	if err := plan.RefuseUDPExecution(p, d); err != nil {
-		return err
+		return result.New(result.Conflict, err)
 	}
 	if p.Managed != nil && p.Managed.State == data.EngineUnpublished {
 		return e.runManagedPreparation(ctx, id, p, d)

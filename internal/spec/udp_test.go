@@ -61,3 +61,16 @@ exposure="public"`, "spec.unknown_field"},
 		})
 	}
 }
+
+func TestUDPManagedAppsAreRefused(t *testing.T) {
+	raw, err := os.ReadFile("testdata/managed.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, []byte("\n[udp]\ncontainer_port=4433\nexposure=\"public\"\n")...)
+	_, err = Parse(raw)
+	var failure *Error
+	if !errors.As(err, &failure) || failure.Code != "spec.udp_managed_unsupported" {
+		t.Fatal("managed UDP not refused by the spec boundary", err)
+	}
+}

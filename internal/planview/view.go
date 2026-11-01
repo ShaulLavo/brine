@@ -5,6 +5,7 @@ package planview
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -163,11 +164,11 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 		}
 		if v.UDP.Next != nil {
 			u := v.UDP.Next
-			add(fmt.Sprintf("  UDP %s %s:%d -> container %d, client %s:%d", u.Exposure, u.Endpoint.BindAddress, u.Endpoint.HostPort, u.ContainerPort, u.ClientAddress, u.Endpoint.HostPort))
+			add(fmt.Sprintf("  UDP %s %s -> container %d, client %s", u.Exposure, net.JoinHostPort(u.Endpoint.BindAddress, fmt.Sprint(u.Endpoint.HostPort)), u.ContainerPort, net.JoinHostPort(u.ClientAddress, fmt.Sprint(u.Endpoint.HostPort))))
 		}
 		if v.UDP.Retire != nil {
 			e := v.UDP.Retire.Endpoint
-			add(fmt.Sprintf("  Release UDP reservation %s:%d", e.BindAddress, e.HostPort))
+			add("  Release UDP reservation " + net.JoinHostPort(e.BindAddress, fmt.Sprint(e.HostPort)))
 		}
 	}
 	if v.Kind == plan.NoOp {

@@ -14,11 +14,7 @@ func (c Collector) localAddresses(ctx context.Context) target.Observation[[]stri
 	if err != nil {
 		return unknown[[]string]()
 	}
-	var interfaces []struct {
-		Addresses []struct {
-			Local string `json:"local"`
-		} `json:"addr_info"`
-	}
+	var interfaces []addressInterface
 	if json.Unmarshal([]byte(raw), &interfaces) != nil || interfaces == nil {
 		return unknown[[]string]()
 	}
@@ -27,17 +23,33 @@ func (c Collector) localAddresses(ctx context.Context) target.Observation[[]stri
 		if intf.Addresses == nil {
 			return unknown[[]string]()
 		}
-		for _, entry := range intf.Addresses {
-			addr, err := netip.ParseAddr(entry.Local)
-			if err != nil || addr.Zone() != "" {
-				return unknown[[]string]()
-			}
-			if addr.IsUnspecified() || addr.IsMulticast() || addr.Is4In6() {
-				continue
-			}
-			addresses = append(addresses, addr.String())
+		parsed, ok := localInterfaceAddresses(intf)
+		if !ok {
+			return unknown[[]string]()
 		}
+		addresses = append(addresses, parsed...)
 	}
 	slices.Sort(addresses)
 	return target.Known(slices.Compact(addresses))
+}
+
+type addressInterface struct {
+	Addresses []struct {
+		Local string `json:"local"`
+	} `json:"addr_info"`
+}
+
+func localInterfaceAddresses(intf addressInterface) ([]string, bool) {
+	addresses := make([]string, 0, len(intf.Addresses))
+	for _, entry := range intf.Addresses {
+		addr, err := netip.ParseAddr(entry.Local)
+		if err != nil || addr.Zone() != "" {
+			return nil, false
+		}
+		if addr.IsUnspecified() || addr.IsMulticast() || addr.Is4In6() {
+			continue
+		}
+		addresses = append(addresses, addr.String())
+	}
+	return addresses, true
 }

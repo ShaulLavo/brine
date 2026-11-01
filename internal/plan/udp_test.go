@@ -2,6 +2,8 @@ package plan
 
 import (
 	"bytes"
+	"io/fs"
+	"os"
 	"slices"
 	"strings"
 	"testing"
@@ -182,5 +184,75 @@ func TestUDPRetainedOwnershipNeedsAllProofs(t *testing.T) {
 	in.State.UDP.Reservations = append(in.State.UDP.Reservations, row)
 	if p := build(t, in); p.UDP.Next.Endpoint.HostPort != 4434 {
 		t.Fatal("stopped claim reused", p.Conflicts)
+	}
+}
+
+func TestUDPRemovalAndLifecycleRemainConflictOnly(t *testing.T) {
+	for _, action := range []ChangeKind{StartApp, StopApp, RestartApp, RemoveApp} {
+		in := udpInput(t, true)
+		if action == RemoveApp {
+			in.State.Releases[0].Units = in.State.Releases[0].Units[:1]
+			(*in.Snapshot.Apps.Value)[0].QuadletUnits = target.Known(in.State.Releases[0].Units)
+		}
+		p, err := BuildLifecycle(in, action)
+		if err != nil || p.Kind != Conflict || p.Lifecycle != action || len(p.Changes) != 0 {
+			t.Fatal(action, p, err)
+		}
+		if action == RemoveApp && (p.Removal == nil || p.Removal.UDP == nil || p.UDP.Next != nil) {
+			t.Fatal("removal did not retire exact reservation", p.UDP)
+		}
+	}
+}
+
+func TestUDPCanonicalGoldens(t *testing.T) {
+	for _, mode := range []string{"create", "retain", "move", "release"} {
+		in := udpInput(t, mode != "create")
+		if mode == "move" {
+			in.Desired.UDP.Grant.HostPorts = policy.PortRange{Min: 4434, Max: 4435}
+		}
+		if mode == "release" {
+			in.Desired.UDP = nil
+		}
+		raw, err := build(t, in).CanonicalBytes()
+		if err != nil {
+			t.Fatal(err)
+		}
+		file := "testdata/udp-" + mode + ".json"
+		updateUDPFixture(t, file, raw)
+		want, err := fs.ReadFile(os.DirFS("testdata"), "udp-"+mode+".json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(raw, want) {
+			t.Fatal("UDP canonical bytes changed", mode)
+		}
+	}
+}
+
+func updateUDPFixture(t *testing.T, file string, raw []byte) {
+	t.Helper()
+	if os.Getenv("UPDATE_GOLDEN") != "1" {
+		return
+	}
+	if err := os.WriteFile(file, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestUDPExactInputCannotMutateHashedPlan(t *testing.T) {
+	in := udpInput(t, false)
+	in.UDPExact = &UDPEndpoint{Family: "ipv4", BindAddress: "192.0.2.10", HostPort: 4434}
+	p := build(t, in)
+	before, err := p.CanonicalBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.UDPExact.HostPort = 9999
+	after, err := p.CanonicalBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(before, after) {
+		t.Fatal("UDP exact input aliases the hashed plan")
 	}
 }

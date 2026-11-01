@@ -178,6 +178,11 @@ func (s permissionService) apply(ctx context.Context, request PermissionsRequest
 	if current != p.Plan.BeforeHash && (!exists || current != p.Plan.AfterHash) {
 		return PermissionsResponse{}, result.New(result.Conflict, nil)
 	}
+	if current != p.Plan.AfterHash {
+		if err := s.checkUDPRevocations(ctx, p.Plan.Changes); err != nil {
+			return PermissionsResponse{}, err
+		}
+	}
 	if !exists {
 		op = PermissionsOperation{ID: request.IdempotencyKey, PlanID: request.PlanID, State: "intent", BeforeHash: p.Plan.BeforeHash, AfterHash: p.Plan.AfterHash}
 		if err = s.store.SaveOperation(op); err != nil {
@@ -188,9 +193,6 @@ func (s permissionService) apply(ctx context.Context, request PermissionsRequest
 		return PermissionsResponse{}, err
 	}
 	if current != p.Plan.AfterHash {
-		if err := s.checkUDPRevocations(ctx, p.Plan.Changes); err != nil {
-			return PermissionsResponse{}, err
-		}
 		if err = s.store.WritePolicy(current, p.After); err != nil {
 			return PermissionsResponse{}, err
 		}

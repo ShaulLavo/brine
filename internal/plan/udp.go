@@ -156,6 +156,10 @@ func udpRelevant(candidates []UDPEndpoint, address string, port target.Port) boo
 	return false
 }
 func projectUDP(in Input) Input {
+	if in.UDPExact != nil {
+		exact := *in.UDPExact
+		in.UDPExact = &exact
+	}
 	if !udpInvolved(in) {
 		in.State.UDP = nil
 		return in
@@ -402,6 +406,9 @@ func udpDiff(p *Plan, previous *CurrentRelease) {
 
 func finishUDP(p Plan, in Input, desired, snapshot, state []byte) (Plan, error) {
 	if udpInvolved(in) {
+		if p.UDP == nil {
+			p.UDP = &UDPPlan{Exact: in.UDPExact}
+		}
 		p.Conflicts = append(p.Conflicts, Diagnostic{UDPExecutionUnavailable, "udp"})
 	}
 	return finish(p, desired, snapshot, state)

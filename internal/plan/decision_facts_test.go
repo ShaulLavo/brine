@@ -305,6 +305,8 @@ func TestSnapshotFieldsHaveExplicitClassification(t *testing.T) {
 		reflect.TypeFor[target.Unit]():                     {"name", "hash"},
 		reflect.TypeFor[target.Secret]():                   {"name", "id"},
 		reflect.TypeFor[target.LiveCaddyFile]():            {"name", "app", "domains"},
+		reflect.TypeFor[target.UDPSocket]():                {"address", "port", "app", "process", "unit"},
+		reflect.TypeFor[target.UDPPublication]():           {"bind_address", "host_port", "container_port", "network_mode"},
 		reflect.TypeFor[target.PortOwner]():                {"port", "app", "process", "unit"},
 		reflect.TypeFor[target.Observation[bool]]():        {"status", "value"},
 	}

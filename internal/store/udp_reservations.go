@@ -57,3 +57,9 @@ func reserveUDPInventory(state *plan.UDPState, inventory *target.ControlInventor
 		inventory.UDPReservations = append(inventory.UDPReservations, target.ControlUDPReservation{ID: r.ID, App: r.App, Incarnation: r.Incarnation, State: r.State, Owner: r.Owner, Family: r.Endpoint.Family, BindAddress: r.Endpoint.BindAddress, HostPort: r.Endpoint.HostPort})
 	}
 }
+
+func (s *Store) UDPGrantHeld(ctx context.Context, app string) (bool, error) {
+	var held bool
+	err := s.db.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM udp_reservations WHERE app=? AND state<>'released')", app).Scan(&held)
+	return held, err
+}

@@ -37,7 +37,8 @@ use another host only under explicit authorization naming its target and actions
 ## Planned declaration and output
 
 Add one optional strict `[udp]` declaration beside the existing HTTP fields.
-The following fragment is a design target, not accepted by today's parser:
+The parser accepts this fragment for conflict-only planning. Runtime publication
+remains refused until P08-06:
 
 ```toml
 [udp]

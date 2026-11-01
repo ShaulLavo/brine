@@ -86,3 +86,23 @@ func TestUDPPolicyNormalizationAndPermissionEdit(t *testing.T) {
 		t.Fatal("exposure widened")
 	}
 }
+
+func TestUDPPolicyRejectsOverlappingAndDuplicateAppGrants(t *testing.T) {
+	raw, err := os.ReadFile("testdata/operator.toml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pol, err := Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := udpGrantFixture()
+	next := first
+	next.App = "another"
+	if _, _, err := pol.EditPermissions([]PermissionAction{{Kind: AllowUDPGrant, UDPGrant: &first}, {Kind: AllowUDPGrant, UDPGrant: &next}}); err == nil {
+		t.Fatal("overlapping grants admitted")
+	}
+	if _, _, err := pol.EditPermissions([]PermissionAction{{Kind: AllowUDPGrant, UDPGrant: &first}, {Kind: AllowUDPGrant, UDPGrant: &first}}); err == nil {
+		t.Fatal("duplicate app grant admitted")
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -199,5 +200,30 @@ func TestUDPFoundingIdentityChangesOnlyAfterHeadRetirement(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+	}
+}
+
+func TestUDPReservationPersistsAndDirectCommitCannotBypassGate(t *testing.T) {
+	s := openTest(t)
+	op := operation(t, s)
+	if err := insertUDPFixture(t, s, "udp-persisted", "hello", op, 4433); err != nil {
+		t.Fatal(err)
+	}
+	other, err := OpenReadOnly(t.Context(), s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Close() }()
+	state, err := other.LoadBrineState(t.Context(), fixture(t).Snapshot.Identity, 0)
+	if err != nil || len(state.UDP.Reservations) != 1 || state.UDP.Reservations[0].ID != "udp-persisted" {
+		t.Fatal(state.UDP, err)
+	}
+	r := release(t, s, "forged-http-only-commit")
+	if err := s.CommitRelease(t.Context(), "hello", r); !errors.Is(err, plan.ErrUDPExecutionUnavailable) {
+		t.Fatal("HTTP-only commit abandoned a UDP reservation", err)
+	}
+	var count int
+	if err := s.db.QueryRow("SELECT count(*) FROM releases").Scan(&count); err != nil || count != 0 {
+		t.Fatal("refused commit changed release history", count, err)
 	}
 }

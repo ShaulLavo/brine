@@ -38,7 +38,8 @@ func TestUDPGrantPlanApplyAndRevocationRechecksReservations(t *testing.T) {
 	}
 	held = true
 	writes := memory.writes
-	if _, err := service.run(t.Context(), permissionApply(*revocation.Plan, "b")); err == nil || memory.writes != writes {
+	operations := len(memory.ops)
+	if _, err := service.run(t.Context(), permissionApply(*revocation.Plan, "b")); err == nil || memory.writes != writes || len(memory.ops) != operations {
 		t.Fatal("reservation race allowed revocation", err)
 	}
 	if _, err := service.run(t.Context(), req); err == nil {

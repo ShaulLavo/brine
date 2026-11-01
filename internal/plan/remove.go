@@ -30,9 +30,6 @@ type Removal struct {
 
 func BuildRemove(in Input) (Plan, error) {
 	in = projectUDP(in)
-	if udpInvolved(in) {
-		return Build(in)
-	}
 	if !in.Desired.Stateless() {
 		return Plan{}, ErrPersistentData
 	}
@@ -140,5 +137,11 @@ func BuildRemove(in Input) (Plan, error) {
 	if p.Kind == Conflict {
 		p.Changes = []Change{}
 	}
-	return finish(p, desired, facts, state)
+	retirement := in
+	retirement.Desired.UDP = nil
+	planUDP(retirement, &p, current, observed, func(code ConflictCode, field string) { p.Conflicts = append(p.Conflicts, Diagnostic{code, field}) })
+	if p.Removal != nil && p.UDP != nil {
+		p.Removal.UDP = p.UDP.Retire
+	}
+	return finishUDP(p, in, desired, facts, state)
 }

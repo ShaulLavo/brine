@@ -33,16 +33,7 @@ func UDPGrantHeld(ctx context.Context, app string) (bool, error) {
 		return false, err
 	}
 	defer func() { _ = state.Close() }()
-	inventory, err := state.InventoryState(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, r := range inventory.UDPReservations {
-		if r.App == app {
-			return true, nil
-		}
-	}
-	return false, nil
+	return state.UDPGrantHeld(ctx, app)
 }
 
 func operatorUDPGrantHeld(ctx context.Context, app string) (bool, error) {
@@ -65,13 +56,7 @@ func operatorUDPGrantHeld(ctx context.Context, app string) (bool, error) {
 func lockUDPGrantState(ctx context.Context, path string, uid, gid int) (*os.File, error) {
 	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{Flags: unix.O_RDONLY | unix.O_CLOEXEC | unix.O_NOFOLLOW | unix.O_NONBLOCK, Resolve: unix.RESOLVE_NO_SYMLINKS})
 	if errors.Is(err, unix.ENOENT) {
-		fd, err = unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{Flags: unix.O_RDWR | unix.O_CREAT | unix.O_EXCL | unix.O_CLOEXEC, Mode: 0600, Resolve: unix.RESOLVE_NO_SYMLINKS})
-		if err == nil {
-			if err = unix.Fchown(fd, uid, gid); err != nil {
-				_ = unix.Close(fd)
-				return nil, err
-			}
-		}
+		fd, err = createUDPGrantLock(path, uid, gid)
 	}
 	if err != nil {
 		return nil, err
@@ -100,4 +85,16 @@ func lockUDPGrantState(ctx context.Context, path string, uid, gid int) (*os.File
 		case <-ticker.C:
 		}
 	}
+}
+
+func createUDPGrantLock(path string, uid, gid int) (int, error) {
+	fd, err := unix.Openat2(unix.AT_FDCWD, path, &unix.OpenHow{Flags: unix.O_RDWR | unix.O_CREAT | unix.O_EXCL | unix.O_CLOEXEC, Mode: 0600, Resolve: unix.RESOLVE_NO_SYMLINKS})
+	if err != nil {
+		return -1, err
+	}
+	if err = unix.Fchown(fd, uid, gid); err != nil {
+		_ = unix.Close(fd)
+		return -1, err
+	}
+	return fd, nil
 }

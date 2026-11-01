@@ -23,6 +23,9 @@ func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (
 		return PermissionsResponse{}, result.New(result.PolicyRefused, nil)
 	}
 	defer clear(request.IdentityKey)
+	if err := validatePermissionsRequest(request); err != nil {
+		return PermissionsResponse{}, err
+	}
 	enrollmentLock, err := permissionLock(recordDir + "/lock")
 	if err != nil {
 		return PermissionsResponse{}, err
@@ -219,7 +222,6 @@ func savePermissionRecord(name string, value any) error {
 }
 
 func requestsUDPRevocation(request PermissionsRequest) bool {
-	// Apply loads its immutable changes only inside the service. Fence every apply.
 	if request.Action == "apply" {
 		record, err := (diskPermissions{}).LoadPlan(request.PlanID)
 		if err != nil {

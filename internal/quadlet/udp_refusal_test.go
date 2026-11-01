@@ -16,3 +16,23 @@ func TestUDPIntentRefusesBeforeRendering(t *testing.T) {
 		t.Fatalf("UDP intent rendered as HTTP: %v", err)
 	}
 }
+
+func TestUninvolvedHTTPUnitIgnoresUDPPolicyOnlyHashChange(t *testing.T) {
+	d, p := fixture(t)
+	before, err := Render(d, p, manifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.PolicyHash = "sha256:" + strings.Repeat("c", 64)
+	p = bind(t, d)
+	p.Hash = "sha256:" + strings.Repeat("d", 64)
+	after, err := Render(d, p, manifest())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, a, _ := strings.Cut(string(before.Bytes()), "\n")
+	_, b, _ := strings.Cut(string(after.Bytes()), "\n")
+	if a != b {
+		t.Fatal("an uninvolved HTTP unit changed beyond its plan marker")
+	}
+}

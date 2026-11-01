@@ -35,9 +35,10 @@ type Offline struct {
 }
 
 type inputs struct {
-	Desired  policy.Desired  `json:"desired"`
-	Snapshot target.Snapshot `json:"snapshot"`
-	State    plan.BrineState `json:"brine_state"`
+	UDPExact *plan.UDPEndpoint `json:"udp_exact,omitempty"`
+	Desired  policy.Desired    `json:"desired"`
+	Snapshot target.Snapshot   `json:"snapshot"`
+	State    plan.BrineState   `json:"brine_state"`
 }
 
 type envelope struct {
@@ -86,7 +87,7 @@ func New(in plan.Input, metadata Metadata) (Offline, error) {
 		return Offline{}, err
 	}
 	no := false
-	e := envelope{SchemaVersion: SchemaVersion, Plan: p, Hash: p.Hash, Applyable: &no, Reason: "offline", SnapshotIdentity: p.Target, SnapshotGeneration: p.ObservedGeneration, Inputs: inputs{in.Desired, in.Snapshot, in.State}, Metadata: metadata}
+	e := envelope{SchemaVersion: SchemaVersion, Plan: p, Hash: p.Hash, Applyable: &no, Reason: "offline", SnapshotIdentity: p.Target, SnapshotGeneration: p.ObservedGeneration, Inputs: inputs{Desired: in.Desired, Snapshot: in.Snapshot, State: in.State, UDPExact: in.UDPExact}, Metadata: metadata}
 	e.Metadata.CreatedAt = e.Metadata.CreatedAt.UTC()
 	b, err := json.Marshal(e)
 	if err != nil {
@@ -128,7 +129,7 @@ func Decode(b []byte) (Offline, error) {
 	if e.Applyable == nil || *e.Applyable || e.Reason != "offline" || e.Metadata.CreatedAt.IsZero() || e.Metadata.ToolVersion == "" {
 		return Offline{}, &DecodeError{}
 	}
-	computed, err := plan.Build(plan.Input{Desired: e.Inputs.Desired, Snapshot: e.Inputs.Snapshot, Image: e.Plan.Image, State: e.Inputs.State})
+	computed, err := plan.Build(plan.Input{Desired: e.Inputs.Desired, Snapshot: e.Inputs.Snapshot, Image: e.Plan.Image, State: e.Inputs.State, UDPExact: e.Inputs.UDPExact})
 	if err != nil {
 		return Offline{}, &IntegrityError{}
 	}

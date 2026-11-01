@@ -15,6 +15,9 @@ import (
 // The source prefix is inspected again under the host lock, not replanned as drift.
 func (e *Executor) InspectResolution(ctx context.Context, successor, source Operation, p plan.Plan, d policy.Desired, events []Event) (Recovery, error) {
 	refused := Recovery{Action: RequireRecovery}
+	if err := plan.RefuseUDPExecution(p, d); err != nil {
+		return refused, err
+	}
 	if successor.Kind != ops.Resolve || successor.RecoveryOf != source.ID || source.State != RecoveryRequired || successor.PlanID != source.PlanID || source.Kind != ops.Deploy && source.Kind != ops.Resolve {
 		return refused, nil
 	}
