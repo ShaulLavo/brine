@@ -1,0 +1,15 @@
+{
+  "go_version": "1.27.3",
+  "go_version_source": "mise.toml",
+  "go_builder": "docker.io/library/golang:1.27.3@sha256:2920bb124f1a2e12a1d39f0cab756ae0068441ee1da7655dec7f5e374944095b",
+  "builder_platform_manifests": {
+    "linux/amd64": "sha256:5bbe76a31abbe0f1449d7820e550131c020b097c24d3bcfc5ad1231779982c1c",
+    "linux/arm64": "sha256:cb0d3faca7ea5b063b6cbf10a5e381421819a11591ca4cf83507bc8227d7abb6"
+  },
+  "builder_source": "https://github.com/docker-library/golang/tree/41d9b4da70324ae7b6461ac2cc401b06719ff57d/1.27/trixie",
+  "verified_at": "2026-11-01",
+  "runtime_base": "scratch",
+  "runtime_user": "65532:65532",
+  "third_party_dependencies": [],
+  "published_fixture_image": null
+}
