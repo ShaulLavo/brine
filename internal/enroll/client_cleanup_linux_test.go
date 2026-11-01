@@ -32,6 +32,9 @@ func TestClientEnrollmentCleanupFailure(t *testing.T) {
 	if !strings.Contains(message, "enrollment state may be complete") {
 		t.Fatalf("cleanup diagnostic does not preserve completion warning: %q", message)
 	}
+	if strings.Contains(message, "cleanup transport unavailable") {
+		t.Fatalf("cleanup transport detail leaked: %q", message)
+	}
 	if _, statErr := os.Stat(filepath.Join(o.ConfigDir, "fixture.json")); statErr != nil {
 		t.Fatalf("verified target missing after cleanup failure: %v", statErr)
 	}
@@ -40,6 +43,9 @@ func TestClientEnrollmentCleanupFailure(t *testing.T) {
 	}
 	if !f.facts.OwnedRunner {
 		t.Fatal("cleanup failure changed enrolled host state")
+	}
+	if hasEnrollmentAction(f, "undo") {
+		t.Fatal("cleanup failure invoked enrollment undo")
 	}
 }
 
