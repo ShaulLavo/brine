@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/plan"
 )
@@ -128,6 +129,18 @@ func (x *execution) compensateUDP(step func(string, string, func(context.Context
 	}
 	if udpPreparationNeeded(x.plan) {
 		return step("rollback_udp", "udp_reservation_failed", x.revertUDP)
+	}
+	return nil
+}
+
+func (x *execution) retirementUDPProof(ctx context.Context) error {
+	if x.plan.UDP == nil {
+		return nil
+	}
+	proof, cancel := context.WithTimeout(ctx, time.Duration(x.desired.Health.StartupDeadlineSeconds)*time.Second)
+	defer cancel()
+	if err := x.checkUDPRetired(proof); err != nil {
+		return &Error{Step: "retire_app", Code: "udp_unready", Cause: err}
 	}
 	return nil
 }

@@ -32,6 +32,7 @@ type udpCrashCheckpoint struct {
 	Active, Candidate, HasRelease, Committed bool
 }
 type udpSQLiteRig struct {
+	retireReturnedError bool
 	*udpRig
 	database                                      *store.Store
 	directory, operation, pauseStep, pauseOutcome string
@@ -99,6 +100,9 @@ func (r *udpSQLiteRig) RetireApp(ctx context.Context, id, app, release string) e
 	}
 	if err := r.udpRig.RetireApp(ctx, id, app, release); err != nil {
 		return err
+	}
+	if r.retireReturnedError {
+		return injected
 	}
 	return r.pauseApplied("retire_app")
 }
@@ -399,5 +403,86 @@ func (r *udpSQLiteRig) Absent(ctx context.Context, id string, p plan.Plan, e pla
 	if err := r.udpRig.Absent(ctx, id, p, e); err != nil {
 		return err
 	}
+	if !udpReadOnly(r.intent) {
+		return nil
+	}
 	return r.pauseApplied(r.intent)
+}
+
+type udpPreparationRefusal struct{ UDPReservations }
+
+func (r udpPreparationRefusal) PrepareUDP(context.Context, string, plan.Plan) error { return injected }
+
+type udpRetirementProofRefusal struct{ *udpSQLiteRig }
+
+func (r udpRetirementProofRefusal) Absent(ctx context.Context, id string, p plan.Plan, e plan.UDPEndpoint) error {
+	if r.intent == "retire_app" {
+		return injected
+	}
+	return r.udpSQLiteRig.Absent(ctx, id, p, e)
+}
+func TestUDPRemovalFailedBoundariesResolveFromRealSQLiteState(t *testing.T) {
+	for _, boundary := range []string{"prepare_udp", "check_udp_retired", "retire_app", "commit returned error"} {
+		t.Run(boundary, func(t *testing.T) { checkUDPRemovalFailureResolution(t, boundary) })
+	}
+}
+func checkUDPRemovalFailureResolution(t *testing.T, boundary string) {
+	t.Helper()
+	r := newSQLiteUDPRig(t, t.TempDir(), "remove")
+	switch boundary {
+	case "prepare_udp":
+		r.executor.UDPReservations = udpPreparationRefusal{r}
+	case "check_udp_retired":
+		r.failProof = "check_udp_retired"
+	case "retire_app":
+		r.executor.UDPChecks = udpRetirementProofRefusal{r}
+	case "commit returned error":
+		r.retireReturnedError = true
+	}
+	sourceID := r.operation
+	if err := r.executor.Run(t.Context(), sourceID, r.plan, r.desired); err == nil {
+		t.Fatal("failed boundary committed")
+	}
+	source, err := r.database.GetOperation(t.Context(), sourceID)
+	if err != nil || source.State != RecoveryRequired {
+		t.Fatal(source.State, err)
+	}
+	events, err := r.database.EventsAfter(t.Context(), sourceID, 0, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	successor, _, err := r.database.CreateOperation(t.Context(), ops.Intent{Kind: ops.Resolve, PlanID: r.plan.Hash, RecoveryOf: sourceID}, "udp-kill", "resolve removal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.executor.UDPReservations = r
+	r.executor.UDPChecks = r
+	r.failProof = ""
+	r.failStep = ""
+	r.retireReturnedError = false
+	r.state = Queued
+	r.operation = successor.ID
+	generation, err := r.database.Generation(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.facts.Input.State, err = r.database.LoadBrineState(t.Context(), r.plan.Target, generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assessment, err := r.executor.InspectResolution(t.Context(), successor, source, r.plan, r.desired, events)
+	want := ResumeForward
+	if boundary == "commit returned error" {
+		want = FinishSucceeded
+	}
+	if err != nil || assessment.Action != want {
+		t.Fatal("failed boundary cannot be resolved", assessment.Action, want, err)
+	}
+	if err := r.executor.Recover(t.Context(), assessment); err != nil {
+		t.Fatal(err)
+	}
+	state, err := r.database.UDPPreparation(t.Context(), successor.ID, r.plan)
+	if err != nil || state != "committed" {
+		t.Fatal("removal left its claim unsettled", state, err)
+	}
 }

@@ -114,7 +114,7 @@ func (u *udpRig) Absent(_ context.Context, _ string, p plan.Plan, e plan.UDPEndp
 	if u.failProof == name {
 		return injected
 	}
-	if u.intent == "rollback_udp_check" {
+	if u.intent == "rollback_udp_check" || u.intent == "retire_app" {
 		u.effects = append(u.effects, name)
 		return u.hit(u.intent)
 	}

@@ -50,11 +50,14 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 			return r, nil
 		}
 		r.Step = last.Step
+		if last.Outcome == "failed" && !udpRemovalFailedStep(p, last.Step) {
+			return r, nil
+		}
 		switch last.Outcome {
 		case "completed":
 			r.completed[last.Step] = true
 			index++
-		case "intent", "unknown":
+		case "intent", "unknown", "failed":
 		default:
 			return r, nil
 		}
@@ -275,4 +278,8 @@ func removalSteps(p plan.Plan) []string {
 		return removeSteps
 	}
 	return []string{"preflight", "prepare_udp", "withdraw_route", "stop_unit", "remove_unit", "reload_units", "check_udp_retired", "retire_app"}
+}
+
+func udpRemovalFailedStep(p plan.Plan, step string) bool {
+	return p.UDP != nil && slices.Contains([]string{"prepare_udp", "check_udp_retired", "retire_app"}, step)
 }

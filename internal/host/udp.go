@@ -127,7 +127,7 @@ func probeUDP(ctx context.Context, probe func(context.Context) error) error {
 		if err == nil {
 			return nil
 		}
-		timer := time.NewTimer(25 * time.Millisecond)
+		timer := time.NewTimer(250 * time.Millisecond)
 		select {
 		case <-ctx.Done():
 			timer.Stop()

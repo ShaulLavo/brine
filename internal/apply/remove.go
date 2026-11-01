@@ -165,6 +165,9 @@ func (x *execution) remove(ctx context.Context, completed map[string]bool, settl
 			if x.waitWriter(ctx) != writerStopped {
 				return &Error{Step: "retire_app", Code: "interrupted"}
 			}
+			if err := x.retirementUDPProof(ctx); err != nil {
+				return err
+			}
 			return store.RetireApp(ctx, x.id, x.plan.App, x.plan.Removal.ReleaseID)
 		}},
 	}
