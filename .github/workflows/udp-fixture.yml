@@ -12,7 +12,7 @@ on:
         default: false
         type: boolean
       bootstrap_confirmed:
-        description: "One-time bootstrap: create this package from this workflow and require public linked readback"
+        description: "One-time bootstrap: require an absent package and run-scoped tags, then create it with public linked readback"
         required: true
         default: false
         type: boolean

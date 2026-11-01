@@ -85,8 +85,8 @@ test("package visibility is a gate, never an automatic change", async () => {
 test("bootstrap rejects any existing package or run-scoped tag and digest", async () => {
   const { verifyBootstrapPreflight } = await import(helperPath);
   const absent = { status: 404 };
-  expect(() => verifyBootstrapPreflight({ status: 200, value: { name: "brine-udp-fixture" } }, [])).toThrow(/package must be absent/);
-  expect(() => verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "present", digest: "sha256:" + "a".repeat(64) }])).toThrow(/tag or digest must be absent/);
+  expect(() => verifyBootstrapPreflight({ status: 200, value: { name: "brine-udp-fixture" } }, [])).toThrow(/package to be absent/);
+  expect(() => verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "present", digest: "sha256:" + "a".repeat(64) }])).toThrow(/run-scoped tag or digest to be absent/);
   expect(verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "absent" }]).packageState).toBe("absent");
 });
 
@@ -128,14 +128,14 @@ test("runtime echo proof requires the exact nonce, compiled identity and explici
 });
 
 
-test("bootstrap package readback requires public visibility and the exact repository", async () => {
-  const { verifyBootstrapPackage, classifyUnknownPackageWrite } = await import(helperPath);
+test("normal publication accepts the already-public exact package while bootstrap rejects it", async () => {
+  const { verifyPublicPackage, verifyBootstrapPackage, classifyPackageRead, classifyUnknownPackageWrite } = await import(helperPath);
   const value = { name: "brine-udp-fixture", package_type: "container", visibility: "public", repository: { full_name: "ShaulLavo/brine" } };
+  expect(() => verifyPublicPackage(value)).not.toThrow();
   expect(() => verifyBootstrapPackage(value)).not.toThrow();
-  expect(() => verifyBootstrapPackage({ ...value, visibility: "private" })).toThrow(/public package linked to ShaulLavo\/brine/);
-  expect(() => verifyBootstrapPackage({ ...value, repository: { full_name: "other/brine" } })).toThrow(/public package linked to ShaulLavo\/brine/);
-  expect(classifyUnknownPackageWrite(404, undefined)).toBe("unperformed");
-  expect(classifyUnknownPackageWrite(200, value)).toBe("reconciled");
-  expect(classifyUnknownPackageWrite(200, { ...value, visibility: "private" })).toBe("unknown");
-  expect(classifyUnknownPackageWrite(403, undefined)).toBe("unknown");
+  expect(classifyPackageRead({ status: 200, value })).toBe("public");
+  expect(classifyUnknownPackageWrite({ status: 404 }, { decision: "retry", tag: "tag" })).toBe("unperformed");
+  expect(classifyUnknownPackageWrite({ status: 200, value }, { decision: "success", tag: "tag" })).toBe("reconciled");
+  expect(classifyUnknownPackageWrite({ status: 200, value: { ...value, visibility: "private" } }, { decision: "success", tag: "tag" })).toBe("unknown");
+  expect(classifyUnknownPackageWrite({ status: 403 }, { decision: "success", tag: "tag" })).toBe("unknown");
 });

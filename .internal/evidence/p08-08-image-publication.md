@@ -20,15 +20,21 @@ confirmation stop the run. First-time public-package setup is not automated.
 The normal publication path never creates credentials or changes package visibility.
 
 This follow-up adds a separate `bootstrap_confirmed` dispatch input for the
-single approved first publication. Bootstrap accepts only an absent package,
-records an atomic intent before the first qualified image push, and uses the
-workflow's `GITHUB_TOKEN` through the existing GHCR login. It then reads back
+single approved first publication. Bootstrap accepts only an absent package and
+absent run-scoped tags and digests. It records an atomic intent before the first
+qualified image push and uses the workflow's `GITHUB_TOKEN` through the existing
+GHCR login. It then reads back
 the owner package metadata and anonymous registry access. The source and
 qualification receipts remain unchanged. The workflow does not call a package
 visibility or linkage mutation API: if the token cannot create the exact public
 package linked to `ShaulLavo/brine`, the run records the observed outcome and
 stops rather than leaving a private substitute or retrying an unknown write.
-Unknown image-push outcomes inspect package metadata once before stopping.
+Each unknown platform push and index write inspects its exact run-scoped tag,
+immutable digest, manifest, config digest and platform set before deciding. A
+retry occurs only after the exact target is absent and the bootstrap package API
+also proves absence. Any unknown package API visibility or linkage state stops
+without replay. A pre-existing public package remains on the normal
+`public_access_confirmed` path.
 
 Native Linux amd64 and arm64 jobs build the reviewed Dockerfile with no build
 network and its existing no-download Go settings. They compile
@@ -48,7 +54,8 @@ release, platform, run and attempt and are publication locators only.
 Consumers use the returned `image@sha256:...` references, never those tags.
 
 The publisher records write intent before each platform push and index create.
-It makes no write retry after an unknown outcome. Index readback must contain
+It reconciles every lost or unknown write before deciding whether the exact
+operation succeeded or can be retried. Index readback must contain
 exactly the pushed amd64 and arm64 manifests. Anonymous registry reads verify
 raw index, platform and config bytes, including their exact digests and byte
 bounds. Published configs must match the qualified configs and source/release
@@ -77,12 +84,13 @@ remains unchanged and still has no published fixture image value.
 
 ## Verification
 
-The bootstrap-focused assertions were run before implementation and failed
-before the new input, path and receipts existed. The final focused suite has
-14 tests and 126 assertions covering dispatch and source refusals, exact OCI
-byte custody, platform/config substitution refusal, public-package gates,
-bootstrap readback and unknown-write classification, workflow ordering and the
-real CLI against synthetic Git. Its fake Docker and Go commands refuse any
+The focused assertions were run before implementation and failed before the
+strict bootstrap and reconciliation helpers existed. The final focused suite
+has 18 tests and 141 assertions covering dispatch and source refusals, exact
+OCI byte custody, platform/config substitution refusal, public-package gates,
+pre-existing bootstrap package and tag rejection, platform and index
+reconciliation, the already-public normal path, workflow ordering and the real
+CLI against synthetic Git. Its fake Docker and Go commands refuse any
 invocation. No local container, Go build, registry write or host deployment
 occurs in them.
 

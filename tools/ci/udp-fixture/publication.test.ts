@@ -17,7 +17,7 @@ test("workflow is manual and has a source gate before native qualification and p
   expect(field(parsed, "on")).toEqual({ workflow_dispatch: { inputs: {
     source_sha: { description: "Exact reviewed main commit", required: true, type: "string" },
     public_access_confirmed: { description: "Existing GHCR package is approved for anonymous public pulls", required: true, default: false, type: "boolean" },
-    bootstrap_confirmed: { description: "One-time bootstrap: create this package from this workflow and require public linked readback", required: true, default: false, type: "boolean" },
+    bootstrap_confirmed: { description: "One-time bootstrap: require an absent package and run-scoped tags, then create it with public linked readback", required: true, default: false, type: "boolean" },
   } } });
   expect(field(parsed, "permissions")).toEqual({ contents: "read" });
   expect(field(parsed, "jobs", "gate", "if")).toBe("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'ShaulLavo/brine'");
@@ -91,7 +91,19 @@ test("bootstrap path records atomic intent and outcome without remote visibility
   const serialized = readFileSync(script, "utf8");
   expect(serialized).toContain("bootstrap-intent.json");
   expect(serialized).toContain("bootstrap-outcome.json");
-  expect(serialized).toContain("inspectUnknownPackageWrite");
+  expect(serialized).toContain("verifyBootstrapPreflight");
+  expect(serialized).toContain("reconcilePlatformPublication");
+  expect(serialized).toContain("reconcileIndexPublication");
   expect(serialized).toContain("GITHUB_TOKEN");
   expect(serialized).not.toMatch(/gh api|PATCH|repository_id/);
+});
+
+test("platform and index intents are saved before their writes", () => {
+  const serialized = readFileSync(script, "utf8");
+  const pushBody = serialized.slice(serialized.indexOf("async function pushPlatform("), serialized.indexOf("async function publish(source:"));
+  const releaseBody = serialized.slice(serialized.indexOf("async function publishRelease("), serialized.indexOf("async function anonymousDockerPull"));
+  expect(pushBody.indexOf("-push-intent.json")).toBeLessThan(pushBody.indexOf("pushPlatformOnce"));
+  expect(releaseBody.indexOf("-index-intent.json")).toBeLessThan(releaseBody.indexOf("createIndexOnce"));
+  expect(serialized).toContain("push-reconciliation-");
+  expect(serialized).toContain("index-reconciliation-");
 });
