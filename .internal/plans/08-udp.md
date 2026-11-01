@@ -111,6 +111,15 @@ unrelated listeners intact. Do not add compatibility paths for old binaries.
   architectures. Unexpected bind, protocol or mapping refuses readiness.
   **Evidence:** T27/T28, renderer/argv tests and a real rootless runtime test.
   Record unavailable runtime evidence as unverified, not a mock success.
+  **Current evidence:** [P08-03](../evidence/p08-03.md) records real arm64
+  IPv4/IPv6 mapping, pasta, unit/container identity, HTTP health, TCP ownership
+  and verified teardown. The inode assertion remains failing/unknown. The D3
+  host's `6.18.39+rpt-rpi-v8` kernel has `CONFIG_INET_UDP_DIAG` disabled and no
+  `udp_diag` module; taint 1024 is unchanged. A diagnostic-capable arm64 setup
+  is a P08-04/P08-08 physical prerequisite, not a weaker ownership alternative.
+  The coordinator forbids module/package/kernel changes or reboot in P08-03.
+  Plan any later D3 setup, reboot and cleanup together. UDP ownership/readiness,
+  amd64/public evidence and full physical acceptance remain unchecked.
 
 - [ ] **P08-04** Inventory UDP ownership and report readiness honestly.
   Retain address family, protocol, bind overlap and independent process,
