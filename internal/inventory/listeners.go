@@ -18,10 +18,11 @@ var processPattern = regexp.MustCompile(`\("([^"\n]+)",pid=([0-9]+),fd=([0-9]+)\
 var safeToken = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$`)
 
 type listenerInventory struct {
-	ports    map[target.Port]bool
-	udpPorts []target.Port
-	sockets  map[target.UDPSocket]bool
-	owners   map[target.PortOwner]bool
+	ports      map[target.Port]bool
+	udpUnknown bool
+	udpPorts   []target.Port
+	sockets    map[target.UDPSocket]bool
+	owners     map[target.PortOwner]bool
 }
 
 func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home string, publications map[string]publication) target.Observation[[]target.Port] {
@@ -56,6 +57,9 @@ func (c Collector) listeners(ctx context.Context, s *target.Snapshot, home strin
 		return a.Process < b.Process
 	})
 	s.UDPSockets = target.Known(sockets)
+	if found.udpUnknown {
+		s.UDPSockets = unknown[[]target.UDPSocket]()
+	}
 	s.UsedPorts = target.Known(ports)
 	s.PortOwners = target.Known(owners)
 	return target.Known(found.udpPorts)
@@ -123,12 +127,13 @@ func parseListenerLine(text, protocol string) (*listenerLine, error) {
 func (c Collector) recordListener(ctx context.Context, line listenerLine, protocol string, bindings map[string]listenerBinding, found *listenerInventory) error {
 	found.ports[line.Port] = true
 	if protocol == "-lunpe" {
+		found.udpPorts = append(found.udpPorts, line.Port)
 		socket, ok := observedUDPSocket(line.Address, line.Port, line.Text)
 		if !ok {
-			return fmt.Errorf("invalid UDP address")
+			found.udpUnknown = true
+			return nil
 		}
 		found.sockets[socket] = true
-		found.udpPorts = append(found.udpPorts, line.Port)
 		return nil
 	}
 	matches := processPattern.FindAllStringSubmatch(line.Text, -1)
@@ -350,10 +355,10 @@ func observedUDPSocket(address string, port target.Port, line string) (target.UD
 	address = strings.Trim(address, "[]")
 	if address != "*" {
 		parsed, err := netip.ParseAddr(address)
-		if err != nil || parsed.Zone() != "" || parsed.Is4In6() || parsed.IsMulticast() {
+		if err != nil {
 			return target.UDPSocket{}, false
 		}
-		address = parsed.String()
+		address = parsed.WithZone("").Unmap().String()
 	}
 	socket := target.UDPSocket{Address: address, Port: port}
 	matches := processPattern.FindAllStringSubmatch(line, -1)

@@ -25,15 +25,7 @@ func UDPGrantHeld(ctx context.Context, app string) (bool, error) {
 		return false, errPermissionsRefused
 	}
 	root := filepath.Join(home, ".local/state/brine")
-	if _, err := os.Lstat(filepath.Join(root, "control.db")); errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	state, err := store.OpenReadOnly(ctx, root)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = state.Close() }()
-	return state.UDPGrantHeld(ctx, app)
+	return store.ReadUDPGrantHeld(ctx, root, app)
 }
 
 func operatorUDPGrantHeld(ctx context.Context, app string) (bool, error) {

@@ -45,6 +45,11 @@ and apply time under the runner mutation lock. A live or unreadable
 reservation refuses. The restricted deploy credential gains no grant-editing
 authority. The internal `host udp-grant-check` helper only reads the enrolled
 runner's existing control state and cannot edit policy or reservations.
+It reads a bounded, WAL-aware private copy without opening live SQLite files
+or reacquiring the mutation lock held by the operator. A missing database
+proves no reservations only in an owned private empty directory or one
+containing only its empty, private, regular mutation lock. Residual WAL, SHM,
+unknown contents and unreadable state refuse admission without repair.
 
 Connected plans carry `udp` with an optional `next` allocation, `keep` active
 row ID and `retire` old reservation. Allocations bind family, exact address,
@@ -61,8 +66,12 @@ each app requires `udp_publication`. UDP inventory uses bounded
 `ss -H -lunpe`; local addresses use bounded `ip -j addr show`. This stage
 records UDP sockets conservatively without claiming app ownership. Extended
 inode-based runtime ownership is not yet activated. `UsedPorts` remains the
-conservative TCP/UDP numeric union used by HTTP admission. UDP admission
-never treats a TCP owner as proof for UDP. Offline UDP planning needs explicit
+conservative TCP/UDP numeric union used by HTTP admission. Observed scoped
+IPv6 addresses lose their zone, mapped IPv6 addresses become IPv4, and observed
+multicast sockets remain visible. An unparsed UDP address makes UDP evidence
+unknown without discarding numeric occupancy or TCP ownership facts. These
+observation rules do not widen the stricter grant or publication addresses.
+UDP admission never treats a TCP owner as proof for UDP. Offline UDP planning needs explicit
 Brine state with `udp.incarnations` and `udp.reservations`; omission is unknown,
 not an inferred empty reservation set. HTTP-only decision facts omit all UDP
 measurements and state. UDP decision facts retain only overlapping candidates

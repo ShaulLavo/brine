@@ -26,7 +26,7 @@ func validateUDPAddress(address string) error {
 		return nil
 	}
 	parsed, err := netip.ParseAddr(address)
-	if err != nil || parsed.Zone() != "" || parsed.String() != address || parsed.Is4In6() || parsed.IsMulticast() {
+	if err != nil || parsed.Zone() != "" || parsed.String() != address || parsed.Is4In6() {
 		return fmt.Errorf("invalid UDP address")
 	}
 	return nil

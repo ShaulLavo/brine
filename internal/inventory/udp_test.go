@@ -1,9 +1,13 @@
 package inventory
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"slices"
 	"testing"
 
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -39,5 +43,45 @@ func TestLocalAddressObservationBoundsAndUnknowns(t *testing.T) {
 		if got.Status != test.status {
 			t.Fatal(test.raw, got)
 		}
+	}
+}
+
+func TestUDPUnrelatedKernelAddressesPreserveHTTPFacts(t *testing.T) {
+	for _, address := range []string{"[fe80::1%eth0]", "224.0.0.251", "[::ffff:192.0.2.10]", "unparsed-address"} {
+		t.Run(address, func(t *testing.T) { checkUDPUnrelatedKernelAddress(t, address) })
+	}
+}
+
+func checkUDPUnrelatedKernelAddress(t *testing.T, address string) {
+	t.Helper()
+	c := Collector{FS: baseFixture(), Runner: fakeRunner{
+		"ss -H -ltnpe": "LISTEN 0 128 127.0.0.1:22000 *:*",
+		"ss -H -lunpe": "UNCONN 0 0 " + address + ":5353 *:*",
+	}}
+	in := routePlanInput(t, "ready-arm64")
+	baseline, err := plan.Build(in)
+	if err != nil || baseline.Kind != plan.Create {
+		t.Fatal("invalid HTTP-only fixture", baseline, err)
+	}
+	s := in.Snapshot
+	c.listeners(t.Context(), &s, "/home/brine", nil)
+	if s.UsedPorts.Status != target.KnownStatus || !slices.Contains(*s.UsedPorts.Value, 5353) || s.PortOwners.Status != target.KnownStatus {
+		t.Fatal("unrelated UDP address erased HTTP admission facts", s.UsedPorts, s.PortOwners)
+	}
+	if address == "unparsed-address" && s.UDPSockets.Status != target.Unknown {
+		t.Fatal("unmodeled UDP evidence must not be a known empty set", s.UDPSockets)
+	}
+	if address != "unparsed-address" && (s.UDPSockets.Status != target.KnownStatus || len(*s.UDPSockets.Value) != 1) {
+		t.Fatal("valid UDP observation lost", s.UDPSockets)
+	}
+	in.Snapshot = s
+	actual, err := plan.Build(in)
+	if err != nil || actual.Kind != plan.Create {
+		t.Fatal("unrelated UDP address blocked HTTP-only planning", actual, err)
+	}
+	before, beforeErr := json.Marshal(baseline)
+	after, afterErr := json.Marshal(actual)
+	if beforeErr != nil || afterErr != nil || !bytes.Equal(before, after) {
+		t.Fatal("unrelated UDP address changed HTTP-only plan bytes", baseline, actual, beforeErr, afterErr)
 	}
 }
