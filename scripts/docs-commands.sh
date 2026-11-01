@@ -14,6 +14,7 @@ emit() {
   # The three root flags are listed once at the top of the page. Drop them per command,
   # and drop the "Global Flags:" header when no inherited flag remains.
   printf '```text\n%s\n```\n\n' "$(printf '%s\n' "$help" | awk '
+    {sub(/[ \t]+$/, "")}
     /^Global Flags:/ {held = $0; inherited = 0; next}
     held != "" && /^      --(json|jsonl|no-input) / {next}
     held != "" && /^ +-/ {if (!inherited) print held; inherited = 1; print; next}
@@ -29,4 +30,4 @@ printf '\n'
 for top in $("$brine" --help | awk '/^Available Commands:/{on=1; next} on && /^$/{exit} on && $1!="" {print $1}'); do
   [[ $top == help || $top == completion ]] && continue
   emit "$top"
-done
+done | sed '${/^$/d;}'
