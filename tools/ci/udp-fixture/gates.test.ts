@@ -82,12 +82,34 @@ test("package visibility is a gate, never an automatic change", async () => {
   }
 });
 
-test("bootstrap rejects any existing package or run-scoped tag and digest", async () => {
+test("bootstrap records anonymous denied reads as package-metadata absence", async () => {
   const { verifyBootstrapPreflight } = await import(helperPath);
   const absent = { status: 404 };
-  expect(() => verifyBootstrapPreflight({ status: 200, value: { name: "brine-udp-fixture" } }, [])).toThrow(/package to be absent/);
-  expect(() => verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "present", digest: "sha256:" + "a".repeat(64) }])).toThrow(/run-scoped tag or digest to be absent/);
-  expect(verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "absent" }]).packageState).toBe("absent");
+  const result = verifyBootstrapPreflight(absent, [
+    { tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag-403", status: "absent-by-package-metadata" },
+    { tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag-404", status: "absent-by-package-metadata" },
+  ]);
+  expect(result).toMatchObject({ packageState: "absent", tags: [
+    "ghcr.io/shaullavo/brine-udp-fixture:run-tag-403",
+    "ghcr.io/shaullavo/brine-udp-fixture:run-tag-404",
+  ] });
+  expect(result.tagObservations).toEqual([
+    { tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag-403", status: "absent-by-package-metadata" },
+    { tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag-404", status: "absent-by-package-metadata" },
+  ]);
+});
+
+test("bootstrap refuses existing, ambiguous and transport-failed package or tag state", async () => {
+  const { verifyBootstrapPreflight } = await import(helperPath);
+  const absent = { status: 404 };
+  const existingTag = { tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "present", digest: "sha256:" + "a".repeat(64) } as const;
+  expect(() => verifyBootstrapPreflight({ status: 200, value: { name: "brine-udp-fixture", package_type: "container", visibility: "public", repository: { full_name: "ShaulLavo/brine" } } }, [{ tag: existingTag.tag, status: "absent-by-package-metadata" }])).toThrow(/package to be absent/);
+  expect(() => verifyBootstrapPreflight({ status: 200, value: { name: "brine-udp-fixture", package_type: "container", visibility: "private", repository: { full_name: "ShaulLavo/brine" } } }, [{ tag: existingTag.tag, status: "absent-by-package-metadata" }])).toThrow(/package to be absent/);
+  expect(() => verifyBootstrapPreflight(absent, [existingTag])).toThrow(/run-scoped tag or digest to be absent/);
+  expect(() => verifyBootstrapPreflight({ status: 500 }, [])).toThrow(/package to be absent/);
+  expect(() => verifyBootstrapPreflight({ status: 0, value: "transport failure" }, [])).toThrow(/package to be absent/);
+  expect(() => verifyBootstrapPreflight(absent, [{ tag: existingTag.tag, status: "unknown", error: "HTTP 503" }])).toThrow(/run-scoped tag or digest to be absent/);
+  expect(() => verifyBootstrapPreflight(absent, [{ tag: existingTag.tag, status: "absent-by-package-metadata" }])).not.toThrow();
 });
 
 test("unknown platform push reconciliation binds the exact tag, digest, manifest and config", async () => {
