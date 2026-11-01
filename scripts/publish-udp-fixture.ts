@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
 const repository = "ShaulLavo/brine";
@@ -14,8 +14,15 @@ type Target = "server" | "client";
 type ObjectValue = Record<string, unknown>;
 type Descriptor = { mediaType: string; digest: string; size: number };
 type PlatformDescriptor = Descriptor & { platform: { os: "linux"; architecture: Arch } };
-type Dispatch = { event: string; ref: string; repository: string; sha: string; source: string; publicAccess: string };
+type Dispatch = { event: string; ref: string; repository: string; sha: string; source: string; publicAccess: string; bootstrapConfirmed: string };
 type BuiltImage = { release: string; config: string; archive: string; archiveSHA256: string; binarySHA256: string };
+type BootstrapState = { source: string; packageState: "absent"; packageWrite: "not_started" | "complete" | "unknown" };
+type PackageMetadata = { name: string; package_type: string; visibility: string; repository: { full_name: string } };
+type PackageRead = { status: number; value?: unknown };
+type RegistryObservation = { tag: string; status: "absent" | "present" | "unknown"; raw?: string; digest?: string; error?: string };
+type PublicationDecision = { decision: "retry" | "success" | "stop"; tag: string; manifestDigest?: string; configDigest?: string; indexDigest?: string; platforms?: Arch[]; reference?: string; reason?: string };
+type PlatformPublicationIntent = { tag: string; source: string; release: string; platform: Arch; config: string };
+type IndexPublicationIntent = { tag: string; platformRefs: Record<Arch, string> };
 const maxJSON = 2 * 1024 * 1024;
 const activeContainers = new Set<string>();
 
@@ -60,7 +67,20 @@ function jsonFile(path: string): unknown {
 }
 
 function save(path: string, value: unknown): void {
-  writeFileSync(path, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+  const temporary = `${path}.${process.pid}.tmp`;
+  const contents = JSON.stringify(value, null, 2) + "\n";
+  try {
+    writeFileSync(temporary, contents, { mode: 0o600, flag: "wx" });
+    const file = openSync(temporary, "r");
+    try {
+      fsyncSync(file);
+    } finally {
+      closeSync(file);
+    }
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }
 
 export function validateDispatch(value: Dispatch): string {
@@ -68,7 +88,8 @@ export function validateDispatch(value: Dispatch): string {
   requireThat(value.ref === "refs/heads/main" && value.repository === repository, "Only this repository's main branch is permitted");
   requireThat(/^[a-f0-9]{40}$/.test(value.source) && value.source.length === 40, "Supply the exact reviewed main SHA");
   requireThat(value.source === value.sha, "Input SHA must equal the dispatch SHA");
-  requireThat(value.publicAccess === "true", "Public package access must be explicitly confirmed");
+  requireThat(["true", "false"].includes(value.publicAccess) && ["true", "false"].includes(value.bootstrapConfirmed), "Publication confirmations must be explicit booleans");
+  requireThat((value.publicAccess === "true") !== (value.bootstrapConfirmed === "true"), "Select exactly one explicit publication confirmation");
   return value.source;
 }
 
@@ -85,7 +106,7 @@ function command(args: readonly string[], timeout = 60_000, trim = true): string
 
 function sourceGate(): string {
   const env = process.env;
-  const source = validateDispatch({ event: env.GITHUB_EVENT_NAME ?? "", ref: env.GITHUB_REF ?? "", repository: env.GITHUB_REPOSITORY ?? "", sha: env.GITHUB_SHA ?? "", source: env.INPUT_SOURCE_SHA ?? "", publicAccess: env.INPUT_PUBLIC_ACCESS_CONFIRMED ?? "" });
+  const source = validateDispatch({ event: env.GITHUB_EVENT_NAME ?? "", ref: env.GITHUB_REF ?? "", repository: env.GITHUB_REPOSITORY ?? "", sha: env.GITHUB_SHA ?? "", source: env.INPUT_SOURCE_SHA ?? "", publicAccess: env.INPUT_PUBLIC_ACCESS_CONFIRMED ?? "", bootstrapConfirmed: env.INPUT_BOOTSTRAP_CONFIRMED ?? "" });
   const remote = command(["git", "ls-remote", "--exit-code", "origin", "refs/heads/main"]).split(/\s+/)[0];
   verifySourceFacts(source, { head: command(["git", "rev-parse", "HEAD"]), main: remote, dirty: command(["git", "status", "--porcelain", "--untracked-files=all"]) });
   command(["git", "merge-base", "--is-ancestor", minimumSource, source]);
@@ -144,6 +165,66 @@ export function verifyPublicPackage(value: unknown): void {
   requireThat(object(info.repository).full_name === repository, "GHCR package must be linked to the source repository");
 }
 
+export function verifyBootstrapPackage(value: unknown): PackageMetadata {
+  const info = object(value);
+  requireThat(info.name === "brine-udp-fixture" && info.package_type === "container" && info.visibility === "public" && object(info.repository).full_name === repository, "Bootstrap requires a public package linked to ShaulLavo/brine; GITHUB_TOKEN cannot legally change visibility or linkage");
+  return info as unknown as PackageMetadata;
+}
+
+export function verifyBootstrapPreflight(packageRead: PackageRead, tags: readonly RegistryObservation[]): { packageState: "absent"; tags: string[] } {
+  requireThat(packageRead.status === 404 && packageRead.value === undefined, "Bootstrap requires the exact package to be absent; use public_access_confirmed for an existing package");
+  requireThat(tags.every(tag => tag.status === "absent"), "Bootstrap requires every run-scoped tag or digest to be absent");
+  return { packageState: "absent", tags: tags.map(tag => tag.tag) };
+}
+
+export function classifyPackageRead(packageRead: PackageRead): "absent" | "public" | "unknown" {
+  if (packageRead.status === 404 && packageRead.value === undefined) return "absent";
+  if (packageRead.status !== 200 || packageRead.value === undefined) return "unknown";
+  try {
+    verifyBootstrapPackage(packageRead.value);
+    return "public";
+  } catch {
+    return "unknown";
+  }
+}
+
+export function classifyUnknownPackageWrite(packageRead: PackageRead, tag: PublicationDecision): "unperformed" | "reconciled" | "unknown" {
+  const packageState = classifyPackageRead(packageRead);
+  if (packageState === "absent" && tag.decision === "retry") return "unperformed";
+  if (packageState === "public" && tag.decision === "success") return "reconciled";
+  return "unknown";
+}
+
+export function reconcilePlatformPublication(intent: PlatformPublicationIntent, observation: RegistryObservation): PublicationDecision {
+  if (observation.status === "absent") return { decision: "retry", tag: intent.tag, reason: "exact tag is absent" };
+  if (observation.status === "unknown" || observation.raw === undefined) return { decision: "stop", tag: intent.tag, reason: observation.error ?? "exact tag state is unknown" };
+  try {
+    const manifestDigest = sha256(observation.raw);
+    const manifest = parseManifest(observation.raw, manifestDigest);
+    requireThat(observation.tag === intent.tag && (observation.digest === undefined || observation.digest === manifestDigest) && manifest.config.digest === intent.config, "Platform tag, digest or config differs from the saved push intent");
+    return { decision: "success", tag: intent.tag, reference: `${image}@${manifestDigest}`, manifestDigest, configDigest: manifest.config.digest, platforms: [intent.platform] };
+  } catch (error) {
+    return { decision: "stop", tag: intent.tag, reason: String(error) };
+  }
+}
+
+export function reconcileIndexPublication(intent: IndexPublicationIntent, observation: RegistryObservation): PublicationDecision {
+  if (observation.status === "absent") return { decision: "retry", tag: intent.tag, reason: "exact index tag is absent" };
+  if (observation.status === "unknown" || observation.raw === undefined) return { decision: "stop", tag: intent.tag, reason: observation.error ?? "exact index tag state is unknown" };
+  try {
+    const indexDigest = sha256(observation.raw);
+    const entries = parseIndex(observation.raw, indexDigest);
+    const expected = new Map<Arch, string>(Object.entries(intent.platformRefs).map(([platform, reference]) => {
+      requireThat(reference.startsWith(image + "@"), "Index intent contains an unexpected repository");
+      return [platform as Arch, digest(reference.slice(image.length + 1))];
+    }));
+    requireThat(observation.tag === intent.tag && (observation.digest === undefined || observation.digest === indexDigest) && entries.every(entry => entry.digest === expected.get(entry.platform.architecture)), "Index tag, digest or platform set differs from the saved index intent");
+    return { decision: "success", tag: intent.tag, reference: `${image}@${indexDigest}`, indexDigest, platforms: entries.map(entry => entry.platform.architecture) };
+  } catch (error) {
+    return { decision: "stop", tag: intent.tag, reason: String(error) };
+  }
+}
+
 async function consumeBody(reader: ReadableStreamDefaultReader<Uint8Array>, limit: number): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -173,9 +254,43 @@ async function readURL(url: string, headers: Record<string, string> = {}): Promi
   return new TextDecoder("utf-8", { fatal: true }).decode(await responseBytes(response, maxJSON));
 }
 
-async function anonymousRegistry(): Promise<(kind: "manifests" | "blobs", reference: string) => Promise<string>> {
+function githubHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "brine-udp-fixture" };
+}
+
+async function githubPackageRead(): Promise<PackageRead> {
+  const token = process.env.GITHUB_TOKEN;
+  requireThat(token, "The workflow's built-in GITHUB_TOKEN is required");
+  const response = await fetch("https://api.github.com/users/shaullavo/packages/container/brine-udp-fixture", { headers: githubHeaders(token), redirect: "error", signal: AbortSignal.timeout(15_000) });
+  const body = new TextDecoder("utf-8", { fatal: true }).decode(await responseBytes(response, maxJSON));
+  if (response.status !== 200) return { status: response.status };
+  return { status: response.status, value: JSON.parse(body) };
+}
+
+async function registryToken(): Promise<string> {
   const token = object(JSON.parse(await readURL("https://ghcr.io/token?service=ghcr.io&scope=repository:shaullavo/brine-udp-fixture:pull")));
-  const bearer = text(token.token);
+  return text(token.token);
+}
+
+async function anonymousTagObservation(tag: string): Promise<RegistryObservation> {
+  try {
+    const bearer = await registryToken();
+    const reference = tag.slice(`${image}:`.length);
+    let response = await fetch(`https://ghcr.io/v2/shaullavo/brine-udp-fixture/manifests/${reference}`, {
+      headers: { Authorization: `Bearer ${bearer}`, Accept: "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json" },
+      redirect: "error", signal: AbortSignal.timeout(15_000),
+    });
+    if (response.status === 404) return { tag, status: "absent" };
+    if (response.status !== 200) return { tag, status: "unknown", error: `anonymous tag read failed with status ${response.status}` };
+    const raw = new TextDecoder("utf-8", { fatal: true }).decode(await responseBytes(response, maxJSON));
+    return { tag, status: "present", raw, digest: sha256(raw) };
+  } catch (error) {
+    return { tag, status: "unknown", error: String(error) };
+  }
+}
+
+async function anonymousRegistry(): Promise<(kind: "manifests" | "blobs", reference: string) => Promise<string>> {
+  const bearer = await registryToken();
   return async (kind, reference) => {
     digest(reference);
     let response = await fetch(`https://ghcr.io/v2/shaullavo/brine-udp-fixture/${kind}/${reference}`, {
@@ -193,12 +308,30 @@ async function anonymousRegistry(): Promise<(kind: "manifests" | "blobs", refere
 }
 
 async function publicPreflight(): Promise<unknown> {
-  requireThat(process.env.GH_TOKEN, "The workflow's built-in GitHub token is required");
-  const info: unknown = JSON.parse(await readURL("https://api.github.com/users/shaullavo/packages/container/brine-udp-fixture", { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "brine-udp-fixture" }));
+  const packageRead = await githubPackageRead();
+  requireThat(packageRead.status === 200 && packageRead.value !== undefined, `GHCR package metadata read failed with status ${packageRead.status}; normal publication is fail-closed`);
+  const info = object(packageRead.value) as unknown as PackageMetadata;
   verifyPublicPackage(info);
   const token = object(JSON.parse(await readURL("https://ghcr.io/token?service=ghcr.io&scope=repository:shaullavo/brine-udp-fixture:pull")));
   await readURL("https://ghcr.io/v2/shaullavo/brine-udp-fixture/tags/list?n=1", { Authorization: `Bearer ${text(token.token)}` });
-  return { package: "brine-udp-fixture", visibility: "public", repository, anonymousRead: true, checkedAt: new Date().toISOString() };
+  return { package: info.name, visibility: info.visibility, repository: info.repository.full_name, anonymousRead: true, checkedAt: new Date().toISOString() };
+}
+
+function runTag(release: string, platform?: Arch): string {
+  const suffix = `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
+  return platform === undefined ? `${image}:${release}-${suffix}` : `${image}:${release}-${platform}-${suffix}`;
+}
+
+function bootstrapTags(source: string): string[] {
+  return releaseIDs(source).flatMap(release => arches.map(platform => runTag(release, platform)).concat(runTag(release)));
+}
+
+async function bootstrapPreflight(source: string): Promise<unknown> {
+  const packageRead = await githubPackageRead();
+  const tags: RegistryObservation[] = [];
+  for (const tag of bootstrapTags(source)) tags.push(await anonymousTagObservation(tag));
+  const state = verifyBootstrapPreflight(packageRead, tags);
+  return { package: "brine-udp-fixture", packageState: state.packageState, repository, visibility: "pending-from-GITHUB_TOKEN-push", anonymousRead: false, tags: state.tags, checkedAt: new Date().toISOString() };
 }
 
 function newDirectory(path: string): string {
@@ -453,7 +586,52 @@ async function recordAnonymousPlatform(input: { source: string; release: string;
   return { platform: entry.platform, manifestDigest: entry.digest, configDigest: manifest.config.digest, layers: manifest.layers };
 }
 
-function pushPlatform(entry: BuiltImage, platform: Arch, source: string, output: string, owned: Set<string>): string {
+function inspectRemoteTag(tag: string): RegistryObservation {
+  const result = spawnSync("docker", ["buildx", "imagetools", "inspect", "--raw", tag], { cwd: root, encoding: "utf8", timeout: 60_000, maxBuffer: maxJSON });
+  if (!result.error && result.status === 0) {
+    const raw = result.stdout;
+    return { tag, status: "present", raw, digest: sha256(raw) };
+  }
+  const detail = `${result.stderr ?? ""} ${result.stdout ?? ""}`;
+  if (/manifest unknown|name unknown|status code: 404|404 not found|does not exist/i.test(detail)) return { tag, status: "absent", error: detail.trim() };
+  return { tag, status: "unknown", error: detail.trim() || String(result.error ?? "remote tag inspection failed") };
+}
+
+async function reconcilePlatformFailure(intent: PlatformPublicationIntent, error: unknown, bootstrap: BootstrapState | undefined, output: string, attempt: number): Promise<{ decision: PublicationDecision; raw?: string }> {
+  const observation = inspectRemoteTag(intent.tag);
+  const decision = reconcilePlatformPublication(intent, observation);
+  let packageRead: PackageRead | undefined;
+  let packageDecision: "unperformed" | "reconciled" | "unknown" | undefined;
+  if (bootstrap?.packageWrite === "not_started") {
+    try {
+      packageRead = await githubPackageRead();
+    } catch (packageError) {
+      packageRead = { status: 0, value: String(packageError) };
+    }
+    packageDecision = classifyUnknownPackageWrite(packageRead, decision);
+    if (packageDecision === "reconciled") bootstrap.packageWrite = "complete";
+    if (packageDecision === "unknown") decision.decision = "stop";
+  }
+  save(join(output, `${intent.release}-${intent.platform}-push-reconciliation-${attempt}.json`), { intent, observation, reconciliation: decision, packageRead, packageDecision, error: String(error) });
+  return { decision, raw: observation.raw };
+}
+
+async function pushPlatformOnce(entry: BuiltImage, platform: Arch, source: string, output: string, owned: Set<string>, bootstrap: BootstrapState | undefined, attempt: number): Promise<{ decision: PublicationDecision; raw?: string }> {
+  const tag = `${image}:${entry.release}-${platform}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
+  const intent: PlatformPublicationIntent = { tag, source, release: entry.release, platform, config: entry.config };
+  try {
+    command(["docker", "push", tag], 300_000);
+    const observation = inspectRemoteTag(tag);
+    const decision = reconcilePlatformPublication(intent, observation);
+    if (decision.decision === "success" && bootstrap?.packageWrite === "not_started") bootstrap.packageWrite = "complete";
+    if (decision.decision === "success") return { decision, raw: observation.raw };
+    return await reconcilePlatformFailure(intent, new Error(decision.reason), bootstrap, output, attempt);
+  } catch (error) {
+    return await reconcilePlatformFailure(intent, error, bootstrap, output, attempt);
+  }
+}
+
+async function pushPlatform(entry: BuiltImage, platform: Arch, source: string, output: string, owned: Set<string>, bootstrap: BootstrapState | undefined): Promise<string> {
   owned.add(entry.config);
   command(["docker", "image", "load", "-i", entry.archive]);
   verifyLocalImage(entry.config, platform, source, entry.release, "server");
@@ -461,19 +639,24 @@ function pushPlatform(entry: BuiltImage, platform: Arch, source: string, output:
   save(join(output, `${entry.release}-${platform}-push-intent.json`), { source, platform, tag, config: entry.config, archiveSHA256: entry.archiveSHA256 });
   owned.add(tag);
   command(["docker", "tag", entry.config, tag]);
-  command(["docker", "push", tag], 300_000);
-  const repoDigests: unknown = JSON.parse(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", tag]));
-  requireThat(Array.isArray(repoDigests) && repoDigests.length === 1, "Expected one pushed immutable repository digest");
-  const reference = text(repoDigests[0]);
-  requireThat(reference.startsWith(image + "@"), "Unexpected pushed repository");
-  digest(reference.slice(image.length + 1));
-  save(join(output, `${entry.release}-${platform}-push-receipt.json`), { tag, reference, config: entry.config });
-  return reference;
+  let result = await pushPlatformOnce(entry, platform, source, output, owned, bootstrap, 1);
+  if (result.decision.decision === "retry") result = await pushPlatformOnce(entry, platform, source, output, owned, bootstrap, 2);
+  requireThat(result.decision.decision === "success" && result.decision.reference !== undefined, `Platform push did not reconcile safely: ${result.decision.reason ?? "unknown outcome"}`);
+  save(join(output, `${entry.release}-${platform}-push-receipt.json`), { tag, reference: result.decision.reference, config: entry.config, manifestDigest: result.decision.manifestDigest, configDigest: result.decision.configDigest, reconciliation: result.decision.decision });
+  return result.decision.reference;
 }
 
 async function publish(source: string, input: string, output: string): Promise<void> {
   newDirectory(output);
-  save(join(output, "public-preflight.json"), await publicPreflight());
+  const bootstrap = process.env.INPUT_BOOTSTRAP_CONFIRMED === "true";
+  const bootstrapState: BootstrapState | undefined = bootstrap ? { source, packageState: "absent", packageWrite: "not_started" } : undefined;
+  if (bootstrap) {
+    const preflight = await bootstrapPreflight(source);
+    save(join(output, "bootstrap-intent.json"), { schema: 1, source, package: image, repository, visibility: "public", linkage: repository, write: "first qualified image push using workflow GITHUB_TOKEN", sourceCustody: "unchanged", qualificationCustody: "unchanged", inspectionBeforeRetry: true, postDrillKeepDeleteDecision: "pending" });
+    save(join(output, "bootstrap-preflight.json"), preflight);
+  } else {
+    save(join(output, "public-preflight.json"), await publicPreflight());
+  }
   const qualified = new Map<Arch, BuiltImage[]>();
   for (const platform of arches) qualified.set(platform, await readQualification(input, source, platform));
   const baseline = new Set(command(["docker", "image", "ls", "-q", "--no-trunc"]).split("\n").concat(command(["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}"]).split("\n"), command(["docker", "image", "ls", "--digests", "--format", "{{.Repository}}@{{.Digest}}"]).split("\n")));
@@ -481,43 +664,76 @@ async function publish(source: string, input: string, output: string): Promise<v
   const interrupted = () => { save(join(output, "interrupted-cleanup.json"), { errors: cleanupImages(owned, baseline), checkedAt: new Date().toISOString() }); process.exit(130); };
   process.once("SIGINT", interrupted);
   process.once("SIGTERM", interrupted);
+  let failure: string | undefined;
   try {
     const results: unknown[] = [];
-    for (const release of releaseIDs(source)) results.push(await publishRelease(source, release, qualified, output, owned));
+    for (const release of releaseIDs(source)) results.push(await publishRelease(source, release, qualified, output, owned, bootstrapState));
+    if (bootstrap) {
+      const readback = await publicPreflight();
+      save(join(output, "bootstrap-outcome.json"), { schema: 1, source, package: image, repository, packageWrite: bootstrapState!.packageWrite, packageReadback: readback, anonymousAccessReadback: true, decision: "verified", postDrillKeepDeleteDecision: "pending" });
+    }
     save(join(output, "publication.json"), { schema: 1, source, repository, pins: pins(), inputs: inputHashes(), releases: results, completedAt: new Date().toISOString() });
     process.stdout.write(JSON.stringify(results, null, 2) + "\n");
+  } catch (error) {
+    failure = String(error);
+    throw error;
   } finally {
     process.off("SIGINT", interrupted);
     process.off("SIGTERM", interrupted);
+    if (bootstrap && !existsSync(join(output, "bootstrap-outcome.json"))) save(join(output, "bootstrap-outcome.json"), { schema: 1, source, package: image, repository, packageWrite: bootstrapState!.packageWrite, decision: "stop-and-inspect", error: failure ?? "interrupted", postDrillKeepDeleteDecision: "pending" });
     const errors = cleanupImages(owned, baseline);
     save(join(output, "cleanup.json"), { localImages: Array.from(owned), errors, remoteImages: "retained publication artifacts; never deleted automatically", checkedAt: new Date().toISOString() });
     requireThat(errors.length === 0, "Publication local-image cleanup failed");
   }
 }
 
-async function publishRelease(source: string, release: string, qualified: Map<Arch, BuiltImage[]>, output: string, owned: Set<string>): Promise<unknown> {
+async function reconcileIndexFailure(intent: IndexPublicationIntent, error: unknown, output: string, attempt: number): Promise<{ decision: PublicationDecision; raw?: string }> {
+  const observation = inspectRemoteTag(intent.tag);
+  const decision = reconcileIndexPublication(intent, observation);
+  save(join(output, `${intent.tag.slice(`${image}:`.length)}-index-reconciliation-${attempt}.json`), { intent, observation, reconciliation: decision, error: String(error) });
+  return { decision, raw: observation.raw };
+}
+
+async function createIndexOnce(intent: IndexPublicationIntent, references: string[], output: string, attempt: number): Promise<{ decision: PublicationDecision; raw?: string }> {
+  try {
+    command(["docker", "buildx", "imagetools", "create", "--tag", intent.tag].concat(references), 120_000);
+    const observation = inspectRemoteTag(intent.tag);
+    const decision = reconcileIndexPublication(intent, observation);
+    if (decision.decision === "success") return { decision, raw: observation.raw };
+    return await reconcileIndexFailure(intent, new Error(decision.reason), output, attempt);
+  } catch (error) {
+    return await reconcileIndexFailure(intent, error, output, attempt);
+  }
+}
+
+async function publishRelease(source: string, release: string, qualified: Map<Arch, BuiltImage[]>, output: string, owned: Set<string>, bootstrap: BootstrapState | undefined): Promise<unknown> {
   const references: string[] = [];
+  const platformRefs: Record<Arch, string> = { amd64: "", arm64: "" };
   const configs = new Map<Arch, string>();
   const manifests = new Map<Arch, string>();
   for (const platform of arches) {
     const entry = qualified.get(platform)?.find(item => item.release === release);
     requireThat(entry, "Missing native qualification");
     configs.set(platform, entry.config);
-    const reference = pushPlatform(entry, platform, source, output, owned);
+    const reference = await pushPlatform(entry, platform, source, output, owned, bootstrap);
     references.push(reference);
+    platformRefs[platform] = reference;
     manifests.set(platform, reference.slice(image.length + 1));
   }
   const tag = `${image}:${release}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
-  save(join(output, `${release}-index-intent.json`), { source, release, tag, references });
-  command(["docker", "buildx", "imagetools", "create", "--tag", tag].concat(references), 120_000);
-  const exact = command(["docker", "buildx", "imagetools", "inspect", "--raw", tag], 60_000, false);
+  const intent: IndexPublicationIntent = { tag, platformRefs };
+  save(join(output, `${release}-index-intent.json`), { source, release, tag, references, platformRefs });
+  let result = await createIndexOnce(intent, references, output, 1);
+  if (result.decision.decision === "retry") result = await createIndexOnce(intent, references, output, 2);
+  requireThat(result.decision.decision === "success" && result.raw !== undefined && result.decision.reference !== undefined, `Index creation did not reconcile safely: ${result.decision.reason ?? "unknown outcome"}`);
+  const exact = result.raw;
   writeFileSync(join(output, `${release}-index.json`), exact);
-  const result = await recordAnonymousIndex(source, release, exact, configs, manifests, output);
-  const reference = text(object(result).reference);
+  const publication = await recordAnonymousIndex(source, release, exact, configs, manifests, output);
+  const reference = text(object(publication).reference);
   owned.add(reference);
   await anonymousDockerPull(reference, output, release);
-  save(join(output, `${release}-publication.json`), result);
-  return result;
+  save(join(output, `${release}-publication.json`), publication);
+  return publication;
 }
 
 async function anonymousDockerPull(reference: string, output: string, release: string): Promise<void> {
@@ -534,11 +750,12 @@ async function anonymousDockerPull(reference: string, output: string, release: s
 
 export async function main(args: string[]): Promise<void> {
   const [mode, ...rest] = args;
-  requireThat(["gate", "preflight", "qualify", "publish"].includes(mode), "Usage: bun scripts/publish-udp-fixture.ts gate|preflight|qualify ARCH NEW_OUTPUT|publish INPUT NEW_OUTPUT");
+  requireThat(["gate", "preflight", "bootstrap-preflight", "qualify", "publish"].includes(mode), "Usage: bun scripts/publish-udp-fixture.ts gate|preflight|bootstrap-preflight|qualify ARCH NEW_OUTPUT|publish INPUT NEW_OUTPUT");
   const source = sourceGate();
   requireThat(/^[0-9]+$/.test(process.env.GITHUB_RUN_ID ?? "") && /^[0-9]+$/.test(process.env.GITHUB_RUN_ATTEMPT ?? ""), "Missing workflow run identity");
   if (mode === "gate") { requireThat(rest.length === 0, "Unexpected gate arguments"); process.stdout.write(JSON.stringify({ source, releases: releaseIDs(source), pins: pins() }) + "\n"); return; }
   if (mode === "preflight") { requireThat(rest.length === 0, "Unexpected preflight arguments"); process.stdout.write(JSON.stringify(await publicPreflight()) + "\n"); return; }
+  if (mode === "bootstrap-preflight") { requireThat(rest.length === 0, "Unexpected bootstrap-preflight arguments"); requireThat(process.env.INPUT_BOOTSTRAP_CONFIRMED === "true", "Bootstrap preflight requires explicit bootstrap confirmation"); process.stdout.write(JSON.stringify(await bootstrapPreflight(source)) + "\n"); return; }
   requireThat(rest.length === 2, "Expected exactly two command arguments");
   if (mode === "qualify") { await qualify(source, arch(rest[0]), rest[1]); return; }
   requireThat(isAbsolute(rest[0]) && readdirSync(rest[0]).length === 2, "Expected only amd64 and arm64 input directories");

@@ -17,11 +17,16 @@ test("workflow is manual and has a source gate before native qualification and p
   expect(field(parsed, "on")).toEqual({ workflow_dispatch: { inputs: {
     source_sha: { description: "Exact reviewed main commit", required: true, type: "string" },
     public_access_confirmed: { description: "Existing GHCR package is approved for anonymous public pulls", required: true, default: false, type: "boolean" },
+    bootstrap_confirmed: { description: "One-time bootstrap: require an absent package and run-scoped tags, then create it with public linked readback", required: true, default: false, type: "boolean" },
   } } });
   expect(field(parsed, "permissions")).toEqual({ contents: "read" });
   expect(field(parsed, "jobs", "gate", "if")).toBe("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'ShaulLavo/brine'");
   expect(field(parsed, "jobs", "qualify", "needs")).toBe("gate");
+  expect(field(parsed, "jobs", "gate", "steps", "4", "if")).toBe("inputs.bootstrap_confirmed == false");
+  expect(field(parsed, "jobs", "gate", "steps", "5", "if")).toBe("inputs.bootstrap_confirmed == true");
   expect(field(parsed, "jobs", "publish", "needs")).toEqual(["gate", "qualify"]);
+  expect(field(parsed, "jobs", "publish", "steps", "4", "if")).toBe("inputs.bootstrap_confirmed == false");
+  expect(field(parsed, "jobs", "publish", "steps", "5", "if")).toBe("inputs.bootstrap_confirmed == true");
   expect(field(parsed, "jobs", "qualify", "strategy", "matrix", "include")).toEqual([
     { arch: "amd64", runner: "ubuntu-24.04" },
     { arch: "arm64", runner: "ubuntu-24.04-arm" },
@@ -29,6 +34,7 @@ test("workflow is manual and has a source gate before native qualification and p
   expect(field(parsed, "jobs", "publish", "permissions")).toEqual({ contents: "read", packages: "write" });
   const serialized = readFileSync(workflow, "utf8");
   expect(serialized).not.toContain("secrets.GHCR");
+  expect(serialized).not.toMatch(/GH_TOKEN|PAT|PERSONAL_ACCESS_TOKEN|repository_id|PATCH/);
   expect(serialized).not.toContain("latest");
   for (const match of serialized.matchAll(/uses: ([^\n]+)/g)) {
     expect(match[1]).toMatch(/^[\w/-]+@[a-f0-9]{40}(?:\s+#.*)?$/);
@@ -65,9 +71,12 @@ test("native jobs have no write credential and both publication boundaries reche
     expect(field(parsed, "jobs", job, "steps", "0", "with", "persist-credentials")).toBe(false);
     expect(field(parsed, "jobs", job, "steps", "1", "with", "bun-version")).toBe("1.4.4");
   }
+  expect(field(parsed, "jobs", "gate", "steps", "3", "run")).toBe("bun scripts/publish-udp-fixture.ts gate");
   expect(field(parsed, "jobs", "gate", "steps", "4", "run")).toBe("bun scripts/publish-udp-fixture.ts preflight");
+  expect(field(parsed, "jobs", "gate", "steps", "5", "run")).toBe("bun scripts/publish-udp-fixture.ts bootstrap-preflight");
   expect(field(parsed, "jobs", "publish", "steps", "4", "run")).toBe("bun scripts/publish-udp-fixture.ts preflight");
-  expect(field(parsed, "jobs", "publish", "steps", "6", "uses")).toBe("docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9");
+  expect(field(parsed, "jobs", "publish", "steps", "5", "run")).toBe("bun scripts/publish-udp-fixture.ts bootstrap-preflight");
+  expect(field(parsed, "jobs", "publish", "steps", "7", "uses")).toBe("docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9");
   expect(field(parsed, "jobs", "qualify", "steps", "3", "with", "version")).toBe("v0.29.1");
   expect(field(parsed, "jobs", "qualify", "steps", "3", "with", "driver-opts")).toBe("image=docker.io/moby/buildkit:v0.25.1@sha256:79cc6476ab1a3371c9afd8b44e7c55610057c43e18d9b39b68e2b0c2475cc1b6");
 });
@@ -76,3 +85,25 @@ function object(value: unknown): Record<string, unknown> {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("Expected a workflow object");
   return value as Record<string, unknown>;
 }
+
+
+test("bootstrap path records atomic intent and outcome without remote visibility or linkage mutation", () => {
+  const serialized = readFileSync(script, "utf8");
+  expect(serialized).toContain("bootstrap-intent.json");
+  expect(serialized).toContain("bootstrap-outcome.json");
+  expect(serialized).toContain("verifyBootstrapPreflight");
+  expect(serialized).toContain("reconcilePlatformPublication");
+  expect(serialized).toContain("reconcileIndexPublication");
+  expect(serialized).toContain("GITHUB_TOKEN");
+  expect(serialized).not.toMatch(/gh api|PATCH|repository_id/);
+});
+
+test("platform and index intents are saved before their writes", () => {
+  const serialized = readFileSync(script, "utf8");
+  const pushBody = serialized.slice(serialized.indexOf("async function pushPlatform("), serialized.indexOf("async function publish(source:"));
+  const releaseBody = serialized.slice(serialized.indexOf("async function publishRelease("), serialized.indexOf("async function anonymousDockerPull"));
+  expect(pushBody.indexOf("-push-intent.json")).toBeLessThan(pushBody.indexOf("pushPlatformOnce"));
+  expect(releaseBody.indexOf("-index-intent.json")).toBeLessThan(releaseBody.indexOf("createIndexOnce"));
+  expect(serialized).toContain("push-reconciliation-");
+  expect(serialized).toContain("index-reconciliation-");
+});
