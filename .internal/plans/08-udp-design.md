@@ -218,10 +218,13 @@ output is unknown, never empty.
 
 Collector seams that must change, or UDP apps become unknown:
 
-- `inventory/listeners.go`: the existing `ss -H -lunp` pass also records
-  `UDPSocket` entries. Ownership reuses `ownsSocket` and the service-cgroup
-  match, but compares the exact bind address from the measured publication,
-  not `127.0.0.1`.
+- `inventory/listeners.go`: change the UDP pass to `ss -H -lunpe` and record
+  `UDPSocket` entries. The extended output must contain `ino:` for ownership.
+  Keep the existing bounded parser, stable PID/start-time, cgroup and
+  descriptor-to-inode checks in `ownsSocket`; missing inode stays unknown.
+  Compare the exact bind address from the measured publication, not
+  `127.0.0.1`. Update fake command keys and absence probes, and test captured
+  output from this actual command on the supported rootless runtime.
 - `inventory/runtime.go` `livePublication`: today it returns unknown when more
   than one port is published. It must accept exactly one `<n>/tcp` on
   `127.0.0.1` plus at most one `<n>/udp` on a specified address, and add
@@ -256,8 +259,12 @@ With no live head nothing is explained, so a recreated name never inherits a
 socket from an earlier incarnation. Everything else, including empty
 ownership, is foreign.
 
-A TCP socket never explains, blocks or overlaps a UDP endpoint. A UDP socket
-never explains a TCP one.
+A TCP socket never explains ownership of a UDP endpoint or occupies a UDP
+candidate. Preserve the existing conservative HTTP admission rule: `UsedPorts`
+remains a TCP/UDP numeric union, so a UDP socket can still block a new HTTP
+candidate. Keep the existing treatment of retained TCP ports outside a revised
+range. UDP ownership never explains a TCP listener. This delivery does not
+replace HTTP allocation with a new protocol-specific algorithm.
 
 ## App incarnation
 
@@ -423,8 +430,12 @@ The transition is a property of `Plan.UDP`:
 `Incarnation` and row IDs, which are identity, not configuration. The diff
 field is `udp`. Decision facts extend `portAdmissionSnapshot`: `UDPSockets` is
 projected to sockets that overlap a candidate endpoint, and `LocalAddresses`
-to one boolean, "grant bind address present". Ephemeral UDP client sockets
-elsewhere cannot stale a plan; a new socket in the granted range does.
+to one boolean, "grant bind address present". Add these as optional pointer
+fields in the existing explicit `decisionFacts` projection, not unconditional
+fields copied from the raw snapshot. When the app has no UDP involvement,
+omit them entirely, along with `BrineState.UDP`; zero or unknown observations
+would still change the old bytes. Ephemeral UDP client sockets elsewhere
+cannot stale a plan; a new socket in the granted range does.
 
 Concurrent plans can compute the same free port. Only one can commit: apply
 rechecks decision facts under the host mutation lock, and the store's unique
@@ -498,9 +509,11 @@ PublishPort=203.0.113.10:4433:4433/udp
 IPv6 renders as `[2001:db8::10]:4433:4433/udp`. `Render` refuses when the
 allocation's grant hash, exposure or container port differ from
 `Desired.UDP`, when the host port is outside the grant, or when
-`Quadlet.UDP` differs from `Plan.UDP.Next`. `validateDesired` must add the `udp`
-table to its TOML reconstruction, or every UDP unit fails validation. No
-`Network=`, capability, `PodmanArgs` or host socket line is added.
+`Quadlet.UDP` differs from `Plan.UDP.Next`. `validateDesired` reconstructs the
+`udp` table and explicitly checks the reconstructed UDP intent against the
+allocation. Its existing name/image comparison alone does not reject omitted
+UDP, so it cannot serve as the execution guard during partial implementation.
+No `Network=`, capability, `PodmanArgs` or host socket line is added.
 
 ## Apply, lifecycle and recovery (`internal/apply`)
 
@@ -722,12 +735,34 @@ for the new `permissions` flags.
 
 Run the tasks in this order. Each is one reviewable PR with its contract text.
 
+### Fail closed until the complete lifecycle lands
+
+P08-02 through P08-04 stage contracts and observations, not executable UDP.
+P08-02 adds a conflict-only `udp_execution_unavailable` result whenever UDP
+intent or a UDP reservation transition is involved. It also adds explicit
+consumer refusals in host/apply validation before any mutation. A handcrafted
+plan with a UDP desired input must not bypass that refusal. The pre-P08-03
+renderer rejects UDP intent rather than silently rendering HTTP alone.
+
+P08-03 may render and verify UDP in isolated renderer/runtime tests, but does
+not remove the planner or host/apply refusals. P08-04 adds shared observations
+and readiness without changing that activation boundary. Existing HTTP-only
+apps keep their normal paths and unchanged bytes.
+
+P08-06 removes the temporary conflict and all execution refusals atomically
+with the complete reservation, readiness, compensation, lifecycle, removal and
+recovery integration. These are guards for an incomplete same-version feature,
+not old/new binary compatibility branches or runtime feature flags. No earlier
+merge may commit UDP intent as an HTTP-only release or publish an unreserved
+UDP endpoint. Tests exercise the direct host/apply consumers as well as CLI
+planning at each intermediate merge boundary.
+
 | Task | Owns | Must not touch |
 | --- | --- | --- |
-| P08-02 | `internal/spec/udp.go`, spec parse wiring; `internal/policy/udp.go`, `policy.go`, `desired.go`; `internal/target` UDP types and validation; `inventory/listeners.go` `UDPSockets`, new local-address probe; `internal/plan/udp.go`, `plan.go`, `decision_facts.go`, `diff.go`; store migration and `udp_reservations.go`; `internal/planview`; `permissions` UDP grant flags; offline fixtures; CONTRACTS UDP section | Quadlet rendering, apply steps |
-| P08-03 | `internal/quadlet/render.go` and `verify_linux.go`; `inventory/runtime.go` `livePublication`; `inventory/listeners.go` `pinnedListenerPort`; rootless runtime test under `integration/` | Readiness output, apply |
+| P08-02 | `internal/spec/udp.go`, spec parse wiring; `internal/policy/udp.go`, `policy.go`, `desired.go`; `internal/target` UDP types and validation; `inventory/listeners.go` `UDPSockets`, new local-address probe; `internal/plan/udp.go`, `plan.go`, `decision_facts.go`, `diff.go`; store migration and `udp_reservations.go`; `internal/planview`; `permissions` UDP grant flags; offline fixtures; CONTRACTS UDP section; narrow renderer/host/apply refusals that keep UDP conflict-only | UDP publication and effect sequencing |
+| P08-03 | `internal/quadlet/render.go` and `verify_linux.go`; `inventory/runtime.go` `livePublication`; `inventory/listeners.go` `pinnedListenerPort`; isolated rootless runtime test under `integration/` | Readiness output, planner/host/apply activation guards |
 | P08-04 | `inventory/listeners.go` UDP ownership proof and per-app `UDPPublication`; `internal/apps` status and drift; `internal/diagnose`; the shared `UDPReady` check used by status and apply | Store schema, apply sequencing |
-| P08-06 | `internal/apply` steps, `deploymentSteps`, lifecycle, remove, reconcile, recovery; store state transitions in commit and retirement; `internal/apps` rollback; `internal/host` wiring | Spec and policy shapes |
+| P08-06 | `internal/apply` steps, `deploymentSteps`, lifecycle, remove, reconcile, recovery; store state transitions in commit and retirement; `internal/apps` rollback; `internal/host` wiring; atomic removal of temporary planner and consumer refusals | Spec and policy shapes |
 | P08-08 | `fixtures/udp-echo/` image source; physical harness under `integration/`; `.internal/evidence/p08-udp.md` | Production packages, except fixes for defects found |
 
 P08-03 and P08-04 both edit `inventory/listeners.go`. Land P08-03 first;
@@ -743,6 +778,8 @@ P08-04 may build its status and diagnosis output in parallel and rebase.
 | Unknown fields, bad ports, wildcards | Parser and policy tables, including `0.0.0.0`, `::`, `::ffff:a.b.c.d`, port 80, range overlapping `app_ports` | `spec/udp_test.go`, `policy/udp_test.go` |
 | Foreign ownership refuses before effects | Planner tables: equal address, IPv4 wildcard, `::`, `*`, empty owner, other app's reservation; TCP on same number does not conflict | `plan/udp_test.go` (T28) |
 | Unknown observation refuses | `udp_sockets`, `local_addresses`, publication unknown give `unknown_facts` | `plan/udp_test.go` |
+| Real UDP ownership has required kernel identity | Captured `ss -H -lunpe` output supplies the inode used by the existing PID/start-time/cgroup/FD proof; missing inode refuses ownership; fake command keys match the real collector command | `inventory` collector/parser tests and rootless runtime evidence (T28) |
+| Intermediate merges cannot execute UDP | P08-02 through P08-04 return conflict-only plans and refuse direct host/apply requests before effects; no HTTP-only commit for UDP intent or publication without a reservation. P08-06 enables only the complete path | `plan`, `host`, `apply` and CLI tests at each merge boundary |
 | Concurrent plans cannot share an endpoint | Two plans, one port: second apply stale under the lock; direct store insert hits the unique index | `store/udp_reservations_test.go`, `apply` race test (T26) |
 | Exact allocation and rendering | Render goldens for IPv4 and IPv6; refusals for grant-hash, range and container-port mismatch | `quadlet/render_test.go` (T27) |
 | Generated equals actual mapping | Real rootless Podman on arm64 and amd64: inspect bindings and network mode equal render | `integration/` rootless test (T27) |
@@ -776,42 +813,53 @@ On the D3 Pi (arm64), with a tailnet grant bound to the Pi's tailnet address:
    read-only attempts and records its vantage and timestamps.
 3. Update, failed health, rollback, SSH disconnect during apply, SIGKILL at
    each new boundary, reboot, then removal. After each, record status, the
-   reservation row and `ss -lunp` for the endpoint.
+   reservation row and extended `ss -lunpe` evidence for the endpoint.
 4. A controlled unreachable client (a port with no grant) must time out
    without any host network change.
 5. Run teardown and check on the host that no fixture unit, container, image,
    grant or socket remains. Record anything retained with size and reason.
 
-The amd64 runtime result needs a host the owner authorizes; see below.
+The approved disposable VPS fixture supplies amd64/public-path evidence.
+Keep its single fixture app separate from the Pi's two-allocation test. Record
+and remove its exact temporary firewall rule with the app; do not touch the
+relay's later rule or any existing application.
 
 Measure, do not assume: whether pasta preserves client source addresses for
 UDP, its UDP flow idle timeout against the app's keepalive, and whether the
 unit restarts cleanly when the bind address appears after the user manager
 starts at boot (a tailnet address can arrive late).
 
-## Owner decisions and blockers
+## Recorded operator authorization and remaining boundaries
 
-Nothing in this design changes a firewall, DNS record, Tailscale setting,
-operator policy or production host. The requirement alone does not authorize
-those.
+The owner approved the UDP feature and its design work. Architecture choices
+above do not require another owner acceptance step.
 
-- **Accept the decisions above**, chiefly grant-pinned host ports with no
-  app-chosen port, one mapping per app, pasta only, and no managed-engine UDP.
-- **amd64 runtime evidence** (blocks P08-08's two-architecture gate): name a
-  disposable amd64 host, or authorize a bounded fixture-only drill on the VPS
-  with explicit teardown.
-- **VPS grant** (blocks the relay's public UDP): an operator
-  `brine permissions plan --allow-udp-grant` for the relay app with the public
-  bind address and port 4433. This is policy widening and needs its own
-  approval. The VPS's enrollment state must be checked first, not assumed.
-- **Inbound UDP on the VPS** (blocks remote reachability): the host and any
-  provider firewall must already admit UDP 4433. Brine will not open it.
-- **Relay bind versus advertised authority** (blocks WebTransport acceptance,
-  not Brine tasks): the relay currently derives its advertised URL from its
-  numeric bind address. Inside the container it binds its own interface, so the
-  relay lane must separate bind and advertised authority before public
-  WebTransport is enabled.
+On November 1, 2026, managing chat confirmed approval for one bounded disposable
+HTTP-plus-UDP echo app on the existing VPS. Choose an unclaimed exact app/domain
+under `shaulavo.dev`, use the public address and UDP 4433 if free, and install
+teardown before setup. An explicit, reversible host firewall rule for fixture
+UDP 4433 is approved: record it and remove it with the fixture. Keep all existing
+apps, including maplestory-demo, untouched except reads. The rootless runner
+and restricted app credentials gain no firewall or DNS authority.
 
-P08-02 through P08-06 have no external blocker; their unit and fake-host tests
-run without any host. P08-03's real rootless test and P08-08 run on the Pi under
-D3.
+The relay's later UDP mapping is separately approved at 4433 or the next free
+port through Brine, with its exact operator grant and explicit external and
+container endpoint. Apply the approved selection through the normal reviewed
+operator workflow, not a generic app-controlled bind or raw runtime option.
+The relay owns its later firewall rule. No new spending is authorized.
+
+A provider cloud firewall that requires the owner's account remains an external
+boundary: send managing chat the exact rule needed. Do not widen it silently.
+The feature itself never edits firewalls, DNS, Tailscale or ACLs. Fixture-only
+operator setup is recorded separately from Brine-managed runtime effects.
+
+The Waffle lane still owns the reviewed split between its container bind
+address and advertised public authority. That blocks public WebTransport
+acceptance, not Brine's transport-only work. No Brine certificate, discovery,
+authentication or protocol logic follows from it.
+
+P08-02 through P08-06 have no external blocker. P08-03's isolated rootless
+runtime test and the arm64 P08-08 drill use the Pi under D3. The bounded VPS
+fixture covers amd64/public delivery and must leave no fixture app, rule,
+publication, allocation, image or scratch resource behind. Unknown results stay
+unverified until read back, and nothing here authorizes a reboot of the VPS.
