@@ -470,9 +470,9 @@ Usage:
   brine backup recovery [command]
 
 Available Commands:
-  inspect     
+  inspect
   resolve     Resolve inspected backup work through a reviewed operation
-  review      
+  review
   set         Deliver a private password JSON packet on stdin
 
 Flags:
@@ -998,10 +998,10 @@ Usage:
   brine permissions [command]
 
 Available Commands:
-  apply       
-  plan        
-  show        
-  status      
+  apply
+  plan
+  show
+  status
 
 Flags:
       --admin string        Operator admin SSH destination; never the restricted deploy credential
@@ -1456,4 +1456,3 @@ Usage:
 Flags:
   -h, --help   help for version
 ```
-
