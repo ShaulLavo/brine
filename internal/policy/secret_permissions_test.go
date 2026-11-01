@@ -66,7 +66,7 @@ func TestSecretPermissionsRejectMalformedRepeatedAndMixedActions(t *testing.T) {
 		t.Fatal(err)
 	}
 	before, _ := p.CanonicalBytes()
-	for _, pair := range [][2]string{{"", "ref"}, {"*", "ref"}, {"../app", "ref"}, {"App", "ref"}, {"app/name", "ref"}, {"app", ""}, {"app", "*"}, {"app", "../ref"}, {"app", "ref/name"}, {"app", "ref.value"}, {"app", strings.Repeat("r", 253)}} {
+	for _, pair := range [][2]string{{"", "ref"}, {"*", "ref"}, {"../app", "ref"}, {"App", "ref"}, {"1app", "ref"}, {"app/name", "ref"}, {"app", ""}, {"app", "*"}, {"app", "../ref"}, {"app", "ref/name"}, {"app", "ref.value"}, {"app", strings.Repeat("r", 253)}} {
 		action := secretPermissionAction("allow_secret", pair[0], pair[1])
 		if _, _, err := p.EditPermissions([]PermissionAction{action}); err == nil {
 			t.Fatal("malformed secret scope accepted", pair)
