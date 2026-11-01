@@ -174,6 +174,16 @@ func decodePermissionChange(raw []byte) (operatorpolicy.PermissionAction, error)
 			return change, strictjson.ErrObject
 		}
 		change.Registry = &registry
+	case operatorpolicy.AllowSecret, operatorpolicy.RevokeSecret:
+		fields, err := strictjson.Object(raw, "kind", "secret")
+		if err != nil {
+			return change, err
+		}
+		secret, err := decodePermissionSecret(fields["secret"])
+		if err != nil {
+			return change, err
+		}
+		change.Secret = &secret
 	case operatorpolicy.AllowCDNBinding, operatorpolicy.RevokeCDNBinding:
 		fields, err := strictjson.Object(raw, "kind", "cdn_binding")
 		if err != nil {
@@ -202,11 +212,14 @@ func decodePermissionChanges(raw []byte) ([]operatorpolicy.PermissionAction, err
 			return nil, err
 		}
 	}
+	if err := operatorpolicy.ValidatePermissionActions(changes); err != nil {
+		return nil, strictjson.ErrObject
+	}
 	return changes, nil
 }
 
 func decodePermissionView(raw []byte) (operatorpolicy.Permissions, error) {
-	fields, err := strictjson.Object(raw, "registries", "domains", "cdn_bindings", "udp_grants")
+	fields, err := strictjson.Object(raw, "registries", "domains", "cdn_bindings", "allowed_secrets", "udp_grants")
 	if err != nil {
 		return operatorpolicy.Permissions{}, err
 	}
@@ -229,11 +242,15 @@ func decodePermissionView(raw []byte) (operatorpolicy.Permissions, error) {
 	if err != nil {
 		return operatorpolicy.Permissions{}, err
 	}
+	secrets, err := decodePermissionSecrets(fields["allowed_secrets"])
+	if err != nil {
+		return operatorpolicy.Permissions{}, err
+	}
 	grants, err := decodeUDPGrants(fields["udp_grants"])
 	if err != nil {
 		return operatorpolicy.Permissions{}, err
 	}
-	return operatorpolicy.Permissions{UDPGrants: grants, Registries: registries, Domains: domains, CDNBindings: bindings}, nil
+	return operatorpolicy.Permissions{UDPGrants: grants, Registries: registries, Domains: domains, CDNBindings: bindings, AllowedSecrets: secrets}, nil
 }
 
 func decodePermissionCDNBindings(raw []byte) ([]cdn.Binding, error) {

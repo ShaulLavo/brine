@@ -23,7 +23,7 @@ type PermissionClient interface {
 
 func newPermissionsCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	var target, configDir, admin string
-	parent := &cobra.Command{Use: "permissions", Short: "Manage registry, domain, CDN and UDP permissions through operator admin SSH"}
+	parent := &cobra.Command{Use: "permissions", Short: "Manage registry, domain, CDN, UDP and secret-reference permissions through operator admin SSH"}
 	parent.PersistentFlags().StringVar(&target, "target", "", "Pinned enrolled target")
 	parent.PersistentFlags().StringVar(&configDir, "config-dir", "", "Private client target directory")
 	parent.PersistentFlags().StringVar(&admin, "admin", "", "Operator admin SSH destination; never the restricted deploy credential")
@@ -37,6 +37,7 @@ func permissionCommand(deps Dependencies, modes *machineModes, action string, ta
 	request := enroll.PermissionsRequest{Action: action}
 	var allowRegistries, revokeRegistries, allowDomains, revokeDomains []string
 	var allowCDNBindings, revokeCDNBindings []string
+	var secretApps, allowSecretRefs, revokeSecretRefs []string
 	var allowUDP, revokeUDP []string
 	cmd := &cobra.Command{Use: action, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		changes, err := permissionActions(allowRegistries, revokeRegistries, allowDomains, revokeDomains, allowCDNBindings, revokeCDNBindings)
@@ -48,6 +49,14 @@ func permissionCommand(deps Dependencies, modes *machineModes, action string, ta
 			return err
 		}
 		changes = append(changes, udp...)
+		secrets, err := secretPermissionActions(secretApps, allowSecretRefs, revokeSecretRefs)
+		if err != nil {
+			return err
+		}
+		changes = append(changes, secrets...)
+		if action == "plan" && policy.ValidatePermissionActions(changes) != nil {
+			return result.New(result.InvalidUsage, nil)
+		}
 		request.Changes = changes
 		response, err := callPermissions(cmd.Context(), deps, *target, *configDir, *admin, request)
 		if err != nil {
@@ -72,6 +81,9 @@ func permissionCommand(deps Dependencies, modes *machineModes, action string, ta
 		cmd.Flags().StringArrayVar(&revokeDomains, "revoke-domain", nil, "Revoke an exact domain (repeatable)")
 		cmd.Flags().StringArrayVar(&allowCDNBindings, "allow-cdn-binding", nil, "Allow the exact typed CDN binding from a JSON file (repeatable)")
 		cmd.Flags().StringArrayVar(&revokeCDNBindings, "revoke-cdn-binding", nil, "Revoke the matching exact typed CDN binding from a JSON file (repeatable)")
+		cmd.Flags().StringArrayVar(&secretApps, "secret-app", nil, "Exact app for secret-reference changes; supply once with secret-ref flags")
+		cmd.Flags().StringArrayVar(&allowSecretRefs, "allow-secret-ref", nil, "Allow an exact logical secret reference for --secret-app (repeatable; never a value)")
+		cmd.Flags().StringArrayVar(&revokeSecretRefs, "revoke-secret-ref", nil, "Revoke an exact logical secret reference for --secret-app (repeatable)")
 		cmd.Flags().StringVar(&request.AppLabel, "app", "", "Optional app label for the audit record; does not grant app-specific authority")
 	}
 	if action == "apply" {
