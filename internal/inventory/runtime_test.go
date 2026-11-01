@@ -61,12 +61,10 @@ func TestRenderedUnitDiscoveryAndLivePort(t *testing.T) {
 	}
 }
 
+const udpRuntimeRecord = `{"name":"systemd-api","running":true,"unit":"api.service","network":"pasta","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}],"7777/udp":[{"HostIp":"192.0.2.10","HostPort":"4433"}]}}`
+
 func TestUDPRuntimePublication(t *testing.T) {
-	const valid = `{"name":"systemd-api","running":true,"unit":"api.service","network":"pasta","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}],"7777/udp":[{"HostIp":"192.0.2.10","HostPort":"4433"}]}}`
-	for _, tc := range []struct {
-		name, old, new string
-		known          bool
-	}{
+	for _, tc := range []udpRuntimeCase{
 		{"ipv4", "", "", true},
 		{"ipv6", "192.0.2.10", "2001:db8::10", true},
 		{"missing network", `"pasta"`, `""`, false},
@@ -82,37 +80,41 @@ func TestUDPRuntimePublication(t *testing.T) {
 		{"extra binding", `"HostPort":"4433"}`, `"HostPort":"4433"},{"HostIp":"192.0.2.11","HostPort":"4434"}`, false},
 		{"wrong container", "systemd-api", "systemd-other", false},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			out := valid
-			if tc.old != "" {
-				out = strings.ReplaceAll(out, tc.old, tc.new)
-			}
-			r := fakeRunner{"podman --remote=false inspect --type container --format " + testRuntimePortFormat + " systemd-api": out}
-			got := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
-			if (got.Status == target.KnownStatus) != tc.known {
-				t.Fatalf("publication=%+v", got)
-			}
-			if !tc.known {
-				return
-			}
-			address := "192.0.2.10"
-			if tc.name == "ipv6" {
-				address = "2001:db8::10"
-			}
-			if *got.Value != (publication{Host: 20080, Container: 8080, UDPAddress: address, UDPHost: 4433, UDPContainer: 7777, NetworkMode: "pasta"}) {
-				t.Fatalf("mapping=%+v", got.Value)
-			}
-		})
+		t.Run(tc.name, tc.check)
+	}
+}
+
+type udpRuntimeCase struct {
+	name, old, new string
+	known          bool
+}
+
+func (tc udpRuntimeCase) check(t *testing.T) {
+	out := udpRuntimeRecord
+	if tc.old != "" {
+		out = strings.ReplaceAll(out, tc.old, tc.new)
+	}
+	r := fakeRunner{"podman --remote=false inspect --type container --format " + testRuntimePortFormat + " systemd-api": out}
+	got := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
+	if (got.Status == target.KnownStatus) != tc.known {
+		t.Fatalf("publication=%+v", got)
+	}
+	if !tc.known {
+		return
+	}
+	address := "192.0.2.10"
+	if tc.name == "ipv6" {
+		address = "2001:db8::10"
+	}
+	if *got.Value != (publication{Host: 20080, Container: 8080, UDPAddress: address, UDPHost: 4433, UDPContainer: 7777, NetworkMode: "pasta"}) {
+		t.Fatalf("mapping=%+v", got.Value)
 	}
 }
 
 func TestPinnedUDPMapping(t *testing.T) {
 	const tcp = "PublishPort=127.0.0.1:20080:8080\n"
 	const udp = "PublishPort=192.0.2.10:4433:7777/udp\n"
-	for _, tc := range []struct {
-		name, lines string
-		valid       bool
-	}{
+	for _, tc := range []udpPinnedCase{
 		{"tcp", tcp, true}, {"ipv4", tcp + udp, true}, {"ipv6", tcp + "PublishPort=[2001:db8::10]:4433:7777/udp\n", true},
 		{"no tcp", udp, false}, {"duplicate tcp", tcp + tcp, false}, {"duplicate udp", tcp + udp + udp, false},
 		{"unknown protocol", tcp + strings.ReplaceAll(udp, "/udp", "/sctp"), false},
@@ -123,14 +125,51 @@ func TestPinnedUDPMapping(t *testing.T) {
 		{"range", tcp + strings.ReplaceAll(udp, "4433", "4433-4434"), false},
 		{"udp after service", tcp + "[Service]\n" + udp, true},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got, ok := pinnedListenerPort("[Container]\n" + tc.lines)
-			if ok != tc.valid {
-				t.Fatalf("mapping=%+v valid=%v", got, ok)
-			}
-			if ok && (got.Host != 20080 || got.Container != 8080) {
-				t.Fatal(got)
-			}
-		})
+		t.Run(tc.name, tc.check)
+	}
+}
+
+type udpPinnedCase struct {
+	name, lines string
+	valid       bool
+}
+
+func (tc udpPinnedCase) check(t *testing.T) {
+	got, ok := pinnedListenerPort("[Container]\n" + tc.lines)
+	if ok != tc.valid {
+		t.Fatalf("mapping=%+v valid=%v", got, ok)
+	}
+	if ok && (got.Host != 20080 || got.Container != 8080) {
+		t.Fatal(got)
+	}
+}
+
+func TestPinnedUDPPublicationBindsExactRuntime(t *testing.T) {
+	for _, field := range []string{"matching", "address", "host port", "container port", "missing UDP"} {
+		t.Run(field, func(t *testing.T) { checkPinnedUDPBinding(t, field) })
+	}
+}
+func checkPinnedUDPBinding(t *testing.T, field string) {
+	f := secretOnlyFixture()
+	path := "/home/brine/.config/containers/systemd/api.container"
+	data := "# Brine-owned plan=sha256:" + strings.Repeat("a", 64) + "\n[Container]\nPublishPort=127.0.0.1:20080:8080\nPublishPort=192.0.2.10:4433:7777/udp\n"
+	f.files[path] = data
+	actual := publication{Host: 20080, Container: 8080, UDPAddress: "192.0.2.10", UDPHost: 4433, UDPContainer: 7777, NetworkMode: "pasta"}
+	switch field {
+	case "address":
+		actual.UDPAddress = "192.0.2.11"
+	case "host port":
+		actual.UDPHost++
+	case "container port":
+		actual.UDPContainer++
+	case "missing UDP":
+		actual.UDPAddress = ""
+		actual.UDPHost = 0
+		actual.UDPContainer = 0
+	}
+	snapshot := target.Snapshot{Apps: target.Known([]target.App{{Name: "api", AllocatedHostPort: target.Known(target.Port(20080)), QuadletUnits: target.Known([]target.Unit{{Name: "api.container", Hash: digest([]byte(data))}})}})}
+	got := (Collector{FS: f, RunnerUser: "brine"}).listenerBindings(t.Context(), &snapshot, "/home/brine", map[string]publication{"api": actual})
+	if (len(got) == 1) != (field == "matching") {
+		t.Fatalf("unbound publication=%+v", got)
 	}
 }

@@ -1,0 +1,25 @@
+# Brine-owned plan=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+# IndexDigest=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+# PlatformManifestDigest=sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+# Platform=linux/arm64
+
+[Unit]
+Description=Brine app hello
+
+[Container]
+Image=registry.example.com/team/web@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+PublishPort=127.0.0.1:20000:3000
+PublishPort=[2001:db8::1]:4433:4433/udp
+PidsLimit=64
+PodmanArgs=--memory=256m
+LogDriver=k8s-file
+LogOpt=max-size=10485760
+
+[Service]
+Restart=on-failure
+SuccessExitStatus=143
+RestartForceExitStatus=143
+Environment=CONTAINERS_STORAGE_CONF=/etc/brine/runner-storage.conf
+
+[Install]
+WantedBy=default.target

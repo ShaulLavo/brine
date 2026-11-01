@@ -17,3 +17,22 @@ func TestUDPDirectHostRefusesWithoutAdapters(t *testing.T) {
 		}
 	}
 }
+
+func TestHandcraftedUDPPayloadsRefuseBeforeEffects(t *testing.T) {
+	plans := []plan.Plan{
+		{UDP: &plan.UDPPlan{}},
+		{Removal: &plan.Removal{UDP: &plan.UDPReservation{}}},
+		{Changes: []plan.Change{{Kind: plan.ReserveUDP}}},
+		{Changes: []plan.Change{{Kind: plan.ReleaseUDP}}},
+		{Changes: []plan.Change{{UDP: &plan.UDPEndpoint{}}}},
+		{Changes: []plan.Change{{Quadlet: &plan.Quadlet{UDP: &plan.UDPAllocation{}}}}},
+		{Changes: []plan.Change{{Quadlet: &plan.Quadlet{Desired: policy.Desired{UDP: &policy.UDPDesired{}}}}}},
+	}
+	e := Executor{}
+	for _, p := range plans {
+		err := e.Run(t.Context(), "forged", p, policy.Desired{})
+		if !errors.Is(err, plan.ErrUDPExecutionUnavailable) {
+			t.Fatalf("payload reached adapters: %v", err)
+		}
+	}
+}

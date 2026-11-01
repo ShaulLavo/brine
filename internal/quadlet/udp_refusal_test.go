@@ -1,6 +1,7 @@
 package quadlet
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -19,6 +20,10 @@ func TestUDPIntentRendersApprovedMapping(t *testing.T) {
 	u, err := Render(d, p, manifest())
 	if err != nil {
 		t.Fatal(err)
+	}
+	want, err := os.ReadFile("testdata/udp-ipv4.container")
+	if err != nil || string(u.Bytes()) != string(want) {
+		t.Fatalf("IPv4 unit differs from golden: %v\n%s", err, u.Bytes())
 	}
 	if !strings.Contains(string(u.Bytes()), "PublishPort=192.0.2.1:4433:4433/udp\n") {
 		t.Fatal("missing UDP mapping", string(u.Bytes()))
@@ -62,6 +67,10 @@ func TestUDPIPv6MappingUsesBracketedAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	want, err := os.ReadFile("testdata/udp-ipv6.container")
+	if err != nil || string(u.Bytes()) != string(want) {
+		t.Fatalf("IPv6 unit differs from golden: %v\n%s", err, u.Bytes())
+	}
 	if !strings.Contains(string(u.Bytes()), "PublishPort=[2001:db8::1]:4433:4433/udp\n") {
 		t.Fatal("missing bracketed IPv6 mapping", string(u.Bytes()))
 	}
@@ -89,54 +98,56 @@ func TestUninvolvedHTTPUnitIgnoresUDPPolicyOnlyHashChange(t *testing.T) {
 
 func TestUDPBindingRejectsForgedInputs(t *testing.T) {
 	for _, name := range []string{"client", "grant app", "grant exposure", "invalid grant", "nil next", "nil payload", "duplicate payload", "nil followed by payload", "payload drift", "payload intent", "bad desired port", "bad desired exposure", "family", "wildcard"} {
-		t.Run(name, func(t *testing.T) {
-			d, _ := fixture(t)
-			d.UDP = &policy.UDPDesired{ContainerPort: 4433, Exposure: spec.UDPPublic, Grant: policy.UDPGrant{App: "hello", Exposure: spec.UDPPublic, BindAddress: "192.0.2.1", ClientAddress: "relay.example.test", HostPorts: policy.PortRange{Min: 4433, Max: 4433}}}
-			a := &plan.UDPAllocation{Endpoint: plan.UDPEndpoint{Family: "ipv4", BindAddress: "192.0.2.1", HostPort: 4433}, ContainerPort: 4433, ClientAddress: "relay.example.test", Exposure: spec.UDPPublic, GrantHash: d.UDP.Grant.Hash()}
-			p := bind(t, d)
-			p.UDP = &plan.UDPPlan{Next: a}
-			q := &plan.Quadlet{Desired: d, UDP: a}
-			p.Changes = []plan.Change{{Kind: plan.RenderQuadlet, Quadlet: q}}
-			switch name {
-			case "client":
-				a.ClientAddress = "other.example.test"
-			case "grant app":
-				d.UDP.Grant.App = "other"
-			case "grant exposure":
-				d.UDP.Grant.Exposure = spec.UDPTailnet
-			case "invalid grant":
-				d.UDP.Grant.HostPorts.Max = 65535
-			case "nil next":
-				p.UDP.Next = nil
-			case "nil payload":
-				q.UDP = nil
-			case "duplicate payload":
-				p.Changes = append(p.Changes, p.Changes[0])
-			case "nil followed by payload":
-				p.Changes = append([]plan.Change{{Kind: plan.RenderQuadlet, Quadlet: &plan.Quadlet{}}}, p.Changes...)
-			case "payload drift":
-				copy := *a
-				copy.ContainerPort++
-				q.UDP = &copy
-			case "payload intent":
-				q.Desired.UDP = nil
-			case "bad desired port":
-				d.UDP.ContainerPort = 1
-			case "bad desired exposure":
-				d.UDP.Exposure = "other"
-			case "family":
-				a.Endpoint.Family = "ipv6"
-			case "wildcard":
-				a.Endpoint.BindAddress = "0.0.0.0"
-			}
-			raw, err := d.CanonicalBytes()
-			if err == nil {
-				p.DesiredHash = digest(raw)
-			}
-			a.GrantHash = d.UDP.Grant.Hash()
-			if _, err := Render(d, p, manifest()); err == nil {
-				t.Fatal("accepted forged UDP binding")
-			}
-		})
+		t.Run(name, func(t *testing.T) { checkForgedUDPBinding(t, name) })
+	}
+}
+
+func checkForgedUDPBinding(t *testing.T, name string) {
+	d, _ := fixture(t)
+	d.UDP = &policy.UDPDesired{ContainerPort: 4433, Exposure: spec.UDPPublic, Grant: policy.UDPGrant{App: "hello", Exposure: spec.UDPPublic, BindAddress: "192.0.2.1", ClientAddress: "relay.example.test", HostPorts: policy.PortRange{Min: 4433, Max: 4433}}}
+	a := &plan.UDPAllocation{Endpoint: plan.UDPEndpoint{Family: "ipv4", BindAddress: "192.0.2.1", HostPort: 4433}, ContainerPort: 4433, ClientAddress: "relay.example.test", Exposure: spec.UDPPublic, GrantHash: d.UDP.Grant.Hash()}
+	p := bind(t, d)
+	p.UDP = &plan.UDPPlan{Next: a}
+	q := &plan.Quadlet{Desired: d, UDP: a}
+	p.Changes = []plan.Change{{Kind: plan.RenderQuadlet, Quadlet: q}}
+	switch name {
+	case "client":
+		a.ClientAddress = "other.example.test"
+	case "grant app":
+		d.UDP.Grant.App = "other"
+	case "grant exposure":
+		d.UDP.Grant.Exposure = spec.UDPTailnet
+	case "invalid grant":
+		d.UDP.Grant.HostPorts.Max = 65535
+	case "nil next":
+		p.UDP.Next = nil
+	case "nil payload":
+		q.UDP = nil
+	case "duplicate payload":
+		p.Changes = append(p.Changes, p.Changes[0])
+	case "nil followed by payload":
+		p.Changes = append([]plan.Change{{Kind: plan.RenderQuadlet, Quadlet: &plan.Quadlet{}}}, p.Changes...)
+	case "payload drift":
+		copy := *a
+		copy.ContainerPort++
+		q.UDP = &copy
+	case "payload intent":
+		q.Desired.UDP = nil
+	case "bad desired port":
+		d.UDP.ContainerPort = 1
+	case "bad desired exposure":
+		d.UDP.Exposure = "other"
+	case "family":
+		a.Endpoint.Family = "ipv6"
+	case "wildcard":
+		a.Endpoint.BindAddress = "0.0.0.0"
+	}
+	raw, err := d.CanonicalBytes()
+	if err == nil {
+		p.DesiredHash = digest(raw)
+	}
+	a.GrantHash = d.UDP.Grant.Hash()
+	if _, err := Render(d, p, manifest()); err == nil {
+		t.Fatal("accepted forged UDP binding")
 	}
 }

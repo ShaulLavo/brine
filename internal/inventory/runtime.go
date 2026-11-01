@@ -35,12 +35,13 @@ func (c Collector) livePublication(ctx context.Context, units []target.Unit) tar
 	unknownPort := unknown[publication]()
 	container := ""
 	for _, u := range units {
-		if strings.HasSuffix(u.Name, ".container") {
-			if container != "" {
-				return unknownPort
-			}
-			container = strings.TrimSuffix(u.Name, ".container")
+		if !strings.HasSuffix(u.Name, ".container") {
+			continue
 		}
+		if container != "" {
+			return unknownPort
+		}
+		container = strings.TrimSuffix(u.Name, ".container")
 	}
 	if container == "" {
 		return unknownPort
