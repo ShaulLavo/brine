@@ -12,32 +12,34 @@ import (
 	"github.com/ShaulLavo/brine/fixtures/udp-echo/server"
 )
 
+var release = "udp-echo-v1"
+
 func main() {
-	config, err := configFromEnv()
-	if err != nil {
-		log.Print(err)
-		os.Exit(2)
-	}
-	fixture, err := server.New(config)
-	if err != nil {
-		log.Print(err)
-		os.Exit(1)
-	}
-	defer func() { _ = fixture.Close() }()
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	if err := fixture.Run(ctx); err != nil && !errors.Is(err, context.Canceled) {
+	if err := run(); err != nil {
 		log.Print(err)
 		os.Exit(1)
 	}
 }
 
-func configFromEnv() (server.Config, error) {
-	identity := protocol.Identity{Fixture: protocol.FixtureName, Release: os.Getenv("BRINE_UDP_ECHO_RELEASE")}
-	if identity.Release == "" {
-		identity.Release = "udp-echo-v1"
+func run() error {
+	failHealth := os.Getenv("UDP_ECHO_FAIL_HEALTH")
+	if failHealth != "" && failHealth != "true" && failHealth != "false" {
+		return errors.New("UDP_ECHO_FAIL_HEALTH requires true or false")
 	}
-	return server.Config{HTTPAddr: envOr("BRINE_UDP_ECHO_HTTP_ADDR", server.DefaultHTTPAddr), UDPAddr: envOr("BRINE_UDP_ECHO_UDP_ADDR", server.DefaultUDPAddr), Identity: identity}, nil
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	fixture, err := server.New(ctx, server.Config{
+		HTTPAddr:   envOr("UDP_ECHO_HTTP_ADDR", server.DefaultHTTPAddr),
+		UDPAddr:    envOr("UDP_ECHO_UDP_ADDR", server.DefaultUDPAddr),
+		Identity:   protocol.Identity{Fixture: protocol.FixtureName, Release: release},
+		FailHealth: failHealth == "true",
+	})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = fixture.Close(ctx) }()
+	log.Printf("fixture %s release %s bound HTTP %s and UDP %s", protocol.FixtureName, release, fixture.HTTPAddr(), fixture.UDPAddr())
+	return fixture.Run(ctx)
 }
 
 func envOr(name, fallback string) string {

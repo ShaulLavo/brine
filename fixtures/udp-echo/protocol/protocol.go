@@ -1,33 +1,36 @@
+// Package protocol defines the bounded test-only UDP nonce exchange.
 package protocol
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"strings"
-	"unicode/utf8"
+	"net/netip"
 )
 
 const (
-	SchemaVersion     = 1
-	FixtureName       = "brine-udp-echo"
-	MaxDatagramBytes  = 1024
-	MaxNonceBytes     = 256
-	MaxReleaseBytes   = 64
-	MaxVantageBytes   = 64
-	MaxEndpointBytes  = 256
-	MaxResponseBytes  = 768
-	MaxJSONBodyBytes  = 2048
-	MaxAttempts       = 3
-	MaxTimeoutSeconds = 5
+	SchemaVersion      = 1
+	FixtureName        = "brine-udp-echo"
+	MaxDatagramBytes   = 1024
+	MaxNonceBytes      = 256
+	MaxReleaseBytes    = 64
+	MaxVantageBytes    = 64
+	MaxEndpointBytes   = 256
+	MaxResponseBytes   = 768
+	MaxHTTPBodyBytes   = 2048
+	MaxHTTPHeaderBytes = 2048
+	MaxAttempts        = 3
+	MaxTimeoutSeconds  = 5
+	MaxOverallSeconds  = 15
 )
 
 type Identity struct {
-	Fixture string
-	Release string
+	Fixture string `json:"fixture"`
+	Release string `json:"release"`
 }
 
 type Response struct {
@@ -39,30 +42,29 @@ type Response struct {
 
 func ValidateIdentity(identity Identity) error {
 	if identity.Fixture != FixtureName {
-		return fmt.Errorf("fixture must be %q", FixtureName)
+		return errors.New("unexpected fixture identity")
 	}
-	if err := validateToken("release", identity.Release, MaxReleaseBytes); err != nil {
-		return err
+	return ValidateToken("release", identity.Release, MaxReleaseBytes)
+}
+
+func ValidateNonce(nonce []byte) error {
+	return ValidateToken("nonce", string(nonce), MaxNonceBytes)
+}
+
+func ValidateToken(name, value string, max int) error {
+	if value == "" || len(value) > max {
+		return fmt.Errorf("%s must contain 1-%d ASCII token bytes", name, max)
+	}
+	for _, c := range value {
+		if !tokenRune(c) {
+			return fmt.Errorf("%s must contain only ASCII letters, digits, dot, hyphen or underscore", name)
+		}
 	}
 	return nil
 }
 
-func ValidateNonce(nonce []byte) error {
-	if len(nonce) == 0 {
-		return errors.New("nonce is empty")
-	}
-	if len(nonce) > MaxNonceBytes {
-		return fmt.Errorf("nonce exceeds %d bytes", MaxNonceBytes)
-	}
-	if !utf8.Valid(nonce) {
-		return errors.New("nonce is not UTF-8")
-	}
-	for _, r := range string(nonce) {
-		if r < 0x20 || r == 0x7f {
-			return errors.New("nonce contains a control character")
-		}
-	}
-	return nil
+func tokenRune(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '-' || c == '_'
 }
 
 func NewNonce() (string, error) {
@@ -80,35 +82,24 @@ func EncodeResponse(identity Identity, nonce []byte) ([]byte, error) {
 	if err := ValidateNonce(nonce); err != nil {
 		return nil, err
 	}
-	body, err := json.Marshal(Response{Schema: SchemaVersion, Fixture: identity.Fixture, Release: identity.Release, Nonce: string(nonce)})
-	if err != nil {
-		return nil, fmt.Errorf("encode response: %w", err)
-	}
-	if len(body) > MaxResponseBytes || len(body) > MaxDatagramBytes {
-		return nil, errors.New("encoded response exceeds packet bound")
-	}
-	return body, nil
+	return json.Marshal(Response{Schema: SchemaVersion, Fixture: identity.Fixture, Release: identity.Release, Nonce: string(nonce)})
 }
 
 func DecodeResponse(body []byte) (Response, error) {
-	if len(body) == 0 || len(body) > MaxResponseBytes || len(body) > MaxDatagramBytes {
-		return Response{}, errors.New("response exceeds packet bound")
+	if len(body) == 0 || len(body) > MaxResponseBytes {
+		return Response{}, errors.New("response exceeds packet bound or is empty")
 	}
-	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	var response Response
 	if err := decoder.Decode(&response); err != nil {
-		return Response{}, fmt.Errorf("decode response: %w", err)
+		return Response{}, errors.New("invalid response JSON")
 	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		if err == nil {
-			return Response{}, errors.New("response has trailing JSON")
-		}
-		return Response{}, fmt.Errorf("response trailing data: %w", err)
+	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
+		return Response{}, errors.New("response has trailing data")
 	}
-	if response.Schema != SchemaVersion || response.Fixture != FixtureName {
-		return Response{}, errors.New("response identity mismatch")
+	if response.Schema != SchemaVersion {
+		return Response{}, errors.New("response schema mismatch")
 	}
 	if err := ValidateIdentity(Identity{Fixture: response.Fixture, Release: response.Release}); err != nil {
 		return Response{}, err
@@ -116,26 +107,24 @@ func DecodeResponse(body []byte) (Response, error) {
 	if err := ValidateNonce([]byte(response.Nonce)); err != nil {
 		return Response{}, err
 	}
+	canonical, err := json.Marshal(response)
+	if err != nil || !bytes.Equal(body, canonical) {
+		return Response{}, errors.New("response must use the fixture canonical JSON")
+	}
 	return response, nil
 }
 
-func ValidateEndpoint(endpoint string) error {
-	return validateToken("endpoint", endpoint, MaxEndpointBytes)
-}
-
-func ValidateVantage(vantage string) error {
-	return validateToken("vantage", vantage, MaxVantageBytes)
-}
-
-func validateToken(name, value string, max int) error {
-	if value == "" {
-		return fmt.Errorf("%s is empty", name)
+func Endpoint(value string) (netip.AddrPort, error) {
+	if len(value) > MaxEndpointBytes {
+		return netip.AddrPort{}, errors.New("endpoint exceeds bound")
 	}
-	if len(value) > max {
-		return fmt.Errorf("%s exceeds %d bytes", name, max)
+	endpoint, err := netip.ParseAddrPort(value)
+	if err != nil || !endpoint.IsValid() {
+		return netip.AddrPort{}, errors.New("endpoint requires an IP literal and numeric port")
 	}
-	if !utf8.ValidString(value) || strings.IndexAny(value, "\r\n\x00") >= 0 {
-		return fmt.Errorf("%s contains invalid characters", name)
+	address := endpoint.Addr()
+	if address.IsUnspecified() || address.IsMulticast() || address.Is4In6() || address.Zone() != "" || endpoint.Port() < 1024 {
+		return netip.AddrPort{}, errors.New("endpoint requires a specified unzoned unicast address and unprivileged port")
 	}
-	return nil
+	return endpoint, nil
 }

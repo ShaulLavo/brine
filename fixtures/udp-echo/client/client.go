@@ -1,11 +1,13 @@
+// Package client records bounded nonce exchanges independently of Brine status.
 package client
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net"
+	"net/netip"
+	"syscall"
 	"time"
 
 	"github.com/ShaulLavo/brine/fixtures/udp-echo/protocol"
@@ -17,124 +19,170 @@ type Config struct {
 	ExpectedRelease string
 	Attempts        int
 	AttemptTimeout  time.Duration
+	OverallTimeout  time.Duration
 	Vantage         string
 }
 
 type Result struct {
-	Schema      int                `json:"schema"`
-	Fixture     string             `json:"fixture"`
-	Endpoint    string             `json:"endpoint"`
-	Vantage     string             `json:"vantage"`
-	Nonce       string             `json:"nonce"`
-	Attempts    int                `json:"attempts"`
-	MaxAttempts int                `json:"max_attempts"`
-	StartedAt   string             `json:"started_at"`
-	FinishedAt  string             `json:"finished_at"`
-	Outcome     string             `json:"outcome"`
-	Error       string             `json:"error,omitempty"`
-	Response    *protocol.Response `json:"response,omitempty"`
-}
-
-func Probe(ctx context.Context, config Config) (Result, error) {
-	if err := validateConfig(config); err != nil {
-		return Result{Schema: protocol.SchemaVersion, Fixture: protocol.FixtureName, Endpoint: config.Endpoint, Vantage: config.Vantage, Outcome: "configuration_error", Error: err.Error(), MaxAttempts: protocol.MaxAttempts}, err
-	}
-	started := time.Now().UTC()
-	result := Result{Schema: protocol.SchemaVersion, Fixture: protocol.FixtureName, Endpoint: config.Endpoint, Vantage: config.Vantage, Nonce: config.Nonce, MaxAttempts: protocol.MaxAttempts, StartedAt: started.Format(time.RFC3339Nano), Outcome: "timeout"}
-	address, err := net.ResolveUDPAddr("udp", config.Endpoint)
-	if err != nil {
-		result.Outcome = "endpoint_error"
-		result.Error = err.Error()
-		result.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		return result, nil
-	}
-	connection, err := net.DialUDP("udp", nil, address)
-	if err != nil {
-		result.Outcome = "connect_error"
-		result.Error = err.Error()
-		result.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		return result, nil
-	}
-	defer func() { _ = connection.Close() }()
-	for attempt := 1; attempt <= config.Attempts; attempt++ {
-		result.Attempts = attempt
-		if err := probeAttempt(ctx, connection, config, &result); err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				result.Outcome = "canceled"
-				result.Error = err.Error()
-				break
-			}
-			if errors.Is(err, errAttemptTimeout) {
-				continue
-			}
-			result.Outcome = "protocol_error"
-			result.Error = err.Error()
-			break
-		}
-		result.Outcome = "ok"
-		break
-	}
-	result.FinishedAt = time.Now().UTC().Format(time.RFC3339Nano)
-	return result, nil
+	Schema           int                `json:"schema"`
+	Fixture          string             `json:"fixture"`
+	Endpoint         string             `json:"endpoint,omitempty"`
+	LocalAddress     string             `json:"local_address,omitempty"`
+	Vantage          string             `json:"vantage,omitempty"`
+	Nonce            string             `json:"nonce,omitempty"`
+	ExpectedRelease  string             `json:"expected_release,omitempty"`
+	Attempts         int                `json:"attempts"`
+	AttemptTimeoutMs int64              `json:"attempt_timeout_ms"`
+	OverallTimeoutMs int64              `json:"overall_timeout_ms"`
+	StartedAt        time.Time          `json:"started_at"`
+	FinishedAt       time.Time          `json:"finished_at"`
+	Outcome          string             `json:"outcome"`
+	Error            string             `json:"error,omitempty"`
+	Response         *protocol.Response `json:"response,omitempty"`
 }
 
 var errAttemptTimeout = errors.New("attempt timeout")
 
-func probeAttempt(ctx context.Context, connection *net.UDPConn, config Config, result *Result) error {
+func Probe(parent context.Context, config Config) (Result, error) {
+	result := Result{Schema: protocol.SchemaVersion, Fixture: protocol.FixtureName, StartedAt: time.Now().UTC()}
+	endpoint, err := validateConfig(config)
+	if err != nil {
+		return finish(result, "configuration_error", err), err
+	}
+	result.Endpoint, result.Vantage, result.Nonce = endpoint.String(), config.Vantage, config.Nonce
+	result.ExpectedRelease = config.ExpectedRelease
+	result.AttemptTimeoutMs = config.AttemptTimeout.Milliseconds()
+	result.OverallTimeoutMs = config.OverallTimeout.Milliseconds()
+	ctx, cancel := context.WithTimeout(parent, config.OverallTimeout)
+	defer cancel()
+	if err := ctx.Err(); err != nil {
+		return finish(result, contextOutcome(err), err), nil
+	}
+	connection, err := net.DialUDP("udp", nil, net.UDPAddrFromAddrPort(endpoint))
+	if err != nil {
+		return finish(result, "connect_error", errors.New("UDP dial failed")), nil
+	}
+	defer func() { _ = connection.Close() }()
+	stop := context.AfterFunc(ctx, func() { _ = connection.Close() })
+	defer stop()
+	result.LocalAddress = connection.LocalAddr().String()
+	return exchange(ctx, connection, config, result), nil
+}
+
+func exchange(ctx context.Context, connection *net.UDPConn, config Config, result Result) Result {
+	for attempt := 1; attempt <= config.Attempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return finish(result, contextOutcome(err), err)
+		}
+		result.Attempts = attempt
+		response, err := probeAttempt(ctx, connection, config)
+		if response.Fixture != "" {
+			result.Response = &response
+		}
+		if err == nil {
+			return finish(result, "ok", nil)
+		}
+		if errors.Is(err, errAttemptTimeout) {
+			continue
+		}
+		return finish(result, errorOutcome(err), err)
+	}
+	return finish(result, "timeout", errAttemptTimeout)
+}
+
+func finish(result Result, outcome string, err error) Result {
+	result.Outcome = outcome
+	if err != nil {
+		result.Error = err.Error()
+	}
+	result.FinishedAt = time.Now().UTC()
+	return result
+}
+
+func probeAttempt(ctx context.Context, connection *net.UDPConn, config Config) (protocol.Response, error) {
 	deadline := time.Now().Add(config.AttemptTimeout)
 	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
 		deadline = contextDeadline
 	}
-	if err := connection.SetWriteDeadline(deadline); err != nil {
-		return err
+	if err := connection.SetDeadline(deadline); err != nil {
+		return protocol.Response{}, classifyNetworkError(ctx, err)
 	}
 	if _, err := connection.Write([]byte(config.Nonce)); err != nil {
-		return err
+		return protocol.Response{}, classifyNetworkError(ctx, err)
 	}
-	if err := connection.SetReadDeadline(deadline); err != nil {
-		return err
-	}
-	buffer := make([]byte, protocol.MaxDatagramBytes+1)
-	n, err := connection.Read(buffer)
+	var buffer [protocol.MaxResponseBytes + 1]byte
+	n, err := connection.Read(buffer[:])
 	if err != nil {
-		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-			return errAttemptTimeout
-		}
-		return err
-	}
-	if n > protocol.MaxDatagramBytes {
-		return errors.New("response exceeds packet bound")
+		return protocol.Response{}, classifyNetworkError(ctx, err)
 	}
 	response, err := protocol.DecodeResponse(buffer[:n])
 	if err != nil {
-		return err
+		return protocol.Response{}, err
 	}
-	result.Response = &response
-	if config.ExpectedRelease != "" && response.Release != config.ExpectedRelease {
-		return fmt.Errorf("release identity mismatch: got %q, want %q", response.Release, config.ExpectedRelease)
+	if response.Nonce != config.Nonce {
+		return response, errors.New("response nonce mismatch")
 	}
-	return nil
+	if response.Release != config.ExpectedRelease {
+		return response, errors.New("response release mismatch")
+	}
+	return response, nil
 }
 
-func validateConfig(config Config) error {
-	if err := protocol.ValidateEndpoint(config.Endpoint); err != nil {
-		return err
+func classifyNetworkError(ctx context.Context, err error) error {
+	if contextErr := ctx.Err(); contextErr != nil {
+		return contextErr
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return syscall.ECONNREFUSED
+	}
+	var networkError net.Error
+	if errors.As(err, &networkError) && networkError.Timeout() {
+		return errAttemptTimeout
+	}
+	return errors.New("UDP I/O failed")
+}
+
+func contextOutcome(err error) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "timeout"
+	}
+	return "canceled"
+}
+
+func errorOutcome(err error) string {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return contextOutcome(err)
+	}
+	if errors.Is(err, syscall.ECONNREFUSED) {
+		return "refused"
+	}
+	return "protocol_error"
+}
+
+func validateConfig(config Config) (netip.AddrPort, error) {
+	endpoint, err := protocol.Endpoint(config.Endpoint)
+	if err != nil {
+		return netip.AddrPort{}, err
 	}
 	if err := protocol.ValidateNonce([]byte(config.Nonce)); err != nil {
-		return err
+		return netip.AddrPort{}, err
 	}
-	if config.ExpectedRelease != "" {
-		if err := protocol.ValidateIdentity(protocol.Identity{Fixture: protocol.FixtureName, Release: config.ExpectedRelease}); err != nil {
-			return err
-		}
+	if err := protocol.ValidateToken("expected release", config.ExpectedRelease, protocol.MaxReleaseBytes); err != nil {
+		return netip.AddrPort{}, err
+	}
+	if err := protocol.ValidateToken("vantage", config.Vantage, protocol.MaxVantageBytes); err != nil {
+		return netip.AddrPort{}, err
 	}
 	if config.Attempts < 1 || config.Attempts > protocol.MaxAttempts {
-		return fmt.Errorf("attempts must be between 1 and %d", protocol.MaxAttempts)
+		return netip.AddrPort{}, errors.New("attempts must be between 1 and 3")
 	}
-	if config.AttemptTimeout <= 0 || config.AttemptTimeout > protocol.MaxTimeoutSeconds*time.Second {
-		return fmt.Errorf("attempt timeout must be between 1ns and %ds", protocol.MaxTimeoutSeconds)
+	if config.AttemptTimeout < time.Millisecond || config.AttemptTimeout > protocol.MaxTimeoutSeconds*time.Second {
+		return netip.AddrPort{}, errors.New("attempt timeout must be between 1ms and 5s")
 	}
-	return protocol.ValidateVantage(config.Vantage)
+	if config.OverallTimeout < time.Millisecond || config.OverallTimeout > protocol.MaxOverallSeconds*time.Second {
+		return netip.AddrPort{}, errors.New("overall timeout must be between 1ms and 15s")
+	}
+	return endpoint, nil
 }
 
 func MarshalResult(result Result) ([]byte, error) {
@@ -142,7 +190,7 @@ func MarshalResult(result Result) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(body) > protocol.MaxJSONBodyBytes {
+	if len(body)+1 > protocol.MaxHTTPBodyBytes {
 		return nil, errors.New("result exceeds JSON bound")
 	}
 	return append(body, '\n'), nil

@@ -1,13 +1,20 @@
 # UDP echo fixture
 
-This disposable, non-root fixture serves bounded HTTP health and a versioned UDP nonce echo for Phase 08 deployment evidence. The client is a separate bounded probe that prints one JSON result with its endpoint, network vantage, attempts, timestamps and response identity.
+A non-root HTTP health and bounded UDP nonce echo fixture for disposable delivery drills.
 
-Build the server image from the repository root with a digest-pinned Go builder:
+Run local checks through the machine's shared runner:
 
 ```sh
-docker buildx build --platform linux/amd64,linux/arm64 -f fixtures/udp-echo/Dockerfile -t ghcr.io/shaullavo/brine-udp-echo:<reviewed-tag> --push .
+TMPDIR=/work/tmp/task-owned GOCACHE=/work/cache/go-build \
+  integration/udp-delivery/run-local.sh /work/tmp/new-udp-evidence
 ```
 
-Use the published immutable index and selected platform manifest digests in any disposable app specification. The image defaults to HTTP `:8080` and UDP `:7777`, runs as UID/GID `65532:65532`, and accepts `BRINE_UDP_ECHO_RELEASE` to identify each release. The client image is available with `--target udp-echo-client`; local tests use the Go packages directly.
+Build a distinct release and use the separate client:
 
-The fixture does not implement QUIC, WebTransport, TLS, discovery, authentication or a proxy. It is evidence for direct HTTP health and UDP ownership/reachability only.
+```sh
+fixtures/udp-echo/build.sh /work/tmp/new-udp-release release-a
+/work/tmp/new-udp-release/amd64/udp-echo-client \
+  -endpoint 127.0.0.1:7777 -release release-a -vantage local-test
+```
+
+See [the fixture contract and image recipe](docs/fixture.md) for startup, bounds, image pins and evidence limits.

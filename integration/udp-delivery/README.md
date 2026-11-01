@@ -1,3 +1,10 @@
 # UDP delivery fixture checks
 
-These tests start the fixture's real HTTP and UDP listeners on loopback and run the separate bounded client. They cover release identity, refusal, timeout and oversized nonce behavior without touching Brine lifecycle or host network policy.
+Real local HTTP and UDP tests plus a teardown-safe subprocess runner for the disposable UDP fixture.
+
+```sh
+TMPDIR=/work/tmp/task-owned GOCACHE=/work/cache/go-build \
+  integration/udp-delivery/run-local.sh /work/tmp/new-udp-evidence
+```
+
+Run through the shared PC runner for builds and race tests. See [the fixture contract](../../fixtures/udp-echo/docs/fixture.md) for limits and the separate physical acceptance work.

@@ -17,6 +17,7 @@ func main() {
 	release := flag.String("release", "", "expected release identity")
 	attempts := flag.Int("attempts", 3, "maximum read-only attempts")
 	timeout := flag.Duration("attempt-timeout", time.Second, "per-attempt deadline")
+	overall := flag.Duration("overall-timeout", 5*time.Second, "overall probe deadline")
 	vantage := flag.String("vantage", "external-client", "network vantage label")
 	flag.Parse()
 	if flag.NArg() != 0 {
@@ -31,7 +32,7 @@ func main() {
 			os.Exit(2)
 		}
 	}
-	result, err := client.Probe(context.Background(), client.Config{Endpoint: *endpoint, Nonce: *nonce, ExpectedRelease: *release, Attempts: *attempts, AttemptTimeout: *timeout, Vantage: *vantage})
+	result, err := client.Probe(context.Background(), client.Config{Endpoint: *endpoint, Nonce: *nonce, ExpectedRelease: *release, Attempts: *attempts, AttemptTimeout: *timeout, OverallTimeout: *overall, Vantage: *vantage})
 	if err != nil && result.Outcome == "configuration_error" {
 		result.Error = err.Error()
 	}
