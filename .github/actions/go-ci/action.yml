@@ -1,0 +1,34 @@
+name: Go CI toolchain and cache
+description: Restore each check's own compiled packages and pinned analyzers.
+inputs:
+  role:
+    description: Unique job or race shard that owns this cache.
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        # Keep this in sync with mise.toml; go.mod declares the minimum supported Go.
+        go-version: "1.27.3"
+        cache: false
+    - id: paths
+      shell: bash
+      run: |
+        printf 'modules=%s\n' "$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+        printf 'build=%s\n' "$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+        cache_root=${XDG_CACHE_HOME:-$HOME/.cache}
+        printf 'tools=%s/brine-tools\nanalyzers=%s/golangci-lint\n' "$cache_root" "$cache_root" >> "$GITHUB_OUTPUT"
+        printf 'BRINE_TOOLS=%s/brine-tools\nGOLANGCI_LINT_CACHE=%s/golangci-lint\n' "$cache_root" "$cache_root" >> "$GITHUB_ENV"
+    - uses: actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: |
+          ${{ steps.paths.outputs.modules }}
+          ${{ steps.paths.outputs.build }}
+          ${{ steps.paths.outputs.tools }}
+          ${{ steps.paths.outputs.analyzers }}
+        # Each role saves its own work, not the first job to finish's partial cache.
+        key: go-ci-v1-${{ runner.os }}-${{ runner.arch }}-1.27.3-${{ inputs.role }}-${{ hashFiles('**/go.mod', '**/go.sum', 'scripts/check.sh', '.golangci*.yml', '.github/actions/go-ci/action.yml') }}-${{ github.sha }}
+        restore-keys: |
+          go-ci-v1-${{ runner.os }}-${{ runner.arch }}-1.27.3-${{ inputs.role }}-${{ hashFiles('**/go.mod', '**/go.sum', 'scripts/check.sh', '.golangci*.yml', '.github/actions/go-ci/action.yml') }}-
+          go-ci-v1-${{ runner.os }}-${{ runner.arch }}-1.27.3-${{ inputs.role }}-

@@ -90,37 +90,47 @@ func TestCIGateRejectsEveryUnsuccessfulResult(t *testing.T) {
 	for _, binding := range bindings {
 		jobs = append(jobs, binding[1])
 	}
-	run := func(t *testing.T, changed, result string, wantSuccess bool) {
-		t.Helper()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, "bash", "-euo", "pipefail", "-c", command) // #nosec G204 -- Executes this checkout's reviewed CI gate, never runtime input.
-		cmd.Env = []string{"PATH=" + os.Getenv("PATH")}
-		for _, job := range jobs {
-			value := "success"
-			if job == changed {
-				value = result
-			}
-			cmd.Env = append(cmd.Env, job+"="+value)
-		}
-		err := cmd.Run()
-		if ctx.Err() != nil {
-			t.Fatal(ctx.Err())
-		}
-		if wantSuccess && err != nil {
-			t.Fatalf("successful prerequisites rejected: %v", err)
-		}
-		if !wantSuccess {
-			var exit *exec.ExitError
-			if !errors.As(err, &exit) || exit.ExitCode() != 1 {
-				t.Fatalf("%s=%q must fail the gate: %v", changed, result, err)
-			}
-		}
+
+	t.Run("all successful", func(t *testing.T) { runCIGate(t, command, jobs, "full", "", "", true) })
+	for _, scope := range []string{"docs", "", "unknown"} {
+		t.Run("scope/"+scope, func(t *testing.T) { runCIGate(t, command, jobs, scope, "", "", scope == "docs") })
 	}
-	t.Run("all successful", func(t *testing.T) { run(t, "", "", true) })
 	for _, job := range jobs {
-		for _, result := range []string{"failure", "cancelled", "skipped", ""} {
-			t.Run(job+"/"+result, func(t *testing.T) { run(t, job, result, false) })
+		checkUnsuccessfulResults(t, command, jobs, job)
+	}
+}
+
+func checkUnsuccessfulResults(t *testing.T, command string, jobs []string, job string) {
+	t.Helper()
+	for _, result := range []string{"failure", "cancelled", "skipped", ""} {
+		t.Run(job+"/"+result, func(t *testing.T) { runCIGate(t, command, jobs, "full", job, result, false) })
+	}
+}
+
+func runCIGate(t *testing.T, command string, jobs []string, scope, changed, result string, wantSuccess bool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "bash", "-euo", "pipefail", "-c", command) // #nosec G204 -- Executes this checkout's reviewed CI gate, never runtime input.
+	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "SCOPE=" + scope}
+	for _, job := range jobs {
+		value := "success"
+		if job == changed {
+			value = result
+		}
+		cmd.Env = append(cmd.Env, job+"="+value)
+	}
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		t.Fatal(ctx.Err())
+	}
+	if wantSuccess && err != nil {
+		t.Fatalf("successful prerequisites rejected: %v", err)
+	}
+	if !wantSuccess {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+			t.Fatalf("%s=%q must fail the gate: %v", changed, result, err)
 		}
 	}
 }

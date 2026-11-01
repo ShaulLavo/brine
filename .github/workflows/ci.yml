@@ -8,6 +8,24 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: Classify CI inputs
+    runs-on: ubuntu-24.04
+    outputs:
+      scope: ${{ steps.scope.outputs.scope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PUSH_BASE: ${{ github.event.before }}
+        run: |
+          base=$(./scripts/lint-base.sh "$EVENT_NAME" "$PUSH_BASE")
+          scope=$(./scripts/ci-scope.sh "$base" HEAD)
+          printf 'scope=%s\n' "$scope" >> "$GITHUB_OUTPUT"
+
   cli-pair:
     name: Linux CLI binaries
     runs-on: ubuntu-24.04
@@ -16,10 +34,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: ./.github/actions/go-ci
         with:
-          go-version: "1.27.3"
-          cache: true
+          role: cli-pair
       - run: bash scripts/build-cli-pair.sh "$RUNNER_TEMP/brine-cli-pair"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -34,16 +51,17 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: ./.github/actions/go-ci
         with:
-          # Keep this in sync with mise.toml; go.mod declares the minimum supported Go.
-          go-version: "1.27.3"
-          cache: true
+          role: test
+      - run: bash scripts/test-ci.sh
       - run: ./scripts/check.sh test-normal
       - name: Check optional SpacetimeDB runtime probe
         run: bash scripts/check-spacetime-runtime.sh
 
   race:
+    needs: changes
+    if: always()
     name: Race tests (${{ matrix.shard }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -53,11 +71,15 @@ jobs:
         shard: [store, host, rest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: ./.github/actions/go-ci
+        if: needs.changes.outputs.scope != 'docs'
         with:
-          go-version: "1.27.3"
-          cache: true
+          role: race-${{ matrix.shard }}
       - run: ./scripts/check.sh test-race-${{ matrix.shard }}
+        if: needs.changes.outputs.scope != 'docs'
+      - name: Documentation-only change has no race inputs
+        if: needs.changes.outputs.scope == 'docs'
+        run: echo 'Normal Go tests, vet, format and documentation contracts still run in full.'
 
   lint:
     name: New-code static checks
@@ -67,10 +89,9 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: ./.github/actions/go-ci
         with:
-          go-version: "1.27.3"
-          cache: true
+          role: lint
       - name: Select the checked-out lint base
         id: lint-base
         env:
@@ -82,6 +103,7 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version: v2.14.0
+          skip-cache: true
           # PR checkout is a synthetic merge; its first parent is the actual main baseline.
           args: --new-from-merge-base= --new-from-rev=${{ steps.lint-base.outputs.sha }}
       - name: Lint isolated protocol experiment
@@ -94,10 +116,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: ./.github/actions/go-ci
         with:
-          go-version: "1.27.3"
-          cache: true
+          role: structure
       - run: ./scripts/check.sh structure
 
   vulnerability:
@@ -106,20 +127,21 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: ./.github/actions/go-ci
         with:
-          go-version: "1.27.3"
-          cache: true
+          role: vulnerability
       - run: ./scripts/check.sh vulnerability
 
   gate:
     name: Complete CI gate
     if: always()
-    needs: [test, race, lint, structure, vulnerability, cli-pair]
+    needs: [changes, test, race, lint, structure, vulnerability, cli-pair]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every CI job
         env:
+          CHANGES: ${{ needs.changes.result }}
+          SCOPE: ${{ needs.changes.outputs.scope }}
           TEST: ${{ needs.test.result }}
           RACE: ${{ needs.race.result }}
           LINT: ${{ needs.lint.result }}
@@ -127,4 +149,5 @@ jobs:
           VULNERABILITY: ${{ needs.vulnerability.result }}
           CLI_PAIR: ${{ needs.cli-pair.result }}
         run: |
+          [[ $CHANGES == success && ( $SCOPE == full || $SCOPE == docs ) ]]
           [[ $TEST == success && $RACE == success && $LINT == success && $STRUCTURE == success && $VULNERABILITY == success && $CLI_PAIR == success ]]
