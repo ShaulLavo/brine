@@ -185,6 +185,11 @@ func (s *Store) transitionOperation(ctx context.Context, id OpID, expected *Stat
 	if !ops.CanTransitionFor(kind, from, state) {
 		return &TransitionError{from, state}
 	}
+	if (kind == ops.Deploy || kind == ops.Resolve) && (state == ops.Succeeded || state == ops.Failed || state == ops.RolledBack) {
+		if err := guardUDPFamilySettled(ctx, tx, id); err != nil {
+			return err
+		}
+	}
 	if _, err = tx.ExecContext(ctx, "UPDATE operations SET state=?,updated_at=? WHERE id=?", state, timestamp(), id); err != nil {
 		return err
 	}

@@ -41,3 +41,22 @@ func TestUDPResumePreparationIsOperationBound(t *testing.T) {
 		t.Fatal("foreign claim hidden")
 	}
 }
+
+func TestUDPLifecycleUnsettledReservationRemainsNamedConflict(t *testing.T) {
+	in := udpInput(t, true)
+	in.State.UDP.Reservations[0].State = "releasing"
+	in.State.UDP.Reservations[0].Owner = "foreign"
+	p, err := BuildLifecycle(in, StartApp)
+	if err != nil || p.Kind != Conflict {
+		t.Fatal(p.Kind, err)
+	}
+	found := false
+	for _, conflict := range p.Conflicts {
+		if conflict.Code == UDPUnsettled {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal(p.Conflicts)
+	}
+}

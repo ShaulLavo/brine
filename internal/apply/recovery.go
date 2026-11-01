@@ -55,12 +55,12 @@ func (e *Executor) InspectRecovery(ctx context.Context, op Operation, p plan.Pla
 }
 
 func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, owners []string) (r Recovery, inspectErr error) {
-	if err := plan.RefuseUDPExecution(p, d); err != nil {
+	if err := plan.ValidateUDPExecution(p, d); err != nil {
 		return Recovery{Action: RequireRecovery}, err
 	}
 	r = Recovery{Action: RequireRecovery, operation: op, completed: map[string]bool{}, used: &atomic.Bool{}, resolutionOwners: owners}
 	defer func() { r.decision, r.boundary = r.Action, r.Step }()
-	forwardSteps := deploymentSteps(d)
+	forwardSteps := deploymentSteps(p, d)
 	var prefixOK bool
 	var refusedEffect bool
 	events, refusedEffect, prefixOK = ops.InspectionPrefix(events)
@@ -78,6 +78,12 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	}
 	if p.Lifecycle == plan.RemoveApp {
 		return e.inspectRemoveRecovery(ctx, op, p, d, events, r)
+	}
+	if p.UDP != nil && udpCompensationEvents(events) {
+		return e.inspectUDPCompensation(ctx, op, p, d, events, r)
+	}
+	if p.UDP != nil && (p.Lifecycle == plan.StartApp || p.Lifecycle == plan.StopApp || p.Lifecycle == plan.RestartApp) {
+		return e.inspectUDPLifecycle(ctx, op, p, d, events, r)
 	}
 	if op.State.IsTerminal() {
 		return r, nil
@@ -102,7 +108,7 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 		if json.Unmarshal(event.Payload, &step) != nil {
 			return r, nil
 		}
-		rollbackStep := slices.Contains([]string{"rollback_quiesce", "check_compatibility", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_route"}, step.Step)
+		rollbackStep := slices.Contains([]string{"rollback_quiesce", "check_compatibility", "rollback_unit", "rollback_reload", "rollback_start", "rollback_check", "rollback_route", "revert_udp", "rollback_udp_check", "rollback_udp"}, step.Step)
 		if refusedEffect && rollbackStep {
 			if rollbackPath == nil {
 				boundary := slices.Index(forwardSteps, r.Step)
@@ -120,6 +126,12 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 				}
 				if p.Kind != plan.Create {
 					rollbackPath = append(rollbackPath, "rollback_start", "rollback_check")
+				}
+				if p.UDP != nil {
+					rollbackPath = append(rollbackPath, "rollback_udp_check")
+					if udpPreparationNeeded(p) {
+						rollbackPath = append(rollbackPath, "rollback_udp")
+					}
 				}
 			}
 			if rollbackIndex >= len(rollbackPath) || step.Step != rollbackPath[rollbackIndex] {
@@ -168,6 +180,7 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	}
 	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, recoveryRollback: rollbackCompleted, writerStartOwners: owners}
 	r.execution = x
+	x.udpPreparationIntent = r.completed["prepare_udp"] || r.Step == "prepare_udp"
 	if len(owners) > 0 {
 		x.replicaOperation = owners[len(owners)-1]
 	} else {
@@ -268,10 +281,13 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	// read back even when its outcome was written before the crash.
 	if last.Outcome != "completed" {
 		switch r.Step {
-		case "preflight", "verify_image", "ensure_secrets", "check_direct", "check_routed":
+		case "preflight", "verify_image", "ensure_secrets", "check_direct", "check_routed", "check_udp", "check_udp_retired":
 			// These are read-only and can be rechecked, never replayed as mutations.
 		default:
 			if !x.resumeReplicaOnly {
+				if r.Step == "prepare_udp" && x.udpResolution(evidence, r.Step) == notApplied {
+					break
+				}
 				if x.reconcileUnknown(ctx, r.Step) != applied {
 					return r, nil
 				}
@@ -279,7 +295,7 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 				r.resolved = true
 			}
 		}
-	} else if slices.Contains([]string{"prepare_data", "quiesce_old", "install_unit", "start_unit"}, r.Step) && x.reconcileUnknown(ctx, r.Step) != applied {
+	} else if slices.Contains([]string{"prepare_udp", "prepare_data", "quiesce_old", "install_unit", "start_unit"}, r.Step) && x.reconcileUnknown(ctx, r.Step) != applied {
 		return r, nil
 	}
 	boundary := slices.Index(forwardSteps, r.Step)
@@ -305,7 +321,9 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	if boundary >= slices.Index(forwardSteps, "publish_route") {
 		return r, nil
 	}
-	fresh, buildErr := plan.Build(x.facts.Input)
+	input, prepared, rebuildErr := plan.RebuildInput(x.facts.Input, p, x.udpFamily())
+	fresh, buildErr := plan.Build(input)
+	buildErr = errors.Join(buildErr, rebuildErr)
 	original, err := p.CanonicalBytes()
 	if err != nil {
 		return r, nil
@@ -313,12 +331,12 @@ func (e *Executor) inspectRecovery(ctx context.Context, op Operation, p plan.Pla
 	rebuilt, canonicalErr := fresh.CanonicalBytes()
 	if len(rollbackCompleted) == 0 && buildErr == nil && canonicalErr == nil && bytes.Equal(original, rebuilt) {
 		r.Action = ResumeForward
-	} else if x.quiesced || x.installed {
+	} else if x.quiesced || x.installed || prepared {
 		if !x.hasPrevious || (x.previous.CaddyGeneration == x.facts.Routing.Generation && x.previous.CaddyFile.Hash == x.facts.Routing.Files[x.previous.CaddyFile.Name]) {
 			r.Action = RestorePrevious
 		}
 	}
-	if r.Action == RestorePrevious && (e.Units == nil || e.Systemd == nil || e.Podman == nil || e.Health == nil) {
+	if r.Action == RestorePrevious && (x.quiesced || x.installed) && (e.Units == nil || e.Systemd == nil || e.Podman == nil || e.Health == nil) {
 		r.Action = RequireRecovery
 	}
 	if r.Action != RequireRecovery {
@@ -340,7 +358,7 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 		return errors.New("apply: invalid recovery assessment")
 	}
 	x := r.execution
-	if err := plan.RefuseUDPExecution(x.plan, x.desired); err != nil {
+	if err := plan.ValidateUDPExecution(x.plan, x.desired); err != nil {
 		return err
 	}
 	if err := x.prepareResolution(ctx, r.resolutionState); err != nil {
@@ -359,6 +377,9 @@ func (e *Executor) Recover(ctx context.Context, r Recovery) error {
 	}
 	switch r.Action {
 	case ResumeForward:
+		if x.plan.UDP != nil && (x.plan.Lifecycle == plan.StartApp || x.plan.Lifecycle == plan.StopApp || x.plan.Lifecycle == plan.RestartApp) {
+			return x.lifecycle(ctx, r.completed)
+		}
 		if x.managedRouteOwner != "" {
 			return x.finishManagedRoute(ctx, r)
 		}
@@ -457,13 +478,26 @@ func releaseArtifactsObserved(facts Facts, release Release, app string) bool {
 	return false
 }
 
-func deploymentSteps(d policy.Desired) []string {
-	if d.Stateless() {
-		return forwardSteps
+func deploymentSteps(p plan.Plan, d policy.Desired) []string {
+	steps := make([]string, 0, len(forwardSteps)+4)
+	for _, name := range forwardSteps {
+		if name == "stage_unit" {
+			if !d.Stateless() {
+				steps = append(steps, "prepare_data")
+			}
+			if udpPreparationNeeded(p) {
+				steps = append(steps, "prepare_udp")
+			}
+		}
+		if name == "publish_route" && p.UDP != nil {
+			if p.UDP.Next != nil {
+				steps = append(steps, "check_udp")
+			}
+			if p.UDP.Retire != nil {
+				steps = append(steps, "check_udp_retired")
+			}
+		}
+		steps = append(steps, name)
 	}
-	index := slices.Index(forwardSteps, "stage_unit")
-	steps := make([]string, 0, len(forwardSteps)+1)
-	steps = append(steps, forwardSteps[:index]...)
-	steps = append(steps, "prepare_data")
-	return append(steps, forwardSteps[index:]...)
+	return steps
 }

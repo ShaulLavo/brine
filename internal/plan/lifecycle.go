@@ -92,6 +92,9 @@ func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
 			}
 		}
 	}
+	if p.Kind != Conflict && p.UDP != nil && (p.UDP.Retire != nil || p.UDP.Keep == "" || !reflect.DeepEqual(p.UDP.Next, current.UDP)) {
+		return Plan{}, fmt.Errorf("lifecycle cannot change UDP allocation")
+	}
 	p.Hash = ""
 	p.Lifecycle = action
 	p.Diff = nil
@@ -99,7 +102,7 @@ func BuildLifecycle(in Input, action ChangeKind) (Plan, error) {
 	if p.Kind != Conflict {
 		p.Kind = Update
 		p.Secrets = slices.Clone(current.Secrets)
-		p.ConfigHash = configHash(in.Desired, in.Image, current.HostPort, p.Secrets)
+		p.ConfigHash = udpConfigHash(in.Desired, in.Image, current.HostPort, p.Secrets, p.UDP)
 		change := Change{Kind: action}
 		switch action {
 		case RestartApp:

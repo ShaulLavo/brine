@@ -219,7 +219,7 @@ func TestUDPReservationPersistsAndDirectCommitCannotBypassGate(t *testing.T) {
 		t.Fatal(state.UDP, err)
 	}
 	r := release(t, s, "forged-http-only-commit")
-	if err := s.CommitRelease(t.Context(), "hello", r); !errors.Is(err, plan.ErrUDPExecutionUnavailable) {
+	if err := s.CommitRelease(t.Context(), "hello", r); !errors.Is(err, ErrConflict) {
 		t.Fatal("HTTP-only commit abandoned a UDP reservation", err)
 	}
 	var count int

@@ -33,6 +33,11 @@ const (
 // Inspection is read-only and happens only after the unknown outcome is durable.
 // A running service is not evidence of an artifact, reload or commit outcome.
 func (x *execution) reconcileUnknown(ctx context.Context, step string) resolution {
+	if step == "prepare_udp" || step == "revert_udp" || step == "rollback_udp" {
+		probe, cancel := context.WithTimeout(context.WithoutCancel(ctx), x.executor.effectTimeout())
+		defer cancel()
+		return x.udpResolution(probe, step)
+	}
 	budget := x.executor.effectTimeout()
 	if step == "start_unit" {
 		budget += x.executor.effectTimeout() + time.Duration(x.desired.Health.StartupDeadlineSeconds)*time.Second
@@ -99,6 +104,9 @@ func (x *execution) reconcileUnknown(ctx context.Context, step string) resolutio
 			retired, err := store.AppRetired(ctx, x.id, x.plan.App, x.plan.Removal.ReleaseID)
 			if err == nil && retired {
 				result = applied
+				if x.plan.UDP != nil && x.udpResolution(ctx, "retire_app") != applied {
+					result = unresolved
+				}
 			}
 		}
 	case "start_unit", "rollback_start":
@@ -179,6 +187,9 @@ func (x *execution) reconcileUnknown(ctx context.Context, step string) resolutio
 		}
 		if exists && reflect.DeepEqual(current, *x.nextRelease) {
 			result = applied
+			if x.plan.UDP != nil && x.udpResolution(ctx, "commit") != applied {
+				result = unresolved
+			}
 		} else if exists == x.hasPrevious && (!exists || reflect.DeepEqual(current, x.previous)) {
 			result = notApplied
 		}

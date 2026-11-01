@@ -23,7 +23,7 @@ Brine is pre-1.0 and experimental. It has one maintainer, no release and no tag.
 | Migrations for an existing database schema | Not implemented. |
 | Full Charm terminal UI | Not built. `brine tui` shows a welcome screen. |
 | Static drops, git previews | Not built. |
-| UDP and WebTransport publishing | UDP declarations, conflict-only plans, isolated rendering and read-only local ownership/status are implemented. Deployment and lifecycle execution remain gated. |
+| UDP and WebTransport publishing | UDP planning, reservations, apply, lifecycle, exact rollback, removal and recovery are implemented. Physical UDP delivery and interruption drills on both architectures remain open. WebTransport is not implemented. |
 
 ## Platform support
 

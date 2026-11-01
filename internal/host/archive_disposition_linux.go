@@ -16,6 +16,11 @@ import (
 )
 
 func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archive.Operation, abandon bool) error {
+	if !abandon {
+		if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
+			return err
+		}
+	}
 	if nativeArchiveCandidate(p.Candidate) {
 		if abandon {
 			return archive.ErrRefused
@@ -70,6 +75,9 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 // Credentials, configs, journal history and remote epoch objects are retained.
 // An uncertain result is never retried by disposition execution.
 func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) error {
+	if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
+		return err
+	}
 	if nativeArchiveCandidate(p.Candidate) {
 		return h.retireNativeArchiveRuntime(ctx, p)
 	}

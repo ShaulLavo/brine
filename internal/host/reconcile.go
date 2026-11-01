@@ -77,9 +77,17 @@ type operationFacts struct {
 
 func (f operationFacts) Read(ctx context.Context) (apply.Facts, error) {
 	if f.removal {
-		return f.service.removalFacts(ctx, f.desired)
+		facts, err := f.service.removalFacts(ctx, f.desired)
+		if err == nil {
+			facts.Input, err = f.udpRebuild(ctx, facts.Input)
+		}
+		return facts, err
 	}
 	facts, err := f.service.facts(ctx, App(f.desired))
+	if err != nil {
+		return facts, err
+	}
+	facts.Input, err = f.udpRebuild(ctx, facts.Input)
 	if err != nil {
 		return facts, err
 	}

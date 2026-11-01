@@ -231,7 +231,15 @@ func (s Service) Rollback(ctx context.Context, app, id string) (RollbackPlan, er
 	if !stateless(current.Desired) || !stateless(desired) {
 		return RollbackPlan{}, result.New(result.RecoveryRequired, nil)
 	}
-	p, err := plan.Build(plan.Input{Desired: desired, Snapshot: snap, Image: release.Image, State: state})
+	input := plan.Input{Desired: desired, Snapshot: snap, Image: release.Image, State: state}
+	if udpRollbackInvolved(input, stored) {
+		input, err = s.udpRollbackInput(ctx, input, stored)
+		if err != nil {
+			return RollbackPlan{}, err
+		}
+		desired = input.Desired
+	}
+	p, err := plan.Build(input)
 	if err != nil {
 		return RollbackPlan{}, err
 	}

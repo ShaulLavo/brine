@@ -139,9 +139,7 @@ func checkUDPCollectorConsumers(t *testing.T, missing bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(p.Conflicts, plan.Diagnostic{Code: plan.UDPExecutionUnavailable, Field: "udp"}) {
-		t.Fatal("activation guard lost", p.Conflicts)
-	}
+
 	if slices.Contains(p.Conflicts, plan.Diagnostic{Code: plan.UDPPortOwned, Field: "udp.endpoint"}) != missing {
 		t.Fatal("planner did not consume UDP proof", p.Conflicts)
 	}
