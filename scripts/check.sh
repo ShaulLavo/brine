@@ -95,6 +95,7 @@ format_check() {
     printf '%s\n' "$unformatted" >&2
     return 1
   fi
+  ./scripts/test-docs-commands.sh
   git diff --check
   git diff --check "$(git hash-object -t tree /dev/null)" HEAD
 }
