@@ -19,26 +19,30 @@ const (
 	RevokeDomain     PermissionKind = "revoke_domain"
 	AllowCDNBinding  PermissionKind = "allow_cdn_binding"
 	RevokeCDNBinding PermissionKind = "revoke_cdn_binding"
+	AllowSecret      PermissionKind = "allow_secret"
+	RevokeSecret     PermissionKind = "revoke_secret"
 )
 
 type PermissionAction struct {
-	Kind       PermissionKind `json:"kind"`
-	Registry   *Registry      `json:"registry,omitempty"`
-	Domain     string         `json:"domain,omitempty"`
-	CDNBinding *cdn.Binding   `json:"cdn_binding,omitempty"`
+	Kind       PermissionKind    `json:"kind"`
+	Registry   *Registry         `json:"registry,omitempty"`
+	Domain     string            `json:"domain,omitempty"`
+	CDNBinding *cdn.Binding      `json:"cdn_binding,omitempty"`
+	Secret     *SecretPermission `json:"secret,omitempty"`
 }
 
 type Permissions struct {
-	Registries  []Registry    `json:"registries"`
-	Domains     []string      `json:"domains"`
-	CDNBindings []cdn.Binding `json:"cdn_bindings"`
+	Registries     []Registry          `json:"registries"`
+	Domains        []string            `json:"domains"`
+	CDNBindings    []cdn.Binding       `json:"cdn_bindings"`
+	AllowedSecrets map[string][]string `json:"allowed_secrets"`
 }
 
 func (p Policy) Permissions() Permissions {
 	if p.config == nil {
 		return Permissions{}
 	}
-	return Permissions{Registries: cloneRegistries(p.config.AllowedRegistries), Domains: slices.Clone(p.config.AllowedDomains), CDNBindings: cloneCDNBindings(p.config.CDNBindings)}
+	return Permissions{Registries: cloneRegistries(p.config.AllowedRegistries), Domains: slices.Clone(p.config.AllowedDomains), CDNBindings: cloneCDNBindings(p.config.CDNBindings), AllowedSecrets: cloneAllowedSecrets(p.config.AllowedSecrets)}
 }
 
 func cloneCDNBindings(input []cdn.Binding) []cdn.Binding {
@@ -65,13 +69,9 @@ func (p Policy) EditPermissions(actions []PermissionAction) (Policy, []byte, err
 	next.AllowedRegistries = cloneRegistries(next.AllowedRegistries)
 	next.AllowedDomains = slices.Clone(next.AllowedDomains)
 	next.CDNBindings = cloneCDNBindings(next.CDNBindings)
-	seen := map[string]bool{}
-	for _, action := range actions {
-		key, err := applyPermission(&next, action)
-		if err != nil || seen[key] {
-			return Policy{}, nil, errors.New("invalid or repeated permission change")
-		}
-		seen[key] = true
+	next.AllowedSecrets = cloneAllowedSecrets(next.AllowedSecrets)
+	if err := applyPermissions(&next, actions); err != nil {
+		return Policy{}, nil, err
 	}
 	raw, err := toml.Marshal(next)
 	if err != nil {
@@ -85,10 +85,30 @@ func (p Policy) EditPermissions(actions []PermissionAction) (Policy, []byte, err
 	return parsed, raw, err
 }
 
+// ValidatePermissionActions checks the closed action union and exact change identities.
+func ValidatePermissionActions(actions []PermissionAction) error {
+	return applyPermissions(&document{}, actions)
+}
+
+func applyPermissions(next *document, actions []PermissionAction) error {
+	if len(actions) == 0 || len(actions) > 128 {
+		return errors.New("invalid permission changes")
+	}
+	seen := map[string]bool{}
+	for _, action := range actions {
+		key, err := applyPermission(next, action)
+		if err != nil || seen[key] {
+			return errors.New("invalid or repeated permission change")
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
 func applyPermission(next *document, action PermissionAction) (string, error) {
 	switch action.Kind {
 	case AllowDomain, RevokeDomain:
-		if action.Registry != nil || action.CDNBinding != nil || action.Domain == "" || strings.Contains(action.Domain, "*") {
+		if action.Registry != nil || action.CDNBinding != nil || action.Secret != nil || action.Domain == "" || strings.Contains(action.Domain, "*") {
 			return "", errors.New("expected an exact domain")
 		}
 		domain := strings.ToLower(action.Domain)
@@ -101,15 +121,20 @@ func applyPermission(next *document, action PermissionAction) (string, error) {
 		}
 		return "domain:" + domain, nil
 	case AllowRegistry, RevokeRegistry:
-		if action.Registry == nil || action.CDNBinding != nil || action.Domain != "" || len(action.Registry.RepositoryPrefixes) != 1 || action.Registry.RepositoryPrefixes[0] == "" {
+		if action.Registry == nil || action.CDNBinding != nil || action.Secret != nil || action.Domain != "" || len(action.Registry.RepositoryPrefixes) != 1 || action.Registry.RepositoryPrefixes[0] == "" {
 			return "", errors.New("expected one registry repository prefix")
 		}
 		return editRegistry(next, action)
 	case AllowCDNBinding, RevokeCDNBinding:
-		if action.CDNBinding == nil || action.Registry != nil || action.Domain != "" {
+		if action.CDNBinding == nil || action.Registry != nil || action.Secret != nil || action.Domain != "" {
 			return "", errors.New("expected one exact CDN binding")
 		}
 		return editCDNBinding(next, action)
+	case AllowSecret, RevokeSecret:
+		if action.Secret == nil || action.Registry != nil || action.CDNBinding != nil || action.Domain != "" || !action.Secret.Valid() {
+			return "", errors.New("expected one exact app secret reference")
+		}
+		return editSecretPermission(next, action), nil
 	default:
 		return "", errors.New("unknown permission action")
 	}

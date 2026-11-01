@@ -38,7 +38,10 @@ matching the spec boundary. This version does not implement IDN conversion.
 allowed_secrets is a table mapping app names to sets of logical secret reference
 names. Missing entries permit no secrets for that app. Reference case matters.
 The package never resolves secret values or immutable Podman secret versions.
-Those are host state under D5, not desired config.
+Those are host state under D5, not desired config. The root-only operator
+permission workflow can grant or revoke an exact app/reference pair through
+SecretPermission. Permission views clone both the map and its reference slices;
+permission edits preserve all unrelated policy fields.
 
 persistent_roots is a set of clean, absolute, non-root ASCII paths. Empty means
 no approved persistence roots. Policy stores and hashes them for later phases;

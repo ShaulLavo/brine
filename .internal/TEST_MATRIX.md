@@ -1210,6 +1210,13 @@ never retry a lost response. Metadata controls reject non-root, writable, linked
 or symlinked journal files; the existing operator-policy tests cover protected
 policy metadata and edited-policy retention during unenrollment. CLI controls
 exercise noninteractive machine plans and reject unavailable capability setters.
+`TestSecretPermissions*` additionally covers exact case-sensitive app/reference
+grants and revocations, immutable policy maps and slices, preservation of other
+apps and references, closed action and review-map codecs, malformed names and
+mixed/repeated/contradictory actions. Service controls cover no-op byte retention,
+replay after revocation, stale bytes, lost acknowledgements and pending-operation
+fences. CLI controls keep `--app` audit-only and require a separate exact
+`--secret-app` with logical-reference flags before transport.
 Physical host permission mutation remains separate operator acceptance.
 
 ## CDN attachments (D14)

@@ -166,8 +166,11 @@ atomic replacement and reconciles lost replies from actual file hashes. Unsettle
 operations fence another change. Rollback is a fresh inverse plan against current
 policy, not enrollment undo. This workflow changes registry prefixes and exact
 domain entries. D14 adds exact typed CDN binding grants and revocations through
-the same reviewed admin path. Resource, disk, port, secret and database authority
-remain outside its editable action set. Other policy fields remain semantically unchanged.
+the same reviewed admin path. Exact per-app logical secret-reference grants and
+revocations also use this path, with a separate typed app/reference pair. The
+command never receives secret values, and `secret set` cannot grant authority.
+Resource, disk, port and database authority remain outside its editable action
+set. Other policy fields remain semantically unchanged.
 An optional app label is audit metadata, not a new application authorization model.
 
 ## D9. Drops and git previews: Vercel-fast deploys on our own server

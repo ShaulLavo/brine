@@ -123,7 +123,7 @@ KEY=$(openssl rand -hex 16)
   --plan-id PLAN_ID --idempotency-key "$KEY"
 ```
 
-If the connection drops, run `permissions status` with the same key. Never invent a second key for the same change. This command edits registries and domains only. To allow a secret, edit `/etc/ssh/brine/operator-policy.toml` on the server as root. See the [configuration reference](../reference/configuration.md#operator-policy).
+If the connection drops, run `permissions status` with the same key. Never invent a second key for the same change. This command edits registries, domains, CDN bindings and exact per-app secret-reference grants. To allow a secret reference, use a separate reviewed permission plan. See the [configuration reference](../reference/configuration.md#operator-policy).
 
 ## Plan and apply a deployment
 
@@ -170,6 +170,24 @@ Configuration changes are plans too. Set an environment variable, then apply the
 ```sh
 ./brine config set hello APP_ENV=production --target mybox --json | jq -r .data.plan_id
 ```
+
+Before storing the first version, the operator can grant its logical reference
+through the same admin plan/apply workflow:
+
+```sh
+./brine permissions plan --target mybox --admin root@server.example.com \
+  --secret-app hello --allow-secret-ref hello-token --json --no-input
+./brine permissions apply --target mybox --admin root@server.example.com \
+  --plan-id PERMISSION_PLAN_ID --idempotency-key 0123456789abcdef0123456789abcdef \
+  --json --no-input
+```
+
+Use the returned plan ID and a new stable operation key for each reviewed change.
+To revoke only this pair, create a new plan with
+`--secret-app hello --revoke-secret-ref hello-token`, then apply it with its own
+key. The optional `--app` flag labels the audit record and never replaces `--secret-app`. These
+commands accept reference names only. Build the revised client and host binary
+from the same source before using the new flags.
 
 Store a secret value from stdin. It never goes in an argument. Then bind it to an environment variable through `config set`:
 

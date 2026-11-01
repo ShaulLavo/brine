@@ -487,7 +487,8 @@ The commands support `--json`, `--jsonl` and `--no-input`; authorization comes f
 existing admin credentials and the reviewed plan, not an enrollment prompt.
 
 - `permissions show` returns the current policy hash, registry and domain lists,
-  and exact typed CDN bindings.
+  exact typed CDN bindings and the `allowed_secrets` map of app names to logical
+  references.
 - `permissions plan` accepts repeatable `--allow-registry REGISTRY/REPOSITORY`,
   `--revoke-registry REGISTRY/REPOSITORY`, `--allow-domain DOMAIN` and
   `--revoke-domain DOMAIN`. Repository entries authorize that exact prefix and its
@@ -501,6 +502,17 @@ existing admin credentials and the reviewed plan, not an enrollment prompt.
   the full canonical binding to match when present; an absent binding is a no-op.
   Mixed registry, domain and binding fields within one action refuse. Binding
   JSON rejects unknown fields, aliases, duplicates and malformed nested objects.
+- `permissions plan --secret-app APP --allow-secret-ref REF` grants one exact
+  app/reference pair. `--revoke-secret-ref REF` revokes only that pair. Reference
+  flags repeat, but `--secret-app` must appear exactly once when either is used
+  and cannot appear without a reference change. `--app` remains audit metadata
+  and never supplies the secret scope. References are case-sensitive logical
+  names, never secret bytes, paths, environment assignments or Podman version IDs.
+  Apps follow the existing app-name grammar, references follow the existing
+  secret-reference grammar and the derived Podman name must fit its 253-byte limit.
+  Wildcards, path-like names, mixed action fields, duplicate pairs and contradictory
+  allow/revoke pairs refuse before privileged execution. Existing grants and absent
+  revocations are no-ops. Other apps and references remain unchanged.
 - `permissions apply --plan-id ID --idempotency-key KEY` requires the reviewed
   64-hex plan ID and a stable 32-hex operation key. It checks current policy bytes
   under root-owned locks, journals intent, atomically replaces only the policy and
@@ -515,11 +527,34 @@ Plans and operations live under root-owned private `/var/lib/brine-permissions`;
 policy remains root-owned at `/etc/ssh/brine/operator-policy.toml`. The enrollment
 journal's original file provenance is untouched, so unenrollment still preserves
 operator-managed policy. Request fields are closed and bounded; resource limits,
-ports, disks, secrets and data permissions cannot be edited by this command.
-Typed policy editing preserves all other fields, including CDN bindings during
-registry or domain edits. A new reviewed inverse
+ports, disks and data permissions cannot be edited by this command.
+Typed policy editing preserves all other fields, including secret grants and CDN
+bindings during registry or domain edits. A new reviewed inverse
 allow/revoke plan performs rollback. This changes future deployment permission;
 it does not stop an application, remove its data, mutate a provider or undo a release.
+
+Secret changes use the existing closed permission-action union. The only new
+variants are the following JSON objects:
+
+```json
+{"kind":"allow_secret","secret":{"app":"hello","reference":"hello-token"}}
+```
+
+```json
+{"kind":"revoke_secret","secret":{"app":"hello","reference":"hello-token"}}
+```
+
+Each `secret` object requires exactly `app` and `reference`. Both review views and
+`permissions show` include `allowed_secrets`, an object whose values are arrays of
+logical references. The existing 128-action and bounded request/response limits
+still apply. The journal contains reference names and policy bytes, never secret
+values. `secret set` still requires the current app-scoped grant; it cannot grant
+itself permission. Revocation does not delete stored secret versions or stop a
+running app. Future operations recheck the current policy.
+
+Build and install the same revised Brine source on the client and enrolled host
+before using these actions. No policy schema or control-database migration is
+required. This change adds no binary installer, release, credential or sudo grant.
 
 If the admin connection disappears, inspect status using the same key. Resume the
 same reviewed apply only when its actual before-state is still known; never invent
