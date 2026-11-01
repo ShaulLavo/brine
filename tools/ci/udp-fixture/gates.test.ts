@@ -82,6 +82,41 @@ test("package visibility is a gate, never an automatic change", async () => {
   }
 });
 
+test("bootstrap rejects any existing package or run-scoped tag and digest", async () => {
+  const { verifyBootstrapPreflight } = await import(helperPath);
+  const absent = { status: 404 };
+  expect(() => verifyBootstrapPreflight({ status: 200, value: { name: "brine-udp-fixture" } }, [])).toThrow(/package must be absent/);
+  expect(() => verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "present", digest: "sha256:" + "a".repeat(64) }])).toThrow(/tag or digest must be absent/);
+  expect(verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "absent" }]).packageState).toBe("absent");
+});
+
+test("unknown platform push reconciliation binds the exact tag, digest, manifest and config", async () => {
+  const { reconcilePlatformPublication } = await import(helperPath);
+  const configText = JSON.stringify({ os: "linux", architecture: "amd64", config: { User: "65532:65532", Entrypoint: ["/udp-echo-server"], Labels: { "org.opencontainers.image.revision": sha, "org.opencontainers.image.source": "https://github.com/ShaulLavo/brine", "org.opencontainers.image.version": `p08-08-${sha}-a` } } });
+  const configDigest = digest(configText);
+  const manifest = JSON.stringify({ schemaVersion: 2, config: { mediaType: "application/vnd.oci.image.config.v1+json", digest: configDigest, size: Buffer.byteLength(configText) }, layers: [{ mediaType: "application/vnd.oci.image.layer.v1.tar+gzip", digest: "sha256:" + "b".repeat(64), size: 10 }] });
+  const tag = "ghcr.io/shaullavo/brine-udp-fixture:platform-tag";
+  const result = reconcilePlatformPublication({ tag, source: sha, release: `p08-08-${sha}-a`, platform: "amd64", config: configDigest }, { tag, status: "present", raw: manifest });
+  expect(result).toMatchObject({ decision: "success", tag, manifestDigest: digest(manifest), configDigest });
+  expect(reconcilePlatformPublication({ tag, source: sha, release: `p08-08-${sha}-a`, platform: "amd64", config: configDigest }, { tag, status: "absent" }).decision).toBe("retry");
+  expect(reconcilePlatformPublication({ tag, source: sha, release: `p08-08-${sha}-a`, platform: "amd64", config: configDigest }, { tag, status: "unknown" }).decision).toBe("stop");
+});
+
+test("unknown index creation reconciliation binds the exact digest and platform set", async () => {
+  const { reconcileIndexPublication } = await import(helperPath);
+  const platformRefs = { amd64: "ghcr.io/shaullavo/brine-udp-fixture@sha256:" + "a".repeat(64), arm64: "ghcr.io/shaullavo/brine-udp-fixture@sha256:" + "b".repeat(64) };
+  const index = JSON.stringify({ schemaVersion: 2, manifests: [
+    { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: platformRefs.amd64.slice("ghcr.io/shaullavo/brine-udp-fixture@".length), size: 500, platform: { os: "linux", architecture: "amd64" } },
+    { mediaType: "application/vnd.oci.image.manifest.v1+json", digest: platformRefs.arm64.slice("ghcr.io/shaullavo/brine-udp-fixture@".length), size: 500, platform: { os: "linux", architecture: "arm64" } },
+  ] });
+  const tag = "ghcr.io/shaullavo/brine-udp-fixture:index-tag";
+  const intent = { tag, platformRefs };
+  expect(reconcileIndexPublication(intent, { tag, status: "present", raw: index })).toMatchObject({ decision: "success", tag, indexDigest: digest(index), platforms: ["amd64", "arm64"] });
+  expect(reconcileIndexPublication(intent, { tag, status: "absent" }).decision).toBe("retry");
+  const broken = JSON.stringify({ ...JSON.parse(index), manifests: JSON.parse(index).manifests.slice(0, 1) });
+  expect(reconcileIndexPublication(intent, { tag, status: "present", raw: broken }).decision).toBe("stop");
+});
+
 test("runtime echo proof requires the exact nonce, compiled identity and explicit bounds", async () => {
   const { verifyEcho } = await import(helperPath);
   const proof = { schema: 1, fixture: "brine-udp-echo", endpoint: "127.0.0.1:7777", expected_release: "release-a", attempts: 1, attempt_timeout_ms: 1000, overall_timeout_ms: 2000, nonce: "nonce-a", outcome: "ok", response: { release: "release-a", nonce: "nonce-a" } };
