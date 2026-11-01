@@ -88,13 +88,19 @@ func (r *udpSQLiteRig) CommitRelease(ctx context.Context, app string, release Re
 	if err := r.database.CommitRelease(ctx, app, release); err != nil {
 		return err
 	}
-	return r.udpRig.CommitRelease(ctx, app, release)
+	if err := r.udpRig.CommitRelease(ctx, app, release); err != nil {
+		return err
+	}
+	return r.pauseApplied("commit")
 }
 func (r *udpSQLiteRig) RetireApp(ctx context.Context, id, app, release string) error {
 	if err := r.database.RetireApp(ctx, id, app, release); err != nil {
 		return err
 	}
-	return r.udpRig.RetireApp(ctx, id, app, release)
+	if err := r.udpRig.RetireApp(ctx, id, app, release); err != nil {
+		return err
+	}
+	return r.pauseApplied("retire_app")
 }
 func (r *udpSQLiteRig) AppRetired(ctx context.Context, id, app, release string) (bool, error) {
 	return r.database.AppRetired(ctx, id, app, release)
@@ -111,7 +117,8 @@ func (r *udpSQLiteRig) wire() {
 	r.executor.Releases = r
 	r.executor.Plans = r.database
 	r.executor.Units = r
-	r.executor.UDPReservations = r.database
+	r.executor.UDPReservations = r
+	r.executor.UDPChecks = r
 	r.executor.Facts = FactsFunc(func(context.Context) (Facts, error) { return r.facts, nil })
 }
 func (r *udpSQLiteRig) save(t testing.TB) {
@@ -203,7 +210,7 @@ func TestUDPSubprocessHelper(t *testing.T) {
 func TestUDPRealSubprocessInterruptionBoundaries(t *testing.T) {
 	for _, mode := range []string{"create", "move", "remove"} {
 		for _, step := range udpKillSteps(mode) {
-			for _, outcome := range []string{"intent", "completed"} {
+			for _, outcome := range []string{"intent", "applied", "completed"} {
 				t.Run(mode+"/"+step+"/"+outcome, func(t *testing.T) { runUDPSubprocessBoundary(t, mode, step, outcome) })
 			}
 		}
@@ -317,11 +324,11 @@ func runUDPSubprocessBoundary(t *testing.T, mode, step, outcome string) {
 	}
 	if step == "commit" {
 		want = RequireRecovery
-		if outcome == "completed" {
+		if outcome != "intent" {
 			want = FinishSucceeded
 		}
 	}
-	if step == "retire_app" && outcome == "completed" {
+	if step == "retire_app" && outcome != "intent" {
 		want = FinishSucceeded
 	}
 	if assessment.Action != want {
@@ -354,4 +361,43 @@ func runUDPSubprocessBoundary(t *testing.T, mode, step, outcome string) {
 	if final.State != Succeeded && final.State != RolledBack && final.State != Failed {
 		t.Fatal("not settled", final.State, state)
 	}
+}
+
+func (r *udpSQLiteRig) pauseApplied(step string) error {
+	if r.pauseStep != step || r.pauseOutcome != "applied" {
+		return nil
+	}
+	if err := r.freeze(); err != nil {
+		return err
+	}
+	fmt.Println("UDP_BOUNDARY_DURABLE")
+	time.Sleep(time.Minute)
+	return nil
+}
+func (r *udpSQLiteRig) PrepareUDP(ctx context.Context, id string, p plan.Plan) error {
+	if err := r.database.PrepareUDP(ctx, id, p); err != nil {
+		return err
+	}
+	return r.pauseApplied("prepare_udp")
+}
+func (r *udpSQLiteRig) UDPPreparation(ctx context.Context, id string, p plan.Plan) (string, error) {
+	return r.database.UDPPreparation(ctx, id, p)
+}
+func (r *udpSQLiteRig) RevertUDP(ctx context.Context, id string, p plan.Plan) error {
+	if err := r.database.RevertUDP(ctx, id, p); err != nil {
+		return err
+	}
+	return r.pauseApplied(r.intent)
+}
+func (r *udpSQLiteRig) Ready(ctx context.Context, id string, p plan.Plan, previous bool) error {
+	if err := r.udpRig.Ready(ctx, id, p, previous); err != nil {
+		return err
+	}
+	return r.pauseApplied(r.intent)
+}
+func (r *udpSQLiteRig) Absent(ctx context.Context, id string, p plan.Plan, e plan.UDPEndpoint) error {
+	if err := r.udpRig.Absent(ctx, id, p, e); err != nil {
+		return err
+	}
+	return r.pauseApplied(r.intent)
 }
