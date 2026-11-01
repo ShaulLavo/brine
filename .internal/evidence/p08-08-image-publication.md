@@ -17,7 +17,18 @@ Before a builder starts, a read-only gate requires the existing
 repository and anonymously readable. Missing package metadata, private or
 unknown visibility, missing linkage, denied anonymous access and missing
 confirmation stop the run. First-time public-package setup is not automated.
-The workflow never creates credentials or changes package visibility.
+The normal publication path never creates credentials or changes package visibility.
+
+This follow-up adds a separate `bootstrap_confirmed` dispatch input for the
+single approved first publication. Bootstrap accepts only an absent package,
+records an atomic intent before the first qualified image push, and uses the
+workflow's `GITHUB_TOKEN` through the existing GHCR login. It then reads back
+the owner package metadata and anonymous registry access. The source and
+qualification receipts remain unchanged. The workflow does not call a package
+visibility or linkage mutation API: if the token cannot create the exact public
+package linked to `ShaulLavo/brine`, the run records the observed outcome and
+stops rather than leaving a private substitute or retrying an unknown write.
+Unknown image-push outcomes inspect package metadata once before stopping.
 
 Native Linux amd64 and arm64 jobs build the reviewed Dockerfile with no build
 network and its existing no-download Go settings. They compile
@@ -66,12 +77,14 @@ remains unchanged and still has no published fixture image value.
 
 ## Verification
 
-The new focused tests were run before implementation and failed because the
-workflow/helper did not exist. The final focused suite exercises dispatch and
-source refusals, exact OCI byte custody, platform/config substitution refusal,
-public-package gates, bounded echo proof, workflow ordering and the real CLI
-against synthetic Git. Its fake Docker and Go commands refuse any invocation.
-No local container, Go build, registry write or host deployment occurs in them.
+The bootstrap-focused assertions were run before implementation and failed
+before the new input, path and receipts existed. The final focused suite has
+14 tests and 126 assertions covering dispatch and source refusals, exact OCI
+byte custody, platform/config substitution refusal, public-package gates,
+bootstrap readback and unknown-write classification, workflow ordering and the
+real CLI against synthetic Git. Its fake Docker and Go commands refuse any
+invocation. No local container, Go build, registry write or host deployment
+occurs in them.
 
 Local checks use the shared PC runner with owned scratch and teardown:
 
@@ -91,9 +104,11 @@ git diff --check
 Type checking reuses cached TypeScript 7.0.2 and cached Bun 1.4.2 declarations;
 execution uses the pinned Bun 1.4.4. No package installation is required.
 The private report includes a rerunnable TypeScript AST nesting check. No code
-path exceeds three levels. Full Go, store, host, race and fixture proof suites
-were not duplicated locally because this slice changes no Go or runtime input.
-The parent owns normal PR CI and independent review.
+path exceeds three levels. `go vet ./...` and `go build ./cmd/brine` passed.
+`go test ./...` was also attempted, but the existing `internal/host` engine
+source-verification tests and one `internal/store` publication-path test failed
+before this slice touched any Go or runtime input. No Go file changed here; the
+parent owns normal PR CI and independent review.
 
 ## Remaining execution gates
 
@@ -115,3 +130,11 @@ images created by the workflow have explicit cleanup. Pre-existing images are
 preserved, the pinned Buildx action owns its builder cleanup, and published
 registry artifacts are retained rather than automatically deleted. An unknown
 write is reconciled from the saved intent and actual registry state.
+
+## Post-drill retention decision
+
+`post_drill_keep_delete_decision: pending` is the recorded status until the
+owner reviews the completed UDP drill. Set it to `keep` when the immutable
+fixture remains needed by a follow-up drill, or to `delete` only after all
+consumers and retained receipts are gone. This source-only change performs no
+registry deletion.

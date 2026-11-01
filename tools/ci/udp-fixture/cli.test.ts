@@ -22,7 +22,7 @@ esac
 `);
     chmodSync(join(directory, "git"), 0o700);
     refuseHostTools(directory);
-    const env = { ...process.env, GH_TOKEN: "", GITHUB_TOKEN: "", PATH: `${directory}:${process.env.PATH}`, CALL_LOG: log, MOCK_HEAD: source, MOCK_MAIN: source, MOCK_DIRTY: "", GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "ShaulLavo/brine", GITHUB_SHA: source, INPUT_SOURCE_SHA: source, INPUT_PUBLIC_ACCESS_CONFIRMED: "true", GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" };
+    const env = { ...process.env, GITHUB_TOKEN: "", PATH: `${directory}:${process.env.PATH}`, CALL_LOG: log, MOCK_HEAD: source, MOCK_MAIN: source, MOCK_DIRTY: "", GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/heads/main", GITHUB_REPOSITORY: "ShaulLavo/brine", GITHUB_SHA: source, INPUT_SOURCE_SHA: source, INPUT_PUBLIC_ACCESS_CONFIRMED: "true", INPUT_BOOTSTRAP_CONFIRMED: "false", GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1" };
     const valid = Bun.spawnSync([process.execPath, script, "gate"], { env, timeout: 5000 });
     expect(valid.exitCode).toBe(0);
     expect(JSON.parse(valid.stdout.toString()).source).toBe(source);
@@ -32,13 +32,16 @@ esac
     ]);
     checkRejectedCLI(env, directory);
     expect(readFileSync(log, "utf8")).not.toMatch(/^(docker|go) /m);
+    const bootstrap = Bun.spawnSync([process.execPath, script, "bootstrap-preflight"], { env: { ...env, INPUT_PUBLIC_ACCESS_CONFIRMED: "false", INPUT_BOOTSTRAP_CONFIRMED: "true" }, timeout: 5000 });
+    expect(bootstrap.exitCode).toBe(1);
+    expect(bootstrap.stderr.toString()).toContain("GITHUB_TOKEN");
   } finally {
     rmSync(directory, { recursive: true });
   }
 });
 
 function checkRejectedCLI(env: Record<string, string | undefined>, directory: string): void {
-  for (const changed of [{ GITHUB_EVENT_NAME: "push" }, { INPUT_SOURCE_SHA: "main" }, { INPUT_PUBLIC_ACCESS_CONFIRMED: "false" }, { MOCK_HEAD: "2".repeat(40) }, { MOCK_MAIN: "2".repeat(40) }, { MOCK_DIRTY: "?? new.ts" }]) {
+  for (const changed of [{ GITHUB_EVENT_NAME: "push" }, { INPUT_BOOTSTRAP_CONFIRMED: "true" }, { INPUT_SOURCE_SHA: "main" }, { INPUT_PUBLIC_ACCESS_CONFIRMED: "false" }, { INPUT_PUBLIC_ACCESS_CONFIRMED: "false", INPUT_BOOTSTRAP_CONFIRMED: "false" }, { MOCK_HEAD: "2".repeat(40) }, { MOCK_MAIN: "2".repeat(40) }, { MOCK_DIRTY: "?? new.ts" }]) {
     const result = Bun.spawnSync([process.execPath, script, "gate"], { env: { ...env, ...changed }, timeout: 5000 });
     expect(result.exitCode).toBe(1);
   }

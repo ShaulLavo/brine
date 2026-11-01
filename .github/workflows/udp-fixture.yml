@@ -11,6 +11,11 @@ on:
         required: true
         default: false
         type: boolean
+      bootstrap_confirmed:
+        description: "One-time bootstrap: create this package from this workflow and require public linked readback"
+        required: true
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -22,6 +27,7 @@ concurrency:
 env:
   INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
   INPUT_PUBLIC_ACCESS_CONFIRMED: ${{ inputs.public_access_confirmed }}
+  INPUT_BOOTSTRAP_CONFIRMED: ${{ inputs.bootstrap_confirmed }}
   GOTOOLCHAIN: local
   GOPROXY: "off"
   GOSUMDB: "off"
@@ -49,9 +55,15 @@ jobs:
       - name: Bind the reviewed main SHA and explicit publication inputs
         run: bun scripts/publish-udp-fixture.ts gate
       - name: Refuse unknown package visibility or anonymous access before building
+        if: inputs.bootstrap_confirmed == false
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bun scripts/publish-udp-fixture.ts preflight
+      - name: Admit the explicit one-time package bootstrap
+        if: inputs.bootstrap_confirmed == true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/publish-udp-fixture.ts bootstrap-preflight
 
   qualify:
     needs: gate
@@ -117,9 +129,15 @@ jobs:
           name: udp-qualification-${{ github.sha }}-arm64
           path: ${{ runner.temp }}/udp-input/arm64
       - name: Require existing public-package and anonymous access before login or writes
+        if: inputs.bootstrap_confirmed == false
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bun scripts/publish-udp-fixture.ts preflight
+      - name: Recheck explicit bootstrap package state before login or writes
+        if: inputs.bootstrap_confirmed == true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/publish-udp-fixture.ts bootstrap-preflight
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
         with:
           version: v0.29.1
@@ -131,7 +149,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Publish qualified archives and verify anonymous immutable references
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: bun scripts/publish-udp-fixture.ts publish "$RUNNER_TEMP/udp-input" "$RUNNER_TEMP/udp-publication" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()

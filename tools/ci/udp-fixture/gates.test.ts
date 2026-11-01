@@ -7,16 +7,17 @@ const sha = "1".repeat(40);
 const digest = (text: string) => "sha256:" + createHash("sha256").update(text).digest("hex");
 const dispatch = {
   event: "workflow_dispatch", ref: "refs/heads/main", repository: "ShaulLavo/brine",
-  sha, source: sha, publicAccess: "true",
+  sha, source: sha, publicAccess: "true", bootstrapConfirmed: "false",
 };
 
 test("dispatch refuses every non-main, mismatched, missing and unapproved input", async () => {
   const { validateDispatch } = await import(helperPath);
   expect(validateDispatch(dispatch)).toBe(sha);
+  expect(validateDispatch({ ...dispatch, publicAccess: "false", bootstrapConfirmed: "true" })).toBe(sha);
   for (const changed of [
     { event: "push" }, { ref: "refs/heads/feature" }, { repository: "other/brine" },
     { source: "main" }, { source: "2".repeat(40) }, { sha: "" },
-    { publicAccess: "false" }, { publicAccess: "" }, { source: sha + "\n" },
+    { publicAccess: "false" }, { publicAccess: "" }, { bootstrapConfirmed: "true" }, { publicAccess: "true", bootstrapConfirmed: "true" }, { source: sha + "\n" },
   ]) {
     expect(() => validateDispatch({ ...dispatch, ...changed })).toThrow();
   }
@@ -89,4 +90,17 @@ test("runtime echo proof requires the exact nonce, compiled identity and explici
     expect(() => verifyEcho({ ...proof, ...changed }, "release-a", false)).toThrow();
   }
   expect(() => verifyEcho({ ...proof, expected_release: "wrong-release", outcome: "protocol_error", error: "response release mismatch" }, "release-a", true)).not.toThrow();
+});
+
+
+test("bootstrap package readback requires public visibility and the exact repository", async () => {
+  const { verifyBootstrapPackage, classifyUnknownPackageWrite } = await import(helperPath);
+  const value = { name: "brine-udp-fixture", package_type: "container", visibility: "public", repository: { full_name: "ShaulLavo/brine" } };
+  expect(() => verifyBootstrapPackage(value)).not.toThrow();
+  expect(() => verifyBootstrapPackage({ ...value, visibility: "private" })).toThrow(/public package linked to ShaulLavo\/brine/);
+  expect(() => verifyBootstrapPackage({ ...value, repository: { full_name: "other/brine" } })).toThrow(/public package linked to ShaulLavo\/brine/);
+  expect(classifyUnknownPackageWrite(404, undefined)).toBe("unperformed");
+  expect(classifyUnknownPackageWrite(200, value)).toBe("reconciled");
+  expect(classifyUnknownPackageWrite(200, { ...value, visibility: "private" })).toBe("unknown");
+  expect(classifyUnknownPackageWrite(403, undefined)).toBe("unknown");
 });

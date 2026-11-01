@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { createReadStream, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, createReadStream, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join, resolve } from "node:path";
 
 const repository = "ShaulLavo/brine";
@@ -14,8 +14,10 @@ type Target = "server" | "client";
 type ObjectValue = Record<string, unknown>;
 type Descriptor = { mediaType: string; digest: string; size: number };
 type PlatformDescriptor = Descriptor & { platform: { os: "linux"; architecture: Arch } };
-type Dispatch = { event: string; ref: string; repository: string; sha: string; source: string; publicAccess: string };
+type Dispatch = { event: string; ref: string; repository: string; sha: string; source: string; publicAccess: string; bootstrapConfirmed: string };
 type BuiltImage = { release: string; config: string; archive: string; archiveSHA256: string; binarySHA256: string };
+type BootstrapState = { source: string; packageState: "absent" | "ready"; packageWrite: "not_started" | "complete" | "not_needed" | "unknown" };
+type PackageMetadata = { name: string; package_type: string; visibility: string; repository: { full_name: string } };
 const maxJSON = 2 * 1024 * 1024;
 const activeContainers = new Set<string>();
 
@@ -60,7 +62,20 @@ function jsonFile(path: string): unknown {
 }
 
 function save(path: string, value: unknown): void {
-  writeFileSync(path, JSON.stringify(value, null, 2) + "\n", { mode: 0o600 });
+  const temporary = `${path}.${process.pid}.tmp`;
+  const contents = JSON.stringify(value, null, 2) + "\n";
+  try {
+    writeFileSync(temporary, contents, { mode: 0o600, flag: "wx" });
+    const file = openSync(temporary, "r");
+    try {
+      fsyncSync(file);
+    } finally {
+      closeSync(file);
+    }
+    renameSync(temporary, path);
+  } finally {
+    rmSync(temporary, { force: true });
+  }
 }
 
 export function validateDispatch(value: Dispatch): string {
@@ -68,7 +83,8 @@ export function validateDispatch(value: Dispatch): string {
   requireThat(value.ref === "refs/heads/main" && value.repository === repository, "Only this repository's main branch is permitted");
   requireThat(/^[a-f0-9]{40}$/.test(value.source) && value.source.length === 40, "Supply the exact reviewed main SHA");
   requireThat(value.source === value.sha, "Input SHA must equal the dispatch SHA");
-  requireThat(value.publicAccess === "true", "Public package access must be explicitly confirmed");
+  requireThat(["true", "false"].includes(value.publicAccess) && ["true", "false"].includes(value.bootstrapConfirmed), "Publication confirmations must be explicit booleans");
+  requireThat((value.publicAccess === "true") !== (value.bootstrapConfirmed === "true"), "Select exactly one explicit publication confirmation");
   return value.source;
 }
 
@@ -85,7 +101,7 @@ function command(args: readonly string[], timeout = 60_000, trim = true): string
 
 function sourceGate(): string {
   const env = process.env;
-  const source = validateDispatch({ event: env.GITHUB_EVENT_NAME ?? "", ref: env.GITHUB_REF ?? "", repository: env.GITHUB_REPOSITORY ?? "", sha: env.GITHUB_SHA ?? "", source: env.INPUT_SOURCE_SHA ?? "", publicAccess: env.INPUT_PUBLIC_ACCESS_CONFIRMED ?? "" });
+  const source = validateDispatch({ event: env.GITHUB_EVENT_NAME ?? "", ref: env.GITHUB_REF ?? "", repository: env.GITHUB_REPOSITORY ?? "", sha: env.GITHUB_SHA ?? "", source: env.INPUT_SOURCE_SHA ?? "", publicAccess: env.INPUT_PUBLIC_ACCESS_CONFIRMED ?? "", bootstrapConfirmed: env.INPUT_BOOTSTRAP_CONFIRMED ?? "" });
   const remote = command(["git", "ls-remote", "--exit-code", "origin", "refs/heads/main"]).split(/\s+/)[0];
   verifySourceFacts(source, { head: command(["git", "rev-parse", "HEAD"]), main: remote, dirty: command(["git", "status", "--porcelain", "--untracked-files=all"]) });
   command(["git", "merge-base", "--is-ancestor", minimumSource, source]);
@@ -144,6 +160,23 @@ export function verifyPublicPackage(value: unknown): void {
   requireThat(object(info.repository).full_name === repository, "GHCR package must be linked to the source repository");
 }
 
+export function verifyBootstrapPackage(value: unknown): PackageMetadata {
+  const info = object(value);
+  requireThat(info.name === "brine-udp-fixture" && info.package_type === "container" && info.visibility === "public" && object(info.repository).full_name === repository, "Bootstrap requires a public package linked to ShaulLavo/brine; GITHUB_TOKEN cannot legally change visibility or linkage");
+  return info as unknown as PackageMetadata;
+}
+
+export function classifyUnknownPackageWrite(status: number, value: unknown): "unperformed" | "reconciled" | "unknown" {
+  if (status === 404) return "unperformed";
+  if (status !== 200 || value === undefined) return "unknown";
+  try {
+    verifyBootstrapPackage(value);
+    return "reconciled";
+  } catch {
+    return "unknown";
+  }
+}
+
 async function consumeBody(reader: ReadableStreamDefaultReader<Uint8Array>, limit: number): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   let size = 0;
@@ -173,6 +206,20 @@ async function readURL(url: string, headers: Record<string, string> = {}): Promi
   return new TextDecoder("utf-8", { fatal: true }).decode(await responseBytes(response, maxJSON));
 }
 
+function githubHeaders(token: string): Record<string, string> {
+  return { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "brine-udp-fixture" };
+}
+
+async function githubPackageRead(): Promise<{ status: number; value?: unknown }> {
+  const token = process.env.GITHUB_TOKEN;
+  requireThat(token, "The workflow's built-in GITHUB_TOKEN is required");
+  const response = await fetch("https://api.github.com/users/shaullavo/packages/container/brine-udp-fixture", { headers: githubHeaders(token), redirect: "error", signal: AbortSignal.timeout(15_000) });
+  const body = new TextDecoder("utf-8", { fatal: true }).decode(await responseBytes(response, maxJSON));
+  if (response.status === 404) return { status: response.status };
+  requireThat(response.status === 200, `GHCR package metadata read failed with status ${response.status}; GITHUB_TOKEN cannot legally bootstrap this package`);
+  return { status: response.status, value: JSON.parse(body) };
+}
+
 async function anonymousRegistry(): Promise<(kind: "manifests" | "blobs", reference: string) => Promise<string>> {
   const token = object(JSON.parse(await readURL("https://ghcr.io/token?service=ghcr.io&scope=repository:shaullavo/brine-udp-fixture:pull")));
   const bearer = text(token.token);
@@ -193,12 +240,31 @@ async function anonymousRegistry(): Promise<(kind: "manifests" | "blobs", refere
 }
 
 async function publicPreflight(): Promise<unknown> {
-  requireThat(process.env.GH_TOKEN, "The workflow's built-in GitHub token is required");
-  const info: unknown = JSON.parse(await readURL("https://api.github.com/users/shaullavo/packages/container/brine-udp-fixture", { Authorization: `Bearer ${process.env.GH_TOKEN}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "brine-udp-fixture" }));
+  const packageRead = await githubPackageRead();
+  requireThat(packageRead.value !== undefined, "GHCR package metadata is absent; normal publication is fail-closed");
+  const info = object(packageRead.value) as unknown as PackageMetadata;
   verifyPublicPackage(info);
   const token = object(JSON.parse(await readURL("https://ghcr.io/token?service=ghcr.io&scope=repository:shaullavo/brine-udp-fixture:pull")));
   await readURL("https://ghcr.io/v2/shaullavo/brine-udp-fixture/tags/list?n=1", { Authorization: `Bearer ${text(token.token)}` });
-  return { package: "brine-udp-fixture", visibility: "public", repository, anonymousRead: true, checkedAt: new Date().toISOString() };
+  return { package: info.name, visibility: info.visibility, repository: info.repository.full_name, anonymousRead: true, checkedAt: new Date().toISOString() };
+}
+
+async function bootstrapPreflight(): Promise<unknown> {
+  const packageRead = await githubPackageRead();
+  if (packageRead.status === 404) return { package: "brine-udp-fixture", packageState: "absent", repository, visibility: "pending-from-GITHUB_TOKEN-push", anonymousRead: false, checkedAt: new Date().toISOString() };
+  const info = verifyBootstrapPackage(packageRead.value);
+  const token = object(JSON.parse(await readURL("https://ghcr.io/token?service=ghcr.io&scope=repository:shaullavo/brine-udp-fixture:pull")));
+  await readURL("https://ghcr.io/v2/shaullavo/brine-udp-fixture/tags/list?n=1", { Authorization: `Bearer ${text(token.token)}` });
+  return { package: info.name, packageState: "ready", repository: info.repository.full_name, visibility: info.visibility, anonymousRead: true, checkedAt: new Date().toISOString() };
+}
+
+async function inspectUnknownPackageWrite(): Promise<"unperformed" | "reconciled" | "unknown"> {
+  try {
+    const packageRead = await githubPackageRead();
+    return classifyUnknownPackageWrite(packageRead.status, packageRead.value);
+  } catch {
+    return "unknown";
+  }
 }
 
 function newDirectory(path: string): string {
@@ -453,7 +519,7 @@ async function recordAnonymousPlatform(input: { source: string; release: string;
   return { platform: entry.platform, manifestDigest: entry.digest, configDigest: manifest.config.digest, layers: manifest.layers };
 }
 
-function pushPlatform(entry: BuiltImage, platform: Arch, source: string, output: string, owned: Set<string>): string {
+async function pushPlatform(entry: BuiltImage, platform: Arch, source: string, output: string, owned: Set<string>, bootstrap: BootstrapState | undefined): Promise<string> {
   owned.add(entry.config);
   command(["docker", "image", "load", "-i", entry.archive]);
   verifyLocalImage(entry.config, platform, source, entry.release, "server");
@@ -461,7 +527,18 @@ function pushPlatform(entry: BuiltImage, platform: Arch, source: string, output:
   save(join(output, `${entry.release}-${platform}-push-intent.json`), { source, platform, tag, config: entry.config, archiveSHA256: entry.archiveSHA256 });
   owned.add(tag);
   command(["docker", "tag", entry.config, tag]);
-  command(["docker", "push", tag], 300_000);
+  try {
+    command(["docker", "push", tag], 300_000);
+    if (bootstrap?.packageWrite === "not_started") bootstrap.packageWrite = "complete";
+  } catch (error) {
+    if (bootstrap?.packageWrite === "not_started") {
+      bootstrap.packageWrite = "unknown";
+      const observation = await inspectUnknownPackageWrite();
+      save(join(output, "bootstrap-outcome.json"), { schema: 1, source, package: image, repository, packageWrite: "unknown", inspection: observation, decision: "stop-without-retry", error: String(error), postDrillKeepDeleteDecision: "pending" });
+      throw new Error(`Bootstrap package push outcome is unknown after inspection (${observation}); stop without retry and inspect the saved receipt`);
+    }
+    throw error;
+  }
   const repoDigests: unknown = JSON.parse(command(["docker", "image", "inspect", "--format", "{{json .RepoDigests}}", tag]));
   requireThat(Array.isArray(repoDigests) && repoDigests.length === 1, "Expected one pushed immutable repository digest");
   const reference = text(repoDigests[0]);
@@ -473,7 +550,18 @@ function pushPlatform(entry: BuiltImage, platform: Arch, source: string, output:
 
 async function publish(source: string, input: string, output: string): Promise<void> {
   newDirectory(output);
-  save(join(output, "public-preflight.json"), await publicPreflight());
+  const bootstrap = process.env.INPUT_BOOTSTRAP_CONFIRMED === "true";
+  const bootstrapState: BootstrapState | undefined = bootstrap ? { source, packageState: "absent", packageWrite: "not_started" } : undefined;
+  if (bootstrap) {
+    const state = bootstrapState!;
+    const preflight = await bootstrapPreflight();
+    state.packageState = object(preflight).packageState === "ready" ? "ready" : "absent";
+    state.packageWrite = state.packageState === "ready" ? "not_needed" : "not_started";
+    if (state.packageState === "absent") save(join(output, "bootstrap-intent.json"), { schema: 1, source, package: image, repository, visibility: "public", linkage: repository, write: "first qualified image push using workflow GITHUB_TOKEN", sourceCustody: "unchanged", qualificationCustody: "unchanged", inspectionBeforeRetry: true, postDrillKeepDeleteDecision: "pending" });
+    save(join(output, "bootstrap-preflight.json"), preflight);
+  } else {
+    save(join(output, "public-preflight.json"), await publicPreflight());
+  }
   const qualified = new Map<Arch, BuiltImage[]>();
   for (const platform of arches) qualified.set(platform, await readQualification(input, source, platform));
   const baseline = new Set(command(["docker", "image", "ls", "-q", "--no-trunc"]).split("\n").concat(command(["docker", "image", "ls", "--format", "{{.Repository}}:{{.Tag}}"]).split("\n"), command(["docker", "image", "ls", "--digests", "--format", "{{.Repository}}@{{.Digest}}"]).split("\n")));
@@ -481,21 +569,30 @@ async function publish(source: string, input: string, output: string): Promise<v
   const interrupted = () => { save(join(output, "interrupted-cleanup.json"), { errors: cleanupImages(owned, baseline), checkedAt: new Date().toISOString() }); process.exit(130); };
   process.once("SIGINT", interrupted);
   process.once("SIGTERM", interrupted);
+  let failure: string | undefined;
   try {
     const results: unknown[] = [];
-    for (const release of releaseIDs(source)) results.push(await publishRelease(source, release, qualified, output, owned));
+    for (const release of releaseIDs(source)) results.push(await publishRelease(source, release, qualified, output, owned, bootstrapState));
+    if (bootstrap) {
+      const readback = await publicPreflight();
+      save(join(output, "bootstrap-outcome.json"), { schema: 1, source, package: image, repository, packageWrite: bootstrapState!.packageWrite, packageReadback: readback, anonymousAccessReadback: true, decision: "verified", postDrillKeepDeleteDecision: "pending" });
+    }
     save(join(output, "publication.json"), { schema: 1, source, repository, pins: pins(), inputs: inputHashes(), releases: results, completedAt: new Date().toISOString() });
     process.stdout.write(JSON.stringify(results, null, 2) + "\n");
+  } catch (error) {
+    failure = String(error);
+    throw error;
   } finally {
     process.off("SIGINT", interrupted);
     process.off("SIGTERM", interrupted);
+    if (bootstrap && !existsSync(join(output, "bootstrap-outcome.json"))) save(join(output, "bootstrap-outcome.json"), { schema: 1, source, package: image, repository, packageWrite: bootstrapState!.packageWrite, decision: "stop-and-inspect", error: failure ?? "interrupted", postDrillKeepDeleteDecision: "pending" });
     const errors = cleanupImages(owned, baseline);
     save(join(output, "cleanup.json"), { localImages: Array.from(owned), errors, remoteImages: "retained publication artifacts; never deleted automatically", checkedAt: new Date().toISOString() });
     requireThat(errors.length === 0, "Publication local-image cleanup failed");
   }
 }
 
-async function publishRelease(source: string, release: string, qualified: Map<Arch, BuiltImage[]>, output: string, owned: Set<string>): Promise<unknown> {
+async function publishRelease(source: string, release: string, qualified: Map<Arch, BuiltImage[]>, output: string, owned: Set<string>, bootstrap: BootstrapState | undefined): Promise<unknown> {
   const references: string[] = [];
   const configs = new Map<Arch, string>();
   const manifests = new Map<Arch, string>();
@@ -503,7 +600,7 @@ async function publishRelease(source: string, release: string, qualified: Map<Ar
     const entry = qualified.get(platform)?.find(item => item.release === release);
     requireThat(entry, "Missing native qualification");
     configs.set(platform, entry.config);
-    const reference = pushPlatform(entry, platform, source, output, owned);
+    const reference = await pushPlatform(entry, platform, source, output, owned, bootstrap);
     references.push(reference);
     manifests.set(platform, reference.slice(image.length + 1));
   }
@@ -534,11 +631,12 @@ async function anonymousDockerPull(reference: string, output: string, release: s
 
 export async function main(args: string[]): Promise<void> {
   const [mode, ...rest] = args;
-  requireThat(["gate", "preflight", "qualify", "publish"].includes(mode), "Usage: bun scripts/publish-udp-fixture.ts gate|preflight|qualify ARCH NEW_OUTPUT|publish INPUT NEW_OUTPUT");
+  requireThat(["gate", "preflight", "bootstrap-preflight", "qualify", "publish"].includes(mode), "Usage: bun scripts/publish-udp-fixture.ts gate|preflight|bootstrap-preflight|qualify ARCH NEW_OUTPUT|publish INPUT NEW_OUTPUT");
   const source = sourceGate();
   requireThat(/^[0-9]+$/.test(process.env.GITHUB_RUN_ID ?? "") && /^[0-9]+$/.test(process.env.GITHUB_RUN_ATTEMPT ?? ""), "Missing workflow run identity");
   if (mode === "gate") { requireThat(rest.length === 0, "Unexpected gate arguments"); process.stdout.write(JSON.stringify({ source, releases: releaseIDs(source), pins: pins() }) + "\n"); return; }
   if (mode === "preflight") { requireThat(rest.length === 0, "Unexpected preflight arguments"); process.stdout.write(JSON.stringify(await publicPreflight()) + "\n"); return; }
+  if (mode === "bootstrap-preflight") { requireThat(rest.length === 0, "Unexpected bootstrap-preflight arguments"); requireThat(process.env.INPUT_BOOTSTRAP_CONFIRMED === "true", "Bootstrap preflight requires explicit bootstrap confirmation"); process.stdout.write(JSON.stringify(await bootstrapPreflight()) + "\n"); return; }
   requireThat(rest.length === 2, "Expected exactly two command arguments");
   if (mode === "qualify") { await qualify(source, arch(rest[0]), rest[1]); return; }
   requireThat(isAbsolute(rest[0]) && readdirSync(rest[0]).length === 2, "Expected only amd64 and arm64 input directories");
