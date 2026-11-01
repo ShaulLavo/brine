@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -62,7 +63,19 @@ func reserveCommittedPort(ctx context.Context, tx *sql.Tx, inventory *target.Con
 		return nil
 	}
 	owned := apps[app]
+	if planned.UDP != nil && planned.UDP.Next != nil {
+		var incarnation string
+		if err := tx.QueryRowContext(ctx, "SELECT incarnation_id FROM release_heads WHERE app=? AND current_id=?", app, id).Scan(&incarnation); err != nil {
+			return err
+		}
+		owned.UDP = controlUDPRelease(planned, release.Units, incarnation)
+	}
 	owned.PortReservation = &target.CommittedPortReservation{ReleaseID: release.ID, Port: release.HostPort}
 	apps[app] = owned
 	return nil
+}
+
+func controlUDPRelease(p plan.Plan, units []target.Unit, incarnation string) *target.ControlUDPRelease {
+	a := p.UDP.Next
+	return &target.ControlUDPRelease{Incarnation: incarnation, PlanID: p.Hash, Units: units, Publication: target.UDPPublication{BindAddress: a.Endpoint.BindAddress, HostPort: a.Endpoint.HostPort, ContainerPort: a.ContainerPort, NetworkMode: "pasta"}}
 }

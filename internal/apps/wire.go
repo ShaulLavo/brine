@@ -25,7 +25,10 @@ func DecodeReport(raw []byte) (Report, error) {
 	}
 	seen := map[string]bool{}
 	for _, a := range report.Apps {
-		if !appPattern.MatchString(a.App) || seen[a.App] || (a.Current == nil && a.Managed == nil || a.Current != nil && !validRelease(*a.Current)) || a.Previous != nil && !validRelease(*a.Previous) {
+		if !appPattern.MatchString(a.App) || seen[a.App] || (a.Current == nil && a.Managed == nil && a.UDP == nil || a.Current != nil && !validRelease(*a.Current)) || a.Previous != nil && !validRelease(*a.Previous) {
+			return Report{}, strictjson.ErrObject
+		}
+		if !validStatusUDP(a) {
 			return Report{}, strictjson.ErrObject
 		}
 		if a.Managed != nil && !a.Managed.Valid() {
@@ -44,7 +47,7 @@ func DecodeReport(raw []byte) (Report, error) {
 		}
 		for _, field := range a.Drift.Fields {
 			switch field {
-			case "app", "image", "port", "units", "secrets", "caddy", "domains":
+			case "app", "image", "port", "units", "secrets", "caddy", "domains", "udp":
 			default:
 				return Report{}, strictjson.ErrObject
 			}
@@ -53,6 +56,9 @@ func DecodeReport(raw []byte) (Report, error) {
 	return report, nil
 }
 func validRelease(r Release) bool {
+	if r.UDP != nil && !validUDPAllocation(*r.UDP) {
+		return false
+	}
 	if !idPattern.MatchString(r.ID) || !digestPattern.MatchString(r.PlanID) || !digestPattern.MatchString(r.ImageDigest) || r.Port == 0 || r.Port > 65535 {
 		return false
 	}

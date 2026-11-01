@@ -95,7 +95,7 @@ func (tc udpRuntimeCase) check(t *testing.T) {
 		out = strings.ReplaceAll(out, tc.old, tc.new)
 	}
 	r := fakeRunner{"podman --remote=false inspect --type container --format " + testRuntimePortFormat + " systemd-api": out}
-	got := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
+	got, _ := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
 	if (got.Status == target.KnownStatus) != tc.known {
 		t.Fatalf("publication=%+v", got)
 	}
@@ -171,5 +171,23 @@ func checkPinnedUDPBinding(t *testing.T, field string) {
 	got := (Collector{FS: f, RunnerUser: "brine"}).listenerBindings(t.Context(), &snapshot, "/home/brine", map[string]publication{"api": actual})
 	if (len(got) == 1) != (field == "matching") {
 		t.Fatalf("unbound publication=%+v", got)
+	}
+}
+
+func TestStoppedPublicationRequiresExplicitCompleteRuntime(t *testing.T) {
+	for _, tc := range []struct {
+		record string
+		want   target.Status
+	}{
+		{`{"name":"systemd-api","running":false,"unit":"api.service","ports":{}}`, target.Absent},
+		{`{"name":"systemd-api","unit":"api.service","ports":{}}`, target.Unknown},
+		{`{"name":"systemd-api","running":false,"unit":"api.service"}`, target.Unknown},
+		{`{"name":"systemd-api","running":false,"unit":"api.service","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}]}}`, target.Unknown},
+	} {
+		r := fakeRunner{"podman --remote=false inspect --type container --format " + testRuntimePortFormat + " systemd-api": tc.record}
+		got, _ := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
+		if got.Status != tc.want {
+			t.Fatalf("runtime %s: got %s, want %s", tc.record, got.Status, tc.want)
+		}
 	}
 }

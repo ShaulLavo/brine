@@ -6,9 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"io"
-	"net/http"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -34,6 +31,8 @@ type LogReader interface {
 	Read(context.Context, logs.Request) ([]logs.Line, error)
 }
 type ControlStore interface {
+	LoadBrineState(context.Context, target.Identity, uint64) (plan.BrineState, error)
+	UDPHistory(context.Context, string) (store.UDPHistory, error)
 	AppNames(context.Context) ([]string, error)
 	RecentOperations(context.Context, string, int) ([]ops.OperationRecord, error)
 	CurrentRelease(context.Context, string) (ops.Release, error)
@@ -176,7 +175,17 @@ func (r Reader) Read(parent context.Context, request Request) (Report, error) {
 			r.UnitLogs = logs.JournalReader{Inventory: snapshotInventory{snapshot}, Executor: executor}
 		}
 	}
+	udpState := r.udpState(ctx, snapshot)
+	var ownership *plan.UDPState
+	if udpState != nil {
+		ownership = udpState.UDP
+	}
 	names := []string{}
+	if ownership != nil {
+		for _, row := range ownership.Reservations {
+			names = append(names, row.App)
+		}
+	}
 	inventoryNamesKnown := report.AppNames.Value != nil
 	storeNamesKnown := false
 	if report.AppNames.Value != nil {
@@ -210,7 +219,9 @@ func (r Reader) Read(parent context.Context, request Request) (Report, error) {
 		if !appName.MatchString(name) {
 			continue
 		}
-		report.Apps = append(report.Apps, r.app(ctx, snapshot, name))
+		a := r.app(ctx, snapshot, name, ownership)
+		r.udpRemnants(ctx, snapshot, udpState, &a)
+		report.Apps = append(report.Apps, a)
 	}
 	report.Findings = Findings(report)
 	if err := parent.Err(); err != nil {
@@ -225,8 +236,9 @@ func (r Reader) Read(parent context.Context, request Request) (Report, error) {
 func emptyApp(name string) App {
 	return App{Name: name, Unit: unknown[Unit]("ownership_unknown"), ContainerRunning: unknown[bool]("ownership_unknown"), Health: unknown[bool]("release_unknown"), Operations: unknown[[]RecentOperation]("store_unavailable"), CurrentRelease: unknown[Release]("store_unavailable"), PreviousRelease: unknown[Release]("store_unavailable"), Drift: unknown[[]string]("release_unknown"), Logs: unknown[[]logs.Line]("log_reader_unavailable"), UnitLogs: unknown[[]logs.Line]("log_reader_unavailable"), RoutePresent: unknown[bool]("inventory_unknown")}
 }
-func (r Reader) app(ctx context.Context, s target.Snapshot, name string) App {
+func (r Reader) app(ctx context.Context, s target.Snapshot, name string, udpState *plan.UDPState) App {
 	a := emptyApp(name)
+	a.UDP = diagnosticUDP(s, udpState, name, plan.Plan{}, nil)
 	var observedApp *target.App
 	if s.Apps.Value != nil {
 		for _, entry := range *s.Apps.Value {
@@ -312,35 +324,7 @@ func (r Reader) app(ctx context.Context, s target.Snapshot, name string) App {
 		previous, e := bounded(ctx, ProbeTimeout, func(ctx context.Context) (ops.Release, error) { return r.Store.PreviousRelease(ctx, name) })
 		a.PreviousRelease = releaseFact(previous, e)
 		if a.CurrentRelease.Value != nil {
-			desired := fact(ctx, func(ctx context.Context) (policy.Desired, error) {
-				_, d, e := r.Store.LoadPlan(ctx, current.PlanID)
-				return d, e
-			})
-			a.Drift = drift(s, name, current, desired)
-			if desired.Value == nil {
-				a.Health = unknown[bool](desired.Reason)
-			}
-			if desired.Value != nil && unit != "" {
-				a.Health = fact(ctx, func(ctx context.Context) (bool, error) {
-					d := *desired.Value
-					transport := http.DefaultTransport.(*http.Transport).Clone()
-					transport.Proxy = nil
-					defer transport.CloseIdleConnections()
-					client := http.Client{Transport: transport, Timeout: ProbeTimeout, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
-					url := fmt.Sprintf("http://127.0.0.1:%d%s", current.HostPort, d.Health.Path)
-					req, e := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-					if e != nil {
-						return false, e
-					}
-					response, e := client.Do(req)
-					if e != nil {
-						return false, e
-					}
-					defer response.Body.Close()
-					_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 4096))
-					return response.StatusCode == d.Health.ExpectedStatus, nil
-				})
-			}
+			r.currentApp(ctx, s, udpState, current, unit, &a)
 		}
 	}
 	if r.Logs != nil {
@@ -396,8 +380,8 @@ func parseUnit(name, out string) (Unit, error) {
 	n, e := strconv.ParseUint(fields["NRestarts"], 10, 64)
 	return Unit{Name: name, ActiveState: fields["ActiveState"], SubState: fields["SubState"], Restarts: n}, e
 }
-func drift(s target.Snapshot, name string, r ops.Release, desired Fact[policy.Desired]) Fact[[]string] {
-	current := plan.CurrentRelease{App: name, ID: r.ID, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile}
+func drift(s target.Snapshot, name string, r ops.Release, desired Fact[policy.Desired], udp *plan.UDPAllocation) Fact[[]string] {
+	current := plan.CurrentRelease{UDP: udp, App: name, ID: r.ID, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile}
 	if desired.Value != nil {
 		current.Desired = *desired.Value
 	} else {
@@ -535,4 +519,22 @@ func reportLogReader(reader LogReader, snapshot target.Snapshot) LogReader {
 	default:
 		return reader
 	}
+}
+
+func (d DiskStore) LoadBrineState(ctx context.Context, id target.Identity, generation uint64) (plan.BrineState, error) {
+	s, err := d.open(ctx)
+	if err != nil {
+		return plan.BrineState{}, err
+	}
+	defer func() { _ = s.Close() }()
+	return s.LoadBrineState(ctx, id, generation)
+}
+
+func (d DiskStore) UDPHistory(ctx context.Context, app string) (store.UDPHistory, error) {
+	s, err := d.open(ctx)
+	if err != nil {
+		return store.UDPHistory{}, err
+	}
+	defer func() { _ = s.Close() }()
+	return s.UDPHistory(ctx, app)
 }

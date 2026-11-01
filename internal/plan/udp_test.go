@@ -256,3 +256,12 @@ func TestUDPExactInputCannotMutateHashedPlan(t *testing.T) {
 		t.Fatal("UDP exact input aliases the hashed plan")
 	}
 }
+
+func TestUDPExtraOwnedSocketStillConflicts(t *testing.T) {
+	in := udpInput(t, true)
+	in.Snapshot.UDPSockets = target.Known([]target.UDPSocket{{Address: "192.0.2.10", Port: 4433, App: "hello", Process: "pasta", Unit: "hello.service"}, {Address: "192.0.2.10", Port: 4433, App: "hello", Process: "other", Unit: "hello.service"}})
+	p := build(t, in)
+	if !slices.Contains(p.Conflicts, Diagnostic{UDPPortOwned, "udp.endpoint"}) {
+		t.Fatal("extra overlapping owned socket accepted", p.Conflicts)
+	}
+}

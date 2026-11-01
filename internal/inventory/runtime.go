@@ -31,7 +31,7 @@ func samePublicationMapping(a, b publication) bool {
 }
 
 // Runtime observations never grant replacement authority. Only committed state does.
-func (c Collector) livePublication(ctx context.Context, units []target.Unit) target.Observation[publication] {
+func (c Collector) livePublication(ctx context.Context, units []target.Unit) (target.Observation[publication], error) {
 	unknownPort := unknown[publication]()
 	container := ""
 	for _, u := range units {
@@ -39,26 +39,34 @@ func (c Collector) livePublication(ctx context.Context, units []target.Unit) tar
 			continue
 		}
 		if container != "" {
-			return unknownPort
+			return unknownPort, nil
 		}
 		container = strings.TrimSuffix(u.Name, ".container")
 	}
 	if container == "" {
-		return unknownPort
+		return unknownPort, nil
 	}
 	out, err := c.probe(ctx, runtimeOutputLimit, "podman", "--remote=false", "inspect", "--type", "container", "--format", runtimePortFormat, "systemd-"+container)
 	if err != nil {
-		return unknownPort
+		return unknownPort, err
 	}
+	return parsePublication(out, container), nil
+}
+
+func parsePublication(out, container string) target.Observation[publication] {
+	unknownPort := unknown[publication]()
 	var runtime struct {
 		Name    string                      `json:"name"`
-		Running bool                        `json:"running"`
+		Running *bool                       `json:"running"`
 		Unit    string                      `json:"unit"`
 		Network string                      `json:"network"`
 		Ports   map[string][]runtimeBinding `json:"ports"`
 	}
-	if json.Unmarshal([]byte(out), &runtime) != nil || !runtime.Running || runtime.Name != "systemd-"+container || runtime.Unit != container+".service" {
+	if json.Unmarshal([]byte(out), &runtime) != nil || runtime.Running == nil || runtime.Name != "systemd-"+container || runtime.Unit != container+".service" {
 		return unknownPort
+	}
+	if !*runtime.Running {
+		return stoppedPublication(runtime.Ports)
 	}
 	var published publication
 	for protocol, bindings := range runtime.Ports {
@@ -117,4 +125,20 @@ func (p *publication) addRuntimeBinding(protocol string, bindings []runtimeBindi
 	}
 	p.UDPAddress, p.UDPHost, p.UDPContainer = bindings[0].HostIP, host, inside
 	return true
+}
+
+func (p publication) udpPublication() target.UDPPublication {
+	return target.UDPPublication{BindAddress: p.UDPAddress, HostPort: p.UDPHost, ContainerPort: p.UDPContainer, NetworkMode: p.NetworkMode}
+}
+
+func stoppedPublication(ports map[string][]runtimeBinding) target.Observation[publication] {
+	if ports == nil {
+		return unknown[publication]()
+	}
+	for _, bindings := range ports {
+		if len(bindings) != 0 {
+			return unknown[publication]()
+		}
+	}
+	return absent[publication]()
 }

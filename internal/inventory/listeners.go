@@ -133,6 +133,10 @@ func (c Collector) recordListener(ctx context.Context, line listenerLine, protoc
 			found.udpUnknown = true
 			return nil
 		}
+		socket = c.udpListenerOwner(ctx, line, socket, bindings)
+		if found.sockets[socket] {
+			found.udpUnknown = true
+		}
 		found.sockets[socket] = true
 		return nil
 	}
@@ -196,6 +200,7 @@ func parseGeneration(path string) (uint64, error) {
 type listenerBinding struct {
 	App  string
 	Port target.Port
+	UDP  *target.UDPPublication
 }
 
 func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, home string, publications map[string]publication) map[string]listenerBinding {
@@ -251,7 +256,12 @@ func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, hom
 			bindings[path] = listenerBinding{}
 			continue
 		}
-		bindings[path] = listenerBinding{App: app.Name, Port: pinned.Host}
+		binding := listenerBinding{App: app.Name, Port: pinned.Host}
+		if measured.hasUDP() && measured.NetworkMode == "pasta" {
+			udp := measured.udpPublication()
+			binding.UDP = &udp
+		}
+		bindings[path] = binding
 	}
 	return bindings
 }
@@ -381,6 +391,34 @@ func observedUDPSocket(address string, port target.Port, line string) (target.UD
 	if len(matches) == 1 && safeToken.MatchString(matches[0][1]) {
 		socket.Process = matches[0][1]
 	}
-	// P08-04 adds affirmative UDP ownership from the extended inode evidence.
 	return socket, true
+}
+
+func (c Collector) udpListenerOwner(ctx context.Context, line listenerLine, socket target.UDPSocket, bindings map[string]listenerBinding) target.UDPSocket {
+	matches := processPattern.FindAllStringSubmatch(line.Text, -1)
+	if len(matches) != 1 || socket.Process == "" {
+		return socket
+	}
+	match := matches[0]
+	data, err := c.FS.ReadFile(ctx, "/proc/"+match[2]+"/cgroup")
+	if err != nil {
+		return socket
+	}
+	socket.Unit = unitFromCgroup(string(data))
+	group, unified := strings.CutPrefix(strings.TrimSpace(string(data)), "0::")
+	if !unified || strings.ContainsRune(group, '\n') {
+		return socket
+	}
+	for path, binding := range bindings {
+		if binding.UDP == nil || socket.Address != binding.UDP.BindAddress || socket.Port != binding.UDP.HostPort {
+			continue
+		}
+		if group != path && !strings.HasPrefix(group, path+"/") {
+			continue
+		}
+		if c.ownsSocket(ctx, match[2], match[3], socketInode(line.Text), string(data)) {
+			socket.App = binding.App
+		}
+	}
+	return socket
 }

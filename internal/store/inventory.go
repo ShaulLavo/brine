@@ -35,7 +35,7 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 	if err != nil {
 		return result, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT app,EXISTS(SELECT 1 FROM release_heads h WHERE h.app=r.app),(SELECT id FROM releases latest WHERE latest.app=r.app ORDER BY rowid DESC LIMIT 1) FROM releases r GROUP BY app`)
+	rows, err := tx.QueryContext(ctx, `SELECT c.app,EXISTS(SELECT 1 FROM release_heads h WHERE h.app=c.app),COALESCE((SELECT id FROM releases latest WHERE latest.app=c.app ORDER BY rowid DESC LIMIT 1),''),EXISTS(SELECT 1 FROM udp_reservations u WHERE u.app=c.app AND u.state<>'released') FROM (SELECT app FROM releases UNION SELECT app FROM udp_reservations) c`)
 	if err != nil {
 		return result, err
 	}
@@ -45,16 +45,18 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 	apps := map[string]target.ControlApp{}
 	for rows.Next() {
 		var name, releaseID string
-		var head bool
-		if err = rows.Scan(&name, &head, &releaseID); err != nil {
+		var head, liveUDP bool
+		if err = rows.Scan(&name, &head, &releaseID, &liveUDP); err != nil {
 			rows.Close()
 			return result, err
 		}
 		status := target.Unknown
 		if head {
 			status = target.KnownStatus
+		} else if releaseID == "" && !liveUDP {
+			status = target.Absent
 		}
-		apps[name] = target.ControlApp{Name: name, Status: status}
+		apps[name] = target.ControlApp{Name: name, Status: status, NeverReleased: releaseID == ""}
 		latest[name] = releaseID
 	}
 	err = rows.Err()
@@ -199,6 +201,9 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 		return result, err
 	}
 	for _, app := range apps {
+		if err := retainedUDPInventory(ctx, tx, &app); err != nil {
+			return result, err
+		}
 		if unsettled[app.Name] {
 			app.Status = target.Unknown
 		}
