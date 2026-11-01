@@ -11,7 +11,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
-const testRuntimePortFormat = `{"name":{{json .Name}},"running":{{json .State.Running}},"unit":{{json (index .Config.Labels "PODMAN_SYSTEMD_UNIT")}},"ports":{{json .NetworkSettings.Ports}}}`
+const testRuntimePortFormat = `{"name":{{json .Name}},"running":{{json .State.Running}},"unit":{{json (index .Config.Labels "PODMAN_SYSTEMD_UNIT")}},"network":{{json .HostConfig.NetworkMode}},"ports":{{json .NetworkSettings.Ports}}}`
 
 func TestRenderedUnitDiscoveryAndLivePort(t *testing.T) {
 	for _, tc := range []struct {
@@ -56,6 +56,80 @@ func TestRenderedUnitDiscoveryAndLivePort(t *testing.T) {
 				}
 			} else if app.AllocatedHostPort.Status != target.Unknown {
 				t.Fatal("unverified port guessed")
+			}
+		})
+	}
+}
+
+func TestUDPRuntimePublication(t *testing.T) {
+	const valid = `{"name":"systemd-api","running":true,"unit":"api.service","network":"pasta","ports":{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"20080"}],"7777/udp":[{"HostIp":"192.0.2.10","HostPort":"4433"}]}}`
+	for _, tc := range []struct {
+		name, old, new string
+		known          bool
+	}{
+		{"ipv4", "", "", true},
+		{"ipv6", "192.0.2.10", "2001:db8::10", true},
+		{"missing network", `"pasta"`, `""`, false},
+		{"host network", "pasta", "host", false},
+		{"slirp network", "pasta", "slirp4netns", false},
+		{"wildcard", "192.0.2.10", "0.0.0.0", false},
+		{"mapped address", "192.0.2.10", "::ffff:192.0.2.10", false},
+		{"zone", "192.0.2.10", "fe80::1%eth0", false},
+		{"noncanonical host port", "4433", "04433", false},
+		{"noncanonical container port", "7777/udp", "07777/udp", false},
+		{"extra udp", `"ports":{`, `"ports":{"8888/udp":[{"HostIp":"192.0.2.11","HostPort":"4434"}],`, false},
+		{"extra tcp", `"ports":{`, `"ports":{"8888/tcp":[{"HostIp":"127.0.0.1","HostPort":"20081"}],`, false},
+		{"extra binding", `"HostPort":"4433"}`, `"HostPort":"4433"},{"HostIp":"192.0.2.11","HostPort":"4434"}`, false},
+		{"wrong container", "systemd-api", "systemd-other", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out := valid
+			if tc.old != "" {
+				out = strings.ReplaceAll(out, tc.old, tc.new)
+			}
+			r := fakeRunner{"podman --remote=false inspect --type container --format " + testRuntimePortFormat + " systemd-api": out}
+			got := (Collector{Runner: r}).livePublication(t.Context(), []target.Unit{{Name: "api.container"}})
+			if (got.Status == target.KnownStatus) != tc.known {
+				t.Fatalf("publication=%+v", got)
+			}
+			if !tc.known {
+				return
+			}
+			address := "192.0.2.10"
+			if tc.name == "ipv6" {
+				address = "2001:db8::10"
+			}
+			if *got.Value != (publication{Host: 20080, Container: 8080, UDPAddress: address, UDPHost: 4433, UDPContainer: 7777, NetworkMode: "pasta"}) {
+				t.Fatalf("mapping=%+v", got.Value)
+			}
+		})
+	}
+}
+
+func TestPinnedUDPMapping(t *testing.T) {
+	const tcp = "PublishPort=127.0.0.1:20080:8080\n"
+	const udp = "PublishPort=192.0.2.10:4433:7777/udp\n"
+	for _, tc := range []struct {
+		name, lines string
+		valid       bool
+	}{
+		{"tcp", tcp, true}, {"ipv4", tcp + udp, true}, {"ipv6", tcp + "PublishPort=[2001:db8::10]:4433:7777/udp\n", true},
+		{"no tcp", udp, false}, {"duplicate tcp", tcp + tcp, false}, {"duplicate udp", tcp + udp + udp, false},
+		{"unknown protocol", tcp + strings.ReplaceAll(udp, "/udp", "/sctp"), false},
+		{"wildcard", tcp + strings.ReplaceAll(udp, "192.0.2.10", "0.0.0.0"), false},
+		{"unbracketed ipv6", tcp + strings.ReplaceAll(udp, "192.0.2.10", "2001:db8::10"), false},
+		{"noncanonical port", strings.ReplaceAll(tcp, "20080", "020080"), false},
+		{"explicit tcp", strings.TrimSpace(tcp) + "/tcp\n", false},
+		{"range", tcp + strings.ReplaceAll(udp, "4433", "4433-4434"), false},
+		{"udp after service", tcp + "[Service]\n" + udp, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := pinnedListenerPort("[Container]\n" + tc.lines)
+			if ok != tc.valid {
+				t.Fatalf("mapping=%+v valid=%v", got, ok)
+			}
+			if ok && (got.Host != 20080 || got.Container != 8080) {
+				t.Fatal(got)
 			}
 		})
 	}
