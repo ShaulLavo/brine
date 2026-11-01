@@ -119,6 +119,7 @@ type rawResources struct {
 }
 
 var label = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$`)
+var appName = regexp.MustCompile(`^[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
 var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 var secretName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_-]{0,252}$`)
 var repositoryPart = regexp.MustCompile(`^[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*$`)
@@ -245,8 +246,8 @@ func validate(raw rawApp) (App, error) {
 	if err != nil {
 		return app, err
 	}
-	if len(name) > 63 || !label.MatchString(name) {
-		return app, refusal("spec.invalid_name", "name", "expected a lowercase DNS label of 1 to 63 bytes")
+	if !appName.MatchString(name) {
+		return app, refusal("spec.invalid_name", "name", "expected 1 to 63 lowercase letters, digits, or hyphens, starting with a letter and ending with a letter or digit")
 	}
 	app.Name = Name(name)
 	if err := validateAppContainer(raw, &app); err != nil {
