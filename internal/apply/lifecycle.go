@@ -7,16 +7,25 @@ import (
 	"github.com/ShaulLavo/brine/internal/plan"
 )
 
-func (x *execution) lifecycle(ctx context.Context) error {
-	stateCtx, cancel := context.WithTimeout(ctx, journalTimeout)
-	err := x.executor.Journal.SetOperationState(stateCtx, x.id, Preparing)
-	cancel()
-	if err != nil {
-		return x.terminal(ctx, RecoveryRequired, &Error{Step: "preflight", Code: "journal_failed", Cause: err})
+func (x *execution) lifecycle(ctx context.Context, completed map[string]bool) error {
+	step := func(ctx context.Context, name string, state State, code string, effect func(context.Context) error) error {
+		if completed[name] {
+			return nil
+		}
+		return x.step(ctx, name, state, code, effect)
 	}
-	x.state = Preparing
+	if completed == nil || x.state == Preflight {
+		stateCtx, cancel := context.WithTimeout(ctx, journalTimeout)
+		err := x.executor.Journal.SetOperationState(stateCtx, x.id, Preparing)
+		cancel()
+		if err != nil {
+			return x.terminal(ctx, RecoveryRequired, &Error{Step: "preflight", Code: "journal_failed", Cause: err})
+		}
+		x.state = Preparing
+	}
+	var err error
 	if x.plan.Lifecycle == plan.StopApp || x.plan.Lifecycle == plan.RestartApp {
-		err = x.step(ctx, "stop_unit", Quiescing, "stop_failed", func(ctx context.Context) error {
+		err = step(ctx, "stop_unit", Quiescing, "stop_failed", func(ctx context.Context) error {
 			if x.inspectWriter(ctx) == writerStopped {
 				return nil
 			}
@@ -36,10 +45,10 @@ func (x *execution) lifecycle(ctx context.Context) error {
 			return x.terminal(ctx, Succeeded, nil)
 		}
 	}
-	if err = x.step(ctx, "reload_units", Starting, "unit_failed", x.executor.Systemd.DaemonReload); err != nil {
+	if err = step(ctx, "reload_units", Starting, "unit_failed", x.executor.Systemd.DaemonReload); err != nil {
 		return x.lifecycleFailure(ctx, err)
 	}
-	if err = x.step(ctx, "start_unit", Starting, "start_failed", func(ctx context.Context) error {
+	if err = step(ctx, "start_unit", Starting, "start_failed", func(ctx context.Context) error {
 		if x.inspectWriter(ctx) == writerRunning {
 			return nil
 		}
@@ -47,8 +56,13 @@ func (x *execution) lifecycle(ctx context.Context) error {
 	}); err != nil {
 		return x.lifecycleFailure(ctx, err)
 	}
-	if err = x.step(ctx, "check_direct", Checking, "health_failed", func(ctx context.Context) error { return x.check(ctx, x.desired, x.plan.HostPort, false) }); err != nil {
+	if err = step(ctx, "check_direct", Checking, "health_failed", func(ctx context.Context) error { return x.check(ctx, x.desired, x.plan.HostPort, false) }); err != nil {
 		return x.lifecycleFailure(ctx, err)
+	}
+	if x.plan.UDP != nil && x.plan.UDP.Next != nil {
+		if err := step(ctx, "check_udp", Checking, "udp_unready", x.checkUDP); err != nil {
+			return x.lifecycleFailure(ctx, err)
+		}
 	}
 	// Lifecycle changes do not create releases, replace units or touch routes.
 	return x.terminal(ctx, Succeeded, nil)

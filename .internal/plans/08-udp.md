@@ -37,8 +37,7 @@ use another host only under explicit authorization naming its target and actions
 ## Planned declaration and output
 
 Add one optional strict `[udp]` declaration beside the existing HTTP fields.
-The parser accepts this fragment for conflict-only planning. Runtime publication
-remains refused until P08-06:
+The parser accepts this fragment for operator-approved planning and publication:
 
 ```toml
 [udp]
@@ -149,6 +148,11 @@ unrelated listeners intact. Do not add compatibility paths for old binaries.
   resolution. No port leak, duplicate writer, foreign-listener cleanup or
   database rewind occurs. Existing HTTP-only and managed-engine tests pass.
   **Evidence:** T30 and T08-T11/T16/T21-T23, including real subprocess kills.
+  **Source evidence:** [P08-06](../evidence/p08-06.md) covers SQLite settlement,
+  operation-bound collector rebuild, endpoint proofs and real subprocess kills.
+  Independent review and the physical P08-08 drill remain separate gates.
+  Persistent removal first requires a reviewed release removing `[udp]`, then
+  the existing archive retirement workflow; live claims refuse archive retirement.
 
 - [ ] **P08-08** Prove deployment and remote UDP on disposable fixtures.
   Depends on P08-06. Use a small non-root HTTP-health plus bounded UDP-echo

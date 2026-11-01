@@ -66,7 +66,7 @@ func TestPersistentWriterSettlementAfterCommittedRecovery(t *testing.T) {
 			r := committedPersistentRecovery(t, owner)
 			intent := &pendingWriterStarts{pending: map[string]bool{owner: true}}
 			r.executor.WriterStarts = intent
-			events := recoveryEvents(deploymentSteps(r.desired)...)
+			events := recoveryEvents(deploymentSteps(r.plan, r.desired)...)
 			var assessment Recovery
 			var err error
 			switch path {
@@ -133,7 +133,7 @@ func TestPersistentResolutionSourceCleanupUnknownRefusesSettlement(t *testing.T)
 	r.executor.WriterStarts = intent
 	source := Operation{ID: "source", Kind: ops.Deploy, PlanID: r.plan.Hash, State: RecoveryRequired}
 	successor := Operation{ID: "successor", Kind: ops.Resolve, RecoveryOf: source.ID, PlanID: r.plan.Hash, State: Queued}
-	assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, recoveryEvents(deploymentSteps(r.desired)...))
+	assessment, err := r.executor.InspectResolution(context.Background(), successor, source, r.plan, r.desired, recoveryEvents(deploymentSteps(r.plan, r.desired)...))
 	if err != nil || assessment.Action != FinishSucceeded {
 		t.Fatal(assessment, err)
 	}

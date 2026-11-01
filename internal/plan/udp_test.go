@@ -35,7 +35,7 @@ func udpInput(t *testing.T, existing bool) Input {
 	app.UDPPublication = target.Known(target.UDPPublication{BindAddress: endpoint.BindAddress, HostPort: 4433, ContainerPort: 4433, NetworkMode: "pasta"})
 	return in
 }
-func TestUDPTransitionsAndExecutionGate(t *testing.T) {
+func TestUDPTransitions(t *testing.T) {
 	for _, mode := range []string{"create", "retain", "container-port", "move", "release", "stopped", "unsettled", "orphan", "wrong-incarnation"} {
 		t.Run(mode, func(t *testing.T) {
 			in := udpInput(t, mode != "create")
@@ -60,8 +60,8 @@ func TestUDPTransitionsAndExecutionGate(t *testing.T) {
 				in.State.UDP.Reservations[0].Incarnation = "sha256:" + strings.Repeat("d", 64)
 			}
 			p := build(t, in)
-			if p.Kind != Conflict || len(p.Changes) != 0 || !slices.Contains(p.Conflicts, Diagnostic{UDPExecutionUnavailable, "udp"}) {
-				t.Fatal("UDP executable", p.Conflicts)
+			if mode != "unsettled" && mode != "orphan" && mode != "wrong-incarnation" && p.Kind == Conflict {
+				t.Fatal(p.Conflicts)
 			}
 			if mode == "unsettled" {
 				if !slices.Contains(p.Conflicts, Diagnostic{UDPUnsettled, "udp.reservation"}) {
@@ -187,7 +187,7 @@ func TestUDPRetainedOwnershipNeedsAllProofs(t *testing.T) {
 	}
 }
 
-func TestUDPRemovalAndLifecycleRemainConflictOnly(t *testing.T) {
+func TestUDPRemovalAndLifecycle(t *testing.T) {
 	for _, action := range []ChangeKind{StartApp, StopApp, RestartApp, RemoveApp} {
 		in := udpInput(t, true)
 		if action == RemoveApp {
@@ -195,7 +195,7 @@ func TestUDPRemovalAndLifecycleRemainConflictOnly(t *testing.T) {
 			(*in.Snapshot.Apps.Value)[0].QuadletUnits = target.Known(in.State.Releases[0].Units)
 		}
 		p, err := BuildLifecycle(in, action)
-		if err != nil || p.Kind != Conflict || p.Lifecycle != action || len(p.Changes) != 0 {
+		if err != nil || p.Kind != Update || p.Lifecycle != action || len(p.Changes) == 0 {
 			t.Fatal(action, p, err)
 		}
 		if action == RemoveApp && (p.Removal == nil || p.Removal.UDP == nil || p.UDP.Next != nil) {

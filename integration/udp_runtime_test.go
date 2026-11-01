@@ -191,12 +191,10 @@ host_ports={min=24431,max=24431}
 	udpRequire(f.t, err)
 	a := &plan.UDPAllocation{Endpoint: plan.UDPEndpoint{Family: d.UDP.Grant.BindFamily(), BindAddress: address, HostPort: 24431}, ContainerPort: 7777, ClientAddress: d.UDP.Grant.ClientAddress, Exposure: d.UDP.Exposure, GrantHash: d.UDP.Grant.Hash()}
 	p := plan.Plan{Kind: plan.Create, App: udpRuntimeApp, Hash: udpHash([]byte(address)), DesiredHash: udpHash(raw), HostPort: 20431, Image: plan.Image{Digest: strings.Split(udpRuntimeImage, "@")[1], Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known(udpRuntimeManifest)}, UDP: &plan.UDPPlan{Next: a}, Changes: []plan.Change{{Kind: plan.RenderQuadlet, Quadlet: &plan.Quadlet{Desired: d, UDP: a}}}}
-	if err := plan.RefuseUDPExecution(p, d); err == nil {
-		f.t.Fatal("direct execution guard lost")
-	}
+	udpRequire(f.t, plan.ValidateUDPExecution(p, d))
 	unit, err := quadlet.Render(d, p, udpRuntimeManifest)
 	udpRequire(f.t, err)
-	f.t.Logf("isolated typed render hash=%s; execution guard refuses", unit.Hash())
+	f.t.Logf("isolated typed render hash=%s; no Brine lifecycle execution", unit.Hash())
 	return unit
 }
 func (f udpRuntimeFixture) runMapping(address string) {

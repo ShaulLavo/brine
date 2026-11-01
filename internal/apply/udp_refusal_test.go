@@ -2,7 +2,6 @@ package apply
 
 import (
 	"errors"
-	"strings"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -12,7 +11,7 @@ import (
 func TestUDPIntentRefusesBeforeJournalOrEffects(t *testing.T) {
 	e := &Executor{}
 	err := e.Run(t.Context(), "", plan.Plan{}, policy.Desired{UDP: &policy.UDPDesired{}})
-	if err == nil || !strings.Contains(err.Error(), "udp_execution_unavailable") {
+	if !errors.Is(err, plan.ErrInvalidUDPExecution) {
 		t.Fatalf("UDP bypass reached executor: %v", err)
 	}
 }
@@ -21,10 +20,10 @@ func TestUDPRecoveryAndResolutionRefuseBeforeAdapters(t *testing.T) {
 	e := &Executor{}
 	p := plan.Plan{UDP: &plan.UDPPlan{}}
 	d := policy.Desired{}
-	if _, err := e.InspectRecovery(t.Context(), Operation{}, p, d, nil); !errors.Is(err, plan.ErrUDPExecutionUnavailable) {
+	if _, err := e.InspectRecovery(t.Context(), Operation{}, p, d, nil); !errors.Is(err, plan.ErrInvalidUDPExecution) {
 		t.Fatal("recovery bypass", err)
 	}
-	if _, err := e.InspectResolution(t.Context(), Operation{}, Operation{}, p, d, nil); !errors.Is(err, plan.ErrUDPExecutionUnavailable) {
+	if _, err := e.InspectResolution(t.Context(), Operation{}, Operation{}, p, d, nil); !errors.Is(err, plan.ErrInvalidUDPExecution) {
 		t.Fatal("resolution bypass", err)
 	}
 }
@@ -42,7 +41,7 @@ func TestHandcraftedUDPPayloadsRefuseBeforeEffects(t *testing.T) {
 	e := Executor{}
 	for _, p := range plans {
 		err := e.Run(t.Context(), "forged", p, policy.Desired{})
-		if !errors.Is(err, plan.ErrUDPExecutionUnavailable) {
+		if !errors.Is(err, plan.ErrInvalidUDPExecution) {
 			t.Fatalf("payload reached adapters: %v", err)
 		}
 	}

@@ -302,8 +302,7 @@ func ConflictText(d plan.Diagnostic) string {
 
 func reason(code plan.ConflictCode) string {
 	switch code {
-	case plan.UDPExecutionUnavailable:
-		return "UDP execution is unavailable until lifecycle and recovery support is complete."
+
 	case plan.UDPDenied:
 		return "The operator grant does not cover this UDP endpoint."
 	case plan.UDPPortOwned:

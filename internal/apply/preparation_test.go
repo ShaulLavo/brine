@@ -124,7 +124,7 @@ func TestPreparePersistentUnknownButProvenCompleteDoesNotReplay(t *testing.T) {
 }
 func TestStatelessStepVocabularyOmitsPreparation(t *testing.T) {
 	r := newRig(t, false)
-	for _, name := range deploymentSteps(r.desired) {
+	for _, name := range deploymentSteps(r.plan, r.desired) {
 		if name == "prepare_data" {
 			t.Fatal("stateless preparation event")
 		}

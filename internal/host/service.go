@@ -152,7 +152,7 @@ type Executor struct {
 }
 
 func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desired) error {
-	if err := plan.RefuseUDPExecution(p, d); err != nil {
+	if err := plan.ValidateUDPExecution(p, d); err != nil {
 		return result.New(result.Conflict, err)
 	}
 	if p.Managed != nil && p.Managed.State == data.EngineUnpublished {
@@ -163,23 +163,28 @@ func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desi
 	}
 	if p.Lifecycle == plan.RemoveApp {
 		engine := e.Engine
-		engine.Facts = operationFacts{service: e.Service, desired: d, removal: true}
+		engine.Facts = operationFacts{service: e.Service, desired: d, removal: true, recoveryPlan: p, recoveryOperation: ops.Operation{ID: id}}
 		return engine.Run(ctx, id, p, d)
 	}
 	if p.Image.ManifestDigest.Status != target.KnownStatus || p.Image.ManifestDigest.Value == nil {
 		return result.New(result.Conflict, nil)
 	}
-	facts, err := e.Service.facts(ctx, App(d))
+	reader := operationFacts{service: e.Service, desired: d, recoveryPlan: p, recoveryOperation: ops.Operation{ID: id}}
+	facts, err := reader.Read(ctx)
+	if err != nil {
+		return result.New(result.Conflict, err)
+	}
+	input, _, err := plan.RebuildInput(facts.Input, p, []string{id})
 	if err != nil {
 		return result.New(result.Conflict, err)
 	}
 	var fresh plan.Plan
 	if p.Lifecycle == plan.StopApp && p.ManagedLifecycle != nil && p.ManagedLifecycle.Engine {
-		fresh, err = plan.BuildEngineStop(facts.Input)
+		fresh, err = plan.BuildEngineStop(input)
 	} else if p.Lifecycle != "" {
-		fresh, err = plan.BuildLifecycle(facts.Input, p.Lifecycle)
+		fresh, err = plan.BuildLifecycle(input, p.Lifecycle)
 	} else {
-		fresh, err = plan.Build(facts.Input)
+		fresh, err = plan.Build(input)
 	}
 	if err != nil {
 		return result.New(result.Conflict, err)
@@ -193,7 +198,7 @@ func (e Executor) Run(ctx context.Context, id string, p plan.Plan, d policy.Desi
 		return result.New(result.Conflict, errors.Join(err, ops.RecordPlanDrift(ctx, e.Service.Store, id, p, fresh)))
 	}
 	engine := e.Engine
-	engine.Facts = fixedFacts{facts}
+	engine.Facts = reader
 	return engine.Run(ctx, id, p, d)
 }
 

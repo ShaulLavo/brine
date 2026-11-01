@@ -157,6 +157,9 @@ func (h archiveHost) InspectArchiveRuntime(ctx context.Context, p archive.Plan) 
 	return archive.RuntimeInspection{Complete: complete}, nil
 }
 func (h archiveHost) ReconcileArchiveRuntime(ctx context.Context, p archive.Plan) (err error) {
+	if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
+		return err
+	}
 	if nativeArchiveCandidate(p.Candidate) {
 		return h.reconcileNativeArchiveRuntime(ctx, p)
 	}
@@ -289,6 +292,9 @@ func (h archiveHost) recoveryQuiescent(ctx context.Context, p archive.Plan) erro
 	return nil
 }
 func (h archiveHost) CheckArchiveRecovery(ctx context.Context, p archive.Plan, o archive.Operation, m archive.Manifest) error {
+	if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
+		return err
+	}
 	if nativeArchiveCandidate(p.Candidate) {
 		return h.checkNativeArchiveRecovery(ctx, p, o, m)
 	}

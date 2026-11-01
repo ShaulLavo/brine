@@ -152,14 +152,7 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 	if err != nil {
 		return err
 	}
-	var held bool
-	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM udp_reservations WHERE app=? AND state<>'released')", app).Scan(&held); err != nil {
-		return err
-	}
-	if held {
-		return plan.ErrUDPExecutionUnavailable
-	}
-	if err = plan.RefuseUDPExecution(p, d); err != nil {
+	if err := plan.ValidateUDPExecution(p, d); err != nil {
 		return err
 	}
 	if err = verifyRelease(app, r, p, d); err != nil {
@@ -171,6 +164,9 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 		if !bytes.Equal(raw, old) {
 			return ErrConflict
 		}
+		if err := verifyUDPCommit(ctx, tx, r.ID, p, true); err != nil {
+			return err
+		}
 		return tx.Commit()
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
@@ -178,6 +174,14 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 	}
 	if p.Managed != nil {
 		if err := admitManagedRelease(ctx, tx, p, r); err != nil {
+			return err
+		}
+	}
+	if err := verifyUDPCommit(ctx, tx, r.ID, p, false); err != nil {
+		return err
+	}
+	if p.UDP != nil {
+		if err := settleUDP(ctx, tx, r.ID, p); err != nil {
 			return err
 		}
 	}

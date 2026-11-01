@@ -2,7 +2,7 @@
 
 **Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` remains a welcome screen. Do not infer that every contract below is shipped.
 
-## App-owned UDP and WebTransport (D10; execution gated)
+## App-owned UDP and WebTransport (D10)
 
 The UDP-only delivery owns policy-approved UDP allocation,
 publishing, inventory and lifecycle recovery. The app owns its game protocol,
@@ -90,14 +90,40 @@ backfills existing heads from their current release's plan. UDP reservation
 rows are retained, have immutable identity and unique live endpoints, permit
 only the approved staged/active/releasing/released transitions, and do not
 advance control generation. Planning reads them separately from snapshot
-observations. Transactional runtime preparation and settlement remain disabled.
+observations.
 
-Every UDP-involved plan is a conflict with `udp_execution_unavailable` and
-no executable changes. Host execution, apply execution and release commits refuse UDP before effects.
-The isolated renderer accepts only the bound typed allocation described below. Direct retirement refuses live
-UDP reservations. P08-06 removes these guards only with complete publication,
-readiness, rollback, removal and recovery support. No UDP deployment through Brine, network policy change, protocol health or
-remote reachability is claimed here.
+Apply prepares an exact operation-owned claim before staging the unit. A move
+also marks the previous endpoint as releasing. The release transaction releases
+the old row before activating the claim, or asserts the retained active row.
+Stop keeps the active reservation. Start and restart require HTTP health and the
+same local UDP proof. Stateless removal proves the endpoint absent before
+atomically deleting the live head and releasing its claim.
+
+Precommit UDP readiness binds genuine kernel/runtime observations to the
+operation family's prepared claim, resolved incarnation, stored allocation and
+newly rendered unit hash. It never activates a row early or turns an uncommitted
+claim into status ownership. Every freshness comparison undoes only that
+family's exact expected preparation and reservation-derived collector facts.
+Foreign claims, actual units and real sockets remain in the comparison.
+
+Compensation proves the previous publication ready and the replacement endpoint
+absent before reverting reservations. A missing, foreign or unknown observation
+keeps the operation in recovery with its claims intact. An interrupted SQLite
+transaction is inspected before continuation. An identical preparation or
+reversion is idempotent; released rows never become active again. A new claim
+inserts a new row. Historical rollback restores the selected release's exact
+endpoint under the current grant or conflicts without choosing another port.
+
+Persistent removal remains a two-step workflow. First apply a reviewed release
+that removes `[udp]`; this proves the endpoint absent and settles its claim.
+Then use the existing archive retirement workflow. Retirement admission and
+its final transaction refuse every staged, active or releasing UDP reservation.
+Released history does not block retirement. This restriction does not block
+ordinary SQLite deployments, writer-schema reads or safe archive abandonment,
+and adds no data-deletion or UDP authority to the archive workflow.
+
+These source contracts do not claim physical delivery on either architecture.
+Brine changes no firewall, DNS, Tailscale, certificate or application protocol.
 
 ### Isolated UDP rendering and runtime parsing
 
@@ -119,7 +145,7 @@ ports, unsupported protocols and invalid addresses refuse the observation.
 Unbound image `EXPOSE` entries allocate no host port. Pinned unit parsing accepts
 only the renderer's TCP and bracketed-IPv6 or IPv4 UDP grammar. TCP ownership
 requires both mappings to match the measured runtime, not just the HTTP port.
-These observations do not activate UDP lifecycle execution.
+Status ownership remains committed-only; operation-bound apply proofs use the newly rendered unit.
 
 ### Local UDP readiness and retained endpoints
 

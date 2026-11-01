@@ -40,6 +40,8 @@ import (
 )
 
 type Executor struct {
+	UDPReservations    UDPReservations
+	UDPChecks          UDPChecks
 	Journal            Journal
 	Releases           ReleaseStore
 	Plans              PlanLoader
@@ -60,6 +62,7 @@ type Executor struct {
 }
 
 type execution struct {
+	udpPreparationIntent                    bool
 	managedFrontendWake                     bool
 	managedFrontendStopped                  bool
 	managedFrontendStart                    ops.StepPayload
@@ -97,7 +100,7 @@ func (e *Executor) Run(ctx context.Context, opID string, p plan.Plan, d policy.D
 }
 
 func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.Desired, recovery *Recovery) error {
-	if err := plan.RefuseUDPExecution(p, d); err != nil {
+	if err := plan.ValidateUDPExecution(p, d); err != nil {
 		return err
 	}
 	if e.Journal == nil {
@@ -117,6 +120,10 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		return e.runManagedDeployment(ctx, opID, p, d)
 	}
 	x := &execution{executor: e, id: opID, plan: p, desired: d}
+	if recovery != nil {
+		x.writerStartOwners = recovery.execution.writerStartOwners
+		x.udpPreparationIntent = recovery.execution.udpPreparationIntent
+	}
 	preflight := func(ctx context.Context) error {
 		if d.Health.StartupDeadlineSeconds < 1 || d.Health.StartupDeadlineSeconds > spec.MaxStartupDeadlineSeconds {
 			return errors.New("unvalidated health deadline")
@@ -132,11 +139,15 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		if err != nil {
 			return &Error{Step: "preflight", Code: "inventory_failed", Cause: err}
 		}
+		rebuiltInput, _, rebuildErr := plan.RebuildInput(x.facts.Input, p, x.udpFamily())
+		if rebuildErr != nil {
+			return rebuildErr
+		}
 		var fresh plan.Plan
 		if p.Lifecycle != "" {
-			fresh, err = plan.BuildLifecycle(x.facts.Input, p.Lifecycle)
+			fresh, err = plan.BuildLifecycle(rebuiltInput, p.Lifecycle)
 		} else {
-			fresh, err = plan.Build(x.facts.Input)
+			fresh, err = plan.Build(rebuiltInput)
 		}
 		if err != nil {
 			return err
@@ -177,6 +188,9 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 			if !found {
 				return errors.New("release store disagrees with facts")
 			}
+		}
+		if p.UDP != nil && (e.UDPChecks == nil || e.UDPReservations == nil) {
+			return errors.New("UDP adapters required")
 		}
 		if p.Kind == plan.NoOp {
 			return nil
@@ -245,6 +259,9 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 	}
 	if err != nil {
 		if recovery != nil {
+			if p.UDP != nil && x.udpPreparationIntent && !x.quiesced && !x.installed {
+				return x.fail(ctx, err)
+			}
 			return recovery.execution.terminal(ctx, RecoveryRequired, &Error{Step: "preflight", Code: "interrupted", Cause: err})
 		}
 		return x.fail(ctx, err)
@@ -256,7 +273,7 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		return x.reviseReplica(ctx, nil)
 	}
 	if p.Lifecycle != "" {
-		return x.lifecycle(ctx)
+		return x.lifecycle(ctx, nil)
 	}
 	image, err := podman.ParseImage(string(d.Image))
 	if err != nil {
@@ -299,6 +316,7 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 			return nil
 		}},
 		{"prepare_data", Preparing, "writer_permit_refused", x.preparePersistent},
+		{"prepare_udp", Preparing, "udp_reservation_failed", x.prepareUDP},
 		{"stage_unit", Preparing, "unit_invalid", func(ctx context.Context) error {
 			var err error
 			x.unit, err = quadlet.Render(d, p, *p.Image.ManifestDigest.Value)
@@ -321,6 +339,8 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		{"reload_units", Starting, "unit_failed", e.Systemd.DaemonReload},
 		{"start_unit", Starting, "start_failed", x.startWriter},
 		{"check_direct", Checking, "health_failed", func(ctx context.Context) error { return x.check(ctx, d, p.HostPort, false) }},
+		{"check_udp", Checking, "udp_unready", x.checkUDP},
+		{"check_udp_retired", Checking, "udp_unready", x.checkUDPRetired},
 		{"publish_route", Checking, "route_invalid", func(ctx context.Context) error {
 			result, err := e.Routes.Publish(ctx, x.facts.Routing, p, d)
 			x.route = result.Next
@@ -373,6 +393,9 @@ func (e *Executor) run(ctx context.Context, opID string, p plan.Plan, d policy.D
 		}},
 	}
 	for _, s := range steps {
+		if s.name == "prepare_udp" && !udpPreparationNeeded(p) || s.name == "check_udp" && (p.UDP == nil || p.UDP.Next == nil) || s.name == "check_udp_retired" && (p.UDP == nil || p.UDP.Retire == nil) {
+			continue
+		}
 		if s.name == "prepare_data" && d.Stateless() {
 			continue
 		}
@@ -440,15 +463,18 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 	if err := x.event(ctx, name, "intent", ""); err != nil {
 		return err
 	}
+	if name == "prepare_udp" {
+		x.udpPreparationIntent = true
+	}
 	timeout := x.executor.effectTimeout()
 	if x.executor.EffectTimeout <= 0 && (name == "pull_image" || name == "frontend_pull") {
 		timeout = podman.PullTimeout
 	}
-	if name == "check_direct" || name == "check_routed" || managedHealthStep(x.plan, name) {
+	if name == "check_udp" || name == "check_udp_retired" || name == "check_direct" || name == "check_routed" || managedHealthStep(x.plan, name) {
 		timeout = time.Duration(x.desired.Health.StartupDeadlineSeconds) * time.Second
 	}
-	if name == "rollback_check" {
-		timeout = 2 * time.Duration(x.previousDesired.Health.StartupDeadlineSeconds) * time.Second
+	if name == "rollback_udp_check" || name == "rollback_check" {
+		timeout = 2 * time.Duration(max(x.previousDesired.Health.StartupDeadlineSeconds, x.desired.Health.StartupDeadlineSeconds)) * time.Second
 	}
 	stepCtx, cancel := context.WithTimeout(ctx, timeout)
 	err := x.verifyEffectBoundary(stepCtx, name)
@@ -473,7 +499,7 @@ func (x *execution) step(ctx context.Context, name string, state State, code str
 		if errors.Is(err, context.DeadlineExceeded) && (name == "check_direct" || name == "check_routed" || name == "rollback_check") {
 			code = "health_timeout"
 		}
-		if isUnknown(err) && name != "check_direct" && name != "check_routed" && name != "rollback_check" && name != "verify_image" && name != "ensure_secrets" && name != "preflight" && name != "check_compatibility" {
+		if isUnknown(err) && !udpReadOnly(name) && name != "check_direct" && name != "check_routed" && name != "rollback_check" && name != "verify_image" && name != "ensure_secrets" && name != "preflight" && name != "check_compatibility" {
 			code = "interrupted"
 			outcome = "unknown"
 		}
@@ -550,6 +576,10 @@ func (x *execution) terminal(ctx context.Context, state State, cause error) erro
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), journalTimeout)
 	defer cancel()
 	if state == Succeeded || state == Failed || state == RolledBack {
+		if err := x.udpSettled(ctx); err != nil {
+			cause = errors.Join(cause, err)
+			state = RecoveryRequired
+		}
 		if err := x.clearWriterStart(ctx); err != nil {
 			cause = errors.Join(cause, err)
 			state = RecoveryRequired
@@ -590,6 +620,9 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 		return x.terminal(ctx, RecoveryRequired, cause)
 	}
 	if !x.quiesced && !x.installed {
+		if err := x.revertUnstartedUDP(ctx); err != nil {
+			return x.terminal(ctx, RecoveryRequired, err)
+		}
 		return x.terminal(ctx, Failed, cause)
 	}
 	rollbackCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 12*x.executor.effectTimeout()+3*time.Duration(x.previousDesired.Health.StartupDeadlineSeconds)*time.Second+4*time.Minute)
@@ -653,6 +686,9 @@ func (x *execution) fail(ctx context.Context, cause error) error {
 		}); err != nil {
 			return x.terminal(ctx, RecoveryRequired, err)
 		}
+	}
+	if err := x.compensateUDP(step); err != nil {
+		return x.terminal(ctx, RecoveryRequired, err)
 	}
 	return x.terminal(ctx, RolledBack, cause)
 }

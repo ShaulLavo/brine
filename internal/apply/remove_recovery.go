@@ -16,6 +16,9 @@ import (
 var removeSteps = []string{"preflight", "withdraw_route", "stop_unit", "remove_unit", "reload_units", "retire_app"}
 
 func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p plan.Plan, d policy.Desired, events []Event, r Recovery) (Recovery, error) {
+	if p.UDP != nil && (e.UDPReservations == nil || e.UDPChecks == nil) {
+		return r, nil
+	}
 	if op.State.IsTerminal() || p.Hash != op.PlanID || !desiredMatches(p, d) || len(p.Conflicts) != 0 || e.Facts == nil || e.Releases == nil {
 		return r, nil
 	}
@@ -36,6 +39,7 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 	if !ok {
 		return r, nil
 	}
+	removeSteps := removalSteps(p)
 	index := 0
 	var last stepPayload
 	for _, event := range events {
@@ -46,11 +50,14 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 			return r, nil
 		}
 		r.Step = last.Step
+		if last.Outcome == "failed" && !udpRemovalFailedStep(p, last.Step) {
+			return r, nil
+		}
 		switch last.Outcome {
 		case "completed":
 			r.completed[last.Step] = true
 			index++
-		case "intent", "unknown":
+		case "intent", "unknown", "failed":
 		default:
 			return r, nil
 		}
@@ -59,7 +66,7 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 	if r.Step == "" {
 		return r, nil
 	}
-	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State}
+	x := &execution{executor: e, id: op.ID, plan: p, desired: d, state: op.State, writerStartOwners: r.resolutionOwners}
 	r.execution = x
 	evidence, cancel := context.WithTimeout(ctx, e.effectTimeout())
 	defer cancel()
@@ -152,6 +159,19 @@ func (e *Executor) inspectRemoveRecovery(ctx context.Context, op Operation, p pl
 	route := removalRouteState(p, x.facts)
 	if route == unresolved {
 		return r, nil
+	}
+	if p.UDP != nil {
+		state, err := e.UDPReservations.UDPPreparation(evidence, x.id, p)
+		if err != nil {
+			return r, err
+		}
+		if retired && state != "committed" || !retired && state != "prepared" && (r.Step != "prepare_udp" && r.Step != "preflight" || state != "unprepared") {
+			return r, nil
+		}
+		if r.Step == "prepare_udp" && state == "prepared" && !r.completed[r.Step] {
+			r.completed[r.Step] = true
+			r.resolved = true
+		}
 	}
 	boundary := slices.Index(removeSteps, r.Step)
 	if route == notApplied && boundary > slices.Index(removeSteps, "withdraw_route") || unitHash == "" && boundary < slices.Index(removeSteps, "remove_unit") {
@@ -251,4 +271,15 @@ func (e *Executor) inspectNoOpRemoveRecovery(ctx context.Context, op Operation, 
 	r.resolved = !completed
 	r.Action = FinishSucceeded
 	return r, nil
+}
+
+func removalSteps(p plan.Plan) []string {
+	if !udpPreparationNeeded(p) {
+		return removeSteps
+	}
+	return []string{"preflight", "prepare_udp", "withdraw_route", "stop_unit", "remove_unit", "reload_units", "check_udp_retired", "retire_app"}
+}
+
+func udpRemovalFailedStep(p plan.Plan, step string) bool {
+	return p.UDP != nil && slices.Contains([]string{"prepare_udp", "check_udp_retired", "retire_app"}, step)
 }

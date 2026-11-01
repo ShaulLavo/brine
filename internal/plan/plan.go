@@ -80,6 +80,8 @@ func (i Image) observed() target.Image {
 }
 
 type Input struct {
+	UDPRebuildSnapshot *target.Snapshot
+
 	Desired  policy.Desired
 	Snapshot target.Snapshot
 	// Image is manifest metadata supplied by the caller, never looked up by Build.
@@ -279,7 +281,7 @@ func Build(in Input) (Plan, error) {
 	}
 	in = projectUDP(in)
 	if in.Desired.SpacetimeDB != nil && udpInvolved(in) {
-		return Plan{}, ErrUDPExecutionUnavailable
+		return Plan{}, ErrInvalidUDPExecution
 	}
 	if in.Desired.SpacetimeDB != nil {
 		if in.Managed != nil && in.Managed.Runtime != nil && in.Managed.Runtime.State == data.EngineInitialized {
@@ -566,7 +568,7 @@ func Build(in Input) (Plan, error) {
 	if release != nil {
 		p.Kind = Update
 	}
-	if release != nil && configHash(release.Desired, release.Image, release.HostPort, release.Secrets) == p.ConfigHash && current.Image.Status == target.KnownStatus && *current.Image.Value == in.Image.observed() && !allocated && ownHash != "" && hasContainer(*current.QuadletUnits.Value, p.App) {
+	if release != nil && udpConfigHash(release.Desired, release.Image, release.HostPort, release.Secrets, &UDPPlan{Next: release.UDP}) == p.ConfigHash && current.Image.Status == target.KnownStatus && *current.Image.Value == in.Image.observed() && !allocated && ownHash != "" && hasContainer(*current.QuadletUnits.Value, p.App) {
 		p.Kind = NoOp
 	} else if p.Lifecycle == ReviseReplica {
 		p.ReplicaPrevious = &ReplicaPrevious{ReleaseID: release.ID, Units: slices.Clone(release.Units), CaddyFile: release.CaddyFile, CaddyGeneration: release.CaddyGeneration, RoutingGeneration: caddy.Generation}

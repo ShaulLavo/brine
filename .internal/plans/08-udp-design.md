@@ -684,8 +684,13 @@ rebuilt plan differ.
   owner. Removal recovery reads the row against `Removal.UDP`: `active` means
   `prepare_udp` was not applied, `releasing` under the family means it was,
   and `released` together with `AppRetired` means retirement committed.
-  Persistent removal still goes through the archive path; UDP grants no data
-  authority.
+  Persistent removal first applies a normal reviewed release removing `[udp]`.
+  Its absence proof and release transaction settle the reservation before the
+  existing archive retirement workflow begins. Retirement-specific admission
+  and final commit refuse staged, active and releasing claims, including a
+  late claim. Released history stays readable. Shared archive-candidate and
+  writer-schema reads and safe abandonment remain unchanged. This clarification
+  was approved on November 1, 2026; UDP grants no data authority.
 
 Terminal recovery resolution (`brine resolve`) needs no new mechanism. The
 successor's family includes the source, so its continuation or compensation

@@ -135,6 +135,11 @@ func validateDispositionOperation(ctx context.Context, tx *sql.Tx, o archive.Ope
 	} else if err != nil || release != p.Candidate.ReleaseID {
 		return p, ErrConflict
 	}
+	if next.Stage != archive.AbandonIntent && next.Stage != archive.Abandoned {
+		if err := guardArchiveUDP(ctx, tx, p.Candidate.App); err != nil {
+			return p, err
+		}
+	}
 	return p, nil
 }
 func insertDisposition(ctx context.Context, tx *sql.Tx, next archive.Disposition) error {

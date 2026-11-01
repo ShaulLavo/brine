@@ -37,7 +37,15 @@ func (e *Executor) runRemove(ctx context.Context, id string, p plan.Plan, d poli
 	if err != nil {
 		return err
 	}
-	fresh, err := plan.BuildRemove(facts.Input)
+	op, err := e.Journal.GetOperation(ctx, id)
+	if err != nil {
+		return err
+	}
+	input, _, err := plan.RebuildInput(facts.Input, p, []string{op.ID})
+	if err != nil {
+		return err
+	}
+	fresh, err := plan.BuildRemove(input)
 	if err != nil {
 		return err
 	}
@@ -53,6 +61,9 @@ func (e *Executor) runRemove(ctx context.Context, id string, p plan.Plan, d poli
 	if err = x.step(ctx, "preflight", Preflight, "drift", func(ctx context.Context) error {
 		if p.Kind == plan.NoOp {
 			return nil
+		}
+		if p.UDP != nil && (e.UDPReservations == nil || e.UDPChecks == nil) {
+			return errors.New("UDP removal adapters required")
 		}
 		if p.Removal == nil || len(p.Removal.Units) != 1 {
 			return errors.New("apply: missing removal ownership")
@@ -108,6 +119,7 @@ func (x *execution) remove(ctx context.Context, completed map[string]bool, settl
 		code   string
 		effect func(context.Context) error
 	}{
+		{"prepare_udp", Preparing, "udp_reservation_failed", x.prepareUDP},
 		{"withdraw_route", Preparing, "route_invalid", func(ctx context.Context) error {
 			if settleRoute {
 				return routes.SettleWithdrawal(ctx, before, x.facts.Routing, x.plan.App)
@@ -148,14 +160,21 @@ func (x *execution) remove(ctx context.Context, completed map[string]bool, settl
 			return units.Remove(ctx, unit.Name, unit.Hash)
 		}},
 		{"reload_units", Checking, "unit_failed", e.Systemd.DaemonReload},
+		{"check_udp_retired", Checking, "udp_unready", x.checkUDPRetired},
 		{"retire_app", Committing, "commit_failed", func(ctx context.Context) error {
 			if x.waitWriter(ctx) != writerStopped {
 				return &Error{Step: "retire_app", Code: "interrupted"}
+			}
+			if err := x.retirementUDPProof(ctx); err != nil {
+				return err
 			}
 			return store.RetireApp(ctx, x.id, x.plan.App, x.plan.Removal.ReleaseID)
 		}},
 	}
 	for _, step := range steps {
+		if step.name == "prepare_udp" && !udpPreparationNeeded(x.plan) || step.name == "check_udp_retired" && (x.plan.UDP == nil || x.plan.UDP.Retire == nil) {
+			continue
+		}
 		if completed[step.name] {
 			continue
 		}

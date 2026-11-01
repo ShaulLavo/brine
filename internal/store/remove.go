@@ -33,19 +33,23 @@ func (s *Store) RetireApp(ctx context.Context, operationID, app, releaseID strin
 	if err = tx.QueryRowContext(ctx, "SELECT plan_id,app,kind FROM operations WHERE id=?", operationID).Scan(&planID, &opApp, &kind); err != nil {
 		return err
 	}
-	p, _, err := loadPlan(ctx, tx, planID)
+	p, desired, err := loadPlan(ctx, tx, planID)
 	if err != nil {
+		return err
+	}
+	if err := plan.ValidateUDPExecution(p, desired); err != nil {
 		return err
 	}
 	if kind != "deploy" && kind != "resolve" || opApp != app || p.App != app || p.Lifecycle != plan.RemoveApp || p.Removal == nil || p.Removal.ReleaseID != releaseID {
 		return ErrInvalid
 	}
-	var held bool
-	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM udp_reservations WHERE app=? AND state<>'released')", app).Scan(&held); err != nil {
+	if err := verifyUDPCommit(ctx, tx, operationID, p, false); err != nil {
 		return err
 	}
-	if held {
-		return plan.ErrUDPExecutionUnavailable
+	if p.UDP != nil {
+		if err := settleUDP(ctx, tx, operationID, p); err != nil {
+			return err
+		}
 	}
 	if err = guardCDNReservation(ctx, tx, app); err != nil {
 		return err

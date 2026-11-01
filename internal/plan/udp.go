@@ -50,18 +50,17 @@ type UDPPlan struct {
 }
 
 const (
-	ReserveUDP              ChangeKind   = "reserve_udp"
-	ReleaseUDP              ChangeKind   = "release_udp"
-	UDPDenied               ConflictCode = "udp_denied"
-	UDPPortOwned            ConflictCode = "udp_port_owned"
-	UDPPortsExhausted       ConflictCode = "udp_ports_exhausted"
-	UDPBindUnavailable      ConflictCode = "udp_bind_address_unavailable"
-	UDPRuntimeUnsupported   ConflictCode = "udp_runtime_unsupported"
-	UDPUnsettled            ConflictCode = "udp_reservation_unsettled"
-	UDPExecutionUnavailable ConflictCode = "udp_execution_unavailable"
+	ReserveUDP            ChangeKind   = "reserve_udp"
+	ReleaseUDP            ChangeKind   = "release_udp"
+	UDPDenied             ConflictCode = "udp_denied"
+	UDPPortOwned          ConflictCode = "udp_port_owned"
+	UDPPortsExhausted     ConflictCode = "udp_ports_exhausted"
+	UDPBindUnavailable    ConflictCode = "udp_bind_address_unavailable"
+	UDPRuntimeUnsupported ConflictCode = "udp_runtime_unsupported"
+	UDPUnsettled          ConflictCode = "udp_reservation_unsettled"
 )
 
-var ErrUDPExecutionUnavailable = errors.New("udp_execution_unavailable")
+var ErrInvalidUDPExecution = errors.New("invalid UDP execution intent")
 
 func (p Plan) ResolvedIncarnation() string {
 	if p.UDP == nil {
@@ -76,14 +75,40 @@ func (p Plan) ResolvedIncarnation() string {
 	return ""
 }
 
-// RefuseUDPExecution closes direct consumers while P08-06 is not implemented.
-func RefuseUDPExecution(p Plan, d policy.Desired) error {
-	if p.UDP != nil || d.UDP != nil || p.Removal != nil && p.Removal.UDP != nil {
-		return ErrUDPExecutionUnavailable
-	}
+// ValidateUDPExecution rejects incomplete direct-consumer payloads. Fresh
+// replanning still binds the complete plan before any effect is authorized.
+func ValidateUDPExecution(p Plan, d policy.Desired) error {
+	involved := p.UDP != nil || d.UDP != nil || p.Removal != nil && p.Removal.UDP != nil
 	for _, c := range p.Changes {
 		if c.UDP != nil || c.Kind == ReserveUDP || c.Kind == ReleaseUDP || c.Quadlet != nil && (c.Quadlet.UDP != nil || c.Quadlet.Desired.UDP != nil) {
-			return ErrUDPExecutionUnavailable
+			involved = true
+		}
+	}
+	if !involved {
+		return nil
+	}
+	u := p.UDP
+	if u == nil || !validHash(p.Hash) || !validHash(p.ResolvedIncarnation()) || p.Managed != nil || d.SpacetimeDB != nil || u.Keep != "" && (u.Next == nil || u.Retire != nil) {
+		return ErrInvalidUDPExecution
+	}
+	if p.Lifecycle != RemoveApp && (u.Next != nil) != (d.UDP != nil) {
+		return ErrInvalidUDPExecution
+	}
+	if u.Next == nil && u.Retire == nil {
+		return ErrInvalidUDPExecution
+	}
+	if u.Next != nil && (d.UDP == nil || !grantCovers(d.UDP.Grant, u.Next.Endpoint) || u.Next.ContainerPort != target.Port(d.UDP.ContainerPort) || u.Next.Exposure != d.UDP.Exposure || u.Next.GrantHash != d.UDP.Grant.Hash() || u.Next.ClientAddress != d.UDP.Grant.ClientAddress) {
+		return ErrInvalidUDPExecution
+	}
+	if u.Retire != nil && (u.Retire.State != "active" || u.Retire.Owner != "" || u.Retire.App != p.App || u.Retire.Incarnation != p.ResolvedIncarnation() || u.Retire.Endpoint.Validate() != nil) {
+		return ErrInvalidUDPExecution
+	}
+	if p.Lifecycle == RemoveApp && (p.Removal == nil || !reflect.DeepEqual(p.Removal.UDP, u.Retire) || u.Next != nil) {
+		return ErrInvalidUDPExecution
+	}
+	for _, c := range p.Changes {
+		if c.Quadlet != nil && !reflect.DeepEqual(c.Quadlet.UDP, u.Next) {
+			return ErrInvalidUDPExecution
 		}
 	}
 	return nil
@@ -210,7 +235,6 @@ func planUDP(in Input, p *Plan, release *CurrentRelease, current *target.App, ad
 	if !udpInvolved(in) {
 		return
 	}
-	add(UDPExecutionUnavailable, "udp")
 	u := &UDPPlan{Exact: in.UDPExact}
 	p.UDP = u
 	var active *UDPReservation
@@ -407,11 +431,28 @@ func udpDiff(p *Plan, previous *CurrentRelease) {
 }
 
 func finishUDP(p Plan, in Input, desired, snapshot, state []byte) (Plan, error) {
-	if udpInvolved(in) {
-		if p.UDP == nil {
-			p.UDP = &UDPPlan{Exact: in.UDPExact}
-		}
-		p.Conflicts = append(p.Conflicts, Diagnostic{UDPExecutionUnavailable, "udp"})
+	if p.UDP == nil || p.Lifecycle != "" || p.Kind == NoOp || len(p.Conflicts) != 0 {
+		return finish(p, desired, snapshot, state)
 	}
+	for i := range p.Changes {
+		if p.Changes[i].Quadlet != nil {
+			p.Changes[i].Quadlet.UDP = p.UDP.Next
+		}
+	}
+	if p.UDP.Next != nil && p.UDP.Keep == "" {
+		endpoint := p.UDP.Next.Endpoint
+		p.Changes = append(p.Changes, Change{Kind: ReserveUDP, UDP: &endpoint})
+	}
+	if p.UDP.Retire != nil {
+		endpoint := p.UDP.Retire.Endpoint
+		p.Changes = append(p.Changes, Change{Kind: ReleaseUDP, UDP: &endpoint})
+	}
+	var previous *CurrentRelease
+	for i := range in.State.Releases {
+		if in.State.Releases[i].App == p.App {
+			previous = &in.State.Releases[i]
+		}
+	}
+	udpDiff(&p, previous)
 	return finish(p, desired, snapshot, state)
 }
