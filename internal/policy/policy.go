@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"path"
 	"regexp"
 	"slices"
@@ -65,6 +66,7 @@ type document struct {
 	Backup               *backupDocument                  `toml:"backup" json:"backup,omitempty"`
 	BackupDestinations   []persistent.Destination         `toml:"backup_destinations" json:"backup_destinations,omitempty"`
 	CDNBindings          []cdn.Binding                    `toml:"cdn_bindings" json:"cdn_bindings,omitempty"`
+	UDPGrants            []UDPGrant                       `toml:"udp_grants" json:"udp_grants,omitempty"`
 	CaddyPort            uint16                           `toml:"caddy_port" json:"caddy_port,omitempty"`
 	SchemaVersion        int                              `toml:"schema_version" json:"schema_version"`
 	Version              string                           `toml:"version" json:"version"`
@@ -133,6 +135,18 @@ func (p Policy) AppPorts() PortRange {
 		return PortRange{}
 	}
 	return *p.config.AppPorts
+}
+
+func (p Policy) UDPGrant(app string) (UDPGrant, bool) {
+	if p.config == nil {
+		return UDPGrant{}, false
+	}
+	for _, grant := range p.config.UDPGrants {
+		if grant.App == app {
+			return grant, true
+		}
+	}
+	return UDPGrant{}, false
 }
 
 func (p Policy) CDNBinding(reference, app string) (cdn.Binding, bool) {
@@ -229,6 +243,21 @@ func Parse(data []byte) (Policy, error) {
 	if raw.AppPorts.Min < 1024 || raw.AppPorts.Max < raw.AppPorts.Min {
 		return bad("policy.invalid_ports", "app_ports", "expected an ordered unprivileged port range")
 	}
+	seenUDPApps := map[string]bool{}
+	for i := range raw.UDPGrants {
+		grant := &raw.UDPGrants[i]
+		if seenUDPApps[grant.App] || grant.Validate(*raw.AppPorts) != nil || !validClientAddress(grant.ClientAddress) {
+			return bad("policy.invalid_udp_grant", fmt.Sprintf("udp_grants[%d]", i), "invalid or duplicate UDP grant")
+		}
+		seenUDPApps[grant.App] = true
+		normalizeGrant(grant)
+		for _, prior := range raw.UDPGrants[:i] {
+			if sameBind(*grant, prior) && rangesOverlap(grant.HostPorts, prior.HostPorts) {
+				return bad("policy.invalid_udp_grant", fmt.Sprintf("udp_grants[%d].host_ports", i), "UDP grant range overlaps another grant")
+			}
+		}
+	}
+	slices.SortFunc(raw.UDPGrants, func(a, b UDPGrant) int { return strings.Compare(a.App, b.App) })
 	if raw.Resources.MemoryMB < 1 || raw.Resources.MemoryMB > 2147483647 || raw.Resources.PIDsLimit < 1 || raw.Resources.PIDsLimit > 2147483647 {
 		return bad("policy.invalid_resources", "resources", "positive 32-bit resource ceilings are required")
 	}
@@ -307,7 +336,7 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "data_initialization", "spacetimedb", "allow_live_restore", "allow_archive_purge", "cdn_bindings") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "data_initialization", "spacetimedb", "allow_live_restore", "allow_archive_purge", "cdn_bindings", "udp_grants") {
 		return false
 	}
 	if v, ok := keys["cdn_bindings"]; ok && !exactCDNBindingRows(v) {
@@ -353,6 +382,22 @@ func exactKeys(keys map[string]any) bool {
 		for _, row := range rows {
 			m, ok := row.(map[string]any)
 			if !ok || !onlyKeys(m, "host", "repository_prefixes") {
+				return false
+			}
+		}
+	}
+	if v, ok := keys["udp_grants"]; ok {
+		rows, ok := v.([]any)
+		if !ok {
+			return false
+		}
+		for _, row := range rows {
+			m, ok := row.(map[string]any)
+			if !ok || !onlyKeys(m, "app", "exposure", "bind_address", "client_address", "host_ports") {
+				return false
+			}
+			ports, ok := m["host_ports"].(map[string]any)
+			if !ok || !onlyKeys(ports, "min", "max") {
 				return false
 			}
 		}
