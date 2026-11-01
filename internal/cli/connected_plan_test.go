@@ -58,45 +58,12 @@ func TestConnectedPlanInvalidSpec(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, input := range map[string]string{
-		"malformed":     "name = \"PLANTED_PRIVATE_SPEC\"\nimage = [",
-		"missing-field": "name = \"PLANTED_PRIVATE_SPEC\"\n",
-		"unknown-field": string(valid) + "\nPLANTED_PRIVATE_SPEC = \"hidden\"\n",
+		"malformed":          "name = \"PLANTED_PRIVATE_SPEC\"\nimage = [",
+		"missing-field":      "name = \"PLANTED_PRIVATE_SPEC\"\n",
+		"unknown-field":      string(valid) + "\nPLANTED_PRIVATE_SPEC = \"hidden\"\n",
+		"digit-leading-name": strings.Replace(string(valid), `name = "hello"`, `name = "1app"`, 1),
 	} {
-		for _, mode := range []string{"", "--json", "--jsonl"} {
-			t.Run(name+mode, func(t *testing.T) {
-				path := filepath.Join(t.TempDir(), "brine.toml")
-				if err := os.WriteFile(path, []byte(input), 0600); err != nil {
-					t.Fatal(err)
-				}
-				var out, stderr bytes.Buffer
-				deps := testDependencies(t, &out, &stderr)
-				deps.LoadOperationTarget = func(string, string) (transport.Target, error) {
-					t.Fatal("invalid spec loaded target")
-					return transport.Target{}, nil
-				}
-				deps.OperationClient = callFunc(func(context.Context, transport.Target, dispatch.Request) (result.Envelope, error) {
-					t.Fatal("invalid spec contacted target")
-					return result.Envelope{}, nil
-				})
-				args := []string{"plan", path, "--target", "fixture"}
-				if mode != "" {
-					args = append(args, mode)
-				}
-				err := Execute(deps, args)
-				if result.ExitCode(err) != 2 || result.Classify(err).Code() != result.InvalidUsage {
-					t.Fatalf("err=%v exit=%d", err, result.ExitCode(err))
-				}
-				if strings.Contains(out.String()+stderr.String(), "PLANTED_PRIVATE_SPEC") {
-					t.Fatal("private parse input leaked")
-				}
-				if mode != "" {
-					var e result.Envelope
-					if json.Unmarshal(out.Bytes(), &e) != nil || e.OK || e.Error == nil || e.Error.Code != result.InvalidUsage || strings.Count(out.String(), "\n") != 1 {
-						t.Fatalf("invalid envelope %s", out.String())
-					}
-				}
-			})
-		}
+		checkInvalidSpecModes(t, name, input)
 	}
 }
 
@@ -122,5 +89,49 @@ func TestPlanMissingModeGuidanceDoesNotDenyConnectedPlanning(t *testing.T) {
 				t.Fatalf("misleading or unsafe planning guidance %s", text)
 			}
 		})
+	}
+}
+
+func checkInvalidSpecModes(t *testing.T, name, input string) {
+	t.Helper()
+	for _, mode := range []string{"", "--json", "--jsonl"} {
+		t.Run(name+mode, func(t *testing.T) {
+			checkConnectedPlanInvalidSpec(t, input, mode)
+		})
+	}
+}
+
+func checkConnectedPlanInvalidSpec(t *testing.T, input, mode string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "brine.toml")
+	if err := os.WriteFile(path, []byte(input), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	deps := testDependencies(t, &out, &stderr)
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) {
+		t.Fatal("invalid spec loaded target")
+		return transport.Target{}, nil
+	}
+	deps.OperationClient = callFunc(func(context.Context, transport.Target, dispatch.Request) (result.Envelope, error) {
+		t.Fatal("invalid spec contacted target")
+		return result.Envelope{}, nil
+	})
+	args := []string{"plan", path, "--target", "fixture"}
+	if mode != "" {
+		args = append(args, mode)
+	}
+	err := Execute(deps, args)
+	if result.ExitCode(err) != 2 || result.Classify(err).Code() != result.InvalidUsage {
+		t.Fatalf("err=%v exit=%d", err, result.ExitCode(err))
+	}
+	if strings.Contains(out.String()+stderr.String(), "PLANTED_PRIVATE_SPEC") {
+		t.Fatal("private parse input leaked")
+	}
+	if mode != "" {
+		var e result.Envelope
+		if json.Unmarshal(out.Bytes(), &e) != nil || e.OK || e.Error == nil || e.Error.Code != result.InvalidUsage || strings.Count(out.String(), "\n") != 1 {
+			t.Fatalf("invalid envelope %s", out.String())
+		}
 	}
 }

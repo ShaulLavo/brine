@@ -8,8 +8,8 @@ environment or secrets rather than echoing input.
 Syntax, duplicate keys, and malformed table shapes use spec.invalid_toml at $.
 
 The required fields are schema_version, name, image, container_port, and a
-nonempty domains array. Names are lowercase ASCII DNS labels of 1 to 63 bytes,
-with letters or digits at each end and hyphens permitted inside. Domains have
+nonempty domains array. Names contain 1 to 63 lowercase ASCII letters, digits,
+or hyphens. They begin with a letter and end with a letter or digit. Domains have
 at least two DNS labels and at most 253 bytes. Domain case is folded to lowercase;
 IP addresses, trailing dots, wildcards, Unicode, and xn-- IDN labels are refused.
 Duplicate domains after case folding are refused.

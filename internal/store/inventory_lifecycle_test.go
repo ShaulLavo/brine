@@ -171,7 +171,7 @@ func TestCreateRemoveRecreateThroughProductionCollector(t *testing.T) {
 		runner["podman container exists systemd-hello"] = ""
 		runner["podman image exists ghcr.io/team/hello@"+p.Image.Digest] = ""
 		runner["podman container inspect systemd-hello"] = `[{"Name":"systemd-hello","Image":"748902c9f9368aa7437b05e353c23968266b0bc882ac1d74067fc1768a102ba6","Config":{"Labels":{"PODMAN_SYSTEMD_UNIT":"hello.service"}},"State":{"Status":"running","Running":true}}]`
-		runner[`podman --remote=false inspect --type container --format {"name":{{json .Name}},"running":{{json .State.Running}},"unit":{{json (index .Config.Labels "PODMAN_SYSTEMD_UNIT")}},"ports":{{json .NetworkSettings.Ports}}} systemd-hello`] = `{"name":"systemd-hello","running":true,"unit":"hello.service","ports":{"3000/tcp":[{"HostIp":"127.0.0.1","HostPort":"20000"}]}}`
+		runner[`podman --remote=false inspect --type container --format {"name":{{json .Name}},"running":{{json .State.Running}},"unit":{{json (index .Config.Labels "PODMAN_SYSTEMD_UNIT")}},"network":{{json .HostConfig.NetworkMode}},"ports":{{json .NetworkSettings.Ports}}} systemd-hello`] = `{"name":"systemd-hello","running":true,"unit":"hello.service","network":"pasta","ports":{"3000/tcp":[{"HostIp":"127.0.0.1","HostPort":"20000"}]}}`
 		r := Release{ID: id, PlanID: p.Hash, Image: p.Image, HostPort: p.HostPort, Secrets: p.Secrets, Units: []target.Unit{{Name: unit.Name(), Hash: unit.Hash()}}, CaddyFile: target.CaddyFile{Name: "hello.caddy", Hash: digest(route)}, CaddyGeneration: 0}
 		if err = s.CommitRelease(ctx, "hello", r); err != nil {
 			t.Fatal(err)

@@ -6,6 +6,8 @@ package quadlet
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/netip"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -41,10 +43,11 @@ var hashPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // Image pin; the index and selected platform remain recorded in the artifact.
 // This is not plan authentication or permission to deploy an offline preview.
 func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit, error) {
-	if err := plan.RefuseUDPExecution(p, d); err != nil {
+	if err := validateDesired(d); err != nil {
 		return Unit{}, err
 	}
-	if err := validateDesired(d); err != nil {
+	udp, err := validatedUDP(d, p)
+	if err != nil {
 		return Unit{}, err
 	}
 	persistent, err := bindPersistent(d, p)
@@ -99,7 +102,15 @@ func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit,
 	}
 	b.WriteString("\n[Container]\n")
 	repository, _, _ := strings.Cut(string(d.Image), "@")
-	fmt.Fprintf(&b, "Image=%s@%s\nPublishPort=127.0.0.1:%d:%d\nPidsLimit=%d\nPodmanArgs=--memory=%dm\n", repository, platformManifestDigest, p.HostPort, d.ContainerPort, d.Resources.PIDsLimit, d.Resources.MemoryMB)
+	fmt.Fprintf(&b, "Image=%s@%s\nPublishPort=127.0.0.1:%d:%d\n", repository, platformManifestDigest, p.HostPort, d.ContainerPort)
+	if udp != nil {
+		address := udp.Endpoint.BindAddress
+		if parsed, parseErr := netip.ParseAddr(address); parseErr == nil && parsed.Is6() {
+			address = "[" + address + "]"
+		}
+		fmt.Fprintf(&b, "PublishPort=%s:%d:%d/udp\n", address, udp.Endpoint.HostPort, udp.ContainerPort)
+	}
+	fmt.Fprintf(&b, "PidsLimit=%d\nPodmanArgs=--memory=%dm\n", d.Resources.PIDsLimit, d.Resources.MemoryMB)
 	if persistent.runtime != nil {
 		r := persistent.runtime
 		fmt.Fprintf(&b, "UserNS=keep-id:uid=%d,gid=%d\nUser=%d\nGroup=%d\nPodmanArgs=--umask=0077\n", r.UID, r.GID, r.UID, r.GID)
@@ -154,7 +165,7 @@ func validateDesired(d policy.Desired) error {
 	for i, s := range d.Domains {
 		domains[i] = string(s)
 	}
-	raw, err := toml.Marshal(map[string]any{
+	rawValues := map[string]any{
 		"schema_version": d.SchemaVersion,
 		"name":           string(d.Name),
 		"image":          string(d.Image),
@@ -169,15 +180,53 @@ func validateDesired(d policy.Desired) error {
 			"startup_deadline_seconds": d.Health.StartupDeadlineSeconds,
 			"timeout_seconds":          d.Health.TimeoutSeconds,
 		},
-	})
+	}
+	if d.UDP != nil {
+		rawValues["udp"] = map[string]any{"container_port": int(d.UDP.ContainerPort), "exposure": string(d.UDP.Exposure)}
+	}
+	raw, err := toml.Marshal(rawValues)
 	if err != nil {
 		return fmt.Errorf("quadlet: invalid normalized desired input")
 	}
 	app, err := spec.Parse(raw)
-	if err != nil || app.Name != d.Name || app.Image != d.Image || d.PolicyVersion == "" || !hashPattern.MatchString(d.PolicyHash) {
+	if err != nil || app.Name != d.Name || app.Image != d.Image || d.PolicyVersion == "" || !hashPattern.MatchString(d.PolicyHash) || !sameUDP(app.UDP, d.UDP) {
 		return fmt.Errorf("quadlet: invalid normalized desired input")
 	}
 	return nil
+}
+
+func sameUDP(a *spec.UDP, b *policy.UDPDesired) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return a.ContainerPort == b.ContainerPort && a.Exposure == b.Exposure
+}
+
+func validatedUDP(d policy.Desired, p plan.Plan) (*plan.UDPAllocation, error) {
+	var payload *plan.Quadlet
+	for _, change := range p.Changes {
+		if change.Quadlet == nil {
+			continue
+		}
+		if payload != nil {
+			return nil, fmt.Errorf("quadlet: duplicate quadlet payload")
+		}
+		payload = change.Quadlet
+	}
+	if d.UDP == nil {
+		if p.UDP != nil && p.UDP.Next != nil || payload != nil && (payload.UDP != nil || payload.Desired.UDP != nil) {
+			return nil, fmt.Errorf("quadlet: unexpected UDP allocation")
+		}
+		return nil, nil
+	}
+	if p.UDP == nil || p.UDP.Next == nil || payload == nil || payload.UDP == nil || *p.UDP.Next != *payload.UDP || !reflect.DeepEqual(payload.Desired.UDP, d.UDP) {
+		return nil, fmt.Errorf("quadlet: UDP allocation does not match plan")
+	}
+	allocation := p.UDP.Next
+	if d.UDP.Grant.Validate(d.AppPorts) != nil || d.UDP.Grant.App != string(d.Name) || d.UDP.Grant.Exposure != d.UDP.Exposure || allocation.ClientAddress != d.UDP.Grant.ClientAddress || allocation.Endpoint.Validate() != nil || allocation.Endpoint.BindAddress != d.UDP.Grant.BindAddress || allocation.ContainerPort != target.Port(d.UDP.ContainerPort) || allocation.Exposure != d.UDP.Exposure || allocation.GrantHash != d.UDP.Grant.Hash() || allocation.Endpoint.HostPort < target.Port(d.UDP.Grant.HostPorts.Min) || allocation.Endpoint.HostPort > target.Port(d.UDP.Grant.HostPorts.Max) {
+		return nil, fmt.Errorf("quadlet: UDP allocation does not match desired grant")
+	}
+	return payload.UDP, nil
 }
 
 // Quadlet C-unquotes this word and copies it into generated ExecStart. Neither

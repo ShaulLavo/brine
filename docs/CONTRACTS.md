@@ -88,11 +88,33 @@ advance control generation. Planning reads them separately from snapshot
 observations. Transactional runtime preparation and settlement remain disabled.
 
 Every UDP-involved plan is a conflict with `udp_execution_unavailable` and
-no executable changes. Direct renderer, host executor, apply executor and
-release commits refuse UDP before effects. Direct retirement refuses live
+no executable changes. Host execution, apply execution and release commits refuse UDP before effects.
+The isolated renderer accepts only the bound typed allocation described below. Direct retirement refuses live
 UDP reservations. P08-06 removes these guards only with complete publication,
-readiness, rollback, removal and recovery support. No UDP unit publication,
-network policy change, protocol health or remote reachability is claimed here.
+readiness, rollback, removal and recovery support. No UDP deployment through Brine, network policy change, protocol health or
+remote reachability is claimed here.
+
+### Isolated UDP rendering and runtime parsing
+
+The renderer binds `Desired.UDP` to `Plan.UDP.Next` and exactly one
+`Quadlet.UDP` payload. The endpoint family, canonical bind address, host range,
+container port, client address, exposure and canonical grant hash must agree.
+The reconstructed spec includes the UDP declaration. Invalid or missing intent,
+duplicate payloads and mismatched allocations refuse rendering.
+
+The unit keeps its existing loopback TCP `PublishPort` line byte-for-byte and
+adds one explicit `/udp` line. IPv6 bind addresses use brackets. No network
+mode override, capabilities, host sockets or credentials are added. HTTP-only
+units remain unchanged.
+
+Live inspection requires the exact running container name and systemd unit
+label, exactly one loopback TCP mapping and at most one canonical UDP mapping.
+UDP requires observed `pasta` networking. Duplicate bindings, extra published
+ports, unsupported protocols and invalid addresses refuse the observation.
+Unbound image `EXPOSE` entries allocate no host port. Pinned unit parsing accepts
+only the renderer's TCP and bracketed-IPv6 or IPv4 UDP grammar. TCP ownership
+requires both mappings to match the measured runtime, not just the HTTP port.
+These parsers do not activate UDP ownership, readiness or lifecycle execution.
 
 ## App database environment
 

@@ -261,6 +261,13 @@ func assertAppInvariants(t *testing.T, app App) {
 	if len(name) < 1 || len(name) > 63 || strings.Trim(name, "abcdefghijklmnopqrstuvwxyz0123456789-") != "" || strings.HasPrefix(name, "-") || strings.HasSuffix(name, "-") {
 		t.Fatal("invalid app name")
 	}
+	if name[0] < 'a' || name[0] > 'z' {
+		t.Fatal("app name must begin with a lowercase letter")
+	}
+	last := name[len(name)-1]
+	if !((last >= 'a' && last <= 'z') || (last >= '0' && last <= '9')) {
+		t.Fatal("app name must end with a lowercase letter or digit")
+	}
 	if len(app.Domains) == 0 {
 		t.Fatal("missing domains")
 	}

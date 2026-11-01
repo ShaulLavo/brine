@@ -243,7 +243,7 @@ func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, hom
 		}
 		pinned, ok := pinnedListenerPort(string(data))
 		measured, observed := publications[app.Name]
-		if !ok || !observed || pinned != measured || pinned.Host != *app.AllocatedHostPort.Value {
+		if !ok || !observed || !samePublicationMapping(pinned, measured) || pinned.Host != *app.AllocatedHostPort.Value {
 			continue
 		}
 		path := root + strings.TrimSuffix(container.Name, ".container") + ".service"
@@ -256,33 +256,49 @@ func (c Collector) listenerBindings(ctx context.Context, s *target.Snapshot, hom
 	return bindings
 }
 
+var tcpPublicationPattern = regexp.MustCompile(`^127\.0\.0\.1:([0-9]+):([0-9]+)$`)
+var udpPublicationPattern = regexp.MustCompile(`^(\[[0-9a-f:]+\]|[0-9.]+):([0-9]+):([0-9]+)/udp$`)
+
 func pinnedListenerPort(data string) (publication, bool) {
 	section := ""
-	value := ""
-	count := 0
+	var pinned publication
 	for _, line := range strings.Split(data, "\n") {
-		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "[") {
 			section = line
 		}
-		if section == "[Container]" && strings.HasPrefix(line, "PublishPort=") {
-			value = strings.TrimPrefix(line, "PublishPort=")
-			count++
+		if section != "[Container]" || !strings.HasPrefix(line, "PublishPort=") {
+			continue
+		}
+		value := strings.TrimPrefix(line, "PublishPort=")
+		if !addPinnedPublication(&pinned, value) {
+			return publication{}, false
 		}
 	}
-	fields := strings.Split(value, ":")
-	if count != 1 || len(fields) != 3 || fields[0] != "127.0.0.1" {
-		return publication{}, false
+	return pinned, pinned.Host != 0
+}
+
+func addPinnedPublication(pinned *publication, value string) bool {
+	if fields := tcpPublicationPattern.FindStringSubmatch(value); fields != nil {
+		host, validHost := publicationPort(fields[1])
+		inside, validInside := publicationPort(fields[2])
+		if pinned.Host != 0 || !validHost || !validInside {
+			return false
+		}
+		pinned.Host, pinned.Container = host, inside
+		return true
 	}
-	host, err := strconv.ParseUint(fields[1], 10, 16)
-	if err != nil || host < 1024 {
-		return publication{}, false
+	fields := udpPublicationPattern.FindStringSubmatch(value)
+	if fields == nil || pinned.hasUDP() {
+		return false
 	}
-	inside, err := strconv.ParseUint(fields[2], 10, 16)
-	if err != nil || inside < 1024 {
-		return publication{}, false
+	address := strings.Trim(fields[1], "[]")
+	host, validHost := publicationPort(fields[2])
+	inside, validInside := publicationPort(fields[3])
+	if !validUDPBindAddress(address) || !validHost || !validInside {
+		return false
 	}
-	return publication{Host: target.Port(host), Container: target.Port(inside)}, true
+	pinned.UDPAddress, pinned.UDPHost, pinned.UDPContainer = address, host, inside
+	return true
 }
 
 func socketInode(line string) string {
