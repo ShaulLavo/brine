@@ -51,13 +51,49 @@ func fixture(t testing.TB) plan.Input {
 	d.Environment = []policy.Environment{{Name: "APP_ENV", Value: "production"}}
 	return plan.Input{Desired: d, Snapshot: s, Image: plan.Image{Digest: strings.Split(string(d.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: s.Arch}, ManifestDigest: target.Known("sha256:" + strings.Repeat("b", 64))}, State: plan.BrineState{Target: s.Identity, Generation: *s.Generation.Value, Releases: []plan.CurrentRelease{}}}
 }
+
+var pristineTestControlDB = sync.OnceValues(newPristineTestControlDB)
+
+func newPristineTestControlDB() (data []byte, err error) {
+	dir, err := os.MkdirTemp("", "brine-store-schema-")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
+	s, err := Open(dir)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.Close(); err != nil {
+		return nil, err
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	return root.ReadFile("control.db")
+}
+
 func openTest(t testing.TB) *Store {
 	t.Helper()
-	s, e := Open(stateDir(t))
+	data, e := pristineTestControlDB()
 	if e != nil {
 		t.Fatal(e)
 	}
-	t.Cleanup(func() { s.Close() })
+	dir := stateDir(t)
+	if e := os.WriteFile(filepath.Join(dir, "control.db"), data, 0600); e != nil {
+		t.Fatal(e)
+	}
+	s, e := Open(dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() {
+		if err := s.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	return s
 }
 func saved(t testing.TB, s *Store) (PlanID, plan.Input) {

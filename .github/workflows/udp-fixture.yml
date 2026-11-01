@@ -1,0 +1,160 @@
+name: Publish qualified UDP drill fixtures
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact reviewed main commit
+        required: true
+        type: string
+      public_access_confirmed:
+        description: Existing GHCR package is approved for anonymous public pulls
+        required: true
+        default: false
+        type: boolean
+      bootstrap_confirmed:
+        description: "One-time bootstrap: require an absent package and run-scoped tags, then create it with public linked readback"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: udp-fixture-publication
+  cancel-in-progress: false
+
+env:
+  INPUT_SOURCE_SHA: ${{ inputs.source_sha }}
+  INPUT_PUBLIC_ACCESS_CONFIRMED: ${{ inputs.public_access_confirmed }}
+  INPUT_BOOTSTRAP_CONFIRMED: ${{ inputs.bootstrap_confirmed }}
+  GOTOOLCHAIN: local
+  GOPROXY: "off"
+  GOSUMDB: "off"
+  GONOPROXY: none
+
+jobs:
+  gate:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.repository == 'ShaulLavo/brine'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Check focused publication contracts
+        run: bun test tools/ci/udp-fixture
+      - name: Bind the reviewed main SHA and explicit publication inputs
+        run: bun scripts/publish-udp-fixture.ts gate
+      - name: Refuse unknown package visibility or anonymous access before building
+        if: inputs.bootstrap_confirmed == false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/publish-udp-fixture.ts preflight
+      - name: Admit the explicit one-time package bootstrap
+        if: inputs.bootstrap_confirmed == true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/publish-udp-fixture.ts bootstrap-preflight
+
+  qualify:
+    needs: gate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - name: Recheck source before starting a builder
+        run: bun scripts/publish-udp-fixture.ts gate
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.29.1
+          driver-opts: image=docker.io/moby/buildkit:v0.25.1@sha256:79cc6476ab1a3371c9afd8b44e7c55610057c43e18d9b39b68e2b0c2475cc1b6
+      - name: Build and qualify both compiled releases on the native platform
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: bun scripts/publish-udp-fixture.ts qualify "$ARCH" "$RUNNER_TEMP/udp-fixture/$ARCH"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: udp-qualification-${{ github.sha }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/udp-fixture/${{ matrix.arch }}/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: [gate, qualify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.4"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: udp-qualification-${{ github.sha }}-amd64
+          path: ${{ runner.temp }}/udp-input/amd64
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: udp-qualification-${{ github.sha }}-arm64
+          path: ${{ runner.temp }}/udp-input/arm64
+      - name: Require existing public-package and anonymous access before login or writes
+        if: inputs.bootstrap_confirmed == false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/publish-udp-fixture.ts preflight
+      - name: Recheck explicit bootstrap package state before login or writes
+        if: inputs.bootstrap_confirmed == true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/publish-udp-fixture.ts bootstrap-preflight
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v0.29.1
+          driver-opts: image=docker.io/moby/buildkit:v0.25.1@sha256:79cc6476ab1a3371c9afd8b44e7c55610057c43e18d9b39b68e2b0c2475cc1b6
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish qualified archives and verify anonymous immutable references
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bun scripts/publish-udp-fixture.ts publish "$RUNNER_TEMP/udp-input" "$RUNNER_TEMP/udp-publication" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: udp-publication-${{ github.sha }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/udp-publication/
+          if-no-files-found: error
+          retention-days: 30

@@ -51,6 +51,11 @@ Deploy, rollback, killed-client, interrupted-operation recovery, reboot and remo
 
 Those drills do not amount to a production-readiness claim. Local unit and integration tests use fakes, and CI does not touch a server.
 
+The UDP fixture publication workflow has a separate, one-time GHCR bootstrap
+path. Its `post_drill_keep_delete_decision` remains `pending` until the owner
+decides whether the immutable fixture is still needed after the drill; no
+registry deletion is automated by this source-preparation work.
+
 ## License
 
 [MIT](../LICENSE).
