@@ -152,6 +152,9 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 	if err != nil {
 		return err
 	}
+	if err := plan.ValidateUDPExecution(p, d); err != nil {
+		return err
+	}
 	if err = verifyRelease(app, r, p, d); err != nil {
 		return err
 	}

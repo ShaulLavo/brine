@@ -4,6 +4,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -283,5 +284,34 @@ func TestUDPPreparationCancellationLeavesNoPartialState(t *testing.T) {
 	generation, err := s.Generation(t.Context())
 	if err != nil || generation != 0 {
 		t.Fatal(fmt.Sprint(generation), err)
+	}
+}
+
+func TestUDPDirectCommitRejectsStoredIntentWithoutItsReservationPlan(t *testing.T) {
+	s := openTest(t)
+	in := udpStoreInput(t)
+	built, err := plan.Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(built)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forged plan.Plan
+	if err := json.Unmarshal(raw, &forged); err != nil {
+		t.Fatal(err)
+	}
+	forged.UDP = nil
+	forged.Changes = []plan.Change{}
+	if _, err := s.SavePlan(t.Context(), forged, in.Desired); err != nil {
+		t.Fatal(err)
+	}
+	r := Release{ID: "forged-release", PlanID: forged.Hash, Image: forged.Image, HostPort: forged.HostPort, Secrets: forged.Secrets, Units: []target.Unit{{Name: "hello.container", Hash: "sha256:" + strings.Repeat("c", 64)}}, CaddyFile: target.CaddyFile{Name: "hello.caddy", Hash: "sha256:" + strings.Repeat("d", 64)}}
+	if err := s.CommitRelease(t.Context(), forged.App, r); !errors.Is(err, plan.ErrInvalidUDPExecution) {
+		t.Fatal("UDP desired committed as HTTP-only", err)
+	}
+	if _, err := s.CurrentRelease(t.Context(), forged.App); !errors.Is(err, ErrNotFound) {
+		t.Fatal("invalid intent changed live head", err)
 	}
 }
