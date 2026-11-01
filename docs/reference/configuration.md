@@ -13,7 +13,7 @@ One file describes one app. `schema_version` is the only supported version, `1`.
 | Key | Type | Required | Rule |
 | --- | --- | --- | --- |
 | `schema_version` | integer | yes | Must be `1`. |
-| `name` | string | yes | Lowercase DNS label, 1 to 63 bytes. |
+| `name` | string | yes | Lowercase app name beginning with a letter, 1 to 63 bytes. It may contain lowercase letters, digits and hyphens inside, and must end with a lowercase letter or digit. |
 | `image` | string | yes, unless engine-only | Explicit registry and repository, pinned with `@sha256:` and a 64-hex digest. A tag is allowed before the digest. |
 | `container_port` | integer | yes, unless engine-only | 1024 to 65535. |
 | `domains` | array of strings | yes | At least one. ASCII DNS names with two or more labels. No IP addresses, no `xn--` labels, no duplicates. Folded to lowercase. |
