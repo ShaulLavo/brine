@@ -51,7 +51,7 @@ Before it changes anything, enrollment connects over admin SSH, runs a read-only
 2. One `Package transaction: install NAME=VERSION` line for each package it would install.
 3. The prompt `Type target name "mybox" to confirm:`.
 
-Nothing in the list is applied until you type the target name exactly. To get the inventory and the list, the client first uploads its binary to a private `/tmp/brine-enroll.XXXXXXXX` directory on the server and runs it there. Enrollment removes that directory afterward, even if you decline.
+Nothing in the list is applied until you type the target name exactly. To get the inventory and the list, the client first uploads its binary to a private `/tmp/brine-enroll.XXXXXXXX` directory on the server and runs it there. Enrollment attempts to remove that directory after success, decline or failure. If cleanup cannot be confirmed, Brine reports that failure separately and does not replay enrollment.
 
 ### Where the server gets its binary
 

@@ -70,7 +70,7 @@ func DefaultTargetName(destination string) string {
 	return strings.TrimRight(name, "-")
 }
 
-func (c Client) Run(ctx context.Context, o Options) error {
+func (c Client) Run(ctx context.Context, o Options) (err error) {
 	if o.Undo && o.Finish {
 		return errors.New("--finish and --undo cannot be combined")
 	}
@@ -140,7 +140,11 @@ func (c Client) Run(ctx context.Context, o Options) error {
 	defer func() {
 		cleanCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_, _ = c.exec(cleanCtx, "ssh", append(append([]string{}, args...), "rm -- "+dir+"/brine; rmdir -- "+dir), nil, 30*time.Second)
+		_, cleanupErr := c.exec(cleanCtx, "ssh", append(append([]string{}, args...), "rm -- "+dir+"/brine; rmdir -- "+dir), nil, 30*time.Second)
+		if cleanupErr == nil {
+			return
+		}
+		err = errors.Join(err, fmt.Errorf("enrollment temporary upload cleanup failed for %s; enrollment state may be complete: %w", dir, cleanupErr))
 	}()
 	scp := []string{"-q", "-o", "StrictHostKeyChecking=yes", "-o", "ForwardAgent=no", "-o", "ClearAllForwardings=yes", "-o", "PermitLocalCommand=no", "--", localBinary, o.Destination + ":" + dir + "/brine"}
 	if _, err = c.exec(ctx, "scp", scp, nil, time.Minute); err != nil {

@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -20,17 +21,26 @@ import (
 )
 
 type operatorFake struct {
-	derivedPublic  string
-	facts          Facts
-	commands       []localexec.Command
-	refuseProbe    bool
-	failAction     string
-	failed         bool
-	restrictions   int
-	retainedPolicy bool
+	derivedPublic     string
+	facts             Facts
+	commands          []localexec.Command
+	refuseProbe       bool
+	failAction        string
+	failed            bool
+	restrictions      int
+	retainedPolicy    bool
+	cleanupError      error
+	cleanupCount      int
+	cleanupRemote     string
+	cleanupDeadline   time.Time
+	cleanupContextErr error
+	cancelPrimary     context.CancelFunc
+	tempDirectory     string
+	tempReply         []byte
+	failUpload        bool
 }
 
-func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localexec.Output, error) {
+func (f *operatorFake) RunInput(ctx context.Context, c localexec.Command) (localexec.Output, error) {
 	f.commands = append(f.commands, c)
 	var data []byte
 	var err error
@@ -42,6 +52,9 @@ func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localex
 		return localexec.Output{Stdout: public}, err
 	}
 	if c.Path == "scp" {
+		if f.failUpload {
+			return localexec.Output{}, errors.New("injected upload failure")
+		}
 		return localexec.Output{}, nil
 	}
 	remote := c.Args[len(c.Args)-1]
@@ -53,8 +66,26 @@ func (f *operatorFake) RunInput(_ context.Context, c localexec.Command) (localex
 		}
 		data = []byte(arch + "\n0\n")
 	case remote == "mktemp -d /tmp/brine-enroll.XXXXXXXX":
-		data = []byte("/tmp/brine-enroll.ABCDEFGH\n")
+		if f.cancelPrimary != nil {
+			f.cancelPrimary()
+			f.cancelPrimary = nil
+		}
+		if f.tempReply != nil {
+			return localexec.Output{Stdout: f.tempReply}, nil
+		}
+		directory := f.tempDirectory
+		if directory == "" {
+			directory = "/tmp/brine-enroll.ABCDEFGH"
+		}
+		data = []byte(directory + "\n")
 	case strings.HasPrefix(remote, "rm -- /tmp/brine-enroll."):
+		f.cleanupCount++
+		f.cleanupRemote = remote
+		f.cleanupDeadline, _ = ctx.Deadline()
+		f.cleanupContextErr = ctx.Err()
+		if f.cleanupError != nil {
+			return localexec.Output{}, f.cleanupError
+		}
 		return localexec.Output{}, nil
 	case strings.HasSuffix(remote, "/brine host enrollment"):
 		var request HostRequest
