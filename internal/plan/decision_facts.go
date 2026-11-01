@@ -11,6 +11,8 @@ import (
 // decisionFacts is an explicit inventory projection. New measurements must be
 // classified before they can become freshness preconditions.
 type decisionFacts struct {
+	UDPSockets     *target.Observation[[]target.UDPSocket]          `json:"udp_sockets,omitempty"`
+	UDPBindPresent *target.Observation[bool]                        `json:"udp_bind_present,omitempty"`
 	PersistentData *target.Observation[[]target.PersistentDatabase] `json:"persistent_data,omitempty"`
 	SchemaVersion  int                                              `json:"schema_version"`
 	Identity       target.Identity                                  `json:"identity"`
@@ -38,12 +40,13 @@ func sufficientDisk(s target.Snapshot, minimum uint64) target.Observation[bool] 
 // Other apps only contribute their observed port to admission. The planned app
 // retains all ownership observations, including unknown image evidence.
 type decisionApp struct {
-	CommittedPortReservation *target.CommittedPortReservation     `json:"committed_port_reservation,omitempty"`
-	Name                     string                               `json:"name"`
-	Image                    *target.Observation[target.Image]    `json:"image,omitempty"`
-	AllocatedHostPort        target.Observation[target.Port]      `json:"allocated_host_port"`
-	QuadletUnits             *target.Observation[[]target.Unit]   `json:"quadlet_units,omitempty"`
-	Secrets                  *target.Observation[[]target.Secret] `json:"secrets,omitempty"`
+	UDPPublication           *target.Observation[target.UDPPublication] `json:"udp_publication,omitempty"`
+	CommittedPortReservation *target.CommittedPortReservation           `json:"committed_port_reservation,omitempty"`
+	Name                     string                                     `json:"name"`
+	Image                    *target.Observation[target.Image]          `json:"image,omitempty"`
+	AllocatedHostPort        target.Observation[target.Port]            `json:"allocated_host_port"`
+	QuadletUnits             *target.Observation[[]target.Unit]         `json:"quadlet_units,omitempty"`
+	Secrets                  *target.Observation[[]target.Secret]       `json:"secrets,omitempty"`
 }
 
 // The snapshot has already passed target.Encode's validation and sorting.
@@ -56,6 +59,9 @@ func canonicalDecisionFacts(in Input) ([]byte, error) {
 		for _, app := range *s.Apps.Value {
 			a := decisionApp{Name: app.Name, AllocatedHostPort: app.AllocatedHostPort, CommittedPortReservation: app.CommittedPortReservation}
 			if app.Name == string(in.Desired.Name) {
+				if udpInvolved(in) {
+					a.UDPPublication = &app.UDPPublication
+				}
 				a.Image = &app.Image
 				a.QuadletUnits = &app.QuadletUnits
 				a.Secrets = &app.Secrets
@@ -104,7 +110,9 @@ func canonicalDecisionFacts(in Input) ([]byte, error) {
 		}
 		s.PersistentData = &copy
 	}
+	sockets, bind := udpDecisionFacts(in)
 	return json.Marshal(decisionFacts{
+		UDPSockets: sockets, UDPBindPresent: bind,
 		PersistentData: s.PersistentData,
 		SchemaVersion:  s.SchemaVersion,
 		Identity:       s.Identity,

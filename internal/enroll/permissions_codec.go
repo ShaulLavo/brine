@@ -136,6 +136,25 @@ func decodePermissionChange(raw []byte) (operatorpolicy.PermissionAction, error)
 	}
 	change := operatorpolicy.PermissionAction{Kind: kind}
 	switch kind {
+	case operatorpolicy.AllowUDPGrant:
+		fields, err := strictjson.Object(raw, "kind", "udp_grant")
+		if err != nil {
+			return change, err
+		}
+		grant, err := operatorpolicy.ParseUDPGrant(fields["udp_grant"])
+		if err != nil {
+			return change, err
+		}
+		change.UDPGrant = &grant
+	case operatorpolicy.RevokeUDPGrant:
+		fields, err := strictjson.Object(raw, "kind", "udp_app")
+		if err != nil {
+			return change, err
+		}
+		change.UDPApp, err = strictjson.Value[string](fields["udp_app"])
+		if err != nil || !targetName.MatchString(change.UDPApp) {
+			return change, strictjson.ErrObject
+		}
 	case operatorpolicy.AllowDomain, operatorpolicy.RevokeDomain:
 		fields, err := strictjson.Object(raw, "kind", "domain")
 		if err != nil {
@@ -187,7 +206,7 @@ func decodePermissionChanges(raw []byte) ([]operatorpolicy.PermissionAction, err
 }
 
 func decodePermissionView(raw []byte) (operatorpolicy.Permissions, error) {
-	fields, err := strictjson.Object(raw, "registries", "domains", "cdn_bindings")
+	fields, err := strictjson.Object(raw, "registries", "domains", "cdn_bindings", "udp_grants")
 	if err != nil {
 		return operatorpolicy.Permissions{}, err
 	}
@@ -210,7 +229,11 @@ func decodePermissionView(raw []byte) (operatorpolicy.Permissions, error) {
 	if err != nil {
 		return operatorpolicy.Permissions{}, err
 	}
-	return operatorpolicy.Permissions{Registries: registries, Domains: domains, CDNBindings: bindings}, nil
+	grants, err := decodeUDPGrants(fields["udp_grants"])
+	if err != nil {
+		return operatorpolicy.Permissions{}, err
+	}
+	return operatorpolicy.Permissions{UDPGrants: grants, Registries: registries, Domains: domains, CDNBindings: bindings}, nil
 }
 
 func decodePermissionCDNBindings(raw []byte) ([]cdn.Binding, error) {
@@ -310,4 +333,19 @@ func decodePermissionData(raw []byte, action string) (PermissionsResponse, error
 		return response, err
 	}
 	return response, strictjson.ErrObject
+}
+
+func decodeUDPGrants(raw []byte) ([]operatorpolicy.UDPGrant, error) {
+	values, err := strictjson.Value[[]json.RawMessage](raw)
+	if err != nil {
+		return nil, err
+	}
+	grants := make([]operatorpolicy.UDPGrant, len(values))
+	for i, value := range values {
+		grants[i], err = operatorpolicy.ParseUDPGrant(value)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return grants, nil
 }

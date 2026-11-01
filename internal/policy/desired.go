@@ -66,6 +66,9 @@ type UDPDesired struct {
 }
 
 func (d Desired) CanonicalBytes() ([]byte, error) {
+	if d.UDP != nil && (d.SpacetimeDB != nil || d.UDP.ContainerPort < 1024 || d.UDP.Grant.App != string(d.Name) || d.UDP.Exposure != d.UDP.Grant.Exposure || d.UDP.Grant.Validate(d.AppPorts) != nil) {
+		return nil, data.ErrInvalid
+	}
 	if d.SpacetimeDB == nil && d.SpacetimePolicy != nil {
 		return nil, data.ErrInvalid
 	}
@@ -124,6 +127,9 @@ func (d Desired) CanonicalBytes() ([]byte, error) {
 func Normalize(input spec.App, p Policy) (Desired, error) {
 	if p.config == nil {
 		return Desired{}, refuse("policy.required", "$", "explicit operator policy is required")
+	}
+	if input.SpacetimeDB != nil && input.UDP != nil {
+		return Desired{}, refuse("policy.invalid_spec", "udp", "UDP is unsupported for managed apps")
 	}
 	if input.SpacetimeDB != nil {
 		return normalizeManaged(input, p)

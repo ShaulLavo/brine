@@ -84,7 +84,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	if !regexp.MustCompile(`^[a-z_][a-z0-9_-]{0,31}$`).MatchString(c.RunnerUser) {
 		return target.Snapshot{}, fmt.Errorf("invalid inventory runner user")
 	}
-	s := target.Snapshot{SchemaVersion: target.SchemaVersion, CgroupV2: unknown[bool](), Runner: target.Runner{User: unknown[string](), Linger: unknown[bool]()}, Generation: unknown[uint64](), CaddyConfig: unknown[target.CaddyConfigSet](), Apps: unknown[[]target.App](), UsedPorts: unknown[[]target.Port](), PortOwners: unknown[[]target.PortOwner](), LiveCaddyFiles: unknown[[]target.LiveCaddyFile](), FreeDiskBytes: unknown[uint64]()}
+	s := target.Snapshot{UDPSockets: unknown[[]target.UDPSocket](), LocalAddresses: unknown[[]string](), SchemaVersion: target.SchemaVersion, CgroupV2: unknown[bool](), Runner: target.Runner{User: unknown[string](), Linger: unknown[bool]()}, Generation: unknown[uint64](), CaddyConfig: unknown[target.CaddyConfigSet](), Apps: unknown[[]target.App](), UsedPorts: unknown[[]target.Port](), PortOwners: unknown[[]target.PortOwner](), LiveCaddyFiles: unknown[[]target.LiveCaddyFile](), FreeDiskBytes: unknown[uint64]()}
 	data, e := c.FS.ReadFile(ctx, "/etc/os-release")
 	if e != nil {
 		return s, fmt.Errorf("cannot read target OS")
@@ -154,6 +154,7 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	} else {
 		c.generation(ctx, &s, home, exists)
 	}
+	s.LocalAddresses = c.localAddresses(ctx)
 	c.disk(ctx, &s, home)
 	artifacts := c.apps(ctx, &s, home, exists, control)
 	udpPorts := c.listeners(ctx, &s, home, artifacts.publications)

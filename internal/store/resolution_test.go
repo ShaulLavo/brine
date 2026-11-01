@@ -43,7 +43,14 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 	legacy := &Store{db: db, dir: dir}
 	r := release(t, legacy, "initial-release")
 	r.Units = r.Units[:1]
-	if err = legacy.CommitRelease(ctx, "hello", r); err != nil {
+	_, content, err := normalizeRelease(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("INSERT INTO releases VALUES(?,?,?,?,?,?)", "hello", r.ID, r.PlanID, content, digest(content), timestamp()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec("INSERT INTO release_heads VALUES(?,?,NULL)", "hello", r.ID); err != nil {
 		t.Fatal(err)
 	}
 	in := fixture(t)
@@ -53,7 +60,7 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 	}
 	in.Snapshot.Generation = target.Known(uint64(1))
 	in.State = plan.BrineState{Target: in.Snapshot.Identity, Generation: 1, Releases: []plan.CurrentRelease{{App: "hello", ID: r.ID, Desired: in.Desired, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration}}}
-	in.Snapshot.Apps = target.Known([]target.App{{Name: "hello", Image: target.Known(target.Image{Digest: r.Image.Digest, Platform: r.Image.Platform}), AllocatedHostPort: target.Known(r.HostPort), QuadletUnits: target.Known(r.Units), Secrets: target.Known([]target.Secret{})}})
+	in.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "hello", Image: target.Known(target.Image{Digest: r.Image.Digest, Platform: r.Image.Platform}), AllocatedHostPort: target.Known(r.HostPort), QuadletUnits: target.Known(r.Units), Secrets: target.Known([]target.Secret{})}})
 	in.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: r.CaddyGeneration, Files: []target.CaddyFile{r.CaddyFile}})
 	p, err := plan.BuildRemove(in)
 	if err != nil || p.Kind != plan.Update {

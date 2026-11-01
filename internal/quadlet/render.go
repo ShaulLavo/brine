@@ -41,6 +41,9 @@ var hashPattern = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 // Image pin; the index and selected platform remain recorded in the artifact.
 // This is not plan authentication or permission to deploy an offline preview.
 func Render(d policy.Desired, p plan.Plan, platformManifestDigest string) (Unit, error) {
+	if err := plan.RefuseUDPExecution(p, d); err != nil {
+		return Unit{}, err
+	}
 	if err := validateDesired(d); err != nil {
 		return Unit{}, err
 	}

@@ -20,16 +20,17 @@ import (
 )
 
 type change struct {
-	Kind               plan.ChangeKind `json:"kind"`
-	HostPort           target.Port     `json:"host_port,omitempty"`
-	Image              *plan.Image     `json:"image,omitempty"`
-	Environment        string          `json:"environment,omitempty"`
-	Reference          string          `json:"reference,omitempty"`
-	ContainerPort      uint16          `json:"container_port,omitempty"`
-	EnvironmentKeys    []string        `json:"environment_keys,omitempty"`
-	Domains            []string        `json:"domains,omitempty"`
-	PreviousGeneration uint64          `json:"previous_generation,omitempty"`
-	NextGeneration     uint64          `json:"next_generation,omitempty"`
+	UDP                *plan.UDPEndpoint `json:"udp,omitempty"`
+	Kind               plan.ChangeKind   `json:"kind"`
+	HostPort           target.Port       `json:"host_port,omitempty"`
+	Image              *plan.Image       `json:"image,omitempty"`
+	Environment        string            `json:"environment,omitempty"`
+	Reference          string            `json:"reference,omitempty"`
+	ContainerPort      uint16            `json:"container_port,omitempty"`
+	EnvironmentKeys    []string          `json:"environment_keys,omitempty"`
+	Domains            []string          `json:"domains,omitempty"`
+	PreviousGeneration uint64            `json:"previous_generation,omitempty"`
+	NextGeneration     uint64            `json:"next_generation,omitempty"`
 }
 
 type secret struct {
@@ -38,6 +39,7 @@ type secret struct {
 }
 
 type presentation struct {
+	UDP                 *plan.UDPPlan          `json:"udp,omitempty"`
 	ManagedPreview      *plan.ManagedBlueprint `json:"managed_preview,omitempty"`
 	SchemaArtifacts     []data.SchemaArtifact  `json:"schema_artifacts,omitempty"`
 	DatabaseEnvironment []policy.Environment   `json:"database_environment,omitempty"`
@@ -63,6 +65,7 @@ type presentation struct {
 
 func project(p plan.Plan) presentation {
 	v := presentation{
+		UDP:                 p.UDP,
 		SchemaArtifacts:     slices.Clone(p.SchemaArtifacts),
 		DatabaseEnvironment: slices.Clone(p.DatabaseEnvironment),
 		SchemaVersion:       p.SchemaVersion, Kind: p.Kind, Lifecycle: p.Lifecycle, App: p.App,
@@ -103,6 +106,8 @@ func project(p plan.Plan) presentation {
 	for _, c := range p.Changes {
 		out := change{Kind: c.Kind}
 		switch c.Kind {
+		case plan.ReserveUDP, plan.ReleaseUDP:
+			out.UDP = c.UDP
 		case plan.AllocatePort:
 			if c.Allocation != nil {
 				out.HostPort = c.Allocation.Port
@@ -151,6 +156,19 @@ func Human(p plan.Plan, theme ui.Theme, width int) string {
 	lines := []string{theme.Title.Render(ansi.Hardwrap(safe(string(v.Kind)+"  "+v.App), width, true))}
 	add := func(text string) {
 		lines = append(lines, ansi.Hardwrap(ansi.Wrap(safe(text), width, ""), width, true))
+	}
+	if v.UDP != nil {
+		if id := p.ResolvedIncarnation(); id != "" {
+			add("  UDP incarnation: " + id)
+		}
+		if v.UDP.Next != nil {
+			u := v.UDP.Next
+			add(fmt.Sprintf("  UDP %s %s:%d -> container %d, client %s:%d", u.Exposure, u.Endpoint.BindAddress, u.Endpoint.HostPort, u.ContainerPort, u.ClientAddress, u.Endpoint.HostPort))
+		}
+		if v.UDP.Retire != nil {
+			e := v.UDP.Retire.Endpoint
+			add(fmt.Sprintf("  Release UDP reservation %s:%d", e.BindAddress, e.HostPort))
+		}
 	}
 	if v.Kind == plan.NoOp {
 		add("  No changes required.")
@@ -283,6 +301,20 @@ func ConflictText(d plan.Diagnostic) string {
 
 func reason(code plan.ConflictCode) string {
 	switch code {
+	case plan.UDPExecutionUnavailable:
+		return "UDP execution is unavailable until lifecycle and recovery support is complete."
+	case plan.UDPDenied:
+		return "The operator grant does not cover this UDP endpoint."
+	case plan.UDPPortOwned:
+		return "The UDP endpoint overlaps an unexplained socket or reservation."
+	case plan.UDPPortsExhausted:
+		return "No free UDP endpoint remains in the operator grant."
+	case plan.UDPBindUnavailable:
+		return "The approved UDP bind address is not present on this host."
+	case plan.UDPRuntimeUnsupported:
+		return "The UDP runtime has not been qualified."
+	case plan.UDPUnsettled:
+		return "The app has an unsettled UDP reservation. Resolve its owning operation."
 	case plan.UnsupportedTarget:
 		return "Target does not support a required capability."
 	case plan.UnknownFacts:

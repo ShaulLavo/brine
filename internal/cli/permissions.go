@@ -23,7 +23,7 @@ type PermissionClient interface {
 
 func newPermissionsCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	var target, configDir, admin string
-	parent := &cobra.Command{Use: "permissions", Short: "Manage registry, domain and CDN permissions through operator admin SSH"}
+	parent := &cobra.Command{Use: "permissions", Short: "Manage registry, domain, CDN and UDP permissions through operator admin SSH"}
 	parent.PersistentFlags().StringVar(&target, "target", "", "Pinned enrolled target")
 	parent.PersistentFlags().StringVar(&configDir, "config-dir", "", "Private client target directory")
 	parent.PersistentFlags().StringVar(&admin, "admin", "", "Operator admin SSH destination; never the restricted deploy credential")
@@ -37,11 +37,17 @@ func permissionCommand(deps Dependencies, modes *machineModes, action string, ta
 	request := enroll.PermissionsRequest{Action: action}
 	var allowRegistries, revokeRegistries, allowDomains, revokeDomains []string
 	var allowCDNBindings, revokeCDNBindings []string
+	var allowUDP, revokeUDP []string
 	cmd := &cobra.Command{Use: action, Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		changes, err := permissionActions(allowRegistries, revokeRegistries, allowDomains, revokeDomains, allowCDNBindings, revokeCDNBindings)
 		if err != nil {
 			return err
 		}
+		udp, err := udpPermissionActions(allowUDP, revokeUDP)
+		if err != nil {
+			return err
+		}
+		changes = append(changes, udp...)
 		request.Changes = changes
 		response, err := callPermissions(cmd.Context(), deps, *target, *configDir, *admin, request)
 		if err != nil {
@@ -58,6 +64,8 @@ func permissionCommand(deps Dependencies, modes *machineModes, action string, ta
 		return err
 	}}
 	if action == "plan" {
+		cmd.Flags().StringArrayVar(&allowUDP, "allow-udp-grant", nil, "Allow an exact UDP grant from a JSON file (repeatable)")
+		cmd.Flags().StringArrayVar(&revokeUDP, "revoke-udp-grant", nil, "Revoke the UDP grant for an app without live reservations (repeatable)")
 		cmd.Flags().StringArrayVar(&allowRegistries, "allow-registry", nil, "Allow an exact REGISTRY/REPOSITORY prefix (repeatable)")
 		cmd.Flags().StringArrayVar(&revokeRegistries, "revoke-registry", nil, "Revoke an exact REGISTRY/REPOSITORY prefix (repeatable)")
 		cmd.Flags().StringArrayVar(&allowDomains, "allow-domain", nil, "Allow an exact domain (repeatable)")
@@ -173,4 +181,35 @@ func executeHostPermissions(ctx context.Context, input io.Reader, execute func(c
 		return enroll.PermissionsResponse{}, result.New(result.InvalidUsage, err)
 	}
 	return execute(ctx, request)
+}
+
+func udpPermissionActions(allow, revoke []string) ([]policy.PermissionAction, error) {
+	changes := []policy.PermissionAction{}
+	for _, file := range allow {
+		grant, err := permissionUDPGrant(file)
+		if err != nil {
+			return nil, err
+		}
+		changes = append(changes, policy.PermissionAction{Kind: policy.AllowUDPGrant, UDPGrant: &grant})
+	}
+	for _, app := range revoke {
+		changes = append(changes, policy.PermissionAction{Kind: policy.RevokeUDPGrant, UDPApp: app})
+	}
+	return changes, nil
+}
+func permissionUDPGrant(filename string) (policy.UDPGrant, error) {
+	f, err := os.Open(filename) // #nosec G304 -- Explicit client-selected bounded grant document.
+	if err != nil {
+		return policy.UDPGrant{}, result.New(result.InvalidUsage, nil)
+	}
+	defer func() { _ = f.Close() }()
+	raw, err := io.ReadAll(io.LimitReader(f, 4097))
+	if err != nil {
+		return policy.UDPGrant{}, result.New(result.InvalidUsage, nil)
+	}
+	grant, err := policy.ParseUDPGrant(raw)
+	if err != nil {
+		return policy.UDPGrant{}, result.New(result.InvalidUsage, nil)
+	}
+	return grant, nil
 }

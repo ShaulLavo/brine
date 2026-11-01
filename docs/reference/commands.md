@@ -1039,11 +1039,13 @@ Flags:
       --allow-cdn-binding stringArray    Allow the exact typed CDN binding from a JSON file (repeatable)
       --allow-domain stringArray         Allow an exact domain (repeatable)
       --allow-registry stringArray       Allow an exact REGISTRY/REPOSITORY prefix (repeatable)
+      --allow-udp-grant stringArray      Allow an exact UDP grant from a JSON file (repeatable)
       --app string                       Optional app label for the audit record; does not grant app-specific authority
   -h, --help                             help for plan
       --revoke-cdn-binding stringArray   Revoke the matching exact typed CDN binding from a JSON file (repeatable)
       --revoke-domain stringArray        Revoke an exact domain (repeatable)
       --revoke-registry stringArray      Revoke an exact REGISTRY/REPOSITORY prefix (repeatable)
+      --revoke-udp-grant stringArray     Revoke the UDP grant for an app without live reservations (repeatable)
 
 Global Flags:
       --admin string        Operator admin SSH destination; never the restricted deploy credential

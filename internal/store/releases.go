@@ -152,6 +152,16 @@ func (s *Store) CommitRelease(ctx context.Context, app string, r Release) error 
 	if err != nil {
 		return err
 	}
+	var held bool
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM udp_reservations WHERE app=? AND state<>'released')", app).Scan(&held); err != nil {
+		return err
+	}
+	if held {
+		return plan.ErrUDPExecutionUnavailable
+	}
+	if err = plan.RefuseUDPExecution(p, d); err != nil {
+		return err
+	}
 	if err = verifyRelease(app, r, p, d); err != nil {
 		return err
 	}
@@ -177,7 +187,7 @@ func persistRelease(ctx context.Context, tx *sql.Tx, app string, r Release, raw 
 	if _, err := tx.ExecContext(ctx, "INSERT INTO releases VALUES(?,?,?,?,?,?)", app, r.ID, r.PlanID, raw, digest(raw), timestamp()); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO release_heads(app,current_id,previous_id) VALUES(?,?,NULL) ON CONFLICT(app) DO UPDATE SET previous_id=current_id,current_id=excluded.current_id`, app, r.ID); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO release_heads(app,current_id,previous_id,incarnation_id) VALUES(?,?,NULL,?) ON CONFLICT(app) DO UPDATE SET previous_id=current_id,current_id=excluded.current_id`, app, r.ID, r.PlanID); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -226,6 +236,10 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 	if err != nil {
 		return result, err
 	}
+	result.UDP, err = readUDPState(ctx, tx)
+	if err != nil {
+		return result, err
+	}
 	result.ManagedReservations, err = readManagedReservations(ctx, tx)
 	if err != nil {
 		return result, err
@@ -247,7 +261,7 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 			copy := p.Managed.Clone()
 			managed = &copy
 		}
-		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration, Managed: managed})
+		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration, Managed: managed, UDP: releaseUDP(p)})
 	}
 	return result, tx.Commit()
 }
@@ -263,4 +277,11 @@ func (s *Store) Generation(ctx context.Context) (uint64, error) {
 	var n uint64
 	err := s.db.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)+(SELECT COUNT(*) FROM data_engine_preparations)+(SELECT COUNT(*) FROM data_engine_desired_states)+(SELECT COUNT(*) FROM data_engine_route_states)").Scan(&n)
 	return n, err
+}
+
+func releaseUDP(p plan.Plan) *plan.UDPAllocation {
+	if p.UDP == nil {
+		return nil
+	}
+	return p.UDP.Next
 }

@@ -104,7 +104,7 @@ func inventoryLifecycleFixture(t *testing.T, s *Store) (inventory.Collector, inv
 	runner := inventoryFixtureRunner{
 		"uname -m": "aarch64", "systemctl --version": "systemd 257", "podman version --format json": `{"Client":{"Version":"5.4.2"}}`,
 		"passt --version": "passt 0.0~git20250503.587980c", "caddy version": "2.6.2", "df -B1 --output=avail /home/brine/.local/state/brine": "Avail\n10737418240\n",
-		"ss -H -ltnpe": "", "ss -H -lunp": "", listCommand: "fixture-id brine.hello.db.v1", containersCommand: "", adaptCommand: empty, liveConfigCommand: empty,
+		"ss -H -ltnpe": "", "ss -H -lunpe": "", listCommand: "fixture-id brine.hello.db.v1", containersCommand: "", adaptCommand: empty, liveConfigCommand: empty,
 	}
 	collector := inventory.Collector{FS: inventoryFixtureFS{root}, Runner: runner, IdentityKey: []byte("fixture-only-key"), StateInventory: s.InventoryState}
 	return collector, runner, root, write, read

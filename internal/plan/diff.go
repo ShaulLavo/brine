@@ -43,6 +43,7 @@ type SecretChange struct {
 // ConfigurationDiff records only changed settings. Environment values are
 // compared transiently and never retained here or in the returned plan.
 type ConfigurationDiff struct {
+	UDP             *ValueChange[UDPAllocation]           `json:"udp,omitempty"`
 	ReplicaSync     map[string]ValueChange[time.Duration] `json:"replica_sync,omitempty"`
 	ReplicaSnapshot *ValueChange[time.Duration]           `json:"replica_snapshot,omitempty"`
 	Image           *ValueChange[Image]                   `json:"image,omitempty"`

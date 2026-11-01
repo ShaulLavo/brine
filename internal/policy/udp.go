@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/ShaulLavo/brine/internal/strictjson"
 	"net/netip"
 	"regexp"
 	"strings"
@@ -42,7 +43,7 @@ func (g UDPGrant) Validate(appPorts PortRange) error {
 	if err != nil || bind != g.BindAddress {
 		return fmt.Errorf("invalid bind address")
 	}
-	if canonicalClientAddress(g.ClientAddress) != g.ClientAddress {
+	if g.ClientAddress == "" || canonicalClientAddress(g.ClientAddress) != g.ClientAddress {
 		return fmt.Errorf("invalid client address")
 	}
 	if g.HostPorts.Min < 1024 || g.HostPorts.Max < g.HostPorts.Min || uint32(g.HostPorts.Max)-uint32(g.HostPorts.Min) > 63 {
@@ -86,8 +87,6 @@ func containsFixedPort(r PortRange) bool {
 	return false
 }
 
-func sameBind(a, b UDPGrant) bool { return a.BindAddress == b.BindAddress }
-
 func bindFamily(address string) string {
 	if parsed, err := netip.ParseAddr(address); err == nil && parsed.Is4() {
 		return "ipv4"
@@ -95,22 +94,64 @@ func bindFamily(address string) string {
 	return "ipv6"
 }
 
-func isIPLiteral(raw string) bool {
-	addr, err := netip.ParseAddr(raw)
-	return err == nil && addr.Zone() == "" && !addr.Is4In6()
-}
-
-func normalizeGrant(g *UDPGrant) {
-	if bind, err := canonicalBindAddress(g.BindAddress); err == nil {
-		g.BindAddress = bind
-	}
-	if client := canonicalClientAddress(g.ClientAddress); client != "" {
-		g.ClientAddress = client
-	}
-}
-
 func (g UDPGrant) BindFamily() string { return bindFamily(g.BindAddress) }
 
-func validClientAddress(raw string) bool {
-	return isIPLiteral(raw) || canonicalClientAddress(raw) != ""
+// ParseUDPGrant accepts only the reviewed operator document, never runtime options.
+func ParseUDPGrant(raw []byte) (UDPGrant, error) {
+	if len(raw) > 4096 {
+		return UDPGrant{}, strictjson.ErrObject
+	}
+	fields, err := strictjson.Object(raw, "app", "exposure", "bind_address", "client_address", "host_ports")
+	if err != nil {
+		return UDPGrant{}, err
+	}
+	ports, err := strictjson.Object(fields["host_ports"], "min", "max")
+	if err != nil {
+		return UDPGrant{}, err
+	}
+	for _, value := range fields {
+		if string(value) == "null" {
+			return UDPGrant{}, strictjson.ErrObject
+		}
+	}
+	var g UDPGrant
+	if err = json.Unmarshal(raw, &g); err != nil {
+		return UDPGrant{}, strictjson.ErrObject
+	}
+	if _, err = strictjson.Value[spec.Port](ports["min"]); err != nil {
+		return UDPGrant{}, err
+	}
+	if _, err = strictjson.Value[spec.Port](ports["max"]); err != nil {
+		return UDPGrant{}, err
+	}
+	if err = g.Validate(PortRange{}); err != nil {
+		return UDPGrant{}, err
+	}
+	return g, nil
+}
+
+func udpGrantsOverlap(grant UDPGrant, prior []UDPGrant) bool {
+	for _, g := range prior {
+		if grant.BindAddress == g.BindAddress && rangesOverlap(grant.HostPorts, g.HostPorts) {
+			return true
+		}
+	}
+	return false
+}
+func validUDPPolicyKeys(value any) bool {
+	rows, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, row := range rows {
+		m, ok := row.(map[string]any)
+		if !ok || !onlyKeys(m, "app", "exposure", "bind_address", "client_address", "host_ports") {
+			return false
+		}
+		ports, ok := m["host_ports"].(map[string]any)
+		if !ok || !onlyKeys(ports, "min", "max") {
+			return false
+		}
+	}
+	return true
 }

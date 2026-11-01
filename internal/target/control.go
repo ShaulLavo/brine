@@ -3,6 +3,7 @@ package target
 // ControlInventory is a coherent read of durable ownership, not a runtime
 // snapshot. An omitted app has no release history or unfinished removal.
 type ControlInventory struct {
+	UDPReservations     []ControlUDPReservation
 	Generation          uint64
 	Target              *Identity
 	Apps                []ControlApp
@@ -24,4 +25,15 @@ type ControlApp struct {
 type CommittedPortReservation struct {
 	ReleaseID string `json:"release_id"`
 	Port      Port   `json:"port"`
+}
+
+type ControlUDPReservation struct {
+	ID          string
+	App         string
+	Incarnation string
+	State       string
+	Owner       string
+	Family      string
+	BindAddress string
+	HostPort    Port
 }

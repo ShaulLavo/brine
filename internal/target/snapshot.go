@@ -3,7 +3,6 @@ package target
 import (
 	"encoding/base64"
 	"fmt"
-	"net/netip"
 	"regexp"
 )
 
@@ -44,8 +43,8 @@ type Snapshot struct {
 	UsedPorts      Observation[[]Port]                `json:"used_ports"`
 	LiveCaddyFiles Observation[[]LiveCaddyFile]       `json:"live_caddy_files"`
 	PortOwners     Observation[[]PortOwner]           `json:"port_owners"`
-	UDPSockets     *Observation[[]UDPSocket]          `json:"udp_sockets,omitempty"`
-	LocalAddresses *Observation[[]string]             `json:"local_addresses,omitempty"`
+	UDPSockets     Observation[[]UDPSocket]           `json:"udp_sockets"`
+	LocalAddresses Observation[[]string]              `json:"local_addresses"`
 	FreeDiskBytes  Observation[uint64]                `json:"free_disk_bytes"`
 }
 
@@ -73,14 +72,14 @@ type Runner struct {
 }
 
 type App struct {
-	CommittedPortReservation *CommittedPortReservation    `json:"committed_port_reservation,omitempty"`
-	UnitActive               *Observation[bool]           `json:"unit_active,omitempty"`
-	Name                     string                       `json:"name"`
-	Image                    Observation[Image]           `json:"image"`
-	AllocatedHostPort        Observation[Port]            `json:"allocated_host_port"`
-	QuadletUnits             Observation[[]Unit]          `json:"quadlet_units"`
-	Secrets                  Observation[[]Secret]        `json:"secrets"`
-	UDPPublication           *Observation[UDPPublication] `json:"udp_publication,omitempty"`
+	CommittedPortReservation *CommittedPortReservation   `json:"committed_port_reservation,omitempty"`
+	UnitActive               *Observation[bool]          `json:"unit_active,omitempty"`
+	Name                     string                      `json:"name"`
+	Image                    Observation[Image]          `json:"image"`
+	AllocatedHostPort        Observation[Port]           `json:"allocated_host_port"`
+	QuadletUnits             Observation[[]Unit]         `json:"quadlet_units"`
+	Secrets                  Observation[[]Secret]       `json:"secrets"`
+	UDPPublication           Observation[UDPPublication] `json:"udp_publication"`
 }
 
 // UnitsAbsent requires measured absence of all owned units, not an unknown list.
@@ -369,38 +368,11 @@ func (s Snapshot) validateShape() error {
 	}); err != nil {
 		return err
 	}
-	if s.UDPSockets != nil {
-		if err := observe("udp_sockets", *s.UDPSockets, false, func(sockets []UDPSocket) error {
-			if sockets == nil {
-				return fmt.Errorf("use [] for known empty UDP sockets")
-			}
-			for _, socket := range sockets {
-				if err := socket.validate(); err != nil {
-					return err
-				}
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
+	if err := observe("udp_sockets", s.UDPSockets, false, validateUDPSockets); err != nil {
+		return err
 	}
-	if s.LocalAddresses != nil {
-		if err := observe("local_addresses", *s.LocalAddresses, false, func(addresses []string) error {
-			if addresses == nil {
-				return fmt.Errorf("use [] for known empty local addresses")
-			}
-			seen := map[string]bool{}
-			for _, address := range addresses {
-				parsed, err := netip.ParseAddr(address)
-				if err != nil || parsed.Zone() != "" || parsed.IsUnspecified() || parsed.IsMulticast() || parsed.Is4In6() || seen[address] {
-					return fmt.Errorf("invalid local address")
-				}
-				seen[address] = true
-			}
-			return nil
-		}); err != nil {
-			return err
-		}
+	if err := observe("local_addresses", s.LocalAddresses, false, validateLocalAddresses); err != nil {
+		return err
 	}
 	return observe("apps", s.Apps, false, func(apps []App) error {
 		if apps == nil {
@@ -429,10 +401,8 @@ func (s Snapshot) validateShape() error {
 }
 
 func (a App) validate() error {
-	if a.UDPPublication != nil {
-		if err := observe("udp_publication", *a.UDPPublication, true, func(p UDPPublication) error { return p.validate() }); err != nil {
-			return err
-		}
+	if err := observe("udp_publication", a.UDPPublication, true, func(p UDPPublication) error { return p.validate() }); err != nil {
+		return err
 	}
 	if r := a.CommittedPortReservation; r != nil {
 		if validToken(r.ReleaseID) != nil || r.Port < 1024 || validPort(r.Port) != nil || a.AllocatedHostPort.Status != Unknown || !a.UnitsAbsent() {

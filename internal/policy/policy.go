@@ -246,15 +246,12 @@ func Parse(data []byte) (Policy, error) {
 	seenUDPApps := map[string]bool{}
 	for i := range raw.UDPGrants {
 		grant := &raw.UDPGrants[i]
-		if seenUDPApps[grant.App] || grant.Validate(*raw.AppPorts) != nil || !validClientAddress(grant.ClientAddress) {
+		if seenUDPApps[grant.App] || grant.Validate(*raw.AppPorts) != nil {
 			return bad("policy.invalid_udp_grant", fmt.Sprintf("udp_grants[%d]", i), "invalid or duplicate UDP grant")
 		}
 		seenUDPApps[grant.App] = true
-		normalizeGrant(grant)
-		for _, prior := range raw.UDPGrants[:i] {
-			if sameBind(*grant, prior) && rangesOverlap(grant.HostPorts, prior.HostPorts) {
-				return bad("policy.invalid_udp_grant", fmt.Sprintf("udp_grants[%d].host_ports", i), "UDP grant range overlaps another grant")
-			}
+		if udpGrantsOverlap(*grant, raw.UDPGrants[:i]) {
+			return bad("policy.invalid_udp_grant", fmt.Sprintf("udp_grants[%d].host_ports", i), "UDP grant range overlaps another grant")
 		}
 	}
 	slices.SortFunc(raw.UDPGrants, func(a, b UDPGrant) int { return strings.Compare(a.App, b.App) })
@@ -386,22 +383,10 @@ func exactKeys(keys map[string]any) bool {
 			}
 		}
 	}
-	if v, ok := keys["udp_grants"]; ok {
-		rows, ok := v.([]any)
-		if !ok {
-			return false
-		}
-		for _, row := range rows {
-			m, ok := row.(map[string]any)
-			if !ok || !onlyKeys(m, "app", "exposure", "bind_address", "client_address", "host_ports") {
-				return false
-			}
-			ports, ok := m["host_ports"].(map[string]any)
-			if !ok || !onlyKeys(ports, "min", "max") {
-				return false
-			}
-		}
+	if v, ok := keys["udp_grants"]; ok && !validUDPPolicyKeys(v) {
+		return false
 	}
+
 	return true
 }
 

@@ -330,7 +330,7 @@ func observeCommittedRelease(r *rig) {
 	for _, binding := range r.release.Secrets {
 		secrets = append(secrets, target.Secret{Name: binding.VersionName, ID: binding.ID})
 	}
-	r.facts.Input.Snapshot.Apps = target.Known([]target.App{{
+	r.facts.Input.Snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent},
 		Name:              r.plan.App,
 		Image:             target.Known(target.Image{Digest: r.release.Image.Digest, Platform: r.release.Image.Platform}),
 		AllocatedHostPort: target.Known(r.release.HostPort),

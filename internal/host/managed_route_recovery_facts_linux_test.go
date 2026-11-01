@@ -218,7 +218,7 @@ func managedFactsRecoveryReceiptFixture(t *testing.T, recorded bool, configure .
 		t.Fatal(err)
 	}
 	source.State = ops.RecoveryRequired
-	snap.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: frontend.Digest, Platform: frontend.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{{Name: unit.Name(), Hash: unit.Hash()}})}})
+	snap.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: p.App, Image: target.Known(target.Image{Digest: frontend.Digest, Platform: frontend.Platform}), AllocatedHostPort: target.Known(p.HostPort), QuadletUnits: target.Known([]target.Unit{{Name: unit.Name(), Hash: unit.Hash()}})}})
 	snap.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: 1, Files: []target.CaddyFile{file}})
 	r.inventory.snapshot = snap
 	r.policy.p = pol

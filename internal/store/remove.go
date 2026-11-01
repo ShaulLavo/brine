@@ -40,6 +40,13 @@ func (s *Store) RetireApp(ctx context.Context, operationID, app, releaseID strin
 	if kind != "deploy" && kind != "resolve" || opApp != app || p.App != app || p.Lifecycle != plan.RemoveApp || p.Removal == nil || p.Removal.ReleaseID != releaseID {
 		return ErrInvalid
 	}
+	var held bool
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM udp_reservations WHERE app=? AND state<>'released')", app).Scan(&held); err != nil {
+		return err
+	}
+	if held {
+		return plan.ErrUDPExecutionUnavailable
+	}
 	if err = guardCDNReservation(ctx, tx, app); err != nil {
 		return err
 	}

@@ -20,6 +20,7 @@ type ReleaseIdentity struct {
 // Removal binds the destructive operation to immutable committed ownership.
 // History and secret versions remain retained under D5, not deleted with heads.
 type Removal struct {
+	UDP       *UDPReservation       `json:"udp,omitempty"`
 	ReleaseID string                `json:"release_id"`
 	Units     []target.Unit         `json:"units"`
 	Route     target.CaddyFile      `json:"route"`
@@ -28,6 +29,10 @@ type Removal struct {
 }
 
 func BuildRemove(in Input) (Plan, error) {
+	in = projectUDP(in)
+	if udpInvolved(in) {
+		return Build(in)
+	}
 	if !in.Desired.Stateless() {
 		return Plan{}, ErrPersistentData
 	}

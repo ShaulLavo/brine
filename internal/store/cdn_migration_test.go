@@ -9,6 +9,9 @@ import (
 
 func dropCDNMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
+	if _, err := s.db.ExecContext(ctx, "DROP TABLE udp_reservations"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.db.ExecContext(ctx, "DROP TRIGGER cdn_reserved_app"); err != nil {
 		t.Fatal(err)
 	}

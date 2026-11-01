@@ -130,7 +130,7 @@ func TestInitializationSameNamedRuntime(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			r, engine, request := incarnationInitializationRig(t)
-			app := target.App{Name: "hello", Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}
+			app := target.App{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "hello", Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}
 			if test.mutate != nil {
 				test.mutate(&app)
 			}
@@ -251,7 +251,7 @@ func retireInitializedIncarnation(t *testing.T, r *deployRig, request datainit.R
 	if err != nil || len(inventory.Apps) != 1 || inventory.Apps[0].Status != target.Absent {
 		t.Fatal("missing historical absence", inventory, err)
 	}
-	r.inventory.snapshot.Apps = target.Known([]target.App{{Name: request.App, Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}})
+	r.inventory.snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: request.App, Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}})
 	return candidate.Incarnation, release
 }
 
@@ -312,7 +312,7 @@ func TestInitializationAfterArchiveRetirementAndRecreation(t *testing.T) {
 
 func TestInitializationRechecksRetiredRuntimeBeforeApply(t *testing.T) {
 	r, engine, request := incarnationInitializationRig(t)
-	r.inventory.snapshot.Apps = target.Known([]target.App{{Name: request.App, Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}})
+	r.inventory.snapshot.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: request.App, Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known([]target.Secret{})}})
 	planned, err := engine.Plan(t.Context(), request)
 	if err != nil {
 		t.Fatal(err)

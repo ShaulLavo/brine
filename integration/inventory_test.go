@@ -15,7 +15,7 @@ func TestFixtureInventoryBindings(t *testing.T) {
 		t.Run(change, func(t *testing.T) {
 			r := receipt{UnitHash: "unit-hash", Plan: plan.Plan{Image: plan.Image{Digest: "index-digest", Platform: target.Platform{OS: "linux", Arch: "arm64"}}, HostPort: 20080, Secrets: []plan.SecretBinding{{VersionName: secretName, ID: "secret-id"}}}, Caddy: caddy.State{Generation: 3, Files: map[string]string{"fixture.caddy": "caddy-hash"}}}
 			s := target.Snapshot{
-				Apps: target.Known([]target.App{{Name: fixtureName,
+				Apps: target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: fixtureName,
 					Image:             target.Known(target.Image{Digest: r.Plan.Image.Digest, Platform: r.Plan.Image.Platform}),
 					QuadletUnits:      target.Known([]target.Unit{{Name: "fixture.container", Hash: r.UnitHash}}),
 					Secrets:           target.Known([]target.Secret{{Name: secretName, ID: "secret-id"}}),

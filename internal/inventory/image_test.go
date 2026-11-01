@@ -394,7 +394,7 @@ func TestUnavailableImagesDoNotExhaustCollection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &stalledImagesRunner{imageRunner: imageRunner{fakeRunner: fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": "", "ss -H -lunp": "", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": ""}, results: map[string]string{"image exists registry.example/app@" + index: "", "image inspect registry.example/app@" + index: string(local), "image inspect registry.example/app@" + manifest: string(local)}}}
+	r := &stalledImagesRunner{imageRunner: imageRunner{fakeRunner: fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": "", "ss -H -lunpe": "", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": ""}, results: map[string]string{"image exists registry.example/app@" + index: "", "image inspect registry.example/app@" + index: string(local), "image inspect registry.example/app@" + manifest: string(local)}}}
 	for i, name := range []string{"api", "worker", "web"} {
 		f.dirs[dir] = append(f.dirs[dir], fixtureEntry(name+".container"))
 		f.files[dir+"/"+name+".container"] = "# Brine-owned plan=" + index + "\n# IndexDigest=" + index + "\n# PlatformManifestDigest=" + manifest + "\n# Platform=linux/arm64\n[Container]\nImage=registry.example/app@" + manifest + "\n"
