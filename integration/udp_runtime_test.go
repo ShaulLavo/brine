@@ -148,7 +148,9 @@ func (f udpRuntimeFixture) pullImage() {
 		}
 	})
 	f.run("podman", "--remote=false", "pull", udpRuntimeImage)
-	session, err := localexec.NewSession(localexec.ExecRunner{}, uint32(os.Getuid()), f.identity.HomeDir, 90*time.Second)
+	uid, err := strconv.ParseUint(f.identity.Uid, 10, 32)
+	udpRequire(f.t, err)
+	session, err := localexec.NewSession(localexec.ExecRunner{}, uint32(uid), f.identity.HomeDir, 90*time.Second)
 	udpRequire(f.t, err)
 	image, err := podman.ParseImage(udpRuntimeImage)
 	udpRequire(f.t, err)
@@ -200,8 +202,7 @@ host_ports={min=24431,max=24431}
 func (f udpRuntimeFixture) runMapping(address string) {
 	f.checkFree(address)
 	unit := f.render(address)
-	receipt := filepath.Join(os.Getenv("BRINE_UDP_RUNTIME_WORK"), "unit.sha256")
-	udpRequire(f.t, os.WriteFile(receipt, []byte(strings.TrimPrefix(unit.Hash(), "sha256:")), 0600))
+	writeUDPRuntimeReceipt(f.t, strings.TrimPrefix(unit.Hash(), "sha256:"))
 	manager, err := quadlet.NewManager(f.identity.HomeDir, udpRuntimeValidator{})
 	udpRequire(f.t, err)
 	f.t.Cleanup(func() { udpRequire(f.t, manager.Close()) })
@@ -386,4 +387,19 @@ func udpSocketLine(raw, address string) string {
 		}
 	}
 	return ""
+}
+
+func writeUDPRuntimeReceipt(t *testing.T, hash string) {
+	t.Helper()
+	root, err := os.OpenRoot(os.Getenv("BRINE_UDP_RUNTIME_WORK"))
+	udpRequire(t, err)
+	defer func() { udpRequire(t, root.Close()) }()
+	file, err := root.OpenFile("unit.sha256", os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0600)
+	udpRequire(t, err)
+	_, writeErr := file.WriteString(hash)
+	syncErr := file.Sync()
+	closeErr := file.Close()
+	udpRequire(t, writeErr)
+	udpRequire(t, syncErr)
+	udpRequire(t, closeErr)
 }

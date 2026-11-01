@@ -12,7 +12,7 @@ for dir in .config .config/containers .config/containers/systemd .local .local/s
 done
 podman --remote=false images --no-trunc --format '{{.ID}}' > "$work/images.before"
 cleanup() {
-  local result=$? digest id i
+  local result=$? digest id i status
   if [[ -e $unit ]]; then
     digest=$(sha256sum "$unit")
     if [[ -s $work/unit.sha256 && ${digest%% *} == "$(cat "$work/unit.sha256")" ]]; then
@@ -26,8 +26,17 @@ cleanup() {
   fi
   if podman --remote=false container exists systemd-p08-udp-runtime; then
     podman --remote=false rm systemd-p08-udp-runtime || result=1
+  else
+    status=$?
+    [[ $status == 1 ]] || result=1
   fi
-  id=$(podman --remote=false image inspect --format '{{.Id}}' "$image" 2>/dev/null) || id=''
+  id=''
+  if podman --remote=false image exists "$image"; then
+    id=$(podman --remote=false image inspect --format '{{.Id}}' "$image") || result=1
+  else
+    status=$?
+    [[ $status == 1 ]] || result=1
+  fi
   if [[ -n $id ]] && ! grep -Fxq "$id" "$work/images.before"; then
     podman --remote=false rmi "$id" || result=1
   fi
