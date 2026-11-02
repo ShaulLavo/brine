@@ -10,10 +10,9 @@ It writes only a local JSON ledger and evidence paths. It has no shell-command
 input, Podman or systemd cleanup path, reboot path, kernel/module path, policy
 writer, DNS/firewall client, registry writer or secret reader.
 
-The worktree started at main `369744357524dc81019afc334a2f9376cf8c87b9` and
-merged the independently reviewed P08-06 source commit
-`24e6de05cdeaa10fb5b5ec215db1736f6c021ab3` before adding this new subtree.
-The accepted design and task plan remain the authority for the physical drill.
+The source-only checkpoint was replayed onto current main
+`e366632386907e89169b8076a481e1b46197a0f0`. The accepted design and task plan
+remain the authority for the physical drill.
 
 ## Manifest and phase contract
 
@@ -88,11 +87,11 @@ grants, firewall rules, routes or unrelated services itself.
 
 ## Verification
 
-The final focused receipt is
-`/work/reports/wave-20261101/brine-udp/p08-08-drill-runner/focused-checks-final.log`.
-It records normal tests, race tests, vet, the drill command build, gofmt and
-diff checks through the shared PC heavy runner. The Brine CLI build receipt is
-`brine-build.log`.
+The replay was checked with focused normal and race tests for
+`./integration/udp-delivery/brine-drill/...`, focused `go vet`, builds of the
+drill command and `./cmd/brine`, the repository format check, the structure
+check and `git diff --check`. These checks validate the source contract only;
+they do not claim a physical drill.
 
 No full Go suite, host suite, store suite, Pi, VPS, image pull or push, network
 probe, policy change, firewall change, reboot, kernel/module change, package

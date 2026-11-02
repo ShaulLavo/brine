@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/netip"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -22,6 +21,7 @@ import (
 
 	"github.com/ShaulLavo/brine/fixtures/udp-echo/client"
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -262,11 +262,8 @@ type CommandRunner interface {
 	Run(context.Context, CommandSpec, time.Duration, int) (CommandResult, error)
 }
 
-type ExecRunner struct{}
-
-type cappedBuffer struct {
-	buffer bytes.Buffer
-	limit  int
+type ExecRunner struct {
+	Executor localexec.Executor
 }
 
 var (
@@ -278,45 +275,26 @@ var (
 	domainPattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
 )
 
-func (b *cappedBuffer) Write(p []byte) (int, error) {
-	if len(p) > b.limit-b.buffer.Len() {
-		return 0, errors.New("command output limit exceeded")
-	}
-	return b.buffer.Write(p)
-}
-
-func (b *cappedBuffer) Bytes() []byte { return b.buffer.Bytes() }
-
-func (ExecRunner) Run(ctx context.Context, spec CommandSpec, deadline time.Duration, outputLimit int) (CommandResult, error) {
-	if spec.Binary == "" || !filepath.IsAbs(spec.Binary) {
-		return CommandResult{}, errors.New("command binary must be absolute")
-	}
-	if deadline <= 0 || outputLimit <= 0 {
+func (r ExecRunner) Run(ctx context.Context, spec CommandSpec, deadline time.Duration, outputLimit int) (CommandResult, error) {
+	if spec.Binary == "" || !filepath.IsAbs(spec.Binary) || deadline <= 0 || outputLimit <= 0 {
 		return CommandResult{}, errors.New("invalid command bounds")
 	}
-	commandCtx, cancel := context.WithTimeout(ctx, deadline)
-	defer cancel()
-	command := exec.CommandContext(commandCtx, spec.Binary, spec.Args...)
-	stdout := &cappedBuffer{limit: outputLimit}
-	stderr := &cappedBuffer{limit: outputLimit}
-	command.Stdout = stdout
-	command.Stderr = stderr
-	err := command.Run()
-	result := CommandResult{Stdout: append([]byte(nil), stdout.Bytes()...), Stderr: append([]byte(nil), stderr.Bytes()...), ExitCode: exitCode(command, err)}
-	if commandCtx.Err() != nil {
-		return result, commandCtx.Err()
+	executor := r.Executor
+	if executor == nil {
+		executor = localexec.ExecRunner{}
 	}
-	return result, err
-}
-
-func exitCode(command *exec.Cmd, err error) int {
-	if err == nil {
-		return 0
+	result, err := executor.Execute(ctx, localexec.Command{
+		Path:        spec.Binary,
+		Args:        append([]string(nil), spec.Args...),
+		Timeout:     deadline,
+		Mutation:    spec.Mutating,
+		OutputLimit: min(outputLimit, localexec.CommandOutputLimit),
+	})
+	commandResult := CommandResult{Stdout: []byte(result.Stdout), Stderr: []byte(result.Stderr), ExitCode: result.ExitCode}
+	if result.Truncated {
+		return commandResult, errors.New("command output limit exceeded")
 	}
-	if command.ProcessState == nil {
-		return -1
-	}
-	return command.ProcessState.ExitCode()
+	return commandResult, err
 }
 
 type Runner struct {
