@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/ShaulLavo/brine/fixtures/udp-echo/client"
+	"github.com/ShaulLavo/brine/fixtures/udp-echo/protocol"
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -112,15 +115,22 @@ func TestTeardownProofMarksOnlyOwnedResourcesAbsent(t *testing.T) {
 	proofPath := filepath.Join(filepath.Dir(ledger.Path), "teardown.json")
 	proof := TeardownProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, ForeignUntouched: true, Resources: []TeardownResource{{Kind: "app", ID: "udp-a", State: "absent"}, {Kind: "udp_endpoint", ID: "udp-a:4433", State: "absent"}, {Kind: "image", ID: manifest.Fixture.ReleaseDigests["release-a"], State: "absent"}, {Kind: "grant", ID: "udp-a-grant", State: "absent"}}}
 	writeJSON(t, proofPath, proof)
-	manifest.Phases.Cleanup = []Step{{ID: "teardown", Action: ActionTeardownProof, Proof: proofPath}}
-	runner := Runner{Manifest: manifest, Ledger: ledger, Commands: &scriptedRunner{run: func(CommandSpec) (CommandResult, error) {
-		t.Fatal("teardown proof invoked a command")
-		return CommandResult{}, nil
-	}}}
-	if _, err := runner.RunPhase(context.Background(), PhaseCleanup); err != nil {
+	manifest.Phases.Cleanup = []Step{{ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}, {ID: "teardown", Action: ActionTeardownProof, Proof: proofPath, ProofSHA256: mustFileHash(t, proofPath)}}
+	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	runner := Runner{Manifest: manifest, Ledger: ledger, Commands: &scriptedRunner{run: func(CommandSpec) (CommandResult, error) {
+		t.Fatal("cleanup proof invoked a command")
+		return CommandResult{}, nil
+	}}}
 	stored, err := ledger.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.runTeardownProof(&stored, manifest.Phases.Cleanup[1]); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = ledger.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,8 +142,91 @@ func TestTeardownProofMarksOnlyOwnedResourcesAbsent(t *testing.T) {
 	proof.ForeignUntouched = false
 	writeJSON(t, proofPath, proof)
 	badRunner := Runner{Manifest: manifest, Ledger: ledger, Commands: &scriptedRunner{run: func(CommandSpec) (CommandResult, error) { return CommandResult{}, nil }}}
-	if _, err := badRunner.RunPhase(context.Background(), PhaseCleanup); err == nil {
+	if _, err := badRunner.runTeardownProof(&stored, manifest.Phases.Cleanup[1]); err == nil {
 		t.Fatal("accepted teardown proof that did not preserve foreign resources")
+	}
+}
+
+func TestCleanupGrammarRequiresOwnedRemovalBeforeProof(t *testing.T) {
+	manifest, _, cleanup := testManifest(t)
+	defer cleanup()
+	proofPath := filepath.Join(t.TempDir(), "teardown.json")
+	writeJSON(t, proofPath, TeardownProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, ForeignUntouched: true, Resources: []TeardownResource{{Kind: "app", ID: "udp-a", State: "absent"}, {Kind: "udp_endpoint", ID: "udp-a:4433", State: "absent"}, {Kind: "image", ID: manifest.Fixture.ReleaseDigests["release-a"], State: "absent"}, {Kind: "grant", ID: "udp-a-grant", State: "absent"}}})
+	proof := Step{ID: "teardown", Action: ActionTeardownProof, Proof: proofPath, ProofSHA256: mustFileHash(t, proofPath)}
+	for _, action := range []Action{ActionPlan, ActionApply, ActionStatus, ActionRollback, ActionProbe, ActionInspect, ActionResume} {
+		manifest.Phases.Cleanup = []Step{{ID: "bad", Action: action, App: "udp-a", PlanID: "sha256:" + strings.Repeat("a", 64), OperationID: "op-1", ReleaseID: "release-a", Vantage: "external", ExpectedOutcome: "ok", Nonce: "nonce"}, proof}
+		if err := manifest.Validate(); err == nil {
+			t.Fatalf("cleanup accepted %s", action)
+		}
+	}
+	manifest.Phases.Cleanup = []Step{proof, {ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}}
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("cleanup accepted proof before removal")
+	}
+}
+
+func TestResolveRetainsOriginalOperationOnMalformedSuccessor(t *testing.T) {
+	manifest, ledger, cleanup := testManifest(t)
+	defer cleanup()
+	stored := Ledger{Schema: LedgerSchema, RunID: manifest.RunID, ManifestHash: manifestHash(manifest), Entries: []LedgerEntry{{ID: "apply", Action: ActionApply, App: "udp-a", Key: "key", OperationID: "original-op", State: "recovery_required", UpdatedAt: time.Now().UTC()}}, Resources: resourcesFor(manifest.OwnedResources)}
+	if err := ledger.Save(stored); err != nil {
+		t.Fatal(err)
+	}
+	commands := &scriptedRunner{run: func(CommandSpec) (CommandResult, error) {
+		return commandResult(`{"schema_version":1,"command":"brine resolve","ok":true,"data":{"status":"accepted","operation_id":""},"error":null}`), nil
+	}}
+	runner := Runner{Manifest: manifest, Ledger: ledger, Commands: commands}
+	loaded, err := ledger.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.resolve(context.Background(), &loaded, Step{ID: "resolve", Action: ActionResume, OperationID: "original-op"}); err == nil {
+		t.Fatal("accepted malformed resolve successor")
+	}
+	loaded, err = ledger.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.Entries[0]; got.OperationID != "original-op" || got.State != "recovery_required" {
+		t.Fatalf("original operation binding changed: %+v", got)
+	}
+}
+
+func TestProbeRequiresApprovedEndpointAndCompleteResult(t *testing.T) {
+	manifest, ledger, cleanup := testManifest(t)
+	defer cleanup()
+	step := Step{ID: "probe", Action: ActionProbe, App: "udp-a", Endpoint: "192.0.2.11:4433", Vantage: "external-client", ExpectedOutcome: "ok", Nonce: "nonce-a"}
+	manifest.Phases.BeforeReboot = []Step{step}
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("accepted probe endpoint outside app and controlled-unreachable endpoints")
+	}
+	manifest.Phases.BeforeReboot[0].Endpoint = net.JoinHostPort(manifest.Apps[0].Endpoint.ClientAddress, "4433")
+	manifest.Phases.BeforeReboot[0].Proof = ""
+	manifest.Phases.BeforeReboot[0].Nonce = "nonce-a"
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	result := client.Result{Schema: protocol.SchemaVersion, Fixture: protocol.FixtureName, Endpoint: manifest.Phases.BeforeReboot[0].Endpoint, Vantage: "external-client", Nonce: "nonce-a", ExpectedRelease: "release-a", Attempts: 1, AttemptTimeoutMs: 1000, OverallTimeoutMs: 5000, StartedAt: time.Now().UTC().Add(-time.Second), FinishedAt: time.Now().UTC(), Outcome: "configuration_error"}
+	raw, err := json.Marshal(result)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Manifest: manifest, Ledger: ledger, Commands: &scriptedRunner{run: func(CommandSpec) (CommandResult, error) { return CommandResult{Stdout: raw, ExitCode: 1}, nil }}}
+	loaded, err := ledger.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runner.runProbe(context.Background(), &loaded, manifest.Phases.BeforeReboot[0]); err == nil {
+		t.Fatal("accepted configuration-error result as probe evidence")
+	}
+}
+
+func TestManifestRequiresBothFixturePlatformPins(t *testing.T) {
+	manifest, _, cleanup := testManifest(t)
+	defer cleanup()
+	delete(manifest.Fixture.PlatformDigests, "linux/arm64")
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("accepted manifest without linux/arm64 pin")
 	}
 }
 
@@ -191,11 +284,23 @@ func TestReadyProofPreservesHTTPAndAppIdentity(t *testing.T) {
 	proofPath := filepath.Join(filepath.Dir(ledger.Path), "ready.json")
 	proof := ProductionProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, Kind: "ready", App: app.Name, Endpoint: app.Endpoint, Release: app.ExpectedRelease, ImageDigest: app.ImageDigest, HTTPHealth: "healthy", NetworkMode: "pasta", Mapping: MappingProof{Present: true, BindAddress: app.Endpoint.BindAddress, HostPort: app.Endpoint.HostPort, ContainerPort: app.Endpoint.ContainerPort}, Socket: &SocketProof{Address: app.Endpoint.BindAddress, Port: app.Endpoint.HostPort, App: app.Name, Process: "pasta", Unit: app.Name + ".service", Inode: 42, Source: "ss -H -lunpe", Ownership: "affirmed"}, InodeGate: "confirmed", ForeignOverlap: "none", RouteUnchanged: true}
 	writeJSON(t, proofPath, proof)
-	if err := validateReady(status, &app, proofPath); err != nil {
+	if err := validateReadyFor(status, &app, proofPath, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
+	proofHash := mustFileHash(t, proofPath)
+	if err := validateReadyFor(status, &app, proofPath, proofHash, manifest.RunID, manifest.Target.Name); err != nil {
+		t.Fatal(err)
+	}
+	proof.Target = "other-target"
+	writeJSON(t, proofPath, proof)
+	if err := validateReadyFor(status, &app, proofPath, proofHash, manifest.RunID, manifest.Target.Name); err == nil {
+		t.Fatal("accepted production proof after its bytes changed")
+	}
+	if err := validateReadyFor(status, &app, proofPath, mustFileHash(t, proofPath), manifest.RunID, manifest.Target.Name); err == nil {
+		t.Fatal("accepted production proof for another target")
+	}
 	status.Health.Direct = "unhealthy"
-	if err := validateReady(status, &app, proofPath); err == nil {
+	if err := validateReadyFor(status, &app, proofPath, "", "", ""); err == nil {
 		t.Fatal("accepted unhealthy HTTP alongside UDP proof")
 	}
 }

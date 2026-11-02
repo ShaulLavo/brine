@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/fixtures/udp-echo/client"
+	"github.com/ShaulLavo/brine/fixtures/udp-echo/protocol"
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -154,8 +155,10 @@ type Step struct {
 	ReleaseID       string `json:"release_id,omitempty"`
 	OperationID     string `json:"operation_id,omitempty"`
 	Proof           string `json:"proof,omitempty"`
+	ProofSHA256     string `json:"proof_sha256,omitempty"`
 	Endpoint        string `json:"endpoint,omitempty"`
 	Vantage         string `json:"vantage,omitempty"`
+	Nonce           string `json:"nonce,omitempty"`
 	ExpectedOutcome string `json:"expected_outcome,omitempty"`
 	LifecycleAction string `json:"lifecycle_action,omitempty"`
 }
@@ -268,12 +271,13 @@ type ExecRunner struct {
 }
 
 var (
-	digestPattern  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-	hashPattern    = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	commitPattern  = regexp.MustCompile(`^[0-9a-f]{40}$`)
-	namePattern    = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
-	releasePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$`)
-	domainPattern  = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
+	digestPattern      = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
+	hashPattern        = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	commitPattern      = regexp.MustCompile(`^[0-9a-f]{40}$`)
+	namePattern        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	releasePattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.:-]{0,255}$`)
+	domainPattern      = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$`)
+	operationIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 )
 
 func (r ExecRunner) Run(ctx context.Context, spec CommandSpec, deadline time.Duration, outputLimit int) (CommandResult, error) {
@@ -370,6 +374,11 @@ func (m Manifest) Validate() error {
 	if !digestPattern.MatchString(m.Fixture.ImageIndexDigest) || len(m.Fixture.PlatformDigests) == 0 || len(m.Fixture.ReleaseDigests) == 0 || len(m.DependencyReceipts) == 0 {
 		return errors.New("fixture image pins are incomplete")
 	}
+	for _, platform := range []string{"linux/amd64", "linux/arm64"} {
+		if !digestPattern.MatchString(m.Fixture.PlatformDigests[platform]) {
+			return errors.New("fixture image pins are incomplete")
+		}
+	}
 	for platform, digest := range m.Fixture.PlatformDigests {
 		if platform != "linux/amd64" && platform != "linux/arm64" || !digestPattern.MatchString(digest) {
 			return errors.New("invalid fixture platform pin")
@@ -412,6 +421,9 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	if err := m.Phases.Validate(seenApps); err != nil {
+		return err
+	}
+	if err := validateProbeEndpoints(m.Phases, m.Apps, m.Target); err != nil {
 		return err
 	}
 	if m.ReadAttempts == 0 {
@@ -532,12 +544,74 @@ func (p PhaseSteps) Validate(apps map[string]bool) error {
 				return errors.New("invalid phase step")
 			}
 			seen[step.ID] = true
-			if step.Action == ActionPlan && (step.Spec == "" || !filepath.IsAbs(step.Spec) || !regularFile(step.Spec)) || step.Action == ActionApply && step.PlanStep == "" && step.PlanID == "" || step.Action == ActionRollback && step.ReleaseID == "" || step.Action == ActionInspect && step.OperationID == "" || step.Action == ActionResume && step.OperationID == "" || step.Action == ActionTeardownProof && (step.Proof == "" || !filepath.IsAbs(step.Proof) || !regularFile(step.Proof)) || step.Action == ActionLifecycle && !slices.Contains([]string{"stop", "start", "restart", "remove"}, step.LifecycleAction) || step.Action == ActionProbe && (step.Vantage == "" || step.ExpectedOutcome == "") || step.Action == ActionStatus && slices.Contains([]string{"ready", "absent"}, step.ExpectedOutcome) && (step.Proof == "" || !filepath.IsAbs(step.Proof) || !regularFile(step.Proof)) {
+			if step.Action == ActionPlan && (step.Spec == "" || !filepath.IsAbs(step.Spec) || !regularFile(step.Spec)) || step.Action == ActionApply && step.PlanStep == "" && step.PlanID == "" || step.Action == ActionRollback && step.ReleaseID == "" || step.Action == ActionInspect && step.OperationID == "" || step.Action == ActionResume && step.OperationID == "" || step.Action == ActionTeardownProof && !validProofReference(step) || step.Action == ActionLifecycle && !slices.Contains([]string{"stop", "start", "restart", "remove"}, step.LifecycleAction) || step.Action == ActionProbe && !validProbeStep(step) || step.Action == ActionStatus && slices.Contains([]string{"ready", "absent"}, step.ExpectedOutcome) && !validProofReference(step) {
 				return errors.New("phase step is missing required input")
 			}
 			if strings.Contains(step.ActionString(), "reboot") || strings.Contains(step.ActionString(), "kernel") || strings.Contains(step.ActionString(), "firewall") || strings.Contains(step.ActionString(), "policy") {
 				return errors.New("runner cannot own host control actions")
 			}
+		}
+	}
+	if err := validateCleanupSteps(p.Cleanup); err != nil {
+		return err
+	}
+	return nil
+}
+
+func validProofReference(step Step) bool {
+	if step.Proof == "" || !filepath.IsAbs(step.Proof) || !regularFile(step.Proof) || !hashPattern.MatchString(step.ProofSHA256) {
+		return false
+	}
+	got, err := fileSHA256(step.Proof)
+	return err == nil && got == step.ProofSHA256
+}
+
+func validProbeStep(step Step) bool {
+	if step.Vantage == "" || !slices.Contains([]string{"ok", "timeout"}, step.ExpectedOutcome) || step.Nonce == "" {
+		return false
+	}
+	return protocol.ValidateNonce([]byte(step.Nonce)) == nil
+}
+
+func validateProbeEndpoints(phases PhaseSteps, apps []AppSpec, targetSpec TargetSpec) error {
+	byName := make(map[string]string, len(apps))
+	for _, app := range apps {
+		byName[app.Name] = net.JoinHostPort(app.Endpoint.ClientAddress, strconv.Itoa(int(app.Endpoint.HostPort)))
+	}
+	for _, steps := range [][]Step{phases.BeforeReboot, phases.AfterReboot, phases.Cleanup, phases.Inspect, phases.Resume} {
+		for _, step := range steps {
+			if step.Action != ActionProbe {
+				continue
+			}
+			appEndpoint, ok := byName[step.App]
+			if !ok {
+				return errors.New("probe step names an unknown app")
+			}
+			endpoint := step.Endpoint
+			if endpoint == "" {
+				endpoint = appEndpoint
+			}
+			if endpoint != appEndpoint && endpoint != targetSpec.ControlledUnreachable {
+				return errors.New("probe endpoint is not approved")
+			}
+			if endpoint == appEndpoint && step.ExpectedOutcome != "ok" || endpoint == targetSpec.ControlledUnreachable && step.ExpectedOutcome != "timeout" {
+				return errors.New("probe outcome does not match approved endpoint")
+			}
+		}
+	}
+	return nil
+}
+
+func validateCleanupSteps(steps []Step) error {
+	if len(steps) == 0 {
+		return nil
+	}
+	if len(steps) < 2 || steps[len(steps)-1].Action != ActionTeardownProof {
+		return errors.New("cleanup must remove owned apps before teardown proof")
+	}
+	for _, step := range steps[:len(steps)-1] {
+		if step.Action != ActionLifecycle || step.LifecycleAction != "remove" || step.App == "" {
+			return errors.New("cleanup accepts only owned removal steps before teardown proof")
 		}
 	}
 	return nil
@@ -707,11 +781,11 @@ func (r *Runner) commandFor(step Step, ledger Ledger) (CommandSpec, error) {
 		if app == nil {
 			return CommandSpec{}, errors.New("probe step names an unknown app")
 		}
-		endpoint := step.Endpoint
-		if endpoint == "" {
-			endpoint = net.JoinHostPort(app.Endpoint.ClientAddress, strconv.Itoa(int(app.Endpoint.HostPort)))
+		endpoint, err := r.approvedProbeEndpoint(step, app)
+		if err != nil {
+			return CommandSpec{}, err
 		}
-		return CommandSpec{Binary: r.Manifest.Source.ClientBinary.Path, Args: []string{"-endpoint", endpoint, "-release", app.ExpectedRelease, "-attempts", "3", "-attempt-timeout", "1s", "-overall-timeout", "5s", "-vantage", step.Vantage}}, nil
+		return CommandSpec{Binary: r.Manifest.Source.ClientBinary.Path, Args: []string{"-endpoint", endpoint, "-nonce", step.Nonce, "-release", app.ExpectedRelease, "-attempts", "3", "-attempt-timeout", "1s", "-overall-timeout", "5s", "-vantage", step.Vantage}}, nil
 	case ActionInspect:
 		return r.operationCommand(step.OperationID), nil
 	case ActionResume:
@@ -930,11 +1004,11 @@ func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (Step
 				return StepReport{}, errors.New("owned app or UDP endpoint remains in status")
 			}
 		}
-		proof, err := loadStrict[ProductionProof](step.Proof, maxReceipt)
+		proof, err := loadHashedStrict[ProductionProof](step.Proof, step.ProofSHA256, maxReceipt)
 		if err != nil {
 			return StepReport{}, err
 		}
-		if err := validateProof(proof, "absent", app, app.ImageDigest); err != nil {
+		if err := validateProofFor(proof, "absent", app, app.ImageDigest, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
 			return StepReport{}, err
 		}
 		return StepReport{ID: step.ID, Action: step.Action, State: "absent"}, nil
@@ -944,7 +1018,7 @@ func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (Step
 		return StepReport{}, err
 	}
 	if step.ExpectedOutcome == "ready" {
-		if err := validateReady(*item, app, step.Proof); err != nil {
+		if err := validateReadyFor(*item, app, step.Proof, step.ProofSHA256, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
 			return StepReport{}, err
 		}
 	}
@@ -958,29 +1032,66 @@ func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (Step
 
 func (r *Runner) runProbe(ctx context.Context, ledger *Ledger, step Step) (StepReport, error) {
 	app := r.app(step.App)
-	if app == nil || step.Vantage == "" {
+	if app == nil || !validProbeStep(step) {
 		return StepReport{}, errors.New("probe needs app and vantage")
 	}
-	endpoint := step.Endpoint
-	if endpoint == "" {
-		endpoint = net.JoinHostPort(app.Endpoint.ClientAddress, strconv.Itoa(int(app.Endpoint.HostPort)))
+	endpoint, err := r.approvedProbeEndpoint(step, app)
+	if err != nil {
+		return StepReport{}, err
 	}
-	if step.ExpectedOutcome == "timeout" && endpoint != r.Manifest.Target.ControlledUnreachable {
-		return StepReport{}, errors.New("unreachable probe endpoint is not approved")
-	}
-	command := CommandSpec{Binary: r.Manifest.Source.ClientBinary.Path, Args: []string{"-endpoint", endpoint, "-release", app.ExpectedRelease, "-attempts", "3", "-attempt-timeout", "1s", "-overall-timeout", "5s", "-vantage", step.Vantage}}
+	command := CommandSpec{Binary: r.Manifest.Source.ClientBinary.Path, Args: []string{"-endpoint", endpoint, "-nonce", step.Nonce, "-release", app.ExpectedRelease, "-attempts", "3", "-attempt-timeout", "1s", "-overall-timeout", "5s", "-vantage", step.Vantage}}
 	result, err := r.runReadCommand(ctx, command, 15*time.Second)
 	if err != nil && len(result.Stdout) == 0 {
 		return StepReport{}, err
 	}
 	var probe client.Result
-	if decodeErr := json.Unmarshal(result.Stdout, &probe); decodeErr != nil {
+	decoder := json.NewDecoder(bytes.NewReader(result.Stdout))
+	decoder.DisallowUnknownFields()
+	if decodeErr := decoder.Decode(&probe); decodeErr != nil {
 		return StepReport{}, decodeErr
 	}
-	if probe.Endpoint != endpoint || probe.ExpectedRelease != app.ExpectedRelease || probe.Vantage != step.Vantage || probe.Outcome != step.ExpectedOutcome || probe.StartedAt.IsZero() || probe.FinishedAt.IsZero() {
-		return StepReport{}, errors.New("client evidence does not match the approved endpoint and release")
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return StepReport{}, errors.New("client result has trailing data")
+	}
+	if err := validateProbeResult(probe, step, app, endpoint); err != nil {
+		return StepReport{}, err
 	}
 	return StepReport{ID: step.ID, Action: step.Action, State: probe.Outcome, Outcome: probe.Outcome}, nil
+}
+
+func (r *Runner) approvedProbeEndpoint(step Step, app *AppSpec) (string, error) {
+	endpoint := step.Endpoint
+	if endpoint == "" {
+		endpoint = net.JoinHostPort(app.Endpoint.ClientAddress, strconv.Itoa(int(app.Endpoint.HostPort)))
+	}
+	if _, err := protocol.Endpoint(endpoint); err != nil {
+		return "", errors.New("probe endpoint is invalid")
+	}
+	appEndpoint := net.JoinHostPort(app.Endpoint.ClientAddress, strconv.Itoa(int(app.Endpoint.HostPort)))
+	if endpoint != appEndpoint && endpoint != r.Manifest.Target.ControlledUnreachable {
+		return "", errors.New("probe endpoint is not approved")
+	}
+	if endpoint == appEndpoint && step.ExpectedOutcome != "ok" || endpoint == r.Manifest.Target.ControlledUnreachable && step.ExpectedOutcome != "timeout" {
+		return "", errors.New("probe outcome does not match approved endpoint")
+	}
+	return endpoint, nil
+}
+
+func validateProbeResult(probe client.Result, step Step, app *AppSpec, endpoint string) error {
+	if probe.Schema != protocol.SchemaVersion || probe.Fixture != protocol.FixtureName || probe.Endpoint != endpoint || probe.Vantage != step.Vantage || probe.Nonce != step.Nonce || probe.ExpectedRelease != app.ExpectedRelease || probe.Attempts < 1 || probe.Attempts > 3 || probe.AttemptTimeoutMs != 1000 || probe.OverallTimeoutMs != 5000 || probe.StartedAt.IsZero() || probe.FinishedAt.IsZero() || probe.FinishedAt.Before(probe.StartedAt) || probe.Outcome != step.ExpectedOutcome {
+		return errors.New("client evidence does not match the complete approved probe contract")
+	}
+	if probe.Outcome == "ok" {
+		if probe.Error != "" || probe.Response == nil || probe.Response.Schema != protocol.SchemaVersion || probe.Response.Fixture != protocol.FixtureName || probe.Response.Release != app.ExpectedRelease || probe.Response.Nonce != step.Nonce {
+			return errors.New("successful client evidence lacks a complete echo response")
+		}
+		return nil
+	}
+	if probe.Response != nil || probe.Error == "" {
+		return errors.New("timeout client evidence has an unexpected response")
+	}
+	return nil
 }
 
 func (r *Runner) runInspect(ctx context.Context, ledger *Ledger, step Step) (StepReport, error) {
@@ -1012,7 +1123,7 @@ func (r *Runner) runResume(ctx context.Context, ledger *Ledger, step Step) (Step
 }
 
 func (r *Runner) runTeardownProof(ledger *Ledger, step Step) (StepReport, error) {
-	proof, err := loadStrict[TeardownProof](step.Proof, maxReceipt)
+	proof, err := loadHashedStrict[TeardownProof](step.Proof, step.ProofSHA256, maxReceipt)
 	if err != nil || proof.Schema != ReceiptSchema || proof.RunID != r.Manifest.RunID || proof.Target != r.Manifest.Target.Name || !proof.ForeignUntouched {
 		return StepReport{}, errors.New("teardown proof is not accepted")
 	}
@@ -1063,6 +1174,9 @@ func (r *Runner) resolve(ctx context.Context, ledger *Ledger, step Step) (StepRe
 	}
 	if err := decodeData(response, &accepted); err != nil || accepted.Status != "accepted" {
 		return r.markUnknown(ledger, entry, errors.New("resolve response is invalid"))
+	}
+	if !operationIDPattern.MatchString(accepted.OperationID) {
+		return reportFor(entry), errors.New("resolve response has an invalid successor operation ID")
 	}
 	entry.OperationID, entry.State = accepted.OperationID, "accepted"
 	entry.UpdatedAt = time.Now().UTC()
@@ -1354,7 +1468,7 @@ func containsDomain(domains []spec.Domain, expected string) bool {
 	return false
 }
 
-func validateReady(status apps.Status, app *AppSpec, proofPath string) error {
+func validateReadyFor(status apps.Status, app *AppSpec, proofPath, proofHash, runID, targetName string) error {
 	if app == nil || status.Current == nil || status.UDP == nil || status.Health.Direct != "healthy" || status.UDP.Local != "ready" || status.UDP.Remote != "unverified" || status.UDP.Reservation != "active" {
 		return errors.New("Brine status is not production-ready")
 	}
@@ -1364,15 +1478,21 @@ func validateReady(status apps.Status, app *AppSpec, proofPath string) error {
 	if proofPath == "" {
 		return errors.New("ready status requires a production proof receipt")
 	}
-	proof, err := loadStrict[ProductionProof](proofPath, maxReceipt)
+	var proof ProductionProof
+	var err error
+	if proofHash == "" {
+		proof, err = loadStrict[ProductionProof](proofPath, maxReceipt)
+	} else {
+		proof, err = loadHashedStrict[ProductionProof](proofPath, proofHash, maxReceipt)
+	}
 	if err != nil {
 		return err
 	}
-	return validateProof(proof, "ready", app, status.Current.ImageDigest)
+	return validateProofFor(proof, "ready", app, status.Current.ImageDigest, runID, targetName)
 }
 
-func validateProof(proof ProductionProof, kind string, app *AppSpec, imageDigest string) error {
-	if proof.Schema != ReceiptSchema || proof.Kind != kind || proof.App != app.Name || proof.Release != app.ExpectedRelease && kind == "ready" || proof.ImageDigest != imageDigest || proof.Endpoint != app.Endpoint || proof.NetworkMode != "pasta" || proof.InodeGate != "confirmed" || proof.ForeignOverlap != "none" || !proof.RouteUnchanged {
+func validateProofFor(proof ProductionProof, kind string, app *AppSpec, imageDigest, runID, targetName string) error {
+	if app == nil || proof.Schema != ReceiptSchema || proof.RunID == "" || proof.Target == "" || runID != "" && proof.RunID != runID || targetName != "" && proof.Target != targetName || proof.Kind != kind || proof.App != app.Name || proof.Release != app.ExpectedRelease && kind == "ready" || proof.ImageDigest != imageDigest || proof.Endpoint != app.Endpoint || proof.NetworkMode != "pasta" || proof.InodeGate != "confirmed" || proof.ForeignOverlap != "none" || !proof.RouteUnchanged {
 		return errors.New("production proof does not match the approved endpoint")
 	}
 	if kind == "ready" {
@@ -1463,6 +1583,27 @@ func loadStrict[T any](path string, limit int64) (T, error) {
 	if err != nil {
 		return value, err
 	}
+	return decodeStrict[T](raw)
+}
+
+func loadHashedStrict[T any](path, expectedHash string, limit int64) (T, error) {
+	var value T
+	if !hashPattern.MatchString(expectedHash) {
+		return value, errors.New("proof hash is required")
+	}
+	raw, err := readBounded(path, limit)
+	if err != nil {
+		return value, err
+	}
+	sum := sha256.Sum256(raw)
+	if hex.EncodeToString(sum[:]) != expectedHash {
+		return value, errors.New("proof hash does not match")
+	}
+	return decodeStrict[T](raw)
+}
+
+func decodeStrict[T any](raw []byte) (T, error) {
+	var value T
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&value); err != nil {

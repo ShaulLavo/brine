@@ -69,7 +69,8 @@ Ready status requires all of the following:
   bind address and port.
 - The proof records `ss -H -lunpe` as its source, an affirmative app, process,
   unit and nonzero inode, confirmed inode gating, no foreign overlap and an
-  unchanged route.
+  unchanged route. The manifest binds the proof bytes with `proof_sha256` and
+  the proof itself carries the current run ID and target name.
 
 Absence status requires Brine status to contain neither the app nor its exact
 UDP endpoint, plus a production proof with no mapping, no socket, confirmed
@@ -77,13 +78,15 @@ inode gating, no foreign overlap and an unchanged route. A TCP owner, a process
 name, a fabricated `UDPSocket.App`, a weakened inode gate or a client result
 cannot satisfy this proof.
 
-Client evidence remains separate. The runner checks exact endpoint, expected
-release, nonce result, vantage and bounded timing. It never turns client success
+Client evidence remains separate. The runner checks the app endpoint or the one
+controlled-unreachable endpoint, the exact schema and fixture, release, nonce,
+echo response, vantage and bounded timestamps. It never turns client success
 into Brine remote readiness.
 
-Cleanup accepts only a teardown proof with the exact owned resource set in
-`absent` state and `foreign_untouched=true`. The runner does not remove images,
-grants, firewall rules, routes or unrelated services itself.
+Cleanup accepts only one or more owned `remove` lifecycle steps followed by a
+teardown proof with the exact owned resource set in `absent` state and
+`foreign_untouched=true`. The runner does not remove images, grants, firewall
+rules, routes or unrelated services itself.
 
 ## Verification
 
