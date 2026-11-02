@@ -544,7 +544,7 @@ func (p PhaseSteps) Validate(apps map[string]bool) error {
 				return errors.New("invalid phase step")
 			}
 			seen[step.ID] = true
-			if step.Action == ActionPlan && (step.Spec == "" || !filepath.IsAbs(step.Spec) || !regularFile(step.Spec)) || step.Action == ActionApply && step.PlanStep == "" && step.PlanID == "" || step.Action == ActionRollback && step.ReleaseID == "" || step.Action == ActionInspect && step.OperationID == "" || step.Action == ActionResume && step.OperationID == "" || step.Action == ActionTeardownProof && !validProofReference(step) || step.Action == ActionLifecycle && !slices.Contains([]string{"stop", "start", "restart", "remove"}, step.LifecycleAction) || step.Action == ActionProbe && !validProbeStep(step) || step.Action == ActionStatus && slices.Contains([]string{"ready", "absent"}, step.ExpectedOutcome) && !validProofReference(step) {
+			if step.Action == ActionPlan && (step.Spec == "" || !filepath.IsAbs(step.Spec) || !regularFile(step.Spec)) || step.Action == ActionApply && step.PlanStep == "" && step.PlanID == "" || step.Action == ActionRollback && step.ReleaseID == "" || step.Action == ActionInspect && step.OperationID == "" || step.Action == ActionResume && step.OperationID == "" || step.Action == ActionTeardownProof && !validProofPath(step) || step.Action == ActionLifecycle && !slices.Contains([]string{"stop", "start", "restart", "remove"}, step.LifecycleAction) || step.Action == ActionProbe && !validProbeStep(step) || step.Action == ActionStatus && slices.Contains([]string{"ready", "absent"}, step.ExpectedOutcome) && !validProofReference(step) {
 				return errors.New("phase step is missing required input")
 			}
 			if strings.Contains(step.ActionString(), "reboot") || strings.Contains(step.ActionString(), "kernel") || strings.Contains(step.ActionString(), "firewall") || strings.Contains(step.ActionString(), "policy") {
@@ -559,11 +559,15 @@ func (p PhaseSteps) Validate(apps map[string]bool) error {
 }
 
 func validProofReference(step Step) bool {
-	if step.Proof == "" || !filepath.IsAbs(step.Proof) || !regularFile(step.Proof) || !hashPattern.MatchString(step.ProofSHA256) {
+	if !validProofPath(step) || !hashPattern.MatchString(step.ProofSHA256) {
 		return false
 	}
 	got, err := fileSHA256(step.Proof)
 	return err == nil && got == step.ProofSHA256
+}
+
+func validProofPath(step Step) bool {
+	return step.Proof != "" && filepath.IsAbs(step.Proof) && regularFile(step.Proof)
 }
 
 func validProbeStep(step Step) bool {
@@ -1123,7 +1127,7 @@ func (r *Runner) runResume(ctx context.Context, ledger *Ledger, step Step) (Step
 }
 
 func (r *Runner) runTeardownProof(ledger *Ledger, step Step) (StepReport, error) {
-	proof, err := loadHashedStrict[TeardownProof](step.Proof, step.ProofSHA256, maxReceipt)
+	proof, err := loadStrict[TeardownProof](step.Proof, maxReceipt)
 	if err != nil || proof.Schema != ReceiptSchema || proof.RunID != r.Manifest.RunID || proof.Target != r.Manifest.Target.Name || !proof.ForeignUntouched {
 		return StepReport{}, errors.New("teardown proof is not accepted")
 	}

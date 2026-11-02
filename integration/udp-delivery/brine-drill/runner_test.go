@@ -115,7 +115,7 @@ func TestTeardownProofMarksOnlyOwnedResourcesAbsent(t *testing.T) {
 	proofPath := filepath.Join(filepath.Dir(ledger.Path), "teardown.json")
 	proof := TeardownProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, ForeignUntouched: true, Resources: []TeardownResource{{Kind: "app", ID: "udp-a", State: "absent"}, {Kind: "udp_endpoint", ID: "udp-a:4433", State: "absent"}, {Kind: "image", ID: manifest.Fixture.ReleaseDigests["release-a"], State: "absent"}, {Kind: "grant", ID: "udp-a-grant", State: "absent"}}}
 	writeJSON(t, proofPath, proof)
-	manifest.Phases.Cleanup = []Step{{ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}, {ID: "teardown", Action: ActionTeardownProof, Proof: proofPath, ProofSHA256: mustFileHash(t, proofPath)}}
+	manifest.Phases.Cleanup = []Step{{ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}, {ID: "teardown", Action: ActionTeardownProof, Proof: proofPath}}
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)
 	}
