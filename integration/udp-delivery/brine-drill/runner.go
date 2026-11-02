@@ -1,3 +1,4 @@
+// Package brinedrill runs the source-only UDP delivery drill from typed evidence.
 package brinedrill
 
 import (
@@ -581,7 +582,7 @@ func (f FileLedger) Save(ledger Ledger) error {
 		return err
 	}
 	name := temporary.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
 	if err := temporary.Chmod(0600); err != nil {
 		_ = temporary.Close()
 		return err
@@ -827,7 +828,7 @@ func (r *Runner) runApply(ctx context.Context, ledger *Ledger, step Step) (StepR
 	}
 	response, err := r.readEnvelope(ctx, command, false)
 	if err != nil {
-		if _, known := err.(*knownFailure); known {
+		if isKnownFailure(err) {
 			entry.State, entry.UpdatedAt = "rejected", time.Now().UTC()
 			if saveErr := r.replaceEntry(ledger, entry); saveErr != nil {
 				return StepReport{}, saveErr
@@ -1044,7 +1045,7 @@ func (r *Runner) resolve(ctx context.Context, ledger *Ledger, step Step) (StepRe
 	}
 	response, err := r.readEnvelope(ctx, command, false)
 	if err != nil {
-		if _, known := err.(*knownFailure); known {
+		if isKnownFailure(err) {
 			entry.State, entry.UpdatedAt = "rejected", time.Now().UTC()
 			if saveErr := r.replaceEntry(ledger, entry); saveErr != nil {
 				return StepReport{}, saveErr
@@ -1209,6 +1210,11 @@ type knownFailure struct {
 }
 
 func (e *knownFailure) Error() string { return "Brine refused operation with " + e.code }
+
+func isKnownFailure(err error) bool {
+	var known *knownFailure
+	return errors.As(err, &known)
+}
 
 func decodeData(response envelope, value any) error {
 	if len(response.Data) == 0 || bytes.Equal(bytes.TrimSpace(response.Data), []byte("null")) {
@@ -1422,11 +1428,11 @@ func manifestHash(manifest Manifest) string {
 }
 
 func fileSHA256(path string) (string, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- The manifest validates this pinned path before hashing.
 	if err != nil {
 		return "", err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
 		return "", errors.New("file is not regular")
@@ -1439,11 +1445,11 @@ func fileSHA256(path string) (string, error) {
 }
 
 func readBounded(path string, limit int64) ([]byte, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- The manifest validates this bounded receipt path before reading.
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() || info.Size() > limit {
 		return nil, errors.New("file exceeds bound")

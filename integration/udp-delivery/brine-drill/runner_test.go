@@ -225,8 +225,12 @@ func testManifest(t *testing.T) (Manifest, FileLedger, func()) {
 	dir := t.TempDir()
 	brinePath := filepath.Join(dir, "brine")
 	clientPath := filepath.Join(dir, "client")
-	os.WriteFile(brinePath, []byte("brine"), 0700)
-	os.WriteFile(clientPath, []byte("client"), 0700)
+	if err := os.WriteFile(brinePath, []byte("brine"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(clientPath, []byte("client"), 0600); err != nil {
+		t.Fatal(err)
+	}
 	brineHash := mustFileHash(t, brinePath)
 	clientHash := mustFileHash(t, clientPath)
 	commit := strings.Repeat("a", 40)
