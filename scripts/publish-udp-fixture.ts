@@ -171,6 +171,15 @@ export function verifyBootstrapPackage(value: unknown): PackageMetadata {
   return info as unknown as PackageMetadata;
 }
 
+export function classifyBootstrapAnonymousStatus(tag: string, packageRead: PackageRead, status: number, error?: string): RegistryObservation | undefined {
+  if (error !== undefined) return { tag, status: "unknown", error };
+  if (packageRead.status === 404 && packageRead.value === undefined && (status === 403 || status === 404)) {
+    return { tag, status: "absent", error: `anonymous bootstrap read returned ${status} for an absent package` };
+  }
+  if (status !== 200) return { tag, status: "unknown", error: `anonymous bootstrap read failed with status ${status}` };
+  return undefined;
+}
+
 export function verifyBootstrapPreflight(packageRead: PackageRead, tags: readonly RegistryObservation[]): { packageState: "absent"; tags: string[] } {
   requireThat(packageRead.status === 404 && packageRead.value === undefined, "Bootstrap requires the exact package to be absent; use public_access_confirmed for an existing package");
   requireThat(tags.every(tag => tag.status === "absent"), "Bootstrap requires every run-scoped tag or digest to be absent");
@@ -272,16 +281,32 @@ async function registryToken(): Promise<string> {
   return text(token.token);
 }
 
-async function anonymousTagObservation(tag: string): Promise<RegistryObservation> {
+type BootstrapRegistryTokenRead = { status: number; body?: string; error?: string };
+
+async function bootstrapRegistryToken(): Promise<BootstrapRegistryTokenRead> {
   try {
-    const bearer = await registryToken();
+    const response = await fetch("https://ghcr.io/token?service=ghcr.io&scope=repository:shaullavo/brine-udp-fixture:pull", { redirect: "error", signal: AbortSignal.timeout(15_000) });
+    if (response.status !== 200) return { status: response.status };
+    return { status: response.status, body: new TextDecoder("utf-8", { fatal: true }).decode(await responseBytes(response, maxJSON)) };
+  } catch (error) {
+    return { status: 0, error: String(error) };
+  }
+}
+
+async function anonymousTagObservation(tag: string, packageRead: PackageRead): Promise<RegistryObservation> {
+  try {
+    const tokenRead = await bootstrapRegistryToken();
+    const tokenObservation = classifyBootstrapAnonymousStatus(tag, packageRead, tokenRead.status, tokenRead.error);
+    if (tokenObservation !== undefined) return tokenObservation;
+    requireThat(tokenRead.body !== undefined, "Anonymous bootstrap token response body is missing");
+    const bearer = text(object(JSON.parse(tokenRead.body)).token);
     const reference = tag.slice(`${image}:`.length);
-    let response = await fetch(`https://ghcr.io/v2/shaullavo/brine-udp-fixture/manifests/${reference}`, {
+    const response = await fetch(`https://ghcr.io/v2/shaullavo/brine-udp-fixture/manifests/${reference}`, {
       headers: { Authorization: `Bearer ${bearer}`, Accept: "application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json" },
       redirect: "error", signal: AbortSignal.timeout(15_000),
     });
-    if (response.status === 404) return { tag, status: "absent" };
-    if (response.status !== 200) return { tag, status: "unknown", error: `anonymous tag read failed with status ${response.status}` };
+    const observation = classifyBootstrapAnonymousStatus(tag, packageRead, response.status);
+    if (observation !== undefined) return observation;
     const raw = new TextDecoder("utf-8", { fatal: true }).decode(await responseBytes(response, maxJSON));
     return { tag, status: "present", raw, digest: sha256(raw) };
   } catch (error) {
@@ -329,7 +354,7 @@ function bootstrapTags(source: string): string[] {
 async function bootstrapPreflight(source: string): Promise<unknown> {
   const packageRead = await githubPackageRead();
   const tags: RegistryObservation[] = [];
-  for (const tag of bootstrapTags(source)) tags.push(await anonymousTagObservation(tag));
+  for (const tag of bootstrapTags(source)) tags.push(await anonymousTagObservation(tag, packageRead));
   const state = verifyBootstrapPreflight(packageRead, tags);
   return { package: "brine-udp-fixture", packageState: state.packageState, repository, visibility: "pending-from-GITHUB_TOKEN-push", anonymousRead: false, tags: state.tags, checkedAt: new Date().toISOString() };
 }
