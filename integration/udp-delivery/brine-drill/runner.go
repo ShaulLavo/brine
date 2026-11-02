@@ -544,7 +544,7 @@ func (p PhaseSteps) Validate(apps map[string]bool) error {
 				return errors.New("invalid phase step")
 			}
 			seen[step.ID] = true
-			if step.Action == ActionPlan && (step.Spec == "" || !filepath.IsAbs(step.Spec) || !regularFile(step.Spec)) || step.Action == ActionApply && step.PlanStep == "" && step.PlanID == "" || step.Action == ActionRollback && step.ReleaseID == "" || step.Action == ActionInspect && step.OperationID == "" || step.Action == ActionResume && step.OperationID == "" || step.Action == ActionTeardownProof && !validProofPath(step) || step.Action == ActionLifecycle && !slices.Contains([]string{"stop", "start", "restart", "remove"}, step.LifecycleAction) || step.Action == ActionProbe && !validProbeStep(step) || step.Action == ActionStatus && slices.Contains([]string{"ready", "absent"}, step.ExpectedOutcome) && !validProofReference(step) {
+			if step.Action == ActionPlan && (step.Spec == "" || !filepath.IsAbs(step.Spec) || !regularFile(step.Spec)) || step.Action == ActionApply && step.PlanStep == "" && step.PlanID == "" || step.Action == ActionRollback && step.ReleaseID == "" || step.Action == ActionInspect && step.OperationID == "" || step.Action == ActionResume && step.OperationID == "" || step.Action == ActionTeardownProof && !validProofReference(step) || step.Action == ActionLifecycle && !slices.Contains([]string{"stop", "start", "restart", "remove"}, step.LifecycleAction) || step.Action == ActionProbe && !validProbeStep(step) || step.Action == ActionStatus && slices.Contains([]string{"ready", "absent"}, step.ExpectedOutcome) && !validProofReference(step) {
 				return errors.New("phase step is missing required input")
 			}
 			if strings.Contains(step.ActionString(), "reboot") || strings.Contains(step.ActionString(), "kernel") || strings.Contains(step.ActionString(), "firewall") || strings.Contains(step.ActionString(), "policy") {
@@ -607,9 +607,6 @@ func validateProbeEndpoints(phases PhaseSteps, apps []AppSpec, targetSpec Target
 }
 
 func validateCleanupSteps(steps []Step) error {
-	if len(steps) == 0 {
-		return nil
-	}
 	if len(steps) < 2 || steps[len(steps)-1].Action != ActionTeardownProof {
 		return errors.New("cleanup must remove owned apps before teardown proof")
 	}
@@ -1127,7 +1124,7 @@ func (r *Runner) runResume(ctx context.Context, ledger *Ledger, step Step) (Step
 }
 
 func (r *Runner) runTeardownProof(ledger *Ledger, step Step) (StepReport, error) {
-	proof, err := loadStrict[TeardownProof](step.Proof, maxReceipt)
+	proof, err := loadHashedStrict[TeardownProof](step.Proof, step.ProofSHA256, maxReceipt)
 	if err != nil || proof.Schema != ReceiptSchema || proof.RunID != r.Manifest.RunID || proof.Target != r.Manifest.Target.Name || !proof.ForeignUntouched {
 		return StepReport{}, errors.New("teardown proof is not accepted")
 	}

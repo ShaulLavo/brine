@@ -115,7 +115,7 @@ func TestTeardownProofMarksOnlyOwnedResourcesAbsent(t *testing.T) {
 	proofPath := filepath.Join(filepath.Dir(ledger.Path), "teardown.json")
 	proof := TeardownProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, ForeignUntouched: true, Resources: []TeardownResource{{Kind: "app", ID: "udp-a", State: "absent"}, {Kind: "udp_endpoint", ID: "udp-a:4433", State: "absent"}, {Kind: "image", ID: manifest.Fixture.ReleaseDigests["release-a"], State: "absent"}, {Kind: "grant", ID: "udp-a-grant", State: "absent"}}}
 	writeJSON(t, proofPath, proof)
-	manifest.Phases.Cleanup = []Step{{ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}, {ID: "teardown", Action: ActionTeardownProof, Proof: proofPath}}
+	manifest.Phases.Cleanup = []Step{{ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}, {ID: "teardown", Action: ActionTeardownProof, Proof: proofPath, ProofSHA256: mustFileHash(t, proofPath)}}
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)
 	}
@@ -153,6 +153,14 @@ func TestCleanupGrammarRequiresOwnedRemovalBeforeProof(t *testing.T) {
 	proofPath := filepath.Join(t.TempDir(), "teardown.json")
 	writeJSON(t, proofPath, TeardownProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, ForeignUntouched: true, Resources: []TeardownResource{{Kind: "app", ID: "udp-a", State: "absent"}, {Kind: "udp_endpoint", ID: "udp-a:4433", State: "absent"}, {Kind: "image", ID: manifest.Fixture.ReleaseDigests["release-a"], State: "absent"}, {Kind: "grant", ID: "udp-a-grant", State: "absent"}}})
 	proof := Step{ID: "teardown", Action: ActionTeardownProof, Proof: proofPath, ProofSHA256: mustFileHash(t, proofPath)}
+	manifest.Phases.Cleanup = nil
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("cleanup accepted an empty phase")
+	}
+	manifest.Phases.Cleanup = []Step{{ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}, {ID: proof.ID, Action: ActionTeardownProof, Proof: proof.Proof}}
+	if err := manifest.Validate(); err == nil {
+		t.Fatal("cleanup accepted an unhashed teardown proof")
+	}
 	for _, action := range []Action{ActionPlan, ActionApply, ActionStatus, ActionRollback, ActionProbe, ActionInspect, ActionResume} {
 		manifest.Phases.Cleanup = []Step{{ID: "bad", Action: action, App: "udp-a", PlanID: "sha256:" + strings.Repeat("a", 64), OperationID: "op-1", ReleaseID: "release-a", Vantage: "external", ExpectedOutcome: "ok", Nonce: "nonce"}, proof}
 		if err := manifest.Validate(); err == nil {
@@ -162,6 +170,35 @@ func TestCleanupGrammarRequiresOwnedRemovalBeforeProof(t *testing.T) {
 	manifest.Phases.Cleanup = []Step{proof, {ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}}
 	if err := manifest.Validate(); err == nil {
 		t.Fatal("cleanup accepted proof before removal")
+	}
+}
+
+func TestTeardownProofRejectsStaleAndCrossRunBytes(t *testing.T) {
+	manifest, ledger, cleanup := testManifest(t)
+	defer cleanup()
+	proofPath := filepath.Join(t.TempDir(), "teardown.json")
+	proof := TeardownProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, ForeignUntouched: true, Resources: []TeardownResource{{Kind: "app", ID: "udp-a", State: "absent"}, {Kind: "udp_endpoint", ID: "udp-a:4433", State: "absent"}, {Kind: "image", ID: manifest.Fixture.ReleaseDigests["release-a"], State: "absent"}, {Kind: "grant", ID: "udp-a-grant", State: "absent"}}}
+	writeJSON(t, proofPath, proof)
+	step := Step{ID: "teardown", Action: ActionTeardownProof, Proof: proofPath, ProofSHA256: mustFileHash(t, proofPath)}
+	manifest.Phases.Cleanup = []Step{{ID: "remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}, step}
+	if err := manifest.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	runner := Runner{Manifest: manifest, Ledger: ledger}
+	loaded, err := ledger.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	proof.Resources[0], proof.Resources[1] = proof.Resources[1], proof.Resources[0]
+	writeJSON(t, proofPath, proof)
+	if _, err := runner.runTeardownProof(&loaded, step); err == nil {
+		t.Fatal("accepted teardown proof after its bytes changed")
+	}
+	proof.RunID = "other-run"
+	writeJSON(t, proofPath, proof)
+	step.ProofSHA256 = mustFileHash(t, proofPath)
+	if _, err := runner.runTeardownProof(&loaded, step); err == nil {
+		t.Fatal("accepted teardown proof from another run")
 	}
 }
 
@@ -348,6 +385,10 @@ func testManifest(t *testing.T) (Manifest, FileLedger, func()) {
 	writeJSON(t, beforePath, before)
 	writeJSON(t, afterPath, after)
 	manifest := Manifest{Schema: ManifestSchema, RunID: "drill-1", Source: SourcePins{Commit: commit, HostBinary: BinaryPin{Path: brinePath, SHA256: brineHash, SourceCommit: commit}, ClientBinary: BinaryPin{Path: clientPath, SHA256: clientHash, SourceCommit: commit}}, Fixture: FixturePins{ImageIndexDigest: image, PlatformDigests: map[string]string{"linux/amd64": image, "linux/arm64": image}, ReleaseDigests: map[string]string{"release-a": releaseImage}}, Target: TargetSpec{Kind: "vps", Name: "vps", ConfigDir: dir, ControlledUnreachable: "198.51.100.10:65530"}, Apps: []AppSpec{{Name: "udp-a", Domain: "udp-a.example.test", ExpectedRelease: "release-a", ImageDigest: releaseImage, Endpoint: Endpoint{BindAddress: "192.0.2.10", ClientAddress: "192.0.2.10", HostPort: 4433, ContainerPort: 4433, Exposure: "public"}}}, PhaseReceipts: PhaseReceipts{BeforeReboot: ReceiptRef{Name: "before", Path: beforePath, SHA256: mustFileHash(t, beforePath)}, AfterReboot: ReceiptRef{Name: "after", Path: afterPath, SHA256: mustFileHash(t, afterPath)}}, DependencyReceipts: []ReceiptRef{{Name: "source", Path: beforePath, SHA256: mustFileHash(t, beforePath)}}, OwnedResources: []OwnedResource{{Kind: "app", ID: "udp-a", App: "udp-a", Owner: "drill-1"}, {Kind: "udp_endpoint", ID: "udp-a:4433", App: "udp-a", Owner: "drill-1"}, {Kind: "image", ID: releaseImage, App: "udp-a", Owner: "drill-1"}, {Kind: "grant", ID: "udp-a-grant", App: "udp-a", Owner: "drill-1"}}}
+	teardownPath := filepath.Join(dir, "teardown.json")
+	teardown := TeardownProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, ForeignUntouched: true, Resources: []TeardownResource{{Kind: "app", ID: "udp-a", State: "absent"}, {Kind: "udp_endpoint", ID: "udp-a:4433", State: "absent"}, {Kind: "image", ID: releaseImage, State: "absent"}, {Kind: "grant", ID: "udp-a-grant", State: "absent"}}}
+	writeJSON(t, teardownPath, teardown)
+	manifest.Phases.Cleanup = []Step{{ID: "cleanup-remove", Action: ActionLifecycle, App: "udp-a", LifecycleAction: "remove"}, {ID: "cleanup-proof", Action: ActionTeardownProof, Proof: teardownPath, ProofSHA256: mustFileHash(t, teardownPath)}}
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)
 	}

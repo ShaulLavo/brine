@@ -83,17 +83,24 @@ controlled-unreachable endpoint, the exact schema and fixture, release, nonce,
 echo response, vantage and bounded timestamps. It never turns client success
 into Brine remote readiness.
 
-Cleanup accepts only one or more owned `remove` lifecycle steps followed by a
-teardown proof with the exact owned resource set in `absent` state and
-`foreign_untouched=true`. The runner does not remove images, grants, firewall
-rules, routes or unrelated services itself.
+Cleanup requires a non-empty, ordered action sequence: one or more owned
+`remove` lifecycle steps followed by exactly one teardown proof. Empty cleanup,
+non-removal actions, proof-before-removal and extra proof steps are refused.
+The proof reference carries a SHA-256 in the manifest, is part of the ledger's
+manifest identity, and is hashed again when consumed. The receipt must also
+carry the current run and target, the exact owned resource set in `absent`
+state and `foreign_untouched=true`. A stale or cross-run replacement is
+refused. The runner does not remove images, grants, firewall rules, routes or
+unrelated services itself.
 
 ## Verification
 
 The replay was checked with focused normal and race tests for
-`./integration/udp-delivery/brine-drill/...`, focused `go vet`, builds of the
-drill command and `./cmd/brine`, the repository format check, the structure
-check and `git diff --check`. These checks validate the source contract only;
+`./integration/udp-delivery/brine-drill/...`, including empty-cleanup,
+ordered-cleanup, stale-proof-byte and cross-run-proof regressions. It also ran
+focused `go vet`, builds of the drill command and `./cmd/brine`, the repository
+format check, the structure check and `git diff --check`. These checks validate
+the source contract only;
 they do not claim a physical drill.
 
 No full Go suite, host suite, store suite, Pi, VPS, image pull or push, network
