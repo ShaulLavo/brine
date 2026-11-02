@@ -82,12 +82,28 @@ test("package visibility is a gate, never an automatic change", async () => {
   }
 });
 
-test("bootstrap rejects any existing package or run-scoped tag and digest", async () => {
-  const { verifyBootstrapPreflight } = await import(helperPath);
+test("bootstrap accepts anonymous token or tag denial only for an absent package", async () => {
+  const { classifyBootstrapAnonymousStatus } = await import(helperPath);
+  const tag = "ghcr.io/shaullavo/brine-udp-fixture:run-tag";
   const absent = { status: 404 };
+  expect(classifyBootstrapAnonymousStatus(tag, absent, 403)).toMatchObject({ tag, status: "absent" });
+  expect(classifyBootstrapAnonymousStatus(tag, absent, 404)).toMatchObject({ tag, status: "absent" });
+  expect(classifyBootstrapAnonymousStatus(tag, { status: 200, value: { name: "brine-udp-fixture" } }, 403)).toMatchObject({ tag, status: "unknown" });
+});
+
+test("bootstrap refuses existing, ambiguous and transport-failed package or tag state", async () => {
+  const { verifyBootstrapPreflight, classifyBootstrapAnonymousStatus } = await import(helperPath);
+  const absent = { status: 404 };
+  const tag = "ghcr.io/shaullavo/brine-udp-fixture:run-tag";
   expect(() => verifyBootstrapPreflight({ status: 200, value: { name: "brine-udp-fixture" } }, [])).toThrow(/package to be absent/);
-  expect(() => verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "present", digest: "sha256:" + "a".repeat(64) }])).toThrow(/run-scoped tag or digest to be absent/);
-  expect(verifyBootstrapPreflight(absent, [{ tag: "ghcr.io/shaullavo/brine-udp-fixture:run-tag", status: "absent" }]).packageState).toBe("absent");
+  expect(() => verifyBootstrapPreflight(absent, [{ tag, status: "present", digest: "sha256:" + "a".repeat(64) }])).toThrow(/run-scoped tag or digest to be absent/);
+  expect(() => verifyBootstrapPreflight({ status: 500 }, [])).toThrow(/package to be absent/);
+  expect(() => verifyBootstrapPreflight({ status: 0, value: "transport failure" }, [])).toThrow(/package to be absent/);
+  expect(classifyBootstrapAnonymousStatus(tag, absent, 503)).toMatchObject({ tag, status: "unknown" });
+  expect(classifyBootstrapAnonymousStatus(tag, absent, 403, "fetch failed: connection refused")).toMatchObject({ tag, status: "unknown" });
+  expect(classifyBootstrapAnonymousStatus(tag, absent, 200, "fetch failed: connection reset")).toMatchObject({ tag, status: "unknown" });
+  expect(() => verifyBootstrapPreflight(absent, [{ tag, status: "unknown", error: "HTTP 503" }])).toThrow(/run-scoped tag or digest to be absent/);
+  expect(verifyBootstrapPreflight(absent, [{ tag, status: "absent" }]).packageState).toBe("absent");
 });
 
 test("unknown platform push reconciliation binds the exact tag, digest, manifest and config", async () => {
