@@ -110,17 +110,12 @@ func (c Collector) UDPAbsent(ctx context.Context, app string, e plan.UDPEndpoint
 
 // RebuildUDP recollects only the plan's own reservation-derived control facts.
 // Actual units, containers, sockets, addresses and foreign claims are remeasured.
+// family[0] is the observing operation, as the store's UDP family lists it.
 func (c Collector) RebuildUDP(ctx context.Context, p plan.Plan, family []string) (target.Snapshot, error) {
-	original := c.StateInventory
-	if original == nil {
-		return target.Snapshot{}, errors.New("UDP rebuild requires durable control")
+	if len(family) == 0 {
+		return target.Snapshot{}, errors.New("UDP rebuild requires its operation family")
 	}
-	c.StateInventory = func(ctx context.Context) (target.ControlInventory, error) {
-		state, err := original(ctx)
-		if err != nil {
-			return state, err
-		}
+	return c.collectAs(ctx, family[0], p.Hash, func(state target.ControlInventory) (target.ControlInventory, error) {
 		return plan.RebuildUDPControl(state, p, slices.Clone(family))
-	}
-	return c.Collect(ctx)
+	})
 }

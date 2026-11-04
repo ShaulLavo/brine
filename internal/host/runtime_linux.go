@@ -93,7 +93,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	if err != nil || len(key) != 32 {
 		return nil, result.New(result.DependencyMissing, nil)
 	}
-	collector := inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: state.InventoryState}
+	collector := inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: state.InventoryState, OperationState: state.OperationInventoryState}
 	runtimeSystemd := systemd.New(session)
 	units := lazyUnits{home: identity.HomeDir, validator: quadletValidator{}}
 	manager, err := caddy.NewManager("/etc/caddy/brine", caddyValidator{session}, caddyReloader{runtimeSystemd})

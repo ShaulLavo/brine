@@ -55,7 +55,8 @@ type Collector struct {
 	StateGeneration          func(context.Context) (uint64, error)
 	StateInventory           func(context.Context) (target.ControlInventory, error)
 	LitestreamHashExecutable func(context.Context, string) (string, error) // nil uses the protected host reader.
-
+	// OperationState reads StateInventory as one accepted operation and plan see it.
+	OperationState func(context.Context, string, string) (target.ControlInventory, error)
 }
 
 func unknown[T any]() target.Observation[T] { return target.Observation[T]{Status: target.Unknown} }
@@ -70,6 +71,31 @@ func (c Collector) probe(ctx context.Context, limit int, p string, args ...strin
 		return "", localexec.ErrOutputLimit
 	}
 	return strings.TrimSpace(out.Stdout), e
+}
+
+// CollectFor measures exactly as Collect does, while durable control is read as
+// accepted operation id running planID. Its own unfinished journal rows then do
+// not hide the committed head it was planned against.
+func (c Collector) CollectFor(ctx context.Context, id, planID string) (target.Snapshot, error) {
+	return c.collectAs(ctx, id, planID, nil)
+}
+
+func (c Collector) collectAs(ctx context.Context, id, planID string, rebuild func(target.ControlInventory) (target.ControlInventory, error)) (target.Snapshot, error) {
+	read := c.OperationState
+	if read == nil {
+		return target.Snapshot{}, errors.New("operation-bound control unavailable")
+	}
+	var stateErr error
+	c.StateInventory = func(ctx context.Context) (target.ControlInventory, error) {
+		state, err := read(ctx, id, planID)
+		if err == nil && rebuild != nil {
+			state, err = rebuild(state)
+		}
+		stateErr = err
+		return state, err
+	}
+	s, err := c.Collect(ctx)
+	return s, errors.Join(err, stateErr)
 }
 
 func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {

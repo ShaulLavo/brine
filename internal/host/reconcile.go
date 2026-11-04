@@ -15,6 +15,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/spec"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 // Recovery shares the normal executor's operational adapters. Each assessment
@@ -76,14 +77,18 @@ type operationFacts struct {
 }
 
 func (f operationFacts) Read(ctx context.Context) (apply.Facts, error) {
+	service := f.service
+	if collector, ok := service.Inventory.(operationCollector); ok {
+		service.Inventory = operationInventory{collector: collector, id: f.recoveryOperation.ID, planID: f.recoveryPlan.Hash}
+	}
 	if f.removal {
-		facts, err := f.service.removalFacts(ctx, f.desired)
+		facts, err := service.removalFacts(ctx, f.desired)
 		if err == nil {
 			facts.Input, err = f.udpRebuild(ctx, facts.Input)
 		}
 		return facts, err
 	}
-	facts, err := f.service.facts(ctx, App(f.desired))
+	facts, err := service.facts(ctx, App(f.desired))
 	if err != nil {
 		return facts, err
 	}
@@ -92,6 +97,21 @@ func (f operationFacts) Read(ctx context.Context) (apply.Facts, error) {
 		return facts, err
 	}
 	return f.managedRecoveryRoutes(ctx, facts)
+}
+
+type operationCollector interface {
+	CollectFor(context.Context, string, string) (target.Snapshot, error)
+}
+
+// operationInventory observes as the operation whose freshness is checked.
+// Planning, status and diagnosis keep the unbound read.
+type operationInventory struct {
+	collector  operationCollector
+	id, planID string
+}
+
+func (i operationInventory) Collect(ctx context.Context) (target.Snapshot, error) {
+	return i.collector.CollectFor(ctx, i.id, i.planID)
 }
 
 // The runner hook intentionally has an error-only contract: run-op owns the

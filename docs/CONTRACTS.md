@@ -150,6 +150,10 @@ Unbound image `EXPOSE` entries allocate no host port. Pinned unit parsing accept
 only the renderer's TCP and bracketed-IPv6 or IPv4 UDP grammar. TCP ownership
 requires both mappings to match the measured runtime, not just the HTTP port.
 Status ownership remains committed-only; operation-bound apply proofs use the newly rendered unit.
+Any unfinished app or global mutation hides the committed UDP head from ordinary
+reads. An accepted operation's freshness reads exempt only its own proved
+deploy or resolution chain for that plan and app, so it sees the head it was
+planned against. Foreign, concurrent and global mutations still hide it.
 
 ### Local UDP readiness and retained endpoints
 
