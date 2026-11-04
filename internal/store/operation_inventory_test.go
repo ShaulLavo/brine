@@ -34,7 +34,8 @@ func requireHead(t *testing.T, state target.ControlInventory, err error, want bo
 	}
 }
 
-func TestOperationInventoryStateExemptsOnlyTheObservingFamily(t *testing.T) {
+func removalObservation(t *testing.T) (*Store, ops.Operation, plan.Plan, ops.Operation, plan.Plan) {
+	t.Helper()
 	s := openTest(t)
 	in := udpStoreInput(t)
 	created, create := saveUDPOperation(t, s, in, "create")
@@ -58,7 +59,13 @@ func TestOperationInventoryStateExemptsOnlyTheObservingFamily(t *testing.T) {
 	}
 	removing := saveBuiltUDPOperation(t, s, removal, in.Desired, "remove")
 
-	state, err = s.InventoryState(t.Context())
+	return s, created, create, removing, removal
+}
+
+func TestOperationInventoryStateExemptsOnlyTheObservingFamily(t *testing.T) {
+	s, created, create, removing, removal := removalObservation(t)
+
+	state, err := s.InventoryState(t.Context())
 	requireHead(t, state, err, false, create)
 	if app := operationInventoryApp(t, state); app.Status != target.Unknown {
 		t.Fatal("ordinary read lost the unfinished removal", app)
@@ -72,6 +79,7 @@ func TestOperationInventoryStateExemptsOnlyTheObservingFamily(t *testing.T) {
 		{"unknown operation", "01unknownoperation", removal.Hash},
 		{"another plan", removing.ID, create.Hash},
 		{"finished operation of the head", created.ID, removal.Hash},
+		{"finished operation with its correct plan", created.ID, create.Hash},
 	} {
 		if _, err := s.OperationInventoryState(t.Context(), tc.id, tc.plan); err == nil {
 			t.Fatal(tc.name, "was accepted as the observing operation")
@@ -112,4 +120,33 @@ func TestOperationInventoryStateExemptsOnlyTheObservingFamily(t *testing.T) {
 	requireHead(t, state, err, true, create)
 	state, err = s.InventoryState(t.Context())
 	requireHead(t, state, err, false, create)
+}
+
+func TestOperationInventoryRejectsFailedRootWithItsCorrectPlan(t *testing.T) {
+	s, _, _, removing, removal := removalObservation(t)
+	if err := s.SetOperationState(t.Context(), removing.ID, ops.Failed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.OperationInventoryState(t.Context(), removing.ID, removal.Hash); err == nil {
+		t.Fatal("failed observer accepted with its stored plan")
+	}
+}
+
+func TestOperationInventoryRejectsFailedResolverOverUnresolvedRemoval(t *testing.T) {
+	s, _, create, removing, removal := removalObservation(t)
+	if err := s.SetOperationState(t.Context(), removing.ID, ops.RecoveryRequired); err != nil {
+		t.Fatal(err)
+	}
+	resolver, _, err := s.CreateOperation(t.Context(), ops.Intent{Kind: ops.Resolve, RecoveryOf: removing.ID, PlanID: removal.Hash}, "udp-test", "terminal-resolver")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetOperationState(t.Context(), resolver.ID, ops.Failed); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.InventoryState(t.Context())
+	requireHead(t, state, err, false, create)
+	if _, err := s.OperationInventoryState(t.Context(), resolver.ID, removal.Hash); err == nil {
+		t.Fatal("failed resolver accepted over unresolved removal")
+	}
 }

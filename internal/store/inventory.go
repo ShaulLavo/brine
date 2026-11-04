@@ -10,6 +10,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -235,12 +236,19 @@ func (s *Store) inventoryState(ctx context.Context, observer, observedPlan strin
 	return result, tx.Commit()
 }
 
-// observingFamily proves the accepted deploy or resolution chain of one stored
+// observingFamily proves the live accepted deploy or resolution chain of one stored
 // plan for its own app. An empty observer is the ordinary, unbound read.
 func observingFamily(ctx context.Context, tx *sql.Tx, id, planID string) (map[string]bool, error) {
 	own := map[string]bool{}
 	if id == "" {
 		return own, nil
+	}
+	var state ops.State
+	if err := tx.QueryRowContext(ctx, "SELECT state FROM operations WHERE id=?", id).Scan(&state); err != nil {
+		return nil, err
+	}
+	if state.IsTerminal() || !ops.ValidState(state) {
+		return nil, ErrConflict
 	}
 	p, _, err := loadPlan(ctx, tx, planID)
 	if err != nil {
