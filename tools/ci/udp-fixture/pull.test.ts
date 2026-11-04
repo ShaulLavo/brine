@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { resolve } from "node:path";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const helperPath = resolve(import.meta.dir, "../../../scripts/publish-udp-fixture.ts");
 const repository = "ghcr.io/shaullavo/brine-udp-fixture";
@@ -125,4 +126,24 @@ test("anonymous pulls refuse reused layers and unremoved local images", async ()
   leftover.keep.add(index);
   expect(() => qualifyAnonymousPulls({ reference: index, images, baseline: new Set() }, leftover)).toThrow(/linux\/amd64.*still present after verification/s);
   expect(leftover.pulls).toEqual(["amd64:downloaded"]);
+});
+
+test("the Docker pull store refuses the containerd image store, where config absence proves nothing", () => {
+  const directory = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "udp-pull-store-"));
+  try {
+    writeFileSync(join(directory, "docker"), `#!/bin/sh
+[ "$*" = 'info --format {{json .DriverStatus}}' ] && printf '%s\\n' "$DRIVER_STATUS" && exit 0
+exit 1
+`);
+    chmodSync(join(directory, "docker"), 0o700);
+    const open = (status: string) => Bun.spawnSync([process.execPath, "-e", `import { dockerPullStore } from ${JSON.stringify(helperPath)}; dockerPullStore("/nonexistent", () => {});`], {
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, DRIVER_STATUS: status }, timeout: 5000,
+    });
+    expect(open('[["Backing Filesystem","extfs"],["Supports d_type","true"]]').exitCode).toBe(0);
+    const containerd = open('[["driver-type","io.containerd.snapshotter.v1"]]');
+    expect(containerd.exitCode).toBe(1);
+    expect(containerd.stderr.toString()).toContain("classic image store");
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
 });
