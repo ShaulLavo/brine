@@ -87,7 +87,6 @@ type udpRuntime struct {
 	root      string
 	exec      udpRuntimeRunner
 	collector inventory.Collector
-	engine    *Executor
 	unit      []byte
 	units     map[string][]byte
 	route     []byte
@@ -185,9 +184,7 @@ func newUDPRuntime(t *testing.T) *udpRuntime {
 		return podman.ContainerState{Status: "exited"}, nil
 	}
 	reconciler := newReconciler(r.service, engine, manager)
-	executor := Executor{Service: r.service, Engine: engine}
-	h.engine = &executor
-	r.runner.Executor = executor
+	r.runner.Executor = Executor{Service: r.service, Engine: engine}
 	r.runner.Reconciler = runnerReconciler{reconciler}
 	r.runner.Recovery = recoveryJob(reconciler)
 	r.server = dispatch.NewServer("fixture", h.collector).WithJobs(jobs.Service{Store: r.store, Launcher: r.launcher, Requester: r.service.Requester}, r.service.Authorize)
@@ -332,7 +329,7 @@ func (r udpRuntimeRoutes) Publish(ctx context.Context, before caddy.State, p pla
 	return published, nil
 }
 func (udpRuntimeRoutes) Restore(context.Context, caddy.State, caddy.State) error { return nil }
-func (r udpRuntimeRoutes) Withdraw(_ context.Context, before caddy.State, app string) (caddy.Result, error) {
+func (r udpRuntimeRoutes) Withdraw(_ context.Context, before caddy.State, _ string) (caddy.Result, error) {
 	r.h.route, r.h.routeGen = nil, before.Generation+1
 	r.h.sync()
 	return caddy.Result{Outcome: caddy.Applied, Next: caddy.State{Generation: r.h.routeGen, Files: map[string]string{}, Sites: map[string]caddy.Site{}}}, nil
@@ -341,7 +338,7 @@ func (udpRuntimeRoutes) SettleWithdrawal(context.Context, caddy.State, caddy.Sta
 	return nil
 }
 
-// accept plans through the given dispatch call, then admits and runs it.
+// accept admits a stored plan through dispatch and runs its worker.
 func (h *udpRuntime) accept(t *testing.T, planID, key string) (jobs.Status, error) {
 	t.Helper()
 	accepted := h.call(t, "apply", dispatch.ApplyArgs{PlanID: planID, IdempotencyKey: key}).Data.(jobs.Accepted)
