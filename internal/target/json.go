@@ -194,6 +194,9 @@ func canonicalizeOwnership(s *Snapshot) {
 			if a.Port > b.Port {
 				return 1
 			}
+			if n := strings.Compare(a.Interface, b.Interface); n != 0 {
+				return n
+			}
 			if n := strings.Compare(a.App, b.App); n != 0 {
 				return n
 			}

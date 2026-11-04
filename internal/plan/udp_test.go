@@ -265,3 +265,16 @@ func TestUDPExtraOwnedSocketStillConflicts(t *testing.T) {
 		t.Fatal("extra overlapping owned socket accepted", p.Conflicts)
 	}
 }
+func TestUDPDeviceScopedSocketsStayConservative(t *testing.T) {
+	in := udpInput(t, false)
+	in.Snapshot.UDPSockets = target.Known([]target.UDPSocket{{Address: "fe80::1", Interface: "eth0", Port: 546}})
+	if p := build(t, in); p.UDP.Next == nil || p.UDP.Next.Endpoint.HostPort != 4433 {
+		t.Fatal("unrelated link-local socket blocked UDP", p.Conflicts)
+	}
+	for _, address := range []string{"192.0.2.10", "0.0.0.0", "*"} {
+		in.Snapshot.UDPSockets = target.Known([]target.UDPSocket{{Address: address, Interface: "eth0", Port: 4433}})
+		if p := build(t, in); p.UDP.Next == nil || p.UDP.Next.Endpoint.HostPort != 4434 {
+			t.Fatal("device-scoped socket did not occupy its port", address, p.Conflicts)
+		}
+	}
+}

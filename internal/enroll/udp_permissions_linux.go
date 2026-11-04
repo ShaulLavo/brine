@@ -29,12 +29,16 @@ func UDPGrantHeld(ctx context.Context, app string) (bool, error) {
 }
 
 func operatorUDPGrantHeld(ctx context.Context, app string) (bool, error) {
+	return udpGrantHeldVia(ctx, localexec.ExecRunner{}, app)
+}
+
+func udpGrantHeldVia(ctx context.Context, runner localexec.CaptureRunner, app string) (bool, error) {
 	if !targetName.MatchString(app) {
 		return false, errPermissionsRefused
 	}
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, err := (localexec.ExecRunner{}).CaptureStdout(ctx, 4096, "runuser", "-u", "brine", "--", binaryPath, "host", "udp-grant-check", app)
+	out, err := runner.CaptureStdout(ctx, 4096, enrollmentToolPath("runuser"), "-u", "brine", "--", binaryPath, "host", "udp-grant-check", app)
 	if err != nil || out.Overflow {
 		return false, errPermissionsRefused
 	}

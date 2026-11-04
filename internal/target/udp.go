@@ -3,16 +3,26 @@ package target
 import (
 	"fmt"
 	"net/netip"
+	"regexp"
 	"strings"
 )
 
+// UDPSocket keeps a device-bound socket's interface separate from its
+// address, so overlap checks stay conservative and identity stays distinct.
 type UDPSocket struct {
-	Address string `json:"address"`
-	Port    Port   `json:"port"`
-	App     string `json:"app,omitempty"`
-	Process string `json:"process,omitempty"`
-	Unit    string `json:"unit,omitempty"`
+	Address   string `json:"address"`
+	Interface string `json:"interface,omitempty"`
+	Port      Port   `json:"port"`
+	App       string `json:"app,omitempty"`
+	Process   string `json:"process,omitempty"`
+	Unit      string `json:"unit,omitempty"`
 }
+
+// interfacePattern is a conservative subset of Linux interface names.
+var interfacePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,14}$`)
+
+// ValidInterface reports whether name is a supported Linux interface name.
+func ValidInterface(name string) bool { return interfacePattern.MatchString(name) }
 
 type UDPPublication struct {
 	BindAddress   string `json:"bind_address"`
@@ -36,7 +46,11 @@ func (s UDPSocket) validate() error {
 	if err := validateUDPAddress(s.Address); err != nil || s.Port == 0 || s.Port > 65535 {
 		return fmt.Errorf("invalid UDP socket")
 	}
-	if s.App != "" && checkPattern(appPattern, s.App) != nil {
+	if s.Interface != "" && !ValidInterface(s.Interface) {
+		return fmt.Errorf("invalid UDP socket interface")
+	}
+	// Brine publishes through unscoped pasta binds, so a device-bound socket is never an app's.
+	if s.App != "" && (s.Interface != "" || checkPattern(appPattern, s.App) != nil) {
 		return fmt.Errorf("invalid UDP socket app")
 	}
 	if (s.Process != "" && validToken(s.Process) != nil) || (s.Unit != "" && validToken(s.Unit) != nil) {

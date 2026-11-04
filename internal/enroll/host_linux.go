@@ -148,11 +148,17 @@ func boundedRead(path string) ([]byte, error) {
 	}
 	return data, err
 }
-func (h *host) run(ctx context.Context, mutation bool, path string, args ...string) (localexec.Result, error) {
+
+// enrollmentToolPath pins tools Debian installs only under /usr/sbin, which
+// the controlled localexec search path deliberately excludes.
+func enrollmentToolPath(path string) string {
 	if slices.Contains([]string{"useradd", "userdel", "runuser"}, path) {
-		path = "/usr/sbin/" + path
+		return "/usr/sbin/" + path
 	}
-	return h.exec.Execute(ctx, localexec.Command{Path: path, Args: args, Timeout: 5 * time.Minute, Mutation: mutation, Dir: "/tmp"})
+	return path
+}
+func (h *host) run(ctx context.Context, mutation bool, path string, args ...string) (localexec.Result, error) {
+	return h.exec.Execute(ctx, localexec.Command{Path: enrollmentToolPath(path), Args: args, Timeout: 5 * time.Minute, Mutation: mutation, Dir: "/tmp"})
 }
 func (h *host) owned(ctx context.Context) (bool, error) {
 	out, err := h.run(ctx, false, "getent", "passwd", "brine")

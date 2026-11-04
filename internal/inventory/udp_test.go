@@ -47,7 +47,7 @@ func TestLocalAddressObservationBoundsAndUnknowns(t *testing.T) {
 }
 
 func TestUDPUnrelatedKernelAddressesPreserveHTTPFacts(t *testing.T) {
-	for _, address := range []string{"[fe80::1%eth0]", "224.0.0.251", "[::ffff:192.0.2.10]", "unparsed-address"} {
+	for _, address := range []string{"[fe80::1]%eth0", "224.0.0.251", "[::ffff:192.0.2.10]", "unparsed-address"} {
 		t.Run(address, func(t *testing.T) { checkUDPUnrelatedKernelAddress(t, address) })
 	}
 }
