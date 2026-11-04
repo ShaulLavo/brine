@@ -54,7 +54,10 @@ Those drills do not amount to a production-readiness claim. Local unit and integ
 The UDP fixture publication workflow has a separate, one-time GHCR bootstrap
 path. Its `post_drill_keep_delete_decision` remains `pending` until the owner
 decides whether the immutable fixture is still needed after the drill; no
-registry deletion is automated by this source-preparation work.
+registry deletion is automated by this source-preparation work. The bootstrap
+has been used: workflow run 41809740785 created the public package before its
+pull check failed, so bootstrap now refuses, and later publications use the
+existing-package mode with run-scoped tags.
 
 ## License
 
