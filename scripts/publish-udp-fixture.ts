@@ -813,6 +813,8 @@ function imageID(reference: string): string | undefined {
 }
 
 export function dockerPullStore(config: string, verify: PullImageStore["verify"]): PullImageStore {
+  // The containerd image store keys images by index digest and shares content, so a config's absence proves nothing there.
+  requireThat(!command(["docker", "info", "--format", "{{json .DriverStatus}}"]).includes("io.containerd.snapshotter"), "Anonymous pull qualification requires Docker's classic image store; the containerd image store cannot prove a fresh per-platform download");
   return {
     imageID,
     pull: (platform, reference) => command(["docker", "--config", config, "pull", "--platform", `linux/${platform}`, reference], 120_000, false),
