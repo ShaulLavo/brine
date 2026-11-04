@@ -118,6 +118,40 @@ source-verification tests and one `internal/store` publication-path test failed
 before this slice touched any Go or runtime input. No Go file changed here; the
 parent owns normal PR CI and independent review.
 
+## Native process-list qualification correction
+
+November 2 runs [41368510216](https://github.com/ShaulLavo/brine/actions/runs/41368510216)
+and [41405713283](https://github.com/ShaulLavo/brine/actions/runs/41405713283)
+on `e366632386907e89169b8076a481e1b46197a0f0` passed Buildx setup.
+Both native architectures then failed in the qualification step with
+`docker top failed or timed out` and `Couldn't find PID field in ps output`.
+This is a deterministic command error, not evidence of a transient builder failure.
+
+The custom `docker top NAME -eo uid,gid,args` listing omitted PID. Docker's
+[Moby process-list parser](https://github.com/moby/moby/blob/v28.0.4/daemon/top_unix.go)
+requires the `PID` header to filter host processes to the container's PIDs.
+The corrected listing requests `pid,uid,gid,args`. Qualification still requires
+one live process with numeric UID and GID 65532 and now also verifies a positive
+numeric PID, the expected column order and the exact `/udp-echo-server` command.
+Image-config identity, entrypoint bytes and mode, archive custody, tool pins,
+no-download settings and publication permissions are unchanged.
+
+The new focused regression exercises the real process-inspection helper through
+a synthetic Docker command boundary. Before the fix it failed with the same
+PID-field error. After the fix it passes and rejects missing or extra processes,
+root or named identities, malformed PIDs, changed commands and swapped headers.
+`bun test tools/ci/udp-fixture` passes 20 tests and 175 assertions. These synthetic
+checks alone do not establish native container or publication success.
+
+A fresh amd64 Docker 29.7.0 probe imported offline Go 1.27.3 fixture binaries
+into disposable scratch images. Starting the server with the production network,
+security and resource options did not complete within its 120-second deadline,
+so it never reached `docker top`. Teardown verified absence of the owned
+containers, images and scratch. The failure's cause is unknown; this probe is
+not native qualification evidence. No permission, network policy or tool pin
+was changed to make it run. Both native workflow qualifications, publication
+and physical Brine acceptance remain separate execution gates.
+
 ## Remaining execution gates
 
 After review and merge, a separately authorized operator can dispatch this

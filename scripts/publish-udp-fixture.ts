@@ -500,6 +500,13 @@ async function inspectEntrypoint(output: string, name: string): Promise<string> 
   }
 }
 
+export function inspectProcessIdentity(name: string): string {
+  const processIdentity = command(["docker", "top", name, "-eo", "pid,uid,gid,args"]);
+  const lines = processIdentity.split("\n");
+  requireThat(lines.length === 2 && lines[0].trim().split(/\s+/).join(" ") === "PID UID GID COMMAND" && /^[1-9][0-9]*\s+65532\s+65532\s+\/udp-echo-server$/.test(lines[1].trim()), "Running process must be exactly one /udp-echo-server with a numeric PID and UID and GID 65532");
+  return processIdentity;
+}
+
 async function runtimeProof(output: string, id: string, client: string, release: string, failHealth: boolean): Promise<unknown> {
   const name = `brine-udp-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${release.slice(-1)}-${failHealth ? "failed" : "ok"}`;
   requireThat(/^brine-udp-[0-9]+-[0-9]+-[ab]-(ok|failed)$/.test(name), "Invalid run identity");
@@ -510,8 +517,7 @@ async function runtimeProof(output: string, id: string, client: string, release:
     const binarySHA256 = await inspectEntrypoint(output, name);
     command(["docker", "start", name]);
     const http = await health(name, release, failHealth);
-    const processIdentity = command(["docker", "top", name, "-eo", "uid,gid,args"]);
-    requireThat(processIdentity.trim().split("\n").length === 2 && /^\s*65532\s+65532\s/m.test(processIdentity), "Running process must have UID and GID 65532");
+    const processIdentity = inspectProcessIdentity(name);
     const udp = echo(client, name, release, false);
     const wrongRelease = echo(client, name, release, true);
     return { release, binarySHA256, processIdentity, mode: "0555", user: "65532:65532", http, udp, wrongRelease, failHealth, checkedAt: new Date().toISOString() };
