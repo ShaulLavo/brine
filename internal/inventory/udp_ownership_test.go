@@ -41,7 +41,7 @@ func udpCollectorFixture() (*changingProcessFS, fakeRunner, target.ControlInvent
 }
 
 func TestUDPCollectorReadinessRequiresKernelAndDurableIdentity(t *testing.T) {
-	for _, name := range []string{"owned", "missing inode on Pi", "foreign FD", "foreign cgroup", "namesake system unit", "process reuse", "FD changes", "group changes", "missing process", "missing bind address", "extra wildcard", "duplicate socket", "identical socket", "extra binding", "unsupported mode", "wrong container", "unknown sockets", "truncated sockets", "unknown address", "stopped", "stopped unknown container", "missing head", "old incarnation", "staged", "releasing", "changed marker", "changed unit"} {
+	for _, name := range []string{"owned", "missing inode on Pi", "foreign FD", "foreign cgroup", "namesake system unit", "process reuse", "FD changes", "group changes", "missing process", "missing bind address", "extra wildcard", "duplicate socket", "identical socket", "device-scoped socket", "extra binding", "unsupported mode", "wrong container", "unknown sockets", "truncated sockets", "unknown address", "stopped", "stopped unknown container", "missing head", "old incarnation", "staged", "releasing", "changed marker", "changed unit"} {
 		t.Run(name, func(t *testing.T) { checkUDPCollectorCase(t, name) })
 	}
 }
@@ -77,6 +77,8 @@ func checkUDPCollectorCase(t *testing.T, name string) {
 		r["ss -H -lunpe"] += "\n" + strings.ReplaceAll(udpOwnedLine, "77777", "88888")
 	case "identical socket":
 		r["ss -H -lunpe"] += "\n" + udpOwnedLine
+	case "device-scoped socket":
+		r["ss -H -lunpe"] = strings.Replace(udpOwnedLine, "192.0.2.10:4433", "192.0.2.10%eth0:4433", 1)
 	case "extra binding":
 		r[inspect] = strings.ReplaceAll(udpRuntimeRecord, `"ports":{`, `"ports":{"8888/udp":[{"HostIp":"192.0.2.10","HostPort":"4434"}],`)
 	case "unsupported mode":
@@ -130,6 +132,9 @@ func checkUDPCollectorCase(t *testing.T, name string) {
 	}
 	if name == "owned" && ((*s.UDPSockets.Value)[0].App != "api" || !slices.Contains(*s.UsedPorts.Value, target.Port(4433))) {
 		t.Fatal("collector did not prove UDP ownership", s)
+	}
+	if name == "device-scoped socket" && (s.UDPSockets.Status != target.KnownStatus || (*s.UDPSockets.Value)[0] != target.UDPSocket{Address: "192.0.2.10", Interface: "eth0", Port: 4433, Process: "pasta", Unit: "api.service"}) {
+		t.Fatal("device-scoped socket was attributed or lost", s.UDPSockets)
 	}
 	if name == "missing inode on Pi" && ((*s.UDPSockets.Value)[0].App != "" || (*s.PortOwners.Value)[0].App != "api") {
 		t.Fatal("PID/FD without UDP inode became ownership")

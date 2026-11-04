@@ -377,21 +377,41 @@ func processStart(stat, pid string) (uint64, bool) {
 	return start, err == nil && start > 0
 }
 
-func observedUDPSocket(address string, port target.Port, line string) (target.UDPSocket, bool) {
-	address = strings.Trim(address, "[]")
-	if address != "*" {
-		parsed, err := netip.ParseAddr(address)
-		if err != nil {
-			return target.UDPSocket{}, false
-		}
-		address = parsed.WithZone("").Unmap().String()
+func observedUDPSocket(endpoint string, port target.Port, line string) (target.UDPSocket, bool) {
+	address, device, ok := udpLocalHost(endpoint)
+	if !ok {
+		return target.UDPSocket{}, false
 	}
-	socket := target.UDPSocket{Address: address, Port: port}
+	socket := target.UDPSocket{Address: address, Interface: device, Port: port}
 	matches := processPattern.FindAllStringSubmatch(line, -1)
 	if len(matches) == 1 && safeToken.MatchString(matches[0][1]) {
 		socket.Process = matches[0][1]
 	}
 	return socket, true
+}
+
+// udpLocalHost parses ss's local host as host[%device], where host is *, an
+// IPv4 address or a bracketed IPv6 address. Other spellings are not ss output.
+func udpLocalHost(endpoint string) (string, string, bool) {
+	host, device, scoped := strings.Cut(endpoint, "%")
+	if scoped && !target.ValidInterface(device) {
+		return "", "", false
+	}
+	if host == "*" {
+		return host, device, true
+	}
+	inner, bracketed := strings.CutPrefix(host, "[")
+	if bracketed {
+		inner, bracketed = strings.CutSuffix(inner, "]")
+		if !bracketed {
+			return "", "", false
+		}
+	}
+	parsed, err := netip.ParseAddr(inner)
+	if err != nil || parsed.Zone() != "" || parsed.Is6() != bracketed {
+		return "", "", false
+	}
+	return parsed.Unmap().String(), device, true
 }
 
 func (c Collector) udpListenerOwner(ctx context.Context, line listenerLine, socket target.UDPSocket, bindings map[string]listenerBinding) target.UDPSocket {
@@ -406,7 +426,8 @@ func (c Collector) udpListenerOwner(ctx context.Context, line listenerLine, sock
 	}
 	socket.Unit = unitFromCgroup(string(data))
 	group, unified := strings.CutPrefix(strings.TrimSpace(string(data)), "0::")
-	if !unified || strings.ContainsRune(group, '\n') {
+	// Owned publications are unscoped pasta binds; a device-bound socket stays foreign.
+	if !unified || strings.ContainsRune(group, '\n') || socket.Interface != "" {
 		return socket
 	}
 	for path, binding := range bindings {

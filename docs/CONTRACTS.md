@@ -71,8 +71,12 @@ unchanged owned unit and its exact plan marker, the live head's committed unit
 hashes and immutable incarnation, and its single active reservation. Staged,
 releasing, headless and earlier-incarnation claims cannot explain a socket.
 `UsedPorts` remains the
-conservative TCP/UDP numeric union used by HTTP admission. Observed scoped
-IPv6 addresses lose their zone, mapped IPv6 addresses become IPv4, and observed
+conservative TCP/UDP numeric union used by HTTP admission. A socket that `ss`
+prints as `host%device` keeps the device in `interface`, separate from its
+address, so overlap checks still use the address and distinct devices stay
+distinct. The host is `*`, IPv4 or bracketed IPv6; a zone inside the brackets
+is not `ss` output and is unknown. A device-bound socket never proves app
+ownership. Mapped IPv6 addresses become IPv4, and observed
 multicast sockets remain visible. An unparsed UDP address makes UDP evidence
 unknown without discarding numeric occupancy or TCP ownership facts. These
 observation rules do not widen the stricter grant or publication addresses.
