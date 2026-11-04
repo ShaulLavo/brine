@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 const helperPath = resolve(import.meta.dir, "../../../scripts/publish-udp-fixture.ts");
@@ -8,7 +8,8 @@ const index = `${repository}@sha256:${"1".repeat(64)}`;
 const configs = { amd64: "sha256:" + "a".repeat(64), arm64: "sha256:" + "b".repeat(64) } as const;
 const release = "p08-08-" + "2".repeat(40) + "-a";
 const tags = { amd64: `${repository}:${release}-amd64-9-1`, arm64: `${repository}:${release}-arm64-9-1` } as const;
-const images = (["amd64", "arm64"] as const).map(platform => ({ platform, config: configs[platform], tag: tags[platform] }));
+const manifestRefs = { amd64: `${repository}@sha256:${"c".repeat(64)}`, arm64: `${repository}@sha256:${"d".repeat(64)}` };
+const images = (["amd64", "arm64"] as const).map(platform => ({ platform, config: configs[platform], tag: tags[platform], manifest: manifestRefs[platform] }));
 
 // Models the Docker 28.0.4 classic (graphdriver) image store used by the hosted runner:
 // moby reference/store.go binds one digest reference to one image ID and refuses to rebind it,
@@ -33,6 +34,10 @@ class ClassicStore {
     return this.refs.get(reference);
   }
 
+  references(config: string): string[] {
+    return Array.from(this.refs).filter(([, id]) => id === config).map(([name]) => name);
+  }
+
   pull(platform: string, reference: string): string {
     const config = this.resolve[platform];
     const downloaded = !this.images.has(config);
@@ -50,12 +55,18 @@ class ClassicStore {
     const id = this.imageID(reference);
     if (id === undefined) return;
     if (reference === id) {
-      for (const [name, target] of this.refs) if (target === id) this.refs.delete(name);
+      this.removeReferences(id);
     } else {
       this.refs.delete(reference);
       if (Array.from(this.refs.values()).includes(id)) return;
     }
     this.images.delete(id);
+  }
+
+  removeReferences(id: string): void {
+    for (const [name, target] of this.refs) {
+      if (target === id) this.refs.delete(name);
+    }
   }
 
   verify(id: string, platform: string): void {
@@ -146,4 +157,87 @@ exit 1
   } finally {
     rmSync(directory, { recursive: true });
   }
+});
+
+
+test("unknown references added after baseline prevent qualification and final cleanup", async () => {
+  const { qualifyAnonymousPulls, cleanupImages } = await import(helperPath);
+  for (const unknown of [`${repository}:another-consumer`, index]) {
+    const store = published();
+    store.refs.set(unknown, configs.amd64);
+    const owned = new Set(images.flatMap(item => [item.config, item.tag, item.manifest]));
+    expect(() => qualifyAnonymousPulls({ reference: index, images, baseline: new Set() }, store)).toThrow();
+    const errors = cleanupImages(owned, new Set(), store);
+    expect(errors.length).toBeGreaterThan(0);
+    expect(store.refs.get(unknown)).toBe(configs.amd64);
+    expect(store.images.has(configs.amd64)).toBe(true);
+    expect(store.removed).not.toContain(configs.amd64);
+    expect(store.removed).not.toContain(tags.amd64);
+    expect(store.removed).not.toContain(unknown);
+  }
+});
+
+test("owned local reference must still resolve to its expected image before removal", async () => {
+  const { qualifyAnonymousPulls } = await import(helperPath);
+  const store = published();
+  store.refs.set(tags.amd64, configs.arm64);
+  expect(() => qualifyAnonymousPulls({ reference: index, images, baseline: new Set() }, store)).toThrow(/binding/);
+  expect(store.removed).toEqual([]);
+});
+
+function guardFailureCase(status: string, error: string): void {
+  const directory = mkdtempSync(join(process.env.TMPDIR ?? "/tmp", "udp-pull-guard-"));
+  const output = join(directory, "output");
+  mkdirSync(output);
+  try {
+    writeFileSync(join(directory, "docker"), `#!/bin/sh
+[ "$1" = info ] || exit 91
+printf '%s\\n' "$DRIVER_STATUS"
+exit "$INFO_EXIT"
+`);
+    chmodSync(join(directory, "docker"), 0o700);
+    const source = `import { anonymousDockerPull } from ${JSON.stringify(helperPath)}; await anonymousDockerPull(Object.assign(${JSON.stringify({ reference: index, release, source: "2".repeat(40), images, output })}, { baseline: new Set(), owned: new Set() }));`;
+    const result = Bun.spawnSync([process.execPath, "-e", source], {
+      env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, DRIVER_STATUS: status, INFO_EXIT: error === "info failed" ? "1" : "0" }, timeout: 5000,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(existsSync(join(output, `${release}-anonymous-docker`))).toBe(false);
+    const receipt = JSON.parse(readFileSync(join(output, `${release}-anonymous-pull-failure.json`), "utf8"));
+    expect(receipt.reference).toBe(index);
+    expect(receipt.error).toContain(error === "info failed" ? "docker info" : "classic image store");
+  } finally {
+    rmSync(directory, { recursive: true });
+  }
+}
+
+test("unsupported stores and docker info failures retain evidence and remove empty auth config", () => {
+  guardFailureCase('[["driver-type","io.containerd.snapshotter.v1"]]', "unsupported");
+  guardFailureCase("", "info failed");
+});
+
+
+test("cleanup removes only exclusively owned images and preserves baseline aliases", async () => {
+  const { cleanupImages } = await import(helperPath);
+  const owned = new Set(images.flatMap(item => [item.config, item.tag, item.manifest]));
+  const store = published();
+  expect(cleanupImages(owned, new Set(), store)).toEqual([]);
+  expect(store.images.size).toBe(0);
+  expect(store.refs.size).toBe(0);
+  const shared = published();
+  expect(cleanupImages(owned, new Set([manifestRefs.amd64]), shared).length).toBeGreaterThan(0);
+  expect(shared.refs.get(manifestRefs.amd64)).toBe(configs.amd64);
+  expect(shared.removed).not.toContain(tags.amd64);
+});
+
+test("references added during pull verification remain protected during final cleanup", async () => {
+  const { qualifyAnonymousPulls, cleanupImages } = await import(helperPath);
+  const store = published();
+  const unknown = `${repository}:late-consumer`;
+  store.verify = id => { store.refs.set(unknown, id); };
+  const owned = new Set(images.flatMap(item => [item.config, item.tag, item.manifest]).concat(index));
+  expect(() => qualifyAnonymousPulls({ reference: index, images, baseline: new Set() }, store)).toThrow(/Unknown/);
+  expect(store.pulls).toEqual(["amd64:downloaded"]);
+  expect(cleanupImages(owned, new Set(), store).length).toBeGreaterThan(0);
+  expect(store.refs.get(unknown)).toBe(configs.amd64);
+  expect(store.removed).not.toContain(index);
 });

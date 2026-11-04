@@ -396,13 +396,19 @@ function cleanupContainers(): string[] {
   return errors;
 }
 
-function cleanupImages(owned: Set<string>, baseline: Set<string>): string[] {
+export function cleanupImages(owned: Set<string>, baseline: ReadonlySet<string>, store: ImageCleanupStore = { imageID, references: imageReferences, remove: removeImage }): string[] {
   const errors: string[] = [];
   for (const id of Array.from(owned).reverse()) {
     if (baseline.has(id)) continue;
-    try { removeImage(id); } catch (error) { errors.push(String(error)); }
+    try { cleanupImage(id, owned, baseline, store); } catch (error) { errors.push(String(error)); }
   }
   return errors;
+}
+
+function cleanupImage(reference: string, owned: ReadonlySet<string>, baseline: ReadonlySet<string>, store: ImageCleanupStore): void {
+  const config = store.imageID(reference);
+  if (config === undefined) return;
+  removeOwnedImage(reference, config, owned, baseline, store);
 }
 
 function removeImage(reference: string): void {
@@ -673,6 +679,7 @@ async function pushPlatform(entry: BuiltImage, platform: Arch, source: string, o
   let result = await pushPlatformOnce(entry, platform, source, output, owned, bootstrap, 1);
   if (result.decision.decision === "retry") result = await pushPlatformOnce(entry, platform, source, output, owned, bootstrap, 2);
   requireThat(result.decision.decision === "success" && result.decision.reference !== undefined, `Platform push did not reconcile safely: ${result.decision.reason ?? "unknown outcome"}`);
+  if (imageID(result.decision.reference) === entry.config) owned.add(result.decision.reference);
   save(join(output, `${entry.release}-${platform}-push-receipt.json`), { tag, reference: result.decision.reference, config: entry.config, manifestDigest: result.decision.manifestDigest, configDigest: result.decision.configDigest, reconciliation: result.decision.decision });
   return result.decision.reference;
 }
@@ -762,15 +769,31 @@ async function publishRelease(input: { source: string; release: string; qualifie
   writeFileSync(join(output, `${release}-index.json`), exact);
   const publication = await recordAnonymousIndex(source, release, exact, configs, manifests, output);
   const reference = text(object(publication).reference);
-  owned.add(reference);
-  const images = arches.map(platform => ({ platform, config: text(configs.get(platform)), tag: runTag(release, platform) }));
-  await anonymousDockerPull({ reference, release, source, images, baseline, output });
+  const images = arches.map(platform => ({ platform, config: text(configs.get(platform)), tag: runTag(release, platform), manifest: platformRefs[platform] }));
+  await anonymousDockerPull({ reference, release, source, images, baseline, owned, output });
   save(join(output, `${release}-publication.json`), publication);
   return publication;
 }
 
-export type PullImageStore = { imageID(reference: string): string | undefined; pull(platform: Arch, reference: string): string; remove(reference: string): void; verify(id: string, platform: Arch): void };
-type PulledImage = { platform: Arch; config: string; tag: string };
+export type PullImageStore = { imageID(reference: string): string | undefined; references(config: string): readonly string[]; pull(platform: Arch, reference: string): string; remove(reference: string): void; verify(id: string, platform: Arch): void };
+type ImageCleanupStore = Pick<PullImageStore, "imageID" | "references" | "remove">;
+type PulledImage = { platform: Arch; config: string; tag: string; manifest: string };
+
+function assertOwnedReferences(config: string, owned: ReadonlySet<string>, baseline: ReadonlySet<string>, store: ImageCleanupStore): void {
+  requireThat(owned.has(config) && !baseline.has(config), `Image ${config} is not exclusively owned by this run`);
+  for (const reference of store.references(config)) {
+    requireThat(owned.has(reference) && !baseline.has(reference), `Unknown or pre-existing local reference ${reference}; refusing image deletion`);
+    requireThat(store.imageID(reference) === config, `Local reference binding changed for ${reference}`);
+  }
+}
+
+function removeOwnedImage(reference: string, expected: string, owned: ReadonlySet<string>, baseline: ReadonlySet<string>, store: ImageCleanupStore): void {
+  const current = store.imageID(reference);
+  if (current === undefined) return;
+  requireThat(owned.has(reference) && !baseline.has(reference) && current === expected, `Local reference binding changed for ${reference}`);
+  assertOwnedReferences(expected, owned, baseline, store);
+  store.remove(reference);
+}
 
 // Docker's classic image store binds a digest reference to one image ID and skips the whole
 // download when the resolved config already exists. So each platform starts without this run's
@@ -779,15 +802,17 @@ export function qualifyAnonymousPulls(input: { reference: string; images: readon
   const { reference, images, baseline } = input;
   for (const item of images) requireThat(!baseline.has(item.config) && !baseline.has(item.tag), `Qualified image for linux/${item.platform} ${reference} (qualified config ${item.config}) existed before publication; refusing to delete it or claim an anonymous pull`);
   requireThat(!baseline.has(reference) && store.imageID(reference) === undefined, `Index reference ${reference} is already local; an anonymous pull cannot be proven`);
+  const owned = new Set(images.flatMap(item => [item.config, item.tag, item.manifest]));
+  for (const item of images) assertOwnedReferences(item.config, owned, baseline, store);
   for (const item of images) {
-    store.remove(item.tag);
-    store.remove(item.config);
+    removeOwnedImage(item.tag, item.config, owned, baseline, store);
+    removeOwnedImage(item.config, item.config, owned, baseline, store);
     requireThat(store.imageID(item.config) === undefined, `linux/${item.platform} ${reference} (qualified config ${item.config}) is still present after removing this run's loaded image`);
   }
-  return images.map(item => pullPlatform(reference, item, store));
+  return images.map(item => pullPlatform(reference, item, baseline, store));
 }
 
-function pullPlatform(reference: string, item: PulledImage, store: PullImageStore): unknown {
+function pullPlatform(reference: string, item: PulledImage, baseline: ReadonlySet<string>, store: PullImageStore): unknown {
   const context = `Anonymous Docker pull of linux/${item.platform} ${reference} (qualified config ${item.config})`;
   requireThat(store.imageID(item.config) === undefined, `${context} found the config already local`);
   let pullOutput: string;
@@ -800,7 +825,7 @@ function pullPlatform(reference: string, item: PulledImage, store: PullImageStor
   const imageID = store.imageID(reference);
   requireThat(imageID === item.config, `${context} resolved image ${imageID ?? "none"}`);
   store.verify(imageID, item.platform);
-  store.remove(reference);
+  removeOwnedImage(reference, item.config, new Set([reference, item.config, item.manifest]), baseline, store);
   requireThat(store.imageID(reference) === undefined && store.imageID(item.config) === undefined, `${context} is still present after verification`);
   return { reference, platform: item.platform, config: item.config, imageID, absentBeforePull: true, removedAfterVerification: true, pullOutput: pullOutput.slice(-4096) };
 }
@@ -812,31 +837,57 @@ function imageID(reference: string): string | undefined {
   return digest(result.stdout.trim());
 }
 
-export function dockerPullStore(config: string, verify: PullImageStore["verify"]): PullImageStore {
+function imageReferences(config: string): string[] {
+  const info = object(localConfig(config));
+  requireThat(info.Id === config, `Local image binding changed for ${config}`);
+  const tags: unknown = info.RepoTags ?? [];
+  const digests: unknown = info.RepoDigests ?? [];
+  requireThat(Array.isArray(tags) && Array.isArray(digests), "Invalid local image references");
+  return tags.concat(digests).map(text);
+}
+
+export function dockerPullStore(config: string, verify: PullImageStore["verify"], owned: Set<string> = new Set()): PullImageStore {
   // The containerd image store keys images by index digest and shares content, so a config's absence proves nothing there.
   requireThat(!command(["docker", "info", "--format", "{{json .DriverStatus}}"]).includes("io.containerd.snapshotter"), "Anonymous pull qualification requires Docker's classic image store; the containerd image store cannot prove a fresh per-platform download");
   return {
     imageID,
-    pull: (platform, reference) => command(["docker", "--config", config, "pull", "--platform", `linux/${platform}`, reference], 120_000, false),
+    references: imageReferences,
+    pull: (platform, reference) => {
+      const output = command(["docker", "--config", config, "pull", "--platform", `linux/${platform}`, reference], 120_000, false);
+      owned.add(reference);
+      return output;
+    },
     remove: removeImage,
     verify,
   };
 }
 
-async function anonymousDockerPull(input: { reference: string; release: string; source: string; images: readonly PulledImage[]; baseline: ReadonlySet<string>; output: string }): Promise<void> {
+export async function anonymousDockerPull(input: { reference: string; release: string; source: string; images: readonly PulledImage[]; baseline: ReadonlySet<string>; owned: Set<string>; output: string }): Promise<void> {
   const { reference, release, source, output } = input;
   const config = join(output, `${release}-anonymous-docker`);
-  mkdirSync(config, { mode: 0o700 });
-  writeFileSync(join(config, "config.json"), "{}\n", { mode: 0o600 });
-  const store = dockerPullStore(config, (id, platform) => verifyLocalImage(id, platform, source, release, "server"));
+  let configOwned = false;
+  let failure: unknown;
   try {
+    mkdirSync(config, { mode: 0o700 });
+    configOwned = true;
+    writeFileSync(join(config, "config.json"), "{}\n", { mode: 0o600 });
+    const store = dockerPullStore(config, (id, platform) => verifyLocalImage(id, platform, source, release, "server"), input.owned);
     const platforms = qualifyAnonymousPulls(input, store);
     save(join(output, `${release}-anonymous-pulls.json`), { reference, platforms, credentials: "empty isolated Docker config", checkedAt: new Date().toISOString() });
   } catch (error) {
+    failure = error;
     save(join(output, `${release}-anonymous-pull-failure.json`), { reference, images: input.images, error: String(error), checkedAt: new Date().toISOString() });
     throw error;
   } finally {
+    if (configOwned) removeAnonymousConfig(config, failure);
+  }
+}
+
+function removeAnonymousConfig(config: string, failure: unknown): void {
+  try {
     rmSync(config, { recursive: true });
+  } catch (cleanupError) {
+    throw new AggregateError(failure === undefined ? [cleanupError] : [failure, cleanupError], "Anonymous pull cleanup failed");
   }
 }
 

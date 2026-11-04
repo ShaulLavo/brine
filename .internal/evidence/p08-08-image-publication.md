@@ -180,3 +180,25 @@ owner reviews the completed UDP drill. Set it to `keep` when the immutable
 fixture remains needed by a follow-up drill, or to `delete` only after all
 consumers and retained receipts are gone. This source-only change performs no
 registry deletion.
+
+## Anonymous-pull cleanup review corrections
+
+The coordinator addressed PR 208's reference-ownership and early-failure findings
+before publication. Every local removal now rechecks the resolved config and all
+current tag/digest bindings. Unknown or baseline aliases refuse deletion both in
+qualification and final cleanup. Computing a remote index no longer claims its
+local reference; only a successful local pull adds that reference to cleanup.
+Known local platform digest references are recorded after the matching push.
+
+Unsupported-store and `docker info` failures now enter the same failure-receipt
+and temporary empty-auth-config cleanup path. Cleanup errors retain the original
+failure. The test model's nested deletion was flattened.
+
+Failing-first controls reproduced post-baseline unknown references, changed
+bindings and missing early-failure receipts. The corrected focused suite passes
+31 tests with 233 assertions, including late alias changes during verification
+and baseline preservation through final cleanup. Strict TypeScript, actionlint
+with ShellCheck, the three-level nesting check, docs-command tests and diff
+checks pass. No Go suite or native container experiment was duplicated for these
+TypeScript-only review corrections. CI, independent review and a later exact-SHA
+normal public-package workflow remain required. No registry or host effect ran.
