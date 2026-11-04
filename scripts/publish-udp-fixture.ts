@@ -648,7 +648,7 @@ async function reconcilePlatformFailure(intent: PlatformPublicationIntent, error
 }
 
 async function pushPlatformOnce(entry: BuiltImage, platform: Arch, source: string, output: string, owned: Set<string>, bootstrap: BootstrapState | undefined, attempt: number): Promise<{ decision: PublicationDecision; raw?: string }> {
-  const tag = `${image}:${entry.release}-${platform}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
+  const tag = runTag(entry.release, platform);
   const intent: PlatformPublicationIntent = { tag, source, release: entry.release, platform, config: entry.config };
   try {
     command(["docker", "push", tag], 300_000);
@@ -666,7 +666,7 @@ async function pushPlatform(entry: BuiltImage, platform: Arch, source: string, o
   owned.add(entry.config);
   command(["docker", "image", "load", "-i", entry.archive]);
   verifyLocalImage(entry.config, platform, source, entry.release, "server");
-  const tag = `${image}:${entry.release}-${platform}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
+  const tag = runTag(entry.release, platform);
   save(join(output, `${entry.release}-${platform}-push-intent.json`), { source, platform, tag, config: entry.config, archiveSHA256: entry.archiveSHA256 });
   owned.add(tag);
   command(["docker", "tag", entry.config, tag]);
@@ -698,7 +698,7 @@ async function publish(source: string, input: string, output: string): Promise<v
   let failure: string | undefined;
   try {
     const results: unknown[] = [];
-    for (const release of releaseIDs(source)) results.push(await publishRelease(source, release, qualified, output, owned, bootstrapState));
+    for (const release of releaseIDs(source)) results.push(await publishRelease({ source, release, qualified, output, owned, baseline, bootstrap: bootstrapState }));
     if (bootstrap) {
       const readback = await publicPreflight();
       save(join(output, "bootstrap-outcome.json"), { schema: 1, source, package: image, repository, packageWrite: bootstrapState!.packageWrite, packageReadback: readback, anonymousAccessReadback: true, decision: "verified", postDrillKeepDeleteDecision: "pending" });
@@ -737,7 +737,8 @@ async function createIndexOnce(intent: IndexPublicationIntent, references: strin
   }
 }
 
-async function publishRelease(source: string, release: string, qualified: Map<Arch, BuiltImage[]>, output: string, owned: Set<string>, bootstrap: BootstrapState | undefined): Promise<unknown> {
+async function publishRelease(input: { source: string; release: string; qualified: Map<Arch, BuiltImage[]>; output: string; owned: Set<string>; baseline: ReadonlySet<string>; bootstrap: BootstrapState | undefined }): Promise<unknown> {
+  const { source, release, qualified, output, owned, baseline, bootstrap } = input;
   const references: string[] = [];
   const platformRefs: Record<Arch, string> = { amd64: "", arm64: "" };
   const configs = new Map<Arch, string>();
@@ -751,7 +752,7 @@ async function publishRelease(source: string, release: string, qualified: Map<Ar
     platformRefs[platform] = reference;
     manifests.set(platform, reference.slice(image.length + 1));
   }
-  const tag = `${image}:${release}-${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}`;
+  const tag = runTag(release);
   const intent: IndexPublicationIntent = { tag, platformRefs };
   save(join(output, `${release}-index-intent.json`), { source, release, tag, references, platformRefs });
   let result = await createIndexOnce(intent, references, output, 1);
@@ -762,18 +763,76 @@ async function publishRelease(source: string, release: string, qualified: Map<Ar
   const publication = await recordAnonymousIndex(source, release, exact, configs, manifests, output);
   const reference = text(object(publication).reference);
   owned.add(reference);
-  await anonymousDockerPull(reference, output, release);
+  const images = arches.map(platform => ({ platform, config: text(configs.get(platform)), tag: runTag(release, platform) }));
+  await anonymousDockerPull({ reference, release, source, images, baseline, output });
   save(join(output, `${release}-publication.json`), publication);
   return publication;
 }
 
-async function anonymousDockerPull(reference: string, output: string, release: string): Promise<void> {
+export type PullImageStore = { imageID(reference: string): string | undefined; pull(platform: Arch, reference: string): string; remove(reference: string): void; verify(id: string, platform: Arch): void };
+type PulledImage = { platform: Arch; config: string; tag: string };
+
+// Docker's classic image store binds a digest reference to one image ID and skips the whole
+// download when the resolved config already exists. So each platform starts without this run's
+// loaded image, and the index reference is dropped before the next platform resolves it.
+export function qualifyAnonymousPulls(input: { reference: string; images: readonly PulledImage[]; baseline: ReadonlySet<string> }, store: PullImageStore): unknown[] {
+  const { reference, images, baseline } = input;
+  for (const item of images) requireThat(!baseline.has(item.config) && !baseline.has(item.tag), `Qualified image for linux/${item.platform} ${reference} (qualified config ${item.config}) existed before publication; refusing to delete it or claim an anonymous pull`);
+  requireThat(!baseline.has(reference) && store.imageID(reference) === undefined, `Index reference ${reference} is already local; an anonymous pull cannot be proven`);
+  for (const item of images) {
+    store.remove(item.tag);
+    store.remove(item.config);
+    requireThat(store.imageID(item.config) === undefined, `linux/${item.platform} ${reference} (qualified config ${item.config}) is still present after removing this run's loaded image`);
+  }
+  return images.map(item => pullPlatform(reference, item, store));
+}
+
+function pullPlatform(reference: string, item: PulledImage, store: PullImageStore): unknown {
+  const context = `Anonymous Docker pull of linux/${item.platform} ${reference} (qualified config ${item.config})`;
+  requireThat(store.imageID(item.config) === undefined, `${context} found the config already local`);
+  let pullOutput: string;
+  try {
+    pullOutput = store.pull(item.platform, reference);
+  } catch (error) {
+    throw new Error(`${context}: ${String(error)}`);
+  }
+  requireThat(!/: Already exists$/m.test(pullOutput), `${context} reused a local layer instead of downloading it`);
+  const imageID = store.imageID(reference);
+  requireThat(imageID === item.config, `${context} resolved image ${imageID ?? "none"}`);
+  store.verify(imageID, item.platform);
+  store.remove(reference);
+  requireThat(store.imageID(reference) === undefined && store.imageID(item.config) === undefined, `${context} is still present after verification`);
+  return { reference, platform: item.platform, config: item.config, imageID, absentBeforePull: true, removedAfterVerification: true, pullOutput: pullOutput.slice(-4096) };
+}
+
+function imageID(reference: string): string | undefined {
+  const result = spawnSync("docker", ["image", "inspect", "--format", "{{.Id}}", reference], { encoding: "utf8", timeout: 15_000, maxBuffer: 4096 });
+  if (!result.error && result.status === 1 && result.stderr.includes("No such image")) return undefined;
+  requireThat(!result.error && result.status === 0, `Cannot inspect local image ${reference}\n${result.stderr ?? ""}`);
+  return digest(result.stdout.trim());
+}
+
+export function dockerPullStore(config: string, verify: PullImageStore["verify"]): PullImageStore {
+  return {
+    imageID,
+    pull: (platform, reference) => command(["docker", "--config", config, "pull", "--platform", `linux/${platform}`, reference], 120_000, false),
+    remove: removeImage,
+    verify,
+  };
+}
+
+async function anonymousDockerPull(input: { reference: string; release: string; source: string; images: readonly PulledImage[]; baseline: ReadonlySet<string>; output: string }): Promise<void> {
+  const { reference, release, source, output } = input;
   const config = join(output, `${release}-anonymous-docker`);
   mkdirSync(config, { mode: 0o700 });
   writeFileSync(join(config, "config.json"), "{}\n", { mode: 0o600 });
+  const store = dockerPullStore(config, (id, platform) => verifyLocalImage(id, platform, source, release, "server"));
   try {
-    for (const platform of arches) command(["docker", "--config", config, "pull", "--platform", `linux/${platform}`, reference], 120_000);
-    save(join(output, `${release}-anonymous-pulls.json`), { reference, platforms: arches, credentials: "empty isolated Docker config", checkedAt: new Date().toISOString() });
+    const platforms = qualifyAnonymousPulls(input, store);
+    save(join(output, `${release}-anonymous-pulls.json`), { reference, platforms, credentials: "empty isolated Docker config", checkedAt: new Date().toISOString() });
+  } catch (error) {
+    save(join(output, `${release}-anonymous-pull-failure.json`), { reference, images: input.images, error: String(error), checkedAt: new Date().toISOString() });
+    throw error;
   } finally {
     rmSync(config, { recursive: true });
   }
