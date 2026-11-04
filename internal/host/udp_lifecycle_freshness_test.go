@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io/fs"
@@ -27,7 +28,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/podman"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/quadlet"
-	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -116,8 +116,6 @@ func newUDPRuntime(t *testing.T) *udpRuntime {
 	for path, content := range map[string]string{
 		"/etc/os-release":                   "ID=debian\nVERSION_ID=13\n",
 		"/etc/machine-id":                   strings.Repeat("1", 32),
-		"/etc/ssh/ssh_host_ed25519_key.pub": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA fixture",
-		"/etc/passwd":                       "brine:x:1001:1001::/home/brine:/bin/sh\n",
 		"/proc/self/status":                 "Uid:\t1001\t1001\t1001\t1001\n",
 		"/proc/4242/stat":                   "4242 (pasta) S " + strings.Repeat("0 ", 18) + "123 0\n",
 		"/proc/4242/cgroup":                 udpRuntimeCgroup,
@@ -127,6 +125,12 @@ func newUDPRuntime(t *testing.T) *udpRuntime {
 	} {
 		h.write(path, []byte(content))
 	}
+	h.write("/etc/passwd", []byte("brine:x:1001:1001::/home/brine:/bin/sh\n"))
+	hostKey := make([]byte, 51)
+	hostKey[3] = 11
+	copy(hostKey[4:15], "ssh-ed25519")
+	hostKey[18] = 32
+	h.write("/etc/ssh/ssh_host_ed25519_key.pub", []byte("ssh-ed25519 "+base64.StdEncoding.EncodeToString(hostKey)+" fixture"))
 	for _, dir := range []string{"/home/brine/.config/containers/systemd", "/home/brine/.local/state/brine", "/proc/4242/fd"} {
 		if err := os.MkdirAll(filepath.Join(h.root, dir), 0700); err != nil {
 			t.Fatal(err)
@@ -206,7 +210,7 @@ func (h *udpRuntime) write(path string, raw []byte) {
 }
 func (h *udpRuntime) read(path string) string {
 	h.t.Helper()
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(path) //nolint:gosec // Path is a checked-in test fixture.
 	if err != nil {
 		h.t.Fatal(err)
 	}
@@ -314,19 +318,18 @@ func (u udpRuntimeUnits) Remove(_ context.Context, _, hash string) error {
 
 type udpRuntimeRoutes struct{ h *udpRuntime }
 
-func (r udpRuntimeRoutes) Publish(_ context.Context, before caddy.State, p plan.Plan, d policy.Desired) (caddy.Result, error) {
-	site, err := caddy.NewSite(App(d), r.h.policy.p, spec.Port(p.HostPort))
+func (r udpRuntimeRoutes) Publish(ctx context.Context, before caddy.State, p plan.Plan, d policy.Desired) (caddy.Result, error) {
+	published, err := fakeRoutes{r.h.policy.p}.Publish(ctx, before, p, d)
+	if err != nil {
+		return published, err
+	}
+	raw, err := caddy.Render(published.Next.Sites[p.App+".caddy"])
 	if err != nil {
 		return caddy.Result{}, err
 	}
-	raw, err := caddy.Render(site)
-	if err != nil {
-		return caddy.Result{}, err
-	}
-	r.h.route, r.h.routeGen = raw, before.Generation+1
+	r.h.route, r.h.routeGen = raw, published.Next.Generation
 	r.h.sync()
-	next := caddy.State{Generation: r.h.routeGen, Files: map[string]string{p.App + ".caddy": fmt.Sprintf("sha256:%x", sha256.Sum256(raw))}, Sites: map[string]caddy.Site{p.App + ".caddy": site}}
-	return caddy.Result{Outcome: caddy.Applied, Previous: before.Generation, Current: next.Generation, Next: next}, nil
+	return published, nil
 }
 func (udpRuntimeRoutes) Restore(context.Context, caddy.State, caddy.State) error { return nil }
 func (r udpRuntimeRoutes) Withdraw(_ context.Context, before caddy.State, app string) (caddy.Result, error) {
