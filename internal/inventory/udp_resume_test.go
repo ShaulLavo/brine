@@ -23,7 +23,7 @@ func TestUDPPreparedUnpublishedCollectorRebuildUsesOnlyOwnFacts(t *testing.T) {
 	defer func() { _ = database.Close() }()
 	fs := secretOnlyFixture()
 	runner := fakeRunner{"uname -m": "aarch64", "ss -H -ltnpe": "", "ss -H -lunpe": "", "ip -j addr show": `[{"addr_info":[{"local":"192.0.2.10"}]}]`, "podman --remote=false ps --all --format " + containerInventoryFormat: "", "podman --remote=false secret ls --format {{.ID}} {{.Name}}": ""}
-	collector := Collector{FS: fs, Runner: runner, IdentityKey: []byte("fixture"), StateInventory: database.InventoryState}
+	collector := Collector{FS: fs, Runner: runner, IdentityKey: []byte("fixture"), StateInventory: database.InventoryState, OperationState: database.OperationInventoryState}
 	baseline, err := collector.Collect(t.Context())
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +102,14 @@ func TestUDPPreparedUnpublishedCollectorRebuildUsesOnlyOwnFacts(t *testing.T) {
 	if rebuilt.UDPSockets.Value == nil || len(*rebuilt.UDPSockets.Value) != 1 {
 		t.Fatal("real socket hidden")
 	}
-	other, err := collector.RebuildUDP(t.Context(), p, []string{"foreign"})
+	if _, err := collector.RebuildUDP(t.Context(), p, []string{"foreign"}); err == nil {
+		t.Fatal("unproved observing operation rebuilt control")
+	}
+	twin, _, err := database.CreateOperation(t.Context(), ops.Intent{Kind: ops.Deploy, PlanID: p.Hash}, "udp-test", "twin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := collector.RebuildUDP(t.Context(), p, []string{twin.ID})
 	if err != nil {
 		t.Fatal(err)
 	}

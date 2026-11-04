@@ -16,13 +16,32 @@ import (
 
 // InventoryState reads ownership, history and retirement in one transaction.
 // A retained release is not a head, and a retirement intent is not a receipt.
+// Any unfinished mutation of an app hides its committed head.
 func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, error) {
+	return s.inventoryState(ctx, "", "")
+}
+
+// OperationInventoryState reads the same facts as accepted operation id, which
+// runs planID. Only that operation's own family stops hiding the committed head
+// it was planned against; foreign and global unfinished mutations still do.
+func (s *Store) OperationInventoryState(ctx context.Context, id, planID string) (target.ControlInventory, error) {
+	if id == "" || planID == "" {
+		return target.ControlInventory{}, ErrConflict
+	}
+	return s.inventoryState(ctx, id, planID)
+}
+
+func (s *Store) inventoryState(ctx context.Context, observer, observedPlan string) (target.ControlInventory, error) {
 	result := target.ControlInventory{Apps: []target.ControlApp{}}
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
 		return result, err
 	}
 	defer tx.Rollback()
+	own, err := observingFamily(ctx, tx, observer, observedPlan)
+	if err != nil {
+		return result, err
+	}
 	if err = tx.QueryRowContext(ctx, "SELECT (SELECT COUNT(*) FROM releases)+(SELECT COUNT(*) FROM app_removals)+(SELECT COUNT(*) FROM data_archive_retirements)+(SELECT COUNT(*) FROM data_engine_preparations)+(SELECT COUNT(*) FROM data_engine_desired_states)+(SELECT COUNT(*) FROM data_engine_route_states)").Scan(&result.Generation); err != nil {
 		return result, err
 	}
@@ -187,6 +206,9 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 		return result, err
 	}
 	for _, op := range pendingOps {
+		if own[op.id] {
+			continue
+		}
 		settled, err := removalSettled(ctx, tx, op.id, op.app, op.plan)
 		if err != nil {
 			return result, err
@@ -197,7 +219,7 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 			apps[op.app] = app
 		}
 	}
-	if err := reserveCommittedPorts(ctx, tx, &result, apps); err != nil {
+	if err := reserveCommittedPorts(ctx, tx, &result, apps, own); err != nil {
 		return result, err
 	}
 	for _, app := range apps {
@@ -211,6 +233,34 @@ func (s *Store) InventoryState(ctx context.Context) (target.ControlInventory, er
 	}
 	sort.Slice(result.Apps, func(i, j int) bool { return result.Apps[i].Name < result.Apps[j].Name })
 	return result, tx.Commit()
+}
+
+// observingFamily proves the accepted deploy or resolution chain of one stored
+// plan for its own app. An empty observer is the ordinary, unbound read.
+func observingFamily(ctx context.Context, tx *sql.Tx, id, planID string) (map[string]bool, error) {
+	own := map[string]bool{}
+	if id == "" {
+		return own, nil
+	}
+	p, _, err := loadPlan(ctx, tx, planID)
+	if err != nil {
+		return nil, err
+	}
+	family, err := udpFamily(ctx, tx, id, planID)
+	if err != nil {
+		return nil, err
+	}
+	for _, member := range family {
+		var app string
+		if err = tx.QueryRowContext(ctx, "SELECT app FROM operations WHERE id=?", member).Scan(&app); err != nil {
+			return nil, err
+		}
+		if p.App == "" || app != p.App {
+			return nil, ErrConflict
+		}
+		own[member] = true
+	}
+	return own, nil
 }
 
 func removalSettled(ctx context.Context, tx *sql.Tx, id, app, planID string) (bool, error) {
