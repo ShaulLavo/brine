@@ -265,7 +265,7 @@ func (s *Store) LoadBrineState(ctx context.Context, identity target.Identity, ge
 			copy := p.Managed.Clone()
 			managed = &copy
 		}
-		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration, Managed: managed, UDP: releaseUDP(p)})
+		result.Releases = append(result.Releases, plan.CurrentRelease{App: h.app, ID: r.ID, PlanID: r.PlanID, Desired: d, Image: r.Image, HostPort: r.HostPort, Secrets: r.Secrets, Units: r.Units, CaddyFile: r.CaddyFile, CaddyGeneration: r.CaddyGeneration, Managed: managed, UDP: releaseUDP(p)})
 	}
 	return result, tx.Commit()
 }

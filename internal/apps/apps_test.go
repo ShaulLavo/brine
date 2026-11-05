@@ -21,13 +21,14 @@ import (
 )
 
 type fakeStore struct {
-	state    plan.BrineState
-	previous ops.Release
-	releases map[string]ops.Release
-	desired  map[string]policy.Desired
-	plans    map[string]plan.Plan
-	last     ops.Operation
-	saved    []plan.Plan
+	releaseReads []string
+	state        plan.BrineState
+	previous     ops.Release
+	releases     map[string]ops.Release
+	desired      map[string]policy.Desired
+	plans        map[string]plan.Plan
+	last         ops.Operation
+	saved        []plan.Plan
 }
 
 func (s *fakeStore) LoadBrineState(_ context.Context, id target.Identity, gen uint64) (plan.BrineState, error) {
@@ -42,6 +43,7 @@ func (s *fakeStore) PreviousRelease(context.Context, string) (ops.Release, error
 	return s.previous, nil
 }
 func (s *fakeStore) ReleaseByID(_ context.Context, _ string, id string) (ops.Release, error) {
+	s.releaseReads = append(s.releaseReads, id)
 	if r, ok := s.releases[id]; ok {
 		return r, nil
 	}
@@ -96,7 +98,7 @@ func fixture(t *testing.T) (Service, *fakeStore, target.Snapshot) {
 	}
 	a := (*snap.Apps.Value)[0]
 	image := plan.Image{Digest: a.Image.Value.Digest, Platform: a.Image.Value.Platform, ManifestDigest: target.Observation[string]{Status: target.Unknown}}
-	current := plan.CurrentRelease{App: "hello", ID: "current", Desired: d, Image: image, HostPort: *a.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: append([]target.Unit{}, (*a.QuadletUnits.Value)...), CaddyFile: snap.CaddyConfig.Value.Files[0]}
+	current := plan.CurrentRelease{App: "hello", ID: "current", PlanID: "current-plan", Desired: d, Image: image, HostPort: *a.AllocatedHostPort.Value, Secrets: []plan.SecretBinding{}, Units: append([]target.Unit{}, (*a.QuadletUnits.Value)...), CaddyFile: snap.CaddyConfig.Value.Files[0]}
 	old := d
 	old.Image = spec.ImageReference(strings.ReplaceAll(string(d.Image), strings.Repeat("a", 64), strings.Repeat("e", 64)))
 	oldImage := image
@@ -348,5 +350,44 @@ func TestStatusManagedRouteMissingVersusUnobservable(t *testing.T) {
 				t.Fatalf("missing managed route must be affirmative drift: %+v", drift)
 			}
 		})
+	}
+}
+
+func TestStatusCurrentPlanIDWithoutReleaseReload(t *testing.T) {
+	service, state, _ := fixture(t)
+	other := state.state.Releases[0]
+	other.App = "zeta"
+	other.ID = "zeta-current"
+	other.PlanID = "zeta-plan"
+	state.state.Releases = []plan.CurrentRelease{other, state.state.Releases[0]}
+	state.previous = ops.Release{}
+	state.releases[other.ID] = ops.Release{ID: other.ID, PlanID: other.PlanID}
+	report, err := service.Status(context.Background(), "")
+	if err != nil {
+		t.Fatalf("status error %v; reads %v", err, state.releaseReads)
+	}
+	if len(state.releaseReads) != 0 || len(report.Apps) != 2 {
+		t.Fatalf("current release reads %v; report %+v", state.releaseReads, report)
+	}
+	if report.Apps[0].App != "hello" || report.Apps[0].Current.PlanID != "current-plan" || report.Apps[1].App != "zeta" || report.Apps[1].Current.PlanID != "zeta-plan" {
+		t.Fatalf("current metadata crossed apps: %+v", report.Apps)
+	}
+	if report.Apps[0].Previous != nil || report.Apps[0].LastOperation != nil {
+		t.Fatalf("missing history invented metadata: %+v", report.Apps[0])
+	}
+	state.state.Releases[0].PlanID = ""
+	report, err = service.Status(context.Background(), "hello")
+	if err != nil || len(report.Apps) != 1 || report.Apps[0].Current.PlanID != "current-plan" || len(state.releaseReads) != 0 {
+		t.Fatalf("filtered status %+v; error %v; reads %v", report, err, state.releaseReads)
+	}
+}
+
+func TestStatusMissingCurrentPlanIDConflictsWithoutReload(t *testing.T) {
+	service, state, _ := fixture(t)
+	state.state.Releases[0].PlanID = ""
+	_, err := service.Status(context.Background(), "hello")
+	var domain *result.Error
+	if !errors.As(err, &domain) || domain.Code() != result.Conflict || len(state.releaseReads) != 0 {
+		t.Fatalf("missing live metadata error %v; reads %v", err, state.releaseReads)
 	}
 }

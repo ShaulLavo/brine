@@ -121,9 +121,7 @@ func TestUDPReservationOnlyDiscoveryAndIncarnationRefusal(t *testing.T) {
 func TestUDPWireClosedReasonsAndHTTPBytes(t *testing.T) {
 	service, state, _ := udpFixture(t)
 	state.previous.ID = ""
-	current := state.releases["current"]
-	current.PlanID = "sha256:" + strings.Repeat("a", 64)
-	state.releases["current"] = current
+	state.state.Releases[0].PlanID = "sha256:" + strings.Repeat("a", 64)
 	report, err := service.Status(context.Background(), "hello")
 	if err != nil {
 		t.Fatal(err)
@@ -186,9 +184,7 @@ func TestUDPDriftIncludesOnlyProvenMappingDifferences(t *testing.T) {
 func TestUDPWireCannotHideRequiredReadiness(t *testing.T) {
 	service, state, _ := udpFixture(t)
 	state.previous.ID = ""
-	current := state.releases["current"]
-	current.PlanID = "sha256:" + strings.Repeat("a", 64)
-	state.releases["current"] = current
+	state.state.Releases[0].PlanID = "sha256:" + strings.Repeat("a", 64)
 	report, err := service.Status(context.Background(), "hello")
 	if err != nil {
 		t.Fatal(err)

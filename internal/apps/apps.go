@@ -117,11 +117,10 @@ func (s Service) Status(ctx context.Context, app string) (Report, error) {
 		if app != "" && app != r.App {
 			continue
 		}
-		current, err := s.Store.ReleaseByID(ctx, r.App, r.ID)
-		if err != nil {
-			return report, err
+		if r.PlanID == "" {
+			return report, result.New(result.Conflict, nil)
 		}
-		item := Status{App: r.App, UDP: UDPStatusFor(snap, state.UDP, r), Current: &Release{UDP: r.UDP, ID: r.ID, PlanID: current.PlanID, ImageDigest: r.Image.Digest, Port: r.HostPort, Domains: r.Desired.Domains}, Health: Health{UnitActive: target.Observation[bool]{Status: target.Unknown}, Direct: "not_checked"}}
+		item := Status{App: r.App, UDP: UDPStatusFor(snap, state.UDP, r), Current: &Release{UDP: r.UDP, ID: r.ID, PlanID: r.PlanID, ImageDigest: r.Image.Digest, Port: r.HostPort, Domains: r.Desired.Domains}, Health: Health{UnitActive: target.Observation[bool]{Status: target.Unknown}, Direct: "not_checked"}}
 		previous, err := s.Store.PreviousRelease(ctx, r.App)
 		if err == nil {
 			v, e := s.releaseView(ctx, previous)
