@@ -103,3 +103,26 @@ Enrollment now requires locale-only effective AcceptEnv/SetEnv and audits additi
 Failing-first tests reproduced Go's `[!x]*.conf` mismatch with OpenSSH's glob(3), which skipped an unsafe unsampled Match branch. Include now accepts only literal absolute paths and Debian's exact `/etc/ssh/sshd_config.d/*.conf` pattern. The canonical expansion excludes dotfiles and sorts in the controlled C locale. Other patterns and nested Includes fail closed. A complete audited source manifest is compared with OpenSSH's bounded debug load trace in read-only preflight and staged/installed policy validation. Tests cover missing/extra/reordered traces, literal dotfiles, canonical ordering, recursive Includes and real OpenSSH loading the negated-class fixture.
 
 Local test/vet/build/format/diff gates and the full race suite passed. Linux arm64 and macOS arm64 builds passed. Authorized live verification completed protected operator undo, reenrollment with the newest artifact and an idempotent rerun. Preflight and staged source-trace comparisons passed, as did the restricted transport and planted-key/environment/startup/parent probes. The client sent LD_PRELOAD, but the dispatcher's initial environment did not receive it. PTY and remote forwarding remained denied. Original operator SSH hashes and ownership/modes were unchanged; the installed artifact matched the retained build, the home .ssh was empty, SSH/Caddy were active and no SSH reload was pending. The target remains enrolled. No production deployment, reboot or restore is claimed.
+
+
+### P02-03 rootless own-host public-address follow-up
+
+**Approved, scheduled later. Owner direction, 2026-11-05: recording only.**
+
+- [ ] Record and later assess: **"rootless container can't reach its own host's public address (suspected hairpin NAT)"**. This is a suspected own-host reachability issue, not an established NAT diagnosis. Do not investigate it now or make it a diagnostic blocker for Relay.
+
+Retained evidence from the authorized Relay run:
+
+- Real Chromium at the exact approved public Origin opened the public WSS carrier and authenticated. The sole approved same-VPS hostname on port 80 returned `target-refused` with zero received bytes. All eight authentication, scope, path and Origin negative controls passed.
+- A separate PC direct HTTP request to the same-host target returned the expected Caddy HTTP 308 redirect. That is PC-vantage evidence, not container reachability proof.
+- The normal supported deny-all/signing-v1 rollback subsequently succeeded. No network diagnosis or remediation is established by that rollback.
+
+Private evidence references, retained outside this public repository:
+
+- `/work/reports/wave-20261105/network/public-ws-positive/protected-runner/runs/20261105T190852Z-187fb2a06dc6f9fb/result.json`
+- `/work/reports/wave-20261105/network/public-ws-positive/DIRECT-HTTP-TARGET-CHECK.json`
+- `/work/reports/wave-20261105/network/public-ws-positive/protected-runner/runs/20261105T191049Z-3d23fec41e413fb1/result.json`
+
+**Boundary:** preserve all runtime, policy and DNS state. No raw network overrides, including host networking, custom container-network flags, host-gateway or hosts-file aliases, or routing, NAT, firewall or DNS workarounds. Any later work requires a separately reviewed supported Brine workflow. Do not weaken authentication, target scope or Origin checks.
+
+Relay proceeds separately with its sole reviewed target changed to `example.com:80` in a new signing-v3 run. That is the owner's next step, not a result claimed by this recording. Reopen this deferred item only when the owner schedules it. Existing runtime acceptance checkboxes remain unchanged.
