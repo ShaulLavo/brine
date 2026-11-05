@@ -19,12 +19,9 @@ import (
 )
 
 func TestHostServeBinaryBoundary(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "brine")
+	binary := commandTestBinary
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build %v %s", err, out)
-	}
 	marker := filepath.Join(t.TempDir(), "must-not-exist")
 	payload := "touch " + marker + "; echo synthetic-private-payload"
 	for _, tt := range []struct {

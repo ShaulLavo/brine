@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -17,12 +16,7 @@ import (
 )
 
 func TestTUIWithRedirectedStdin(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "brine")
-	buildCtx, cancelBuild := context.WithTimeout(context.Background(), time.Minute)
-	defer cancelBuild()
-	if output, err := exec.CommandContext(buildCtx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, output)
-	}
+	binary := commandTestBinary
 
 	for _, interrupt := range []bool{false, true} {
 		t.Run(fmt.Sprintf("interrupt=%t", interrupt), func(t *testing.T) { testTUIProcess(t, binary, interrupt) })
@@ -140,12 +134,9 @@ func testTUIProcess(t *testing.T, binary string, interrupt bool) {
 }
 
 func TestBinaryClosedStdout(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "brine")
+	binary := commandTestBinary
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
 	read, write, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)

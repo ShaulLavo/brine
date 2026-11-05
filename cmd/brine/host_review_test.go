@@ -21,12 +21,9 @@ func TestHostReviewRegressions(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root refuses before stdin")
 	}
-	binary := filepath.Join(t.TempDir(), "brine")
+	binary := commandTestBinary
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("%v %s", err, out)
-	}
 	request := `{"schema_version":1,"op":"ping","request_id":"fixture","args":{}}`
 	t.Run("regular file", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "request.json")
