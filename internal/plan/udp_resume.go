@@ -45,12 +45,18 @@ func UnapplyUDP(s BrineState, p Plan, family []string) (BrineState, bool, error)
 
 // RebuildInput restores the exact baseline before this family prepared UDP.
 // Its optional recollected snapshot changes control-derived facts, not runtime evidence.
+// It also restores the plan's exact selections: a rollback's UDP endpoint and
+// secret versions are recorded inputs, never re-chosen from fresh inventory.
 func RebuildInput(in Input, p Plan, family []string) (Input, bool, error) {
 	state, prepared, err := UnapplyUDP(in.State, p, family)
 	if err != nil {
 		return in, false, err
 	}
 	in.State = state
+	in.SecretExact = nil
+	if p.SecretExact {
+		in.SecretExact = append([]SecretBinding{}, p.Secrets...)
+	}
 	if p.UDP != nil {
 		in.UDPExact = nil
 		if p.UDP.Exact != nil {
