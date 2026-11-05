@@ -2,13 +2,11 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -19,12 +17,7 @@ import (
 )
 
 func TestBinarySecretSignalWithOpenWriter(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "brine")
-	buildCtx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-	defer cancel()
-	if out, err := exec.CommandContext(buildCtx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
+	binary := commandTestBinary
 	for _, signal := range []os.Signal{syscall.SIGINT, syscall.SIGTERM} {
 		t.Run(signal.String(), func(t *testing.T) {
 			reader, writer, err := os.Pipe()

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -17,12 +16,9 @@ import (
 )
 
 func TestBinaryMachineResponses(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "brine")
+	binary := commandTestBinary
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
 	for _, tt := range []struct {
 		args    []string
 		exit    int
@@ -70,12 +66,9 @@ func TestBinaryMachineResponses(t *testing.T) {
 }
 
 func TestBinaryCompletionProtocol(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "brine")
+	binary := commandTestBinary
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
 
 	for _, command := range []string{"__complete", "__completeNoDesc"} {
 		for _, withJSON := range []bool{false, true} {

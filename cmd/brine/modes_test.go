@@ -18,12 +18,9 @@ import (
 )
 
 func TestBinaryModeMatrix(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "brine")
+	binary := commandTestBinary
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
 	tools := t.TempDir()
 	if err := os.WriteFile(filepath.Join(tools, "ssh"), []byte("#!/bin/sh\nprintf 'OpenSSH_9.9p2\\n'\n"), 0o700); err != nil {
 		t.Fatal(err)
@@ -124,12 +121,9 @@ func TestBinaryModeMatrix(t *testing.T) {
 }
 
 func TestBinaryMalformedModeValueSurvivesFalse(t *testing.T) {
-	binary := filepath.Join(t.TempDir(), "brine")
+	binary := commandTestBinary
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	if out, err := exec.CommandContext(ctx, "go", "build", "-o", binary, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
 	for _, flag := range []string{"--json", "--jsonl"} {
 		t.Run(flag, func(t *testing.T) {
 			var out, diagnostics bytes.Buffer
