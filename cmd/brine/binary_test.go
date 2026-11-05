@@ -49,11 +49,14 @@ func runCommandTests(m *testing.M) (int, os.Signal) {
 	signal.Notify(interrupts, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(interrupts)
 
-	commandTestBinary = filepath.Join(dir, "brine")
+	binary := filepath.Join(dir, "brine")
+	commandTestBinary = binary
 	built := make(chan struct{})
 	result := make(chan int, 1)
 	go func() {
-		out, err := exec.CommandContext(ctx, "go", "build", "-o", commandTestBinary, ".").CombinedOutput()
+		build := exec.CommandContext(ctx, "go", "build", "-o")
+		build.Args = append(build.Args, binary, ".")
+		out, err := build.CombinedOutput()
 		close(built)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "build: %v\n%s", err, out)
