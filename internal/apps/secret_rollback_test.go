@@ -36,15 +36,15 @@ type secretHistoryRelease struct {
 func secretHistory(t *testing.T, refs []policy.Secret) (Service, *store.Store, target.Snapshot) {
 	t.Helper()
 	service, fake, snap := fixture(t)
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0700); err != nil {
-		t.Fatal(err)
-	}
-	db, err := store.Open(dir)
+	db, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	ready, err := os.ReadFile("../target/testdata/ready-arm64.json")
 	if err != nil {
 		t.Fatal(err)
