@@ -88,7 +88,10 @@ type Input struct {
 	Image    Image
 	State    BrineState
 	UDPExact *UDPEndpoint
-	Managed  *ManagedFacts
+	// SecretExact, when non-nil, binds exactly these historical versions by
+	// environment and reference instead of the newest retained version.
+	SecretExact []SecretBinding
+	Managed     *ManagedFacts
 }
 
 // BrineState comes from the target control database, not host observation. It
@@ -233,6 +236,7 @@ type Plan struct {
 	Image              Image                          `json:"image"`
 	HostPort           target.Port                    `json:"host_port"`
 	Secrets            []SecretBinding                `json:"secrets"`
+	SecretExact        bool                           `json:"secret_exact,omitempty"`
 	Changes            []Change                       `json:"changes"`
 	Diff               *ConfigurationDiff             `json:"diff,omitempty"`
 	Conflicts          []Diagnostic                   `json:"conflicts"`
@@ -312,7 +316,7 @@ func Build(in Input) (Plan, error) {
 	if in.Desired.AppPorts.Min < 1024 || in.Desired.AppPorts.Max < in.Desired.AppPorts.Min || in.Desired.PolicyVersion == "" || !validHash(in.Desired.PolicyHash) {
 		return Plan{}, fmt.Errorf("normalized policy desired state required")
 	}
-	p := Plan{SchemaArtifacts: slices.Clone(in.Desired.SchemaArtifacts), DatabaseEnvironment: in.Desired.DatabaseEnvironmentValues(), SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{}}
+	p := Plan{SchemaArtifacts: slices.Clone(in.Desired.SchemaArtifacts), DatabaseEnvironment: in.Desired.DatabaseEnvironmentValues(), SchemaVersion: SchemaVersion, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: in.Image, Secrets: []SecretBinding{}, SecretExact: in.SecretExact != nil && len(in.Desired.Secrets) > 0, Changes: []Change{}, Conflicts: []Diagnostic{}}
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
 	}
@@ -497,27 +501,12 @@ func Build(in Input) (Plan, error) {
 		}
 	}
 	for _, secret := range in.Desired.Secrets {
-		binding := SecretBinding{Environment: secret.Name, Reference: secret.Reference}
-		var latest uint64
-		prefix := "brine." + p.App + "." + string(secret.Reference) + ".v"
-		if current != nil && current.Secrets.Status == target.KnownStatus {
-			for _, s := range *current.Secrets.Value {
-				if !strings.HasPrefix(s.Name, prefix) {
-					continue
-				}
-				version, err := strconv.ParseUint(strings.TrimPrefix(s.Name, prefix), 10, 64)
-				if err == nil && version > latest && s.Name == prefix+strconv.FormatUint(version, 10) {
-					latest = version
-					binding.VersionName = s.Name
-					binding.ID = s.ID
-				}
-			}
-		}
-		if latest == 0 {
+		binding, ok := bindSecret(p.App, secret, current, in.SecretExact)
+		if !ok {
 			add(SecretMissing, "secrets."+secret.Name)
-		} else {
-			p.Secrets = append(p.Secrets, binding)
+			continue
 		}
+		p.Secrets = append(p.Secrets, binding)
 	}
 	caddy := target.CaddyConfigSet{Files: []target.CaddyFile{}}
 	if in.Snapshot.CaddyConfig.Status == target.KnownStatus {
@@ -604,6 +593,52 @@ func Build(in Input) (Plan, error) {
 		p.Changes = append(p.Changes, Change{Kind: RenderQuadlet, Quadlet: &Quadlet{DataMounts: slices.Clone(p.DataMounts), Desired: quadletDesired, EnvironmentKeys: environmentKeys, HostPort: p.HostPort, Secrets: slices.Clone(p.Secrets)}}, Change{Kind: StageCaddy, Caddy: &CaddyGeneration{Previous: caddy.Generation, Next: caddy.Generation + 1, Preserve: preserve, App: p.App, Domains: slices.Clone(in.Desired.Domains), HostPort: p.HostPort}}, Change{Kind: RestartApp, Restart: &Restart{App: p.App}})
 	}
 	return finishUDP(p, in, desired, snapshot, state)
+}
+
+// bindSecret selects the newest retained version, or exactly the pinned
+// version when exact is non-nil. An exact pin missing from inventory, or
+// observed under another ID, stays unbound; no other version substitutes.
+func bindSecret(app string, secret policy.Secret, current *target.App, exact []SecretBinding) (SecretBinding, bool) {
+	if current == nil || current.Secrets.Status != target.KnownStatus {
+		return SecretBinding{}, false
+	}
+	prefix := "brine." + app + "." + string(secret.Reference) + ".v"
+	if exact == nil {
+		return latestSecret(secret, prefix, *current.Secrets.Value)
+	}
+	for _, pin := range exact {
+		if pin.Environment != secret.Name || pin.Reference != secret.Reference {
+			continue
+		}
+		version := secretVersion(pin.VersionName, prefix)
+		return pin, version > 0 && slices.Contains(*current.Secrets.Value, target.Secret{Name: pin.VersionName, ID: pin.ID})
+	}
+	return SecretBinding{}, false
+}
+
+func latestSecret(secret policy.Secret, prefix string, observed []target.Secret) (SecretBinding, bool) {
+	binding := SecretBinding{Environment: secret.Name, Reference: secret.Reference}
+	var latest uint64
+	for _, s := range observed {
+		if version := secretVersion(s.Name, prefix); version > latest {
+			latest = version
+			binding.VersionName = s.Name
+			binding.ID = s.ID
+		}
+	}
+	return binding, latest > 0
+}
+
+// secretVersion parses a canonical versioned name, or returns zero.
+func secretVersion(name, prefix string) uint64 {
+	if !strings.HasPrefix(name, prefix) {
+		return 0
+	}
+	version, err := strconv.ParseUint(strings.TrimPrefix(name, prefix), 10, 64)
+	if err != nil || name != prefix+strconv.FormatUint(version, 10) {
+		return 0
+	}
+	return version
 }
 
 func reconcileCommittedCaddy(release CurrentRelease, files []target.CaddyFile, liveFiles []target.LiveCaddyFile, add func(ConflictCode, string)) {

@@ -230,7 +230,8 @@ func (s Service) Rollback(ctx context.Context, app, id string) (RollbackPlan, er
 	if !stateless(current.Desired) || !stateless(desired) {
 		return RollbackPlan{}, result.New(result.RecoveryRequired, nil)
 	}
-	input := plan.Input{Desired: desired, Snapshot: snap, Image: release.Image, State: state}
+	// Bind the target release's recorded secret versions, never newer ones.
+	input := plan.Input{Desired: desired, Snapshot: snap, Image: release.Image, State: state, SecretExact: append([]plan.SecretBinding{}, release.Secrets...)}
 	if udpRollbackInvolved(input, stored) {
 		input, err = s.udpRollbackInput(ctx, input, stored)
 		if err != nil {

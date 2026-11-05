@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,7 @@ type fakeInventory struct {
 	snapshot         target.Snapshot
 	store            *store.Store
 	generationOffset uint64
+	secrets          []target.Secret
 }
 
 func (i *fakeInventory) Collect(ctx context.Context) (target.Snapshot, error) {
@@ -121,7 +123,7 @@ func (i *fakeInventory) Collect(ctx context.Context) (target.Snapshot, error) {
 	if err != nil {
 		return snap, err
 	}
-	snap.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "hello", Image: target.Known(target.Image{Digest: release.Image.Digest, Platform: release.Image.Platform}), AllocatedHostPort: target.Known(release.HostPort), QuadletUnits: target.Known(release.Units), Secrets: target.Known([]target.Secret{})}})
+	snap.Apps = target.Known([]target.App{{UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}, Name: "hello", Image: target.Known(target.Image{Digest: release.Image.Digest, Platform: release.Image.Platform}), AllocatedHostPort: target.Known(release.HostPort), QuadletUnits: target.Known(release.Units), Secrets: target.Known(append([]target.Secret{}, i.secrets...))}})
 	snap.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: release.CaddyGeneration, Files: []target.CaddyFile{release.CaddyFile}})
 	domains := []string{}
 	for _, d := range d.Domains {
@@ -178,6 +180,9 @@ func newDeployRigAt(t *testing.T, dir string) *deployRig {
 	runtime := &podman.Fake{PullFunc: func(context.Context, podman.Image) error { r.pulls++; return nil }, InspectFunc: func(context.Context, podman.Image) (podman.ImageInfo, error) {
 		return podman.ImageInfo{IndexDigest: r.images.image.Digest, ManifestDigest: *r.images.image.ManifestDigest.Value, Platform: podman.Platform{OS: "linux", Architecture: "arm64"}}, nil
 	}}
+	runtime.SecretExistsFunc = func(_ context.Context, name podman.Name) (bool, error) {
+		return slices.ContainsFunc(r.inventory.secrets, func(s target.Secret) bool { return s.Name == name.String() }), nil
+	}
 	active := false
 	runtime.ContainerStateFunc = func(context.Context, podman.Name) (podman.ContainerState, error) {
 		if active {
@@ -207,6 +212,16 @@ func newDeployRigAt(t *testing.T, dir string) *deployRig {
 }
 func (r *deployRig) call(t *testing.T, op string, args any) result.Envelope {
 	t.Helper()
+	decoded, err := r.tryCall(t, op, args)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return decoded
+}
+
+// tryCall returns a dispatcher refusal as an error instead of failing the test.
+func (r *deployRig) tryCall(t *testing.T, op string, args any) (result.Envelope, error) {
+	t.Helper()
 	raw, err := json.Marshal(args)
 	if err != nil {
 		t.Fatal(err)
@@ -217,17 +232,13 @@ func (r *deployRig) call(t *testing.T, op string, args any) result.Envelope {
 	}
 	envelope, err := r.server.Handle(context.Background(), bytes.NewReader(request))
 	if err != nil {
-		t.Fatal(err)
+		return envelope, err
 	}
 	wire, err := json.Marshal(envelope)
 	if err != nil {
 		t.Fatal(err)
 	}
-	decoded, err := dispatch.DecodeResponse(wire, op)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return decoded
+	return dispatch.DecodeResponse(wire, op)
 }
 func TestConnectedDeployAndIdempotency(t *testing.T) {
 	r := newDeployRig(t)
