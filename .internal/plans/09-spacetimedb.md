@@ -98,6 +98,10 @@ Add `.github/workflows/spacetimedb-fixture.yml`, following `fixtures/sqlite-app`
 
 **Evidence.** T37 covers this task. Extend TEST_MATRIX authority and persistence cases with route allow/deny tests, WS forwarding, identity ownership, secret redaction, signal/resource rendering, license admission, compatibility rollback and restart permits. Full fake-host tests precede P09-08 physical routing/reboot evidence.
 
+**Approved, scheduled later: managed rollback after retained secret rotation.** A reviewer reproduced the filtered-inventory mechanism at both the base and PR 214 head. This is not a new regression or an end-to-end proof of a committed managed rollback. `internal/apps/managed_rollback.go` filters inventory before `internal/plan/decision_facts.go` hashes it. `internal/host/service.go` and `internal/apply/managed_preflight.go` rebuild unfiltered inventory. The current result is managed plan drift before component effects; diagnostics also report `json: unknown field "snapshot"`.
+
+Start with `managedInitializedRig`, desired `TOKEN` referencing `token`, and retained versions `brine.<app>.token.v1` and `brine.<app>.token.v2` with distinct IDs. Build once with v1-only facts, then execute with v1 and v2 present; compare an unfiltered control. Allow 30–60 minutes for the initial bounded reproduction. Add a committed frontend and history case, run focused managed apply tests normally and under race, and fix exact frontend bindings without filtering observed inventory. Preserve engine and data state.
+
 ### P09-05. Capture immutable remote backups and verify isolated restore
 
 - [ ] **P09-05**
