@@ -147,6 +147,62 @@ race_shard() {
   fi
 }
 
+# The host race suite is one serial package that runs for about 40 minutes. CI builds
+# its race test binary once and runs disjoint selections of it on separate runners.
+host_race_shards=4
+
+host_race_build() {
+  local dir=${1:?usage: check.sh test-race-host-build DIR}
+  mkdir -p "$dir"
+  go test -race -p 1 -c -o "$dir/host.test" ./internal/host/
+  git rev-parse HEAD > "$dir/source-head"
+  (cd "$dir" && sha256sum host.test > host.test.sha256)
+  host_race_cover "$dir"
+}
+
+# Sorted round-robin assignment also covers new tests without a maintained name list.
+host_race_partition() {
+  local binary=$1
+  (cd internal/host && "$binary" -test.list '.*') |
+    LC_ALL=C command grep -E '^(Test|Example|Fuzz)' |
+    LC_ALL=C sort |
+    LC_ALL=C awk -v shards="$host_race_shards" '{ printf "%d\t%s\n", (NR - 1) % shards + 1, $0 }'
+}
+
+host_race_cover() {
+  local dir=$1 binary listed assigned
+  binary=$(realpath "$dir/host.test")
+  listed=$( (cd internal/host && "$binary" -test.list '.*') | LC_ALL=C command grep -E '^(Test|Example|Fuzz)' | LC_ALL=C sort)
+  assigned=$(host_race_partition "$binary" | cut -f2 | LC_ALL=C sort)
+  if [[ -z $listed || $listed != "$assigned" ]] || [[ -n $(uniq -d <<< "$assigned") ]]; then
+    echo 'Host race shards must select every listed test exactly once.' >&2
+    return 1
+  fi
+  host_race_partition "$binary" | LC_ALL=C awk -F '\t' '{ n[$1]++ } END { for (s in n) printf "host race shard %s: %d tests\n", s, n[s] }' | LC_ALL=C sort
+}
+
+host_race_run() {
+  local index=${1:?usage: check.sh test-race-host-shard INDEX DIR [TEST-FLAG...]} dir=${2:?usage: check.sh test-race-host-shard INDEX DIR [TEST-FLAG...]}
+  local binary selected regex listed
+  shift 2
+  if [[ ! $index =~ ^[1-9][0-9]*$ ]] || (( index > host_race_shards )); then
+    echo "host race shard must be 1 through $host_race_shards: $index" >&2
+    return 2
+  fi
+  # The binary must come from this checkout so its tests read matching testdata.
+  [[ $(cat "$dir/source-head") == "$(git rev-parse HEAD)" ]] || { echo 'Host race binary was built from another commit.' >&2; return 1; }
+  (cd "$dir" && sha256sum --check --quiet host.test.sha256)
+  # Helper tests re-execute os.Args[0] from other directories, so pass an absolute path.
+  binary=$(realpath "$dir/host.test")
+  selected=$(host_race_partition "$binary" | LC_ALL=C awk -F '\t' -v shard="$index" '$1 == shard { print $2 }' | LC_ALL=C sort)
+  [[ -n $selected ]] || { echo "Host race shard $index selected no tests." >&2; return 1; }
+  regex="^($(paste -sd '|' <<< "$selected"))\$"
+  listed=$( (cd internal/host && "$binary" -test.list "$regex") | LC_ALL=C sort)
+  [[ $listed == "$selected" ]] || { echo "Host race shard $index regex does not select exactly its tests." >&2; return 1; }
+  printf 'host race shard %s of %s: %d top-level tests\n' "$index" "$host_race_shards" "$(wc -l <<< "$selected")"
+  (cd internal/host && "$binary" -test.paniconexit0 -test.timeout 40m -test.count=1 -test.run "$regex" "$@")
+}
+
 tests() {
   normal_tests
   race_tests
@@ -166,11 +222,14 @@ case "${1:-all}" in
   test-race) race_tests ;;
   test-race-store) race_shard store ;;
   test-race-host) race_shard host ;;
+  test-race-host-build) host_race_build "${2:-}" ;;
+  test-race-host-shard) host_race_run "${@:2}" ;;
+  test-race-host-shards) printf '[%s]\n' "$(seq -s , "$host_race_shards")" ;;
   test-race-rest) race_shard rest ;;
   lint) lint ;;
   structure) rules; deadcode; duplicates ;;
   vulnerability) vulnerability ;;
   fast) fast ;;
   format) format_check ;;
-  *) echo 'Usage: scripts/check.sh [all|test|test-normal|test-race|test-race-store|test-race-host|test-race-rest|lint|structure|vulnerability|fast|format]' >&2; exit 2 ;;
+  *) echo 'Usage: scripts/check.sh [all|test|test-normal|test-race|test-race-store|test-race-host|test-race-host-build DIR|test-race-host-shard INDEX DIR [TEST-FLAG...]|test-race-host-shards|test-race-rest|lint|structure|vulnerability|fast|format]' >&2; exit 2 ;;
 esac

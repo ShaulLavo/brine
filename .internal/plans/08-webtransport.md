@@ -1,6 +1,8 @@
 # Phase 08: WebTransport extensions
 
-**Status: Approved** (owner requirement, 2026-10-10): "We must support WebTransport". This file schedules implementation. It does not claim working QUIC routing, a published fixture image, or host acceptance.
+**Status: Approved, scheduled later** (owner, 2026-11-04). The original requirement stands (owner, 2026-10-10): "We must support WebTransport". This file schedules implementation. It does not claim working QUIC routing, a published fixture image, or host acceptance.
+
+**Start trigger:** P08-05, P08-07, P08-09, P08-10 and P08-11 (Brine TLS delivery, protocol health checks, shared UDP 443 and transport previews) start when a *released* Caddy version ships actual WebTransport session proxying, from [caddyserver/caddy PR #7669](https://github.com/caddyserver/caddy/pull/7669) or its successor. A merged PR, a moving branch, an HTTP/3 GET test or a custom layer-4 workaround is not that trigger. The relay uses WebSockets now, so no current delivery waits on these tasks. P08-01 stays completed; the open checkboxes below stay open until their own acceptance evidence exists.
 
 **Goal:** extend [direct UDP game-server deployment](08-udp.md) with optional
 TLS file delivery and WebTransport protocol probes, then separately qualify
