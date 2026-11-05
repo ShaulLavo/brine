@@ -16,23 +16,32 @@ import (
 )
 
 func TestCurrentPlanIDDoesNotChangeOfflineBytes(t *testing.T) {
+	root, err := os.OpenRoot("..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := root.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	read := func(path string) []byte {
 		t.Helper()
-		raw, err := os.ReadFile(path)
+		raw, err := root.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return raw
 	}
-	snapshot, err := target.Decode(read("../target/testdata/one-app.json"))
+	snapshot, err := target.Decode(read("target/testdata/one-app.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	rules, err := policy.Parse(bytes.ReplaceAll(read("../policy/testdata/operator.toml"), []byte("Registry.Example.com:5000"), []byte("ghcr.io")))
+	rules, err := policy.Parse(bytes.ReplaceAll(read("policy/testdata/operator.toml"), []byte("Registry.Example.com:5000"), []byte("ghcr.io")))
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := spec.Parse(bytes.ReplaceAll(read("../spec/testdata/valid-minimal.toml"), []byte("example/hello"), []byte("team/hello")))
+	app, err := spec.Parse(bytes.ReplaceAll(read("spec/testdata/valid-minimal.toml"), []byte("example/hello"), []byte("team/hello")))
 	if err != nil {
 		t.Fatal(err)
 	}
