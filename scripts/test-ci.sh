@@ -73,17 +73,19 @@ printf '%s|%s|%s %s\n' "$where" "${GOOS:-}" "${GOARCH:-}" "$*" >> "$COMMAND_LOG"
 if [[ $* == 'list ./...' ]]; then
   printf 'github.com/ShaulLavo/brine/internal/%s\n' store host cli
 fi
+if [[ $* == 'test -race -p 1 -c -o '* ]]; then
+  cp "$FAKE_HOST_TEST" "$7"
+fi
 MOCK
 printf '#!/bin/sh\nexit 0\n' > "$scratch/bin/git"
 printf '#!/bin/sh\nexit 0\n' > "$scratch/bin/gofmt"
 chmod 700 "$scratch/bin/"*
 
 check_commands() {
-  local mode=$1
   cat > "$scratch/expected"
   : > "$scratch/commands"
   PATH="$scratch/bin:$PATH" COMMAND_LOG="$scratch/commands" GOOS='' GOARCH='' BRINE_CHECK_OUTPUT="$scratch/output" \
-    "$root/scripts/check.sh" "$mode"
+    FAKE_HOST_TEST="$scratch/fake-host.test" "$root/scripts/check.sh" "$@" > "$scratch/stdout"
   diff -u "$scratch/expected" "$scratch/commands"
 }
 
@@ -109,4 +111,57 @@ root|| list ./...
 root|| test -race -p 1 -timeout 30m github.com/ShaulLavo/brine/internal/cli
 experiment|| test -race -count=1 -timeout 1m ./...
 EXPECTED
+
+host="$scratch/host-race"
+cat > "$scratch/fake-host.test" <<'MOCK'
+#!/usr/bin/env bash
+set -eu
+names=(TestHostRaceFixtureA TestHostRaceFixtureB TestNewHostTest ExampleHostRace FuzzHostRace BenchmarkHostRace)
+case $1 in
+  -test.list) printf '%s\n' "${names[@]}" | command grep -E -- "${LIST_OVERRIDE:-$2}" || true ;;
+  -test.paniconexit0) [[ $PWD == */internal/host && $0 == /* && $3 == 40m && $4 == -test.count=1 && $# == 6 ]]; printf '%s\n' "${names[@]}" | command grep -E -- "$6" >> "$RUN_LOG"; exit "${HOST_TEST_STATUS:-0}" ;;
+  *) exit 2 ;;
+esac
+MOCK
+chmod 700 "$scratch/fake-host.test"
+check_commands test-race-host-build "$host" <<EXPECTED
+root|| test -race -p 1 -c -o $host/host.test ./internal/host/
+EXPECTED
+diff -u - "$scratch/stdout" <<'EXPECTED'
+host race shard 1: 2 tests
+host race shard 2: 1 tests
+host race shard 3: 1 tests
+host race shard 4: 1 tests
+EXPECTED
+git -C "$root" rev-parse HEAD > "$host/source-head"
+(cd "$host" && sha256sum host.test > host.test.sha256)
+[[ $("$root/scripts/check.sh" test-race-host-shards) == '[1,2,3,4]' ]]
+: > "$scratch/runs"
+for shard in 1 2 3 4; do
+  RUN_LOG="$scratch/runs" "$root/scripts/check.sh" test-race-host-shard "$shard" "$(realpath --relative-to="$root" "$host")" > /dev/null
+done
+printf '%s\n' ExampleHostRace FuzzHostRace TestHostRaceFixtureA TestHostRaceFixtureB TestNewHostTest > "$scratch/expected"
+LC_ALL=C sort "$scratch/runs" | diff -u "$scratch/expected" -
+if HOST_TEST_STATUS=17 RUN_LOG="$scratch/failed-run" "$root/scripts/check.sh" test-race-host-shard 1 "$host" > "$scratch/invalid" 2>&1; then
+  echo 'Host race test failure must fail its shard.' >&2
+  exit 1
+else
+  [[ $? == 17 ]]
+fi
+expect_host_race_refusal() {
+  if RUN_LOG="$scratch/refused" "$root/scripts/check.sh" test-race-host-shard "$@" > "$scratch/invalid" 2>&1; then
+    printf 'Host race shard must refuse: %s\n' "$*" >&2
+    exit 1
+  fi
+}
+for shard in 0 5 x 1x ''; do
+  expect_host_race_refusal "$shard" "$host"
+done
+LIST_OVERRIDE=. expect_host_race_refusal 1 "$host"
+printf '0000000000000000000000000000000000000000\n' > "$host/source-head"
+expect_host_race_refusal 1 "$host"
+git -C "$root" rev-parse HEAD > "$host/source-head"
+printf '\n' >> "$host/host.test"
+expect_host_race_refusal 1 "$host"
+[[ ! -e $scratch/refused ]]
 printf 'CI classifier and exact Go command tests passed.\n'

@@ -35,6 +35,12 @@ func TestModuleNativeDiagnosticsKeepOnlyBoundedMarkerState(t *testing.T) {
 }
 
 func TestModuleChildStopReasonsKeepWaitCauseAndNeverAcceptFailure(t *testing.T) {
+	if script := os.Getenv("BRINE_MODULE_CHILD_STOP_SCRIPT"); script != "" {
+		// A background runner may inherit ignored SIGINT. Catch it before exec so
+		// the shell starts with the default disposition instead of ignoring it.
+		signal.Notify(make(chan os.Signal, 1), os.Interrupt)
+		t.Fatal(syscall.Exec("/bin/sh", []string{"sh", "-c", script}, os.Environ())) //nolint:gosec // Only the parent fixture supplies these closed status scripts.
+	}
 	for _, phase := range []string{"interrupt", "context", "budget"} {
 		original := engineChildStopError{phase: phase, cause: errEngineSource}
 		if got := moduleChildStopFailureCode(original, false); got != "guest_child_stop_"+phase || !errors.Is(original, errEngineSource) {
@@ -59,7 +65,6 @@ func TestModuleChildStopReasonsKeepWaitCauseAndNeverAcceptFailure(t *testing.T) 
 func checkModuleChildStopStatus(t *testing.T, name string, status syscall.WaitStatus, panicMarker bool, code string) {
 	t.Helper()
 	// Real subprocess wait status comes from the fixture's selected exit behavior.
-	path := "/bin/sh"
 	script := "exit 7"
 	if status == 1<<8 {
 		script = "exit 1"
@@ -67,8 +72,16 @@ func checkModuleChildStopStatus(t *testing.T, name string, status syscall.WaitSt
 	if status.Signaled() {
 		script = "kill -" + strconv.Itoa(int(status.Signal())) + " $$"
 	}
-	command := exec.CommandContext(t.Context(), path, "-c", script) //nolint:gosec // Closed test-only scripts chosen above, no caller input.
-	err := command.Run()
+	path, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := localexec.StartForeground(t.Context(), localexec.ForegroundCommand{Path: path, Args: []string{"-test.run=^TestModuleChildStopReasonsKeepWaitCauseAndNeverAcceptFailure$"}, Env: []string{"PATH=/usr/bin:/bin", "BRINE_MODULE_CHILD_STOP_SCRIPT=" + script}, Dir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.KillGroup() }()
+	err = <-child.Done()
 	var wait *exec.ExitError
 	if !errors.As(err, &wait) {
 		t.Fatal("wait-status fixture did not fail", name, err)

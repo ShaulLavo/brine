@@ -123,8 +123,10 @@ Phase 08's [UDP-only delivery](plans/08-udp.md) runs now against the completed
 Phase 02/03 foundations, independently of previews and Phase 09 completion. It
 prepares game-server networking while SpacetimeDB progresses separately. Optional
 TLS delivery, WebTransport probes, shared UDP 443 and transport previews follow
-under the [extension plan](plans/08-webtransport.md). Shared ingress still
-coordinates with P07-01; transport previews retain both phases' authorization gates.
+under the [extension plan](plans/08-webtransport.md), approved but scheduled for
+when a released Caddy version supports WebTransport session proxying. Shared
+ingress still coordinates with P07-01; transport previews retain both phases'
+authorization gates.
 
 **Start with P00-01.** Phases are intended as small, reviewable pull requests, not a single mega-implementation. TUI styling can be prototyped against fake data after phase 00, but must not be represented as a working deployment engine.
 

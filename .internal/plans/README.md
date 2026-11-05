@@ -13,7 +13,7 @@ Start with [the roadmap](../PLAN.md) and [decisions](../../docs/DECISIONS.md), t
 | 06 | [Release and operations](06-release-and-ops.md) | Permission boundaries, drills, distribution |
 | 07 | [Drops and previews](07-drops-and-previews.md) | Temporary sites, short links, git previews |
 | 08 | [UDP game servers](08-udp.md), [design](08-udp-design.md) | Direct UDP publishing, ownership, lifecycle and physical recovery; execute before previews |
-| 08 extensions | [WebTransport](08-webtransport.md) | Optional TLS files/protocol probes, shared UDP 443 and transport previews |
+| 08 extensions | [WebTransport](08-webtransport.md) | Optional TLS files/protocol probes, shared UDP 443 and transport previews. Approved, scheduled later: starts with a released Caddy WebTransport session proxy |
 | 09 | [Managed SpacetimeDB](09-spacetimedb.md) | SQLite-preserving engine boundary, standalone service, fenced backups, reviewed publish and Pi drill |
 | 10 | [Easy app data](10-easy-data.md) | Environment contract, schema files in the app repo, init without sudo, one-command first deploy |
 

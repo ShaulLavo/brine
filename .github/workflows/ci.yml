@@ -68,7 +68,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [store, host, rest]
+        shard: [store, rest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/go-ci
@@ -76,6 +76,57 @@ jobs:
         with:
           role: race-${{ matrix.shard }}
       - run: ./scripts/check.sh test-race-${{ matrix.shard }}
+        if: needs.changes.outputs.scope != 'docs'
+      - name: Documentation-only change has no race inputs
+        if: needs.changes.outputs.scope == 'docs'
+        run: echo 'Normal Go tests, vet, format and documentation contracts still run in full.'
+
+  race-host-build:
+    needs: changes
+    if: always()
+    name: Race tests (host build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/go-ci
+        if: needs.changes.outputs.scope != 'docs'
+        with:
+          role: race-host
+      # Build the race test binary once and prove every test belongs to one shard.
+      - run: ./scripts/check.sh test-race-host-build "$RUNNER_TEMP/host-race"
+        if: needs.changes.outputs.scope != 'docs'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: needs.changes.outputs.scope != 'docs'
+        with:
+          name: host-race-${{ github.sha }}
+          path: ${{ runner.temp }}/host-race/
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+      - name: Documentation-only change has no race inputs
+        if: needs.changes.outputs.scope == 'docs'
+        run: echo 'Normal Go tests, vet, format and documentation contracts still run in full.'
+
+  race-host:
+    needs: [changes, race-host-build]
+    if: always() && needs.race-host-build.result == 'success'
+    name: Race tests (host ${{ matrix.shard }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ["1", "2", "3", "4"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The prebuilt binary needs no Go toolchain or build cache, only this checkout's testdata.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        if: needs.changes.outputs.scope != 'docs'
+        with:
+          name: host-race-${{ github.sha }}
+          path: ${{ runner.temp }}/host-race
+      - run: chmod +x "$RUNNER_TEMP/host-race/host.test" && ./scripts/check.sh test-race-host-shard ${{ matrix.shard }} "$RUNNER_TEMP/host-race"
         if: needs.changes.outputs.scope != 'docs'
       - name: Documentation-only change has no race inputs
         if: needs.changes.outputs.scope == 'docs'
@@ -135,7 +186,7 @@ jobs:
   gate:
     name: Complete CI gate
     if: always()
-    needs: [changes, test, race, lint, structure, vulnerability, cli-pair]
+    needs: [changes, test, race, race-host-build, race-host, lint, structure, vulnerability, cli-pair]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every CI job
@@ -144,10 +195,12 @@ jobs:
           SCOPE: ${{ needs.changes.outputs.scope }}
           TEST: ${{ needs.test.result }}
           RACE: ${{ needs.race.result }}
+          RACE_HOST_BUILD: ${{ needs.race-host-build.result }}
+          RACE_HOST: ${{ needs.race-host.result }}
           LINT: ${{ needs.lint.result }}
           STRUCTURE: ${{ needs.structure.result }}
           VULNERABILITY: ${{ needs.vulnerability.result }}
           CLI_PAIR: ${{ needs.cli-pair.result }}
         run: |
           [[ $CHANGES == success && ( $SCOPE == full || $SCOPE == docs ) ]]
-          [[ $TEST == success && $RACE == success && $LINT == success && $STRUCTURE == success && $VULNERABILITY == success && $CLI_PAIR == success ]]
+          [[ $TEST == success && $RACE == success && $RACE_HOST_BUILD == success && $RACE_HOST == success && $LINT == success && $STRUCTURE == success && $VULNERABILITY == success && $CLI_PAIR == success ]]
