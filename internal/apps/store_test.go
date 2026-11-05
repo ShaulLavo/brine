@@ -12,6 +12,8 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -39,6 +41,8 @@ func TestRollbackPersistsExactDesiredWithoutApplying(t *testing.T) {
 	current := fake.state.Releases[0]
 	oldDesired := fake.desired["old-plan"]
 	oldDesired.Environment = []policy.Environment{{Name: "APP_ENV", Value: "PLANTED_PRIVATE_SETTING"}}
+	oldDesired.Domains = []spec.Domain{"previous.example.com"}
+	want := map[string]Release{}
 	for _, r := range []struct {
 		id      string
 		desired policy.Desired
@@ -53,14 +57,26 @@ func TestRollbackPersistsExactDesiredWithoutApplying(t *testing.T) {
 			t.Fatal(e)
 		}
 		release := ops.Release{ID: r.id, PlanID: id, Image: r.image, HostPort: p.HostPort, Secrets: p.Secrets, Units: current.Units, CaddyFile: current.CaddyFile, CaddyGeneration: snap.CaddyConfig.Value.Generation}
+		want[r.id] = Release{ID: r.id, PlanID: id, ImageDigest: r.image.Digest, Port: p.HostPort, Domains: r.desired.Domains}
 		if e := db.CommitRelease(ctx, "hello", release); e != nil {
 			t.Fatal(e)
 		}
 	}
 	service.Store = db
+	active := target.Known(true)
+	(*snap.Apps.Value)[0].UnitActive = &active
+	service.Inventory = inventory{snap}
 	report, e := service.Status(ctx, "hello")
 	if e != nil {
 		t.Fatal(e)
+	}
+	if len(report.Apps) != 1 {
+		t.Fatal(report)
+	}
+	item := report.Apps[0]
+	currentView, previousView := want["current"], want["previous"]
+	if !reflect.DeepEqual(item.Current, &currentView) || !reflect.DeepEqual(item.Previous, &previousView) || item.LastOperation != nil || item.Drift.State != "in_sync" || item.Health.Direct != "healthy" {
+		t.Fatalf("real-store status metadata changed: %+v", item)
 	}
 	encoded, e := json.Marshal(report)
 	if e != nil {
@@ -96,5 +112,25 @@ func TestRollbackPersistsExactDesiredWithoutApplying(t *testing.T) {
 	}
 	if planned.Diff.Environment == nil || len(planned.Diff.Environment.Added) != 1 {
 		t.Fatal(planned.Diff)
+	}
+}
+
+type failingStatusStateStore struct {
+	Store
+	err error
+}
+
+func (s failingStatusStateStore) LoadBrineState(context.Context, target.Identity, uint64) (plan.BrineState, error) {
+	return plan.BrineState{}, s.err
+}
+
+func TestStatusCurrentStateFailuresKeepClassification(t *testing.T) {
+	for _, failure := range []error{&store.IntegrityError{}, store.ErrNotFound, context.Canceled} {
+		service, state, _ := fixture(t)
+		service.Store = failingStatusStateStore{Store: state, err: failure}
+		report, err := service.Status(context.Background(), "hello")
+		if !errors.Is(err, failure) || result.Classify(err).Code() != result.Classify(failure).Code() || len(state.releaseReads) != 0 || len(report.Apps) != 0 {
+			t.Fatalf("state failure changed: %v; reads %v; report %+v", err, state.releaseReads, report)
+		}
 	}
 }

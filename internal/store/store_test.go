@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -721,5 +722,140 @@ func TestAppHistoryQueries(t *testing.T) {
 	}
 	if _, e = s.LastOperation(ctx, "hello"); e == nil {
 		t.Fatal("tampered plan accepted")
+	}
+}
+
+func TestLoadBrineStateCurrentPlanID(t *testing.T) {
+	s := openTest(t)
+	r := release(t, s, "current")
+	if err := s.CommitRelease(t.Context(), "hello", r); err != nil {
+		t.Fatal(err)
+	}
+	in := fixture(t)
+	in.Desired.Name = "zeta"
+	in.Desired.Domains = []spec.Domain{"zeta.example.com"}
+	p, err := plan.Build(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.SavePlan(t.Context(), p, in.Desired)
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := Release{ID: "zeta-current", PlanID: id, Image: p.Image, HostPort: p.HostPort, Secrets: p.Secrets, Units: []target.Unit{{Name: "zeta.container", Hash: r.Units[0].Hash}}, CaddyFile: target.CaddyFile{Name: "zeta.caddy", Hash: r.CaddyFile.Hash}}
+	if err := s.CommitRelease(t.Context(), "zeta", other); err != nil {
+		t.Fatal(err)
+	}
+	state, err := s.LoadBrineState(t.Context(), in.Snapshot.Identity, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Releases) != 2 || state.Releases[0].App != "hello" || state.Releases[0].PlanID != r.PlanID || state.Releases[1].App != "zeta" || state.Releases[1].PlanID != id || id == r.PlanID {
+		t.Fatalf("validated current plan IDs missing or crossed apps: %+v", state.Releases)
+	}
+}
+
+func TestLoadBrineStateRejectsCurrentIntegrityFailures(t *testing.T) {
+	for _, kind := range []string{"release_body", "release_hash", "release_id", "release_plan", "release_image", "plan_body", "plan_hash", "plan_app", "plan_policy", "plan_schema", "desired_body", "desired_hash", "target"} {
+		t.Run(kind, func(t *testing.T) { checkCurrentIntegrityFailure(t, kind) })
+	}
+}
+
+func checkCurrentIntegrityFailure(t *testing.T, kind string) {
+	t.Helper()
+	s := openTest(t)
+	r := release(t, s, "current")
+	if err := s.CommitRelease(t.Context(), "hello", r); err != nil {
+		t.Fatal(err)
+	}
+	identity := fixture(t).Snapshot.Identity
+	if kind == "target" {
+		identity.ID = "different-target"
+	} else {
+		corruptCurrentRecord(t, s, r, kind)
+	}
+	state, err := s.LoadBrineState(t.Context(), identity, 1)
+	var integrity *IntegrityError
+	if !errors.As(err, &integrity) || len(state.Releases) != 0 {
+		t.Fatalf("corrupt %s returned state %+v, error %v", kind, state.Releases, err)
+	}
+}
+
+func corruptCurrentRecord(t *testing.T, s *Store, r Release, kind string) {
+	t.Helper()
+	if strings.HasPrefix(kind, "release_") {
+		corruptReleaseRecord(t, s, r, kind)
+		return
+	}
+	p, _, err := s.LoadPlan(t.Context(), r.PlanID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw []byte
+	switch kind {
+	case "plan_body", "desired_body":
+		raw = []byte(`{}`)
+	case "plan_hash", "desired_hash":
+		raw = []byte("sha256:" + strings.Repeat("f", 64))
+	case "plan_app", "plan_policy", "plan_schema":
+		if kind == "plan_app" {
+			p.App = "other"
+		}
+		if kind == "plan_policy" {
+			p.PolicyVersion = "other-policy"
+		}
+		if kind == "plan_schema" {
+			p.SchemaVersion++
+		}
+		raw, err = p.CanonicalBytes()
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	queries := map[string]string{
+		"plan_body":    "UPDATE plans SET canonical=? WHERE id=?",
+		"plan_hash":    "UPDATE plans SET content_hash=? WHERE id=?",
+		"desired_body": "UPDATE plans SET desired=? WHERE id=?",
+		"desired_hash": "UPDATE plans SET desired_hash=? WHERE id=?",
+	}
+	if query, ok := queries[kind]; ok {
+		_, err = s.db.ExecContext(t.Context(), query, raw, r.PlanID)
+	} else {
+		_, err = s.db.ExecContext(t.Context(), "UPDATE plans SET canonical=?,content_hash=? WHERE id=?", raw, digest(raw), r.PlanID)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func corruptReleaseRecord(t *testing.T, s *Store, r Release, kind string) {
+	t.Helper()
+	if _, err := s.db.ExecContext(t.Context(), "DROP TRIGGER releases_no_update"); err != nil {
+		t.Fatal(err)
+	}
+	if kind == "release_hash" {
+		if _, err := s.db.ExecContext(t.Context(), "UPDATE releases SET content_hash='invalid' WHERE id=?", r.ID); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
+	id := r.ID
+	switch kind {
+	case "release_id":
+		r.ID = "another-release"
+	case "release_plan":
+		r.PlanID = "another-plan"
+	case "release_image":
+		r.Image.Digest = "sha256:" + strings.Repeat("e", 64)
+	}
+	raw, err := json.Marshal(r)
+	if kind == "release_body" {
+		raw = []byte(`{}`)
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(t.Context(), "UPDATE releases SET content=?,content_hash=? WHERE id=?", raw, digest(raw), id); err != nil {
+		t.Fatal(err)
 	}
 }

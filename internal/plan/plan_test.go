@@ -604,3 +604,33 @@ func TestOwnFailedAppRemainsConservative(t *testing.T) {
 		t.Fatalf("failed app accepted: %+v", p)
 	}
 }
+
+func TestCurrentPlanIDDoesNotChangeCanonicalState(t *testing.T) {
+	in := installed(t)
+	before, err := json.Marshal(in.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := canonicalState(in.State)
+	if err != nil {
+		t.Fatal(err)
+	}
+	baseline := build(t, in)
+	in.State.Releases[0].PlanID = "sha256:" + strings.Repeat("e", 64)
+	after, err := json.Marshal(in.State)
+	if err != nil || !bytes.Equal(before, after) {
+		t.Fatalf("runtime metadata changed serialized state: %v", err)
+	}
+	got, err := canonicalState(in.State)
+	if err != nil || !bytes.Equal(canonical, got) {
+		t.Fatalf("runtime metadata changed canonical state: %v", err)
+	}
+	next := build(t, in)
+	if baseline.Hash != next.Hash || !bytes.Equal(baseline.DecisionInput(), next.DecisionInput()) {
+		t.Fatal("runtime metadata changed the decision fingerprint")
+	}
+	var decoded BrineState
+	if err := json.Unmarshal(after, &decoded); err != nil || decoded.Releases[0].PlanID != "" {
+		t.Fatalf("runtime metadata survived state serialization: %v", err)
+	}
+}

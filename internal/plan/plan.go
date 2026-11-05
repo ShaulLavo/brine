@@ -111,6 +111,7 @@ type DataIncarnation struct {
 }
 
 type CurrentRelease struct {
+	PlanID          string              `json:"-"`
 	UDP             *UDPAllocation      `json:"udp,omitempty"`
 	App             string              `json:"app"`
 	ID              string              `json:"id"`
