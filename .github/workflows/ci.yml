@@ -87,12 +87,8 @@ jobs:
     name: Race tests (host build)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    outputs:
-      shards: ${{ steps.shards.outputs.shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - id: shards
-        run: printf 'shards=%s\n' "$(./scripts/check.sh test-race-host-shards)" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/go-ci
         if: needs.changes.outputs.scope != 'docs'
         with:
@@ -121,7 +117,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: ${{ fromJSON(needs.race-host-build.outputs.shards) }}
+        shard: ["1", "2", "3", "4"]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # The prebuilt binary needs no Go toolchain or build cache, only this checkout's testdata.
