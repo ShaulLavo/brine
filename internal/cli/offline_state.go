@@ -44,16 +44,7 @@ func checkStateJSON(decoder *json.Decoder, t reflect.Type) error {
 		if token != json.Delim('{') {
 			return fmt.Errorf("state object required")
 		}
-		fields := map[string]reflect.Type{}
-		required := map[string]bool{}
-		for i := 0; i < t.NumField(); i++ {
-			field := t.Field(i)
-			tag := strings.Split(field.Tag.Get("json"), ",")
-			fields[tag[0]] = field.Type
-			if len(tag) == 1 || tag[1] != "omitempty" {
-				required[tag[0]] = true
-			}
-		}
+		fields, required := stateJSONFields(t)
 		seen := map[string]bool{}
 		for decoder.More() {
 			token, err := decoder.Token()
@@ -107,4 +98,21 @@ func checkStateJSON(decoder *json.Decoder, t reflect.Type) error {
 		}
 	}
 	return nil
+}
+
+func stateJSONFields(t reflect.Type) (map[string]reflect.Type, map[string]bool) {
+	fields := map[string]reflect.Type{}
+	required := map[string]bool{}
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		tag := strings.Split(field.Tag.Get("json"), ",")
+		if tag[0] == "-" {
+			continue
+		}
+		fields[tag[0]] = field.Type
+		if len(tag) == 1 || tag[1] != "omitempty" {
+			required[tag[0]] = true
+		}
+	}
+	return fields, required
 }

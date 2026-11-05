@@ -489,3 +489,25 @@ func TestOfflineStateKnownManifest(t *testing.T) {
 		t.Fatal("offline CLI promoted retained metadata to a verified manifest")
 	}
 }
+
+func TestOfflineStateRuntimePlanIDStaysOutsideSchema(t *testing.T) {
+	raw, err := os.ReadFile(offlineExamples + "brine-state.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := decodeBrineState(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Releases[0].PlanID = "sha256:" + strings.Repeat("e", 64)
+	encoded, err := json.Marshal(state)
+	if err != nil || !bytes.Equal(bytes.TrimSpace(raw), encoded) {
+		t.Fatalf("runtime metadata changed offline state bytes: %v", err)
+	}
+	for _, key := range []string{"plan_id", "PlanID", "-"} {
+		injected := bytes.Replace(encoded, []byte(`"releases":[{`), []byte(`"releases":[{"`+key+`":"injected",`), 1)
+		if _, err := decodeBrineState(injected); err == nil {
+			t.Fatalf("accepted runtime metadata key %q", key)
+		}
+	}
+}
