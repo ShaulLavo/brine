@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -64,20 +65,7 @@ func newLifecycleCmd(deps Dependencies, modes *machineModes, verb string, action
 	var includeEngine bool
 	var flags operationFlags
 	cmd := &cobra.Command{Use: verb + " APP --target NAME", Short: "Plan to " + verb + " the app's owned unit", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if !dispatch.ValidApp(args[0]) {
-			return result.New(result.InvalidUsage, nil)
-		}
-		var response result.Envelope
-		var err error
-		if includeEngine {
-			response, err = flags.call(cmd.Context(), deps, "engine_stop", dispatch.EngineStopArgs{App: args[0]})
-		} else {
-			response, err = flags.call(cmd.Context(), deps, "lifecycle", dispatch.LifecycleArgs{App: args[0], Action: action})
-		}
-		if err != nil {
-			return err
-		}
-		return configOutput(cmd, response, *modes, flags)
+		return lifecycleOutput(cmd, deps, flags, args[0], action, includeEngine, *modes)
 	}}
 	flags.register(cmd)
 	if action == plan.StopApp {
@@ -85,11 +73,48 @@ func newLifecycleCmd(deps Dependencies, modes *machineModes, verb string, action
 	}
 	return cmd
 }
+func lifecycleOutput(cmd *cobra.Command, deps Dependencies, flags operationFlags, app string, action plan.ChangeKind, includeEngine bool, modes machineModes) error {
+	if includeEngine {
+		if !dispatch.ValidApp(app) {
+			return result.New(result.InvalidUsage, nil)
+		}
+		response, err := flags.call(cmd.Context(), deps, "engine_stop", dispatch.EngineStopArgs{App: app})
+		if err != nil {
+			return err
+		}
+		return configOutput(cmd, response, modes, flags)
+	}
+	p, err := planLifecycle(cmd.Context(), deps, flags, app, action)
+	if err != nil {
+		return err
+	}
+	return configPlanOutput(cmd, p, modes, flags)
+}
+
+func planLifecycle(ctx context.Context, deps Dependencies, flags operationFlags, app string, action plan.ChangeKind) (apps.ConfigPlan, error) {
+	if !dispatch.ValidApp(app) {
+		return apps.ConfigPlan{}, result.New(result.InvalidUsage, nil)
+	}
+	response, err := flags.call(ctx, deps, "lifecycle", dispatch.LifecycleArgs{App: app, Action: action})
+	if err != nil {
+		return apps.ConfigPlan{}, err
+	}
+	p, ok := response.Data.(apps.ConfigPlan)
+	if !response.OK || !ok {
+		return apps.ConfigPlan{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	return p, nil
+}
+
 func configOutput(cmd *cobra.Command, response result.Envelope, modes machineModes, flags operationFlags) error {
 	p, ok := response.Data.(apps.ConfigPlan)
 	if !response.OK || !ok {
 		return result.New(result.TransportInvalidResponse, nil)
 	}
+	return configPlanOutput(cmd, p, modes, flags)
+}
+
+func configPlanOutput(cmd *cobra.Command, p apps.ConfigPlan, modes machineModes, flags operationFlags) error {
 	if modes.enabled() {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), p))
 	}

@@ -2,10 +2,27 @@ package cli
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/ops"
 )
+
+func recoveryGuidance(f operationFlags, op ops.Operation, events []ops.Event, complete bool) string {
+	if op.State == ops.LaunchUnknown {
+		return fmt.Sprintf("Operation %s launch outcome is not known; do not relaunch. Inspect launch uncertainty with: %s", op.ID, f.command("reconcile", "--dry-run"))
+	}
+	if op.State != ops.RecoveryRequired {
+		return ""
+	}
+	if op.Kind == ops.Reconcile {
+		return "Inspect affected app operation status; preview remaining recovery with: " + f.command("reconcile", "--dry-run")
+	}
+	if complete && resolutionPrefixSupported(op, events) {
+		return "Inspect supported recovery with: " + f.command("resolve", op.ID)
+	}
+	return "Inspect the full recorded history and live app state; supported automatic resolution is not established for this receipt."
+}
 
 // This is journal eligibility, not a live-state safety assessment. Status only
 // offers inspection for a complete supported prefix; diagnose has no prefix
