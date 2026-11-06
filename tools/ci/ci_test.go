@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"reflect"
@@ -9,6 +10,51 @@ import (
 
 	"go.yaml.in/yaml/v3"
 )
+
+type concurrency struct {
+	Group            string
+	CancelInProgress string `yaml:"cancel-in-progress"`
+}
+
+func validateConcurrency(c concurrency) error {
+	if c.Group != "${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}" {
+		return fmt.Errorf("CI concurrency must group PRs by number and other runs by run ID")
+	}
+	if c.CancelInProgress != "${{ github.event_name == 'pull_request' }}" {
+		return fmt.Errorf("CI concurrency must cancel only pull request runs")
+	}
+	return nil
+}
+
+func TestCIConcurrency(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct{ Concurrency concurrency }
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	if err := validateConcurrency(workflow.Concurrency); err != nil {
+		t.Fatal(err)
+	}
+	for name, changed := range map[string]concurrency{
+		"missing group":              {CancelInProgress: workflow.Concurrency.CancelInProgress},
+		"unconditional cancellation": {Group: workflow.Concurrency.Group, CancelInProgress: "true"},
+		"wrong grouping":             {Group: "${{ github.workflow }}-${{ github.ref }}", CancelInProgress: workflow.Concurrency.CancelInProgress},
+		"push ref fallback":          {Group: "${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}", CancelInProgress: workflow.Concurrency.CancelInProgress},
+	} {
+		if validateConcurrency(changed) == nil {
+			t.Errorf("%s must be rejected", name)
+		}
+	}
+	pushGroup := func(runID string) string {
+		return strings.NewReplacer("${{ github.workflow }}", "Go CI", "${{ github.event_name }}", "push", "${{ github.event.pull_request.number || github.run_id }}", runID).Replace(workflow.Concurrency.Group)
+	}
+	if pushGroup("100") == pushGroup("101") {
+		t.Fatal("distinct push runs must have distinct concurrency groups")
+	}
+}
 
 type step struct {
 	ContinueOnError bool `yaml:"continue-on-error"`
@@ -42,6 +88,21 @@ func TestCIWorkflow(t *testing.T) {
 	var workflow struct{ Jobs map[string]job }
 	if err := yaml.Unmarshal(data, &workflow); err != nil {
 		t.Fatal(err)
+	}
+	for _, id := range []string{"changes", "cli-pair", "helpers", "test", "race", "race-host-build", "race-host", "lint", "structure", "vulnerability", "gate"} {
+		if _, ok := workflow.Jobs[id]; !ok {
+			t.Errorf("required job %s is missing", id)
+		}
+	}
+	for id, j := range workflow.Jobs {
+		if j.ContinueOnError {
+			t.Errorf("job %s must remain blocking", id)
+		}
+		for _, s := range j.Steps {
+			if s.ContinueOnError {
+				t.Errorf("job %s has a nonblocking step", id)
+			}
+		}
 	}
 	expected := map[string]struct{ name, run, role string }{
 		"cli-pair":        {"Linux CLI binaries", `bash scripts/build-cli-pair.sh "$RUNNER_TEMP/brine-cli-pair"`, "cli-pair"},
