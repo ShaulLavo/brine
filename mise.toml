@@ -1,4 +1,6 @@
 [tools]
 go = "1.27.3"
+bun = "1.4.4"
+node = "26.12.1"
 golangci-lint = "2.14.0"
 lefthook = "2.1.15"

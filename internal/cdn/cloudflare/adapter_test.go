@@ -393,7 +393,10 @@ func TestNativeExposureIsASeparateExplicitWrite(t *testing.T) {
 func TestWorkerSemanticContract(t *testing.T) {
 	node, err := exec.LookPath("node")
 	if err != nil {
-		t.Skip("Node is required for native Request/Response Worker fixtures")
+		if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("BRINE_REQUIRE_NODE") == "1" {
+			t.Fatal("Node is required for native Request/Response Worker fixtures")
+		}
+		t.Skip("Node is required for native Request/Response Worker fixtures; scripts/check.sh test-normal requires it")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -702,5 +705,28 @@ func TestDirectPublicProofRejectsRemainingCDNMarkers(t *testing.T) {
 	}
 	if _, err = f.adapter.publicProof(q, read, read, read); err == nil {
 		t.Fatal("enabled proof accepted no actual later HIT")
+	}
+}
+
+func TestWorkerSemanticContractRequiresNode(t *testing.T) {
+	for _, required := range []string{"CI=true", "GITHUB_ACTIONS=true", "BRINE_REQUIRE_NODE=1"} {
+		t.Run(required, func(t *testing.T) { checkWorkerNodeRefusal(t, required) })
+	}
+}
+
+func checkWorkerNodeRefusal(t *testing.T, required string) {
+	t.Helper()
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, binary, "-test.run=^TestWorkerSemanticContract$", "-test.v") // #nosec G204 -- Re-executes this test binary with a fixed test selection and no external runtime.
+	cmd.Env = []string{"PATH=" + t.TempDir(), required}
+	output, err := cmd.CombinedOutput()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 || !bytes.Contains(output, []byte("Node is required")) || bytes.Contains(output, []byte("SKIP")) {
+		t.Fatalf("missing required Node must fail, not skip: %v\n%s", err, output)
 	}
 }
