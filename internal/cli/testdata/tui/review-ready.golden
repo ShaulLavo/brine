@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › review                                    update│
+────────────────────────────────────────────────────────────────────────────────│
+Restart fixture-api                                                             │
+plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    │
+Action: restart_app. Releases and app data stay unchanged.                      │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+a apply  ↑↓ scroll  esc discard                                                 │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m                                    \x1b[90mupdate\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"Action: restart_app. Releases and app data stay unchanged."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90ma apply  ↑↓ scroll  esc discard\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › review      update│
+──────────────────────────────────────────────────│
+Restart fixture-api                               │
+plan                                              │
+sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaa                             │
+Action: restart_app. Releases and app data stay un│
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+a apply  ↑↓ scroll  esc discard                   │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m      \x1b[90mupdate\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan"
+"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaa"
+"Action: restart_app. Releases and app data stay un"
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90ma apply  ↑↓ scroll  esc discard\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+Restart fixture-api           │
+plan                          │
+sha256:aaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaa                   │
+a apply  ↑↓ scroll  esc back  │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan"
+"sha256:aaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaa"
+"\x1b[90ma apply  ↑↓ scroll  esc back\x1b[m"

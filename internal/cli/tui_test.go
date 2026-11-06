@@ -42,6 +42,8 @@ type fakeTUIHost struct {
 	apps      func(context.Context) (apps.Report, error)
 	logs      func(context.Context, string) ([]logs.Line, error)
 	operation func(context.Context, string, uint64) (jobs.Status, error)
+	plan      func(context.Context, tuiAction, string) (tuiReview, error)
+	apply     func(context.Context, string, string) (jobs.Accepted, error)
 }
 
 func (h *fakeTUIHost) record(call string) {
@@ -98,6 +100,7 @@ func fixtureSession(ctx context.Context, host tuiHost, target string) tuiModel {
 		width:       80,
 		height:      24,
 		theme:       ui.NewTheme(true),
+		newKey:      randomOperationKey,
 		now:         func() time.Time { return fixtureReadTime },
 		loc:         time.UTC,
 	}

@@ -81,6 +81,9 @@ func tuiGoldenStates() map[string]tuiModel {
 	for name, m := range tuiOperationGoldenStates() {
 		states[name] = m
 	}
+	for name, m := range tuiActionGoldenStates() {
+		states[name] = m
+	}
 	return states
 }
 

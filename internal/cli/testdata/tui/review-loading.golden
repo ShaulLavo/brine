@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › review                                    update│
+────────────────────────────────────────────────────────────────────────────────│
+Planning restart for fixture-api on fixture…                                    │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+↑↓ scroll  esc discard                                                          │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m                                    \x1b[90mupdate\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Planning restart for fixture-api on fixture…"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ scroll  esc discard\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › review      update│
+──────────────────────────────────────────────────│
+Planning restart for fixture-api on fixture…      │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+↑↓ scroll  esc discard                            │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m      \x1b[90mupdate\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Planning restart for fixture-api on fixture…"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ scroll  esc discard\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+Planning restart for fixture- │
+api on fixture…               │
+                              │
+                              │
+                              │
+↑↓ scroll  esc back           │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Planning restart for fixture-"
+"api on fixture…"
+""
+""
+""
+"\x1b[90m↑↓ scroll  esc back\x1b[m"
