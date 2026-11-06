@@ -231,6 +231,9 @@ func commitSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, task sqliteprep.Task
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_sqlite_point_consumers VALUES(?,?,?,NULL,?)", consumer.PreparationID, consumer.OperationID, consumer.Kind, raw); err != nil {
 		return receipt, err
 	}
+	if err = completeSQLiteTaskTx(ctx, tx, task.OperationID, receipt); err != nil {
+		return receipt, err
+	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_sqlite_consumer_completions VALUES(?,?,?)", consumer.PreparationID, consumer.OperationID, f.ID); err != nil {
 		return receipt, err
 	}
@@ -241,7 +244,7 @@ func commitSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, task sqliteprep.Task
 	if changed, err := released.RowsAffected(); err != nil || changed != 1 {
 		return receipt, errors.Join(ErrConflict, err)
 	}
-	return receipt, completeSQLiteTaskTx(ctx, tx, task.OperationID, receipt)
+	return receipt, nil
 }
 
 // FailUnclaimed settles failed only after confirming in the same transaction

@@ -107,6 +107,12 @@ func TestReviewConsumerReadRequiresRealTaskJoin(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
+	// Exercise independent read validation even if an earlier writer lacked
+	// the new SQL identity and completion guards.
+	if _, err = fx.s.db.ExecContext(ctx, "DROP TRIGGER IF EXISTS data_sqlite_point_consumers_identity; DROP TRIGGER IF EXISTS data_sqlite_consumer_completions_exact"); err != nil {
+		t.Fatal(err)
+	}
+
 	if _, err = fx.s.db.ExecContext(ctx, "INSERT INTO data_sqlite_point_consumers VALUES(?,?,'abandon',NULL,?)", c.PreparationID, c.OperationID, raw); err != nil {
 		t.Fatal(err)
 	}
@@ -123,9 +129,11 @@ func TestReviewConsumerReadRequiresRealTaskJoin(t *testing.T) {
 
 func TestReviewSchemaRejectsNonHexSQLiteInput(t *testing.T) {
 	fx := newPrepFixture(t)
-	_, err := fx.s.db.Exec("INSERT INTO operations VALUES('invalid-hash',NULL,?,'invalid-hash','queued','t','t','sqlite_prepare',?,?,'')", prepRequester, fx.app, strings.Repeat("z", 64))
-	if err == nil {
-		t.Fatal("v35 operations constraint accepted a non-hex canonical input hash")
+	for _, digit := range []string{"z", "A"} {
+		_, err := fx.s.db.Exec("INSERT INTO operations VALUES(?,NULL,?,?,'queued','t','t','sqlite_prepare',?,?,'')", "invalid-hash-"+digit, prepRequester, "invalid-hash-"+digit, fx.app, strings.Repeat(digit, 64))
+		if err == nil {
+			t.Fatal("v35 operations constraint accepted a non-lowercase-hex canonical input hash")
+		}
 	}
 }
 
@@ -209,4 +217,63 @@ func TestReviewCredentialCrossedBindingControl(t *testing.T) {
 }
 func TestReviewCredentialCrossedEpochControl(t *testing.T) {
 	reviewCredentialScope(t, "$.epoch_id", prepID("8"), false)
+}
+
+func reviewSQLAbandonConsumer(t *testing.T) (*prepFixture, sqliteprep.Consumer) {
+	t.Helper()
+	fx := newPrepFixture(t)
+	fx.prepared(prepID("1"))
+	p := fx.preparation(prepID("1"))
+	task, _ := fx.preflight(sqliteprep.AbandonTask, prepID("1"), "")
+	digest, err := sqliteprep.Fingerprint(*p.point)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return fx, sqliteprep.Consumer{PreparationID: prepID("1"), OperationID: task.OperationID, Requester: task.Requester, App: task.App, InputSHA256: task.InputSHA256, Kind: sqliteprep.AbandonConsumer, PreparedSHA256: digest, PolicySHA256: p.intent.Scope.PolicySHA256, ClaimedAt: time.Now().UTC()}
+}
+
+func insertReviewConsumer(fx *prepFixture, c sqliteprep.Consumer) error {
+	raw, err := sqliteprep.Encode(c)
+	if err != nil {
+		return err
+	}
+	_, err = fx.s.db.ExecContext(context.Background(), "INSERT INTO data_sqlite_point_consumers VALUES(?,?,'abandon',NULL,?)", c.PreparationID, c.OperationID, raw)
+	return err
+}
+
+func TestReviewSQLRejectsCrossedConsumerIdentity(t *testing.T) {
+	fx, c := reviewSQLAbandonConsumer(t)
+	c.Requester = "deploy:" + strings.Repeat("b", 64)
+	if err := insertReviewConsumer(fx, c); err == nil {
+		t.Fatal("SQL accepted a consumer whose requester differs from its real task")
+	}
+}
+
+func TestReviewSQLRequiresSucceededConsumerCompletion(t *testing.T) {
+	fx, c := reviewSQLAbandonConsumer(t)
+	if err := insertReviewConsumer(fx, c); err != nil {
+		t.Fatal(err)
+	}
+	_, err := readSQLitePreparation(context.Background(), fx.s.db, c.PreparationID)
+	if err == nil {
+		t.Fatal("active abandon row must not be read as completed consumption")
+	}
+	var fence string
+	if err = fx.s.db.QueryRow("SELECT fence_id FROM data_sqlite_preparations WHERE id=?", c.PreparationID).Scan(&fence); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = fx.s.db.Exec("INSERT INTO data_sqlite_consumer_completions VALUES(?,?,?)", c.PreparationID, c.OperationID, fence); err == nil {
+		t.Fatal("SQL accepted a completion for an unfinished consumer operation")
+	}
+}
+
+func TestReviewSchemaRejectsNonHexInputIdentity(t *testing.T) {
+	fx := newPrepFixture(t)
+	fx.preflight(sqliteprep.PrepareTask, prepID("1"), "")
+	for _, digit := range []string{"z", "A"} {
+		_, err := fx.s.db.Exec("INSERT INTO data_sqlite_task_inputs SELECT ?,kind,app,database_id,preparation_id,supersedes,canonical FROM data_sqlite_task_inputs LIMIT 1", strings.Repeat(digit, 64))
+		if err == nil {
+			t.Fatal("v35 input constraint accepted a non-lowercase-hex identity")
+		}
+	}
 }

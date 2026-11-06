@@ -239,7 +239,7 @@ func TestSQLiteConsumersAreExclusive(t *testing.T) {
 	if _, err = fx.s.db.ExecContext(ctx, "INSERT INTO data_sqlite_point_consumers SELECT preparation_id,?,'abandon',NULL,canonical FROM data_sqlite_point_consumers LIMIT 1", loser.OperationID); err == nil {
 		t.Fatal("point consumed twice")
 	}
-	// An active reviewed consumer and an unused point both protect the fence.
+	// Unsupported reviewed task kinds cannot consume a protected point.
 	q := fx.preparation(prepID("2"))
 	other, _ := fx.preflight(sqliteprep.AbandonTask, prepID("2"), "")
 	digest, err := sqliteprep.Fingerprint(*q.point)
@@ -251,21 +251,19 @@ func TestSQLiteConsumersAreExclusive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = fx.s.db.ExecContext(ctx, "INSERT INTO data_sqlite_point_consumers VALUES(?,?,'reviewed_mutation',NULL,?)", prepID("2"), other.OperationID, reviewed); err != nil {
-		t.Fatal(err)
+	if _, err = fx.s.db.ExecContext(ctx, "INSERT INTO data_sqlite_point_consumers VALUES(?,?,'reviewed_mutation',NULL,?)", prepID("2"), other.OperationID, reviewed); err == nil {
+		t.Fatal("unsupported reviewed task kind consumed a protected point")
 	}
-	// A shape-only reviewed claim has no registered consumer operation yet.
-	// It must protect the fence without becoming valid historical consumption.
-	if _, err = readSQLitePreparation(ctx, fx.s.db, prepID("2")); err == nil {
-		t.Fatal("unsupported reviewed consumer accepted as joined authority")
+	if fx.preparation(prepID("2")).consumed {
+		t.Fatal("rejected reviewed claim changed consumption")
 	}
 	if _, err = fx.s.db.ExecContext(ctx, "INSERT INTO data_sqlite_consumer_completions VALUES(?,?,?)", prepID("1"), other.OperationID, q.intent.Fence.ID); err == nil {
-		t.Fatal("foreign completion admitted while a reviewed consumer is active")
+		t.Fatal("foreign completion admitted without a succeeded consumer task")
 	}
 	assertSQLiteFenceProtected(t, fx, q.intent.Fence)
 	abandon, in := fx.preflight(sqliteprep.AbandonTask, prepID("2"), "")
-	if _, err = fx.service(newPrepHostStopped(fx), nil).Abandon(ctx, abandon, in); err == nil {
-		t.Fatal("abandon released a fence held by an active consumer")
+	if _, err = fx.service(newPrepHostStopped(fx), nil).Abandon(ctx, abandon, in); err != nil {
+		t.Fatalf("rejected consumer stranded legitimate abandon: %v", err)
 	}
 }
 

@@ -106,6 +106,24 @@ WHEN NOT EXISTS (SELECT 1 FROM data_sqlite_preparations p JOIN data_fences f ON 
  OR (NEW.kind='reviewed_mutation' AND NOT EXISTS (SELECT 1 FROM data_sqlite_prepared_points WHERE preparation_id=NEW.preparation_id))
 BEGIN SELECT RAISE(ABORT,'unprotected SQLite point consumer'); END;
 
+CREATE TRIGGER data_sqlite_point_consumers_identity BEFORE INSERT ON data_sqlite_point_consumers
+WHEN NOT EXISTS (
+ SELECT 1 FROM operations o
+ JOIN data_sqlite_task_inputs i ON i.id=o.secret_ref
+ JOIN data_sqlite_preparations p ON p.id=NEW.preparation_id
+ JOIN operations previous ON previous.id=p.operation_id
+ WHERE o.id=NEW.operation_id AND o.state='preflight' AND i.kind=o.kind AND i.app=o.app AND i.database_id=p.database_id
+ AND previous.state IN ('succeeded','failed','recovery_required')
+ AND json_extract(NEW.canonical,'$.preparation_id')=NEW.preparation_id
+ AND json_extract(NEW.canonical,'$.operation_id')=NEW.operation_id
+ AND json_extract(NEW.canonical,'$.kind')=NEW.kind
+ AND json_extract(NEW.canonical,'$.app')=o.app AND o.app=json_extract(p.canonical,'$.task.app')
+ AND json_extract(NEW.canonical,'$.requester')=o.requester AND o.requester=json_extract(p.canonical,'$.task.requester')
+ AND json_extract(NEW.canonical,'$.input_sha256')=o.secret_ref
+ AND ((NEW.kind='supersede' AND o.kind='sqlite_prepare' AND i.preparation_id=NEW.successor_id AND i.supersedes=p.id AND json_extract(NEW.canonical,'$.successor_id')=NEW.successor_id)
+ OR (NEW.kind='abandon' AND o.kind='sqlite_prepare_abandon' AND i.preparation_id=p.id AND i.supersedes IS NULL)))
+BEGIN SELECT RAISE(ABORT,'SQLite consumer identity is not exact'); END;
+
 CREATE TABLE data_sqlite_consumer_completions(
  preparation_id TEXT PRIMARY KEY REFERENCES data_sqlite_point_consumers(preparation_id),
  operation_id TEXT NOT NULL UNIQUE REFERENCES operations(id),
@@ -113,7 +131,14 @@ CREATE TABLE data_sqlite_consumer_completions(
 CREATE TRIGGER data_sqlite_consumer_completions_no_update BEFORE UPDATE ON data_sqlite_consumer_completions BEGIN SELECT RAISE(ABORT,'immutable SQLite consumer completion'); END;
 CREATE TRIGGER data_sqlite_consumer_completions_no_delete BEFORE DELETE ON data_sqlite_consumer_completions BEGIN SELECT RAISE(ABORT,'immutable SQLite consumer completion'); END;
 CREATE TRIGGER data_sqlite_consumer_completions_exact BEFORE INSERT ON data_sqlite_consumer_completions
-WHEN NOT EXISTS (SELECT 1 FROM data_sqlite_point_consumers c JOIN data_sqlite_preparations p ON p.id=c.preparation_id WHERE c.preparation_id=NEW.preparation_id AND c.operation_id=NEW.operation_id AND c.kind IN ('abandon','reviewed_mutation') AND p.fence_id=NEW.fence_id)
+WHEN NOT EXISTS (SELECT 1 FROM data_sqlite_point_consumers c JOIN data_sqlite_preparations p ON p.id=c.preparation_id JOIN operations o ON o.id=c.operation_id JOIN operation_outcomes r ON r.operation_id=o.id
+ WHERE c.preparation_id=NEW.preparation_id AND c.operation_id=NEW.operation_id AND c.kind='abandon' AND p.fence_id=NEW.fence_id
+ AND o.kind='sqlite_prepare_abandon' AND o.state='succeeded'
+ AND json_extract(r.canonical,'$.receipt.preparation_id')=NEW.preparation_id
+ AND json_extract(r.canonical,'$.receipt.task.operation_id')=NEW.operation_id
+ AND json_extract(r.canonical,'$.receipt.outcome')='abandoned_stopped'
+ AND json_extract(r.canonical,'$.receipt.fence.id')=NEW.fence_id
+ AND json_extract(r.canonical,'$.receipt.fence.state')='released')
  OR EXISTS (SELECT 1 FROM data_sqlite_preparations p WHERE p.fence_id=NEW.fence_id AND NOT EXISTS (SELECT 1 FROM data_sqlite_point_consumers c WHERE c.preparation_id=p.id))
  OR EXISTS (SELECT 1 FROM data_sqlite_point_consumers c JOIN data_sqlite_preparations p ON p.id=c.preparation_id WHERE p.fence_id=NEW.fence_id AND c.kind='reviewed_mutation' AND c.preparation_id<>NEW.preparation_id AND NOT EXISTS (SELECT 1 FROM data_sqlite_consumer_completions d WHERE d.preparation_id=c.preparation_id))
 BEGIN SELECT RAISE(ABORT,'SQLite consumer completion is not exact'); END;
