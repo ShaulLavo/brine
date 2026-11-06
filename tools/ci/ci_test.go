@@ -95,14 +95,7 @@ func TestCIWorkflow(t *testing.T) {
 		}
 	}
 	for id, j := range workflow.Jobs {
-		if j.ContinueOnError {
-			t.Errorf("job %s must remain blocking", id)
-		}
-		for _, s := range j.Steps {
-			if s.ContinueOnError {
-				t.Errorf("job %s has a nonblocking step", id)
-			}
-		}
+		checkBlockingJob(t, id, j)
 	}
 	expected := map[string]struct{ name, run, role string }{
 		"cli-pair":        {"Linux CLI binaries", `bash scripts/build-cli-pair.sh "$RUNNER_TEMP/brine-cli-pair"`, "cli-pair"},
@@ -152,6 +145,18 @@ func TestCIWorkflow(t *testing.T) {
 	for key, id := range map[string]string{"CHANGES": "changes", "TEST": "test", "RACE": "race", "RACE_HOST_BUILD": "race-host-build", "RACE_HOST": "race-host", "LINT": "lint", "STRUCTURE": "structure", "VULNERABILITY": "vulnerability", "CLI_PAIR": "cli-pair", "HELPERS": "helpers"} {
 		if gate.Steps[0].Env[key] != "${{ needs."+id+".result }}" || !strings.Contains(gate.Steps[0].Run, "$"+key+" == success") {
 			t.Fatalf("gate must require %s to succeed", id)
+		}
+	}
+}
+
+func checkBlockingJob(t *testing.T, id string, j job) {
+	t.Helper()
+	if j.ContinueOnError {
+		t.Errorf("job %s must remain blocking", id)
+	}
+	for _, s := range j.Steps {
+		if s.ContinueOnError {
+			t.Errorf("job %s has a nonblocking step", id)
 		}
 	}
 }
