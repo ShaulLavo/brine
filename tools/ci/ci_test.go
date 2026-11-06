@@ -16,8 +16,11 @@ type concurrency struct {
 	CancelInProgress string `yaml:"cancel-in-progress"`
 }
 
+const readyPR = "${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}"
+const selectedRace = "${{ needs.changes.result == 'success' && needs.changes.outputs.scope != 'docs' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (always()) }}"
+
 func validateConcurrency(c concurrency) error {
-	if c.Group != "${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}" {
+	if c.Group != "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}" {
 		return fmt.Errorf("CI concurrency must group PRs by number and other runs by run ID")
 	}
 	if c.CancelInProgress != "${{ github.event_name == 'pull_request' }}" {
@@ -118,8 +121,8 @@ func TestCIWorkflow(t *testing.T) {
 	if !reflect.DeepEqual(race.Strategy.Matrix.Shard, []string{"store", "rest"}) {
 		t.Fatal("store and rest race shards must remain present")
 	}
-	if race.If != "always()" || race.Needs.Value != "changes" {
-		t.Fatal("classification failure must still run race tests")
+	if race.If != selectedRace || race.Needs.Value != "changes" {
+		t.Fatal("race tests must run for ready code changes after successful classification")
 	}
 	for _, s := range race.Steps {
 		if (s.Uses == "./.github/actions/go-ci" || strings.HasPrefix(s.Run, "./scripts/check.sh")) && s.If != "needs.changes.outputs.scope != 'docs'" {
@@ -142,9 +145,22 @@ func TestCIWorkflow(t *testing.T) {
 	if gate.Name != "Complete CI gate" || gate.If != "always()" || !reflect.DeepEqual(needs, []string{"changes", "test", "race", "race-host-build", "race-host", "lint", "structure", "vulnerability", "cli-pair", "helpers"}) {
 		t.Fatal("complete blocking gate changed")
 	}
+	checkGateSteps(t, gate.Steps)
+}
+
+func checkGateSteps(t *testing.T, steps []step) {
+	t.Helper()
+	if len(steps) != 2 || steps[0].If != "github.event_name == 'pull_request' && github.event.pull_request.draft" || !strings.Contains(steps[0].Run, "exit 1") {
+		t.Fatal("drafts must fail the required check before the complete result gate")
+	}
+	gate := steps[1]
 	for key, id := range map[string]string{"CHANGES": "changes", "TEST": "test", "RACE": "race", "RACE_HOST_BUILD": "race-host-build", "RACE_HOST": "race-host", "LINT": "lint", "STRUCTURE": "structure", "VULNERABILITY": "vulnerability", "CLI_PAIR": "cli-pair", "HELPERS": "helpers"} {
-		if gate.Steps[0].Env[key] != "${{ needs."+id+".result }}" || !strings.Contains(gate.Steps[0].Run, "$"+key+" == success") {
-			t.Fatalf("gate must require %s to succeed", id)
+		expected := "success"
+		if strings.HasPrefix(key, "RACE") {
+			expected = `"$expected"`
+		}
+		if gate.Env[key] != "${{ needs."+id+".result }}" || !strings.Contains(gate.Run, "$"+key+" == "+expected) {
+			t.Fatalf("gate lost the required result check for %s", id)
 		}
 	}
 }
@@ -163,7 +179,11 @@ func checkBlockingJob(t *testing.T, id string, j job) {
 
 func checkJob(t *testing.T, id string, j job, name, run, role string) {
 	t.Helper()
-	if j.Name != name || j.If != "" && id != "race" && id != "race-host-build" {
+	condition := readyPR
+	if id == "race" || id == "race-host-build" {
+		condition = selectedRace
+	}
+	if j.Name != name || j.If != condition {
 		t.Fatalf("%s name or condition changed: %+v", id, j)
 	}
 	var foundRun, foundCache bool
@@ -189,8 +209,8 @@ func checkRaceLimits(t *testing.T, j job) {
 func checkHostRaceWorkflow(t *testing.T, jobs map[string]job) {
 	t.Helper()
 	build, run := jobs["race-host-build"], jobs["race-host"]
-	if build.If != "always()" || build.Needs.Value != "changes" || build.Timeout != 45 {
-		t.Fatal("host build must retain its deadline and run on classification failure")
+	if build.If != selectedRace || build.Needs.Value != "changes" || build.Timeout != 45 {
+		t.Fatal("host build must retain its deadline and select ready code changes")
 	}
 	artifact := build.Steps[3]
 	if artifact.Uses != "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" || artifact.With["name"] != "host-race-${{ github.sha }}" || artifact.With["path"] != "${{ runner.temp }}/host-race/" || artifact.With["if-no-files-found"] != "error" {
@@ -200,7 +220,7 @@ func checkHostRaceWorkflow(t *testing.T, jobs map[string]job) {
 	if err := run.Needs.Decode(&needs); err != nil {
 		t.Fatal(err)
 	}
-	if run.Name != "Race tests (host ${{ matrix.shard }})" || run.If != "always() && needs.race-host-build.result == 'success'" || !reflect.DeepEqual(needs, []string{"changes", "race-host-build"}) {
+	if run.Name != "Race tests (host ${{ matrix.shard }})" || run.If != "${{ needs.changes.result == 'success' && needs.changes.outputs.scope != 'docs' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (always() && needs.race-host-build.result == 'success') }}" || !reflect.DeepEqual(needs, []string{"changes", "race-host-build"}) {
 		t.Fatal("host consumers must depend on a successful binary build")
 	}
 	checkRaceLimits(t, run)
@@ -292,7 +312,7 @@ func TestPureHelperWorkflow(t *testing.T) {
 		{Uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6", With: map[string]string{"bun-version": "1.4.4"}},
 		{Run: "./scripts/check.sh test-helpers"},
 	}
-	if helpers.Name != "Publication helper tests" || helpers.If != "" || helpers.ContinueOnError || len(helpers.Env) != 0 || len(helpers.Permissions) != 0 || !reflect.DeepEqual(helpers.Steps, want) {
+	if helpers.Name != "Publication helper tests" || helpers.If != readyPR || helpers.ContinueOnError || len(helpers.Env) != 0 || len(helpers.Permissions) != 0 || !reflect.DeepEqual(helpers.Steps, want) {
 		t.Fatal("mandatory helper job must only check out source, set up pinned Bun, and run the pure suite")
 	}
 	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) {

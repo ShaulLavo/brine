@@ -77,6 +77,10 @@ func TestCIGateRejectsEveryUnsuccessfulResult(t *testing.T) {
 	if len(parts) != 2 {
 		t.Fatal("missing final gate")
 	}
+	parts = strings.SplitN(parts[1], "      - name: Require every CI job\n", 2)
+	if len(parts) != 2 {
+		t.Fatal("missing complete result gate after draft admission")
+	}
 	parts = strings.SplitN(parts[1], "        run: |\n", 2)
 	if len(parts) != 2 {
 		t.Fatal("missing gate command")
@@ -97,14 +101,18 @@ func TestCIGateRejectsEveryUnsuccessfulResult(t *testing.T) {
 	}
 	for _, job := range jobs {
 		checkUnsuccessfulResults(t, command, jobs, job)
+		if strings.HasPrefix(job, "RACE") {
+			t.Run("docs/"+job+"/unexpected-success", func(t *testing.T) { runCIGate(t, command, jobs, "docs", job, "success", false) })
+		}
 	}
 }
 
 func checkUnsuccessfulResults(t *testing.T, command string, jobs []string, job string) {
 	t.Helper()
-	for _, result := range []string{"failure", "cancelled", "skipped", ""} {
+	for _, result := range []string{"failure", "cancelled", "skipped", "abandoned", ""} {
 		t.Run(job+"/"+result, func(t *testing.T) { runCIGate(t, command, jobs, "full", job, result, false) })
-		t.Run("docs/"+job+"/"+result, func(t *testing.T) { runCIGate(t, command, jobs, "docs", job, result, false) })
+		expectedSkip := strings.HasPrefix(job, "RACE") && result == "skipped"
+		t.Run("docs/"+job+"/"+result, func(t *testing.T) { runCIGate(t, command, jobs, "docs", job, result, expectedSkip) })
 	}
 }
 
@@ -116,6 +124,9 @@ func runCIGate(t *testing.T, command string, jobs []string, scope, changed, resu
 	cmd.Env = []string{"PATH=" + os.Getenv("PATH"), "SCOPE=" + scope}
 	for _, job := range jobs {
 		value := "success"
+		if scope == "docs" && strings.HasPrefix(job, "RACE") {
+			value = "skipped"
+		}
 		if job == changed {
 			value = result
 		}
