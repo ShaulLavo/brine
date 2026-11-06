@@ -24,21 +24,7 @@ func (e *acceptedTaskFailure) Unwrap() error { return e.cause }
 // A no-wait caller receives the accepted operation ID and can query status later.
 func (f operationFlags) waitTask(ctx context.Context, deps Dependencies, accepted jobs.Accepted, kind ops.Kind, noWait bool) (any, error) {
 	return waitAcceptedTask(ctx, accepted, kind, noWait, func(ctx context.Context, args dispatch.OperationArgs) (jobs.Status, error) {
-		response, err := f.call(ctx, deps, "operation", args)
-		if err != nil {
-			return jobs.Status{}, err
-		}
-		if !response.OK {
-			if response.Error == nil || !result.KnownCode(response.Error.Code) {
-				return jobs.Status{}, result.New(result.TransportInvalidResponse, nil)
-			}
-			return jobs.Status{}, result.New(response.Error.Code, nil)
-		}
-		status, ok := response.Data.(jobs.Status)
-		if !ok {
-			return jobs.Status{}, result.New(result.TransportInvalidResponse, nil)
-		}
-		return status, nil
+		return readOperationPage(ctx, deps, f, args.OperationID, args.AfterCursor)
 	})
 }
 
@@ -62,24 +48,15 @@ func waitAcceptedTask(ctx context.Context, accepted jobs.Accepted, kind ops.Kind
 		if err != nil {
 			return nil, err
 		}
-		if status.Operation.ID != accepted.OperationID || status.Operation.Kind != kind || status.NextCursor < cursor {
+		if err := checkOperationPage(accepted.OperationID, cursor, status); err != nil {
+			return nil, err
+		}
+		if status.Operation.Kind != kind {
 			return nil, result.New(result.TransportInvalidResponse, nil)
 		}
 		cursor = status.NextCursor
 		if status.Operation.State.IsTerminal() {
-			if status.Outcome == nil && status.Operation.State != ops.Succeeded {
-				if status.Operation.State == ops.RecoveryRequired {
-					return nil, result.New(result.RecoveryRequired, nil)
-				}
-				return nil, result.New(result.InternalError, nil)
-			}
-			if status.Outcome == nil || !status.Outcome.Valid(status.Operation) {
-				return nil, result.New(result.TransportInvalidResponse, nil)
-			}
-			if status.Outcome.Error != "" {
-				return nil, result.New(status.Outcome.Error, nil)
-			}
-			return ops.DecodeTaskReceipt(status.Operation, status.Outcome.Receipt)
+			return terminalTaskResult(status)
 		}
 		timer := time.NewTimer(time.Second)
 		select {
@@ -89,4 +66,20 @@ func waitAcceptedTask(ctx context.Context, accepted jobs.Accepted, kind ops.Kind
 		case <-timer.C:
 		}
 	}
+}
+
+func terminalTaskResult(status jobs.Status) (any, error) {
+	if status.Outcome == nil && status.Operation.State != ops.Succeeded {
+		if status.Operation.State == ops.RecoveryRequired {
+			return nil, result.New(result.RecoveryRequired, nil)
+		}
+		return nil, result.New(result.InternalError, nil)
+	}
+	if status.Outcome == nil || !status.Outcome.Valid(status.Operation) {
+		return nil, result.New(result.TransportInvalidResponse, nil)
+	}
+	if status.Outcome.Error != "" {
+		return nil, result.New(status.Outcome.Error, nil)
+	}
+	return ops.DecodeTaskReceipt(status.Operation, status.Outcome.Receipt)
 }

@@ -7,10 +7,11 @@ import (
 	"charm.land/lipgloss/v2"
 )
 
-func TestFrameRender(t *testing.T) {
+func TestFrameScreen(t *testing.T) {
+	s := Screen{Title: "brine", Context: "2 apps", Body: []string{"A read-only view.", "界面 stays within the terminal."}, Help: []string{"q quit"}}
 	for _, size := range []struct{ width, height int }{{80, 24}, {24, 8}, {8, 4}, {1, 1}, {80, 2}, {0, 0}, {-1, -1}} {
 		frame := Frame{Theme: NewTheme(true), Width: size.width, Height: size.height}
-		got := frame.Render("brine  /  deployment control", "A foundation, not yet a deployment engine.\n界面 stays within the terminal.", "Press q to quit.")
+		got := frame.Screen(s)
 		if size.width <= 0 || size.height <= 0 {
 			if got != "" {
 				t.Fatalf("size %v: expected empty frame, got %q", size, got)
@@ -20,11 +21,11 @@ func TestFrameRender(t *testing.T) {
 		if lipgloss.Height(got) > size.height || lipgloss.Width(got) > size.width {
 			t.Fatalf("size %v: frame exceeds terminal: %q", size, got)
 		}
-		if size.width >= 24 && !strings.Contains(got, "Press q to quit.") {
-			t.Fatalf("size %v: footer missing: %q", size, got)
+		if size.width >= 8 && !strings.Contains(got, "q quit") {
+			t.Fatalf("size %v: help missing: %q", size, got)
 		}
 		if size.width == 80 && size.height == 24 {
-			for _, text := range []string{"brine  /  deployment control", "A foundation, not yet a deployment engine."} {
+			for _, text := range []string{"brine", "2 apps", "A read-only view."} {
 				if !strings.Contains(got, text) {
 					t.Fatalf("normal frame missing %q: %q", text, got)
 				}
@@ -36,10 +37,11 @@ func TestFrameRender(t *testing.T) {
 func TestFrameWideGraphemesAtTinyWidths(t *testing.T) {
 	for _, body := range []string{"界面 stays within the terminal.", "🌊 waves", "👩‍💻 coding", "🇯🇵 flag"} {
 		t.Run(body, func(t *testing.T) {
+			table := Table{Columns: []Column{{Title: "界", Min: 1, Max: 4}}, Rows: [][]Cell{{{Text: body}}}}
 			for _, size := range []struct{ width, height int }{{1, 5}, {1, 12}, {2, 12}, {3, 12}} {
 				for _, noColor := range []bool{false, true} {
 					frame := Frame{Theme: NewTheme(noColor), Width: size.width, Height: size.height}
-					got := frame.Render("brine", body, "Press q to quit.")
+					got := frame.Screen(Screen{Title: "brine", Body: []string{body}, Table: &table, Help: []string{"q quit"}})
 					if lipgloss.Width(got) > size.width || lipgloss.Height(got) > size.height {
 						t.Fatalf("size %v, noColor %t: frame exceeds terminal: %q", size, noColor, got)
 					}
@@ -54,7 +56,7 @@ func TestThemeNoColor(t *testing.T) {
 		t.Run("NO_COLOR="+value, func(t *testing.T) {
 			t.Setenv("NO_COLOR", value)
 			frame := Frame{Theme: ThemeFromEnv(), Width: 80, Height: 24}
-			got := frame.Render("brine", "Welcome", "Press q to quit.")
+			got := frame.Screen(Screen{Title: "brine", Body: []string{"Welcome"}, Help: []string{"q quit"}})
 			if colored := strings.Contains(got, "\x1b["); colored != (value == "") {
 				t.Fatalf("NO_COLOR=%q: unexpected styling: %q", value, got)
 			}

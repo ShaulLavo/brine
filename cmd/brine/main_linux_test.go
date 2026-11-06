@@ -55,7 +55,8 @@ func testTUIProcess(t *testing.T, binary string, interrupt bool) {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, binary, "tui")
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = stdin, slave, slave
-	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
+	// An empty private configuration has no enrolled targets to list.
+	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "XDG_CONFIG_HOME="+t.TempDir())
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 1}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
@@ -108,7 +109,7 @@ func testTUIProcess(t *testing.T, binary string, interrupt bool) {
 				}
 			}
 		}
-		if !quitSent && strings.Contains(output.String(), "Press q to quit.") {
+		if !quitSent && strings.Contains(output.String(), "No enrolled targets") {
 			if interrupt {
 				if err := cmd.Process.Signal(os.Interrupt); err != nil {
 					t.Fatal(err)
@@ -128,8 +129,8 @@ func testTUIProcess(t *testing.T, binary string, interrupt bool) {
 	} else if err != nil {
 		t.Fatalf("tui exit: %v\nterminal output: %q", err, output.String())
 	}
-	if !quitSent || !strings.Contains(output.String(), "A foundation, not yet a deployment engine.") {
-		t.Fatalf("welcome screen was not displayed: %q", output.String())
+	if !quitSent || !strings.Contains(output.String(), "Enroll one with brine enroll.") {
+		t.Fatalf("target picker was not displayed: %q", output.String())
 	}
 }
 

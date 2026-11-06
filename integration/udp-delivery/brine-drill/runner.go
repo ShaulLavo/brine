@@ -24,13 +24,14 @@ import (
 	"github.com/ShaulLavo/brine/fixtures/udp-echo/protocol"
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
 const (
-	ManifestSchema = 1
-	LedgerSchema   = 1
+	ManifestSchema = 2
+	LedgerSchema   = 2
 	ReceiptSchema  = 1
 	maxManifest    = 1 << 20
 	maxReceipt     = 1 << 20
@@ -104,11 +105,10 @@ type TargetSpec struct {
 }
 
 type AppSpec struct {
-	Name            string   `json:"name"`
-	Domain          string   `json:"domain"`
-	ExpectedRelease string   `json:"expected_release"`
-	ImageDigest     string   `json:"image_digest"`
-	Endpoint        Endpoint `json:"endpoint"`
+	Name        string   `json:"name"`
+	Domain      string   `json:"domain"`
+	Incarnation string   `json:"incarnation"`
+	Endpoint    Endpoint `json:"endpoint"`
 }
 
 type Endpoint struct {
@@ -152,15 +152,17 @@ type Step struct {
 	Spec            string `json:"spec,omitempty"`
 	PlanStep        string `json:"plan_step,omitempty"`
 	PlanID          string `json:"plan_id,omitempty"`
-	ReleaseID       string `json:"release_id,omitempty"`
-	OperationID     string `json:"operation_id,omitempty"`
-	Proof           string `json:"proof,omitempty"`
-	ProofSHA256     string `json:"proof_sha256,omitempty"`
-	Endpoint        string `json:"endpoint,omitempty"`
-	Vantage         string `json:"vantage,omitempty"`
-	Nonce           string `json:"nonce,omitempty"`
-	ExpectedOutcome string `json:"expected_outcome,omitempty"`
-	LifecycleAction string `json:"lifecycle_action,omitempty"`
+	releaseID       string
+	ReleaseStep     string              `json:"release_step,omitempty"`
+	Expectation     *ReleaseExpectation `json:"expectation,omitempty"`
+	OperationID     string              `json:"operation_id,omitempty"`
+	Proof           string              `json:"proof,omitempty"`
+	ProofSHA256     string              `json:"proof_sha256,omitempty"`
+	Endpoint        string              `json:"endpoint,omitempty"`
+	Vantage         string              `json:"vantage,omitempty"`
+	Nonce           string              `json:"nonce,omitempty"`
+	ExpectedOutcome string              `json:"expected_outcome,omitempty"`
+	LifecycleAction string              `json:"lifecycle_action,omitempty"`
 }
 
 type Ledger struct {
@@ -179,6 +181,8 @@ type LedgerEntry struct {
 	PlanID        string    `json:"plan_id,omitempty"`
 	ReleaseID     string    `json:"release_id,omitempty"`
 	OperationID   string    `json:"operation_id,omitempty"`
+	OperationKind ops.Kind  `json:"operation_kind,omitempty"`
+	RecoveryOf    string    `json:"recovery_of,omitempty"`
 	State         string    `json:"state"`
 	CommandSHA256 string    `json:"command_sha256"`
 	UpdatedAt     time.Time `json:"updated_at"`
@@ -209,6 +213,8 @@ type ProductionProof struct {
 	Endpoint       Endpoint     `json:"endpoint"`
 	Release        string       `json:"release"`
 	ImageDigest    string       `json:"image_digest"`
+	ReleaseID      string       `json:"release_id"`
+	Incarnation    string       `json:"incarnation"`
 	HTTPHealth     string       `json:"http_health"`
 	NetworkMode    string       `json:"network_mode"`
 	Mapping        MappingProof `json:"mapping"`
@@ -401,7 +407,7 @@ func (m Manifest) Validate() error {
 	}
 	seenApps := map[string]bool{}
 	for _, app := range m.Apps {
-		if err := app.Validate(m.Fixture); err != nil {
+		if err := app.Validate(); err != nil {
 			return err
 		}
 		if seenApps[app.Name] {
@@ -421,6 +427,9 @@ func (m Manifest) Validate() error {
 		return err
 	}
 	if err := m.Phases.Validate(seenApps); err != nil {
+		return err
+	}
+	if _, err := m.releaseExpectations(); err != nil {
 		return err
 	}
 	if err := validateProbeEndpoints(m.Phases, m.Apps, m.Target); err != nil {
@@ -456,13 +465,11 @@ func (t TargetSpec) Validate() error {
 	return nil
 }
 
-func (a AppSpec) Validate(pins FixturePins) error {
-	if !namePattern.MatchString(a.Name) || !domainPattern.MatchString(a.Domain) || !releasePattern.MatchString(a.ExpectedRelease) || !digestPattern.MatchString(a.ImageDigest) {
+func (a AppSpec) Validate() error {
+	if !namePattern.MatchString(a.Name) || !domainPattern.MatchString(a.Domain) || !digestPattern.MatchString(a.Incarnation) {
 		return errors.New("invalid app identity")
 	}
-	if pins.ReleaseDigests[a.ExpectedRelease] != a.ImageDigest {
-		return errors.New("app release digest is not pinned")
-	}
+
 	if err := a.Endpoint.Validate(); err != nil {
 		return err
 	}
@@ -538,22 +545,24 @@ func validateResources(resources []OwnedResource, runID string, apps map[string]
 
 func (p PhaseSteps) Validate(apps map[string]bool) error {
 	seen := map[string]bool{}
-	for _, steps := range [][]Step{p.BeforeReboot, p.AfterReboot, p.Cleanup, p.Inspect, p.Resume} {
-		for _, step := range steps {
-			if step.ID == "" || seen[step.ID] || step.Action == "" || !validAction(step.Action) || step.App != "" && !apps[step.App] {
-				return errors.New("invalid phase step")
-			}
-			seen[step.ID] = true
-			if step.Action == ActionPlan && (step.Spec == "" || !filepath.IsAbs(step.Spec) || !regularFile(step.Spec)) || step.Action == ActionApply && step.PlanStep == "" && step.PlanID == "" || step.Action == ActionRollback && step.ReleaseID == "" || step.Action == ActionInspect && step.OperationID == "" || step.Action == ActionResume && step.OperationID == "" || step.Action == ActionTeardownProof && !validProofReference(step) || step.Action == ActionLifecycle && !slices.Contains([]string{"stop", "start", "restart", "remove"}, step.LifecycleAction) || step.Action == ActionProbe && !validProbeStep(step) || step.Action == ActionStatus && slices.Contains([]string{"ready", "absent"}, step.ExpectedOutcome) && !validProofReference(step) {
-				return errors.New("phase step is missing required input")
-			}
-			if strings.Contains(step.ActionString(), "reboot") || strings.Contains(step.ActionString(), "kernel") || strings.Contains(step.ActionString(), "firewall") || strings.Contains(step.ActionString(), "policy") {
-				return errors.New("runner cannot own host control actions")
-			}
+	for _, step := range p.allSteps() {
+		if err := validatePhaseStep(step, apps, seen); err != nil {
+			return err
 		}
+		seen[step.ID] = true
 	}
-	if err := validateCleanupSteps(p.Cleanup); err != nil {
-		return err
+	return validateCleanupSteps(p.Cleanup, apps)
+}
+
+func validatePhaseStep(step Step, apps, seen map[string]bool) error {
+	if step.ID == "" || seen[step.ID] || step.Action == "" || !validAction(step.Action) || !validApplyOutcome(step) || step.App != "" && !apps[step.App] {
+		return errors.New("invalid phase step")
+	}
+	if step.Action == ActionPlan && (step.Spec == "" || !filepath.IsAbs(step.Spec) || !regularFile(step.Spec)) || step.Action == ActionApply && step.PlanStep == "" && step.PlanID == "" || step.Action == ActionRollback && step.ReleaseStep == "" || step.Action == ActionInspect && step.OperationID == "" || step.Action == ActionResume && step.OperationID == "" || step.Action == ActionTeardownProof && !validProofReference(step) || step.Action == ActionLifecycle && !slices.Contains([]string{"stop", "start", "restart", "remove"}, step.LifecycleAction) || step.Action == ActionProbe && !validProbeStep(step) || step.Action == ActionStatus && slices.Contains([]string{"ready", "absent"}, step.ExpectedOutcome) && !validProofReference(step) {
+		return errors.New("phase step is missing required input")
+	}
+	if strings.Contains(step.ActionString(), "reboot") || strings.Contains(step.ActionString(), "kernel") || strings.Contains(step.ActionString(), "firewall") || strings.Contains(step.ActionString(), "policy") {
+		return errors.New("runner cannot own host control actions")
 	}
 	return nil
 }
@@ -606,16 +615,25 @@ func validateProbeEndpoints(phases PhaseSteps, apps []AppSpec, targetSpec Target
 	return nil
 }
 
-func validateCleanupSteps(steps []Step) error {
+func validateCleanupSteps(steps []Step, apps map[string]bool) error {
 	if len(steps) < 2 || steps[len(steps)-1].Action != ActionTeardownProof {
 		return errors.New("cleanup must remove owned apps before teardown proof")
 	}
+	removed := make(map[string]bool, len(apps))
 	for _, step := range steps[:len(steps)-1] {
 		if step.Action != ActionLifecycle || step.LifecycleAction != "remove" || step.App == "" {
 			return errors.New("cleanup accepts only owned removal steps before teardown proof")
 		}
+		removed[step.App] = true
+	}
+	if len(removed) != len(apps) {
+		return errors.New("cleanup must remove every declared app before teardown proof")
 	}
 	return nil
+}
+
+func validApplyOutcome(step Step) bool {
+	return step.Action != ActionApply || slices.Contains([]string{"", "succeeded", "failed", "rolled_back"}, step.ExpectedOutcome)
 }
 
 func (s Step) ActionString() string { return string(s.Action) }
@@ -776,7 +794,7 @@ func (r *Runner) commandFor(step Step, ledger Ledger) (CommandSpec, error) {
 	case ActionLifecycle:
 		return CommandSpec{Binary: r.Manifest.Source.HostBinary.Path, Args: r.baseArgs(step.LifecycleAction, step.App)}, nil
 	case ActionRollback:
-		return r.rollbackCommand(step), nil
+		return r.rollbackCommand(step, "<operation:"+step.ReleaseStep+">"), nil
 	case ActionProbe:
 		app := r.app(step.App)
 		if app == nil {
@@ -786,7 +804,11 @@ func (r *Runner) commandFor(step Step, ledger Ledger) (CommandSpec, error) {
 		if err != nil {
 			return CommandSpec{}, err
 		}
-		return CommandSpec{Binary: r.Manifest.Source.ClientBinary.Path, Args: []string{"-endpoint", endpoint, "-nonce", step.Nonce, "-release", app.ExpectedRelease, "-attempts", "3", "-attempt-timeout", "1s", "-overall-timeout", "5s", "-vantage", step.Vantage}}, nil
+		expected, err := r.Manifest.releaseExpectations()
+		if err != nil {
+			return CommandSpec{}, err
+		}
+		return r.probeCommand(step, endpoint, expected[step.ReleaseStep].Release), nil
 	case ActionInspect:
 		return r.operationCommand(step.OperationID), nil
 	case ActionResume:
@@ -856,6 +878,7 @@ func (r *Runner) runPlan(ctx context.Context, ledger *Ledger, step Step) (StepRe
 		return StepReport{}, errors.New("plan entry needs inspection before replay")
 	}
 	command := r.planCommand(step)
+	entry.CommandSHA256 = commandHash(command)
 	if err := r.persistPrepared(ledger, entry, command); err != nil {
 		return StepReport{}, err
 	}
@@ -889,13 +912,16 @@ func (r *Runner) runApply(ctx context.Context, ledger *Ledger, step Step) (StepR
 	if err != nil {
 		return StepReport{}, err
 	}
-	if found && entry.State == "succeeded" {
-		return reportFor(entry), nil
+	if found && slices.Contains([]string{"succeeded", "failed", "rolled_back"}, entry.State) {
+		return reportApplyOutcome(entry, step.ExpectedOutcome)
 	}
 	if found && entry.State != "prepared" {
 		return StepReport{}, errors.New("existing apply entry requires inspection")
 	}
+	entry.PlanID, entry.ReleaseID = planID, step.releaseID
+	entry.OperationKind = ops.Deploy
 	command := r.applyCommand(planID, entry.Key)
+	entry.CommandSHA256 = commandHash(command)
 	if !found {
 		if err := r.persistPrepared(ledger, entry, command); err != nil {
 			return StepReport{}, err
@@ -929,7 +955,7 @@ func (r *Runner) runApply(ctx context.Context, ledger *Ledger, step Step) (StepR
 	if err := r.Ledger.Save(*ledger); err != nil {
 		return StepReport{}, err
 	}
-	status, err := r.waitOperation(ctx, accepted.OperationID)
+	status, err := r.waitOperation(ctx, entry)
 	if err != nil {
 		return StepReport{ID: step.ID, Action: step.Action, State: "accepted", OperationID: accepted.OperationID}, err
 	}
@@ -940,8 +966,15 @@ func (r *Runner) runApply(ctx context.Context, ledger *Ledger, step Step) (StepR
 	if err := r.Ledger.Save(*ledger); err != nil {
 		return StepReport{}, err
 	}
-	if status != "succeeded" {
-		return reportFor(entry), errors.New("Brine operation did not succeed")
+	return reportApplyOutcome(entry, step.ExpectedOutcome)
+}
+
+func reportApplyOutcome(entry LedgerEntry, expected string) (StepReport, error) {
+	if expected == "" {
+		expected = "succeeded"
+	}
+	if entry.State != expected {
+		return reportFor(entry), errors.New("Brine operation did not reach the expected outcome")
 	}
 	return reportFor(entry), nil
 }
@@ -964,10 +997,22 @@ func (r *Runner) runLifecycle(ctx context.Context, ledger *Ledger, step Step) (S
 }
 
 func (r *Runner) runRollback(ctx context.Context, ledger *Ledger, step Step) (StepReport, error) {
-	if step.App == "" || step.ReleaseID == "" {
-		return StepReport{}, errors.New("rollback needs app and exact release")
+	_, sourceRelease, err := r.releaseFor(*ledger, step)
+	if err != nil {
+		return StepReport{}, err
 	}
-	command := r.rollbackCommand(step)
+	entry, found, err := r.prepareEntry(ledger, step, true)
+	if err != nil {
+		return StepReport{}, err
+	}
+	if found {
+		if _, _, err := r.releaseFor(*ledger, Step{App: step.App, ReleaseStep: step.ID}); err != nil {
+			return StepReport{}, err
+		}
+		return reportApplyOutcome(entry, "succeeded")
+	}
+	releaseID := sourceRelease.OperationID
+	command := r.rollbackCommand(step, releaseID)
 	response, err := r.readEnvelope(ctx, command, true)
 	if err != nil {
 		return StepReport{}, err
@@ -976,16 +1021,25 @@ func (r *Runner) runRollback(ctx context.Context, ledger *Ledger, step Step) (St
 		PlanID    string `json:"plan_id"`
 		ReleaseID string `json:"release_id"`
 	}
-	if err := decodeData(response, &rollback); err != nil || rollback.PlanID == "" || rollback.ReleaseID != step.ReleaseID {
+	if err := decodeData(response, &rollback); err != nil || rollback.PlanID == "" || rollback.ReleaseID != releaseID {
 		return StepReport{}, errors.New("rollback selected a different release")
 	}
-	return r.runApply(ctx, ledger, Step{ID: step.ID, Action: ActionRollback, App: step.App, PlanID: rollback.PlanID, ReleaseID: rollback.ReleaseID})
+	return r.runApply(ctx, ledger, Step{ID: step.ID, Action: ActionRollback, App: step.App, PlanID: rollback.PlanID, releaseID: rollback.ReleaseID})
 }
 
 func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (StepReport, error) {
 	app := r.app(step.App)
 	if app == nil {
 		return StepReport{}, errors.New("status step names an unknown app")
+	}
+	var expected ReleaseExpectation
+	var release LedgerEntry
+	if step.ExpectedOutcome == "ready" || step.ExpectedOutcome == "absent" {
+		var err error
+		expected, release, err = r.releaseFor(*ledger, step)
+		if err != nil {
+			return StepReport{}, err
+		}
 	}
 	commandApp := step.App
 	if step.ExpectedOutcome == "absent" {
@@ -1009,7 +1063,7 @@ func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (Step
 		if err != nil {
 			return StepReport{}, err
 		}
-		if err := validateProofFor(proof, "absent", app, app.ImageDigest, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
+		if err := validateProofFor(proof, "absent", app, expected, release.OperationID, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
 			return StepReport{}, err
 		}
 		return StepReport{ID: step.ID, Action: step.Action, State: "absent"}, nil
@@ -1019,7 +1073,7 @@ func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (Step
 		return StepReport{}, err
 	}
 	if step.ExpectedOutcome == "ready" {
-		if err := validateReadyFor(*item, app, step.Proof, step.ProofSHA256, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
+		if err := validateReadyFor(*item, app, expected, release.OperationID, release.PlanID, step.Proof, step.ProofSHA256, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
 			return StepReport{}, err
 		}
 	}
@@ -1040,7 +1094,11 @@ func (r *Runner) runProbe(ctx context.Context, ledger *Ledger, step Step) (StepR
 	if err != nil {
 		return StepReport{}, err
 	}
-	command := CommandSpec{Binary: r.Manifest.Source.ClientBinary.Path, Args: []string{"-endpoint", endpoint, "-nonce", step.Nonce, "-release", app.ExpectedRelease, "-attempts", "3", "-attempt-timeout", "1s", "-overall-timeout", "5s", "-vantage", step.Vantage}}
+	expected, _, err := r.releaseFor(*ledger, step)
+	if err != nil {
+		return StepReport{}, err
+	}
+	command := r.probeCommand(step, endpoint, expected.Release)
 	result, err := r.runReadCommand(ctx, command, 15*time.Second)
 	if err != nil && len(result.Stdout) == 0 {
 		return StepReport{}, err
@@ -1055,7 +1113,7 @@ func (r *Runner) runProbe(ctx context.Context, ledger *Ledger, step Step) (StepR
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return StepReport{}, errors.New("client result has trailing data")
 	}
-	if err := validateProbeResult(probe, step, app, endpoint); err != nil {
+	if err := validateProbeResult(probe, step, expected, endpoint); err != nil {
 		return StepReport{}, err
 	}
 	return StepReport{ID: step.ID, Action: step.Action, State: probe.Outcome, Outcome: probe.Outcome}, nil
@@ -1079,12 +1137,12 @@ func (r *Runner) approvedProbeEndpoint(step Step, app *AppSpec) (string, error) 
 	return endpoint, nil
 }
 
-func validateProbeResult(probe client.Result, step Step, app *AppSpec, endpoint string) error {
-	if probe.Schema != protocol.SchemaVersion || probe.Fixture != protocol.FixtureName || probe.Endpoint != endpoint || probe.Vantage != step.Vantage || probe.Nonce != step.Nonce || probe.ExpectedRelease != app.ExpectedRelease || probe.Attempts < 1 || probe.Attempts > 3 || probe.AttemptTimeoutMs != 1000 || probe.OverallTimeoutMs != 5000 || probe.StartedAt.IsZero() || probe.FinishedAt.IsZero() || probe.FinishedAt.Before(probe.StartedAt) || probe.Outcome != step.ExpectedOutcome {
+func validateProbeResult(probe client.Result, step Step, expected ReleaseExpectation, endpoint string) error {
+	if probe.Schema != protocol.SchemaVersion || probe.Fixture != protocol.FixtureName || probe.Endpoint != endpoint || probe.Vantage != step.Vantage || probe.Nonce != step.Nonce || probe.ExpectedRelease != expected.Release || probe.Attempts < 1 || probe.Attempts > 3 || probe.AttemptTimeoutMs != 1000 || probe.OverallTimeoutMs != 5000 || probe.StartedAt.IsZero() || probe.FinishedAt.IsZero() || probe.FinishedAt.Before(probe.StartedAt) || probe.Outcome != step.ExpectedOutcome {
 		return errors.New("client evidence does not match the complete approved probe contract")
 	}
 	if probe.Outcome == "ok" {
-		if probe.Error != "" || probe.Response == nil || probe.Response.Schema != protocol.SchemaVersion || probe.Response.Fixture != protocol.FixtureName || probe.Response.Release != app.ExpectedRelease || probe.Response.Nonce != step.Nonce {
+		if probe.Error != "" || probe.Response == nil || probe.Response.Schema != protocol.SchemaVersion || probe.Response.Fixture != protocol.FixtureName || probe.Response.Release != expected.Release || probe.Response.Nonce != step.Nonce {
 			return errors.New("successful client evidence lacks a complete echo response")
 		}
 		return nil
@@ -1100,7 +1158,7 @@ func (r *Runner) runInspect(ctx context.Context, ledger *Ledger, step Step) (Ste
 	if err != nil {
 		return StepReport{}, err
 	}
-	status, err := r.operationStatus(ctx, entry.OperationID)
+	status, err := r.operationStatus(ctx, entry)
 	if err != nil {
 		return StepReport{}, err
 	}
@@ -1112,7 +1170,7 @@ func (r *Runner) runResume(ctx context.Context, ledger *Ledger, step Step) (Step
 	if err != nil {
 		return StepReport{}, err
 	}
-	status, err := r.operationStatus(ctx, entry.OperationID)
+	status, err := r.operationStatus(ctx, entry)
 	if err != nil {
 		return StepReport{}, err
 	}
@@ -1179,6 +1237,8 @@ func (r *Runner) resolve(ctx context.Context, ledger *Ledger, step Step) (StepRe
 	if !operationIDPattern.MatchString(accepted.OperationID) {
 		return reportFor(entry), errors.New("resolve response has an invalid successor operation ID")
 	}
+	entry.RecoveryOf = entry.OperationID
+	entry.OperationKind = ops.Resolve
 	entry.OperationID, entry.State = accepted.OperationID, "accepted"
 	entry.UpdatedAt = time.Now().UTC()
 	if err := r.replaceEntry(ledger, entry); err != nil {
@@ -1187,7 +1247,7 @@ func (r *Runner) resolve(ctx context.Context, ledger *Ledger, step Step) (StepRe
 	if err := r.Ledger.Save(*ledger); err != nil {
 		return StepReport{}, err
 	}
-	status, err := r.waitOperation(ctx, accepted.OperationID)
+	status, err := r.waitOperation(ctx, entry)
 	if err != nil {
 		return StepReport{}, err
 	}
@@ -1217,13 +1277,24 @@ func (r *Runner) lifecyclePlan(ctx context.Context, step Step, action string) (s
 }
 
 func (r *Runner) planReference(ledger Ledger, step Step) (string, error) {
+	if (step.PlanID == "") == (step.PlanStep == "") {
+		return "", errors.New("apply needs one exact plan selection")
+	}
 	if step.PlanID != "" {
 		return step.PlanID, nil
 	}
+	source, err := r.Manifest.planSource(step)
+	if err != nil {
+		return "", err
+	}
 	for _, entry := range ledger.Entries {
-		if entry.ID == step.PlanStep && entry.PlanID != "" && entry.State == "succeeded" {
-			return entry.PlanID, nil
+		if entry.ID != source.ID {
+			continue
 		}
+		if entry.Action != ActionPlan || entry.App != step.App || entry.State != "succeeded" || entry.PlanID == "" || entry.Key != operationKey(r.Manifest.RunID, source.ID) || entry.CommandSHA256 != commandHash(r.planCommand(source)) {
+			return "", errors.New("source plan is not a settled ledger-owned plan")
+		}
+		return entry.PlanID, nil
 	}
 	return "", errors.New("apply plan reference is not settled")
 }
@@ -1371,9 +1442,9 @@ func readOnlyDeadline(manifest Manifest) time.Duration {
 	return time.Duration(manifest.ReadDeadlineSeconds) * time.Second
 }
 
-func (r *Runner) waitOperation(ctx context.Context, operationID string) (string, error) {
+func (r *Runner) waitOperation(ctx context.Context, entry LedgerEntry) (string, error) {
 	for attempt := 0; attempt < r.readAttempts(); attempt++ {
-		status, err := r.operationStatus(ctx, operationID)
+		status, err := r.operationStatus(ctx, entry)
 		if err != nil {
 			if attempt+1 == r.readAttempts() {
 				return "", err
@@ -1387,20 +1458,22 @@ func (r *Runner) waitOperation(ctx context.Context, operationID string) (string,
 	return "", errors.New("operation did not settle within the read bound")
 }
 
-func (r *Runner) operationStatus(ctx context.Context, operationID string) (string, error) {
-	response, err := r.readEnvelope(ctx, r.operationCommand(operationID), true)
+func (r *Runner) operationStatus(ctx context.Context, entry LedgerEntry) (string, error) {
+	response, err := r.readEnvelope(ctx, r.operationCommand(entry.OperationID), true)
 	if err != nil {
 		return "", err
 	}
 	var status struct {
-		Operation struct {
-			State string `json:"state"`
-		} `json:"operation"`
+		Operation ops.Operation `json:"operation"`
 	}
-	if err := decodeData(response, &status); err != nil || status.Operation.State == "" {
-		return "", errors.New("operation status is invalid")
+	if err := decodeData(response, &status); err != nil {
+		return "", err
 	}
-	return status.Operation.State, nil
+	o := status.Operation
+	if entry.OperationKind != ops.Deploy && entry.OperationKind != ops.Resolve || entry.App == "" || entry.PlanID == "" || o.ID != entry.OperationID || o.App != entry.App || o.PlanID != entry.PlanID || o.Kind != entry.OperationKind || o.RecoveryOf != entry.RecoveryOf || o.State == "" {
+		return "", errors.New("operation status does not match its submitted identity")
+	}
+	return string(o.State), nil
 }
 
 func (r *Runner) readAttempts() int {
@@ -1435,8 +1508,8 @@ func (r *Runner) statusCommand(app string) CommandSpec {
 func (r *Runner) operationCommand(id string) CommandSpec {
 	return CommandSpec{Binary: r.Manifest.Source.HostBinary.Path, Args: append(r.baseArgs("status", ""), "--operation", id)}
 }
-func (r *Runner) rollbackCommand(step Step) CommandSpec {
-	return CommandSpec{Binary: r.Manifest.Source.HostBinary.Path, Args: append(r.baseArgs("rollback", step.App), "--release", step.ReleaseID)}
+func (r *Runner) rollbackCommand(step Step, releaseID string) CommandSpec {
+	return CommandSpec{Binary: r.Manifest.Source.HostBinary.Path, Args: append(r.baseArgs("rollback", step.App), "--release", releaseID)}
 }
 func (r *Runner) resolveCommand(id, key string) CommandSpec {
 	return CommandSpec{Binary: r.Manifest.Source.HostBinary.Path, Args: append(r.baseArgs("resolve", ""), id, "--idempotency-key", key), Mutating: true}
@@ -1469,11 +1542,11 @@ func containsDomain(domains []spec.Domain, expected string) bool {
 	return false
 }
 
-func validateReadyFor(status apps.Status, app *AppSpec, proofPath, proofHash, runID, targetName string) error {
+func validateReadyFor(status apps.Status, app *AppSpec, expected ReleaseExpectation, releaseID, planID, proofPath, proofHash, runID, targetName string) error {
 	if app == nil || status.Current == nil || status.UDP == nil || status.Health.Direct != "healthy" || status.UDP.Local != "ready" || status.UDP.Remote != "unverified" || status.UDP.Reservation != "active" {
 		return errors.New("Brine status is not production-ready")
 	}
-	if status.Current.ImageDigest != app.ImageDigest || !containsDomain(status.Current.Domains, app.Domain) || status.Current.UDP == nil || status.Current.UDP.Endpoint.BindAddress != app.Endpoint.BindAddress || status.Current.UDP.Endpoint.HostPort != target.Port(app.Endpoint.HostPort) || status.Current.UDP.ContainerPort != target.Port(app.Endpoint.ContainerPort) || status.UDP.ClientAddress != app.Endpoint.ClientAddress || string(status.UDP.Exposure) != app.Endpoint.Exposure {
+	if status.App != app.Name || status.Current.ID != releaseID || planID == "" || status.Current.PlanID != planID || status.UDP.Incarnation != app.Incarnation || status.Current.ImageDigest != expected.ImageDigest || !containsDomain(status.Current.Domains, app.Domain) || status.Current.UDP == nil || status.Current.UDP.Endpoint.BindAddress != app.Endpoint.BindAddress || status.Current.UDP.Endpoint.HostPort != target.Port(app.Endpoint.HostPort) || status.Current.UDP.ContainerPort != target.Port(app.Endpoint.ContainerPort) || status.UDP.ClientAddress != app.Endpoint.ClientAddress || string(status.UDP.Exposure) != app.Endpoint.Exposure {
 		return errors.New("Brine status does not match the approved app identity")
 	}
 	if proofPath == "" {
@@ -1489,11 +1562,11 @@ func validateReadyFor(status apps.Status, app *AppSpec, proofPath, proofHash, ru
 	if err != nil {
 		return err
 	}
-	return validateProofFor(proof, "ready", app, status.Current.ImageDigest, runID, targetName)
+	return validateProofFor(proof, "ready", app, expected, releaseID, runID, targetName)
 }
 
-func validateProofFor(proof ProductionProof, kind string, app *AppSpec, imageDigest, runID, targetName string) error {
-	if app == nil || proof.Schema != ReceiptSchema || proof.RunID == "" || proof.Target == "" || runID != "" && proof.RunID != runID || targetName != "" && proof.Target != targetName || proof.Kind != kind || proof.App != app.Name || proof.Release != app.ExpectedRelease && kind == "ready" || proof.ImageDigest != imageDigest || proof.Endpoint != app.Endpoint || proof.NetworkMode != "pasta" || proof.InodeGate != "confirmed" || proof.ForeignOverlap != "none" || !proof.RouteUnchanged {
+func validateProofFor(proof ProductionProof, kind string, app *AppSpec, expected ReleaseExpectation, releaseID, runID, targetName string) error {
+	if app == nil || proof.Schema != ReceiptSchema || proof.RunID == "" || proof.Target == "" || runID != "" && proof.RunID != runID || targetName != "" && proof.Target != targetName || proof.Kind != kind || proof.App != app.Name || proof.Release != expected.Release || proof.ImageDigest != expected.ImageDigest || proof.ReleaseID != releaseID || proof.Incarnation != app.Incarnation || proof.Endpoint != app.Endpoint || proof.NetworkMode != "pasta" || proof.InodeGate != "confirmed" || proof.ForeignOverlap != "none" || !proof.RouteUnchanged {
 		return errors.New("production proof does not match the approved endpoint")
 	}
 	if kind == "ready" {

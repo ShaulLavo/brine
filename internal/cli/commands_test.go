@@ -7,8 +7,8 @@ import (
 	"io"
 	"strings"
 	"testing"
-	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/spf13/cobra"
 )
 
@@ -24,10 +24,10 @@ func testDependencies(t *testing.T, stdout, stderr io.Writer) Dependencies {
 			t.Fatalf("unexpected lookup for %q", name)
 			return "", errors.New("unexpected lookup")
 		},
-		RunTUI: func(context.Context, io.Reader, io.Writer) error {
+		RunTUI: runTUIStub(func() error {
 			t.Fatal("unexpected TUI invocation")
 			return nil
-		},
+		}),
 	}
 }
 
@@ -99,27 +99,50 @@ func TestTUIReceivesContextAndStreams(t *testing.T) {
 	deps.Stdin = strings.NewReader("test input")
 	withTestTerminal(t, &deps)
 	wantErr := errors.New("runner failure")
-	called := false
-	deps.RunTUI = func(gotCtx context.Context, stdin io.Reader, output io.Writer) error {
-		called = true
-		if gotCtx != ctx || stdin != deps.Stdin || output != deps.Stdout {
-			t.Fatal("runner did not receive injected context and streams")
+	var session context.Context
+	deps.RunTUI = func(gotCtx context.Context, model tea.Model, stdin io.Reader, output io.Writer) (tea.Model, error) {
+		session = gotCtx
+		if stdin != deps.Stdin || output != deps.Stdout {
+			t.Fatal("runner did not receive injected streams")
+		}
+		if m, ok := model.(tuiModel); !ok || m.ctx != gotCtx || m.screen != screenTargets {
+			t.Fatalf("runner received %T, not the session's target picker", model)
+		}
+		if gotCtx.Err() != nil {
+			t.Fatal("session started canceled")
 		}
 		cancel()
 		if !errors.Is(gotCtx.Err(), context.Canceled) {
 			t.Fatal("runner context did not receive cancellation")
 		}
-		return wantErr
+		return model, wantErr
 	}
 	root := NewRootCommand(deps)
 	root.SetArgs([]string{"tui"})
 	if err := root.Execute(); err != wantErr {
 		t.Fatalf("error = %v; want unchanged runner error", err)
 	}
-	if !called {
+	if session == nil {
 		t.Fatal("runner was not called")
 	}
 	assertStreams(t, &stdout, &stderr, "")
+}
+
+func TestTUISessionCanceledWhenRunnerReturns(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	deps := testDependencies(t, &stdout, &stderr)
+	withTestTerminal(t, &deps)
+	var session context.Context
+	deps.RunTUI = func(ctx context.Context, model tea.Model, _ io.Reader, _ io.Writer) (tea.Model, error) {
+		session = ctx
+		return model, nil
+	}
+	if err := Execute(deps, []string{"tui", "--config-dir", t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if session == nil || !errors.Is(session.Err(), context.Canceled) {
+		t.Fatal("session reads were not canceled after the runner returned")
+	}
 }
 
 type failingWriter struct{ err error }
@@ -194,18 +217,6 @@ func TestHelpUsesCommandOutput(t *testing.T) {
 				t.Fatalf("stdout = %q, stderr = %q; want help only on stdout", stdout.String(), stderr.String())
 			}
 		})
-	}
-}
-
-func TestRunTUIWithInjectedInput(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	var stdout bytes.Buffer
-	if err := RunTUI(ctx, strings.NewReader("q"), &stdout); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(stdout.String(), "Press q to quit.") {
-		t.Fatalf("TUI did not use injected output: %q", stdout.String())
 	}
 }
 

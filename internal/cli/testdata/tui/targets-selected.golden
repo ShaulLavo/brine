@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine                                                         2 enrolled targets│
+────────────────────────────────────────────────────────────────────────────────│
+  TARGET                                                                        │
+  fixture                                                                       │
+› fixture-pi                                                                    │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+↑↓ select  enter open  r refresh  q quit                                        │
+== 80x24 color ==
+"\x1b[1;94mbrine\x1b[m                                                         \x1b[90m2 enrolled targets\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"\x1b[94m  \x1b[m\x1b[90mTARGET\x1b[m"
+"\x1b[94m  \x1b[mfixture"
+"\x1b[94m› \x1b[m\x1b[1mfixture-pi\x1b[m"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ select  enter open  r refresh  q quit\x1b[m"
+== 50x16 no color ==
+brine                           2 enrolled targets│
+──────────────────────────────────────────────────│
+  TARGET                                          │
+  fixture                                         │
+› fixture-pi                                      │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+↑↓ select  enter open  q quit                     │
+== 50x16 color ==
+"\x1b[1;94mbrine\x1b[m                           \x1b[90m2 enrolled targets\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"\x1b[94m  \x1b[m\x1b[90mTARGET\x1b[m"
+"\x1b[94m  \x1b[mfixture"
+"\x1b[94m› \x1b[m\x1b[1mfixture-pi\x1b[m"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ select  enter open  q quit\x1b[m"
+== 30x8 no color ==
+brine       2 enrolled targets│
+──────────────────────────────│
+  TARGET                      │
+  fixture                     │
+› fixture-pi                  │
+                              │
+                              │
+enter open  q quit            │
+== 30x8 color ==
+"\x1b[1;94mbrine\x1b[m       \x1b[90m2 enrolled targets\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"\x1b[94m  \x1b[m\x1b[90mTARGET\x1b[m"
+"\x1b[94m  \x1b[mfixture"
+"\x1b[94m› \x1b[m\x1b[1mfixture-pi\x1b[m"
+""
+""
+"\x1b[90menter open  q quit\x1b[m"
