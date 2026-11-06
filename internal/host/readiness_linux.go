@@ -44,7 +44,7 @@ func readinessSQLiteStatus(ctx context.Context, dir string, args dispatch.SQLite
 	return reader.SQLiteBackupStatus(ctx, args)
 }
 func sqliteReadinessStale(s sqlitestatus.Status) readiness.Fact[bool] {
-	if s.LastVerified == nil || s.Credential.State == "expired" || s.Credential.State == "missing" || s.Lifecycle.State == "stale" || s.Lifecycle.State == "unsafe" || s.Service.State == "failed" || s.Service.State == "inactive" {
+	if !s.Committed || s.Credential.RenewalNeeded || len(s.HeldFences) > 0 || s.LastVerified == nil || s.Credential.State == "expired" || s.Credential.State == "missing" || s.Lifecycle.State == "stale" || s.Lifecycle.State == "unsafe" || s.Service.State == "failed" || s.Service.State == "inactive" {
 		return readiness.Known(true)
 	}
 	if s.Remote.State != restore.RemoteReachable && s.Remote.State != restore.RemoteNotChecked {

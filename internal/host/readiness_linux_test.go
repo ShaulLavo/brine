@@ -40,7 +40,7 @@ func TestReadinessConnectedSQLiteReusesSnapshotAndFixtures(t *testing.T) {
 	}
 }
 func TestReadinessSQLiteUnknownDoesNotFailBackupRule(t *testing.T) {
-	status := sqlitestatus.Status{LastVerified: &sqlitestatus.Verified{}, Credential: sqlitestatus.Credential{State: "available"}, Lifecycle: sqlitestatus.Lifecycle{State: "fresh"}, Service: sqlitestatus.Service{State: "active"}, Remote: restore.RemoteProbe{State: restore.RemoteNotChecked}, Watermark: sqlitestatus.Watermark{State: "not_checked"}}
+	status := sqlitestatus.Status{Committed: true, LastVerified: &sqlitestatus.Verified{}, Credential: sqlitestatus.Credential{State: "available"}, Lifecycle: sqlitestatus.Lifecycle{State: "fresh"}, Service: sqlitestatus.Service{State: "active"}, Remote: restore.RemoteProbe{State: restore.RemoteNotChecked}, Watermark: sqlitestatus.Watermark{State: "not_checked"}}
 	stale := sqliteReadinessStale(status)
 	if stale.Status != "unknown" || stale.Value != nil {
 		t.Fatal(stale)
@@ -54,5 +54,27 @@ func TestReadinessSQLiteUnknownDoesNotFailBackupRule(t *testing.T) {
 	status.Lifecycle.State = "stale"
 	if stale = sqliteReadinessStale(status); stale.Value == nil || !*stale.Value {
 		t.Fatal(stale)
+	}
+}
+
+func TestReadinessSQLiteKnownDegradationControls(t *testing.T) {
+	for _, kind := range []string{"uncommitted", "renewal", "fenced"} {
+		testSQLiteKnownDegradation(t, kind)
+	}
+}
+func testSQLiteKnownDegradation(t *testing.T, kind string) {
+	t.Helper()
+	status := sqlitestatus.Status{Committed: true, LastVerified: &sqlitestatus.Verified{}, Credential: sqlitestatus.Credential{State: "available"}, Lifecycle: sqlitestatus.Lifecycle{State: "fresh"}, Service: sqlitestatus.Service{State: "active"}, Remote: restore.RemoteProbe{State: restore.RemoteReachable}, Watermark: sqlitestatus.Watermark{State: "known"}}
+	switch kind {
+	case "uncommitted":
+		status.Committed = false
+	case "renewal":
+		status.Credential.RenewalNeeded = true
+	case "fenced":
+		status.HeldFences = []sqlitestatus.Fence{{ID: "fixture"}}
+	}
+	stale := sqliteReadinessStale(status)
+	if stale.Value == nil || !*stale.Value {
+		t.Fatalf("known %s degradation became health: %+v", kind, stale)
 	}
 }
