@@ -3,6 +3,7 @@ package restore
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -23,7 +24,18 @@ type SQLiteEngine struct {
 	AllowHTTPForTests bool
 }
 
+// Test retains verified output for a caller that consumes the database file.
 func (e *SQLiteEngine) Test(ctx context.Context, r SQLiteRequest) (SQLiteReceipt, error) {
+	return e.test(ctx, r, false)
+}
+
+// TestMetadata owns the disposable output until verification ends. It returns
+// only metadata, after disposal succeeds, even when the context was canceled.
+func (e *SQLiteEngine) TestMetadata(ctx context.Context, r SQLiteRequest) (SQLiteReceipt, error) {
+	return e.test(ctx, r, true)
+}
+
+func (e *SQLiteEngine) test(ctx context.Context, r SQLiteRequest, metadataOnly bool) (receipt SQLiteReceipt, resultErr error) {
 	if source := r.Source.Snapshot; source != nil {
 		copy := *source
 		r.Source.Snapshot = &copy
@@ -84,16 +96,21 @@ func (e *SQLiteEngine) Test(ctx context.Context, r SQLiteRequest) (SQLiteReceipt
 	if err := validateCredentials(credentials, time.Now().UTC(), r.Budget); err != nil {
 		return SQLiteReceipt{}, err
 	}
-	directory, err := newDirectory(e.Root, r.OperationID)
+	workspace, err := newSQLiteWorkspace(e.Root, r.OperationID)
 	if err != nil {
 		return SQLiteReceipt{}, err
 	}
 	success := false
 	defer func() {
-		if !success {
-			_ = os.RemoveAll(directory)
+		if !success || metadataOnly {
+			resultErr = errors.Join(resultErr, workspace.dispose())
+		}
+		resultErr = errors.Join(resultErr, workspace.close())
+		if resultErr != nil {
+			receipt = SQLiteReceipt{}
 		}
 	}()
+	directory := filepath.Join(e.Root, r.OperationID)
 	output := filepath.Join(directory, "restored.sqlite")
 	toolVersion := SnapshotToolVersion
 	var recovered uint64
@@ -120,7 +137,7 @@ func (e *SQLiteEngine) Test(ctx context.Context, r SQLiteRequest) (SQLiteReceipt
 		return SQLiteReceipt{}, refuse("deadline")
 	}
 	observed := time.Now().UTC()
-	receipt := SQLiteReceipt{OperationID: r.OperationID, Source: r.Source, ToolVersion: toolVersion, RecoveredTXID: recovered, ObservedAt: observed, Schema: schema, Sentinel: sentinel, DatabasePath: output, LossWindow: LossWindow{State: LossUnknown, Reason: "No independent last-commit coverage proof; asynchronous replication may lose recent writes."}}
+	receipt = SQLiteReceipt{OperationID: r.OperationID, Source: r.Source, ToolVersion: toolVersion, RecoveredTXID: recovered, ObservedAt: observed, Schema: schema, Sentinel: sentinel, DatabasePath: output, LossWindow: LossWindow{State: LossUnknown, Reason: "No independent last-commit coverage proof; asynchronous replication may lose recent writes."}}
 	receipt.IntegrityCheck = "passed"
 	receipt.ForeignKeyCheck = "passed"
 	receipt.InvariantCheck = "unknown"
@@ -140,6 +157,9 @@ func (e *SQLiteEngine) Test(ctx context.Context, r SQLiteRequest) (SQLiteReceipt
 		receipt.LossWindow = LossWindow{State: LossBounded, From: r.Coverage.CoveredThrough.UTC(), To: observed, Reason: "Independent source-bound coverage proof bounds possible loss; later writes may be absent."}
 	}
 	success = true
+	if metadataOnly {
+		receipt.DatabasePath = ""
+	}
 	return receipt, nil
 }
 
@@ -164,7 +184,14 @@ func validateCredentials(c Credentials, now time.Time, budget time.Duration) err
 }
 func privateDirectory(path string) error {
 	info, err := os.Lstat(path)
-	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 {
+	if err != nil {
+		return refuse("workspace_not_private")
+	}
+	return privateDirectoryInfo(info)
+}
+
+func privateDirectoryInfo(info os.FileInfo) error {
+	if !info.IsDir() || info.Mode().Perm() != 0700 {
 		return refuse("workspace_not_private")
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
@@ -173,31 +200,134 @@ func privateDirectory(path string) error {
 	}
 	return nil
 }
+
+type sqliteWorkspace struct {
+	parent        *os.Root
+	directory     *os.Root
+	root          string
+	operation     string
+	rootInfo      os.FileInfo
+	directoryInfo os.FileInfo
+}
+
 func newDirectory(root, operation string) (string, error) {
-	if !filepath.IsAbs(root) || filepath.Clean(root) != root {
-		return "", refuse("invalid_workspace")
+	workspace, err := newSQLiteWorkspace(root, operation)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(root, operation), workspace.close()
+}
+
+func newSQLiteWorkspace(root, operation string) (*sqliteWorkspace, error) {
+	if !filepath.IsAbs(root) || filepath.Clean(root) != root || !token.MatchString(operation) {
+		return nil, refuse("invalid_workspace")
 	}
 	resolved, err := filepath.EvalSymlinks(root)
 	if err != nil || resolved != root {
-		return "", refuse("invalid_workspace")
+		return nil, refuse("invalid_workspace")
 	}
 	if err := privateDirectory(root); err != nil {
-		return "", err
+		return nil, err
 	}
-	handle, err := os.OpenRoot(root)
+	parent, err := os.OpenRoot(root)
 	if err != nil {
-		return "", refuse("workspace_unavailable")
+		return nil, refuse("workspace_unavailable")
 	}
-	defer func() { _ = handle.Close() }() // Read-only root handle; close cannot change the created directory.
-	if err := handle.Mkdir(operation, 0700); err != nil {
-		return "", refuse("operation_directory_exists_or_unavailable")
+	workspace := &sqliteWorkspace{parent: parent, root: root, operation: operation}
+	if err := workspace.create(); err != nil {
+		return nil, errors.Join(err, workspace.close())
 	}
-	directory := filepath.Join(root, operation)
-	if err := privateDirectory(directory); err != nil {
-		return "", err
-	}
-	return directory, nil
+	return workspace, nil
 }
+
+func (w *sqliteWorkspace) create() error {
+	var err error
+	w.rootInfo, err = w.parent.Stat(".")
+	if err != nil {
+		return refuse("workspace_unavailable")
+	}
+	if err := privateDirectoryInfo(w.rootInfo); err != nil {
+		return err
+	}
+	if err := w.parent.Mkdir(w.operation, 0700); err != nil {
+		return refuse("operation_directory_exists_or_unavailable")
+	}
+	w.directoryInfo, err = w.parent.Lstat(w.operation)
+	if err != nil {
+		return refuse("workspace_not_private")
+	}
+	if err := privateDirectoryInfo(w.directoryInfo); err != nil {
+		return err
+	}
+	w.directory, err = w.parent.OpenRoot(w.operation)
+	if err != nil {
+		return refuse("workspace_unavailable")
+	}
+	held, err := w.directory.Stat(".")
+	if err != nil || !os.SameFile(held, w.directoryInfo) {
+		return refuse("workspace_changed")
+	}
+	return nil
+}
+
+func (w *sqliteWorkspace) close() error {
+	var closeErr error
+	if w.directory != nil {
+		closeErr = w.directory.Close()
+	}
+	if err := errors.Join(closeErr, w.parent.Close()); err != nil {
+		return refuse("workspace_close")
+	}
+	return nil
+}
+
+func (w *sqliteWorkspace) dispose() error {
+	// Neither the receipt nor a caller-supplied output path grants deletion.
+	// Keep the held parent and original directory identities through disposal.
+	resolved, err := filepath.EvalSymlinks(w.root)
+	if err != nil || resolved != w.root {
+		return refuse("workspace_changed")
+	}
+	parent, err := os.Lstat(w.root)
+	if err != nil || !os.SameFile(parent, w.rootInfo) {
+		return refuse("workspace_changed")
+	}
+	current, err := w.parent.Lstat(w.operation)
+	if err != nil || !current.IsDir() || !os.SameFile(current, w.directoryInfo) {
+		return refuse("workspace_changed")
+	}
+	if err := w.removeContents(); err != nil {
+		return err
+	}
+	current, err = w.parent.Lstat(w.operation)
+	if err != nil || !os.SameFile(current, w.directoryInfo) {
+		return refuse("workspace_changed")
+	}
+	// Only remove the now-empty directory by name. Recursive deletion stays
+	// anchored in the held operation directory even if its name changes.
+	if err := w.parent.Remove(w.operation); err != nil {
+		return refuse("workspace_cleanup")
+	}
+	return nil
+}
+
+func (w *sqliteWorkspace) removeContents() error {
+	directory, err := w.directory.Open(".")
+	if err != nil {
+		return refuse("workspace_cleanup")
+	}
+	entries, readErr := directory.ReadDir(-1)
+	if err := errors.Join(readErr, directory.Close()); err != nil {
+		return refuse("workspace_cleanup")
+	}
+	for _, entry := range entries {
+		if err := w.directory.RemoveAll(entry.Name()); err != nil {
+			return refuse("workspace_cleanup")
+		}
+	}
+	return nil
+}
+
 func validateOutput(path string) error {
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 {

@@ -57,7 +57,7 @@ func CaptureLitestream(ctx context.Context, directory string, credentials Litest
 	cmd.Stderr = &boundedOutput{limit: 64 << 10}
 	configureProcessGroup(cmd)
 	cmd.WaitDelay = 100 * time.Millisecond
-	if err := cmd.Run(); err != nil {
+	if err := runCapturedCommand(cmd); err != nil {
 		return Capture{}, &Error{Kind: Failed}
 	}
 	return output.snapshot(), nil

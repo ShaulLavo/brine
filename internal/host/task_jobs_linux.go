@@ -15,6 +15,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
@@ -76,12 +77,16 @@ func openMetadataJobs(ctx context.Context, dir string, admission bool) (jobs.Ser
 }
 
 func restoreTaskHandler(state *store.Store, dir string) jobs.TaskHandler {
+	return restoreTaskHandlerWithCheck(state, (restoreTests{stateDir: dir}).Check)
+}
+
+func restoreTaskHandlerWithCheck(state *store.Store, check func(context.Context, dispatch.RestoreTestArgs, string) (restore.SQLiteReceipt, error)) jobs.TaskHandler {
 	return func(ctx context.Context, op ops.Operation) (json.RawMessage, error) {
 		input, err := state.LoadRestoreTaskInput(ctx, op.SecretRef, op.Requester)
 		if err != nil || input.App != op.App {
 			return nil, result.New(result.PolicyRefused, nil)
 		}
-		receipt, err := (restoreTests{stateDir: dir}).Check(ctx, input, op.ID)
+		receipt, err := check(ctx, input, op.ID)
 		if err != nil {
 			return nil, err
 		}
