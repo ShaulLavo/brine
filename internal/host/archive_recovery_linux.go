@@ -160,6 +160,9 @@ func (h archiveHost) ReconcileArchiveRuntime(ctx context.Context, p archive.Plan
 	if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
 		return err
 	}
+	if err := h.service.Store.CheckArchiveCDN(ctx, p.Candidate.App); err != nil {
+		return err
+	}
 	if nativeArchiveCandidate(p.Candidate) {
 		return h.reconcileNativeArchiveRuntime(ctx, p)
 	}
@@ -293,6 +296,9 @@ func (h archiveHost) recoveryQuiescent(ctx context.Context, p archive.Plan) erro
 }
 func (h archiveHost) CheckArchiveRecovery(ctx context.Context, p archive.Plan, o archive.Operation, m archive.Manifest) error {
 	if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
+		return err
+	}
+	if err := h.service.Store.CheckArchiveCDN(ctx, p.Candidate.App); err != nil {
 		return err
 	}
 	if nativeArchiveCandidate(p.Candidate) {
