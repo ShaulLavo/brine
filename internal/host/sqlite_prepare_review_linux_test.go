@@ -243,7 +243,7 @@ func TestReviewU4LostReplicaStopReplyCanAbandon(t *testing.T) {
 		}
 		return result, err
 	})
-	session, err := localexec.NewSession(executor, uint32(os.Geteuid()), "/", time.Minute)
+	session, err := localexec.NewSession(executor, nativeBackupFixtureUID(t), "/", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -388,7 +388,7 @@ func testSQLiteWriterOwnership(t *testing.T, changed string) {
 		}
 		return r.exec.Execute(ctx, c)
 	})
-	session, err := localexec.NewSession(executor, uint32(os.Geteuid()), "/", time.Minute)
+	session, err := localexec.NewSession(executor, nativeBackupFixtureUID(t), "/", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +430,7 @@ func TestSQLitePreparationRechecksWriterAfterClaim(t *testing.T) {
 		}
 		return r.exec.Execute(ctx, c)
 	})
-	session, err := localexec.NewSession(executor, uint32(os.Geteuid()), "/", time.Minute)
+	session, err := localexec.NewSession(executor, nativeBackupFixtureUID(t), "/", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
