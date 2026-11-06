@@ -5,6 +5,7 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/brine-ci-tests-XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
+export BRINE_CHECK_OUTPUT="$scratch/output"
 
 check_scope() {
   local old=$1 new=$2 want=$3 base got
