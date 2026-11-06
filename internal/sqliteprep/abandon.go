@@ -2,6 +2,7 @@ package sqliteprep
 
 import (
 	"context"
+	"errors"
 	"time"
 )
 
@@ -26,6 +27,10 @@ func (s Service) Abandon(ctx context.Context, t Task, in Input) (r Result, err e
 	}
 	receipt, err := s.Journal.CompleteAbandon(ctx, t, in, a, w.held)
 	if err != nil {
+		var refusal *Refusal
+		if errors.As(err, &refusal) {
+			return w.settleClaim(ctx, err)
+		}
 		return w.settle(ctx, err, true)
 	}
 	fence := a.Intent.Fence

@@ -328,8 +328,14 @@ func (c Consumer) Validate() error {
 	}
 	return nil
 }
-func (c Consumer) Admits(i Intent, p PreparedPoint, now time.Time) bool {
-	if c.Validate() != nil || c.Kind != ReviewedConsumer || i.Validate() != nil || p.Validate() != nil || !verificationMatches(i, p.Source, p.Verification) || p.PreparationID != i.Input.PreparationID || c.PreparationID != p.PreparationID || c.App != i.Scope.App || c.Requester != i.Task.Requester || c.PolicySHA256 != i.Scope.PolicySHA256 || c.RetentionSHA256 != i.Scope.Retention.EvidenceSHA256 || !c.ClaimedAt.Equal(now) || !utc(now) || !now.Before(p.ExpiresAt) || !now.Before(i.Scope.Retention.FreshUntil) || c.RecoverUntil.After(i.Scope.Retention.RetainUntil) {
+
+// Admits combines the immutable point with a separately joined current scope.
+// The scope value grants no authority; the store must validate that join.
+func (c Consumer) Admits(i Intent, p PreparedPoint, current Scope, now time.Time) bool {
+	if current.Validate() != nil || !sameLineageScope(i.Scope, current) || c.PolicySHA256 != current.PolicySHA256 || c.RetentionSHA256 != current.Retention.EvidenceSHA256 || current.Schema.ObservedAt.After(now) || current.Retention.ObservedAt.After(now) {
+		return false
+	}
+	if c.Validate() != nil || c.Kind != ReviewedConsumer || i.Validate() != nil || p.Validate() != nil || !verificationMatches(i, p.Source, p.Verification) || p.PreparationID != i.Input.PreparationID || c.PreparationID != p.PreparationID || c.App != i.Scope.App || c.Requester != i.Task.Requester || !c.ClaimedAt.Equal(now) || !utc(now) || !now.Before(p.ExpiresAt) || !now.Before(current.Retention.FreshUntil) || c.RecoverUntil.After(current.Retention.RetainUntil) {
 		return false
 	}
 	intentHash, err := Fingerprint(i)

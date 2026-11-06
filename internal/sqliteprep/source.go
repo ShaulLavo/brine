@@ -84,7 +84,7 @@ func (b StoppedBundle) Matches(other StoppedBundle) bool {
 	return b.Validate() == nil && other.Validate() == nil && b.Location == other.Location && b.DB == other.DB && b.WAL == other.WAL && b.Journal == other.Journal
 }
 func (b StoppedBundle) CaptureFits() bool {
-	return b.Validate() == nil && b.DB.Size <= MaxCaptureBytes && b.WAL.Size <= MaxCaptureBytes-b.DB.Size && b.Journal.Size <= MaxCaptureBytes-b.DB.Size-b.WAL.Size
+	return b.Validate() == nil && b.DB.Size <= MaxCaptureBytes && b.WAL.Size <= MaxCaptureBytes-b.DB.Size && b.SHM.Size <= MaxCaptureBytes-b.DB.Size-b.WAL.Size && b.Journal.Size <= MaxCaptureBytes-b.DB.Size-b.WAL.Size-b.SHM.Size
 }
 
 type RemoteSource struct {
@@ -195,7 +195,7 @@ func resolveBaseline(l Lineage, out *Origins) error {
 	if l.OwnStopped {
 		wanted = l.Previous.Input.PreparationID
 	}
-	if b.PreparationID != wanted || b.Bundle.Validate() != nil || b.Bundle.Location != l.Previous.Location || b.Fence != l.Previous.Fence || !reflect.DeepEqual(b.Scope, l.Previous.Scope) {
+	if b.PreparationID != wanted || b.Bundle.Validate() != nil || b.Bundle.Location != l.Previous.Location || b.Fence != l.Previous.Fence || b.Scope.Validate() != nil || !sameLineageScope(b.Scope, l.Previous.Scope) {
 		return ErrInvalid
 	}
 	out.BaselineFrom = b.PreparationID
@@ -209,7 +209,7 @@ func resolveCoverage(l Lineage, out *Origins) error {
 	if l.OwnUploaded {
 		wanted = l.Previous.Input.PreparationID
 	}
-	if c.Source.Origin != wanted || !c.Source.MatchesScope(l.Previous.Scope) || c.Fence != l.Previous.Fence || !reflect.DeepEqual(c.Scope, l.Previous.Scope) || c.Source.Cutoff.Before(l.Previous.ClaimedAt) && l.OwnUploaded {
+	if c.Source.Origin != wanted || !c.Source.MatchesScope(l.Previous.Scope) || c.Fence != l.Previous.Fence || c.Scope.Validate() != nil || !sameLineageScope(c.Scope, l.Previous.Scope) || c.Source.Cutoff.Before(l.Previous.ClaimedAt) && l.OwnUploaded {
 		return ErrInvalid
 	}
 	if out.Baseline == nil {
@@ -223,4 +223,14 @@ func resolveCoverage(l Lineage, out *Origins) error {
 	out.Source = &source
 	out.CoverageOrigin = source.Origin
 	return nil
+}
+
+// Delivery, policy and retention authorization can change without changing the
+// immutable source. Schema observation time is not schema identity.
+func sameSourceScope(a, b Scope) bool {
+	return a.App == b.App && a.DatabaseName == b.DatabaseName && a.IncarnationID == b.IncarnationID && a.DatabaseID == b.DatabaseID && a.BindingID == b.BindingID && a.EpochID == b.EpochID && a.ReplicaCommitted == b.ReplicaCommitted && a.ConfigSHA256 == b.ConfigSHA256 && a.TargetSHA256 == b.TargetSHA256 && a.DeclarationSHA256 == b.DeclarationSHA256 && a.RemotePrefix == b.RemotePrefix && sameSchema(a.Schema, b.Schema) && reflect.DeepEqual(a.Checks, b.Checks) && reflect.DeepEqual(a.EmptyAllocation, b.EmptyAllocation)
+}
+
+func sameLineageScope(previous, current Scope) bool {
+	return sameSourceScope(previous, current) && !current.Retention.RetainUntil.Before(previous.Retention.RetainUntil)
 }

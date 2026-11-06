@@ -62,7 +62,9 @@ const (
 // receipt, and completes the task and its state event. No post-handler success
 // write is permitted. CompleteAbandon similarly inserts its consumer, records a
 // stopped desired revision, releases ONLY the original fence and completes its
-// task/receipt/state event atomically. Unused points AND active consumers protect
+// task/receipt/state event atomically. A typed Refusal from CompleteAbandon means
+// no effect was issued; FailUnclaimed still confirms no claim transactionally.
+// Other completion errors remain uncertain until joined readback. Unused points AND active consumers protect
 // generic fence release. The adapters must validate on reads as well as writes.
 //
 // ReadTask returns success only after the full joined historical completion is

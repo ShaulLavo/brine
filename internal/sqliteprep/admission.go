@@ -1,7 +1,6 @@
 package sqliteprep
 
 import (
-	"reflect"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -58,7 +57,7 @@ func Select(scope Scope, l *Lineage, o Observation, b *StoppedBundle, now time.T
 		return freshSelection(scope, o, b)
 	}
 	origins, err := ResolveOrigins(*l)
-	if err != nil || !reflect.DeepEqual(scope, l.Previous.Scope) {
+	if err != nil || !sameLineageScope(l.Previous.Scope, scope) {
 		return Selection{}, refuse(InvalidEvidence)
 	}
 	s := Selection{StopWritersRequired: !o.WritersStopped, Origins: origins}

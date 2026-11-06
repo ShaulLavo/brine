@@ -3,7 +3,6 @@ package sqliteprep
 import (
 	"context"
 	"errors"
-	"reflect"
 	"time"
 )
 
@@ -130,7 +129,7 @@ func (w *work) validateFacts() error {
 		return nil
 	}
 	l := f.Lineage
-	if l == nil || l.Previous.Validate() != nil || !l.Terminal || !l.Unconsumed || l.Previous.Task.Requester != w.task.Requester || l.Previous.Fence != f.Fence || l.Previous.Location != f.Location || !reflect.DeepEqual(l.Previous.Scope, f.Scope) {
+	if l == nil || l.Previous.Validate() != nil || !l.Terminal || !l.Unconsumed || l.Previous.Task.Requester != w.task.Requester || l.Previous.Fence != f.Fence || l.Previous.Location != f.Location || !sameSourceScope(l.Previous.Scope, f.Scope) || w.task.Kind == PrepareTask && !sameLineageScope(l.Previous.Scope, f.Scope) {
 		return ErrInvalid
 	}
 	wanted := w.input.Supersedes

@@ -221,17 +221,17 @@ func TestConsumerFreshnessCannotRefreshBackupThroughReverify(t *testing.T) {
 	h, p := fixturePrepared(SupersedeReverify, LTX)
 	now := p.PreparedAt
 	c := Consumer{PreparationID: p.PreparationID, OperationID: "consumer", Requester: h.Intent.Task.Requester, App: h.Intent.Scope.App, InputSHA256: hash("1"), Kind: ReviewedConsumer, ReviewedPlanSHA256: hash("2"), PreparedSHA256: mustHash(p), PolicySHA256: h.Intent.Scope.PolicySHA256, RetentionSHA256: h.Intent.Scope.Retention.EvidenceSHA256, Bounds: &data.InitializationBounds{MaxBackupAgeSeconds: 120, MaxRestoreTestAgeSeconds: 30, RecoveryWindowSeconds: 3600}, ClaimedAt: now, RecoverUntil: now.Add(time.Hour)}
-	if !c.Admits(h.Intent, p, now) {
+	if !c.Admits(h.Intent, p, h.Intent.Scope, now) {
 		raw, _ := json.Marshal(c)
 		t.Fatalf("valid consumer rejected: %s", raw)
 	}
 	c.Bounds.MaxBackupAgeSeconds = 1
-	if c.Admits(h.Intent, p, now) {
+	if c.Admits(h.Intent, p, h.Intent.Scope, now) {
 		t.Fatal("fresh verification refreshed old backup age")
 	}
 	c.Bounds.MaxBackupAgeSeconds = 120
 	c.Bounds.RecoveryWindowSeconds = 0
-	if c.Admits(h.Intent, p, now) {
+	if c.Admits(h.Intent, p, h.Intent.Scope, now) {
 		t.Fatal("zero recovery window accepted")
 	}
 }
@@ -268,16 +268,16 @@ func TestConsumerBindsExactPreparedBytesAndOriginalCoverageAge(t *testing.T) {
 	h, p := fixturePrepared(SupersedeReverify, LTX)
 	now := p.PreparedAt
 	c := Consumer{PreparationID: p.PreparationID, OperationID: "consumer", Requester: h.Intent.Task.Requester, App: h.Intent.Scope.App, InputSHA256: hash("1"), Kind: ReviewedConsumer, ReviewedPlanSHA256: hash("2"), PreparedSHA256: mustHash(p), PolicySHA256: h.Intent.Scope.PolicySHA256, RetentionSHA256: h.Intent.Scope.Retention.EvidenceSHA256, Bounds: &data.InitializationBounds{MaxBackupAgeSeconds: 120, MaxRestoreTestAgeSeconds: 30, RecoveryWindowSeconds: 3600}, ClaimedAt: now, RecoverUntil: now.Add(time.Hour)}
-	if !c.Admits(h.Intent, p, now) {
+	if !c.Admits(h.Intent, p, h.Intent.Scope, now) {
 		t.Fatal("valid exact consumer rejected")
 	}
 	c.PreparedSHA256 = hash("9")
-	if c.Admits(h.Intent, p, now) {
+	if c.Admits(h.Intent, p, h.Intent.Scope, now) {
 		t.Fatal("different point bytes accepted")
 	}
 	c.PreparedSHA256 = mustHash(p)
 	c.Bounds.MaxBackupAgeSeconds = 30
-	if c.Admits(h.Intent, p, now) {
+	if c.Admits(h.Intent, p, h.Intent.Scope, now) {
 		t.Fatal("source cutoff was younger than its original coverage")
 	}
 }

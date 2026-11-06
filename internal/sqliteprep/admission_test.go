@@ -179,12 +179,13 @@ func TestStoppedBaselineCannotHaveRunningWriters(t *testing.T) {
 	s, err := Select(l.Previous.Scope, &l, o, ptrBundle(fixtureBundle()), testNow.Add(time.Minute))
 	checkSelection(t, s, err, "", StoppedSourceChanged)
 }
-func TestSelectCannotReverifyWhileCredentialVersionOrFenceChanges(t *testing.T) {
+func TestSelectReverifyUsesRenewedAuthorizationForIdenticalSource(t *testing.T) {
 	l := fixtureLineage()
 	s := l.Previous.Scope
 	s.CredentialVersion++
-	if _, err := Select(s, &l, fixtureObservation(), ptrBundle(fixtureBundle()), testNow.Add(time.Minute)); err == nil {
-		t.Fatal("changed scope accepted")
+	selection, err := Select(s, &l, fixtureObservation(), ptrBundle(fixtureBundle()), testNow.Add(time.Minute))
+	if err != nil || selection.Mode != SupersedeReverify || selection.Source == nil || !sameSource(*selection.Source, l.Coverage.Source) {
+		t.Fatal("renewed authorization changed or refused the original source", selection, err)
 	}
 }
 
