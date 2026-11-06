@@ -1,10 +1,8 @@
 package plan
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"reflect"
 	"slices"
 	"strconv"
@@ -32,6 +30,18 @@ type decisionDocument struct {
 	Plan     Plan           `json:"plan"`
 }
 
+type managedDecisionFacts struct {
+	Snapshot decisionFacts `json:"snapshot"`
+	Managed  ManagedFacts  `json:"managed"`
+}
+
+type managedDecisionDocument struct {
+	Desired  policy.Desired       `json:"desired"`
+	Snapshot managedDecisionFacts `json:"snapshot"`
+	State    BrineState           `json:"brine_state"`
+	Plan     Plan                 `json:"plan"`
+}
+
 func (p Plan) DecisionInput() []byte { return slices.Clone(p.decisionInput) }
 
 func (p Plan) WithDecisionInput(raw []byte) (Plan, error) {
@@ -47,28 +57,45 @@ func decodeDecisionInput(raw []byte) (decisionDocument, error) {
 	if len(raw) == 0 || len(raw) > MaxDecisionInputBytes {
 		return d, fmt.Errorf("invalid decision input size")
 	}
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&d); err != nil {
-		return d, err
+	err := decodeDecisionDocument(raw, &d)
+	return d, err
+}
+
+func decisionInputValue(raw []byte) (reflect.Value, error) {
+	if len(raw) == 0 || len(raw) > MaxDecisionInputBytes {
+		return reflect.Value{}, fmt.Errorf("invalid decision input size")
 	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return d, fmt.Errorf("invalid decision input document")
+	var shape struct {
+		Snapshot struct {
+			Managed json.RawMessage `json:"managed"`
+		} `json:"snapshot"`
 	}
-	return d, nil
+	if err := json.Unmarshal(raw, &shape); err != nil {
+		return reflect.Value{}, err
+	}
+	if len(shape.Snapshot.Managed) != 0 {
+		var d managedDecisionDocument
+		err := decodeDecisionDocument(raw, &d)
+		return reflect.ValueOf(d), err
+	}
+	d, err := decodeDecisionInput(raw)
+	return reflect.ValueOf(d), err
 }
 
 func CompareDecisionInputs(before, after []byte) (DecisionDrift, error) {
-	a, err := decodeDecisionInput(before)
+	a, err := decisionInputValue(before)
 	if err != nil {
 		return DecisionDrift{}, err
 	}
-	b, err := decodeDecisionInput(after)
+	b, err := decisionInputValue(after)
 	if err != nil {
 		return DecisionDrift{}, err
 	}
 	out := DecisionDrift{Paths: []string{}}
-	compareDecisionValues(reflect.ValueOf(a), reflect.ValueOf(b), "", out.addPath)
+	for i := 0; i < a.NumField(); i++ {
+		field := a.Type().Field(i)
+		compareDecisionValues(a.Field(i), b.FieldByName(field.Name), field.Tag.Get("json"), out.addPath)
+	}
 	slices.Sort(out.Paths)
 	return out, nil
 }
@@ -84,6 +111,10 @@ func (d *DecisionDrift) addPath(path string) {
 }
 
 func compareDecisionValues(a, b reflect.Value, path string, changed func(string)) {
+	if a.Type() != b.Type() {
+		changed(path)
+		return
+	}
 	if reflect.DeepEqual(a.Interface(), b.Interface()) {
 		return
 	}
@@ -99,21 +130,7 @@ func compareDecisionValues(a, b reflect.Value, path string, changed func(string)
 			changed(path)
 			return
 		}
-		for i := 0; i < a.NumField(); i++ {
-			field := a.Type().Field(i)
-			if !field.IsExported() {
-				continue
-			}
-			name := strings.Split(field.Tag.Get("json"), ",")[0]
-			if name == "" || name == "-" {
-				continue
-			}
-			next := name
-			if path != "" {
-				next = path + "." + name
-			}
-			compareDecisionValues(a.Field(i), b.Field(i), next, changed)
-		}
+		compareDecisionFields(a, b, path, changed)
 	case reflect.Slice:
 		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
 			changed(path)
@@ -124,6 +141,21 @@ func compareDecisionValues(a, b reflect.Value, path string, changed func(string)
 		}
 	default:
 		changed(path)
+	}
+}
+
+func compareDecisionFields(a, b reflect.Value, path string, changed func(string)) {
+	for i := 0; i < a.NumField(); i++ {
+		field := a.Type().Field(i)
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if !field.IsExported() || name == "" || name == "-" {
+			continue
+		}
+		next := name
+		if path != "" {
+			next = path + "." + name
+		}
+		compareDecisionValues(a.Field(i), b.Field(i), next, changed)
 	}
 }
 
@@ -140,48 +172,61 @@ func (d DecisionDrift) Valid() bool {
 }
 
 func validDecisionPath(path string) bool {
-	typ := reflect.TypeFor[decisionDocument]()
+	return validDecisionPathFor(path, reflect.TypeFor[decisionDocument]()) || validDecisionPathFor(path, reflect.TypeFor[managedDecisionDocument]())
+}
+
+func validDecisionPathFor(path string, typ reflect.Type) bool {
 	for _, segment := range strings.Split(path, ".") {
-		for typ.Kind() == reflect.Pointer {
-			typ = typ.Elem()
-		}
-		if typ.Kind() != reflect.Struct || typ == reflect.TypeFor[time.Time]() {
+		name, indices, indexed := strings.Cut(segment, "[")
+		typ = decisionPathField(typ, name)
+		if typ == nil {
 			return false
 		}
-		name, indices, _ := strings.Cut(segment, "[")
-		var found reflect.Type
-		for field := range typ.Fields() {
-			if field.IsExported() && strings.Split(field.Tag.Get("json"), ",")[0] == name {
-				found = field.Type
-				break
-			}
+		if indexed {
+			typ = decisionPathIndices(typ, indices)
 		}
-		if found == nil {
-			return false
-		}
-		typ = found
-		for indices != "" {
-			for typ.Kind() == reflect.Pointer {
-				typ = typ.Elem()
-			}
-			index, rest, ok := strings.Cut(indices, "]")
-			n, err := strconv.Atoi(index)
-			if !ok || err != nil || n < 0 || strconv.Itoa(n) != index || typ.Kind() != reflect.Slice {
-				return false
-			}
-			typ = typ.Elem()
-			if rest == "" {
-				indices = ""
-			} else {
-				indices, ok = strings.CutPrefix(rest, "[")
-				if !ok {
-					return false
-				}
-			}
-		}
-		if strings.Contains(segment, "[") && !strings.HasSuffix(segment, "]") {
+		if typ == nil {
 			return false
 		}
 	}
 	return true
+}
+
+func decisionIndirect(typ reflect.Type) reflect.Type {
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	return typ
+}
+
+func decisionPathField(typ reflect.Type, name string) reflect.Type {
+	typ = decisionIndirect(typ)
+	if typ.Kind() != reflect.Struct || typ == reflect.TypeFor[time.Time]() {
+		return nil
+	}
+	for field := range typ.Fields() {
+		if field.IsExported() && strings.Split(field.Tag.Get("json"), ",")[0] == name {
+			return field.Type
+		}
+	}
+	return nil
+}
+
+func decisionPathIndices(typ reflect.Type, indices string) reflect.Type {
+	for {
+		typ = decisionIndirect(typ)
+		index, rest, ok := strings.Cut(indices, "]")
+		n, err := strconv.Atoi(index)
+		if !ok || err != nil || n < 0 || strconv.Itoa(n) != index || typ.Kind() != reflect.Slice {
+			return nil
+		}
+		typ = typ.Elem()
+		if rest == "" {
+			return typ
+		}
+		indices, ok = strings.CutPrefix(rest, "[")
+		if !ok {
+			return nil
+		}
+	}
 }

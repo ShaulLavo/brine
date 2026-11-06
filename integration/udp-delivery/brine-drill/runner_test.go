@@ -65,7 +65,7 @@ func TestApplySuccessUsesReviewedEnvelopeShapes(t *testing.T) {
 		if strings.Contains(joined, " apply ") {
 			return commandResult(`{"schema_version":1,"command":"brine apply","ok":true,"data":{"status":"accepted","operation_id":"op-1"},"error":null}`), nil
 		}
-		return commandResult(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"state":"succeeded"}},"error":null}`), nil
+		return commandResult(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"id":"op-1","state":"succeeded","app":"udp-a","plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"deploy"}},"error":null}`), nil
 	}}
 	runner := Runner{Manifest: manifest, Ledger: ledger, Commands: commands}
 	if _, err := runner.RunPhase(context.Background(), PhaseBeforeReboot); err != nil {
@@ -162,7 +162,7 @@ func TestCleanupGrammarRequiresOwnedRemovalBeforeProof(t *testing.T) {
 		t.Fatal("cleanup accepted an unhashed teardown proof")
 	}
 	for _, action := range []Action{ActionPlan, ActionApply, ActionStatus, ActionRollback, ActionProbe, ActionInspect, ActionResume} {
-		manifest.Phases.Cleanup = []Step{{ID: "bad", Action: action, App: "udp-a", PlanID: "sha256:" + strings.Repeat("a", 64), OperationID: "op-1", ReleaseID: "release-a", Vantage: "external", ExpectedOutcome: "ok", Nonce: "nonce"}, proof}
+		manifest.Phases.Cleanup = []Step{{ID: "bad", Action: action, App: "udp-a", PlanID: "sha256:" + strings.Repeat("a", 64), OperationID: "op-1", ReleaseStep: "apply-a", Vantage: "external", ExpectedOutcome: "ok", Nonce: "nonce"}, proof}
 		if err := manifest.Validate(); err == nil {
 			t.Fatalf("cleanup accepted %s", action)
 		}
@@ -232,18 +232,19 @@ func TestResolveRetainsOriginalOperationOnMalformedSuccessor(t *testing.T) {
 func TestProbeRequiresApprovedEndpointAndCompleteResult(t *testing.T) {
 	manifest, ledger, cleanup := testManifest(t)
 	defer cleanup()
-	step := Step{ID: "probe", Action: ActionProbe, App: "udp-a", Endpoint: "192.0.2.11:4433", Vantage: "external-client", ExpectedOutcome: "ok", Nonce: "nonce-a"}
-	manifest.Phases.BeforeReboot = []Step{step}
+	step := Step{ID: "probe", Action: ActionProbe, App: "udp-a", Endpoint: "192.0.2.11:4433", Vantage: "external-client", ExpectedOutcome: "ok", Nonce: "nonce-a", ReleaseStep: "probe-source"}
+	manifest.Phases.BeforeReboot = []Step{stepRelease(t, "probe-source", "release-a", manifest.Fixture.ReleaseDigests["release-a"], "succeeded"), step}
 	if err := manifest.Validate(); err == nil {
 		t.Fatal("accepted probe endpoint outside app and controlled-unreachable endpoints")
 	}
-	manifest.Phases.BeforeReboot[0].Endpoint = net.JoinHostPort(manifest.Apps[0].Endpoint.ClientAddress, "4433")
-	manifest.Phases.BeforeReboot[0].Proof = ""
-	manifest.Phases.BeforeReboot[0].Nonce = "nonce-a"
+	manifest.Phases.BeforeReboot[1].Endpoint = net.JoinHostPort(manifest.Apps[0].Endpoint.ClientAddress, "4433")
+	manifest.Phases.BeforeReboot[1].Proof = ""
+	manifest.Phases.BeforeReboot[1].Nonce = "nonce-a"
 	if err := manifest.Validate(); err != nil {
 		t.Fatal(err)
 	}
-	result := client.Result{Schema: protocol.SchemaVersion, Fixture: protocol.FixtureName, Endpoint: manifest.Phases.BeforeReboot[0].Endpoint, Vantage: "external-client", Nonce: "nonce-a", ExpectedRelease: "release-a", Attempts: 1, AttemptTimeoutMs: 1000, OverallTimeoutMs: 5000, StartedAt: time.Now().UTC().Add(-time.Second), FinishedAt: time.Now().UTC(), Outcome: "configuration_error"}
+	ledger.ManifestHash = manifestHash(manifest)
+	result := client.Result{Schema: protocol.SchemaVersion, Fixture: protocol.FixtureName, Endpoint: manifest.Phases.BeforeReboot[1].Endpoint, Vantage: "external-client", Nonce: "nonce-a", ExpectedRelease: "release-a", Attempts: 1, AttemptTimeoutMs: 1000, OverallTimeoutMs: 5000, StartedAt: time.Now().UTC().Add(-time.Second), FinishedAt: time.Now().UTC(), Outcome: "configuration_error"}
 	raw, err := json.Marshal(result)
 	if err != nil {
 		t.Fatal(err)
@@ -253,7 +254,8 @@ func TestProbeRequiresApprovedEndpointAndCompleteResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := runner.runProbe(context.Background(), &loaded, manifest.Phases.BeforeReboot[0]); err == nil {
+	loaded.Entries = []LedgerEntry{releaseEntry(runner, manifest.Phases.BeforeReboot[0], "op-probe-source")}
+	if _, err := runner.runProbe(context.Background(), &loaded, manifest.Phases.BeforeReboot[1]); err == nil {
 		t.Fatal("accepted configuration-error result as probe evidence")
 	}
 }
@@ -314,30 +316,30 @@ func TestReadyProofPreservesHTTPAndAppIdentity(t *testing.T) {
 	app := manifest.Apps[0]
 	status := apps.Status{
 		App:     app.Name,
-		Current: &apps.Release{ImageDigest: app.ImageDigest, Domains: []spec.Domain{spec.Domain(app.Domain)}, UDP: &plan.UDPAllocation{Endpoint: plan.UDPEndpoint{BindAddress: app.Endpoint.BindAddress, HostPort: target.Port(app.Endpoint.HostPort)}, ContainerPort: target.Port(app.Endpoint.ContainerPort), ClientAddress: app.Endpoint.ClientAddress, Exposure: spec.UDPExposure(app.Endpoint.Exposure)}},
+		Current: &apps.Release{ID: "op-ready", PlanID: "plan-ready", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"], Domains: []spec.Domain{spec.Domain(app.Domain)}, UDP: &plan.UDPAllocation{Endpoint: plan.UDPEndpoint{BindAddress: app.Endpoint.BindAddress, HostPort: target.Port(app.Endpoint.HostPort)}, ContainerPort: target.Port(app.Endpoint.ContainerPort), ClientAddress: app.Endpoint.ClientAddress, Exposure: spec.UDPExposure(app.Endpoint.Exposure)}},
 		Health:  apps.Health{Direct: "healthy", UnitActive: target.Known(true)},
-		UDP:     &apps.UDPStatus{Local: udpready.Ready, Remote: "unverified", Reservation: "active", BindAddress: app.Endpoint.BindAddress, ClientAddress: app.Endpoint.ClientAddress, HostPort: target.Port(app.Endpoint.HostPort), ContainerPort: target.Port(app.Endpoint.ContainerPort), Exposure: spec.UDPExposure(app.Endpoint.Exposure)},
+		UDP:     &apps.UDPStatus{Incarnation: app.Incarnation, Local: udpready.Ready, Remote: "unverified", Reservation: "active", BindAddress: app.Endpoint.BindAddress, ClientAddress: app.Endpoint.ClientAddress, HostPort: target.Port(app.Endpoint.HostPort), ContainerPort: target.Port(app.Endpoint.ContainerPort), Exposure: spec.UDPExposure(app.Endpoint.Exposure)},
 	}
 	proofPath := filepath.Join(filepath.Dir(ledger.Path), "ready.json")
-	proof := ProductionProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, Kind: "ready", App: app.Name, Endpoint: app.Endpoint, Release: app.ExpectedRelease, ImageDigest: app.ImageDigest, HTTPHealth: "healthy", NetworkMode: "pasta", Mapping: MappingProof{Present: true, BindAddress: app.Endpoint.BindAddress, HostPort: app.Endpoint.HostPort, ContainerPort: app.Endpoint.ContainerPort}, Socket: &SocketProof{Address: app.Endpoint.BindAddress, Port: app.Endpoint.HostPort, App: app.Name, Process: "pasta", Unit: app.Name + ".service", Inode: 42, Source: "ss -H -lunpe", Ownership: "affirmed"}, InodeGate: "confirmed", ForeignOverlap: "none", RouteUnchanged: true}
+	proof := ProductionProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, Kind: "ready", App: app.Name, Endpoint: app.Endpoint, Release: "release-a", ReleaseID: "op-ready", Incarnation: app.Incarnation, ImageDigest: manifest.Fixture.ReleaseDigests["release-a"], HTTPHealth: "healthy", NetworkMode: "pasta", Mapping: MappingProof{Present: true, BindAddress: app.Endpoint.BindAddress, HostPort: app.Endpoint.HostPort, ContainerPort: app.Endpoint.ContainerPort}, Socket: &SocketProof{Address: app.Endpoint.BindAddress, Port: app.Endpoint.HostPort, App: app.Name, Process: "pasta", Unit: app.Name + ".service", Inode: 42, Source: "ss -H -lunpe", Ownership: "affirmed"}, InodeGate: "confirmed", ForeignOverlap: "none", RouteUnchanged: true}
 	writeJSON(t, proofPath, proof)
-	if err := validateReadyFor(status, &app, proofPath, "", "", ""); err != nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	proofHash := mustFileHash(t, proofPath)
-	if err := validateReadyFor(status, &app, proofPath, proofHash, manifest.RunID, manifest.Target.Name); err != nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, proofHash, manifest.RunID, manifest.Target.Name); err != nil {
 		t.Fatal(err)
 	}
 	proof.Target = "other-target"
 	writeJSON(t, proofPath, proof)
-	if err := validateReadyFor(status, &app, proofPath, proofHash, manifest.RunID, manifest.Target.Name); err == nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, proofHash, manifest.RunID, manifest.Target.Name); err == nil {
 		t.Fatal("accepted production proof after its bytes changed")
 	}
-	if err := validateReadyFor(status, &app, proofPath, mustFileHash(t, proofPath), manifest.RunID, manifest.Target.Name); err == nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, mustFileHash(t, proofPath), manifest.RunID, manifest.Target.Name); err == nil {
 		t.Fatal("accepted production proof for another target")
 	}
 	status.Health.Direct = "unhealthy"
-	if err := validateReadyFor(status, &app, proofPath, "", "", ""); err == nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, "", "", ""); err == nil {
 		t.Fatal("accepted unhealthy HTTP alongside UDP proof")
 	}
 }
@@ -384,7 +386,7 @@ func testManifest(t *testing.T) (Manifest, FileLedger, func()) {
 	after := Receipt{Schema: ReceiptSchema, RunID: "drill-1", Target: "vps", Phase: "after-reboot", HostProof: "host", RebootRestored: true}
 	writeJSON(t, beforePath, before)
 	writeJSON(t, afterPath, after)
-	manifest := Manifest{Schema: ManifestSchema, RunID: "drill-1", Source: SourcePins{Commit: commit, HostBinary: BinaryPin{Path: brinePath, SHA256: brineHash, SourceCommit: commit}, ClientBinary: BinaryPin{Path: clientPath, SHA256: clientHash, SourceCommit: commit}}, Fixture: FixturePins{ImageIndexDigest: image, PlatformDigests: map[string]string{"linux/amd64": image, "linux/arm64": image}, ReleaseDigests: map[string]string{"release-a": releaseImage}}, Target: TargetSpec{Kind: "vps", Name: "vps", ConfigDir: dir, ControlledUnreachable: "198.51.100.10:65530"}, Apps: []AppSpec{{Name: "udp-a", Domain: "udp-a.example.test", ExpectedRelease: "release-a", ImageDigest: releaseImage, Endpoint: Endpoint{BindAddress: "192.0.2.10", ClientAddress: "192.0.2.10", HostPort: 4433, ContainerPort: 4433, Exposure: "public"}}}, PhaseReceipts: PhaseReceipts{BeforeReboot: ReceiptRef{Name: "before", Path: beforePath, SHA256: mustFileHash(t, beforePath)}, AfterReboot: ReceiptRef{Name: "after", Path: afterPath, SHA256: mustFileHash(t, afterPath)}}, DependencyReceipts: []ReceiptRef{{Name: "source", Path: beforePath, SHA256: mustFileHash(t, beforePath)}}, OwnedResources: []OwnedResource{{Kind: "app", ID: "udp-a", App: "udp-a", Owner: "drill-1"}, {Kind: "udp_endpoint", ID: "udp-a:4433", App: "udp-a", Owner: "drill-1"}, {Kind: "image", ID: releaseImage, App: "udp-a", Owner: "drill-1"}, {Kind: "grant", ID: "udp-a-grant", App: "udp-a", Owner: "drill-1"}}}
+	manifest := Manifest{Schema: ManifestSchema, RunID: "drill-1", Source: SourcePins{Commit: commit, HostBinary: BinaryPin{Path: brinePath, SHA256: brineHash, SourceCommit: commit}, ClientBinary: BinaryPin{Path: clientPath, SHA256: clientHash, SourceCommit: commit}}, Fixture: FixturePins{ImageIndexDigest: image, PlatformDigests: map[string]string{"linux/amd64": image, "linux/arm64": image}, ReleaseDigests: map[string]string{"release-a": releaseImage}}, Target: TargetSpec{Kind: "vps", Name: "vps", ConfigDir: dir, ControlledUnreachable: "198.51.100.10:65530"}, Apps: []AppSpec{{Name: "udp-a", Domain: "udp-a.example.test", Incarnation: "sha256:" + strings.Repeat("d", 64), Endpoint: Endpoint{BindAddress: "192.0.2.10", ClientAddress: "192.0.2.10", HostPort: 4433, ContainerPort: 4433, Exposure: "public"}}}, PhaseReceipts: PhaseReceipts{BeforeReboot: ReceiptRef{Name: "before", Path: beforePath, SHA256: mustFileHash(t, beforePath)}, AfterReboot: ReceiptRef{Name: "after", Path: afterPath, SHA256: mustFileHash(t, afterPath)}}, DependencyReceipts: []ReceiptRef{{Name: "source", Path: beforePath, SHA256: mustFileHash(t, beforePath)}}, OwnedResources: []OwnedResource{{Kind: "app", ID: "udp-a", App: "udp-a", Owner: "drill-1"}, {Kind: "udp_endpoint", ID: "udp-a:4433", App: "udp-a", Owner: "drill-1"}, {Kind: "image", ID: releaseImage, App: "udp-a", Owner: "drill-1"}, {Kind: "grant", ID: "udp-a-grant", App: "udp-a", Owner: "drill-1"}}}
 	teardownPath := filepath.Join(dir, "teardown.json")
 	teardown := TeardownProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, ForeignUntouched: true, Resources: []TeardownResource{{Kind: "app", ID: "udp-a", State: "absent"}, {Kind: "udp_endpoint", ID: "udp-a:4433", State: "absent"}, {Kind: "image", ID: releaseImage, State: "absent"}, {Kind: "grant", ID: "udp-a-grant", State: "absent"}}}
 	writeJSON(t, teardownPath, teardown)

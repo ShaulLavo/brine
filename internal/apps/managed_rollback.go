@@ -2,7 +2,6 @@ package apps
 
 import (
 	"context"
-	"errors"
 
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -42,11 +41,7 @@ func (s Service) managedRollback(ctx context.Context, snapshot target.Snapshot, 
 	if facts.Snapshot.Identity != snapshot.Identity || facts.State.Target != state.Target {
 		return RollbackPlan{}, result.New(result.Conflict, nil)
 	}
-	// Preserve the target frontend's retained immutable secret versions. Versions
-	// absent from fresh owned inventory refuse; rollback never substitutes latest.
-	if err := selectManagedRollbackSecrets(&facts, release); err != nil {
-		return RollbackPlan{}, err
-	}
+	facts.SecretExact = append([]plan.SecretBinding{}, release.Secrets...)
 	p, err := plan.Build(facts)
 	if err != nil {
 		return RollbackPlan{}, err
@@ -62,35 +57,4 @@ func (s Service) managedRollback(ctx context.Context, snapshot target.Snapshot, 
 		return RollbackPlan{}, err
 	}
 	return RollbackPlan{PlanID: id, ReleaseID: release.ID, Compatibility: "managed_current_compatible", Kind: p.Kind, Diff: p.Diff, Conflicts: p.Conflicts}, nil
-}
-
-func selectManagedRollbackSecrets(in *plan.Input, release ops.Release) error {
-	if in.Snapshot.Apps.Status != target.KnownStatus || in.Snapshot.Apps.Value == nil {
-		return result.New(result.Conflict, nil)
-	}
-	for i := range *in.Snapshot.Apps.Value {
-		app := &(*in.Snapshot.Apps.Value)[i]
-		if app.Name != string(in.Desired.Name) {
-			continue
-		}
-		if app.Secrets.Status != target.KnownStatus || app.Secrets.Value == nil {
-			return result.New(result.Conflict, nil)
-		}
-		selected := []target.Secret{}
-		for _, bound := range release.Secrets {
-			found := false
-			for _, secret := range *app.Secrets.Value {
-				if secret.Name == bound.VersionName && secret.ID == bound.ID {
-					selected = append(selected, secret)
-					found = true
-				}
-			}
-			if !found {
-				return result.New(result.Conflict, nil)
-			}
-		}
-		app.Secrets = target.Known(selected)
-		return nil
-	}
-	return errors.New("managed rollback frontend inventory unavailable")
 }

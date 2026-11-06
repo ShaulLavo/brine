@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › logs                    tail 100 · read 12:04:31│
+────────────────────────────────────────────────────────────────────────────────│
+2026-11-06T12:04:27Z [6] listening on :8080                                     │
+2026-11-06T12:04:28Z [6] GET /health 200                                        │
+2026-11-06T12:04:29Z [4] retrying upstream fixture-db: token=[REDACTED]         │
+2026-11-06T12:04:30Z [6] request with multi-line body\nsecond line shown escaped│
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+↑↓ scroll  r read again  esc back                                               │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › logs\x1b[m                    \x1b[90mtail 100 · read 12:04:31\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"2026-11-06T12:04:27Z [6] listening on :8080"
+"2026-11-06T12:04:28Z [6] GET /health 200"
+"2026-11-06T12:04:29Z [4] retrying upstream fixture-db: token=[REDACTED]"
+"2026-11-06T12:04:30Z [6] request with multi-line body\\nsecond line shown escaped"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ scroll  r read again  esc back\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › logs              │
+──────────────────────────────────────────────────│
+12:04:27Z [6] listening on :8080                  │
+12:04:28Z [6] GET /health 200                     │
+12:04:29Z [4] retrying upstream fixture-db: token=│
+12:04:30Z [6] request with multi-line body\nsecond│
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+↑↓ scroll  r read again  esc back                 │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › logs\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"12:04:27Z [6] listening on :8080"
+"12:04:28Z [6] GET /health 200"
+"12:04:29Z [4] retrying upstream fixture-db: token="
+"12:04:30Z [6] request with multi-line body\\nsecond"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ scroll  r read again  esc back\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+12:04:27Z [6] listening on :80│
+12:04:28Z [6] GET /health 200 │
+12:04:29Z [4] retrying upstrea│
+12:04:30Z [6] request with mul│
+                              │
+↑↓ scroll  esc back           │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"12:04:27Z [6] listening on :80"
+"12:04:28Z [6] GET /health 200"
+"12:04:29Z [4] retrying upstrea"
+"12:04:30Z [6] request with mul"
+""
+"\x1b[90m↑↓ scroll  esc back\x1b[m"

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/cli"
 	"github.com/ShaulLavo/brine/internal/host"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -34,8 +35,9 @@ func main() {
 		Stderr:                os.Stderr,
 		Version:               cli.Version,
 		LookPath:              exec.LookPath,
-		RunTUI: func(ctx context.Context, _ io.Reader, stdout io.Writer) error {
-			return cli.RunTUI(ctx, nil, stdout)
+		// A nil input lets the runner use terminal stdin or the controlling terminal.
+		RunTUI: func(ctx context.Context, model tea.Model, _ io.Reader, stdout io.Writer) (tea.Model, error) {
+			return cli.RunTUI(ctx, model, nil, stdout)
 		},
 	}
 	code := runWithRuntime(deps, os.Args[1:], authenticated)

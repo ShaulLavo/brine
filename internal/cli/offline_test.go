@@ -32,7 +32,7 @@ func offlineExecute(t *testing.T, args ...string) (string, string, int) {
 	deps := testDependencies(t, &out, &diagnostics)
 	deps.LookPath = func(string) (string, error) { panic("offline command looked up host tool") }
 	deps.DoctorRunner = forbiddenOfflineRunner{}
-	deps.RunTUI = func(context.Context, io.Reader, io.Writer) error { panic("offline command invoked TUI") }
+	deps.RunTUI = runTUIStub(func() error { panic("offline command invoked TUI") })
 	err := Execute(deps, args)
 	return out.String(), diagnostics.String(), result.ExitCode(err)
 }

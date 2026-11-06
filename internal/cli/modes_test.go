@@ -252,7 +252,7 @@ func TestTUITerminalMatrix(t *testing.T) {
 				deps.Stdout = output
 			}
 			called := false
-			deps.RunTUI = func(context.Context, io.Reader, io.Writer) error { called = true; return nil }
+			deps.RunTUI = runTUIStub(func() error { called = true; return nil })
 			err := Execute(deps, []string{"tui"})
 			if bits == 3 {
 				if err != nil || !called {

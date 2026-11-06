@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › op-01fixture          starting · polled 12:04:31│
+────────────────────────────────────────────────────────────────────────────────│
+starting · deploy                                                               │
+plan sha256:555555555555…                                                       │
+started 12:01:07                                                                │
+#1  12:04:31  launch  intent                                                    │
+#2  12:04:31  state  starting                                                   │
+#3  12:04:31  step  start_unit  completed                                       │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+Lost contact with fixture (attempt 2 of 3). Observation does not stop the host  │
+job.                                                                            │
+↑↓ scroll  r read  esc back  l logs                                             │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › op-01fixture\x1b[m          \x1b[90mstarting · polled 12:04:31\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"starting · deploy"
+"plan sha256:555555555555…"
+"started 12:01:07"
+"#1  12:04:31  launch  intent"
+"#2  12:04:31  state  starting"
+"#3  12:04:31  step  start_unit  completed"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[33mLost contact with fixture (attempt 2 of 3). Observation does not stop the host\x1b[m"
+"\x1b[33mjob.\x1b[m"
+"\x1b[90m↑↓ scroll  r read  esc back  l logs\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › op-01fixture      │
+──────────────────────────────────────────────────│
+starting · deploy                                 │
+plan sha256:555555555555…                         │
+started 12:01:07                                  │
+#1  12:04:31  launch  intent                      │
+#2  12:04:31  state  starting                     │
+#3  12:04:31  step  start_unit  completed         │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+Lost contact with fixture (attempt 2 of 3).       │
+Observation does not stop the host job.           │
+↑↓ scroll  r read  esc back  l logs               │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › op-01fixture\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"starting · deploy"
+"plan sha256:555555555555…"
+"started 12:01:07"
+"#1  12:04:31  launch  intent"
+"#2  12:04:31  state  starting"
+"#3  12:04:31  step  start_unit  completed"
+""
+""
+""
+""
+""
+"\x1b[33mLost contact with fixture (attempt 2 of 3).\x1b[m"
+"\x1b[33mObservation does not stop the host job.\x1b[m"
+"\x1b[90m↑↓ scroll  r read  esc back  l logs\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+starting · deploy             │
+plan sha256:555555555555…     │
+Lost contact with fixture     │
+(attempt 2 of 3). Observation │
+does not stop the host job.   │
+↑↓ scroll  r read  esc back   │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"starting · deploy"
+"plan sha256:555555555555…"
+"\x1b[33mLost contact with fixture\x1b[m"
+"\x1b[33m(attempt 2 of 3). Observation\x1b[m"
+"\x1b[33mdoes not stop the host job.\x1b[m"
+"\x1b[90m↑↓ scroll  r read  esc back\x1b[m"

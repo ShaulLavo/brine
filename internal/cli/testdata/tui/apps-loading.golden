@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture                                                                 │
+────────────────────────────────────────────────────────────────────────────────│
+Reading apps from fixture…                                                      │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+r refresh  q quit                                                               │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Reading apps from fixture…"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90mr refresh  q quit\x1b[m"
+== 50x16 no color ==
+brine · fixture                                   │
+──────────────────────────────────────────────────│
+Reading apps from fixture…                        │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+r refresh  q quit                                 │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Reading apps from fixture…"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90mr refresh  q quit\x1b[m"
+== 30x8 no color ==
+brine · fixture               │
+──────────────────────────────│
+Reading apps from fixture…    │
+                              │
+                              │
+                              │
+                              │
+r refresh  q quit             │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Reading apps from fixture…"
+""
+""
+""
+""
+"\x1b[90mr refresh  q quit\x1b[m"
