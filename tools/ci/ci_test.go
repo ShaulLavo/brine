@@ -11,20 +11,24 @@ import (
 )
 
 type step struct {
-	Uses string
-	Run  string
-	If   string
-	Env  map[string]string
-	With map[string]string
+	ContinueOnError bool `yaml:"continue-on-error"`
+	Uses            string
+	Run             string
+	If              string
+	Env             map[string]string
+	With            map[string]string
 }
 
 type job struct {
-	Name     string
-	If       string
-	Needs    yaml.Node
-	Steps    []step
-	Timeout  int `yaml:"timeout-minutes"`
-	Strategy struct {
+	ContinueOnError bool `yaml:"continue-on-error"`
+	Env             map[string]string
+	Permissions     map[string]string
+	Name            string
+	If              string
+	Needs           yaml.Node
+	Steps           []step
+	Timeout         int `yaml:"timeout-minutes"`
+	Strategy        struct {
 		FailFast *bool `yaml:"fail-fast"`
 		Matrix   struct{ Shard []string }
 	}
@@ -81,10 +85,10 @@ func TestCIWorkflow(t *testing.T) {
 	if err := gate.Needs.Decode(&needs); err != nil {
 		t.Fatal(err)
 	}
-	if gate.Name != "Complete CI gate" || gate.If != "always()" || !reflect.DeepEqual(needs, []string{"changes", "test", "race", "race-host-build", "race-host", "lint", "structure", "vulnerability", "cli-pair"}) {
+	if gate.Name != "Complete CI gate" || gate.If != "always()" || !reflect.DeepEqual(needs, []string{"changes", "test", "race", "race-host-build", "race-host", "lint", "structure", "vulnerability", "cli-pair", "helpers"}) {
 		t.Fatal("complete blocking gate changed")
 	}
-	for key, id := range map[string]string{"CHANGES": "changes", "TEST": "test", "RACE": "race", "RACE_HOST_BUILD": "race-host-build", "RACE_HOST": "race-host", "LINT": "lint", "STRUCTURE": "structure", "VULNERABILITY": "vulnerability", "CLI_PAIR": "cli-pair"} {
+	for key, id := range map[string]string{"CHANGES": "changes", "TEST": "test", "RACE": "race", "RACE_HOST_BUILD": "race-host-build", "RACE_HOST": "race-host", "LINT": "lint", "STRUCTURE": "structure", "VULNERABILITY": "vulnerability", "CLI_PAIR": "cli-pair", "HELPERS": "helpers"} {
 		if gate.Steps[0].Env[key] != "${{ needs."+id+".result }}" || !strings.Contains(gate.Steps[0].Run, "$"+key+" == success") {
 			t.Fatalf("gate must require %s to succeed", id)
 		}
@@ -201,5 +205,54 @@ func TestCICache(t *testing.T) {
 	}
 	if cache.Uses != "actions/cache@0400d5f644dc74513175e3cd8d07132dd4860809" {
 		t.Fatal("cache action must stay pinned")
+	}
+}
+
+func TestPureHelperWorkflow(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Permissions map[string]string
+		Jobs        map[string]job
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	helpers := workflow.Jobs["helpers"]
+	want := []step{
+		{Uses: "actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1", With: map[string]string{"persist-credentials": "false"}},
+		{Uses: "oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6", With: map[string]string{"bun-version": "1.4.4"}},
+		{Run: "./scripts/check.sh test-helpers"},
+	}
+	if helpers.Name != "Publication helper tests" || helpers.If != "" || helpers.ContinueOnError || len(helpers.Env) != 0 || len(helpers.Permissions) != 0 || !reflect.DeepEqual(helpers.Steps, want) {
+		t.Fatal("mandatory helper job must only check out source, set up pinned Bun, and run the pure suite")
+	}
+	if !reflect.DeepEqual(workflow.Permissions, map[string]string{"contents": "read"}) {
+		t.Fatal("CI must not gain publication permissions")
+	}
+	publication, err := os.ReadFile("../../.github/workflows/udp-fixture.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(publication), `bun-version: "1.4.4"`) || !strings.Contains(string(publication), "run: bun test tools/ci/udp-fixture") {
+		t.Fatal("merge-time Bun pin and suite must match publication without removing its checks")
+	}
+}
+
+func TestWorkerSemanticRuntime(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/ci.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct{ Jobs map[string]job }
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	steps := workflow.Jobs["test"].Steps
+	setup := step{Uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", With: map[string]string{"node-version": "26.12.1", "package-manager-cache": "false"}}
+	if len(steps) < 4 || !reflect.DeepEqual(steps[3], setup) {
+		t.Fatal("normal tests must explicitly set up pinned Node before running Worker semantics")
 	}
 }
