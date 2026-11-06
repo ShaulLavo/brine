@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 
 	"github.com/ShaulLavo/brine/internal/store"
@@ -41,7 +40,12 @@ func seedSQLiteUDP(directory string) (err error) {
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(filepath.Join(directory, "control.db"), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	root, err := os.OpenRoot(directory)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, root.Close()) }()
+	file, err := root.OpenFile("control.db", os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
 		return err
 	}
