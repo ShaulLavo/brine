@@ -22,6 +22,7 @@ func testQuickCheckSnapshot(t *testing.T, damaged bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = s.Close() })
 	if _, err := s.QuickCheck(ctx); err == nil {
 		t.Fatal("writable store accepted")
 	}
@@ -36,6 +37,7 @@ func testQuickCheckSnapshot(t *testing.T, damaged bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = snapshot.Close() })
 	good, err := snapshot.QuickCheck(ctx)
 	if err != nil || good == damaged {
 		t.Fatalf("healthy=%t err=%v", good, err)

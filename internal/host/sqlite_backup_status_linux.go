@@ -36,7 +36,7 @@ type sqliteBackupStatusReader struct {
 func newSQLiteBackupStatusReader(dir string) dispatch.SQLiteBackupStatusReader {
 	return &sqliteBackupStatusReader{stateDir: dir, policy: DiskPolicy{}, executor: localexec.ExecRunner{}, probe: restore.ProbeRemote, listingBudget: 15 * time.Second, timeBudget: 30 * time.Second}
 }
-func (r *sqliteBackupStatusReader) SQLiteBackupStatus(ctx context.Context, a dispatch.SQLiteBackupStatusArgs) (sqlitestatus.Status, error) {
+func (r *sqliteBackupStatusReader) SQLiteBackupStatus(ctx context.Context, a dispatch.SQLiteBackupStatusArgs) (_ sqlitestatus.Status, err error) {
 	if ctx.Err() != nil {
 		return sqlitestatus.Status{}, ctx.Err()
 	}
@@ -54,7 +54,7 @@ func (r *sqliteBackupStatusReader) SQLiteBackupStatus(ctx context.Context, a dis
 		}
 		return sqlitestatus.Status{}, result.New(result.PolicyRefused, nil)
 	}
-	defer func() { _ = state.Close() }()
+	defer func() { err = errors.Join(err, state.Close()) }()
 	facts, err := state.ReadSQLiteStatus(ctx, a.App, a.Database)
 	if err != nil {
 		if ctx.Err() != nil {
