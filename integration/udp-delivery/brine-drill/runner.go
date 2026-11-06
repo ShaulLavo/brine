@@ -540,7 +540,7 @@ func (p PhaseSteps) Validate(apps map[string]bool) error {
 	seen := map[string]bool{}
 	for _, steps := range [][]Step{p.BeforeReboot, p.AfterReboot, p.Cleanup, p.Inspect, p.Resume} {
 		for _, step := range steps {
-			if step.ID == "" || seen[step.ID] || step.Action == "" || !validAction(step.Action) || step.App != "" && !apps[step.App] {
+			if step.ID == "" || seen[step.ID] || step.Action == "" || !validAction(step.Action) || !validApplyOutcome(step) || step.App != "" && !apps[step.App] {
 				return errors.New("invalid phase step")
 			}
 			seen[step.ID] = true
@@ -552,7 +552,7 @@ func (p PhaseSteps) Validate(apps map[string]bool) error {
 			}
 		}
 	}
-	if err := validateCleanupSteps(p.Cleanup); err != nil {
+	if err := validateCleanupSteps(p.Cleanup, apps); err != nil {
 		return err
 	}
 	return nil
@@ -606,16 +606,25 @@ func validateProbeEndpoints(phases PhaseSteps, apps []AppSpec, targetSpec Target
 	return nil
 }
 
-func validateCleanupSteps(steps []Step) error {
+func validateCleanupSteps(steps []Step, apps map[string]bool) error {
 	if len(steps) < 2 || steps[len(steps)-1].Action != ActionTeardownProof {
 		return errors.New("cleanup must remove owned apps before teardown proof")
 	}
+	removed := make(map[string]bool, len(apps))
 	for _, step := range steps[:len(steps)-1] {
 		if step.Action != ActionLifecycle || step.LifecycleAction != "remove" || step.App == "" {
 			return errors.New("cleanup accepts only owned removal steps before teardown proof")
 		}
+		removed[step.App] = true
+	}
+	if len(removed) != len(apps) {
+		return errors.New("cleanup must remove every declared app before teardown proof")
 	}
 	return nil
+}
+
+func validApplyOutcome(step Step) bool {
+	return step.Action != ActionApply || slices.Contains([]string{"", "succeeded", "failed", "rolled_back"}, step.ExpectedOutcome)
 }
 
 func (s Step) ActionString() string { return string(s.Action) }
@@ -889,8 +898,8 @@ func (r *Runner) runApply(ctx context.Context, ledger *Ledger, step Step) (StepR
 	if err != nil {
 		return StepReport{}, err
 	}
-	if found && entry.State == "succeeded" {
-		return reportFor(entry), nil
+	if found && slices.Contains([]string{"succeeded", "failed", "rolled_back"}, entry.State) {
+		return reportApplyOutcome(entry, step.ExpectedOutcome)
 	}
 	if found && entry.State != "prepared" {
 		return StepReport{}, errors.New("existing apply entry requires inspection")
@@ -940,8 +949,15 @@ func (r *Runner) runApply(ctx context.Context, ledger *Ledger, step Step) (StepR
 	if err := r.Ledger.Save(*ledger); err != nil {
 		return StepReport{}, err
 	}
-	if status != "succeeded" {
-		return reportFor(entry), errors.New("Brine operation did not succeed")
+	return reportApplyOutcome(entry, step.ExpectedOutcome)
+}
+
+func reportApplyOutcome(entry LedgerEntry, expected string) (StepReport, error) {
+	if expected == "" {
+		expected = "succeeded"
+	}
+	if entry.State != expected {
+		return reportFor(entry), errors.New("Brine operation did not reach the expected outcome")
 	}
 	return reportFor(entry), nil
 }
