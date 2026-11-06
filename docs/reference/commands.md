@@ -33,7 +33,7 @@ Every command accepts these flags.
 | Data and backups | `data`, `backup`, `restore`, `archive` |
 | CDN | `cdn` |
 
-`brine completion bash|zsh|fish|powershell` prints a shell completion script. `brine tui` needs a terminal and refuses `--json`, `--jsonl` and `--no-input`. It browses targets, apps and bounded logs read-only.
+`brine completion bash|zsh|fish|powershell` prints a shell completion script. `brine tui` needs a terminal and refuses `--json`, `--jsonl` and `--no-input`. It browses targets, apps, operations and bounded logs read-only.
 
 ## Commands
 
@@ -1428,7 +1428,7 @@ Flags:
 ### `brine tui`
 
 ```text
-Browse enrolled targets, app status and bounded, redacted log tails. The TUI only reads: it never plans, applies or cancels anything. Without --target it starts on the target picker.
+Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. The TUI only reads: it never plans, applies or cancels anything. Without --target it starts on the target picker.
 
 Usage:
   brine tui [flags]

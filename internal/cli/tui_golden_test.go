@@ -19,7 +19,7 @@ import (
 )
 
 // tuiGoldenStates covers loading, empty, unknown, ready and failed views of
-// every U3a screen. All values are synthetic fixtures.
+// every read-only screen. All values are synthetic fixtures.
 func tuiGoldenStates() map[string]tuiModel {
 	transportFailure := result.TransportError(errors.New("ssh: fixture refused"), result.TransportDiagnostics{Operation: "status", Reason: "exit"})
 	base := fixtureModel(fixtureHost(), "")
@@ -56,7 +56,7 @@ func tuiGoldenStates() map[string]tuiModel {
 		}
 		return m
 	}
-	return map[string]tuiModel{
+	states := map[string]tuiModel{
 		"targets-loading":  targets(loadLoading, nil, nil),
 		"targets-empty":    targets(loadReady, []string{}, nil),
 		"targets-ready":    targets(loadReady, []string{"fixture", "fixture-pi"}, nil),
@@ -78,6 +78,10 @@ func tuiGoldenStates() map[string]tuiModel {
 		"apps-refreshing":  onApps(screenApps, "", ready, restart),
 		"targets-selected": withTarget(targets(loadReady, []string{"fixture", "fixture-pi"}, nil), 1),
 	}
+	for name, m := range tuiOperationGoldenStates() {
+		states[name] = m
+	}
+	return states
 }
 
 func withTarget(m tuiModel, i int) tuiModel {

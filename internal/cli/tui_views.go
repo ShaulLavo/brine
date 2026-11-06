@@ -39,6 +39,8 @@ func (m tuiModel) screenView() ui.Screen {
 		return m.appScreen()
 	case screenLogs:
 		return m.logsScreen()
+	case screenOperation:
+		return m.operationScreen()
 	default:
 		return m.targetsScreen()
 	}
@@ -90,11 +92,17 @@ func (m tuiModel) appsScreen() ui.Screen {
 
 func (m tuiModel) appScreen() ui.Screen {
 	s := ui.Screen{Title: "brine · " + m.flags.target + " › " + m.app, Help: m.help(helpKey{"l logs", 0}, keyRefresh(1), keyBack)}
+	s = withError(s, m.apps.Err)
 	status, found := m.appStatus()
 	switch {
 	case found:
 		s.Context = m.readContext(m.apps.State, m.apps.At, "")
 		s.Body = appDetailLines(status, m.width)
+		s.Help = m.help(helpKey{"↑↓ scroll", 0}, keyBack, helpKey{"l logs", 1}, keyRefresh(1))
+		if status.LastOperation != nil {
+			s.Help = m.help(helpKey{"t events", 0}, helpKey{"↑↓ scroll", 0}, keyBack, helpKey{"l logs", 1}, keyRefresh(1))
+		}
+		s.Body = topWindow(s.Body, m.detailOffset, m.frame().BodyRows(s))
 	case m.apps.known():
 		s.Context = m.readContext(m.apps.State, m.apps.At, "")
 		s.Body = m.message(m.app + " is not in the latest report from " + m.flags.target + ".")
@@ -103,7 +111,7 @@ func (m tuiModel) appScreen() ui.Screen {
 	default:
 		s.Body = m.message("Reading " + m.app + " from " + m.flags.target + "…")
 	}
-	return withError(s, m.apps.Err)
+	return s
 }
 
 func (m tuiModel) appStatus() (apps.Status, bool) {
@@ -347,6 +355,14 @@ func detailLines(app, line string, width int) []string {
 	if label == app {
 		label = "Managed"
 	}
+	if unit, health, found := strings.Cut(value, "; direct health: "); label == "Unit" && found {
+		lines := layoutDetail(label, unit, width)
+		return append(lines, layoutDetail("Direct health", health, width)...)
+	}
+	return layoutDetail(label, value, width)
+}
+
+func layoutDetail(label, value string, width int) []string {
 	if width < tuiMedium {
 		return append([]string{label}, wrapValue("  ", value, width)...)
 	}
@@ -386,4 +402,19 @@ func wrapValue(prefix, value string, width int) []string {
 	}
 	lines[0] = prefix + strings.TrimPrefix(lines[0], indent)
 	return lines
+}
+
+func topWindow(lines []string, offset, rows int) []string {
+	offset = max(0, min(offset, len(lines)-rows))
+	start, end := ui.Window(len(lines), offset+rows-1, rows)
+	return lines[start:end]
+}
+
+func (m tuiModel) clampDetailOffset(offset int) int {
+	status, found := m.appStatus()
+	if !found {
+		return 0
+	}
+	rows := m.frame().BodyRows(m.appScreen())
+	return max(0, min(offset, len(appDetailLines(status, m.width))-rows))
 }

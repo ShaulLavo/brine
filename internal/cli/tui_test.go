@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -35,10 +37,11 @@ func runTUIStub(run func() error) func(context.Context, tea.Model, io.Reader, io
 
 // fakeTUIHost records each read and answers it from a per-method function.
 type fakeTUIHost struct {
-	mu    sync.Mutex
-	calls []string
-	apps  func(context.Context) (apps.Report, error)
-	logs  func(context.Context, string) ([]logs.Line, error)
+	mu        sync.Mutex
+	calls     []string
+	apps      func(context.Context) (apps.Report, error)
+	logs      func(context.Context, string) ([]logs.Line, error)
+	operation func(context.Context, string, uint64) (jobs.Status, error)
 }
 
 func (h *fakeTUIHost) record(call string) {
@@ -61,6 +64,15 @@ func (h *fakeTUIHost) Apps(ctx context.Context) (apps.Report, error) {
 func (h *fakeTUIHost) Logs(ctx context.Context, app string) ([]logs.Line, error) {
 	h.record("logs " + app)
 	return h.logs(ctx, app)
+}
+
+func (h *fakeTUIHost) Operation(ctx context.Context, id string, cursor uint64) (jobs.Status, error) {
+	h.record(fmt.Sprintf("operation %s %d", id, cursor))
+	if h.operation != nil {
+		return h.operation(ctx, id, cursor)
+	}
+	op := *fixtureReport().Apps[0].LastOperation
+	return jobs.Status{Operation: op, Events: []ops.Event{}, NextCursor: cursor}, nil
 }
 
 func fixtureHost() *fakeTUIHost {

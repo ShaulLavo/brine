@@ -6,7 +6,8 @@ Current              rel-91ad03fe  plan sha256:666666666666…                  
                      domains api.fixture.test                                   │
 Previous known-good  none                                                       │
 Last operation       op-03fixture (recovery_required)                           │
-Unit                 not checked; direct health: not checked                    │
+Unit                 not checked                                                │
+Direct health        not checked                                                │
 Drift                drifted (image)                                            │
                                                                                 │
                                                                                 │
@@ -21,8 +22,7 @@ Drift                drifted (image)                                            
                                                                                 │
                                                                                 │
                                                                                 │
-                                                                                │
-l logs  r refresh  esc back                                                     │
+t events  ↑↓ scroll  esc back  l logs  r refresh                                │
 == 80x24 color ==
 "\x1b[1;94mbrine · fixture › fixture-jobs\x1b[m                                     \x1b[90mread 12:04:31\x1b[m"
 "\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
@@ -31,7 +31,8 @@ l logs  r refresh  esc back                                                     
 "                     domains api.fixture.test"
 "Previous known-good  none"
 "Last operation       op-03fixture (recovery_required)"
-"Unit                 not checked; direct health: not checked"
+"Unit                 not checked"
+"Direct health        not checked"
 "Drift                drifted (image)"
 ""
 ""
@@ -46,8 +47,7 @@ l logs  r refresh  esc back                                                     
 ""
 ""
 ""
-""
-"\x1b[90ml logs  r refresh  esc back\x1b[m"
+"\x1b[90mt events  ↑↓ scroll  esc back  l logs  r refresh\x1b[m"
 == 50x16 no color ==
 brine · fixture › fixture-jobs            12:04:31│
 ──────────────────────────────────────────────────│
@@ -60,11 +60,11 @@ Previous known-good                               │
 Last operation                                    │
   op-03fixture (recovery_required)                │
 Unit                                              │
-  not checked; direct health: not checked         │
+  not checked                                     │
+Direct health                                     │
+  not checked                                     │
 Drift                                             │
-  drifted (image)                                 │
-                                                  │
-l logs  r refresh  esc back                       │
+t events  ↑↓ scroll  esc back  l logs  r refresh  │
 == 50x16 color ==
 "\x1b[1;94mbrine · fixture › fixture-jobs\x1b[m            \x1b[90m12:04:31\x1b[m"
 "\x1b[90m──────────────────────────────────────────────────\x1b[m"
@@ -77,11 +77,11 @@ l logs  r refresh  esc back                       │
 "Last operation"
 "  op-03fixture (recovery_required)"
 "Unit"
-"  not checked; direct health: not checked"
+"  not checked"
+"Direct health"
+"  not checked"
 "Drift"
-"  drifted (image)"
-""
-"\x1b[90ml logs  r refresh  esc back\x1b[m"
+"\x1b[90mt events  ↑↓ scroll  esc back  l logs  r refresh\x1b[m"
 == 30x8 no color ==
 brine · fixture › fixture-jobs│
 ──────────────────────────────│
@@ -90,7 +90,7 @@ Current                       │
   plan sha256:666666666666…   │
   image sha256:eeeeeeeeeeee   │
   port 20041                  │
-l logs  esc back              │
+t events  ↑↓ scroll  esc back │
 == 30x8 color ==
 "\x1b[1;94mbrine · fixture › fixture-jobs\x1b[m"
 "\x1b[90m──────────────────────────────\x1b[m"
@@ -99,4 +99,4 @@ l logs  esc back              │
 "  plan sha256:666666666666…"
 "  image sha256:eeeeeeeeeeee"
 "  port 20041"
-"\x1b[90ml logs  esc back\x1b[m"
+"\x1b[90mt events  ↑↓ scroll  esc back\x1b[m"

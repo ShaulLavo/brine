@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
 )
@@ -17,6 +18,7 @@ const tuiLogTail = 100
 type tuiHost interface {
 	Apps(ctx context.Context) (apps.Report, error)
 	Logs(ctx context.Context, app string) ([]logs.Line, error)
+	Operation(ctx context.Context, id string, cursor uint64) (jobs.Status, error)
 }
 
 // connectedHost reads one selected target. Every read loads and checks the
@@ -60,4 +62,8 @@ func readLogLines(ctx context.Context, deps Dependencies, flags operationFlags, 
 		return nil, result.New(result.TransportInvalidResponse, nil)
 	}
 	return lines, nil
+}
+
+func (h connectedHost) Operation(ctx context.Context, id string, cursor uint64) (jobs.Status, error) {
+	return readOperationPage(ctx, h.deps, h.flags, id, cursor)
 }

@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › op-01fixture recovery required · polled 12:04:31│
+────────────────────────────────────────────────────────────────────────────────│
+recovery required · deploy                                                      │
+plan sha256:555555555555…                                                       │
+started 12:01:07                                                                │
+settled 12:04:31                                                                │
+#1  12:04:31  launch  intent                                                    │
+#2  12:04:31  state  starting                                                   │
+#3  12:04:31  step  start_unit  completed                                       │
+Inspect the full recorded history and live app state; supported automatic       │
+resolution is not established for this receipt.                                 │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+↑↓ scroll  r read  esc back  l logs                                             │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › op-01fixture\x1b[m \x1b[90mrecovery required · polled 12:04:31\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"recovery required · deploy"
+"plan sha256:555555555555…"
+"started 12:01:07"
+"settled 12:04:31"
+"#1  12:04:31  launch  intent"
+"#2  12:04:31  state  starting"
+"#3  12:04:31  step  start_unit  completed"
+"Inspect the full recorded history and live app state; supported automatic"
+"resolution is not established for this receipt."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ scroll  r read  esc back  l logs\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › op-01fixture      │
+──────────────────────────────────────────────────│
+recovery required · deploy                        │
+plan sha256:555555555555…                         │
+started 12:01:07                                  │
+settled 12:04:31                                  │
+#1  12:04:31  launch  intent                      │
+#2  12:04:31  state  starting                     │
+#3  12:04:31  step  start_unit  completed         │
+Inspect the full recorded history and live app    │
+state; supported automatic resolution is not      │
+established for this receipt.                     │
+                                                  │
+                                                  │
+                                                  │
+↑↓ scroll  r read  esc back  l logs               │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › op-01fixture\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"recovery required · deploy"
+"plan sha256:555555555555…"
+"started 12:01:07"
+"settled 12:04:31"
+"#1  12:04:31  launch  intent"
+"#2  12:04:31  state  starting"
+"#3  12:04:31  step  start_unit  completed"
+"Inspect the full recorded history and live app"
+"state; supported automatic resolution is not"
+"established for this receipt."
+""
+""
+""
+"\x1b[90m↑↓ scroll  r read  esc back  l logs\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+recovery required · deploy    │
+plan sha256:555555555555…     │
+started 12:01:07              │
+settled 12:04:31              │
+#1  12:04:31  launch  intent  │
+↑↓ scroll  r read  esc back   │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"recovery required · deploy"
+"plan sha256:555555555555…"
+"started 12:01:07"
+"settled 12:04:31"
+"#1  12:04:31  launch  intent"
+"\x1b[90m↑↓ scroll  r read  esc back\x1b[m"

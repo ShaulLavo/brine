@@ -18,8 +18,8 @@ func newTUICmd(machineOutput, noInput *bool, deps Dependencies) *cobra.Command {
 	var flags operationFlags
 	cmd := &cobra.Command{
 		Use:   "tui",
-		Short: "Browse targets, apps and bounded logs in a read-only terminal UI",
-		Long:  "Browse enrolled targets, app status and bounded, redacted log tails. The TUI only reads: it never plans, applies or cancels anything. Without --target it starts on the target picker.",
+		Short: "Browse targets, apps, operations and bounded logs read-only",
+		Long:  "Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. The TUI only reads: it never plans, applies or cancels anything. Without --target it starts on the target picker.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if *machineOutput || *noInput {
 				return result.New(result.TUIInteractive, nil)
@@ -37,9 +37,12 @@ func newTUICmd(machineOutput, noInput *bool, deps Dependencies) *cobra.Command {
 			}
 			ctx, cancel := context.WithCancel(cmd.Context())
 			defer cancel()
-			_, err := deps.RunTUI(ctx, newTUIModel(ctx, deps, flags), cmd.InOrStdin(), deps.Stdout)
+			final, err := deps.RunTUI(ctx, newTUIModel(ctx, deps, flags), cmd.InOrStdin(), deps.Stdout)
 			// Cancel in-flight reads before the error is presented.
 			cancel()
+			if noticeErr := writeTUIExitNotice(final, deps.Stderr); noticeErr != nil {
+				return errors.Join(err, noticeErr)
+			}
 			return err
 		},
 	}

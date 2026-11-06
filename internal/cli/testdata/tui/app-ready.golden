@@ -8,7 +8,8 @@ Previous known-good  rel-3c02aa10  plan sha256:999999999999…                  
                      image sha256:bbbbbbbbbbbb  port 20041                      │
                      domains api.fixture.test                                   │
 Last operation       op-01fixture (succeeded)                                   │
-Unit                 active; direct health: healthy                             │
+Unit                 active                                                     │
+Direct health        healthy                                                    │
 Drift                in_sync                                                    │
                                                                                 │
                                                                                 │
@@ -21,8 +22,7 @@ Drift                in_sync                                                    
                                                                                 │
                                                                                 │
                                                                                 │
-                                                                                │
-l logs  r refresh  esc back                                                     │
+t events  ↑↓ scroll  esc back  l logs  r refresh                                │
 == 80x24 color ==
 "\x1b[1;94mbrine · fixture › fixture-api\x1b[m                                      \x1b[90mread 12:04:31\x1b[m"
 "\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
@@ -33,7 +33,8 @@ l logs  r refresh  esc back                                                     
 "                     image sha256:bbbbbbbbbbbb  port 20041"
 "                     domains api.fixture.test"
 "Last operation       op-01fixture (succeeded)"
-"Unit                 active; direct health: healthy"
+"Unit                 active"
+"Direct health        healthy"
 "Drift                in_sync"
 ""
 ""
@@ -46,8 +47,7 @@ l logs  r refresh  esc back                                                     
 ""
 ""
 ""
-""
-"\x1b[90ml logs  r refresh  esc back\x1b[m"
+"\x1b[90mt events  ↑↓ scroll  esc back  l logs  r refresh\x1b[m"
 == 50x16 no color ==
 brine · fixture › fixture-api             12:04:31│
 ──────────────────────────────────────────────────│
@@ -62,9 +62,9 @@ Previous known-good                               │
 Last operation                                    │
   op-01fixture (succeeded)                        │
 Unit                                              │
-  active; direct health: healthy                  │
-Drift                                             │
-l logs  r refresh  esc back                       │
+  active                                          │
+Direct health                                     │
+t events  ↑↓ scroll  esc back  l logs  r refresh  │
 == 50x16 color ==
 "\x1b[1;94mbrine · fixture › fixture-api\x1b[m             \x1b[90m12:04:31\x1b[m"
 "\x1b[90m──────────────────────────────────────────────────\x1b[m"
@@ -79,9 +79,9 @@ l logs  r refresh  esc back                       │
 "Last operation"
 "  op-01fixture (succeeded)"
 "Unit"
-"  active; direct health: healthy"
-"Drift"
-"\x1b[90ml logs  r refresh  esc back\x1b[m"
+"  active"
+"Direct health"
+"\x1b[90mt events  ↑↓ scroll  esc back  l logs  r refresh\x1b[m"
 == 30x8 no color ==
 brine · fixture › fixture-api │
 ──────────────────────────────│
@@ -90,7 +90,7 @@ Current                       │
   plan sha256:555555555555…   │
   image sha256:aaaaaaaaaaaa   │
   port 20041                  │
-l logs  esc back              │
+t events  ↑↓ scroll  esc back │
 == 30x8 color ==
 "\x1b[1;94mbrine · fixture › fixture-api\x1b[m"
 "\x1b[90m──────────────────────────────\x1b[m"
@@ -99,4 +99,4 @@ l logs  esc back              │
 "  plan sha256:555555555555…"
 "  image sha256:aaaaaaaaaaaa"
 "  port 20041"
-"\x1b[90ml logs  esc back\x1b[m"
+"\x1b[90mt events  ↑↓ scroll  esc back\x1b[m"
