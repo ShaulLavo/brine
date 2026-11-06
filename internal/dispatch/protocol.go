@@ -81,6 +81,7 @@ var operations = map[string]operation{
 	"native_backup_inspect":                 {ReadOnly, decodeNativeBackupInspect},
 	"native_backup_review":                  {Mutating, decodeNativeBackupReview},
 	"native_backup_resolve":                 {Mutating, decodeNativeBackupResolve},
+	"sqlite_backup_status":                  {ReadOnly, decodeSQLiteBackupStatus},
 	"native_backup_status":                  {ReadOnly, decodeNativeBackupStatus},
 	"native_backup_policy_plan":             {Mutating, decodeNativeBackupPolicyPlan},
 	"native_backup_activate":                {Mutating, decodeNativeBackupPolicyActivate},
@@ -207,6 +208,7 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
+	SQLiteBackupStatus     SQLiteBackupStatusReader
 	CDN                    cdnoperator.Host
 	ModulePublications     ModulePublicationOperations
 	DataInitialization     DataInitializationOperations
@@ -325,6 +327,17 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = next
+	case SQLiteBackupStatusArgs:
+		if s.SQLiteBackupStatus == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		value, err = s.SQLiteBackupStatus.SQLiteBackupStatus(ctx, args)
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
+		}
+		if err != nil {
+			return fail(result.Classify(err))
+		}
 	case NativeBackupStatusArgs:
 		if s.NativeBackupStatus == nil {
 			return fail(result.New(result.DependencyMissing, nil))

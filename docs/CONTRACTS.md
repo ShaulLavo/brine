@@ -1222,6 +1222,49 @@ The default is one operator-provisioned bucket with immutable per-database/epoch
 
 Versioned runner-owned 0600 environment files contain `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and optional `AWS_SESSION_TOKEN`. Installing a new version changes/restarts only the replica service, retaining its database, binding and epoch. Serialize activation through its lifetime lock, verify remote access and reconcile unknown outcomes. No app restart occurs. Backup/restore admission checks supplied remaining lifetime; status reports age, expiry/renewal-needed and authentication/network failures. An external operator/script/layer renews credentials. Archive restores may require newly supplied credentials for their authorized destination. Provider scope tests prove least privilege; Brine's prefix records alone cannot prove a key's scope.
 
+### Connected SQLite backup status
+
+`brine restore status APP [--database NAME] --target TARGET` sends the read-only
+`sqlite_backup_status` request with exact `app` and `database` fields. An empty
+database selects the sole SQLite database, never a native database. Ambiguous,
+foreign, missing, or inconsistent scope refuses. Native backup status remains a
+separate operation. See the [SQLite backup runbook](runbooks/sqlite-backups.md).
+
+The host factory routes status directly to a lightweight reader. It opens the
+existing control store read-only without migration or a mutation runtime. There
+are no SQL record, schema, permission, app, service, or live-data changes. SQLite
+WAL/SHM bookkeeping is the existing read-only connection's narrow filesystem
+exception. Missing stores and credential directories are never created. Private
+dry-run scratch is operation-owned and disposed, including its safely empty
+operation-created parent, on success, failure, and cancellation.
+
+The operation has a shared 60-second host budget. The actual transport adds the
+existing request, cleanup, and SSH margins. No unrelated deadline changes. The
+signed epoch listing has a 15-second child budget. The pinned Litestream remote
+dry-run has 30 seconds and returns only its exact selected TXID. These are two
+logical probes, not a promise of two HTTP requests. Child timeout yields typed
+partial facts before the overall deadline. Caller cancellation remains failure,
+not a successful degraded report. Provider diagnostics and credential values
+have no output representation.
+
+The response includes engine, app, database and binding/epoch identities,
+observation times, replica service state, closed remote-access class, remote
+watermark state, exact credential version and supplied expiry, remaining lifetime,
+renewal-needed within 20 minutes, lifecycle evidence times/freshness, held fence
+owners, and existing independent verification history. Known missing, expired,
+or unreadable credentials skip both probes. Committed replicas use only their
+exact delivered credential version. Uncommitted reservations can report the
+newest delivered version in that exact binding/epoch scope without activating it.
+
+A running process, successful listing, dry-run watermark, or uploaded point alone
+is not durability. `last_verified` selects the newest retained successful
+restore-test or initialization verification receipt in the selected scope. Its
+original verification time and source remain historical, even if old. No U3
+preparation table is assumed. Local position and position distance are null, and
+loss is `unknown`. There is no placeholder local-position adapter, invented zero
+lag, or implied count of application commits. `observed`, `unverified`, and
+`degraded` describe observations only, not a durability guarantee.
+
 ### State transitions and restore evidence
 
 The native replacement prerequisite adds append-only epoch reservations and an

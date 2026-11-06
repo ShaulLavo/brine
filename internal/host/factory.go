@@ -52,6 +52,11 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 		server.NativeMaterial = nativeMaterialStatusReader{stateDir: f.diagnosticStateDir}
 		return server, nil
 	}
+	if op == "sqlite_backup_status" {
+		server := dispatch.NewServer(f.version, nil)
+		server.SQLiteBackupStatus = newSQLiteBackupStatusReader(f.diagnosticStateDir)
+		return server, nil
+	}
 	if op == "native_backup_status" {
 		server := dispatch.NewServer(f.version, nil)
 		server.NativeBackupStatus = nativeBackupStatusReader{stateDir: f.diagnosticStateDir}

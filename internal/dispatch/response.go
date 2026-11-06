@@ -19,6 +19,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/nativematerial"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/sqlitestatus"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -58,6 +59,12 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "sqlite_backup_status":
+			status, err := sqlitestatus.Decode(fields["data"])
+			if err != nil {
+				return invalid()
+			}
+			value = status
 		case "cdn_context":
 			planning, err := decodeCDNPlanning(fields["data"])
 			if err != nil {

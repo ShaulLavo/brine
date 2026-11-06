@@ -1176,6 +1176,7 @@ Available Commands:
   native-live Review and restore an exact SpacetimeDB point into a new stopped epoch
   native-test Verify an exact SpacetimeDB backup in private isolation without changing live data
   point       Inspect a retained native point reference
+  status      Observe SQLite backup health with bounded read-only remote probes
   test        Restore into an isolated private workspace and check declared data invariants
 
 Flags:
@@ -1313,6 +1314,21 @@ Flags:
       --config-dir string   Private client target directory
   -h, --help                help for point
       --kind string         Point reference kind: verified or prepared (default "verified")
+      --target string       Pinned target name
+```
+
+### `brine restore status`
+
+```text
+Inspect SQLite replica service, remote access, remote restore watermark, credential expiry, lifecycle evidence and independently verified history. A running service or remote watermark is not proof of durability. Local position, lag and possible loss remain unknown. This command never stops writers, starts replication or prepares a recovery point.
+
+Usage:
+  brine restore status APP --target NAME [flags]
+
+Flags:
+      --config-dir string   Private client target directory
+      --database string     SQLite database name (required when more than one is present)
+  -h, --help                help for status
       --target string       Pinned target name
 ```
 

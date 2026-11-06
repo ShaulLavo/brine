@@ -2,6 +2,10 @@ package dispatch
 
 import "time"
 
+// SQLiteBackupStatusTimeout covers listing (15s), dry-run (30s), service/store
+// observations, disposal and serialization. Child failures leave time to report.
+const SQLiteBackupStatusTimeout = time.Minute
+
 const RequestTimeout = 15 * time.Second
 const ReviewWorkTimeout = 9 * time.Minute
 
@@ -16,6 +20,8 @@ const NativeMaterialCleanupTimeout = 5 * time.Second
 
 func OperationTimeout(operation string) time.Duration {
 	switch operation {
+	case "sqlite_backup_status":
+		return SQLiteBackupStatusTimeout
 	case "module_publish_plan", "native_backup_inspect", "native_backup_review":
 		return ReviewWorkTimeout
 	case "native_material_set":
