@@ -49,5 +49,5 @@ func waitStreamProcessGone(t *testing.T, pid int) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("stream descendant survived cancellation")
+	t.Fatalf("fixture process %d is still running", pid)
 }

@@ -19,18 +19,21 @@ func TestProcessTreeHelper(t *testing.T) {
 	if os.Getenv("BRINE_PROCESS_TREE_HELPER") != "1" && !slices.Contains(os.Args, "BRINE_PROCESS_TREE_HELPER=1") {
 		return
 	}
-	if os.Args[len(os.Args)-1] == "signal" {
+	mode := os.Args[len(os.Args)-1]
+	if mode == "signal" {
 		_ = syscall.Kill(os.Getpid(), syscall.SIGTERM)
 		time.Sleep(time.Second)
 		os.Exit(2)
 	}
-	if os.Args[len(os.Args)-1] == "child" {
+	if mode == "child" {
 		time.Sleep(30 * time.Second)
 		os.Exit(0)
 	}
 	child := exec.Command(os.Args[0], "-test.run=^TestProcessTreeHelper$", "--", "BRINE_PROCESS_TREE_HELPER=1", "child")
-	child.Stdout = os.Stdout
-	child.Stderr = os.Stderr
+	if !strings.HasSuffix(mode, "closed") {
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+	}
 	if err := child.Start(); err != nil {
 		os.Exit(2)
 	}
@@ -45,6 +48,12 @@ func TestProcessTreeHelper(t *testing.T) {
 		_ = child.Process.Kill()
 		_ = child.Wait()
 		os.Exit(2)
+	}
+	switch {
+	case strings.HasPrefix(mode, "exit-success"):
+		os.Exit(0)
+	case strings.HasPrefix(mode, "exit-failure"):
+		os.Exit(7)
 	}
 	_ = child.Wait()
 	os.Exit(0)
