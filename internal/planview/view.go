@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -286,13 +285,13 @@ func shortDigest(digest string, v presentation) string {
 	return digest
 }
 
-func safe(text string) string {
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
-			return ' '
-		}
-		return r
-	}, text)
+func safe(text string) string { return ui.Sanitize(text) }
+
+// DiffLines returns the sanitized, redacted diff in canonical order.
+func DiffLines(diff *plan.ConfigurationDiff) []string {
+	var lines []string
+	renderDiff(presentation{Diff: canonicalDiff(diff)}, func(line string) { lines = append(lines, safe(line)) })
+	return lines
 }
 
 // ConflictText renders a diagnostic with a fixed reason and no terminal controls.
