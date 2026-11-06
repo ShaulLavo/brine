@@ -21,37 +21,54 @@ import (
 
 func TestAgentExampleCommands(t *testing.T) {
 	for _, file := range []string{"../../docs/guides/agents.md", "../../examples/automation/restart.sh"} {
-		raw, err := os.ReadFile(file) // #nosec G304 -- fixed repository paths.
-		if err != nil {
-			t.Fatal(err)
+		checkAgentExampleFile(t, file)
+	}
+}
+
+func checkAgentExampleFile(t *testing.T, file string) {
+	t.Helper()
+	raw, err := os.ReadFile(file) // #nosec G304 -- fixed repository paths.
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		checkAgentExampleLine(t, line)
+	}
+}
+
+func agentExampleArgs(line string) ([]string, bool) {
+	if strings.HasPrefix(line, "brine ") {
+		return strings.Fields(strings.TrimPrefix(line, "brine ")), true
+	}
+	const invocation = `"$BRINE" `
+	start := strings.Index(line, invocation)
+	if start < 0 {
+		return nil, false
+	}
+	return strings.Fields(line[start+len(invocation):]), true
+}
+
+func checkAgentExampleLine(t *testing.T, line string) {
+	t.Helper()
+	args, found := agentExampleArgs(line)
+	if !found {
+		return
+	}
+	if len(args) == 0 {
+		t.Fatalf("empty command: %s", line)
+	}
+	root := NewRootCommand(Dependencies{Context: context.Background()})
+	cmd, _, err := root.Find(args)
+	if err != nil || cmd == root {
+		t.Fatalf("unknown command in %q: %v", line, err)
+	}
+	for _, arg := range args {
+		if !strings.HasPrefix(arg, "--") {
+			continue
 		}
-		for _, line := range strings.Split(string(raw), "\n") {
-			start := strings.Index(line, `"$BRINE" `)
-			if strings.HasPrefix(line, "brine ") {
-				start = 0
-			} else if start >= 0 {
-				start += len(`"$BRINE"`) - len("brine")
-			}
-			if start >= 0 {
-				args := strings.Fields(line[start+len("brine "):])
-				if len(args) == 0 {
-					t.Fatalf("empty command: %s", line)
-				}
-				root := NewRootCommand(Dependencies{Context: context.Background()})
-				cmd, _, err := root.Find(args)
-				if err != nil || cmd == root {
-					t.Fatalf("unknown command in %q: %v", line, err)
-				}
-				for _, arg := range args {
-					if !strings.HasPrefix(arg, "--") {
-						continue
-					}
-					name := strings.TrimRight(strings.SplitN(strings.TrimPrefix(arg, "--"), "=", 2)[0], `)";`)
-					if cmd.Flags().Lookup(name) == nil && cmd.InheritedFlags().Lookup(name) == nil {
-						t.Fatalf("unknown flag %s in %q", name, line)
-					}
-				}
-			}
+		name := strings.TrimRight(strings.SplitN(strings.TrimPrefix(arg, "--"), "=", 2)[0], `)";`)
+		if cmd.Flags().Lookup(name) == nil && cmd.InheritedFlags().Lookup(name) == nil {
+			t.Fatalf("unknown flag %s in %q", name, line)
 		}
 	}
 }
@@ -62,7 +79,7 @@ func TestAgentExample(t *testing.T) {
 			t.Skipf("%s required: %v", tool, err)
 		}
 	}
-	for _, scenario := range []string{"success", "failure", "unknown", "no-op", "conflict"} {
+	for _, scenario := range []string{"success", "failure", "unknown", "acceptance-unknown", "no-op", "conflict"} {
 		t.Run(scenario, func(t *testing.T) { runAgentExample(t, scenario) })
 	}
 }
@@ -96,6 +113,10 @@ func runAgentExample(t *testing.T, scenario string) {
 		}
 		return
 	}
+	if scenario == "acceptance-unknown" {
+		checkAgentAcceptanceUnknown(t, calls, string(output))
+		return
+	}
 	want := "lifecycle\napply fixed-key\noperation 0\noperation 1\n"
 	if scenario == "failure" {
 		want += "diagnose\n"
@@ -105,6 +126,16 @@ func runAgentExample(t *testing.T, scenario string) {
 	}
 	if scenario == "unknown" && (!strings.Contains(string(output), "reconcile --dry-run") || !strings.Contains(string(output), "/fixture/config")) {
 		t.Fatalf("missing recovery guidance: %s", output)
+	}
+}
+
+func checkAgentAcceptanceUnknown(t *testing.T, calls, output string) {
+	t.Helper()
+	if calls != "lifecycle\napply fixed-key\ndiagnose\n" {
+		t.Fatalf("uncertain acceptance retried or polled: %s", calls)
+	}
+	if !strings.Contains(output, "plan_id=sha256:"+strings.Repeat("a", 64)) || !strings.Contains(output, "idempotency_key=fixed-key") {
+		t.Fatalf("uncertain acceptance lost the original plan or key: %s", output)
 	}
 }
 
@@ -165,6 +196,9 @@ func agentExampleCall(_ context.Context, _ transport.Target, req dispatch.Reques
 		}
 		if err := agentExampleLog("apply " + a.IdempotencyKey); err != nil {
 			return result.Envelope{}, err
+		}
+		if os.Getenv("AGENT_SCENARIO") == "acceptance-unknown" {
+			return result.Envelope{}, result.New(result.TransportFailure, nil)
 		}
 		return result.Success("host", jobs.Accepted{Status: "accepted", OperationID: "op1"}), nil
 	case "operation":

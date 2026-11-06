@@ -31,7 +31,7 @@ plan_id=$(printf '%s\n' "$plan" | jq -er 'select(.ok == true and (.data.kind == 
   exit 1
 }
 # Save this key before apply. If acceptance is uncertain, recover with the same key.
-printf 'idempotency_key=%s\n' "$key" >&2
+printf 'plan_id=%s\nidempotency_key=%s\n' "$plan_id" "$key" >&2
 accepted=$("$BRINE" apply "$plan_id" --idempotency-key "$key" --target "$target" --config-dir "$config_dir" --json) || {
   printf '%s\n' "$accepted" >&2
   echo 'Acceptance may be unknown; retain the plan and key for recovery.' >&2
