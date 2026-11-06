@@ -233,6 +233,9 @@ func udpKillSteps(mode string) []string {
 func runUDPSubprocessBoundary(t *testing.T, mode, step, outcome string) {
 	t.Helper()
 	directory := t.TempDir()
+	if err := seedSQLiteUDP(directory); err != nil {
+		t.Fatal(err)
+	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
 	defer cancel()
 	command := exec.CommandContext(ctx, "/proc/self/exe", "-test.run=^TestUDPSubprocessHelper$")
@@ -428,7 +431,11 @@ func TestUDPRemovalFailedBoundariesResolveFromRealSQLiteState(t *testing.T) {
 }
 func checkUDPRemovalFailureResolution(t *testing.T, boundary string) {
 	t.Helper()
-	r := newSQLiteUDPRig(t, t.TempDir(), "remove")
+	directory := t.TempDir()
+	if err := seedSQLiteUDP(directory); err != nil {
+		t.Fatal(err)
+	}
+	r := newSQLiteUDPRig(t, directory, "remove")
 	switch boundary {
 	case "prepare_udp":
 		r.executor.UDPReservations = udpPreparationRefusal{r}
