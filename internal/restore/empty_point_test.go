@@ -1,12 +1,17 @@
 package restore
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -189,5 +194,136 @@ func TestInitializedSnapshotUploadAndIndependentRemoteCoverage(t *testing.T) {
 	receipt, err := engine.Test(context.Background(), request)
 	if err != nil || !receipt.Valid() || receipt.LossWindow.State != LossBounded || receipt.InvariantCheck != "passed" || strings.Join(methods, ",") != "PUT,PUT,GET" {
 		t.Fatal("remote coverage failed", receipt, err, methods)
+	}
+}
+
+// The fake destination atomically checks and creates, like If-None-Match: *.
+func TestUploadSnapshotEightWayCompetition(t *testing.T) {
+	var mutex sync.Mutex
+	var winner []byte
+	var requests, creates, rejected int
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		mutex.Lock()
+		defer mutex.Unlock()
+		requests++
+		if r.Method != http.MethodPut || r.URL.Path != "/bucket/epochs/e1/restore-points/shared/snapshot.sqlite" || r.Header.Get("If-None-Match") != "*" || !strings.Contains(r.Header.Get("Authorization"), "if-none-match") {
+			t.Error("nonconditional or foreign upload")
+		}
+		if winner != nil {
+			rejected++
+			w.WriteHeader(http.StatusPreconditionFailed)
+			return
+		}
+		winner = bytes.Clone(raw)
+		creates++
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(server.Close)
+	server.Start()
+	binding := Binding{ID: "b1", Epoch: "e1", CredentialRef: "c1", Destination: Destination{Endpoint: server.URL, Region: "auto", Bucket: "bucket", Prefix: "epochs/e1", PathStyle: true}}
+	credentials := Credentials{AccessKey: "test-key", SecretKey: "test-secret"}
+	start := make(chan struct{})
+	type result struct {
+		raw      []byte
+		source   SnapshotSource
+		uploaded time.Time
+		err      error
+	}
+	results := make(chan result, 8)
+	var workers sync.WaitGroup
+	// Cleanup is installed before launching any contender.
+	t.Cleanup(workers.Wait)
+	for i := 0; i < 8; i++ {
+		workers.Add(1)
+		go func(id int) {
+			defer workers.Done()
+			raw := []byte(fmt.Sprintf("SQLite format 3\x00contender-%d", id))
+			<-start
+			source, uploaded, err := UploadSnapshot(context.Background(), binding, credentials, "shared", raw, time.Minute, true)
+			results <- result{raw, source, uploaded, err}
+		}(i)
+	}
+	close(start)
+	workers.Wait()
+	close(results)
+	mutex.Lock()
+	defer mutex.Unlock()
+	successes := 0
+	for got := range results {
+		if got.err != nil {
+			continue
+		}
+		successes++
+		digest := sha256.Sum256(got.raw)
+		if !bytes.Equal(winner, got.raw) || got.source.SHA256 != hex.EncodeToString(digest[:]) || got.source.Size != int64(len(winner)) || got.uploaded.IsZero() {
+			t.Fatal("winner bytes or receipt changed")
+		}
+	}
+	if successes != 1 || creates != 1 || requests != 9 || rejected != 8 {
+		t.Fatalf("successes=%d creates=%d requests=%d rejected=%d", successes, creates, requests, rejected)
+	}
+}
+
+func TestUploadSnapshotUnknownReplyEndsInvocation(t *testing.T) {
+	for _, unknownAt := range []int64{1, 2} {
+		t.Run(fmt.Sprint(unknownAt), func(t *testing.T) { uploadUnknownReply(t, unknownAt) })
+	}
+}
+
+func uploadUnknownReply(t *testing.T, unknownAt int64) {
+	t.Helper()
+	var calls atomic.Int64
+	var mutex sync.Mutex
+	var winner []byte
+	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		call := calls.Add(1)
+		if r.Method != http.MethodPut || r.Header.Get("If-None-Match") != "*" || !strings.Contains(r.Header.Get("Authorization"), "if-none-match") {
+			t.Error("nonconditional upload")
+		}
+		raw, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		mutex.Lock()
+		defer mutex.Unlock()
+		if call == 1 {
+			winner = bytes.Clone(raw)
+		}
+		if !bytes.Equal(raw, winner) {
+			t.Error("capability check changed bytes")
+		}
+		if call == unknownAt {
+			closeUnknownReply(t, w)
+			return
+		}
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(server.Close)
+	server.Start()
+	binding := Binding{ID: "b1", Epoch: "e1", CredentialRef: "c1", Destination: Destination{Endpoint: server.URL, Region: "auto", Bucket: "bucket", Prefix: "epochs/e1", PathStyle: true}}
+	raw := []byte("SQLite format 3\x00unchanged")
+	_, uploaded, err := UploadSnapshot(context.Background(), binding, Credentials{AccessKey: "key", SecretKey: "secret"}, "point", raw, time.Minute, true)
+	mutex.Lock()
+	defer mutex.Unlock()
+	if err == nil || err.Error() != "restore test: snapshot_upload_unknown" || !uploaded.IsZero() || calls.Load() != unknownAt || !bytes.Equal(winner, raw) {
+		t.Fatalf("unknown reply repeated or measured: calls=%d uploaded=%v err=%v", calls.Load(), uploaded, err)
+	}
+}
+
+func closeUnknownReply(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	conn, _, err := w.(http.Hijacker).Hijack()
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	if err := conn.Close(); err != nil {
+		t.Error(err)
 	}
 }

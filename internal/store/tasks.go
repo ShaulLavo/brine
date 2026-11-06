@@ -20,11 +20,27 @@ func (s *Store) CompleteTask(ctx context.Context, id string, state ops.State, ou
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := refuseGenericSQLiteCompletion(ctx, tx, id, state); err != nil {
+		return err
+	}
 	if err := completeTaskTx(ctx, tx, id, state, outcome); err != nil {
 		return err
 	}
 
 	return tx.Commit()
+}
+
+// refuseGenericSQLiteCompletion keeps SQLite preparation success and failure on
+// their joined protected paths. Generic completion may only mark recovery.
+func refuseGenericSQLiteCompletion(ctx context.Context, tx *sql.Tx, id string, state ops.State) error {
+	var kind ops.Kind
+	if err := tx.QueryRowContext(ctx, "SELECT kind FROM operations WHERE id=?", id).Scan(&kind); err != nil {
+		return err
+	}
+	if isSQLiteTaskKind(kind) && state != ops.RecoveryRequired {
+		return ErrConflict
+	}
+	return nil
 }
 
 func completeTaskTx(ctx context.Context, tx *sql.Tx, id string, state ops.State, outcome ops.TaskOutcome) error {

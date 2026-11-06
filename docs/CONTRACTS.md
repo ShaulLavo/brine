@@ -1232,6 +1232,101 @@ The default is one operator-provisioned bucket with immutable per-database/epoch
 
 Versioned runner-owned 0600 environment files contain `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and optional `AWS_SESSION_TOKEN`. Installing a new version changes/restarts only the replica service, retaining its database, binding and epoch. Serialize activation through its lifetime lock, verify remote access and reconcile unknown outcomes. No app restart occurs. Backup/restore admission checks supplied remaining lifetime; status reports age, expiry/renewal-needed and authentication/network failures. An external operator/script/layer renews credentials. Archive restores may require newly supplied credentials for their authorized destination. Provider scope tests prove least privilege; Brine's prefix records alone cannot prove a key's scope.
 
+### Connected SQLite backup status
+
+`brine restore status APP [--database NAME] --target TARGET` sends the read-only
+`sqlite_backup_status` request with exact `app` and `database` fields. An empty
+database selects the sole SQLite database, never a native database. Ambiguous,
+foreign, missing, or inconsistent scope refuses. Native backup status remains a
+separate operation. See the [SQLite backup runbook](runbooks/sqlite-backups.md).
+
+The host factory routes status directly to a lightweight reader. It opens the
+existing control store read-only without migration or a mutation runtime. There
+are no SQL record, schema, permission, app, service, or live-data changes. SQLite
+WAL/SHM bookkeeping is the existing read-only connection's narrow filesystem
+exception. Missing stores and credential directories are never created. Private
+dry-run scratch is operation-owned and disposed, including its safely empty
+operation-created parent, on success, failure, and cancellation.
+
+The operation has a shared 60-second host budget. The actual transport adds the
+existing request, cleanup, and SSH margins. No unrelated deadline changes. The
+signed epoch listing has a 15-second child budget. The pinned Litestream remote
+dry-run has 30 seconds and returns only its exact selected TXID. These are two
+logical probes, not a promise of two HTTP requests. Child timeout yields typed
+partial facts before the overall deadline. Caller cancellation remains failure,
+not a successful degraded report. Provider diagnostics and credential values
+have no output representation.
+
+The response includes engine, app, database and binding/epoch identities,
+observation times, replica service state, closed remote-access class, remote
+watermark state, exact credential version and supplied expiry, remaining lifetime,
+renewal-needed within 20 minutes, lifecycle evidence times/freshness, held fence
+owners, and existing independent verification history. Known missing, expired,
+or unreadable credentials skip both probes. Committed replicas use only their
+exact delivered credential version. Uncommitted reservations can report the
+newest delivered version in that exact binding/epoch scope without activating it.
+
+A running process, successful listing, dry-run watermark, or uploaded point alone
+is not durability. `last_verified` selects the newest retained successful
+restore-test or initialization verification receipt in the selected scope. Its
+original verification time and source remain historical, even if old. No U3
+preparation table is assumed. Local position and position distance are null, and
+loss is `unknown`. There is no placeholder local-position adapter, invented zero
+lag, or implied count of application commits. `observed`, `unverified`, and
+`degraded` describe observations only, not a durability guarantee.
+
+### Fenced SQLite preparation
+
+`brine restore prepare APP [--database NAME] [--supersedes PREPARATION_ID] --target TARGET`
+sends the mutating `sqlite_prepare` request with exact `app`, `database`,
+`supersedes` and `idempotency_key` fields. `brine restore abandon PREPARATION_ID`
+sends `sqlite_prepare_abandon` with `preparation_id` and `idempotency_key`.
+Unknown fields refuse. Both return an accepted detached operation; the CLI
+waits for its `sqliteprep.Receipt` unless `--no-wait` is given. The host derives
+the preparation ID from the requester, selected database, predecessor and
+idempotency key, so a retried admission reaches the same operation. Supersede
+and abandon admit only the preparation's own app, database and requester.
+
+The task runs the single `sqliteprep` state machine with the protected store
+journal; no generic shell or SQL port exists. Prepare stops the app's writer
+unit and, when the mode requires, the replica unit. It never starts, restarts
+or execs into either, activates credentials or deletes remote objects. Fresh
+preparation takes the replica's own sync barrier when a committed replica is
+running and proven to hold its lifetime lock, otherwise one create-only
+snapshot upload (one conditional create plus the expected 412 check). Every
+point is restored in a private workspace that is disposed before the receipt is
+recorded. Completion and abandon recheck the retained stopped source inside
+their store transactions. Success leaves writers and replica stopped under the
+original fence; a ten-minute point admission lifetime, clipped by recorded
+retention, never releases it. Abandon checks the stopped source against its
+recorded baseline, releases only the original fence and starts nothing. If a
+live preparation failed before the replica stopped, abandon records a durable
+local stop intent before stopping the freshly proven owned writers and replica.
+That path needs no credentials, barrier, upload or remote request. A stop intent
+is a claim: an unknown stop or lost reply remains `recovery_required`, and a
+same-key retry does not repeat effects. A new explicit abandon can recover it.
+An already recorded stopped baseline with a restarted unit refuses before claim.
+
+Source checks retain no-follow descriptors and rewalk the absolute root and its
+ancestors to detect replacement. Writer stops require the committed rendered
+unit, the loaded unit's exact provenance and the running process's own cgroup.
+Foreign or replaced units refuse. Host observation runs outside control-store
+write transactions; completion rechecks only retained physical source handles.
+
+While a preparation fence is held, the existing writer and replica startup
+permits refuse, including at boot. After abandon, units start only through the
+next explicit start, deploy or boot; there is no separate stopped-desired-state
+record and no promise of staying stopped across later reboots.
+
+`restore test --point PREPARATION_ID` admits a completed SQLite preparation by
+its retained origin source (a reverify successor resolves to the origin point),
+schema, declared checks, coverage cutoff and exact delivered credential version
+before the ordinary committed and writer-schema gates, and bounds possible loss
+by that cutoff. A preparation of another app or database, an incomplete
+preparation or a changed current binding refuses rather than falling back.
+Only committed replicas are supported; uncommitted, pre-first-release,
+allocated-empty and initialized-snapshot sources refuse.
+
 ### State transitions and restore evidence
 
 The native replacement prerequisite adds append-only epoch reservations and an

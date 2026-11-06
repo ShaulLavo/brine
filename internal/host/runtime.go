@@ -25,6 +25,7 @@ type Runtime struct {
 	Runner                   jobs.Runner
 	NativeCapture            func(context.Context, string) (jobs.Accepted, error)
 	NativeBackups            dispatch.NativeBackupOperations
+	SQLitePreparation        dispatch.SQLitePreparationOperations
 	NativeBackupStatus       dispatch.NativeBackupStatusOperations
 	NativeBackupPolicy       dispatch.NativeBackupPolicyOperations
 	NativeRecovery           dispatch.NativeRecoveryOperations

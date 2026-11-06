@@ -38,9 +38,24 @@ type archiveHost struct {
 }
 
 func (h archiveHost) serviceStopped(ctx context.Context, name string, allowAbsent bool) (bool, error) {
-	r, err := h.session.Execute(ctx, "/usr/bin/systemctl", []string{"--user", "show", name, "--property=LoadState,ActiveState,SubState,MainPID,ControlPID,ControlGroup,Job"}, nil, false)
-	if err != nil || r.ExitCode != 0 || r.Truncated {
+	unit, err := showUnit(ctx, h.session, name)
+	if err != nil {
 		return false, archive.ErrRefused
+	}
+	return unit.stopped(allowAbsent), nil
+}
+
+// unitState is the bounded systemd projection shared by archive and SQLite
+// preparation quiescence. Unknown, duplicate or malformed fields refuse.
+type unitState struct {
+	Load, Active, Sub, ControlGroup, Job string
+	MainPID, ControlPID                  uint64
+}
+
+func showUnit(ctx context.Context, session localexec.Session, name string) (unitState, error) {
+	r, err := session.Execute(ctx, "/usr/bin/systemctl", []string{"--user", "show", name, "--property=LoadState,ActiveState,SubState,MainPID,ControlPID,ControlGroup,Job"}, nil, false)
+	if err != nil || r.ExitCode != 0 || r.Truncated {
+		return unitState{}, errUnitState
 	}
 	fields := map[string]string{}
 	for _, line := range strings.Split(strings.TrimSpace(r.Stdout), "\n") {
@@ -48,34 +63,32 @@ func (h archiveHost) serviceStopped(ctx context.Context, name string, allowAbsen
 		switch key {
 		case "LoadState", "ActiveState", "SubState", "MainPID", "ControlPID", "ControlGroup", "Job":
 		default:
-			return false, archive.ErrRefused
+			return unitState{}, errUnitState
 		}
-		if !ok {
-			return false, archive.ErrRefused
-		}
-		if _, exists := fields[key]; exists {
-			return false, archive.ErrRefused
+		if _, exists := fields[key]; exists || !ok {
+			return unitState{}, errUnitState
 		}
 		fields[key] = value
 	}
-	if len(fields) != 7 {
-		return false, archive.ErrRefused
+	main, mainErr := strconv.ParseUint(fields["MainPID"], 10, 64)
+	control, controlErr := strconv.ParseUint(fields["ControlPID"], 10, 64)
+	if len(fields) != 7 || mainErr != nil || controlErr != nil || fields["LoadState"] != "loaded" && fields["LoadState"] != "not-found" {
+		return unitState{}, errUnitState
 	}
-	for _, key := range []string{"MainPID", "ControlPID"} {
-		if _, err := strconv.ParseUint(fields[key], 10, 64); err != nil {
-			return false, archive.ErrRefused
-		}
+	return unitState{Load: fields["LoadState"], Active: fields["ActiveState"], Sub: fields["SubState"], ControlGroup: fields["ControlGroup"], Job: fields["Job"], MainPID: main, ControlPID: control}, nil
+}
+
+var errUnitState = errors.New("host: unit state unavailable")
+
+// stopped requires no process, cgroup or pending job. An absent unit counts
+// only where the caller has no recorded ownership of it.
+func (u unitState) stopped(allowAbsent bool) bool {
+	if u.MainPID != 0 || u.ControlPID != 0 || u.ControlGroup != "" || u.Job != "" {
+		return false
 	}
-	if fields["LoadState"] != "loaded" && fields["LoadState"] != "not-found" {
-		return false, archive.ErrRefused
-	}
-	if fields["MainPID"] != "0" || fields["ControlPID"] != "0" || fields["ControlGroup"] != "" || fields["Job"] != "" {
-		return false, nil
-	}
-	closed := fields["ActiveState"] == "inactive" && fields["SubState"] == "dead" || fields["ActiveState"] == "failed" && fields["SubState"] == "failed"
-	absent := allowAbsent && fields["LoadState"] == "not-found" && closed
-	stopped := !allowAbsent && fields["LoadState"] == "loaded" && closed
-	return absent || stopped, nil
+	closed := u.Active == "inactive" && u.Sub == "dead" || u.Active == "failed" && u.Sub == "failed"
+	absent := allowAbsent && u.Load == "not-found" && closed
+	return absent || !allowAbsent && u.Load == "loaded" && closed
 }
 func (h archiveHost) stopService(ctx context.Context, name string, allowAbsent bool) error {
 	stopped, err := h.serviceStopped(ctx, name, allowAbsent)
@@ -125,63 +138,82 @@ func (h archiveHost) WritersStopped(ctx context.Context, p archive.Plan) (bool, 
 	return h.archiveContainersStopped(ctx, p)
 }
 func (h archiveHost) archiveContainersStopped(ctx context.Context, p archive.Plan) (bool, error) {
-	listed, err := h.session.Execute(ctx, "/usr/bin/podman", []string{"ps", "--all", "--quiet", "--no-trunc"}, nil, false)
-	if err != nil || listed.ExitCode != 0 || listed.Truncated {
+	sources := make([]string, 0, len(p.Trees))
+	for _, tree := range p.Trees {
+		sources = append(sources, filepath.Join(string(tree.Root), tree.SourceRelative))
+	}
+	if !containersOutside(ctx, h.session, sources) {
 		return false, archive.ErrRefused
+	}
+	return true, nil
+}
+
+// containersOutside proves that no running or paused container mounts any
+// source path. Unparseable or truncated Podman output refuses.
+func containersOutside(ctx context.Context, session localexec.Session, sources []string) bool {
+	listed, err := session.Execute(ctx, "/usr/bin/podman", []string{"ps", "--all", "--quiet", "--no-trunc"}, nil, false)
+	if err != nil || listed.ExitCode != 0 || listed.Truncated {
+		return false
 	}
 	ids := strings.Fields(listed.Stdout)
 	if len(ids) > 128 {
-		return false, archive.ErrRefused
+		return false
 	}
 	if len(ids) == 0 {
-		return true, nil
+		return true
 	}
 	seen := map[string]bool{}
 	for _, id := range ids {
 		if !containerIdentity.MatchString(id) || seen[id] {
-			return false, archive.ErrRefused
+			return false
 		}
 		seen[id] = true
 	}
 	args := append([]string{"container", "inspect"}, ids...)
-	inspected, err := h.session.Execute(ctx, "/usr/bin/podman", args, nil, false)
+	inspected, err := session.Execute(ctx, "/usr/bin/podman", args, nil, false)
 	if err != nil || inspected.ExitCode != 0 || inspected.Truncated {
-		return false, archive.ErrRefused
+		return false
 	}
-	var containers []struct {
-		ID    string `json:"Id"`
-		State struct {
-			Running *bool `json:"Running"`
-			PID     *int  `json:"Pid"`
-		} `json:"State"`
-		Mounts []struct {
-			Source string `json:"Source"`
-		} `json:"Mounts"`
-	}
+	var containers []inspectedContainer
 	if json.Unmarshal([]byte(inspected.Stdout), &containers) != nil || len(containers) != len(ids) {
-		return false, archive.ErrRefused
+		return false
 	}
 	observed := map[string]bool{}
 	for _, container := range containers {
 		if !seen[container.ID] || observed[container.ID] || container.State.Running == nil || container.State.PID == nil || container.Mounts == nil {
-			return false, archive.ErrRefused
+			return false
 		}
 		observed[container.ID] = true
-		if !*container.State.Running && *container.State.PID == 0 {
-			continue
+		if (*container.State.Running || *container.State.PID != 0) && !container.mountsOutside(sources) {
+			return false
 		}
-		for _, mount := range container.Mounts {
-			if !filepath.IsAbs(mount.Source) || filepath.Clean(mount.Source) != mount.Source {
-				return false, archive.ErrRefused
-			}
-			for _, tree := range p.Trees {
-				if data.OverlappingPaths(mount.Source, filepath.Join(string(tree.Root), tree.SourceRelative)) {
-					return false, archive.ErrRefused
-				}
+	}
+	return true
+}
+
+type inspectedContainer struct {
+	ID    string `json:"Id"`
+	State struct {
+		Running *bool `json:"Running"`
+		PID     *int  `json:"Pid"`
+	} `json:"State"`
+	Mounts []struct {
+		Source string `json:"Source"`
+	} `json:"Mounts"`
+}
+
+func (c inspectedContainer) mountsOutside(sources []string) bool {
+	for _, mount := range c.Mounts {
+		if !filepath.IsAbs(mount.Source) || filepath.Clean(mount.Source) != mount.Source {
+			return false
+		}
+		for _, source := range sources {
+			if data.OverlappingPaths(mount.Source, source) {
+				return false
 			}
 		}
 	}
-	return true, nil
+	return true
 }
 func (h archiveHost) StopReplicas(ctx context.Context, p archive.Plan) error {
 	if nativeArchiveCandidate(p.Candidate) {

@@ -12,6 +12,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/nativecapture"
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/sqliteprep"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
@@ -29,6 +30,13 @@ type TaskOutcome struct {
 
 func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 	switch op.Kind {
+	case SQLitePrepare, SQLitePrepareAbandon:
+		receipt, err := sqliteprep.DecodeReceipt(raw)
+		task := sqliteprep.Task{OperationID: op.ID, Kind: sqliteprep.TaskKind(op.Kind), Requester: op.Requester, App: op.App, InputSHA256: op.SecretRef}
+		if err != nil || receipt.Task != task {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
 	case NativePrepareAbandon:
 		receipt, err := nativecapture.DecodeAbandonReceipt(raw)
 		if err != nil || receipt.OperationID != op.ID || receipt.InputSHA256 != op.SecretRef {

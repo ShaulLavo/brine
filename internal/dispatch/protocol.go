@@ -81,6 +81,7 @@ var operations = map[string]operation{
 	"native_backup_inspect":                 {ReadOnly, decodeNativeBackupInspect},
 	"native_backup_review":                  {Mutating, decodeNativeBackupReview},
 	"native_backup_resolve":                 {Mutating, decodeNativeBackupResolve},
+	"sqlite_backup_status":                  {ReadOnly, decodeSQLiteBackupStatus},
 	"native_backup_status":                  {ReadOnly, decodeNativeBackupStatus},
 	"native_backup_policy_plan":             {Mutating, decodeNativeBackupPolicyPlan},
 	"native_backup_activate":                {Mutating, decodeNativeBackupPolicyActivate},
@@ -93,6 +94,8 @@ var operations = map[string]operation{
 	"native_capture":                        {Mutating, decodeNativeCapture},
 	"native_prepare":                        {Mutating, decodeNativePrepare},
 	"native_prepare_abandon":                {Mutating, decodeNativeAbandon},
+	"sqlite_prepare":                        {Mutating, decodeSQLitePrepare},
+	"sqlite_prepare_abandon":                {Mutating, decodeSQLiteAbandon},
 	"native_restore_test":                   {ReadOnly, decodeNativeRestoreTest},
 	"deploy_operation":                      {ReadOnly, decodeDeploymentOperationQuery},
 	"deploy_state":                          {ReadOnly, decodeDeployment},
@@ -207,6 +210,8 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
+	SQLiteBackupStatus     SQLiteBackupStatusReader
+	SQLitePreparation      SQLitePreparationOperations
 	CDN                    cdnoperator.Host
 	ModulePublications     ModulePublicationOperations
 	DataInitialization     DataInitializationOperations
@@ -325,6 +330,17 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = next
+	case SQLiteBackupStatusArgs:
+		if s.SQLiteBackupStatus == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		value, err = s.SQLiteBackupStatus.SQLiteBackupStatus(ctx, args)
+		if ctx.Err() != nil {
+			return fail(ctx.Err())
+		}
+		if err != nil {
+			return fail(result.Classify(err))
+		}
 	case NativeBackupStatusArgs:
 		if s.NativeBackupStatus == nil {
 			return fail(result.New(result.DependencyMissing, nil))
@@ -397,6 +413,12 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.New(result.DependencyMissing, nil))
 		}
 		accepted, err := s.NativeRecovery.SetRecovery(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
+	case SQLitePrepareArgs, SQLiteAbandonArgs:
+		accepted, err := s.submitSQLitePreparation(ctx, args)
 		if err != nil {
 			return fail(result.Classify(err))
 		}

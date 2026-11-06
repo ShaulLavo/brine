@@ -114,7 +114,7 @@ func TestPrivateWorkspaceAndOutput(t *testing.T) {
 
 func TestSourceAndBindingRefusals(t *testing.T) {
 	for _, source := range []SQLiteSource{{Kind: "file"}, {Kind: LitestreamLTX, LTX: &LTXSource{TXID: 0}}, {Kind: SQLiteSnapshot, Snapshot: &SnapshotSource{PointID: "../escape"}}, {Kind: LitestreamLTX, LTX: &LTXSource{BindingID: "b1", Epoch: "e1", TXID: 7, Barrier: &BarrierReceipt{BindingID: "b1", Epoch: "e1", TXID: 7, ReplicaTXID: 6, ObservedAt: time.Now(), Succeeded: true}}}} {
-		if _, _, err := source.reference(); err == nil {
+		if _, _, err := source.Reference(); err == nil {
 			t.Fatal("invalid tagged source accepted")
 		}
 	}

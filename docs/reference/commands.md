@@ -1167,21 +1167,40 @@ Flags:
 ### `brine restore`
 
 ```text
-Verify remote backups without changing live application data
+Verify remote backups in isolation without changing live application data. Only prepare, abandon and native-live change the host: SQLite prepare stops the app's writers and its replica and holds a data fence, and abandon releases that fence without starting anything.
 
 Usage:
   brine restore [command]
 
 Available Commands:
+  abandon     Release an unused SQLite preparation's fence without starting anything
   native-live Review and restore an exact SpacetimeDB point into a new stopped epoch
   native-test Verify an exact SpacetimeDB backup in private isolation without changing live data
   point       Inspect a retained native point reference
+  prepare     Stop writers and verify an exact fenced SQLite recovery point
+  status      Observe SQLite backup health with bounded read-only remote probes
   test        Restore into an isolated private workspace and check declared data invariants
 
 Flags:
   -h, --help   help for restore
 
 Use "brine restore [command] --help" for more information about a command.
+```
+
+### `brine restore abandon`
+
+```text
+Release the fence of an unused or failed SQLite preparation after checking that the stopped source is locally unchanged and settled. Abandon starts nothing. The app and its replica start again only on the next explicit start, deploy or reboot, through their normal startup permits.
+
+Usage:
+  brine restore abandon PREPARATION_ID --target NAME [flags]
+
+Flags:
+      --config-dir string        Private client target directory
+  -h, --help                     help for abandon
+      --idempotency-key string   Reuse the reported key to recover the same operation after a lost response
+      --no-wait                  Return the accepted operation ID without waiting for verification
+      --target string            Pinned target name
 ```
 
 ### `brine restore native-live`
@@ -1313,6 +1332,43 @@ Flags:
       --config-dir string   Private client target directory
   -h, --help                help for point
       --kind string         Point reference kind: verified or prepared (default "verified")
+      --target string       Pinned target name
+```
+
+### `brine restore prepare`
+
+```text
+This command STOPS the app's writers, then obtains and independently verifies an exact remote recovery point for one SQLite database. A durable data fence is recorded before writers stop and remains held after success. While it is held, the app's and the replica's startup permits refuse, so both stay stopped, including across a reboot, until the preparation is abandoned.
+
+The replica is stopped as part of preparation and is never started or restarted by it. Use --supersedes PREPARATION_ID to replace an unconsumed preparation under the same fence without starting anything; it re-verifies retained coverage, takes a new barrier from a replica that is still running, or captures a new snapshot of an unchanged stopped source.
+
+A prepared point is admissible for ten minutes, clipped by recorded retention. Its fence never expires on its own. Check it with: brine restore test APP --point PREPARATION_ID.
+
+Usage:
+  brine restore prepare APP --target NAME [flags]
+
+Flags:
+      --config-dir string        Private client target directory
+      --database string          SQLite database name (required when more than one is present)
+  -h, --help                     help for prepare
+      --idempotency-key string   Reuse the reported key to recover the same operation after a lost response
+      --no-wait                  Return the accepted operation ID without waiting for verification
+      --supersedes string        Unconsumed preparation ID to replace under the same fence
+      --target string            Pinned target name
+```
+
+### `brine restore status`
+
+```text
+Inspect SQLite replica service, remote access, remote restore watermark, credential expiry, lifecycle evidence and independently verified history. A running service or remote watermark is not proof of durability. Local position, lag and possible loss remain unknown. This command never stops writers, starts replication or prepares a recovery point.
+
+Usage:
+  brine restore status APP --target NAME [flags]
+
+Flags:
+      --config-dir string   Private client target directory
+      --database string     SQLite database name (required when more than one is present)
+  -h, --help                help for status
       --target string       Pinned target name
 ```
 
