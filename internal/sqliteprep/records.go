@@ -238,15 +238,14 @@ const (
 )
 
 type Receipt struct {
-	OldObject              ObjectState          `json:"old_object,omitempty"`
-	Task                   Task                 `json:"task"`
-	PreparationID          string               `json:"preparation_id"`
-	PreparedSHA256         string               `json:"prepared_sha256"`
-	Fence                  data.QuiescenceFence `json:"fence"`
-	SourcePointID          string               `json:"source_point_id"`
-	Outcome                Outcome              `json:"outcome"`
-	StoppedDesiredRevision uint64               `json:"stopped_desired_revision"`
-	CompletedAt            time.Time            `json:"completed_at"`
+	OldObject      ObjectState          `json:"old_object,omitempty"`
+	Task           Task                 `json:"task"`
+	PreparationID  string               `json:"preparation_id"`
+	PreparedSHA256 string               `json:"prepared_sha256"`
+	Fence          data.QuiescenceFence `json:"fence"`
+	SourcePointID  string               `json:"source_point_id"`
+	Outcome        Outcome              `json:"outcome"`
+	CompletedAt    time.Time            `json:"completed_at"`
 }
 
 func (r Receipt) Validate() error {
@@ -255,7 +254,7 @@ func (r Receipt) Validate() error {
 	}
 	switch r.Outcome {
 	case PreparedOutcome:
-		if r.OldObject != "" || !data.ValidID(r.SourcePointID) || !data.ValidCatalogHash(r.PreparedSHA256) || r.Task.Kind != PrepareTask || r.Fence.State != data.FenceHeld || r.StoppedDesiredRevision != 0 {
+		if r.OldObject != "" || !data.ValidID(r.SourcePointID) || !data.ValidCatalogHash(r.PreparedSHA256) || r.Task.Kind != PrepareTask || r.Fence.State != data.FenceHeld {
 			return ErrInvalid
 		}
 	case AbandonedOutcome:
@@ -265,7 +264,7 @@ func (r Receipt) Validate() error {
 		if r.OldObject != ObjectUnknown && r.OldObject != ObjectPresent && r.OldObject != ObjectAbsent {
 			return ErrInvalid
 		}
-		if r.Task.Kind != AbandonTask || r.Fence.State != data.FenceReleased || r.StoppedDesiredRevision == 0 || r.StoppedDesiredRevision > 1<<63-1 {
+		if r.Task.Kind != AbandonTask || r.Fence.State != data.FenceReleased {
 			return ErrInvalid
 		}
 	default:
@@ -307,7 +306,7 @@ func (c Consumer) Validate() error {
 	if c.PreparedSHA256 != "" && !data.ValidCatalogHash(c.PreparedSHA256) {
 		return ErrInvalid
 	}
-	if !data.ValidID(c.PreparationID) || !token.MatchString(c.OperationID) || !token.MatchString(c.Requester) || !appName.MatchString(c.App) || !data.ValidCatalogHash(c.InputSHA256) || !data.ValidCatalogHash(c.PolicySHA256) || !utc(c.ClaimedAt) {
+	if !data.ValidID(c.PreparationID) || !token.MatchString(c.OperationID) || !requester.MatchString(c.Requester) || !appName.MatchString(c.App) || !data.ValidCatalogHash(c.InputSHA256) || !data.ValidCatalogHash(c.PolicySHA256) || !utc(c.ClaimedAt) {
 		return ErrInvalid
 	}
 	switch c.Kind {

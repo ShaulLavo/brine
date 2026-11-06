@@ -60,8 +60,7 @@ const (
 // scope/policy/retention and the live stopped guard. In ONE transaction it admits
 // the identical source point, inserts the prepared point/event and canonical
 // receipt, and completes the task and its state event. No post-handler success
-// write is permitted. CompleteAbandon similarly inserts its consumer, records a
-// stopped desired revision, releases ONLY the original fence and completes its
+// write is permitted. CompleteAbandon similarly inserts its consumer and completion, releases ONLY the original fence and completes its
 // task/receipt/state event atomically. A typed Refusal from CompleteAbandon means
 // no effect was issued; FailUnclaimed still confirms no claim transactionally.
 // Other completion errors remain uncertain until joined readback. Unused points AND active consumers protect

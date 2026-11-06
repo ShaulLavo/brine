@@ -397,6 +397,15 @@ func (s *Store) ReleaseDataFence(ctx context.Context, id data.FenceID, operation
 	if err = refuseConsumedNativeFence(ctx, tx, id); err != nil {
 		return err
 	}
+	// Unconsumed SQLite preparations and active consumers protect their fence;
+	// only an exact consumer completion releases it, never this generic path.
+	var prepared int
+	if err = tx.QueryRowContext(ctx, "SELECT count(*) FROM data_sqlite_preparations WHERE fence_id=?", id).Scan(&prepared); err != nil {
+		return err
+	}
+	if prepared != 0 {
+		return ErrConflict
+	}
 	result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND operation_id=? AND state='held'", id, operation)
 	if err != nil {
 		return err

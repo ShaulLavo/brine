@@ -35,7 +35,13 @@ const (
 	NativeRetireResolve       Kind = "native_retire_resolve"
 	ArchiveMaintenanceApply   Kind = "archive_maintenance_apply"
 	ArchiveMaintenanceResolve Kind = "archive_maintenance_resolve"
+	SQLitePrepare             Kind = "sqlite_prepare"
+	SQLitePrepareAbandon      Kind = "sqlite_prepare_abandon"
 )
+
+// sqliteInputHash is the bare canonical input SHA-256 a SQLite preparation task
+// references; the input record itself carries no capability.
+var sqliteInputHash = regexp.MustCompile(`^[a-f0-9]{64}$`)
 
 // Intent contains identity and references only. Secret values cannot be stored.
 type Intent struct {
@@ -59,6 +65,8 @@ func ValidIntent(i Intent) bool {
 	switch i.Kind {
 	case ModulePublishApply, NativeLiveRestore, NativeRetire, ArchiveMaintenanceApply:
 		return i.PlanID == "" && appName.MatchString(i.App) && planID.MatchString(i.SecretRef)
+	case SQLitePrepare, SQLitePrepareAbandon:
+		return i.PlanID == "" && appName.MatchString(i.App) && sqliteInputHash.MatchString(i.SecretRef)
 	case NativeBackupResolve:
 		return i.PlanID == "" && appName.MatchString(i.App) && regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(i.SecretRef) && operationID.MatchString(i.RecoveryOf)
 	case ModulePublishResolve, NativeLiveRestoreResolve, NativeRetireResolve, ArchiveMaintenanceResolve:
@@ -104,7 +112,7 @@ func TransitionsFor(kind Kind) map[State][]State {
 	switch kind {
 	case Deploy, Resolve:
 		return Transitions()
-	case NativeBackupResolve, Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativePrepareAbandon, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve, ArchiveMaintenanceApply, ArchiveMaintenanceResolve:
+	case NativeBackupResolve, Reconcile, RestoreTest, CredentialActivation, DataInitApply, NativeCapture, NativeRestoreTest, NativePrepare, NativePrepareAbandon, NativeRecoverySet, NativeBackupActivate, ModulePublishApply, ModulePublishResolve, NativeLiveRestore, NativeLiveRestoreResolve, NativeRetire, NativeRetireResolve, ArchiveMaintenanceApply, ArchiveMaintenanceResolve, SQLitePrepare, SQLitePrepareAbandon:
 		return map[State][]State{Queued: {LaunchUnknown, Preflight, Failed, RecoveryRequired}, LaunchUnknown: {Preflight, Failed, RecoveryRequired}, Preflight: {Succeeded, Failed, RecoveryRequired}}
 	case SecretSet, NativeMaterialSet, CDN:
 		return map[State][]State{Queued: {Preparing}, Preparing: {Succeeded, Failed, RecoveryRequired}}
@@ -206,7 +214,7 @@ func ValidateOperationEvent(op Operation, e Event) error {
 
 // IsTask identifies reference-only detached work; handlers own their host locking.
 func (k Kind) IsTask() bool {
-	return k == ArchiveMaintenanceApply || k == ArchiveMaintenanceResolve || k == NativeBackupResolve || k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativePrepareAbandon || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve || k == NativeRetire || k == NativeRetireResolve
+	return k == ArchiveMaintenanceApply || k == ArchiveMaintenanceResolve || k == NativeBackupResolve || k == RestoreTest || k == CredentialActivation || k == DataInitApply || k == NativeCapture || k == NativeRestoreTest || k == NativePrepare || k == NativePrepareAbandon || k == NativeRecoverySet || k == NativeBackupActivate || k == ModulePublishApply || k == ModulePublishResolve || k == NativeLiveRestore || k == NativeLiveRestoreResolve || k == NativeRetire || k == NativeRetireResolve || k == SQLitePrepare || k == SQLitePrepareAbandon
 }
 
 func (k Kind) IsResolver() bool {

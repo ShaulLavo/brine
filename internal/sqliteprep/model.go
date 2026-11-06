@@ -20,6 +20,9 @@ var (
 	ErrRecovery = errors.New("SQLite preparation requires inspection, supersede or abandon")
 	token       = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$`)
 	appName     = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	// requester is the server-established restricted-channel identity, the
+	// same closed form datainit.Requester and the operation journal record.
+	requester = regexp.MustCompile(`^deploy:[a-f0-9]{64}$`)
 )
 
 type TaskKind string
@@ -40,7 +43,7 @@ type Task struct {
 }
 
 func (t Task) Validate() error {
-	if !token.MatchString(t.OperationID) || !token.MatchString(t.Requester) || !appName.MatchString(t.App) || !data.ValidCatalogHash(t.InputSHA256) || t.Kind != PrepareTask && t.Kind != AbandonTask {
+	if !token.MatchString(t.OperationID) || !requester.MatchString(t.Requester) || !appName.MatchString(t.App) || !data.ValidCatalogHash(t.InputSHA256) || t.Kind != PrepareTask && t.Kind != AbandonTask {
 		return ErrInvalid
 	}
 	return nil

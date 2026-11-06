@@ -230,7 +230,7 @@ func (j *fakeJournal) CompleteAbandon(ctx context.Context, t Task, in Input, a A
 	if err != nil || !b.Matches(a.Stopped) {
 		return Receipt{}, ErrInvalid
 	}
-	r := Receipt{Task: t, PreparationID: in.PreparationID, Fence: a.Intent.Fence, Outcome: AbandonedOutcome, OldObject: a.OldObject, StoppedDesiredRevision: 2, CompletedAt: a.ObservedAt}
+	r := Receipt{Task: t, PreparationID: in.PreparationID, Fence: a.Intent.Fence, Outcome: AbandonedOutcome, OldObject: a.OldObject, CompletedAt: a.ObservedAt}
 	r.Fence.State = data.FenceReleased
 	if a.Point != nil {
 		r.SourcePointID = a.Point.Source.Point.ID

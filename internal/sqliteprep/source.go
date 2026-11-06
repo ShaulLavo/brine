@@ -234,3 +234,8 @@ func sameSourceScope(a, b Scope) bool {
 func sameLineageScope(previous, current Scope) bool {
 	return sameSourceScope(previous, current) && !current.Retention.RetainUntil.Before(previous.Retention.RetainUntil)
 }
+
+// SameSourceScope and SameLineageScope expose the identical-source predicates
+// for the protected store joins; they grant no authority by themselves.
+func SameSourceScope(previous, current Scope) bool  { return sameSourceScope(previous, current) }
+func SameLineageScope(previous, current Scope) bool { return sameLineageScope(previous, current) }
