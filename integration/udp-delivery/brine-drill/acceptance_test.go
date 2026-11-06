@@ -28,7 +28,7 @@ func testExpectedApplyOutcome(t *testing.T, outcome string) {
 			return commandResult(`{"schema_version":1,"command":"brine apply","ok":true,"data":{"status":"accepted","operation_id":"op-failure"},"error":null}`), nil
 		}
 		if strings.Contains(strings.Join(command.Args, " "), "--operation") {
-			return commandResult(fmt.Sprintf(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"state":%q}},"error":null}`, outcome)), nil
+			return commandResult(fmt.Sprintf(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"id":"op-failure","state":%q}},"error":null}`, outcome)), nil
 		}
 		return commandResult(`{"schema_version":1,"command":"brine status","ok":true,"data":{"apps":[{"app":"udp-a"}]},"error":null}`), nil
 	}}
@@ -77,7 +77,7 @@ func TestApplyRejectsUnexpectedTerminalOutcome(t *testing.T) {
 		if command.Mutating {
 			return commandResult(`{"schema_version":1,"command":"brine apply","ok":true,"data":{"status":"accepted","operation_id":"op-unexpected"},"error":null}`), nil
 		}
-		return commandResult(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"state":"succeeded"}},"error":null}`), nil
+		return commandResult(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"id":"op-unexpected","state":"succeeded"}},"error":null}`), nil
 	}}
 	runner := Runner{Manifest: manifest, Ledger: ledger, Commands: commands}
 	if _, err := runner.RunPhase(context.Background(), PhaseBeforeReboot); err == nil {
@@ -186,7 +186,7 @@ func cleanupCommands(outcome string) *scriptedRunner {
 			return commandResult(`{"schema_version":1,"command":"brine apply","ok":true,"data":{"status":"accepted","operation_id":"op-remove"},"error":null}`), nil
 		}
 		if strings.Contains(strings.Join(command.Args, " "), "--operation") {
-			return commandResult(fmt.Sprintf(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"state":%q}},"error":null}`, outcome)), nil
+			return commandResult(fmt.Sprintf(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"id":"op-remove","state":%q}},"error":null}`, outcome)), nil
 		}
 		return commandResult(`{"schema_version":1,"command":"brine remove","ok":true,"data":{"plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"error":null}`), nil
 	}}
