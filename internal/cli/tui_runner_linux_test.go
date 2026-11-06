@@ -134,3 +134,76 @@ func TestRunTUITerminalHangupEndsSession(t *testing.T) {
 	requireIOFailure(t, err, cause)
 	receive(t, host.canceled, "apps")
 }
+
+type wrappedTUITerminal struct{ *os.File }
+
+func TestRunTUIWrappedInputKeepsRawMode(t *testing.T) {
+	master, slave := openTestPTY(t)
+	before, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := collect(master)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runSession(ctx, fixtureHost(), func(ctx context.Context, m tea.Model) (tea.Model, error) {
+		return RunTUI(ctx, m, wrappedTUITerminal{slave}, slave)
+	})
+	waitForOutput(t, out, "fixture-jobs")
+	during, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cooked := during.Lflag&unix.ICANON != 0
+	if _, err := master.WriteString("q"); err != nil {
+		t.Fatal(err)
+	}
+	if cooked {
+		cancel()
+	}
+	outcome := await(t, done)
+	if cooked {
+		t.Fatalf("wrapped input lost raw mode: %v", outcome.err)
+	}
+	if outcome.err != nil {
+		t.Fatal(outcome.err)
+	}
+	after, err := unix.IoctlGetTermios(int(slave.Fd()), unix.TCGETS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if *after != *before {
+		t.Fatal("wrapped input terminal was not restored")
+	}
+	if _, err := slave.WriteString("still borrowed\r\n"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunTUIWrappedOutputKeepsWindowSize(t *testing.T) {
+	master, slave := openTestPTY(t)
+	if err := unix.IoctlSetWinsize(int(slave.Fd()), unix.TIOCSWINSZ, &unix.Winsize{Row: 30, Col: 100}); err != nil {
+		t.Fatal(err)
+	}
+	out := collect(master)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runSession(ctx, fixtureHost(), func(ctx context.Context, m tea.Model) (tea.Model, error) {
+		return RunTUI(ctx, m, slave, wrappedTUITerminal{slave})
+	})
+	waitForOutput(t, out, "fixture-jobs")
+	if _, err := master.WriteString("q"); err != nil {
+		t.Fatal(err)
+	}
+	outcome := await(t, done)
+	if outcome.err != nil {
+		t.Fatal(outcome.err)
+	}
+	model := outcome.final.(tuiModel)
+	if model.width != 100 || model.height != 30 {
+		t.Fatalf("wrapped output lost terminal size: %dx%d", model.width, model.height)
+	}
+	if _, err := slave.WriteString("still borrowed\r\n"); err != nil {
+		t.Fatal(err)
+	}
+}

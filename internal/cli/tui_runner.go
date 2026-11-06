@@ -14,7 +14,8 @@ import (
 // RunTUI runs model on the terminal until it quits, ctx ends, or terminal I/O
 // fails. A nil stdin uses the process's stdin when it is a terminal and
 // otherwise opens the controlling terminal, which RunTUI closes before
-// returning. Explicit input is used as given and never replaced.
+// returning. Explicit input must expose interruptible file capabilities, its
+// descriptor and name. It is borrowed and never replaced or closed.
 //
 // The pinned Bubble Tea ends neither on input EOF nor on output write errors,
 // so RunTUI watches both and ends the program on the first failure. That
@@ -65,9 +66,13 @@ func (t tuiTerminal) run(ctx context.Context, model tea.Model, stdin io.Reader, 
 
 // input resolves the reader once, so the runner, not Bubble Tea, owns any
 // terminal it opens.
-func (t tuiTerminal) input(stdin io.Reader) (io.Reader, *os.File, error) {
+func (t tuiTerminal) input(stdin io.Reader) (tuiInputFile, *os.File, error) {
 	if stdin != nil {
-		return stdin, nil, nil
+		file, ok := stdin.(tuiInputFile)
+		if !ok {
+			return nil, nil, errors.New("input lacks interruptible file capabilities")
+		}
+		return file, nil, nil
 	}
 	if isTerminal(t.stdin) {
 		return t.stdin, nil, nil
@@ -135,28 +140,38 @@ func (g *tuiIO) write(w io.Writer, p []byte) (int, error) {
 	return n, err
 }
 
-// reader and writer keep an *os.File's descriptor and name visible, so Bubble
-// Tea still enters raw mode, reads the window size and cancels a blocked read
-// through epoll or kqueue instead of leaving a reader goroutine behind.
-func (g *tuiIO) reader(r io.Reader) io.Reader {
-	if file, ok := r.(*os.File); ok {
-		return tuiFile{file: file, io: g}
-	}
-	return tuiReader{r: r, io: g}
+// These are the capabilities used by the pinned terminal and cancellation
+// adapters. A descriptor-free reader cannot promise an interruptible Read.
+type tuiDescriptorFile interface {
+	io.ReadWriteCloser
+	Fd() uintptr
+}
+
+type tuiInputFile interface {
+	tuiDescriptorFile
+	Name() string
+}
+
+func (g *tuiIO) reader(r tuiInputFile) io.Reader {
+	return tuiFile{file: r, name: r.Name(), io: g}
 }
 
 func (g *tuiIO) writer(w io.Writer) io.Writer {
-	if file, ok := w.(*os.File); ok {
-		return tuiFile{file: file, io: g}
+	if file, ok := w.(tuiDescriptorFile); ok {
+		name := ""
+		if named, ok := w.(interface{ Name() string }); ok {
+			name = named.Name()
+		}
+		return tuiFile{file: file, name: name, io: g}
 	}
 	return tuiWriter{w: w, io: g}
 }
 
-// tuiFile borrows a terminal file: it exposes only what Bubble Tea and its
-// cancelable reader need, routes all I/O through the guard, and never closes
-// the file.
+// tuiFile preserves borrowed file capabilities while intercepting I/O. Its
+// Close never closes the stream; the runner closes only its own opened TTY.
 type tuiFile struct {
-	file *os.File
+	file tuiDescriptorFile
+	name string
 	io   *tuiIO
 }
 
@@ -164,14 +179,7 @@ func (f tuiFile) Read(p []byte) (int, error)  { return f.io.read(f.file, p) }
 func (f tuiFile) Write(p []byte) (int, error) { return f.io.write(f.file, p) }
 func (tuiFile) Close() error                  { return nil }
 func (f tuiFile) Fd() uintptr                 { return f.file.Fd() }
-func (f tuiFile) Name() string                { return f.file.Name() }
-
-type tuiReader struct {
-	r  io.Reader
-	io *tuiIO
-}
-
-func (r tuiReader) Read(p []byte) (int, error) { return r.io.read(r.r, p) }
+func (f tuiFile) Name() string                { return f.name }
 
 type tuiWriter struct {
 	w  io.Writer

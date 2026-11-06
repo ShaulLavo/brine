@@ -103,12 +103,15 @@ type failingReader struct{ err error }
 
 func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
 
-func TestRunTUIReadFailureEndsSession(t *testing.T) {
+func TestRunTUIRejectsDescriptorFreeReader(t *testing.T) {
 	gone := errors.New("terminal gone")
 	done := runSession(context.Background(), fixtureHost(), func(ctx context.Context, m tea.Model) (tea.Model, error) {
 		return RunTUI(ctx, m, failingReader{gone}, &lockedBuffer{})
 	})
-	requireIOFailure(t, await(t, done).err, gone)
+	outcome := await(t, done)
+	if result.Classify(outcome.err).Code() != result.TUITerminalRequired || errors.Is(outcome.err, gone) {
+		t.Fatalf("unsupported reader was used instead of rejected: %v", outcome.err)
+	}
 }
 
 type shortWriter struct{}
@@ -218,4 +221,55 @@ func TestRunTUIExternalCancellationIsInterrupt(t *testing.T) {
 		t.Fatalf("error = %v; want interrupted", outcome.err)
 	}
 	receive(t, host.canceled, "apps")
+}
+
+// observedPipe reports an actual blocked pipe read, without inspecting process
+// stacks or depending on the model's request timing.
+type observedPipe struct {
+	reader  *io.PipeReader
+	started chan struct{}
+	ended   chan struct{}
+	once    sync.Once
+}
+
+func (p *observedPipe) Read(buf []byte) (int, error) {
+	p.once.Do(func() { close(p.started) })
+	n, err := p.reader.Read(buf)
+	close(p.ended)
+	return n, err
+}
+
+func TestRunTUIRejectsUninterruptibleBorrowedInput(t *testing.T) {
+	input, writer := io.Pipe()
+	defer func() { _ = input.Close(); _ = writer.Close() }()
+	tracked := &observedPipe{reader: input, started: make(chan struct{}), ended: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := runSession(ctx, fixtureHost(), func(ctx context.Context, m tea.Model) (tea.Model, error) {
+		return RunTUI(ctx, m, tracked, &lockedBuffer{})
+	})
+	select {
+	case <-tracked.started:
+		cancel()
+		outcome := await(t, done)
+		_ = writer.Close()
+		select {
+		case <-tracked.ended:
+		case <-time.After(5 * time.Second):
+			t.Fatal("borrowed pipe read did not drain after test cleanup")
+		}
+		t.Fatalf("unsupported borrowed input was read and outlived admission: %v", outcome.err)
+	case outcome := <-done:
+		if result.Classify(outcome.err).Code() != result.TUITerminalRequired {
+			t.Fatalf("unsupported input returned %v", outcome.err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("unsupported input was neither refused nor read")
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := input.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Fatalf("runner closed borrowed input: %v", err)
+	}
 }
