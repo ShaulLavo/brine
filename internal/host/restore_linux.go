@@ -178,5 +178,5 @@ func requestAtPoint(request restore.SQLiteRequest, point data.SQLiteRestorePoint
 }
 
 func checkSQLiteRestore(ctx context.Context, engine *restore.SQLiteEngine, request restore.SQLiteRequest) (restore.SQLiteReceipt, error) {
-	return engine.TestMetadata(ctx, request)
+	return restore.VerifySQLite(ctx, engine, request, restore.MetadataOnly)
 }

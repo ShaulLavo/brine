@@ -12,9 +12,12 @@ import (
 
 func TestEngineVerificationUsesTheSQLiteVerifier(t *testing.T) {
 	engine, request, _ := setup(t, fixture(t, fixtureSQL))
-	receipt, err := VerifySQLite(context.Background(), engine, request)
+	receipt, err := VerifySQLite(context.Background(), engine, request, RetainOutput)
 	if err != nil || !receipt.Valid() || receipt.Source.Kind != SQLiteSnapshot {
 		t.Fatal("tagged verification lost SQLite checks or receipt", err)
+	}
+	if _, err := os.Stat(receipt.DatabasePath); err != nil {
+		t.Fatal("tagged generic consumer lost verified output", err)
 	}
 }
 
@@ -132,6 +135,23 @@ func TestRestoreMetadataPreservesRunningConsumer(t *testing.T) {
 	once.Do(func() { close(release) })
 	if err := <-done; err != nil {
 		t.Fatal(err)
+	}
+	assertRestoreWorkspaceEmpty(t, engine.Root)
+}
+
+func TestTaggedMetadataVerificationDisposesOutput(t *testing.T) {
+	engine, request, _ := setup(t, fixture(t, fixtureSQL))
+	receipt, err := VerifySQLite(context.Background(), engine, request, MetadataOnly)
+	if err != nil || !receipt.Valid() || receipt.DatabasePath != "" {
+		t.Fatal("tagged metadata verification retained output", err)
+	}
+	assertRestoreWorkspaceEmpty(t, engine.Root)
+}
+
+func TestTaggedVerificationRejectsUnknownLifetime(t *testing.T) {
+	engine, request, _ := setup(t, fixture(t, fixtureSQL))
+	if _, err := VerifySQLite(context.Background(), engine, request, OutputLifetime(99)); err == nil {
+		t.Fatal("unknown output lifetime admitted")
 	}
 	assertRestoreWorkspaceEmpty(t, engine.Root)
 }
