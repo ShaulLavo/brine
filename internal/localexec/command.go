@@ -94,6 +94,7 @@ func (ExecRunner) Execute(ctx context.Context, c Command) (Result, error) {
 		}
 		return Result{}, &Error{Kind: kind, ExitCode: -1}
 	}
+	defer cleanupProcessGroup(cmd)
 	err = cmd.Wait()
 	out, outTruncated := stdout.snapshot()
 	errout, errTruncated := stderr.snapshot()
