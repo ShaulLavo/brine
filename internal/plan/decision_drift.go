@@ -1,10 +1,8 @@
 package plan
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"reflect"
 	"slices"
 	"strconv"
@@ -61,18 +59,6 @@ func decodeDecisionInput(raw []byte) (decisionDocument, error) {
 	}
 	err := decodeDecisionDocument(raw, &d)
 	return d, err
-}
-
-func decodeDecisionDocument(raw []byte, document any) error {
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(document); err != nil {
-		return err
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return fmt.Errorf("invalid decision input document")
-	}
-	return nil
 }
 
 func decisionInputValue(raw []byte) (reflect.Value, error) {
@@ -144,21 +130,7 @@ func compareDecisionValues(a, b reflect.Value, path string, changed func(string)
 			changed(path)
 			return
 		}
-		for i := 0; i < a.NumField(); i++ {
-			field := a.Type().Field(i)
-			if !field.IsExported() {
-				continue
-			}
-			name := strings.Split(field.Tag.Get("json"), ",")[0]
-			if name == "" || name == "-" {
-				continue
-			}
-			next := name
-			if path != "" {
-				next = path + "." + name
-			}
-			compareDecisionValues(a.Field(i), b.Field(i), next, changed)
-		}
+		compareDecisionFields(a, b, path, changed)
 	case reflect.Slice:
 		if a.IsNil() != b.IsNil() || a.Len() != b.Len() {
 			changed(path)
@@ -169,6 +141,21 @@ func compareDecisionValues(a, b reflect.Value, path string, changed func(string)
 		}
 	default:
 		changed(path)
+	}
+}
+
+func compareDecisionFields(a, b reflect.Value, path string, changed func(string)) {
+	for i := 0; i < a.NumField(); i++ {
+		field := a.Type().Field(i)
+		name := strings.Split(field.Tag.Get("json"), ",")[0]
+		if !field.IsExported() || name == "" || name == "-" {
+			continue
+		}
+		next := name
+		if path != "" {
+			next = path + "." + name
+		}
+		compareDecisionValues(a.Field(i), b.Field(i), next, changed)
 	}
 }
 
@@ -190,46 +177,56 @@ func validDecisionPath(path string) bool {
 
 func validDecisionPathFor(path string, typ reflect.Type) bool {
 	for _, segment := range strings.Split(path, ".") {
-		for typ.Kind() == reflect.Pointer {
-			typ = typ.Elem()
-		}
-		if typ.Kind() != reflect.Struct || typ == reflect.TypeFor[time.Time]() {
+		name, indices, indexed := strings.Cut(segment, "[")
+		typ = decisionPathField(typ, name)
+		if typ == nil {
 			return false
 		}
-		name, indices, _ := strings.Cut(segment, "[")
-		var found reflect.Type
-		for field := range typ.Fields() {
-			if field.IsExported() && strings.Split(field.Tag.Get("json"), ",")[0] == name {
-				found = field.Type
-				break
-			}
+		if indexed {
+			typ = decisionPathIndices(typ, indices)
 		}
-		if found == nil {
-			return false
-		}
-		typ = found
-		for indices != "" {
-			for typ.Kind() == reflect.Pointer {
-				typ = typ.Elem()
-			}
-			index, rest, ok := strings.Cut(indices, "]")
-			n, err := strconv.Atoi(index)
-			if !ok || err != nil || n < 0 || strconv.Itoa(n) != index || typ.Kind() != reflect.Slice {
-				return false
-			}
-			typ = typ.Elem()
-			if rest == "" {
-				indices = ""
-			} else {
-				indices, ok = strings.CutPrefix(rest, "[")
-				if !ok {
-					return false
-				}
-			}
-		}
-		if strings.Contains(segment, "[") && !strings.HasSuffix(segment, "]") {
+		if typ == nil {
 			return false
 		}
 	}
 	return true
+}
+
+func decisionIndirect(typ reflect.Type) reflect.Type {
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	return typ
+}
+
+func decisionPathField(typ reflect.Type, name string) reflect.Type {
+	typ = decisionIndirect(typ)
+	if typ.Kind() != reflect.Struct || typ == reflect.TypeFor[time.Time]() {
+		return nil
+	}
+	for field := range typ.Fields() {
+		if field.IsExported() && strings.Split(field.Tag.Get("json"), ",")[0] == name {
+			return field.Type
+		}
+	}
+	return nil
+}
+
+func decisionPathIndices(typ reflect.Type, indices string) reflect.Type {
+	for {
+		typ = decisionIndirect(typ)
+		index, rest, ok := strings.Cut(indices, "]")
+		n, err := strconv.Atoi(index)
+		if !ok || err != nil || n < 0 || strconv.Itoa(n) != index || typ.Kind() != reflect.Slice {
+			return nil
+		}
+		typ = typ.Elem()
+		if rest == "" {
+			return typ
+		}
+		indices, ok = strings.CutPrefix(rest, "[")
+		if !ok {
+			return nil
+		}
+	}
 }

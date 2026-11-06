@@ -123,15 +123,21 @@ func commitManagedRollbackVersion(t *testing.T, r *rig, db *managedRollbackStore
 	}
 	db.history = append(db.history, r.release)
 	r.oldPlan, r.oldDesired = p, r.desired
+	recollectManagedRollbackRelease(r, p, r.desired, observed.Secrets, uint64(len(db.history)))
+	r.state, r.committed, r.events, r.effects, r.intent = Queued, false, nil, nil, ""
+}
+
+func recollectManagedRollbackRelease(r *rig, p plan.Plan, desired policy.Desired, observed target.Observation[[]target.Secret], revision uint64) {
+	in := &r.facts.Input
+	in.Desired, in.Image = desired, p.Image
 	m := p.Managed.Clone()
-	current := plan.CurrentRelease{App: p.App, ID: r.release.ID, Desired: r.desired, Image: r.release.Image, HostPort: r.release.HostPort, Secrets: r.release.Secrets, Units: r.release.Units, CaddyFile: r.release.CaddyFile, CaddyGeneration: r.release.CaddyGeneration, Managed: &m}
+	current := plan.CurrentRelease{App: p.App, ID: r.release.ID, Desired: desired, Image: r.release.Image, HostPort: r.release.HostPort, Secrets: r.release.Secrets, Units: r.release.Units, CaddyFile: r.release.CaddyFile, CaddyGeneration: r.release.CaddyGeneration, Managed: &m}
 	in.State.Releases = []plan.CurrentRelease{current}
 	front := r.release.Managed.Frontend
-	in.Snapshot.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(front.Port), QuadletUnits: target.Known([]target.Unit{front.Unit}), Secrets: observed.Secrets, UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}}})
+	in.Snapshot.Apps = target.Known([]target.App{{Name: p.App, Image: target.Known(target.Image{Digest: p.Image.Digest, Platform: p.Image.Platform}), AllocatedHostPort: target.Known(front.Port), QuadletUnits: target.Known([]target.Unit{front.Unit}), Secrets: observed, UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}}})
 	in.Snapshot.CaddyConfig = target.Known(target.CaddyConfigSet{Generation: r.release.CaddyGeneration, Files: []target.CaddyFile{r.release.CaddyFile}})
 	r.facts.Routing = caddy.State{Generation: r.release.CaddyGeneration, Files: map[string]string{r.release.CaddyFile.Name: r.release.CaddyFile.Hash}}
-	in.Managed.Intent = &plan.ManagedIntentFacts{Revision: uint64(len(db.history)), EpochID: m.Archive.EpochID, RuntimeSHA256: m.RuntimeSHA256, Current: true, EngineRunning: true, FrontendRunning: true, IngressServing: true}
-	r.state, r.committed, r.events, r.effects, r.intent = Queued, false, nil, nil, ""
+	in.Managed.Intent = &plan.ManagedIntentFacts{Revision: revision, EpochID: m.Archive.EpochID, RuntimeSHA256: m.RuntimeSHA256, Current: true, EngineRunning: true, FrontendRunning: true, IngressServing: true}
 }
 
 func TestManagedRollbackRetainsHistoricalSecretWithCompleteInventory(t *testing.T) {
@@ -216,6 +222,32 @@ func TestManagedRollbackRetainsHistoricalSecretWithCompleteInventory(t *testing.
 	original, err := before.CanonicalBytes()
 	if err != nil || !bytes.Equal(after, original) {
 		t.Fatal("engine/data/epoch facts changed", err)
+	}
+	history := service.Store.(*managedRollbackStore)
+	history.history = append(history.history, r.release)
+	recollectManagedRollbackRelease(r, p, d, target.Known(inventory), uint64(len(history.history)))
+	for _, action := range []plan.ChangeKind{plan.StartApp, plan.StopApp, plan.RestartApp} {
+		testManagedLifecycleAfterRollback(t, r, service, db, action, p.Secrets)
+	}
+
+}
+
+func testManagedLifecycleAfterRollback(t *testing.T, r *rig, service apps.Service, db *store.Store, action plan.ChangeKind, expected []plan.SecretBinding) {
+	t.Helper()
+	planned, err := service.Lifecycle(t.Context(), "hello", action)
+	if err != nil || planned.Kind == plan.Conflict {
+		t.Fatal("lifecycle after rollback refused", action, planned.Conflicts, err)
+	}
+	p, desired, err := db.LoadPlan(t.Context(), planned.PlanID)
+	if err != nil || !p.SecretExact || !slices.Equal(p.Secrets, expected) || !slices.Equal(p.Managed.Frontend.Secrets, expected) {
+		t.Fatal("persisted lifecycle lost original binding", action, err)
+	}
+	r.plan, r.state, r.committed, r.events, r.effects, r.intent = p, Queued, false, nil, nil, ""
+	if err := r.executor.Run(t.Context(), "after-rollback-"+string(action), p, desired); err != nil {
+		t.Fatal("lifecycle preflight or execution refused exact binding", action, err)
+	}
+	if r.state != Succeeded || r.committed {
+		t.Fatal("lifecycle changed frontend release history", action, r.state, r.committed)
 	}
 }
 
