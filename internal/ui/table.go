@@ -40,6 +40,7 @@ func (t Table) Lines(theme Theme, width, height int) []string {
 		return nil
 	}
 	widths := t.columnWidths(cols, width)
+	t.Selected = max(0, min(t.Selected, len(t.Rows)-1))
 	if height == 1 && len(t.Rows) > 0 {
 		i := max(0, min(t.Selected, len(t.Rows)-1))
 		return []string{t.row(theme, cols, widths, t.Rows[i], true, false, width)}
@@ -58,15 +59,20 @@ func (t Table) visibleColumns(width int) []int {
 		cols[i] = i
 	}
 	for len(cols) > 1 && t.minimumWidth(cols) > width {
-		drop := 0
-		for i := 1; i < len(cols); i++ {
-			if t.Columns[cols[i]].Priority < t.Columns[cols[drop]].Priority {
-				drop = i
-			}
-		}
+		drop := t.lowestPriority(cols)
 		cols = append(cols[:drop], cols[drop+1:]...)
 	}
 	return cols
+}
+
+func (t Table) lowestPriority(cols []int) int {
+	drop := 0
+	for i := 1; i < len(cols); i++ {
+		if t.Columns[cols[i]].Priority < t.Columns[cols[drop]].Priority {
+			drop = i
+		}
+	}
+	return drop
 }
 
 func (t Table) minimumWidth(cols []int) int {

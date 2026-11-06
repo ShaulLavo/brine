@@ -11,14 +11,7 @@ func TestScreenSweepAndNoticeVisibility(t *testing.T) {
 	s := Screen{Title: "界 👩‍💻", Context: "context", Body: []string{"🇯🇵 hello\x1b[31m"}, Notice: "Confirm: restart long-app on target", Help: []string{"enter open", "q quit"}}
 	for w := 1; w <= 120; w++ {
 		for h := 1; h <= 40; h++ {
-			f := Frame{Theme: NewTheme(true), Width: w, Height: h}
-			got := f.Screen(s)
-			if lipgloss.Width(got) > w || lipgloss.Height(got) > h || strings.Contains(got, "\x1b") {
-				t.Fatalf("%dx%d: %q", w, h, got)
-			}
-			if f.NoticeVisible(s) && !strings.Contains(got, s.Notice) {
-				t.Fatalf("notice reported visible at %dx%d: %q", w, h, got)
-			}
+			checkScreenSize(t, s, w, h)
 		}
 	}
 	if (Frame{Width: 10, Height: 8}).NoticeVisible(s) || !(Frame{Width: 80, Height: 8}).NoticeVisible(s) {
@@ -57,9 +50,35 @@ func TestTableSizeSweep(t *testing.T) {
 	for w := 1; w <= 120; w++ {
 		for h := 1; h <= 40; h++ {
 			got := strings.Join(table.Lines(NewTheme(true), w, h), "\n")
-			if lipgloss.Width(got) > w || lipgloss.Height(got) > h || strings.Contains(got, "\x1b") {
-				t.Fatalf("%dx%d: %q", w, h, got)
-			}
+			checkViewSize(t, got, w, h)
 		}
+	}
+}
+
+func TestTableSelectionClampsBeforeRendering(t *testing.T) {
+	table := Table{Columns: []Column{{Title: "NAME", Min: 5, Max: 5}}, Rows: [][]Cell{{{Text: "one"}}, {{Text: "two"}}}, Selected: -1}
+	if got := strings.Join(table.Lines(NewTheme(true), 10, 3), "\n"); !strings.Contains(got, "› one") {
+		t.Fatalf("negative selection lost marker: %q", got)
+	}
+	table.Selected = 99
+	if got := strings.Join(table.Lines(NewTheme(true), 10, 3), "\n"); !strings.Contains(got, "› two") {
+		t.Fatalf("past-end selection lost marker: %q", got)
+	}
+}
+
+func checkScreenSize(t *testing.T, s Screen, width, height int) {
+	t.Helper()
+	f := Frame{Theme: NewTheme(true), Width: width, Height: height}
+	got := f.Screen(s)
+	checkViewSize(t, got, width, height)
+	if f.NoticeVisible(s) && !strings.Contains(got, s.Notice) {
+		t.Fatalf("notice reported visible at %dx%d: %q", width, height, got)
+	}
+}
+
+func checkViewSize(t *testing.T, got string, width, height int) {
+	t.Helper()
+	if lipgloss.Width(got) > width || lipgloss.Height(got) > height || strings.Contains(got, "\x1b") {
+		t.Fatalf("%dx%d: %q", width, height, got)
 	}
 }
