@@ -45,3 +45,34 @@ func guardCDNPlan(ctx context.Context, tx *sql.Tx, p plan.Plan) error {
 	}
 	return ErrConflict
 }
+
+// CheckArchiveCDN admits local retirement only. Provider work and retained
+// revisions stay untouched, and abandonment needs no CDN transition.
+func (s *Store) CheckArchiveCDN(ctx context.Context, app string) error {
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if err = guardArchiveCDN(ctx, tx, app); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func guardArchiveCDN(ctx context.Context, tx *sql.Tx, app string) error {
+	if err := guardCDNReservation(ctx, tx, app); err != nil {
+		return err
+	}
+	head, err := readCDNRevision(ctx, tx, app, "")
+	if errors.Is(err, ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if head.Attachment.Mode != cdn.Direct {
+		return ErrConflict
+	}
+	return nil
+}

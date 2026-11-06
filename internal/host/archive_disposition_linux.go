@@ -20,6 +20,9 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 		if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
 			return err
 		}
+		if err := h.service.Store.CheckArchiveCDN(ctx, p.Candidate.App); err != nil {
+			return err
+		}
 	}
 	if nativeArchiveCandidate(p.Candidate) {
 		if abandon {
@@ -76,6 +79,9 @@ func (h archiveHost) RecheckArchive(ctx context.Context, p archive.Plan, o archi
 // An uncertain result is never retried by disposition execution.
 func (h archiveHost) RetireArchiveRuntime(ctx context.Context, p archive.Plan) error {
 	if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
+		return err
+	}
+	if err := h.service.Store.CheckArchiveCDN(ctx, p.Candidate.App); err != nil {
 		return err
 	}
 	if nativeArchiveCandidate(p.Candidate) {
