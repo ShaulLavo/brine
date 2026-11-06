@@ -374,7 +374,8 @@ func sqliteNullable(value string) any {
 // exact protected origin source and a recorded stopped baseline must match
 // the inherited one; prepared is reserved for atomic completion.
 func (j *SQLitePreparationJournal) Append(ctx context.Context, i sqliteprep.Intent, e sqliteprep.Event) error {
-	if !j.guard.live(j.store, i.Scope.DatabaseID) || e.Stage == sqliteprep.Prepared {
+	needsHold := i.Arm != sqliteprep.LTX || i.Mode == sqliteprep.SupersedeReverify || e.Stage == sqliteprep.ReplicaStopped
+	if !j.guard.live(j.store, i.Scope.DatabaseID) || e.Stage == sqliteprep.Prepared || needsHold && !j.guard.source.Load().live(j.store, i.Scope.DatabaseID) {
 		return ErrConflict
 	}
 	tx, cancel, err := j.store.beginWrite(ctx)
@@ -387,6 +388,10 @@ func (j *SQLitePreparationJournal) Append(ctx context.Context, i sqliteprep.Inte
 	if err != nil {
 		return err
 	}
+	needsHold = needsHold || prev.event(sqliteprep.ReplicaStopped) != nil
+	if needsHold && !j.guard.source.Load().live(j.store, i.Scope.DatabaseID) {
+		return ErrConflict
+	}
 	candidate := prev.history()
 	candidate.Events = append(candidate.Events, e)
 	if candidate.Validate() != nil {
@@ -398,7 +403,7 @@ func (j *SQLitePreparationJournal) Append(ctx context.Context, i sqliteprep.Inte
 	if err = insertSQLiteEvent(ctx, tx, e); err != nil {
 		return err
 	}
-	if !j.guard.live(j.store, i.Scope.DatabaseID) {
+	if !j.guard.live(j.store, i.Scope.DatabaseID) || needsHold && !j.guard.source.Load().live(j.store, i.Scope.DatabaseID) {
 		return ErrConflict
 	}
 	return tx.Commit()

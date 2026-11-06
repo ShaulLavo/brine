@@ -82,6 +82,9 @@ func (p *sqlitePreparation) readConsumer(ctx context.Context, q dataQuerier) err
 	if err != nil || c.PreparationID != p.intent.Input.PreparationID || c.OperationID != operation || string(c.Kind) != kind || c.SuccessorID != successor.String || c.App != p.intent.Task.App {
 		return &IntegrityError{}
 	}
+	if err := p.validateConsumer(ctx, q, c); err != nil {
+		return err
+	}
 	p.consumed = true
 	return nil
 }

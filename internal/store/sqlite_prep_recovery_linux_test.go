@@ -254,8 +254,10 @@ func TestSQLiteConsumersAreExclusive(t *testing.T) {
 	if _, err = fx.s.db.ExecContext(ctx, "INSERT INTO data_sqlite_point_consumers VALUES(?,?,'reviewed_mutation',NULL,?)", prepID("2"), other.OperationID, reviewed); err != nil {
 		t.Fatal(err)
 	}
-	if !fx.preparation(prepID("2")).consumed {
-		t.Fatal("canonical reviewed consumer not joined")
+	// A shape-only reviewed claim has no registered consumer operation yet.
+	// It must protect the fence without becoming valid historical consumption.
+	if _, err = readSQLitePreparation(ctx, fx.s.db, prepID("2")); err == nil {
+		t.Fatal("unsupported reviewed consumer accepted as joined authority")
 	}
 	if _, err = fx.s.db.ExecContext(ctx, "INSERT INTO data_sqlite_consumer_completions VALUES(?,?,?)", prepID("1"), other.OperationID, q.intent.Fence.ID); err == nil {
 		t.Fatal("foreign completion admitted while a reviewed consumer is active")

@@ -28,6 +28,9 @@ func (j *SQLitePreparationJournal) CompletePrepare(ctx context.Context, h sqlite
 	if !hold.live(j.store, database) || hold.guard != j.guard || sqliteprep.ValidatePrepared(h, p) != nil {
 		return sqliteprep.Receipt{}, ErrConflict
 	}
+	if err := j.checkHeldSource(ctx, held, database, p.Stopped); err != nil {
+		return sqliteprep.Receipt{}, err
+	}
 	tx, cancel, err := j.store.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
@@ -38,8 +41,8 @@ func (j *SQLitePreparationJournal) CompletePrepare(ctx context.Context, h sqlite
 	if err != nil {
 		return sqliteprep.Receipt{}, err
 	}
-	if !hold.live(j.store, database) {
-		return sqliteprep.Receipt{}, ErrConflict
+	if err = j.checkHeldSource(ctx, held, database, p.Stopped); err != nil {
+		return sqliteprep.Receipt{}, err
 	}
 	return receipt, tx.Commit()
 }
@@ -54,6 +57,9 @@ func completeSQLitePrepareTx(ctx context.Context, tx *sql.Tx, h sqliteprep.Histo
 		return sqliteprep.Receipt{}, ErrConflict
 	}
 	now := sqliteNow()
+	if p.PreparedAt.After(now) || now.Sub(p.PreparedAt) > claimWindow {
+		return sqliteprep.Receipt{}, ErrConflict
+	}
 	c, err := readSQLiteCurrent(ctx, tx, i.Task.App, i.Scope.DatabaseID, now)
 	if err != nil {
 		return sqliteprep.Receipt{}, err
@@ -75,9 +81,6 @@ func completeSQLitePrepareTx(ctx context.Context, tx *sql.Tx, h sqliteprep.Histo
 	}
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_sqlite_prepared_points VALUES(?,?,?)", p.PreparationID, p.Source.Point.ID, pointRaw); err != nil {
 		return sqliteprep.Receipt{}, err
-	}
-	if now.Before(p.PreparedAt) {
-		now = p.PreparedAt
 	}
 	prepared := sqliteprep.Event{PreparationID: p.PreparationID, Sequence: len(h.Events) + 1, Stage: sqliteprep.Prepared, At: now, PreparedSHA256: digest}
 	if err = insertSQLiteEvent(ctx, tx, prepared); err != nil {
@@ -133,6 +136,9 @@ func (j *SQLitePreparationJournal) CompleteAbandon(ctx context.Context, task sql
 	if a.OldObject != sqliteprep.ObjectUnknown && a.OldObject != sqliteprep.ObjectAbsent && a.OldObject != sqliteprep.ObjectPresent {
 		return sqliteprep.Receipt{}, sqliteRefuse(sqliteprep.InvalidEvidence)
 	}
+	if err := j.checkHeldSource(ctx, held, in.DatabaseID, a.Stopped); err != nil {
+		return sqliteprep.Receipt{}, errors.Join(sqliteRefuse(sqliteprep.LocalUncertain), err)
+	}
 	tx, cancel, err := j.store.beginWrite(ctx)
 	defer cancel()
 	if err != nil {
@@ -147,10 +153,24 @@ func (j *SQLitePreparationJournal) CompleteAbandon(ctx context.Context, task sql
 	if err != nil {
 		return sqliteprep.Receipt{}, err
 	}
-	if !hold.live(j.store, in.DatabaseID) {
-		return sqliteprep.Receipt{}, ErrConflict
+	if err = j.checkHeldSource(ctx, held, in.DatabaseID, a.Stopped); err != nil {
+		return sqliteprep.Receipt{}, errors.Join(sqliteRefuse(sqliteprep.LocalUncertain), err)
 	}
 	return receipt, tx.Commit()
+}
+
+// checkHeldSource is a physical-handle check, not a replacement for the
+// protected task and scope joins. The port performs no store or lock acquisition.
+func (j *SQLitePreparationJournal) checkHeldSource(ctx context.Context, held sqliteprep.StoppedSource, database data.DatabaseID, expected sqliteprep.StoppedBundle) error {
+	hold := sqliteHoldOf(held)
+	if !hold.live(j.store, database) {
+		return ErrConflict
+	}
+	observed, err := held.Recheck(ctx)
+	if err != nil || !expected.Matches(observed) || !hold.live(j.store, database) {
+		return errors.Join(ErrConflict, err)
+	}
+	return nil
 }
 
 func admitSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, task sqliteprep.Task, in sqliteprep.Input, a sqliteprep.Abandonment, now time.Time) (sqlitePreparation, error) {
@@ -363,6 +383,10 @@ func readSQLiteSuccess(ctx context.Context, tx *sql.Tx, op ops.Operation, task s
 	receipt, err := sqliteprep.DecodeReceipt(outcome.Receipt)
 	if err != nil || receipt.Task != task {
 		return sqliteprep.Receipt{}, &IntegrityError{}
+	}
+	_, input, err := readSQLiteOperation(ctx, tx, task)
+	if err != nil || receipt.PreparationID != input.PreparationID {
+		return sqliteprep.Receipt{}, errors.Join(&IntegrityError{}, err)
 	}
 	prev, err := readSQLitePreparation(ctx, tx, receipt.PreparationID)
 	if err != nil {

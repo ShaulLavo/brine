@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -165,7 +166,7 @@ func (c *sqliteCurrent) declaration(ctx context.Context, tx *sql.Tx, desired pol
 			out.Checks = append(out.Checks, check)
 		}
 	}
-	if found != 1 || compatible != 1 || len(out.Compatibility.Accepts) == 0 || out.Database.BackupDestination != c.permit.Replica.Destination.Reference {
+	if found != 1 || compatible != 1 || len(out.Compatibility.Accepts) == 0 || out.Database.BackupDestination != c.permit.Replica.Destination.Reference || out.Database.PersistentRoot != c.permit.Database.Root || out.Database.MountPath != c.permit.Database.MountPath || out.Database.Filename != c.permit.Database.Filename {
 		return out, sqliteRefuse(sqliteprep.InvalidEvidence)
 	}
 	c.accepted = map[string]string{}
@@ -174,10 +175,28 @@ func (c *sqliteCurrent) declaration(ctx context.Context, tx *sql.Tx, desired pol
 		if err := tx.QueryRowContext(ctx, "SELECT catalog_sha256 FROM data_schema_definitions WHERE database_id=? AND marker=?", c.scope.DatabaseID, marker).Scan(&catalog); err != nil {
 			return out, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
 		}
+		definition, err := declaredSQLiteSchema(desired.SchemaDefinitions, c.scope.DatabaseName, marker, catalog)
+		if err != nil {
+			return out, err
+		}
 		c.accepted[marker] = catalog
-		out.Definitions = append(out.Definitions, data.SQLiteSchemaDefinition{Database: c.scope.DatabaseName, Marker: marker, CatalogSHA256: catalog})
+		out.Definitions = append(out.Definitions, definition)
 	}
 	return out, nil
+}
+
+func declaredSQLiteSchema(definitions []data.SQLiteSchemaDefinition, database data.DatabaseName, marker, catalog string) (data.SQLiteSchemaDefinition, error) {
+	var selected data.SQLiteSchemaDefinition
+	found := 0
+	for _, definition := range definitions {
+		if definition.Database == database && definition.Marker == marker {
+			selected, found = definition, found+1
+		}
+	}
+	if found != 1 || selected.CatalogSHA256 != catalog {
+		return selected, sqliteRefuse(sqliteprep.InvalidEvidence)
+	}
+	return selected, nil
 }
 
 func (c *sqliteCurrent) retention(desired policy.Desired, now time.Time) error {
@@ -204,7 +223,8 @@ func (c *sqliteCurrent) retention(desired policy.Desired, now time.Time) error {
 // readCredential binds the exact activated delivered version, never the newest.
 func (c *sqliteCurrent) readCredential(ctx context.Context, tx *sql.Tx) error {
 	var raw []byte
-	err := tx.QueryRowContext(ctx, "SELECT canonical FROM data_credential_records WHERE binding_id=? AND kind='receipt' AND json_extract(canonical,'$.version')=?", c.scope.BindingID, c.scope.CredentialVersion).Scan(&raw)
+	var id string
+	err := tx.QueryRowContext(ctx, "SELECT id,canonical FROM data_credential_records WHERE binding_id=? AND kind='receipt' AND json_extract(canonical,'$.version')=?", c.scope.BindingID, c.scope.CredentialVersion).Scan(&id, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return sqliteRefuse(sqliteprep.InvalidEvidence)
 	}
@@ -212,7 +232,11 @@ func (c *sqliteCurrent) readCredential(ctx context.Context, tx *sql.Tx) error {
 		return err
 	}
 	var record CredentialRecord
-	if len(raw) > 8192 || json.Unmarshal(raw, &record) != nil || record.Kind != "receipt" || record.BindingID != c.scope.BindingID || record.EpochID != c.scope.EpochID || record.Version != c.scope.CredentialVersion || record.CredentialRef != c.permit.Replica.Destination.CredentialRef || record.ReceivedAt.IsZero() {
+	if len(raw) > 8192 || json.Unmarshal(raw, &record) != nil || record.ID != id || !data.ValidID(id) || record.App != c.scope.App || record.Destination != c.permit.Replica.Destination.Reference || record.Kind != "receipt" || record.BindingID != c.scope.BindingID || record.EpochID != c.scope.EpochID || record.Version != c.scope.CredentialVersion || record.CredentialRef != c.permit.Replica.Destination.CredentialRef || record.ReceivedAt.IsZero() {
+		return &IntegrityError{}
+	}
+	canonical, err := json.Marshal(record)
+	if err != nil || !bytes.Equal(raw, canonical) {
 		return &IntegrityError{}
 	}
 	// A non-expiring delivery is represented as covering the bounded budget.

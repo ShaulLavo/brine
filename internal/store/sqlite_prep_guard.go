@@ -20,6 +20,7 @@ type SQLiteMutationGuard struct {
 	database data.DatabaseID
 	binding  data.ReplicaBindingID
 	released atomic.Bool
+	source   atomic.Pointer[SQLiteSourceHold]
 }
 
 // SQLiteSourceHold retains the replica lifetime lock beneath a live mutation
@@ -75,7 +76,12 @@ func (g *SQLiteMutationGuard) HoldSource(ctx context.Context) (*SQLiteSourceHold
 	if err != nil {
 		return nil, errors.Join(ErrConflict, err)
 	}
-	return &SQLiteSourceHold{guard: g, lifetime: lifetime}, nil
+	hold := &SQLiteSourceHold{guard: g, lifetime: lifetime}
+	if !g.source.CompareAndSwap(nil, hold) {
+		_ = lifetime.Release()
+		return nil, ErrConflict
+	}
+	return hold, nil
 }
 
 func (h *SQLiteSourceHold) Release() error {
@@ -86,7 +92,7 @@ func (h *SQLiteSourceHold) Release() error {
 }
 
 func (h *SQLiteSourceHold) live(s *Store, database data.DatabaseID) bool {
-	return h != nil && !h.released.Load() && h.guard.live(s, database)
+	return h != nil && !h.released.Load() && h.guard.live(s, database) && h.guard.source.Load() == h
 }
 
 // sqliteGuardOf accepts only the store-minted guard carried by a port.
