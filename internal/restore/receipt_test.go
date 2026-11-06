@@ -18,7 +18,7 @@ func TestRecoverabilityReceiptCannotBecomeExactPoint(t *testing.T) {
 	exact := *receipt.Source.LTX
 	exact.Recoverability = false
 	source := SQLiteSource{Kind: LitestreamLTX, LTX: &exact}
-	if _, _, err := source.reference(); err == nil {
+	if _, _, err := source.Reference(); err == nil {
 		t.Fatal("barrier-less receipt accepted as exact restore-point source")
 	}
 	raw, err := json.Marshal(receipt)

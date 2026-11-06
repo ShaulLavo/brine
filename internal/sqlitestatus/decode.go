@@ -17,9 +17,15 @@ func Decode(raw []byte) (Status, error) {
 	if err != nil {
 		return s, strictjson.ErrObject
 	}
+	if _, err := strictjson.Value[bool](f["committed"]); err != nil {
+		return s, err
+	}
+	if err := credentialFields(f["credential"]); err != nil {
+		return s, err
+	}
 	for name, fields := range map[string][]string{
 		"service": {"state", "observed_at"}, "remote": {"state", "observed_at"}, "remote_watermark": {"state", "txid", "observed_at"},
-		"credential": {"state", "version", "received_at", "expires_at", "remaining_seconds", "renewal_needed"}, "lifecycle": {"state", "verified_at", "fresh_until"},
+		"lifecycle": {"state", "verified_at", "fresh_until"},
 	} {
 		if _, err := strictjson.Object(f[name], fields...); err != nil {
 			return s, err
@@ -43,4 +49,16 @@ func Decode(raw []byte) (Status, error) {
 		return Status{}, strictjson.ErrObject
 	}
 	return s, nil
+}
+
+func credentialFields(raw json.RawMessage) error {
+	fields, err := strictjson.Object(raw, "state", "version", "received_at", "expires_at", "remaining_seconds", "renewal_needed")
+	if err != nil {
+		return err
+	}
+	if _, err := strictjson.Value[uint64](fields["version"]); err != nil {
+		return err
+	}
+	_, err = strictjson.Value[bool](fields["renewal_needed"])
+	return err
 }

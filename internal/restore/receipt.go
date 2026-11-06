@@ -108,7 +108,7 @@ func receiptSource(raw []byte) error {
 }
 
 func (r SQLiteReceipt) Valid() bool {
-	id, epoch, err := r.Source.reference()
+	id, epoch, err := r.Source.Reference()
 	if err != nil || !token.MatchString(id) || !token.MatchString(epoch) || !token.MatchString(r.OperationID) || r.ObservedAt.IsZero() || !validSchema(r.Schema) || r.IntegrityCheck != "passed" || r.ForeignKeyCheck != "passed" || r.InvariantCheck != "passed" && r.InvariantCheck != "unknown" {
 		return false
 	}

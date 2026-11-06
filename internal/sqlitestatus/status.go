@@ -2,10 +2,8 @@
 package sqlitestatus
 
 import (
-	"path"
 	"regexp"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
@@ -158,11 +156,11 @@ func validVerified(v *Verified, binding, epoch string) bool {
 	if !operationPattern.MatchString(v.OperationID) || v.VerifiedAt.IsZero() || !slices.Contains([]string{"passed", "unknown"}, v.InvariantCheck) {
 		return false
 	}
-	if source := v.Source.LTX; v.Source.Kind == restore.LitestreamLTX {
-		return source != nil && v.Source.Snapshot == nil && source.BindingID == binding && source.Epoch == epoch && source.TXID > 0
+	sourceBinding, sourceEpoch, err := v.Source.Reference()
+	if err != nil || sourceBinding != binding || sourceEpoch != epoch {
+		return false
 	}
-	source := v.Source.Snapshot
-	return v.Source.Kind == restore.SQLiteSnapshot && v.Source.LTX == nil && source != nil && source.BindingID == binding && source.Epoch == epoch && data.ValidID(source.PointID) && data.ValidCatalogHash(source.SHA256) && source.Size > 0 && len(source.ObjectKey) <= 1024 && source.ObjectKey != "" && path.Clean(source.ObjectKey) == source.ObjectKey && !path.IsAbs(source.ObjectKey) && source.ObjectKey != ".." && !strings.HasPrefix(source.ObjectKey, "../") && !strings.ContainsAny(source.ObjectKey, "\\\x00\r\n")
+	return v.Source.Snapshot == nil || data.ValidID(v.Source.Snapshot.PointID)
 }
 func validReason(r string) bool {
 	return slices.Contains([]string{"local_position_unknown", "loss_unknown", "no_verified_point", "replica_uncommitted", "service_unavailable", "remote_reachable", "remote_empty", "remote_auth_refused", "remote_credentials_rejected", "remote_destination_missing", "remote_storage_unavailable", "remote_network_unavailable", "remote_response_invalid", "remote_not_checked", "watermark_failed", "watermark_timed_out", "watermark_not_checked", "credentials_missing", "credentials_expired", "credentials_unreadable", "credential_renewal_needed", "lifecycle_stale", "lifecycle_unsafe", "lifecycle_unknown", "fenced"}, r)

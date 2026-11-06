@@ -399,7 +399,7 @@ func renderConfig(selector string, d Destination) []byte {
 
 func requestReference(r SQLiteRequest) (string, string, error) {
 	if !r.Latest {
-		return r.Source.reference()
+		return r.Source.Reference()
 	}
 	s := r.Source.LTX
 	if r.Source.Kind != LitestreamLTX || r.Source.Snapshot != nil || s == nil || s.TXID != 0 || !s.Recoverability || s.Barrier != nil || r.Coverage != nil {
