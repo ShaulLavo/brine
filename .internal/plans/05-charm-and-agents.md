@@ -19,3 +19,9 @@
 An agent can plan, apply, poll and diagnose with structured responses; a human can perform the same actions through a readable TUI backed by identical domain functions. No TUI parser or second deploy engine exists.
 
 **Evidence:** T01, T09, T20, T23. Stable JSON contracts should be versioned before documenting third-party integrations.
+
+## Local lifecycle UI evidence
+
+The TUI reviews and confirms restart, stop, start and previous known-good rollback through the existing host APIs. `TestTUILifecycleJSONParity` and `TestTUILifecycleWireErrorsPreserveOriginalRecovery` cross the real response decoder and compare machine/TUI plans, exact request arguments, event order, terminal outcomes and explicit same-key recovery. `TestRunTUIPendingAcceptanceCleanupAndRecoveryNotice` drives Execute/RunTUI through quit, EOF, read/write/short-write errors and cancellation. Crossed lifecycle replies refuse before confirmation. These synthetic wire fixtures are not remote deployment evidence.
+
+P05-03 remains partial because init is absent. P05-07 and full T20 remain open for successful/failed deployment parity, and the diagnosis exit journey remains open. No task checkbox changes from this local slice.

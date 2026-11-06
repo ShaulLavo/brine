@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › review                                    update│
+────────────────────────────────────────────────────────────────────────────────│
+Restart fixture-api                                                             │
+plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    │
+Action: restart_app. Releases and app data stay unchanged.                      │
+Idempotency key u4-fixed-key (retained with the original target/config)         │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+Accepting with idempotency key u4-fixed-key. Browsing does not cancel it.       │
+↑↓ scroll  esc discard                                                          │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m                                    \x1b[90mupdate\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"Action: restart_app. Releases and app data stay unchanged."
+"Idempotency key u4-fixed-key (retained with the original target/config)"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[33mAccepting with idempotency key u4-fixed-key. Browsing does not cancel it.\x1b[m"
+"\x1b[90m↑↓ scroll  esc discard\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › review      update│
+──────────────────────────────────────────────────│
+Restart fixture-api                               │
+plan                                              │
+sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaa                             │
+Action: restart_app. Releases and app data stay un│
+Idempotency key u4-fixed-key (retained with the   │
+original target/config)                           │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+Accepting with idempotency key u4-fixed-key.      │
+Browsing does not cancel it.                      │
+↑↓ scroll  esc discard                            │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m      \x1b[90mupdate\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan"
+"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaa"
+"Action: restart_app. Releases and app data stay un"
+"Idempotency key u4-fixed-key (retained with the"
+"original target/config)"
+""
+""
+""
+""
+"\x1b[33mAccepting with idempotency key u4-fixed-key.\x1b[m"
+"\x1b[33mBrowsing does not cancel it.\x1b[m"
+"\x1b[90m↑↓ scroll  esc discard\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+Restart fixture-api           │
+plan                          │
+Accepting with idempotency key│
+u4-fixed-key. Browsing does   │
+not cancel it.                │
+↑↓ scroll  esc back           │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan"
+"\x1b[33mAccepting with idempotency key\x1b[m"
+"\x1b[33mu4-fixed-key. Browsing does\x1b[m"
+"\x1b[33mnot cancel it.\x1b[m"
+"\x1b[90m↑↓ scroll  esc back\x1b[m"

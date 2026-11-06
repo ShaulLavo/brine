@@ -100,7 +100,7 @@ func planLifecycle(ctx context.Context, deps Dependencies, flags operationFlags,
 		return apps.ConfigPlan{}, err
 	}
 	p, ok := response.Data.(apps.ConfigPlan)
-	if !response.OK || !ok {
+	if !response.OK || !ok || p.Lifecycle != action {
 		return apps.ConfigPlan{}, result.New(result.TransportInvalidResponse, nil)
 	}
 	return p, nil

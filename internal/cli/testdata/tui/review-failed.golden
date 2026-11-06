@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › review                                    update│
+────────────────────────────────────────────────────────────────────────────────│
+Could not read the host plan. Refresh to plan again.                            │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+Error: transport_failure. The SSH transport failed; reconcile before retrying   │
+any mutation.                                                                   │
+↑↓ scroll  esc discard                                                          │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m                                    \x1b[90mupdate\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Could not read the host plan. Refresh to plan again."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[31mError: transport_failure. The SSH transport failed; reconcile before retrying\x1b[m"
+"\x1b[31many mutation.\x1b[m"
+"\x1b[90m↑↓ scroll  esc discard\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › review      update│
+──────────────────────────────────────────────────│
+Could not read the host plan. Refresh to plan     │
+again.                                            │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+Error: transport_failure. The SSH transport       │
+failed; reconcile before retrying any mutation.   │
+↑↓ scroll  esc discard                            │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m      \x1b[90mupdate\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Could not read the host plan. Refresh to plan"
+"again."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[31mError: transport_failure. The SSH transport\x1b[m"
+"\x1b[31mfailed; reconcile before retrying any mutation.\x1b[m"
+"\x1b[90m↑↓ scroll  esc discard\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+Could not read the host plan. │
+Refresh to plan again.        │
+Error: transport_failure. The │
+SSH transport failed;         │
+reconcile before retrying any…│
+↑↓ scroll  esc back           │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Could not read the host plan."
+"Refresh to plan again."
+"\x1b[31mError: transport_failure. The\x1b[m"
+"\x1b[31mSSH transport failed;\x1b[m"
+"\x1b[31mreconcile before retrying any…\x1b[m"
+"\x1b[90m↑↓ scroll  esc back\x1b[m"
