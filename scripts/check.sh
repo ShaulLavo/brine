@@ -221,9 +221,9 @@ vulnerability() {
 }
 
 case "${1:-all}" in
-  all) bun test tools/ci/udp-fixture; tests; lint; rules; deadcode; duplicates; vulnerability ;;
+  all) bun test tools/ci/udp-fixture tools/ci/release; tests; lint; rules; deadcode; duplicates; vulnerability ;;
   test) tests ;;
-  test-helpers) bun test tools/ci/udp-fixture ;;
+  test-helpers) bun test tools/ci/udp-fixture tools/ci/release ;;
   test-normal) normal_tests ;;
   test-race) race_tests ;;
   test-race-store) race_shard store ;;
