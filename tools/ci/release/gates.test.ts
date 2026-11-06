@@ -16,7 +16,7 @@ test("manual main dispatch is build-only and arbitrary refs or repositories refu
   for (const changed of [{ GITHUB_EVENT_NAME: "pull_request" }, { GITHUB_REF: "refs/heads/topic" }, { GITHUB_REPOSITORY: "other/brine" }, { GITHUB_SHA: "main" }, { BRINE_RELEASE_TAG: "v9.9.9" }]) {
     expect(() => releaseContext({ ...context, ...changed })).toThrow();
   }
-  expect(() => releaseContext({ ...context, GITHUB_EVENT_NAME: "push", GITHUB_REF: `refs/tags/${tag}` })).toThrow();
+  expect(() => releaseContext({ ...context, GITHUB_EVENT_NAME: "push", GITHUB_REF: "refs/tags/v9.9.9" })).toThrow();
 });
 
 test("only exact source ancestry is admitted, not ahead-of-main or unrelated source", () => {
@@ -103,6 +103,8 @@ test("stable publication requires an exact version tag push, never dispatch", ()
     expect(() => releaseContext({ ...stable, GITHUB_REF: "refs/tags/v0.1.75" }, root)).toThrow();
     expect(() => releaseContext({ ...stable, BRINE_RELEASE_TAG: "v0.1.75" }, root)).toThrow();
     expect(releaseContext({ ...stable, GITHUB_EVENT_NAME: "workflow_dispatch", GITHUB_REF: "refs/heads/main" }, root).publish).toBe(false);
+    writeFileSync(join(root, "internal/cli/root.go"), 'const Version = "0.1.74-dev"\n');
+    expect(() => releaseContext({ ...stable, BRINE_RELEASE_TAG: "v0.1.74-dev", GITHUB_REF: "refs/tags/v0.1.74-dev" }, root)).toThrow();
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
