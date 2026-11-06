@@ -14,6 +14,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/inventory"
 	"github.com/ShaulLavo/brine/internal/readiness"
 	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/target"
 )
 
 func TestReadinessControlSnapshotNonMutation(t *testing.T) {
@@ -57,7 +58,7 @@ func testReadinessControl(t *testing.T, kind string) {
 		}
 	}
 	if kind == "current" {
-		backups, err := r.Backups(t.Context())
+		backups, err := r.Backups(t.Context(), target.Identity{ID: "fixture", HostKeyFingerprint: "fixture-key"})
 		if err != nil || backups == nil || len(backups) != 0 {
 			t.Fatal(backups, err)
 		}

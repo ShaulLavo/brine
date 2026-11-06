@@ -22,8 +22,8 @@ type PolicyLoader interface {
 }
 type ControlReader interface {
 	Control(context.Context) (Control, error)
-	Backups(context.Context) ([]Backup, error)
-	Routes(context.Context) ([]string, error)
+	Backups(context.Context, target.Identity) ([]Backup, error)
+	Routes(context.Context, target.Snapshot, string) ([]string, error)
 }
 
 // Network accepts only destinations selected by the protected policy composer.
@@ -110,8 +110,7 @@ func (r Reader) Read(parent context.Context) (Report, error) {
 	}
 	if r.Store != nil {
 		out.Facts.Control = fact(ctx, ProbeTimeout, r.Store.Control)
-		out.Facts.CommittedDomains = fact(ctx, ProbeTimeout, r.Store.Routes)
-		out.Backups = fact(ctx, ProbeTimeout, r.Store.Backups)
+		out.Backups = fact(ctx, ProbeTimeout, func(ctx context.Context) ([]Backup, error) { return r.Store.Backups(ctx, snapshot.Identity) })
 	}
 	if r.Policy != nil {
 		r.policy(ctx, &out, snapshot)
@@ -187,6 +186,9 @@ func (r Reader) policy(ctx context.Context, out *Report, s target.Snapshot) {
 		state = "denies_deploy"
 	}
 	out.Facts.Policy = Known(Policy{State: state, MinimumFreeDiskBytes: p.MinimumFreeDiskBytes()})
+	if r.Store != nil {
+		out.Facts.CommittedDomains = fact(ctx, ProbeTimeout, func(ctx context.Context) ([]string, error) { return r.Store.Routes(ctx, s, p.Hash()) })
+	}
 	slices.Sort(hosts)
 	hosts = slices.Compact(hosts)
 	domains := []string{}

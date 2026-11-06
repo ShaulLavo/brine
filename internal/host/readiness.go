@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"os"
+
+	"github.com/ShaulLavo/brine/internal/caddy"
 	"slices"
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
@@ -82,7 +84,7 @@ func readinessControlError(ctx context.Context, value readiness.Control, err err
 	return value, nil
 }
 
-func (r readinessControl) Backups(ctx context.Context) (_ []readiness.Backup, err error) {
+func (r readinessControl) Backups(ctx context.Context, identity target.Identity) (_ []readiness.Backup, err error) {
 	snapshot, err := store.OpenSnapshotReadOnly(ctx, r.dir)
 	if err != nil {
 		return nil, err
@@ -90,12 +92,15 @@ func (r readinessControl) Backups(ctx context.Context) (_ []readiness.Backup, er
 	defer func() { err = errors.Join(err, snapshot.Close()) }()
 	// These existing read ports include active preparations as well as releases.
 	// An unrepresented preparation is unknown, never a known empty backup set.
-	state, err := readinessState(ctx, snapshot)
+	state, err := readinessState(ctx, snapshot, identity)
 	if err != nil {
 		return nil, err
 	}
 	if len(state.Releases) > readiness.MaxItems || len(state.DataIncarnations) > readiness.MaxItems {
 		return nil, store.ErrInvalid
+	}
+	if err := readinessDatabaseCoverage(ctx, snapshot, state); err != nil {
+		return nil, err
 	}
 	out := []readiness.Backup{}
 	for _, release := range state.Releases {
@@ -105,40 +110,44 @@ func (r readinessControl) Backups(ctx context.Context) (_ []readiness.Backup, er
 		}
 		out = append(out, values...)
 	}
-	for _, incarnation := range state.DataIncarnations {
-		if !hasReadinessRelease(state.Releases, incarnation.App) {
-			return nil, store.ErrNotFound
-		}
-	}
 	if len(out) > readiness.MaxItems {
 		return nil, store.ErrInvalid
 	}
 	return out, nil
 }
 
-func readinessState(ctx context.Context, snapshot *store.Store) (plan.BrineState, error) {
+func readinessState(ctx context.Context, snapshot *store.Store, identity target.Identity) (plan.BrineState, error) {
+	if identity.ID == "" || identity.HostKeyFingerprint == "" {
+		return plan.BrineState{}, store.ErrConflict
+	}
 	control, err := snapshot.InventoryState(ctx)
 	if err != nil {
 		return plan.BrineState{}, err
 	}
-	identity := target.Identity{}
-	if control.Target != nil {
-		identity = *control.Target
+	if control.Target != nil && *control.Target != identity {
+		return plan.BrineState{}, store.ErrConflict
 	}
 	return snapshot.LoadBrineState(ctx, identity, control.Generation)
 }
-func (r readinessControl) Routes(ctx context.Context) (_ []string, err error) {
+func (r readinessControl) Routes(ctx context.Context, observed target.Snapshot, policyHash string) (_ []string, err error) {
 	snapshot, err := store.OpenSnapshotReadOnly(ctx, r.dir)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, snapshot.Close()) }()
-	state, err := readinessState(ctx, snapshot)
+	state, err := readinessState(ctx, snapshot, observed.Identity)
+	if err != nil {
+		return nil, err
+	}
+	files, err := readinessRouteFiles(ctx, snapshot, state, observed, policyHash)
 	if err != nil {
 		return nil, err
 	}
 	domains := []string{}
 	for _, release := range state.Releases {
+		if _, present := files[release.CaddyFile.Name]; !present {
+			continue
+		}
 		for _, domain := range release.Desired.Domains {
 			domains = append(domains, string(domain))
 		}
@@ -149,4 +158,53 @@ func (r readinessControl) Routes(ctx context.Context) (_ []string, err error) {
 		return nil, store.ErrInvalid
 	}
 	return domains, nil
+}
+
+func readinessRouteFiles(ctx context.Context, snapshot *store.Store, state plan.BrineState, observed target.Snapshot, policyHash string) (map[string]string, error) {
+	routing := caddy.State{Files: map[string]string{}}
+	if len(state.Releases) == 0 {
+		return routing.Files, nil
+	}
+	if observed.CaddyConfig.Status != target.KnownStatus || observed.CaddyConfig.Value == nil || policyHash == "" {
+		return nil, store.ErrNotFound
+	}
+	heads := []store.ManagedRouteState{}
+	for _, release := range state.Releases {
+		head, hash, err := readinessRouteHead(ctx, snapshot, release)
+		if err != nil {
+			return nil, err
+		}
+		if hash == "" {
+			continue
+		}
+		routing.Files[release.CaddyFile.Name] = hash
+		if head != nil {
+			heads = append(heads, *head)
+		}
+	}
+	selected := *observed.CaddyConfig.Value
+	routing, err := managedWithdrawnRouting(ctx, routing, heads, selected, policyHash, snapshot)
+	if err != nil || len(routing.Files) != len(selected.Files) {
+		return nil, errors.Join(store.ErrConflict, err)
+	}
+	for _, file := range selected.Files {
+		if routing.Files[file.Name] != file.Hash {
+			return nil, store.ErrConflict
+		}
+	}
+	return routing.Files, nil
+}
+
+func readinessRouteHead(ctx context.Context, snapshot *store.Store, release plan.CurrentRelease) (*store.ManagedRouteState, string, error) {
+	if release.Managed == nil {
+		return nil, release.CaddyFile.Hash, nil
+	}
+	head, err := snapshot.ReadManagedRouteState(ctx, release.App)
+	if err != nil || !head.Valid() || head.BindingID != release.Managed.Database.BindingID {
+		return nil, "", errors.Join(store.ErrConflict, err)
+	}
+	if !head.Present {
+		return nil, "", nil
+	}
+	return &head, head.FileHash, nil
 }

@@ -464,7 +464,7 @@ A response that accepts a background operation says **accepted**, not **deployed
 
 ### Local client doctor
 
-`brine doctor` checks the **local client machine only**. It never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to the connected commands. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
+`brine doctor` without `--target` checks the **local client machine only**. That local form never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to the connected commands. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
 
 The local client requires `ssh`, the system OpenSSH executable used for transport. `git` is optional for working with app source repositories. Missing or failed optional tools do not fail doctor. A missing required tool or a failed required version probe returns `dependency_missing` and exit 3. This identifies a missing or unverified dependency, not a minimum supported version policy.
 
@@ -2492,21 +2492,27 @@ host and compare with local interface addresses. Wildcard policy grants are not
 expanded or sent to exact-name probes. Their omitted coverage sets `truncated`
 and prevents a ready verdict, while exact grants are still checked. Results are `resolves_here`,
 `resolves_elsewhere`, `unresolved` or `unknown_behind_nat`. The latter cannot
-establish health. Committed domains come from current releases through the isolated control-store
-read ports, not from a listener or a rendered file alone. A domain with a committed
-route gets a handshake to
+establish health. Semantic store reads are bound to the independently measured
+host identity. Missing or mismatched identity leaves routes and backups unknown;
+SQLite structural health remains a separate fact. Current route selection joins
+release identity, protected managed route and withdrawal records, the selected
+observed generation and the complete file hashes. Disk absence alone is not a
+withdrawal. A domain with a proven current route gets a handshake to
 `127.0.0.1:443` with its SNI name, system roots and mandatory hostname verification.
 TLS is `trusted`, `untrusted` or `unreachable`; errors never disable verification.
 
-Native backup facts reuse the existing read-only status reader. SQLite facts
-reuse the connected SQLite status composition, snapshot reader, service probe,
-remote listing and dry-run watermark probe. Local position and possible loss
+Backup facts use the existing read-only status readers. SQLite facts reuse the
+connected status composition, snapshot reader, service probe, remote listing and
+dry-run watermark probe. Coverage is checked per exact database and replica
+binding against every prepared database, not by app name. If the existing read
+ports cannot enumerate a complete engine set, including native engine ownership,
+the backup set remains unknown rather than asserting complete coverage. Local position and possible loss
 remain unknown; a remote watermark does not prove durability. Active data
 preparation not represented by a committed release remains unknown rather than
 an empty backup set. A missing verification, missed cadence or explicit known
 backup degradation can produce `backup_stale`; unknown observations alone cannot.
-This source composes the plan 007 status dependency. It does not claim that
-stack dependency is merged or physically accepted.
+The SQLite status dependency is source-composed. Its physical acceptance is a
+separate gate, not a consequence of this readiness report.
 
 Collection has a fixed 12-second total deadline, four-second inventory and
 runtime-group budgets, and one-second remaining probes. Inventory subprocesses

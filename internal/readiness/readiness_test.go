@@ -290,8 +290,10 @@ type scopeStore struct{}
 func (scopeStore) Control(context.Context) (Control, error) {
 	return Control{State: "current", QuickCheck: Known(true)}, nil
 }
-func (scopeStore) Backups(context.Context) ([]Backup, error) { return []Backup{}, nil }
-func (scopeStore) Routes(context.Context) ([]string, error)  { return []string{"app.example.com"}, nil }
+func (scopeStore) Backups(context.Context, target.Identity) ([]Backup, error) { return []Backup{}, nil }
+func (scopeStore) Routes(context.Context, target.Snapshot, string) ([]string, error) {
+	return []string{"app.example.com"}, nil
+}
 
 type invalidPolicy struct{ err error }
 
