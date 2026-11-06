@@ -176,22 +176,29 @@ func (r Reader) policy(ctx context.Context, out *Report, s target.Snapshot) {
 		return
 	}
 	permissions := p.Permissions()
-	state := "valid"
-	if len(permissions.Registries) == 0 || len(permissions.Domains) == 0 {
-		state = "denies_deploy"
-	}
-	out.Facts.Policy = Known(Policy{State: state, MinimumFreeDiskBytes: p.MinimumFreeDiskBytes()})
 	hosts := []string{}
 	for _, registry := range permissions.Registries {
 		if len(registry.RepositoryPrefixes) > 0 {
 			hosts = append(hosts, registry.Host)
 		}
 	}
+	state := "valid"
+	if len(hosts) == 0 || len(permissions.Domains) == 0 {
+		state = "denies_deploy"
+	}
+	out.Facts.Policy = Known(Policy{State: state, MinimumFreeDiskBytes: p.MinimumFreeDiskBytes()})
 	slices.Sort(hosts)
 	hosts = slices.Compact(hosts)
-	domains := permissions.Domains
+	domains := []string{}
+	for _, domain := range permissions.Domains {
+		if !validExactDomain(domain) {
+			out.Truncated = true
+			continue
+		}
+		domains = append(domains, domain)
+	}
 	slices.Sort(domains)
-	out.Truncated = len(hosts) > MaxItems || len(domains) > MaxItems
+	out.Truncated = out.Truncated || len(hosts) > MaxItems || len(domains) > MaxItems
 	for _, host := range hosts[:min(len(hosts), MaxItems)] {
 		out.Registries = append(out.Registries, r.registry(ctx, host))
 	}

@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"bytes"
 	"context"
 	"strconv"
 	"strings"
@@ -36,14 +37,22 @@ func (c Collector) Readiness(ctx context.Context) (ReadinessFacts, error) {
 	if err == nil {
 		r.CaddyActive = activeState(out)
 	}
+	liveCatchAll := unknown[bool]()
 	out, err = c.probe(ctx, caddyOutputLimit, "curl", "--disable", "--noproxy", "*", "--silent", "--fail", "--max-time", "2", "http://127.0.0.1:2019/config/")
 	if err == nil {
 		r.AdminLoopback = adminBinding([]byte(out))
+		liveCatchAll = readinessCatchAll([]byte(out))
 	}
+	diskCatchAll := unknown[bool]()
 	out, err = c.probe(ctx, caddyOutputLimit, "caddy", "adapt", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile")
 	if err == nil {
-		attachReadinessCaddy(&r, []byte(out))
+		disk := adminBinding([]byte(out))
+		if disk.Value != nil && !*disk.Value {
+			r.AdminLoopback = disk
+		}
+		diskCatchAll = readinessCatchAll([]byte(out))
 	}
+	r.CatchAll = combineReadinessCatchAll(liveCatchAll, diskCatchAll)
 	return r, nil
 }
 
@@ -89,20 +98,31 @@ func activeState(out string) target.Observation[bool] {
 	}
 }
 
-func attachReadinessCaddy(r *ReadinessFacts, raw []byte) {
-	disk := adminBinding(raw)
-	if disk.Value != nil && !*disk.Value {
-		r.AdminLoopback = disk
+func readinessCatchAll(raw []byte) target.Observation[bool] {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '{' {
+		return unknown[bool]()
 	}
 	domains, ok := caddyDomains(raw)
 	if !ok {
-		return
+		return unknown[bool]()
 	}
-	catchAll := false
 	for _, domain := range domains {
-		catchAll = catchAll || domain == "*"
+		if domain == "*" {
+			return target.Known(true)
+		}
 	}
-	r.CatchAll = target.Known(catchAll)
+	return target.Known(false)
+}
+
+func combineReadinessCatchAll(live, disk target.Observation[bool]) target.Observation[bool] {
+	if live.Value != nil && *live.Value || disk.Value != nil && *disk.Value {
+		return target.Known(true)
+	}
+	if live.Value != nil && disk.Value != nil {
+		return target.Known(false)
+	}
+	return unknown[bool]()
 }
 
 // CollectReadiness reuses host decoders without opening Podman's application

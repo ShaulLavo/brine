@@ -2468,8 +2468,10 @@ and `backup_stale`. Each includes severity, a fixed message and next operations.
 Inventory supplies OS, architecture, D2 runtime versions, cgroup v2, disk,
 linger, listener ownership and committed route observations. Fixed read-only
 runtime probes add uidmap executable modes, installed session packages, the
-user bus, Caddy activity, loopback administration and hostless sites. Free disk
-is compared with the protected policy reserve. Invalid policy and valid policy
+user bus, Caddy activity, loopback administration and hostless sites. A hostless
+site observed in either loaded or adapted configuration is retained. Absence
+requires both observations; a failed observation does not establish absence.
+Free disk is compared with the protected policy reserve. Invalid policy and valid policy
 that allows no deployment registries or domains are separate facts.
 
 The control store is read through `OpenSnapshotReadOnly`, including WAL, without
@@ -2484,8 +2486,11 @@ Outbound DNS, HTTPS and TLS are observations. Registry hosts come only from
 policy-allowed repository prefixes. Each gets one anonymous HTTPS `GET /v2/`,
 with no proxy environment, credentials, cookies or redirects. Docker Hub aliases
 use the existing resolver's fixed `registry-1.docker.io` API origin. Only 200 and 401
-mean reachable. Exact policy domains resolve A and AAAA from the host and compare
-with local interface addresses. Results are `resolves_here`,
+mean reachable. Registries with no repository prefixes grant no deployment
+permission and are not probed. Exact policy domains resolve A and AAAA from the
+host and compare with local interface addresses. Wildcard policy grants are not
+expanded or sent to exact-name probes. Their omitted coverage sets `truncated`
+and prevents a ready verdict, while exact grants are still checked. Results are `resolves_here`,
 `resolves_elsewhere`, `unresolved` or `unknown_behind_nat`. The latter cannot
 establish health. Committed domains come from current releases through the isolated control-store
 read ports, not from a listener or a rendered file alone. A domain with a committed
