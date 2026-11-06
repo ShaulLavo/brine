@@ -111,7 +111,7 @@ normal_tests() {
   go vet ./...
   GOOS=darwin GOARCH=arm64 go vet ./...
   # Shared disk and process fixtures make package-level parallelism scheduler-sensitive.
-  go test -p 1 -timeout 30m ./...
+  BRINE_REQUIRE_NODE=1 go test -p 1 -timeout 30m ./...
   go build ./cmd/brine
   (
     cd tools/webtransport-experiment
@@ -131,6 +131,7 @@ race_tests() {
 # Keep those two shards bounded inside the 45-minute CI job limit.
 race_shard() {
   local packages timeout=30m
+  local semantic=()
   case $1 in
     store) packages=(./internal/store/); timeout=40m ;;
     host) packages=(./internal/host/); timeout=40m ;;
@@ -138,7 +139,11 @@ race_shard() {
     all) packages=(./...); timeout=40m ;;
     *) echo "unknown race shard: $1" >&2; return 2 ;;
   esac
-  go test -race -p 1 -timeout "$timeout" "${packages[@]}"
+  # Worker semantics run once under the explicitly installed Node in normal tests.
+  if [[ $1 == rest || $1 == all ]]; then
+    semantic=(-skip '^TestWorkerSemanticContract$')
+  fi
+  go test -race -p 1 -timeout "$timeout" "${semantic[@]}" "${packages[@]}"
   if [[ $1 == rest || $1 == all ]]; then
     (
       cd tools/webtransport-experiment
@@ -216,8 +221,9 @@ vulnerability() {
 }
 
 case "${1:-all}" in
-  all) tests; lint; rules; deadcode; duplicates; vulnerability ;;
+  all) bun test tools/ci/udp-fixture; tests; lint; rules; deadcode; duplicates; vulnerability ;;
   test) tests ;;
+  test-helpers) bun test tools/ci/udp-fixture ;;
   test-normal) normal_tests ;;
   test-race) race_tests ;;
   test-race-store) race_shard store ;;
@@ -231,5 +237,5 @@ case "${1:-all}" in
   vulnerability) vulnerability ;;
   fast) fast ;;
   format) format_check ;;
-  *) echo 'Usage: scripts/check.sh [all|test|test-normal|test-race|test-race-store|test-race-host|test-race-host-build DIR|test-race-host-shard INDEX DIR [TEST-FLAG...]|test-race-host-shards|test-race-rest|lint|structure|vulnerability|fast|format]' >&2; exit 2 ;;
+  *) echo 'Usage: scripts/check.sh [all|test|test-helpers|test-normal|test-race|test-race-store|test-race-host|test-race-host-build DIR|test-race-host-shard INDEX DIR [TEST-FLAG...]|test-race-host-shards|test-race-rest|lint|structure|vulnerability|fast|format]' >&2; exit 2 ;;
 esac

@@ -104,6 +104,7 @@ func checkUnsuccessfulResults(t *testing.T, command string, jobs []string, job s
 	t.Helper()
 	for _, result := range []string{"failure", "cancelled", "skipped", ""} {
 		t.Run(job+"/"+result, func(t *testing.T) { runCIGate(t, command, jobs, "full", job, result, false) })
+		t.Run("docs/"+job+"/"+result, func(t *testing.T) { runCIGate(t, command, jobs, "docs", job, result, false) })
 	}
 }
 
