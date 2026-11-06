@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -187,7 +188,11 @@ func agentExampleCall(_ context.Context, _ transport.Target, req dispatch.Reques
 		if os.Getenv("AGENT_SCENARIO") == "conflict" {
 			kind = plan.Conflict
 		}
-		return result.Success("host", apps.ConfigPlan{PlanID: id, Kind: kind, Conflicts: []plan.Diagnostic{}}), nil
+		var args dispatch.LifecycleArgs
+		if json.Unmarshal(req.Args, &args) != nil || args.Action != plan.RestartApp {
+			return result.Envelope{}, errors.New("unexpected fixture lifecycle action")
+		}
+		return result.Success("host", apps.ConfigPlan{PlanID: id, Kind: kind, Lifecycle: args.Action, Conflicts: []plan.Diagnostic{}}), nil
 	case "apply":
 		var a dispatch.ApplyArgs
 		_ = json.Unmarshal(req.Args, &a)
