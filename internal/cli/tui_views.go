@@ -111,10 +111,12 @@ func (m tuiModel) appScreen() ui.Screen {
 	case found:
 		s.Context = m.readContext(m.apps.State, m.apps.At, "")
 		s.Body = appDetailLines(status, m.width)
-		s.Help = m.help(helpKey{"↑↓ scroll", 0}, keyBack, helpKey{"l logs", 1}, keyRefresh(1))
+		keys := []helpKey{{"↑↓ scroll", 0}, {"p plan", 0}, keyBack}
 		if status.LastOperation != nil {
-			s.Help = m.help(helpKey{"t events", 0}, helpKey{"↑↓ scroll", 0}, keyBack, helpKey{"l logs", 1}, keyRefresh(1))
+			keys = append(keys, helpKey{"t events", 1})
 		}
+		keys = append(keys, helpKey{"l logs", 1}, keyRefresh(1))
+		s.Help = m.help(keys...)
 		s.Body = topWindow(s.Body, m.detailOffset, m.frame().BodyRows(s))
 	case m.apps.known():
 		s.Context = m.readContext(m.apps.State, m.apps.At, "")
@@ -123,9 +125,6 @@ func (m tuiModel) appScreen() ui.Screen {
 		s.Body = m.message("Could not read " + m.app + " from " + m.flags.target + ".")
 	default:
 		s.Body = m.message("Reading " + m.app + " from " + m.flags.target + "…")
-	}
-	if found {
-		s.Help = m.help(helpKey{"↑↓ scroll", 0}, helpKey{"p plan", 0}, keyBack, helpKey{"t events", 1}, helpKey{"l logs", 1}, keyRefresh(1))
 	}
 	return s
 }

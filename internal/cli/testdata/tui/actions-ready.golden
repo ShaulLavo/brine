@@ -5,7 +5,7 @@ Choose a change to plan. Nothing changes until you review and apply it.         
                                                                                 │
   ACTION                            EFFECT                                      │
 › Restart                           restart app; releases and data unchanged    │
-  Stop                              stop app; route and data unchanged          │
+  Stop                              stop app; releases and data unchanged       │
   Start                             start the app unit                          │
   Roll back to previous known-good  previous known-good release; never rewinds …│
                                                                                 │
@@ -30,7 +30,7 @@ enter plan  esc back                                                            
 ""
 "\x1b[94m  \x1b[m\x1b[90mACTION                            \x1b[m\x1b[90mEFFECT\x1b[m"
 "\x1b[94m› \x1b[m\x1b[1mRestart                           \x1b[m\x1b[1mrestart app; releases and data unchanged\x1b[m"
-"\x1b[94m  \x1b[mStop                              stop app; route and data unchanged"
+"\x1b[94m  \x1b[mStop                              stop app; releases and data unchanged"
 "\x1b[94m  \x1b[mStart                             start the app unit"
 "\x1b[94m  \x1b[mRoll back to previous known-good  previous known-good release; never rewinds …"
 ""
@@ -56,7 +56,7 @@ review and apply it.                              │
                                                   │
   ACTION                           EFFECT         │
 › Restart                          restart app; r…│
-  Stop                             stop app; rout…│
+  Stop                             stop app; rele…│
   Start                            start the app …│
   Roll back to previous known-go…  previous known…│
                                                   │
@@ -73,7 +73,7 @@ enter plan  esc back                              │
 ""
 "\x1b[94m  \x1b[m\x1b[90mACTION                           \x1b[m\x1b[90mEFFECT\x1b[m"
 "\x1b[94m› \x1b[m\x1b[1mRestart                          \x1b[m\x1b[1mrestart app; r…\x1b[m"
-"\x1b[94m  \x1b[mStop                             stop app; rout…"
+"\x1b[94m  \x1b[mStop                             stop app; rele…"
 "\x1b[94m  \x1b[mStart                            start the app …"
 "\x1b[94m  \x1b[mRoll back to previous known-go…  previous known…"
 ""

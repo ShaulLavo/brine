@@ -30,7 +30,7 @@ func actionDescription(action tuiAction) string {
 	case actionRestart:
 		return "restart app; releases and data unchanged"
 	case actionStop:
-		return "stop app; route and data unchanged"
+		return "stop app; releases and data unchanged"
 	case actionStart:
 		return "start the app unit"
 	default:
