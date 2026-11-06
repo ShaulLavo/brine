@@ -140,7 +140,8 @@ func TestSharedLeaseAcrossProcesses(t *testing.T) {
 	if err = cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = cmd.Process.Kill() })
+	waited := false
+	t.Cleanup(func() { reapFailedHelper(cmd, waited) })
 	scanner := bufio.NewScanner(stdout)
 	if !scanner.Scan() || scanner.Text() != "ready" {
 		t.Fatalf("no child readiness: %v", scanner.Err())
@@ -159,7 +160,9 @@ func TestSharedLeaseAcrossProcesses(t *testing.T) {
 	if err = scanner.Err(); err != nil {
 		t.Fatal(err)
 	}
-	if err = cmd.Wait(); err != nil {
+	err = cmd.Wait()
+	waited = true
+	if err != nil {
 		t.Fatal(err)
 	}
 	r := closeAdmission(t, d)
@@ -231,4 +234,12 @@ func assertExecMode(t *testing.T, mode string) {
 	if err != nil {
 		t.Fatalf("%s: %v", output, err)
 	}
+}
+
+func reapFailedHelper(cmd *exec.Cmd, waited bool) {
+	if waited {
+		return
+	}
+	_ = cmd.Process.Kill()
+	_ = cmd.Wait()
 }
