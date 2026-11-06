@@ -2,11 +2,13 @@ package plan
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/spacetimedb"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -195,5 +197,49 @@ func TestManagedEngineStopIncludesFrontendAndEngineForMaterialReload(t *testing.
 	}
 	if _, err = stopped.CanonicalBytes(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestManagedFrontendExactSecretSelectionPreservesInventory(t *testing.T) {
+	for _, version := range []string{"1", "2"} {
+		t.Run(version, func(t *testing.T) { testManagedFrontendExactSecret(t, version) })
+	}
+}
+
+func testManagedFrontendExactSecret(t *testing.T, version string) {
+	t.Helper()
+	in := managedInitializedFixture(t, true)
+	in.Desired.Secrets = []policy.Secret{{Name: "TOKEN", Reference: "token"}}
+	observed := []target.Secret{{Name: "brine.hello.token.v1", ID: "fixture-token-001"}, {Name: "brine.hello.token.v2", ID: "fixture-token-002"}}
+	in.Snapshot.Apps = target.Known([]target.App{{Name: "hello", Image: target.Observation[target.Image]{Status: target.Absent}, AllocatedHostPort: target.Observation[target.Port]{Status: target.Absent}, QuadletUnits: target.Known([]target.Unit{}), Secrets: target.Known(observed), UDPPublication: target.Observation[target.UDPPublication]{Status: target.Absent}}})
+	latest := build(t, in)
+	if latest.SecretExact || latest.Secrets[0].VersionName != observed[1].Name {
+		t.Fatal("ordinary deployment stopped selecting newest", latest.Secrets)
+	}
+	selected := observed[0]
+	if version == "2" {
+		selected = observed[1]
+	}
+	in.SecretExact = []SecretBinding{{Environment: "TOKEN", Reference: "token", VersionName: selected.Name, ID: selected.ID}}
+	p := build(t, in)
+	if p.Kind == Conflict || !p.SecretExact || !slices.Equal(p.Secrets, in.SecretExact) || !slices.Equal(p.Managed.Frontend.Secrets, in.SecretExact) {
+		t.Fatal("exact frontend binding differs", p.Conflicts, p.Secrets)
+	}
+	raw, err := target.Encode(in.Snapshot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), observed[0].Name) || !strings.Contains(string(raw), observed[1].Name) || !strings.Contains(string(p.DecisionInput()), observed[1].ID) {
+		t.Fatal("exact selection hid retained observations")
+	}
+	in.SecretExact = []SecretBinding{{Environment: "TOKEN", Reference: "token", VersionName: "brine.other.token.v1", ID: selected.ID}}
+	refused := build(t, in)
+	if refused.Kind != Conflict || len(refused.Secrets) != 0 || len(refused.Changes) != 0 {
+		t.Fatal("foreign recorded version gained authority", refused.Secrets)
+	}
+	in.SecretExact = []SecretBinding{}
+	refused = build(t, in)
+	if refused.Kind != Conflict || len(refused.Secrets) != 0 {
+		t.Fatal("empty historical binding selected latest")
 	}
 }

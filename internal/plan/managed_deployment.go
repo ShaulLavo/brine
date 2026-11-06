@@ -34,7 +34,7 @@ func buildManagedDeployment(in Input, desired []byte) (Plan, error) {
 		return Plan{}, err
 	}
 	managed := ManagedServicePlan{Database: *facts.Database, Archive: *facts.Archive, State: data.EngineInitialized, EngineImage: facts.EngineImage, EnginePort: target.Port(runtime.HostPort), RuntimeSHA256: strings.TrimPrefix(hash(raw), "sha256:"), EngineUnitHash: runtime.UnitSHA256}
-	p := Plan{SchemaVersion: SchemaVersion, Kind: Create, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: facts.EngineImage, HostPort: managed.EnginePort, Secrets: []SecretBinding{}, Changes: []Change{}, Conflicts: []Diagnostic{}}
+	p := Plan{SchemaVersion: SchemaVersion, Kind: Create, App: string(in.Desired.Name), Target: in.Snapshot.Identity, ObservedGeneration: in.Snapshot.Generation, PolicyVersion: in.Desired.PolicyVersion, PolicyHash: in.Desired.PolicyHash, DesiredHash: hash(desired), Image: facts.EngineImage, HostPort: managed.EnginePort, Secrets: []SecretBinding{}, SecretExact: in.SecretExact != nil && len(in.Desired.Secrets) > 0, Changes: []Change{}, Conflicts: []Diagnostic{}}
 	add := func(code ConflictCode, field string) {
 		p.Conflicts = append(p.Conflicts, Diagnostic{Code: code, Field: field})
 	}
