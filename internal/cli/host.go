@@ -79,6 +79,7 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		if deps.HostLogs != nil {
 			server.Logs = deps.HostLogs
 		}
+		server.Readiness = deps.HostReadiness
 		server.Diagnose = deps.HostDiagnose
 		if server.Diagnose == nil {
 			reader := diagnose.Reader{Inventory: collector, Logs: deps.HostLogs, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}}

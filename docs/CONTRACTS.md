@@ -2439,3 +2439,75 @@ the retained original point, released fence, release, routes, and stopped
 revision. A later legitimate lifecycle revision does not invalidate that
 historical receipt. Failed or unknown attempts retain their recorded outcome
 and cannot infer success from an unjoined receipt.
+
+## Read-only target readiness
+
+`brine doctor` checks this client's SSH and optional Git dependency only. It
+explicitly says that remote readiness was not checked. `doctor --target NAME`
+uses the restricted `readiness` operation. Its only accepted payload is `{}` and
+its dispatcher class is `read_only`. The response contains `client` and `host`.
+JSONL emits one `complete` event containing the same report as JSON and human
+output. A successful envelope means collection succeeded, not that the host is
+ready. `host.ready` is `true`, `false`, or the string `"unknown"`.
+
+Facts have a typed value only when known. Unknown and absent facts have a fixed
+reason and a null value. Known failing requirements produce fixed findings.
+Unknown facts do not fail a rule or establish readiness. Any failure makes the
+verdict false; otherwise any unknown requirement or truncation makes it unknown.
+Next-operation suggestions do not authorize changes. Readiness is not app health,
+a successful deployment, or physical acceptance.
+
+The fixed findings are `os_unsupported`, `runtime_version_mismatch`,
+`cgroup_unsupported`, `rootless_helper_missing`, `user_session_missing`,
+`disk_below_reserve`, `policy_invalid`, `policy_denies_deploy`, `caddy_inactive`,
+`caddy_admin_exposed`, `proxy_conflict`, `catch_all_site`, `control_store_missing`,
+`control_store_unhealthy`, `control_store_upgrade_required`,
+`registry_unreachable`, `domain_unresolved`, `domain_elsewhere`, `tls_untrusted`,
+and `backup_stale`. Each includes severity, a fixed message and next operations.
+
+Inventory supplies OS, architecture, D2 runtime versions, cgroup v2, disk,
+linger, listener ownership and committed route observations. Fixed read-only
+runtime probes add uidmap executable modes, installed session packages, the
+user bus, Caddy activity, loopback administration and hostless sites. Free disk
+is compared with the protected policy reserve. Invalid policy and valid policy
+that allows no deployment registries or domains are separate facts.
+
+The control store is read through `OpenSnapshotReadOnly`, including WAL, without
+opening live SQLite files or acquiring or creating a live lock. Its states are
+`missing`, `current`, `schema_upgrade_required`, `schema_unsupported` and
+`preview_unavailable`. The exact same isolated Store runs one bounded
+`PRAGMA quick_check(1)`. Only the exact positive result proves SQLite structural
+health. It does not validate all retained authority or history. Readiness never
+creates a missing database, migrates a schema, or repairs state.
+
+Outbound DNS, HTTPS and TLS are observations. Registry hosts come only from
+policy-allowed repository prefixes. Each gets one anonymous HTTPS `GET /v2/`,
+with no proxy environment, credentials, cookies or redirects. Only 200 and 401
+mean reachable. Exact policy domains resolve A and AAAA from the host and compare
+with local interface addresses. Results are `resolves_here`,
+`resolves_elsewhere`, `unresolved` or `unknown_behind_nat`. The latter cannot
+establish health. Committed domains come from current releases through the isolated control-store
+read ports, not from a listener or a rendered file alone. A domain with a committed
+route gets a handshake to
+`127.0.0.1:443` with its SNI name, system roots and mandatory hostname verification.
+TLS is `trusted`, `untrusted` or `unreachable`; errors never disable verification.
+
+Native backup facts reuse the existing read-only status reader. SQLite facts
+reuse the connected SQLite status composition, snapshot reader, service probe,
+remote listing and dry-run watermark probe. Local position and possible loss
+remain unknown; a remote watermark does not prove durability. Active data
+preparation not represented by a committed release remains unknown rather than
+an empty backup set. A missing verification, missed cadence or explicit known
+backup degradation can produce `backup_stale`; unknown observations alone cannot.
+This source composes the plan 007 status dependency. It does not claim that
+stack dependency is merged or physically accepted.
+
+Collection has a fixed 12-second total deadline, four-second inventory and
+runtime-group budgets, and one-second remaining probes. Inventory subprocesses
+retain their existing three-second cap within the group budget. At most four
+probes can remain outstanding, including dependencies that ignore cancellation.
+Policy registries, domains and backup summaries are capped at 16 each. The
+wire report is capped at 128 KiB. A timed-out probe returns a partial report,
+never a healthy fallback. Every isolated copy and dry-run directory is owned by
+its request and cleaned on exit. No generic shell, request-selected path,
+request-selected host or arbitrary subprocess arguments are accepted.

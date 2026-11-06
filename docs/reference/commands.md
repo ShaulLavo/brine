@@ -944,13 +944,15 @@ Flags:
 ### `brine doctor`
 
 ```text
-Check local client dependencies (not remote host readiness)
+Check client dependencies and optional read-only target readiness
 
 Usage:
-  brine doctor [flags]
+  brine doctor [--target NAME] [flags]
 
 Flags:
-  -h, --help   help for doctor
+      --config-dir string   Private client target directory
+  -h, --help                help for doctor
+      --target string       Pinned target name
 ```
 
 ### `brine enroll`
