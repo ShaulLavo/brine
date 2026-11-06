@@ -43,7 +43,7 @@ count=0
 for path in README.md docs/CONTRACTS.md 'docs/guides/new guide.md' .internal/plans/release.md docs/assets/hero.webp; do
   check_scope "$path" "$path" docs
 done
-for path in internal/example.go internal/testdata/input.md fixtures/app/README.md docs/testdata/input.md docs/Fixtures/input.md docs/fixture/input.md docs/example.go docs/example.toml docs/assets/new.wasm .github/workflows/ci.yml scripts/check.sh go.sum mise.toml unknown.txt; do
+for path in internal/example.go internal/testdata/input.md fixtures/app/README.md docs/testdata/input.md docs/Fixtures/input.md docs/fixture/input.md docs/example.go docs/example.toml docs/assets/new.wasm .github/workflows/ci.yml scripts/check.sh scripts/publish-udp-fixture.ts tools/ci/udp-fixture/*.ts fixtures/udp-echo/pins.json .github/workflows/udp-fixture.yml internal/cdn/cloudflare/worker.test.mjs internal/cdn/testdata/eligibility.json go.sum mise.toml unknown.txt; do
   check_scope "$path" "$path" full
 done
 check_scope docs/old.md docs/new.md full
@@ -70,12 +70,21 @@ set -eu
 where=root
 [[ $PWD != */tools/webtransport-experiment ]] || where=experiment
 printf '%s|%s|%s %s\n' "$where" "${GOOS:-}" "${GOARCH:-}" "$*" >> "$COMMAND_LOG"
+if [[ $* == 'test -p 1 -timeout 30m ./...' ]]; then
+  [[ ${BRINE_REQUIRE_NODE:-} == 1 ]] || { echo 'Normal tests must require Node.' >&2; exit 89; }
+fi
 if [[ $* == 'list ./...' ]]; then
   printf 'github.com/ShaulLavo/brine/internal/%s\n' store host cli
 fi
 if [[ $* == 'test -race -p 1 -c -o '* ]]; then
   cp "$FAKE_HOST_TEST" "$7"
 fi
+MOCK
+cat > "$scratch/bin/bun" <<'MOCK'
+#!/usr/bin/env bash
+set -eu
+printf 'bun|%s\n' "$*" >> "$COMMAND_LOG"
+exit "${HELPER_TEST_STATUS:-0}"
 MOCK
 printf '#!/bin/sh\nexit 0\n' > "$scratch/bin/git"
 printf '#!/bin/sh\nexit 0\n' > "$scratch/bin/gofmt"
@@ -85,9 +94,33 @@ check_commands() {
   cat > "$scratch/expected"
   : > "$scratch/commands"
   PATH="$scratch/bin:$PATH" COMMAND_LOG="$scratch/commands" GOOS='' GOARCH='' BRINE_CHECK_OUTPUT="$scratch/output" \
-    FAKE_HOST_TEST="$scratch/fake-host.test" "$root/scripts/check.sh" "$@" > "$scratch/stdout"
+    FAKE_HOST_TEST="$scratch/fake-host.test" "$root/scripts/check.sh" "$@" > "$scratch/stdout" || return
   diff -u "$scratch/expected" "$scratch/commands"
 }
+
+check_commands test-helpers <<'EXPECTED'
+bun|test tools/ci/udp-fixture
+EXPECTED
+if HELPER_TEST_STATUS=17 check_commands test-helpers <<'EXPECTED'
+bun|test tools/ci/udp-fixture
+EXPECTED
+then
+  echo 'A failing helper assertion must fail its CI command.' >&2
+  exit 1
+else
+  [[ $? == 17 ]]
+fi
+
+mkdir "$scratch/without-bun"
+for name in bash dirname mkdir; do
+  ln -s "$(command -v "$name")" "$scratch/without-bun/$name"
+done
+if PATH="$scratch/without-bun" BRINE_CHECK_OUTPUT="$scratch/output" "$root/scripts/check.sh" test-helpers > "$scratch/missing-bun" 2>&1; then
+  echo 'Missing Bun must fail the helper gate.' >&2
+  exit 1
+else
+  [[ $? == 127 ]]
+fi
 
 check_commands test-normal <<'EXPECTED'
 root|| mod tidy
@@ -108,7 +141,7 @@ root|| test -race -p 1 -timeout 40m ./internal/host/
 EXPECTED
 check_commands test-race-rest <<'EXPECTED'
 root|| list ./...
-root|| test -race -p 1 -timeout 30m github.com/ShaulLavo/brine/internal/cli
+root|| test -race -p 1 -timeout 30m -skip ^TestWorkerSemanticContract$ github.com/ShaulLavo/brine/internal/cli
 experiment|| test -race -count=1 -timeout 1m ./...
 EXPECTED
 
