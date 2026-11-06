@@ -3,9 +3,9 @@ on:
   push:
     branches: [main]
   pull_request:
-
+    types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   changes:
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     name: Classify CI inputs
     runs-on: ubuntu-24.04
     outputs:
@@ -31,6 +32,7 @@ jobs:
           printf 'scope=%s\n' "$scope" >> "$GITHUB_OUTPUT"
 
   cli-pair:
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     name: Linux CLI binaries
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -50,6 +52,7 @@ jobs:
           retention-days: 3
 
   helpers:
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     name: Publication helper tests
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -63,6 +66,7 @@ jobs:
       - run: ./scripts/check.sh test-helpers
 
   test:
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     name: Tests, types and Mac client
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -82,7 +86,7 @@ jobs:
 
   race:
     needs: changes
-    if: always()
+    if: ${{ needs.changes.result == 'success' && needs.changes.outputs.scope != 'docs' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (always()) }}
     name: Race tests (${{ matrix.shard }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -104,7 +108,7 @@ jobs:
 
   race-host-build:
     needs: changes
-    if: always()
+    if: ${{ needs.changes.result == 'success' && needs.changes.outputs.scope != 'docs' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (always()) }}
     name: Race tests (host build)
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -131,7 +135,7 @@ jobs:
 
   race-host:
     needs: [changes, race-host-build]
-    if: always() && needs.race-host-build.result == 'success'
+    if: ${{ needs.changes.result == 'success' && needs.changes.outputs.scope != 'docs' && (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (always() && needs.race-host-build.result == 'success') }}
     name: Race tests (host ${{ matrix.shard }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
@@ -154,6 +158,7 @@ jobs:
         run: echo 'Normal Go tests, vet, format and documentation contracts still run in full.'
 
   lint:
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     name: New-code static checks
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -183,6 +188,7 @@ jobs:
         run: golangci-lint run --config ../../.golangci.yml --new-from-merge-base= --new-from-rev= ./...
 
   structure:
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     name: Authority, dead code and clones
     runs-on: ubuntu-24.04
     timeout-minutes: 20
@@ -194,6 +200,7 @@ jobs:
       - run: ./scripts/check.sh structure
 
   vulnerability:
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     name: Vulnerability scan
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -206,7 +213,7 @@ jobs:
 
   gate:
     name: Complete CI gate
-    if: always()
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (always()) }}
     needs: [changes, test, race, race-host-build, race-host, lint, structure, vulnerability, cli-pair, helpers]
     runs-on: ubuntu-24.04
     steps:
@@ -225,4 +232,7 @@ jobs:
           CLI_PAIR: ${{ needs.cli-pair.result }}
         run: |
           [[ $CHANGES == success && ( $SCOPE == full || $SCOPE == docs ) ]]
-          [[ $HELPERS == success && $TEST == success && $RACE == success && $RACE_HOST_BUILD == success && $RACE_HOST == success && $LINT == success && $STRUCTURE == success && $VULNERABILITY == success && $CLI_PAIR == success ]]
+          expected=success
+          if [[ $SCOPE == docs ]]; then expected=skipped; fi
+          [[ $RACE == "$expected" && $RACE_HOST_BUILD == "$expected" && $RACE_HOST == "$expected" ]]
+          [[ $HELPERS == success && $TEST == success && $LINT == success && $STRUCTURE == success && $VULNERABILITY == success && $CLI_PAIR == success ]]
