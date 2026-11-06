@@ -94,6 +94,8 @@ func (r readinessCapture) CaptureStdout(ctx context.Context, limit int, path str
 }
 func TestReadinessInventorySkipsPodmanStorageOpening(t *testing.T) {
 	fs := baseFixture()
+	fs.files["/etc/passwd"] = "brine:x:1001:1001::/home/brine:/bin/bash\n"
+	fs.files["/proc/self/status"] = "Uid:\t1001\t1001\t1001\t1001\n"
 	runner := readinessCapture{t: t, runner: fakeRunner{"uname -m": "aarch64", "podman version --format json": `{"Client":{"Version":"5.4.2"}}`}}
 	c := Collector{FS: fs, Runner: runner, IdentityKey: []byte("fixture")}
 	snapshot, err := c.CollectReadiness(t.Context())

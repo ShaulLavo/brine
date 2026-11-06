@@ -2482,7 +2482,8 @@ creates a missing database, migrates a schema, or repairs state.
 
 Outbound DNS, HTTPS and TLS are observations. Registry hosts come only from
 policy-allowed repository prefixes. Each gets one anonymous HTTPS `GET /v2/`,
-with no proxy environment, credentials, cookies or redirects. Only 200 and 401
+with no proxy environment, credentials, cookies or redirects. Docker Hub aliases
+use the existing resolver's fixed `registry-1.docker.io` API origin. Only 200 and 401
 mean reachable. Exact policy domains resolve A and AAAA from the host and compare
 with local interface addresses. Results are `resolves_here`,
 `resolves_elsewhere`, `unresolved` or `unknown_behind_nat`. The latter cannot

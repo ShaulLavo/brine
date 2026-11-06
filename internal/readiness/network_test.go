@@ -133,3 +133,13 @@ func testDNSLocation(t *testing.T, local, answers []string, want string) {
 		t.Fatal(local, answers, got, err)
 	}
 }
+
+func TestReadinessDockerHubUsesExistingAPIOriginWithoutRedirect(t *testing.T) {
+	for _, host := range []string{"docker.io", "index.docker.io"} {
+		dialed := ""
+		n := NetworkProbes{dial: func(_ context.Context, _, address string) (net.Conn, error) { dialed = address; return nil, errProbe }}
+		if reachable, err := n.Registry(t.Context(), host); reachable || err != nil || dialed != "registry-1.docker.io:443" {
+			t.Fatal(host, reachable, err, dialed)
+		}
+	}
+}

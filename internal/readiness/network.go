@@ -41,6 +41,10 @@ func validRegistryHost(host string) bool {
 	return err == nil && port > 0
 }
 func (n NetworkProbes) Registry(ctx context.Context, host string) (bool, error) {
+	// Match the existing OCI resolver's fixed Docker Hub API origin, not a redirect.
+	if host == "docker.io" || host == "index.docker.io" {
+		host = "registry-1.docker.io"
+	}
 	u := url.URL{Scheme: "https", Host: host, Path: "/v2/"}
 	if !validRegistryHost(host) {
 		return false, errProbe
