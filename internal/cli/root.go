@@ -5,6 +5,7 @@ import (
 	"context"
 	"io"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/localexec"
@@ -26,7 +27,7 @@ type Dependencies struct {
 	Stderr                     io.Writer
 	Version                    string
 	LookPath                   func(string) (string, error)
-	RunTUI                     func(context.Context, io.Reader, io.Writer) error
+	RunTUI                     func(context.Context, tea.Model, io.Reader, io.Writer) (tea.Model, error)
 	DoctorRunner               localexec.Runner // Optional; nil uses bounded local execution.
 	HostServerFactory          dispatch.Factory
 	HostPlanner                dispatch.Planner
@@ -81,7 +82,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "brine",
 		Short:         "Agent-first self-hosted deployments",
-		Long:          "Deploy stateless apps to enrolled Linux servers through Podman, Quadlet/systemd and Caddy. Plan before apply and save the idempotency key. Acceptance is not completion; poll the operation ID. Diagnose and reconcile uncertain outcomes before retrying. Persistent apps use declared databases and immutable replica bindings. Restore tests verify remote recoverability without changing live data. The Charm TUI currently provides a welcome screen.",
+		Long:          "Deploy stateless apps to enrolled Linux servers through Podman, Quadlet/systemd and Caddy. Plan before apply and save the idempotency key. Acceptance is not completion; poll the operation ID. Diagnose and reconcile uncertain outcomes before retrying. Persistent apps use declared databases and immutable replica bindings. Restore tests verify remote recoverability without changing live data. The Charm TUI browses targets, apps, operations and bounded logs read-only.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {

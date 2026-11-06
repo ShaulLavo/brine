@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture                                           3 apps · read 12:04:31│
+────────────────────────────────────────────────────────────────────────────────│
+  APP            UNIT      HEALTH       RELEASE       LAST OPERATION     DRIFT  │
+› fixture-api    active    healthy      rel-7f3a91c2  succeeded          in sync│
+  fixture-web    active    healthy      rel-0b44e1d9  starting           in sync│
+  fixture-jobs   unknown   not checked  rel-91ad03fe  recovery required  drifted│
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+Error: transport_failure. The SSH transport failed; reconcile before retrying   │
+any mutation.                                                                   │
+↑↓ select  enter open  r refresh  q quit                                        │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture\x1b[m                                           \x1b[90m3 apps · read 12:04:31\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"\x1b[94m  \x1b[m\x1b[90mAPP            \x1b[m\x1b[90mUNIT      \x1b[m\x1b[90mHEALTH       \x1b[m\x1b[90mRELEASE       \x1b[m\x1b[90mLAST OPERATION     \x1b[m\x1b[90mDRIFT\x1b[m"
+"\x1b[94m› \x1b[m\x1b[1mfixture-api    \x1b[m\x1b[1mactive    \x1b[m\x1b[1;32mhealthy      \x1b[m\x1b[1mrel-7f3a91c2  \x1b[m\x1b[1;32msucceeded          \x1b[m\x1b[1min sync\x1b[m"
+"\x1b[94m  \x1b[mfixture-web    active    \x1b[32mhealthy      \x1b[mrel-0b44e1d9  \x1b[94mstarting           \x1b[min sync"
+"\x1b[94m  \x1b[mfixture-jobs   \x1b[90munknown   \x1b[m\x1b[90mnot checked  \x1b[mrel-91ad03fe  \x1b[33mrecovery required  \x1b[m\x1b[33mdrifted\x1b[m"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[31mError: transport_failure. The SSH transport failed; reconcile before retrying\x1b[m"
+"\x1b[31many mutation.\x1b[m"
+"\x1b[90m↑↓ select  enter open  r refresh  q quit\x1b[m"
+== 50x16 no color ==
+brine · fixture                  3 apps · 12:04:31│
+──────────────────────────────────────────────────│
+  APP               HEALTH       LAST OPERATION   │
+› fixture-api       healthy      succeeded        │
+  fixture-web       healthy      starting         │
+  fixture-jobs      not checked  recovery required│
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+Error: transport_failure. The SSH transport       │
+failed; reconcile before retrying any mutation.   │
+↑↓ select  enter open  q quit                     │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture\x1b[m                  \x1b[90m3 apps · 12:04:31\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"\x1b[94m  \x1b[m\x1b[90mAPP               \x1b[m\x1b[90mHEALTH       \x1b[m\x1b[90mLAST OPERATION\x1b[m"
+"\x1b[94m› \x1b[m\x1b[1mfixture-api       \x1b[m\x1b[1;32mhealthy      \x1b[m\x1b[1;32msucceeded\x1b[m"
+"\x1b[94m  \x1b[mfixture-web       \x1b[32mhealthy      \x1b[m\x1b[94mstarting\x1b[m"
+"\x1b[94m  \x1b[mfixture-jobs      \x1b[90mnot checked  \x1b[m\x1b[33mrecovery required\x1b[m"
+""
+""
+""
+""
+""
+""
+""
+"\x1b[31mError: transport_failure. The SSH transport\x1b[m"
+"\x1b[31mfailed; reconcile before retrying any mutation.\x1b[m"
+"\x1b[90m↑↓ select  enter open  q quit\x1b[m"
+== 30x8 no color ==
+brine · fixture               │
+──────────────────────────────│
+  APP           LAST OPERATION│
+› fixture-api   succeeded     │
+Error: transport_failure. The │
+SSH transport failed;         │
+reconcile before retrying any…│
+enter open  q quit            │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"\x1b[94m  \x1b[m\x1b[90mAPP           \x1b[m\x1b[90mLAST OPERATION\x1b[m"
+"\x1b[94m› \x1b[m\x1b[1mfixture-api   \x1b[m\x1b[1;32msucceeded\x1b[m"
+"\x1b[31mError: transport_failure. The\x1b[m"
+"\x1b[31mSSH transport failed;\x1b[m"
+"\x1b[31mreconcile before retrying any…\x1b[m"
+"\x1b[90menter open  q quit\x1b[m"

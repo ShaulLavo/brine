@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › logs                    tail 100 · read 12:04:31│
+────────────────────────────────────────────────────────────────────────────────│
+No log entries for fixture-api.                                                 │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+r read again  esc back                                                          │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › logs\x1b[m                    \x1b[90mtail 100 · read 12:04:31\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"No log entries for fixture-api."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90mr read again  esc back\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › logs              │
+──────────────────────────────────────────────────│
+No log entries for fixture-api.                   │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+r read again  esc back                            │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › logs\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"No log entries for fixture-api."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90mr read again  esc back\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+No log entries for fixture-   │
+api.                          │
+                              │
+                              │
+                              │
+r read again  esc back        │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"No log entries for fixture-"
+"api."
+""
+""
+""
+"\x1b[90mr read again  esc back\x1b[m"

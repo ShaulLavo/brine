@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/cli"
 	"github.com/ShaulLavo/brine/internal/result"
 )
@@ -32,7 +33,10 @@ func TestRunExitCodes(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var out, diagnostics bytes.Buffer
-			deps := cli.Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &diagnostics, Version: "fixture", RunTUI: func(context.Context, io.Reader, io.Writer) error { return tt.err }}
+			runTUI := func(_ context.Context, model tea.Model, _ io.Reader, _ io.Writer) (tea.Model, error) {
+				return model, tt.err
+			}
+			deps := cli.Dependencies{Context: context.Background(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &diagnostics, Version: "fixture", RunTUI: runTUI}
 			if tt.args[0] == "tui" {
 				terminal, err := os.OpenFile("/dev/ptmx", os.O_RDWR, 0)
 				if err != nil {

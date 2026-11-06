@@ -13,7 +13,6 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
-	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/transport"
@@ -46,13 +45,9 @@ func (f operationFlags) call(ctx context.Context, deps Dependencies, op string, 
 	if err != nil {
 		return result.Envelope{}, err
 	}
-	dir := f.configDir
-	if dir == "" {
-		base, err := os.UserConfigDir()
-		if err != nil {
-			return result.Envelope{}, err
-		}
-		dir = filepath.Join(base, "brine", "targets")
+	dir, err := f.targetsDir()
+	if err != nil {
+		return result.Envelope{}, err
 	}
 	client := deps.OperationClient
 	if client == nil {
@@ -108,28 +103,20 @@ func newAcceptanceCmd(machine *bool, deps Dependencies, verb string) *cobra.Comm
 		if cmd.Flags().Changed("idempotency-key") && key == "" {
 			return result.New(result.InvalidUsage, nil)
 		}
-		if key == "" {
-			var err error
-			key, err = randomOperationKey()
-			if err != nil {
-				return err
-			}
-			// Generated keys are safe correlation IDs, not request values or secrets.
-			if _, err := fmt.Fprintf(deps.Stderr, "idempotency_key=%s\n", key); err != nil {
-				return result.New(result.InternalError, err)
-			}
+		var keyErr error
+		key, keyErr = acceptanceKey(deps, key)
+		if keyErr != nil {
+			return keyErr
 		}
-		var request any = dispatch.ApplyArgs{PlanID: args[0], IdempotencyKey: key}
+		var accepted jobs.Accepted
+		var err error
 		if verb == "resolve" {
-			request = dispatch.ResolveArgs{OperationID: args[0], IdempotencyKey: key}
+			accepted, err = requestAcceptance(cmd.Context(), deps, flags, verb, dispatch.ResolveArgs{OperationID: args[0], IdempotencyKey: key})
+		} else {
+			accepted, err = acceptPlan(cmd.Context(), deps, flags, args[0], key)
 		}
-		response, err := flags.call(cmd.Context(), deps, verb, request)
 		if err != nil {
 			return err
-		}
-		accepted, ok := response.Data.(jobs.Accepted)
-		if !response.OK || !ok || accepted.Status != "accepted" || !jobs.ValidID(accepted.OperationID) {
-			return result.New(result.TransportInvalidResponse, nil)
 		}
 		if *machine {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), accepted))
@@ -141,15 +128,90 @@ func newAcceptanceCmd(machine *bool, deps Dependencies, verb string) *cobra.Comm
 	cmd.Flags().StringVar(&key, "idempotency-key", "", "Reuse this key to recover the same operation after a lost response")
 	return cmd
 }
+func acceptanceKey(deps Dependencies, key string) (string, error) {
+	if key != "" {
+		return key, nil
+	}
+	key, err := randomOperationKey()
+	if err != nil {
+		return "", err
+	}
+	// Generated keys are safe correlation IDs, not request values or secrets.
+	if _, err := fmt.Fprintf(deps.Stderr, "idempotency_key=%s\n", key); err != nil {
+		return "", result.New(result.InternalError, err)
+	}
+	return key, nil
+}
+
+func acceptPlan(ctx context.Context, deps Dependencies, f operationFlags, planID, key string) (jobs.Accepted, error) {
+	if !jobs.ValidPlanID(planID) || !jobs.ValidID(key) {
+		return jobs.Accepted{}, result.New(result.InvalidUsage, nil)
+	}
+	return requestAcceptance(ctx, deps, f, "apply", dispatch.ApplyArgs{PlanID: planID, IdempotencyKey: key})
+}
+
+func requestAcceptance(ctx context.Context, deps Dependencies, f operationFlags, verb string, args any) (jobs.Accepted, error) {
+	response, err := f.call(ctx, deps, verb, args)
+	if err != nil {
+		return jobs.Accepted{}, err
+	}
+	accepted, ok := response.Data.(jobs.Accepted)
+	if !response.OK || !ok || accepted.Status != "accepted" || !jobs.ValidID(accepted.OperationID) {
+		return jobs.Accepted{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	return accepted, nil
+}
+
+func readOperationPage(ctx context.Context, deps Dependencies, f operationFlags, id string, cursor uint64) (jobs.Status, error) {
+	if !jobs.ValidID(id) {
+		return jobs.Status{}, result.New(result.InvalidUsage, nil)
+	}
+	response, err := f.call(ctx, deps, "operation", dispatch.OperationArgs{OperationID: id, AfterCursor: cursor})
+	if err != nil {
+		return jobs.Status{}, err
+	}
+	if !response.OK {
+		if response.Error == nil || !result.KnownCode(response.Error.Code) {
+			return jobs.Status{}, result.New(result.TransportInvalidResponse, nil)
+		}
+		return jobs.Status{}, result.New(response.Error.Code, nil)
+	}
+	status, ok := response.Data.(jobs.Status)
+	if !ok {
+		return jobs.Status{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	if err := checkOperationPage(id, cursor, status); err != nil {
+		return jobs.Status{}, err
+	}
+	return status, nil
+}
+
+func checkOperationPage(id string, cursor uint64, status jobs.Status) error {
+	if status.Operation.ID != id {
+		return result.New(result.TransportInvalidResponse, nil)
+	}
+	previous := cursor
+	for _, event := range status.Events {
+		if event.Sequence <= previous {
+			return result.New(result.TransportInvalidResponse, nil)
+		}
+		previous = event.Sequence
+	}
+	if status.NextCursor != previous {
+		return result.New(result.TransportInvalidResponse, nil)
+	}
+	return nil
+}
+
 func newOperationStatusCmd(machine *bool, modes *machineModes, deps Dependencies) *cobra.Command {
 	var flags operationFlags
 	var id string
 	var cursor uint64
 	cmd := &cobra.Command{Use: "status [APP] --target NAME", Short: "Read app releases and health, or poll an operation", Args: cobra.MaximumNArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !cmd.Flags().Changed("operation") && cmd.Flags().Changed("after-cursor") {
+			return result.New(result.InvalidUsage, nil)
+		}
 		if !cmd.Flags().Changed("operation") {
-			if cmd.Flags().Changed("after-cursor") {
-				return result.New(result.InvalidUsage, nil)
-			}
 			return appStatus(cmd, deps, flags, *modes, args)
 		}
 		if len(args) != 0 {
@@ -158,36 +220,20 @@ func newOperationStatusCmd(machine *bool, modes *machineModes, deps Dependencies
 		if !jobs.ValidID(id) || !transport.ValidTargetName(flags.target) {
 			return result.New(result.InvalidUsage, nil)
 		}
-		response, err := flags.call(cmd.Context(), deps, "operation", dispatch.OperationArgs{OperationID: id, AfterCursor: cursor})
+		status, err := readOperationPage(cmd.Context(), deps, flags, id, cursor)
 		if err != nil {
 			return err
-		}
-		status, ok := response.Data.(jobs.Status)
-		if !response.OK || !ok || status.Operation.ID != id {
-			return result.New(result.TransportInvalidResponse, nil)
-		}
-		previous := cursor
-		for _, event := range status.Events {
-			if event.Sequence <= previous {
-				return result.New(result.TransportInvalidResponse, nil)
-			}
-			previous = event.Sequence
-		}
-		if status.NextCursor != previous {
-			return result.New(result.TransportInvalidResponse, nil)
 		}
 		if *machine {
 			return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), status))
 		}
 		_, err = fmt.Fprintf(cmd.OutOrStdout(), "Operation %s: %s\nEvents: %d; next cursor: %d\n", id, status.Operation.State, len(status.Events), status.NextCursor)
-		if err == nil && status.Operation.State == ops.RecoveryRequired {
-			if status.Operation.Kind == ops.Reconcile {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect affected app operation status; preview remaining recovery with: %s\n", flags.command("reconcile", "--dry-run"))
-			} else if cursor == 0 && len(status.Events) < jobs.EventPageLimit && resolutionPrefixSupported(status.Operation, status.Events) {
-				_, err = fmt.Fprintf(cmd.OutOrStdout(), "Inspect supported recovery with: %s\n", flags.command("resolve", id))
-			} else {
-				_, err = fmt.Fprintln(cmd.OutOrStdout(), "Inspect the full recorded history and live app state; supported automatic resolution is not established for this receipt.")
-			}
+		if err != nil {
+			return err
+		}
+		guidance := recoveryGuidance(flags, status.Operation, status.Events, cursor == 0 && len(status.Events) < jobs.EventPageLimit)
+		if guidance != "" {
+			_, err = fmt.Fprintln(cmd.OutOrStdout(), guidance)
 		}
 		return err
 	}}
@@ -217,14 +263,23 @@ func newHostRunOpCmd(deps Dependencies) *cobra.Command {
 	}}
 }
 
+// targetsDir is the private client target directory: --config-dir, or the
+// user configuration directory's brine/targets.
+func (f operationFlags) targetsDir() (string, error) {
+	if f.configDir != "" {
+		return f.configDir, nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "brine", "targets"), nil
+}
+
 func (f operationFlags) loadTarget(deps Dependencies) (transport.Target, error) {
-	dir := f.configDir
-	if dir == "" {
-		base, err := os.UserConfigDir()
-		if err != nil {
-			return transport.Target{}, err
-		}
-		dir = filepath.Join(base, "brine", "targets")
+	dir, err := f.targetsDir()
+	if err != nil {
+		return transport.Target{}, err
 	}
 	load := deps.LoadOperationTarget
 	if load == nil {
