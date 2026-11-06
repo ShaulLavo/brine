@@ -36,6 +36,7 @@ type sqliteSource struct {
 	mu          sync.RWMutex
 	closed      bool
 	root        *os.File
+	rootPath    string
 	dir         *os.File
 	components  []string
 	filename    string
@@ -60,7 +61,7 @@ func openSQLiteSource(b data.SQLiteDatabaseBinding, definitions []data.SQLiteSch
 	if err != nil || relative != b.RelativeDirectory || !data.ValidRoot(string(b.Root)) || b.Filename == "" || strings.ContainsAny(string(b.Filename), "/\x00") {
 		return nil, errSQLiteSource
 	}
-	s := &sqliteSource{components: strings.Split(relative, "/"), filename: string(b.Filename), database: b.Name, databaseID: b.DatabaseID, definitions: definitions, members: map[string]*os.File{}, proofs: map[string]memberProof{}, hold: hold}
+	s := &sqliteSource{rootPath: string(b.Root), components: strings.Split(relative, "/"), filename: string(b.Filename), database: b.Name, databaseID: b.DatabaseID, definitions: definitions, members: map[string]*os.File{}, proofs: map[string]memberProof{}, hold: hold}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, s.closeHandles())
@@ -189,6 +190,9 @@ func (s *sqliteSource) Recheck(ctx context.Context) (sqliteprep.StoppedBundle, e
 }
 
 func (s *sqliteSource) sameDirectory() error {
+	if err := s.sameRoot(); err != nil {
+		return err
+	}
 	current, err := s.walk()
 	if err != nil {
 		return err
@@ -197,6 +201,23 @@ func (s *sqliteSource) sameDirectory() error {
 	a, errA := statxFD(int(current.Fd()), "")
 	b, errB := statxFD(int(s.dir.Fd()), "")
 	if errA != nil || errB != nil || a.Ino != b.Ino || a.Dev_major != b.Dev_major || a.Dev_minor != b.Dev_minor || a.Mnt_id != b.Mnt_id {
+		return errSQLiteSource
+	}
+	return nil
+}
+
+// sameRoot proves the configured absolute name still reaches the held root.
+// Rewalking every ancestor without following links also rejects a replaced
+// ancestor which leaves the retained tree accessible at a detached old name.
+func (s *sqliteSource) sameRoot() error {
+	current, err := openPathNoFollow(s.rootPath)
+	if err != nil {
+		return errSQLiteSource
+	}
+	defer func() { _ = current.Close() }()
+	named, namedErr := statxFD(int(current.Fd()), "")
+	held, heldErr := statxFD(int(s.root.Fd()), "")
+	if namedErr != nil || heldErr != nil || named.Ino != held.Ino || named.Dev_major != held.Dev_major || named.Dev_minor != held.Dev_minor || named.Mnt_id != held.Mnt_id {
 		return errSQLiteSource
 	}
 	return nil

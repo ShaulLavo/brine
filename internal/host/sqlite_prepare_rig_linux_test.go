@@ -25,8 +25,10 @@ import (
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
+	"github.com/ShaulLavo/brine/internal/quadlet"
 	"github.com/ShaulLavo/brine/internal/replicapermits"
 	"github.com/ShaulLavo/brine/internal/replication"
+	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/sqliteprep"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
@@ -36,6 +38,7 @@ import (
 
 const sqlitePrepRequester = "deploy:" + "abababababababababababababababababababababababababababababababab"
 const sqlitePrepPID = 4242
+const sqlitePrepWriterPID = 4243
 
 var sqlitePrepSchemas = map[string]string{
 	"v1": "CREATE TABLE items(id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
@@ -125,6 +128,12 @@ func newSQLitePrepRig(t *testing.T, accepts []string, marker string) *sqlitePrep
 	t.Helper()
 	ctx := context.Background()
 	_, desired, facts := persistentHostFixture(t)
+	desired.ContainerPort = 3000
+	desired.Domains = []spec.Domain{"hello.example.com"}
+	desired.Health = policy.Health{Path: "/", ExpectedStatus: 200, StartupDeadlineSeconds: 30, TimeoutSeconds: 3}
+	desired.Resources = policy.Resources{MemoryMB: 512, PIDsLimit: 128}
+	desired.Environment = []policy.Environment{}
+	desired.Secrets = []policy.Secret{}
 	desired.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: accepts}}
 	desired.SchemaDefinitions = nil
 	for _, m := range []string{"v1", "v2"} {
@@ -136,7 +145,7 @@ func newSQLitePrepRig(t *testing.T, accepts []string, marker string) *sqlitePrep
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.state.Close() })
-	facts.Store = r.state
+	facts.Store, facts.StateRoot = r.state, r.root
 	r.database = collectPersistent(t, facts, desired).Database
 	writeSQLitePrepDatabase(t, r.path(""), marker)
 	record := r.deliverCredential(desired)
@@ -159,12 +168,13 @@ func newSQLitePrepRig(t *testing.T, accepts []string, marker string) *sqlitePrep
 		t.Fatal("replica not committed", err)
 	}
 	r.replica = permit.Replica
-	r.commitRelease(desired)
+	r.commitRelease(desired, facts)
 	// #nosec G304 -- Exact private fixture database path.
 	if r.source, err = os.ReadFile(r.path("")); err != nil {
 		t.Fatal(err)
 	}
-	r.exec = &sqlitePrepExecutor{units: map[string]string{"hello.service": "running", r.replicaUnit(): "stopped"}, dbPath: r.path("")}
+	r.exec = &sqlitePrepExecutor{home: r.home, units: map[string]string{"hello.service": "running", r.replicaUnit(): "stopped"}, dbPath: r.path("")}
+	r.writeProc(fmt.Sprintf("%d/cgroup", sqlitePrepWriterPID), "0::/user.slice/app.slice/hello.service\n")
 	r.remote = newSQLitePrepRemote(t)
 	return r
 }
@@ -203,7 +213,7 @@ func (r *sqlitePrepRig) deliverCredential(d policy.Desired) store.CredentialReco
 	return record
 }
 
-func (r *sqlitePrepRig) commitRelease(d policy.Desired) {
+func (r *sqlitePrepRig) commitRelease(d policy.Desired, facts DataFacts) {
 	r.t.Helper()
 	raw, err := os.ReadFile("../target/testdata/ready-arm64.json")
 	if err != nil {
@@ -213,16 +223,38 @@ func (r *sqlitePrepRig) commitRelease(d policy.Desired) {
 	if err != nil {
 		r.t.Fatal(err)
 	}
+	persistent, err := facts.Collect(context.Background(), d)
+	if err != nil || persistent.Status != target.KnownStatus {
+		r.t.Fatal("persistent writer facts", err, persistent.Status)
+	}
+	snapshot.PersistentData = &persistent
 	in := plan.Input{Desired: d, Snapshot: snapshot, Image: plan.Image{Digest: strings.Split(string(d.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: snapshot.Arch}, ManifestDigest: target.Known("sha256:" + strings.Repeat("b", 64))}, State: plan.BrineState{Target: snapshot.Identity, Generation: *snapshot.Generation.Value, Releases: []plan.CurrentRelease{}}}
 	p, err := plan.Build(in)
 	if err != nil {
 		r.t.Fatal("plan", err)
 	}
+	if p.Kind == plan.Conflict {
+		r.t.Fatal("writer plan conflicts", p.Conflicts)
+	}
+	unit, err := quadlet.Render(d, p, *p.Image.ManifestDigest.Value)
+	if err != nil {
+		r.t.Fatal("writer render", err)
+	}
+	manager, err := quadlet.NewManager(r.home, sqlitePrepValidator{})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	if err = manager.Install(context.Background(), unit, ""); err != nil {
+		r.t.Fatal("writer install", err)
+	}
+	if err = manager.Close(); err != nil {
+		r.t.Fatal(err)
+	}
 	id, err := r.state.SavePlan(context.Background(), p, d)
 	if err != nil {
 		r.t.Fatal(err)
 	}
-	release := store.Release{ID: "sqlite-prep-release", PlanID: id, Image: p.Image, HostPort: p.HostPort, Secrets: p.Secrets, Units: []target.Unit{{Name: "hello.container", Hash: "sha256:" + strings.Repeat("b", 64)}}, CaddyFile: target.CaddyFile{Name: "hello.caddy", Hash: "sha256:" + strings.Repeat("c", 64)}}
+	release := store.Release{ID: "sqlite-prep-release", PlanID: id, Image: p.Image, HostPort: p.HostPort, Secrets: p.Secrets, Units: []target.Unit{{Name: unit.Name(), Hash: unit.Hash()}}, CaddyFile: target.CaddyFile{Name: "hello.caddy", Hash: "sha256:" + strings.Repeat("c", 64)}}
 	if err = r.state.CommitRelease(context.Background(), "hello", release); err != nil {
 		r.t.Fatal("release", err)
 	}
@@ -377,7 +409,17 @@ func (sqlitePrepWriterEvidence) CommittedUnitsMatch(context.Context, []target.Un
 // sqlitePrepExecutor fakes systemctl show/stop, Podman listing and the
 // Litestream sync barrier. Every other command, including any start, restart,
 // reload or enable, is refused and recorded as forbidden.
+type sqlitePrepValidator struct{}
+
+func (sqlitePrepValidator) Validate(ctx context.Context, candidate quadlet.Candidate) error {
+	if candidate.UnitName != "hello.container" {
+		return errors.New("unexpected fixture writer")
+	}
+	return ctx.Err()
+}
+
 type sqlitePrepExecutor struct {
+	home       string
 	mu         sync.Mutex
 	units      map[string]string
 	calls      []string
@@ -396,9 +438,11 @@ func (e *sqlitePrepExecutor) Execute(_ context.Context, c localexec.Command) (lo
 	line := c.Path + " " + strings.Join(c.Args, " ")
 	e.calls = append(e.calls, line)
 	switch {
+	case c.Path == "/usr/bin/systemctl" && len(c.Args) == 5 && c.Args[1] == "show":
+		return e.loadedWriter(c.Args[2], c.Args[4]), nil
 	case c.Path == "/usr/bin/systemctl" && len(c.Args) == 4 && c.Args[1] == "show":
 		if e.units[c.Args[2]] == "running" {
-			return localexec.Result{Stdout: fmt.Sprintf(sqlitePrepRunning, sqlitePrepPID, c.Args[2])}, nil
+			return localexec.Result{Stdout: fmt.Sprintf(sqlitePrepRunning, e.mainPID(c.Args[2]), c.Args[2])}, nil
 		}
 		return localexec.Result{Stdout: sqlitePrepStopped}, nil
 	case c.Path == "/usr/bin/systemctl" && len(c.Args) == 3 && c.Args[1] == "stop" && c.Mutation:
@@ -415,6 +459,27 @@ func (e *sqlitePrepExecutor) Execute(_ context.Context, c localexec.Command) (lo
 	}
 	e.forbidden = append(e.forbidden, line)
 	return localexec.Result{ExitCode: 1}, errors.New("sqlite preparation fixture: unexpected command")
+}
+
+func (e *sqlitePrepExecutor) mainPID(unit string) int {
+	if unit == "hello.service" {
+		return sqlitePrepWriterPID
+	}
+	return sqlitePrepPID
+}
+
+func (e *sqlitePrepExecutor) loadedWriter(unit, properties string) localexec.Result {
+	if !strings.Contains(properties, "SourcePath") {
+		fragment := filepath.Join(e.home, ".config/systemd/user", unit)
+		return localexec.Result{Stdout: "FragmentPath=" + fragment + "\nDropInPaths=\nNeedDaemonReload=no\n"}
+	}
+	source := filepath.Join(e.home, quadlet.ActiveDirectory, "hello.container")
+	fragment := filepath.Join("/run/user", fmt.Sprint(os.Geteuid()), "systemd/generator", unit)
+	native := filepath.Join(e.home, ".config/systemd/user", unit)
+	if _, err := os.Lstat(native); err == nil {
+		source, fragment = "", native
+	}
+	return localexec.Result{Stdout: "SourcePath=" + source + "\nFragmentPath=" + fragment + "\nDropInPaths=\nNeedDaemonReload=no\n"}
 }
 
 func (e *sqlitePrepExecutor) count(fragment string) int {

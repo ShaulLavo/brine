@@ -22,6 +22,8 @@ import (
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/sqliteprep"
 	"github.com/ShaulLavo/brine/internal/store"
+	"github.com/ShaulLavo/brine/internal/systemd"
+	"github.com/ShaulLavo/brine/internal/target"
 	"golang.org/x/sys/unix"
 )
 
@@ -61,14 +63,16 @@ func (h sqlitePreparationHost) Acquire(ctx context.Context, scope sqliteprep.Sco
 
 // sqliteHostGuard holds the store-minted host mutation guard for one task.
 type sqliteHostGuard struct {
-	host        sqlitePreparationHost
-	guard       *store.SQLiteMutationGuard
-	scope       sqliteprep.Scope
-	permit      store.ReplicaPermit
-	artifact    replication.Artifacts
-	definitions []data.SQLiteSchemaDefinition
-	held        *sqliteSource
-	snapshots   map[string][]byte
+	host          sqlitePreparationHost
+	guard         *store.SQLiteMutationGuard
+	scope         sqliteprep.Scope
+	permit        store.ReplicaPermit
+	artifact      replication.Artifacts
+	definitions   []data.SQLiteSchemaDefinition
+	held          *sqliteSource
+	snapshots     map[string][]byte
+	writer        target.Unit
+	writerRelease string
 }
 
 func (g *sqliteHostGuard) SQLiteMutationGuard() *store.SQLiteMutationGuard { return g.guard }
@@ -102,7 +106,7 @@ func (g *sqliteHostGuard) bind(ctx context.Context) error {
 	if s.Schema.Marker != data.EmptyMarker {
 		g.definitions = append(g.definitions, data.SQLiteSchemaDefinition{Database: s.DatabaseName, Marker: s.Schema.Marker, CatalogSHA256: s.Schema.CatalogSHA256})
 	}
-	return nil
+	return g.bindWriter(ctx)
 }
 
 // admitSQLiteRoot requires the persistent root to be the allocation's measured
@@ -146,7 +150,7 @@ func (g *sqliteHostGuard) Observe(ctx context.Context) (sqliteprep.Observation, 
 	}
 	o := sqliteprep.Observation{Replica: "unknown", JobsAbsent: app.Job == "" && replica.Job == "" && app.ControlPID == 0 && replica.ControlPID == 0}
 	o.WritersStopped = app.stopped(false) && containersOutside(ctx, g.host.session, []string{g.sourceDirectory()})
-	owned := app.Load == "loaded" && replica.Load == "loaded"
+	owned := g.writerOwned(ctx, app) && replica.Load == "loaded"
 	switch {
 	case replica.stopped(false):
 		o.Replica = sqliteprep.Stopped
@@ -179,6 +183,13 @@ func (g *sqliteHostGuard) supervisorHoldsLifetime(u unitState) bool {
 	}
 	holders, err := flockHolders(filepath.Join(g.host.proc(), "locks"), uint64(lock.Dev), lock.Ino) //nolint:gosec // Device numbers are nonnegative.
 	if err != nil || len(holders) != 1 || holders[0] != u.MainPID {
+		return false
+	}
+	return g.processInUnit(u, g.replicaUnit())
+}
+
+func (g *sqliteHostGuard) processInUnit(u unitState, unit string) bool {
+	if u.MainPID == 0 || u.ControlGroup == "" || !strings.HasSuffix(u.ControlGroup, "/"+unit) {
 		return false
 	}
 	raw, err := os.ReadFile(filepath.Join(g.host.proc(), strconv.FormatUint(u.MainPID, 10), "cgroup"))
@@ -246,6 +257,10 @@ func (g *sqliteHostGuard) stopUnit(ctx context.Context, name string) error {
 }
 
 func (g *sqliteHostGuard) StopWriters(ctx context.Context, _ sqliteprep.Intent) error {
+	writer, err := showUnit(ctx, g.host.session, g.appUnit())
+	if err != nil || !g.writerOwned(ctx, writer) {
+		return errSQLitePrepareHost
+	}
 	if err := g.stopUnit(ctx, g.appUnit()); err != nil {
 		return err
 	}
@@ -256,6 +271,14 @@ func (g *sqliteHostGuard) StopWriters(ctx context.Context, _ sqliteprep.Intent) 
 }
 
 func (g *sqliteHostGuard) StopReplica(ctx context.Context, _ sqliteprep.Intent) error {
+	unit, err := systemd.ParseUnit(g.replicaUnit())
+	if err != nil || verifyEngineLoadedService(ctx, g.host.session, g.host.home, unit) != nil {
+		return errSQLitePrepareHost
+	}
+	observed, err := g.Observe(ctx)
+	if err != nil || !observed.Owned || !observed.JobsAbsent {
+		return errSQLitePrepareHost
+	}
 	return g.stopUnit(ctx, g.replicaUnit())
 }
 
