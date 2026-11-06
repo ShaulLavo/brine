@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine                                                                           │
+────────────────────────────────────────────────────────────────────────────────│
+Could not list enrolled targets.                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+Error: internal_error. The operation failed.                                    │
+r refresh  q quit                                                               │
+== 80x24 color ==
+"\x1b[1;94mbrine\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Could not list enrolled targets."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[31mError: internal_error. The operation failed.\x1b[m"
+"\x1b[90mr refresh  q quit\x1b[m"
+== 50x16 no color ==
+brine                                             │
+──────────────────────────────────────────────────│
+Could not list enrolled targets.                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+Error: internal_error. The operation failed.      │
+q quit                                            │
+== 50x16 color ==
+"\x1b[1;94mbrine\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Could not list enrolled targets."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[31mError: internal_error. The operation failed.\x1b[m"
+"\x1b[90mq quit\x1b[m"
+== 30x8 no color ==
+brine                         │
+──────────────────────────────│
+Could not list enrolled       │
+targets.                      │
+                              │
+Error: internal_error. The    │
+operation failed.             │
+q quit                        │
+== 30x8 color ==
+"\x1b[1;94mbrine\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Could not list enrolled"
+"targets."
+""
+"\x1b[31mError: internal_error. The\x1b[m"
+"\x1b[31moperation failed.\x1b[m"
+"\x1b[90mq quit\x1b[m"

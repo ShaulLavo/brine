@@ -21,7 +21,7 @@ Brine is pre-1.0 and experimental. It has one maintainer, no release and no tag.
 | Managed SpacetimeDB commands | Implemented. Module-update, live-restore, archive and fault drills are still open. |
 | CDN attachments (Cloudflare first) | Implemented behind its own commands. Physical provider acceptance is still open. |
 | Migrations for an existing database schema | Not implemented. |
-| Full Charm terminal UI | Not built. `brine tui` shows a welcome screen. |
+| Full Charm terminal UI | Partial. `brine tui` browses targets, app status and bounded logs read-only. Operation observation, reviewed apply and diagnosis are not built. |
 | Static drops, git previews | Not built. |
 | UDP and WebTransport publishing | UDP planning, reservations, apply, lifecycle, exact rollback, removal and recovery are implemented. Physical UDP delivery and interruption drills on both architectures remain open. WebTransport is not implemented. |
 

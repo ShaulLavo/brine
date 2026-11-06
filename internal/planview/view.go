@@ -287,13 +287,6 @@ func shortDigest(digest string, v presentation) string {
 
 func safe(text string) string { return ui.Sanitize(text) }
 
-// DiffLines returns the sanitized, redacted diff in canonical order.
-func DiffLines(diff *plan.ConfigurationDiff) []string {
-	var lines []string
-	renderDiff(presentation{Diff: canonicalDiff(diff)}, func(line string) { lines = append(lines, safe(line)) })
-	return lines
-}
-
 // ConflictText renders a diagnostic with a fixed reason and no terminal controls.
 func ConflictText(d plan.Diagnostic) string {
 	return safe("! " + string(d.Code) + " [" + d.Field + "]: " + reason(d.Code))

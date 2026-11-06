@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api                                                   │
+────────────────────────────────────────────────────────────────────────────────│
+Reading fixture-api from fixture…                                               │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+l logs  r refresh  esc back                                                     │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Reading fixture-api from fixture…"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90ml logs  r refresh  esc back\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api                     │
+──────────────────────────────────────────────────│
+Reading fixture-api from fixture…                 │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+l logs  r refresh  esc back                       │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Reading fixture-api from fixture…"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90ml logs  r refresh  esc back\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+Reading fixture-api from      │
+fixture…                      │
+                              │
+                              │
+                              │
+l logs  esc back              │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Reading fixture-api from"
+"fixture…"
+""
+""
+""
+"\x1b[90ml logs  esc back\x1b[m"

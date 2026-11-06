@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -19,10 +20,58 @@ func TestScreenSweepAndNoticeVisibility(t *testing.T) {
 	}
 }
 
+func TestScreenTableKeepsStylingAndFillsBodyRows(t *testing.T) {
+	table := Table{Columns: []Column{{Title: "APP", Min: 4, Max: 12, Priority: 2}, {Title: "STATE", Min: 6, Max: 9, Priority: 1}}, Rows: [][]Cell{{{Text: "one\x1b]52;c;x\a"}, {Text: "failed", Tone: Bad}}, {{Text: "two"}, {Text: "ok", Tone: Good}}}, Selected: 1}
+	s := Screen{Title: "brine", Body: []string{"intro"}, Table: &table, Notice: "Error: x", Help: []string{"q quit"}}
+	for _, noColor := range []bool{false, true} {
+		f := Frame{Theme: NewTheme(noColor), Width: 40, Height: 10}
+		got := f.Screen(s)
+		plain := ansiPattern.ReplaceAllString(got, "")
+		if strings.Contains(plain, "[3") || strings.Contains(plain, "]52") && !strings.Contains(plain, " ]52;c;x ") || !strings.Contains(plain, "› two") {
+			t.Fatalf("noColor=%t: table styling or sanitizing broke: %q", noColor, got)
+		}
+		if noColor == strings.Contains(got, "\x1b[") {
+			t.Fatalf("noColor=%t: styling mismatch: %q", noColor, got)
+		}
+		// Title, divider, intro, header, two rows, padding, notice, help.
+		if rows := f.BodyRows(s); rows != 6 || lipgloss.Height(got) != 10 {
+			t.Fatalf("body rows %d, height %d", rows, lipgloss.Height(got))
+		}
+	}
+	// Height: 2-3 rows keep the title only; from 4 rows the divider appears.
+	for h, want := range map[int]int{2: 0, 3: 0, 4: 0, 5: 1, 12: 8} {
+		f := Frame{Theme: NewTheme(true), Width: 30, Height: h}
+		if got := f.BodyRows(s); got != want {
+			t.Fatalf("height %d: body rows %d, want %d: %q", h, got, want, f.Screen(s))
+		}
+	}
+}
+
+func TestScreenWrapsLongNotice(t *testing.T) {
+	s := Screen{Title: "brine", Body: []string{"body"}, Notice: "Error: transport_failure. The SSH transport failed; reconcile before retrying any mutation.", Help: []string{"q quit"}}
+	wide := Frame{Theme: NewTheme(true), Width: 120, Height: 10}
+	if !wide.NoticeVisible(s) || !strings.Contains(wide.Screen(s), s.Notice) || wide.BodyRows(s) != 6 {
+		t.Fatalf("wide notice: %q", wide.Screen(s))
+	}
+	narrow := Frame{Theme: NewTheme(true), Width: 50, Height: 10}
+	got := narrow.Screen(s)
+	if !narrow.NoticeVisible(s) || !strings.Contains(got, "Error: transport_failure. The SSH transport\nfailed; reconcile before retrying any mutation.") || narrow.BodyRows(s) != 5 {
+		t.Fatalf("wrapped notice: %q", got)
+	}
+	tiny := Frame{Theme: NewTheme(true), Width: 20, Height: 10}
+	got = tiny.Screen(s)
+	lines := strings.Split(got, "\n")
+	if tiny.NoticeVisible(s) || !strings.HasSuffix(lines[len(lines)-2], "…") || tiny.BodyRows(s) != 4 {
+		t.Fatalf("clipped notice must end with an ellipsis and report not visible: %q", got)
+	}
+}
+
+var ansiPattern = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
 func TestSanitizeControls(t *testing.T) {
 	cases := map[string]string{
 		"\x1b[31m":           " [31m",
-		"\x1b]52;c;secret\a": " ]52;c;secret ",
+		"\x1b]52;c;pasted\a": " ]52;c;pasted ",
 		"a\u202eb":           "a b",
 		"a\u009bb":           "a b",
 	}
@@ -71,7 +120,9 @@ func checkScreenSize(t *testing.T, s Screen, width, height int) {
 	f := Frame{Theme: NewTheme(true), Width: width, Height: height}
 	got := f.Screen(s)
 	checkViewSize(t, got, width, height)
-	if f.NoticeVisible(s) && !strings.Contains(got, s.Notice) {
+	// A visible notice may wrap at spaces or hyphens, so compare without whitespace.
+	squash := func(text string) string { return strings.Join(strings.Fields(text), "") }
+	if f.NoticeVisible(s) && !strings.Contains(squash(got), squash(s.Notice)) {
 		t.Fatalf("notice reported visible at %dx%d: %q", width, height, got)
 	}
 }

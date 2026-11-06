@@ -2,62 +2,83 @@ package cli
 
 import (
 	"context"
-	"io"
+	"errors"
+	"io/fs"
+	"os"
+	"slices"
+	"strings"
 
-	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/transport"
 	"github.com/ShaulLavo/brine/internal/ui"
 	"github.com/spf13/cobra"
 )
 
-type welcomeModel struct {
-	frame ui.Frame
-}
-
-func (welcomeModel) Init() tea.Cmd { return nil }
-func (m welcomeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
-		m.frame.Width, m.frame.Height = msg.Width, msg.Height
-	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "q", "ctrl+c", "esc":
-			return m, tea.Quit
-		}
-	}
-	return m, nil
-}
-func (m welcomeModel) View() tea.View {
-	return tea.NewView(m.frame.Render(
-		"brine  /  deployment control",
-		"A foundation, not yet a deployment engine.",
-		"Press q to quit.  ctrl+c / esc also quit.",
-	))
-}
-
 func newTUICmd(machineOutput, noInput *bool, deps Dependencies) *cobra.Command {
-	return &cobra.Command{
+	var flags operationFlags
+	cmd := &cobra.Command{
 		Use:   "tui",
-		Short: "Open the interactive terminal UI",
+		Short: "Browse targets, apps and bounded logs in a read-only terminal UI",
+		Long:  "Browse enrolled targets, app status and bounded, redacted log tails. The TUI only reads: it never plans, applies or cancels anything. Without --target it starts on the target picker.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if *machineOutput || *noInput {
 				return result.New(result.TUIInteractive, nil)
 			}
+			if !validTUISelection(flags, cmd.Flags().Changed("target")) {
+				return result.New(result.InvalidUsage, nil)
+			}
 			if !isTerminal(deps.Stdout) || (!isTerminal(deps.Stdin) && !hasProcessTerminalFallback(deps.Stdin)) {
 				return result.New(result.TUITerminalRequired, nil)
 			}
-			return deps.RunTUI(cmd.Context(), cmd.InOrStdin(), deps.Stdout)
+			if flags.target != "" {
+				if _, err := flags.loadTarget(deps); err != nil {
+					return err
+				}
+			}
+			ctx, cancel := context.WithCancel(cmd.Context())
+			defer cancel()
+			_, err := deps.RunTUI(ctx, newTUIModel(ctx, deps, flags), cmd.InOrStdin(), deps.Stdout)
+			// Cancel in-flight reads before the error is presented.
+			cancel()
+			return err
 		},
 	}
+	flags.register(cmd)
+	return cmd
 }
 
-// RunTUI runs the welcome screen using the caller's context and output.
-// A nil input preserves Bubble Tea's process-input and controlling-terminal fallback.
-func RunTUI(ctx context.Context, stdin io.Reader, stdout io.Writer) error {
-	opts := []tea.ProgramOption{tea.WithContext(ctx), tea.WithOutput(stdout), tea.WithoutSignalHandler(), tea.WithWindowSize(80, 24)}
-	if stdin != nil {
-		opts = append(opts, tea.WithInput(stdin))
+// validTUISelection checks the flags before the terminal check and before any
+// target I/O. An explicit --target must name a valid target.
+func validTUISelection(flags operationFlags, targetSet bool) bool {
+	if targetSet {
+		return flags.validSelection()
 	}
-	_, err := tea.NewProgram(welcomeModel{frame: ui.Frame{Theme: ui.ThemeFromEnv(), Width: 80, Height: 24}}, opts...).Run()
-	return err
+	return ui.Sanitize(flags.configDir) == flags.configDir
+}
+
+// listTargets returns enrolled target names from file names alone, sorted. It
+// never opens a target file, so the picker cannot display its destination,
+// identity or host key. A missing directory has no targets.
+func listTargets(flags operationFlags) ([]string, error) {
+	dir, err := flags.targetsDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []string{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		name, json := strings.CutSuffix(entry.Name(), ".json")
+		if json && !entry.IsDir() && transport.ValidTargetName(name) {
+			names = append(names, name)
+		}
+	}
+	// Sort by name, not file name: "fixture-pi.json" sorts before "fixture.json".
+	slices.Sort(names)
+	return names, nil
 }

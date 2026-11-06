@@ -45,13 +45,9 @@ func (f operationFlags) call(ctx context.Context, deps Dependencies, op string, 
 	if err != nil {
 		return result.Envelope{}, err
 	}
-	dir := f.configDir
-	if dir == "" {
-		base, err := os.UserConfigDir()
-		if err != nil {
-			return result.Envelope{}, err
-		}
-		dir = filepath.Join(base, "brine", "targets")
+	dir, err := f.targetsDir()
+	if err != nil {
+		return result.Envelope{}, err
 	}
 	client := deps.OperationClient
 	if client == nil {
@@ -267,14 +263,23 @@ func newHostRunOpCmd(deps Dependencies) *cobra.Command {
 	}}
 }
 
+// targetsDir is the private client target directory: --config-dir, or the
+// user configuration directory's brine/targets.
+func (f operationFlags) targetsDir() (string, error) {
+	if f.configDir != "" {
+		return f.configDir, nil
+	}
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "brine", "targets"), nil
+}
+
 func (f operationFlags) loadTarget(deps Dependencies) (transport.Target, error) {
-	dir := f.configDir
-	if dir == "" {
-		base, err := os.UserConfigDir()
-		if err != nil {
-			return transport.Target{}, err
-		}
-		dir = filepath.Join(base, "brine", "targets")
+	dir, err := f.targetsDir()
+	if err != nil {
+		return transport.Target{}, err
 	}
 	load := deps.LoadOperationTarget
 	if load == nil {
