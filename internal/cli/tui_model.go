@@ -150,6 +150,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.logOffset = m.clampLogOffset(m.logOffset)
 		m.detailOffset = m.clampDetailOffset(m.detailOffset)
+		m.clampOperationOffset()
 	case tea.KeyPressMsg:
 		return m.key(msg.String())
 	case targetsMsg:
@@ -370,7 +371,8 @@ func (m tuiModel) move(delta int) tuiModel {
 	case screenApp:
 		m.detailOffset = m.clampDetailOffset(m.detailOffset + delta)
 	case screenOperation:
-		m.observe.Offset = max(0, min(m.observe.Offset+delta, len(m.operationLines())-1))
+		m.observe.Offset += delta
+		m.clampOperationOffset()
 	case screenLogs:
 		m.logOffset = m.clampLogOffset(m.logOffset - delta)
 	}

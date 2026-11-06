@@ -105,3 +105,11 @@ func eventText(event ops.Event, loc *time.Location) string {
 	}
 	return fmt.Sprintf("#%d  %s  %s", event.Sequence, event.CreatedAt.In(loc).Format("15:04:05"), strings.TrimSpace(text))
 }
+
+func (m tuiModel) clampOperationOffset() {
+	if m.observe == nil {
+		return
+	}
+	rows := m.frame().BodyRows(m.operationScreen())
+	m.observe.Offset = max(0, min(m.observe.Offset, len(m.operationLines())-rows))
+}

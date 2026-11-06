@@ -71,6 +71,7 @@ func (m tuiModel) loadOperation() (tuiModel, tea.Cmd) {
 	id, cursor := m.observe.Operation.ID, m.observe.Cursor
 	m, ctx, token := m.beginRead()
 	m.observe.Loading = true
+	m.clampOperationOffset()
 	return m, func() tea.Msg {
 		status, err := host.Operation(ctx, id, cursor)
 		return pageMsg{token: token, status: status, err: err}
@@ -81,6 +82,7 @@ func (m tuiModel) operationPage(msg pageMsg) (tea.Model, tea.Cmd) {
 	if m.screen != screenOperation || !m.current(msg.token) {
 		return m, nil
 	}
+	defer m.clampOperationOffset()
 	m.observe.Loading = false
 	if msg.err != nil {
 		return m.observationError(msg.err)
@@ -109,6 +111,7 @@ func (m tuiModel) operationPage(msg pageMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m tuiModel) observationError(err error) (tea.Model, tea.Cmd) {
+	defer m.clampOperationOffset()
 	o := m.observe
 	o.Err = result.Classify(err)
 	o.Phase = observePaused
