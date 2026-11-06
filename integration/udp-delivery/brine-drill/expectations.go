@@ -134,13 +134,14 @@ func validatePlanSelection(step Step, prior map[string]Step) error {
 func (m Manifest) planSource(step Step) (Step, error) {
 	prior := map[string]Step{}
 	for _, declared := range m.Phases.allSteps() {
-		if declared.ID == step.ID {
-			if err := validatePlanSelection(step, prior); err != nil {
-				return Step{}, err
-			}
-			return prior[step.PlanStep], nil
+		if declared.ID != step.ID {
+			prior[declared.ID] = declared
+			continue
 		}
-		prior[declared.ID] = declared
+		if err := validatePlanSelection(step, prior); err != nil {
+			return Step{}, err
+		}
+		return prior[step.PlanStep], nil
 	}
 	return Step{}, errors.New("apply step is not declared")
 }
