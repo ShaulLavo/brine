@@ -2,7 +2,6 @@ package plan
 
 import (
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/target"
@@ -56,13 +55,11 @@ func managedFrontend(in Input, previous *CurrentRelease, enginePort target.Port)
 		add(PortsExhausted, "managed.frontend_port")
 	}
 	for _, secret := range in.Desired.Secrets {
-		binding := SecretBinding{Environment: secret.Name, Reference: secret.Reference}
-		prefix := "brine." + string(in.Desired.Name) + "." + string(secret.Reference) + ".v"
-		var latest uint64
-		if current != nil && current.Secrets.Status == target.KnownStatus && current.Secrets.Value != nil {
-			binding, latest = managedFrontendSecret(*current.Secrets.Value, prefix, binding)
+		binding, found := SecretBinding{}, false
+		if current != nil && current.Secrets.Value != nil {
+			binding, found = bindSecret(string(in.Desired.Name), secret, current, in.SecretExact)
 		}
-		if latest == 0 {
+		if !found {
 			add(SecretMissing, "secrets."+secret.Name)
 		} else {
 			frontend.Secrets = append(frontend.Secrets, binding)
@@ -82,21 +79,4 @@ func managedFrontend(in Input, previous *CurrentRelease, enginePort target.Port)
 		add(ArtifactDrift, "managed.frontend_ownership")
 	}
 	return frontend, conflicts
-}
-
-func managedFrontendSecret(secrets []target.Secret, prefix string, binding SecretBinding) (SecretBinding, uint64) {
-	var latest uint64
-	for _, secret := range secrets {
-		if !strings.HasPrefix(secret.Name, prefix) {
-			continue
-		}
-		version, err := strconv.ParseUint(strings.TrimPrefix(secret.Name, prefix), 10, 64)
-		if err != nil || version <= latest || secret.Name != prefix+strconv.FormatUint(version, 10) {
-			continue
-		}
-		latest = version
-		binding.VersionName = secret.Name
-		binding.ID = secret.ID
-	}
-	return binding, latest
 }

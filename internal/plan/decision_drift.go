@@ -32,6 +32,18 @@ type decisionDocument struct {
 	Plan     Plan           `json:"plan"`
 }
 
+type managedDecisionFacts struct {
+	Snapshot decisionFacts `json:"snapshot"`
+	Managed  ManagedFacts  `json:"managed"`
+}
+
+type managedDecisionDocument struct {
+	Desired  policy.Desired       `json:"desired"`
+	Snapshot managedDecisionFacts `json:"snapshot"`
+	State    BrineState           `json:"brine_state"`
+	Plan     Plan                 `json:"plan"`
+}
+
 func (p Plan) DecisionInput() []byte { return slices.Clone(p.decisionInput) }
 
 func (p Plan) WithDecisionInput(raw []byte) (Plan, error) {
@@ -47,28 +59,57 @@ func decodeDecisionInput(raw []byte) (decisionDocument, error) {
 	if len(raw) == 0 || len(raw) > MaxDecisionInputBytes {
 		return d, fmt.Errorf("invalid decision input size")
 	}
+	err := decodeDecisionDocument(raw, &d)
+	return d, err
+}
+
+func decodeDecisionDocument(raw []byte, document any) error {
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&d); err != nil {
-		return d, err
+	if err := decoder.Decode(document); err != nil {
+		return err
 	}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		return d, fmt.Errorf("invalid decision input document")
+		return fmt.Errorf("invalid decision input document")
 	}
-	return d, nil
+	return nil
+}
+
+func decisionInputValue(raw []byte) (reflect.Value, error) {
+	if len(raw) == 0 || len(raw) > MaxDecisionInputBytes {
+		return reflect.Value{}, fmt.Errorf("invalid decision input size")
+	}
+	var shape struct {
+		Snapshot struct {
+			Managed json.RawMessage `json:"managed"`
+		} `json:"snapshot"`
+	}
+	if err := json.Unmarshal(raw, &shape); err != nil {
+		return reflect.Value{}, err
+	}
+	if len(shape.Snapshot.Managed) != 0 {
+		var d managedDecisionDocument
+		err := decodeDecisionDocument(raw, &d)
+		return reflect.ValueOf(d), err
+	}
+	d, err := decodeDecisionInput(raw)
+	return reflect.ValueOf(d), err
 }
 
 func CompareDecisionInputs(before, after []byte) (DecisionDrift, error) {
-	a, err := decodeDecisionInput(before)
+	a, err := decisionInputValue(before)
 	if err != nil {
 		return DecisionDrift{}, err
 	}
-	b, err := decodeDecisionInput(after)
+	b, err := decisionInputValue(after)
 	if err != nil {
 		return DecisionDrift{}, err
 	}
 	out := DecisionDrift{Paths: []string{}}
-	compareDecisionValues(reflect.ValueOf(a), reflect.ValueOf(b), "", out.addPath)
+	for i := 0; i < a.NumField(); i++ {
+		field := a.Type().Field(i)
+		compareDecisionValues(a.Field(i), b.FieldByName(field.Name), field.Tag.Get("json"), out.addPath)
+	}
 	slices.Sort(out.Paths)
 	return out, nil
 }
@@ -84,6 +125,10 @@ func (d *DecisionDrift) addPath(path string) {
 }
 
 func compareDecisionValues(a, b reflect.Value, path string, changed func(string)) {
+	if a.Type() != b.Type() {
+		changed(path)
+		return
+	}
 	if reflect.DeepEqual(a.Interface(), b.Interface()) {
 		return
 	}
@@ -140,7 +185,10 @@ func (d DecisionDrift) Valid() bool {
 }
 
 func validDecisionPath(path string) bool {
-	typ := reflect.TypeFor[decisionDocument]()
+	return validDecisionPathFor(path, reflect.TypeFor[decisionDocument]()) || validDecisionPathFor(path, reflect.TypeFor[managedDecisionDocument]())
+}
+
+func validDecisionPathFor(path string, typ reflect.Type) bool {
 	for _, segment := range strings.Split(path, ".") {
 		for typ.Kind() == reflect.Pointer {
 			typ = typ.Elem()
