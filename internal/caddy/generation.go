@@ -885,6 +885,7 @@ func (m *Manager) SettleWithdrawal(ctx context.Context, main []byte, before, obs
 		return err
 	}
 	if err := m.verifyLoaded(ctx, sites, before.Sites); err != nil {
+		m.stopped = true
 		return &UnknownOutcomeError{Stage: "withdrawal-readback", Cause: err}
 	}
 	return nil
