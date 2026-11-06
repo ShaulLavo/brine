@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › plan                                            │
+────────────────────────────────────────────────────────────────────────────────│
+Choose a change to plan. Nothing changes until you review and apply it.         │
+                                                                                │
+  ACTION                            EFFECT                                      │
+› Restart                           restart app; releases and data unchanged    │
+  Stop                              stop app; releases and data unchanged       │
+  Start                             start the app unit                          │
+  Roll back to previous known-good  previous known-good release; never rewinds …│
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+enter plan  esc back                                                            │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › plan\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Choose a change to plan. Nothing changes until you review and apply it."
+""
+"\x1b[94m  \x1b[m\x1b[90mACTION                            \x1b[m\x1b[90mEFFECT\x1b[m"
+"\x1b[94m› \x1b[m\x1b[1mRestart                           \x1b[m\x1b[1mrestart app; releases and data unchanged\x1b[m"
+"\x1b[94m  \x1b[mStop                              stop app; releases and data unchanged"
+"\x1b[94m  \x1b[mStart                             start the app unit"
+"\x1b[94m  \x1b[mRoll back to previous known-good  previous known-good release; never rewinds …"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90menter plan  esc back\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › plan              │
+──────────────────────────────────────────────────│
+Choose a change to plan. Nothing changes until you│
+review and apply it.                              │
+                                                  │
+  ACTION                           EFFECT         │
+› Restart                          restart app; r…│
+  Stop                             stop app; rele…│
+  Start                            start the app …│
+  Roll back to previous known-go…  previous known…│
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+enter plan  esc back                              │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › plan\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Choose a change to plan. Nothing changes until you"
+"review and apply it."
+""
+"\x1b[94m  \x1b[m\x1b[90mACTION                           \x1b[m\x1b[90mEFFECT\x1b[m"
+"\x1b[94m› \x1b[m\x1b[1mRestart                          \x1b[m\x1b[1mrestart app; r…\x1b[m"
+"\x1b[94m  \x1b[mStop                             stop app; rele…"
+"\x1b[94m  \x1b[mStart                            start the app …"
+"\x1b[94m  \x1b[mRoll back to previous known-go…  previous known…"
+""
+""
+""
+""
+""
+"\x1b[90menter plan  esc back\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+Choose a change to plan.      │
+Nothing changes until you     │
+review and apply it.          │
+                              │
+› Restart      restart app; r…│
+enter plan  esc back          │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Choose a change to plan."
+"Nothing changes until you"
+"review and apply it."
+""
+"\x1b[94m› \x1b[m\x1b[1mRestart      \x1b[m\x1b[1mrestart app; r…\x1b[m"
+"\x1b[90menter plan  esc back\x1b[m"

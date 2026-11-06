@@ -32,7 +32,20 @@ func (m tuiModel) frame() ui.Frame {
 }
 
 func (m tuiModel) screenView() ui.Screen {
+	s := m.currentScreen()
+	if m.issued != nil && m.screen != screenReview {
+		s.Context = "Pending action on " + m.issued.Flags.target
+		s.Help = append([]string{"u pending action"}, s.Help...)
+	}
+	return s
+}
+
+func (m tuiModel) currentScreen() ui.Screen {
 	switch m.screen {
+	case screenActions:
+		return m.actionsScreen()
+	case screenReview:
+		return m.reviewScreen()
 	case screenApps:
 		return m.appsScreen()
 	case screenApp:
@@ -98,10 +111,12 @@ func (m tuiModel) appScreen() ui.Screen {
 	case found:
 		s.Context = m.readContext(m.apps.State, m.apps.At, "")
 		s.Body = appDetailLines(status, m.width)
-		s.Help = m.help(helpKey{"↑↓ scroll", 0}, keyBack, helpKey{"l logs", 1}, keyRefresh(1))
+		keys := []helpKey{{"↑↓ scroll", 0}, {"p plan", 0}, keyBack}
 		if status.LastOperation != nil {
-			s.Help = m.help(helpKey{"t events", 0}, helpKey{"↑↓ scroll", 0}, keyBack, helpKey{"l logs", 1}, keyRefresh(1))
+			keys = append(keys, helpKey{"t events", 1})
 		}
+		keys = append(keys, helpKey{"l logs", 1}, keyRefresh(1))
+		s.Help = m.help(keys...)
 		s.Body = topWindow(s.Body, m.detailOffset, m.frame().BodyRows(s))
 	case m.apps.known():
 		s.Context = m.readContext(m.apps.State, m.apps.At, "")
@@ -124,19 +139,20 @@ func (m tuiModel) appStatus() (apps.Status, bool) {
 }
 
 func (m tuiModel) logsScreen() ui.Screen {
+	flags, app := m.logSelection()
 	readAgain := helpKey{"r read again", 0}
-	s := ui.Screen{Title: "brine · " + m.flags.target + " › " + m.app + " › logs", Help: m.help(readAgain, keyBack)}
+	s := ui.Screen{Title: "brine · " + flags.target + " › " + app + " › logs", Help: m.help(readAgain, keyBack)}
 	s = withError(s, m.logs.Err)
 	switch {
 	case m.logs.known() && len(m.logs.Value) == 0:
 		s.Context = m.readContext(m.logs.State, m.logs.At, "tail "+strconv.Itoa(tuiLogTail))
-		s.Body = m.message("No log entries for " + m.app + ".")
+		s.Body = m.message("No log entries for " + app + ".")
 	case m.logs.known():
 		s.Context = m.readContext(m.logs.State, m.logs.At, "tail "+strconv.Itoa(tuiLogTail))
 		s.Help = m.help(helpKey{"↑↓ scroll", 0}, helpKey{"r read again", 1}, keyBack)
 		s.Body = m.logWindow(m.frame().BodyRows(s))
 	case m.logs.State == loadFailed:
-		s.Body = m.message("Could not read logs for " + m.app + ".")
+		s.Body = m.message("Could not read logs for " + app + ".")
 	default:
 		s.Body = m.message("Reading the last " + strconv.Itoa(tuiLogTail) + " log entries…")
 	}

@@ -14,8 +14,10 @@ import (
 const tuiLogTail = 100
 
 // tuiHost is the TUI's only access to a target. Each method is one existing
-// read-only dispatcher op, validated exactly like its CLI command.
+// dispatcher op, validated exactly like its CLI command.
 type tuiHost interface {
+	Plan(context.Context, tuiAction, string) (tuiReview, error)
+	Apply(context.Context, string, string) (jobs.Accepted, error)
 	Apps(ctx context.Context) (apps.Report, error)
 	Logs(ctx context.Context, app string) ([]logs.Line, error)
 	Operation(ctx context.Context, id string, cursor uint64) (jobs.Status, error)

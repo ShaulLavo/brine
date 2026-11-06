@@ -87,6 +87,9 @@ func (m tuiModel) operationPage(msg pageMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		return m.observationError(msg.err)
 	}
+	if err := m.issuedPageError(msg.status); err != nil {
+		return m.observationError(err)
+	}
 	o := m.observe
 	o.Operation, o.Outcome, o.Cursor = msg.status.Operation, msg.status.Outcome, msg.status.NextCursor
 	o.appendEvents(msg.status.Events)
@@ -97,6 +100,7 @@ func (m tuiModel) operationPage(msg pageMsg) (tea.Model, tea.Cmd) {
 	}
 	if o.Operation.State.IsTerminal() {
 		o.Phase = observeSettled
+		m.settleIssued()
 		if !o.Refreshed {
 			o.Refreshed = true
 			return m.loadApps()
@@ -135,6 +139,13 @@ func (m tuiModel) schedulePoll(delay time.Duration) tea.Cmd {
 }
 
 func (m tuiModel) exitNotice() string {
+	if m.issued != nil {
+		return m.issuedExitNotice()
+	}
+	return m.observedExitNotice()
+}
+
+func (m tuiModel) observedExitNotice() string {
 	o := m.observe
 	if o == nil || o.Operation.State.IsTerminal() {
 		return ""

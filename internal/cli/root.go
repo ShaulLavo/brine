@@ -82,7 +82,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "brine",
 		Short:         "Agent-first self-hosted deployments",
-		Long:          "Deploy stateless apps to enrolled Linux servers through Podman, Quadlet/systemd and Caddy. Plan before apply and save the idempotency key. Acceptance is not completion; poll the operation ID. Diagnose and reconcile uncertain outcomes before retrying. Persistent apps use declared databases and immutable replica bindings. Restore tests verify remote recoverability without changing live data. The Charm TUI browses targets, apps, operations and bounded logs read-only.",
+		Long:          "Deploy stateless apps to enrolled Linux servers through Podman, Quadlet/systemd and Caddy. Plan before apply and save the idempotency key. Acceptance is not completion; poll the operation ID. Diagnose and reconcile uncertain outcomes before retrying. Persistent apps use declared databases and immutable replica bindings. Restore tests verify remote recoverability without changing live data. The Charm TUI browses targets, apps, operations and bounded logs, and reviews and confirms restart, stop, start and previous known-good rollback plans.",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 		PersistentPreRunE: func(cmd *cobra.Command, _ []string) error {
