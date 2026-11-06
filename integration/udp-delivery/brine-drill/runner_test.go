@@ -65,7 +65,7 @@ func TestApplySuccessUsesReviewedEnvelopeShapes(t *testing.T) {
 		if strings.Contains(joined, " apply ") {
 			return commandResult(`{"schema_version":1,"command":"brine apply","ok":true,"data":{"status":"accepted","operation_id":"op-1"},"error":null}`), nil
 		}
-		return commandResult(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"id":"op-1","state":"succeeded"}},"error":null}`), nil
+		return commandResult(`{"schema_version":1,"command":"brine status","ok":true,"data":{"operation":{"id":"op-1","state":"succeeded","app":"udp-a","plan_id":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","kind":"deploy"}},"error":null}`), nil
 	}}
 	runner := Runner{Manifest: manifest, Ledger: ledger, Commands: commands}
 	if _, err := runner.RunPhase(context.Background(), PhaseBeforeReboot); err != nil {
@@ -316,30 +316,30 @@ func TestReadyProofPreservesHTTPAndAppIdentity(t *testing.T) {
 	app := manifest.Apps[0]
 	status := apps.Status{
 		App:     app.Name,
-		Current: &apps.Release{ID: "op-ready", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"], Domains: []spec.Domain{spec.Domain(app.Domain)}, UDP: &plan.UDPAllocation{Endpoint: plan.UDPEndpoint{BindAddress: app.Endpoint.BindAddress, HostPort: target.Port(app.Endpoint.HostPort)}, ContainerPort: target.Port(app.Endpoint.ContainerPort), ClientAddress: app.Endpoint.ClientAddress, Exposure: spec.UDPExposure(app.Endpoint.Exposure)}},
+		Current: &apps.Release{ID: "op-ready", PlanID: "plan-ready", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"], Domains: []spec.Domain{spec.Domain(app.Domain)}, UDP: &plan.UDPAllocation{Endpoint: plan.UDPEndpoint{BindAddress: app.Endpoint.BindAddress, HostPort: target.Port(app.Endpoint.HostPort)}, ContainerPort: target.Port(app.Endpoint.ContainerPort), ClientAddress: app.Endpoint.ClientAddress, Exposure: spec.UDPExposure(app.Endpoint.Exposure)}},
 		Health:  apps.Health{Direct: "healthy", UnitActive: target.Known(true)},
 		UDP:     &apps.UDPStatus{Incarnation: app.Incarnation, Local: udpready.Ready, Remote: "unverified", Reservation: "active", BindAddress: app.Endpoint.BindAddress, ClientAddress: app.Endpoint.ClientAddress, HostPort: target.Port(app.Endpoint.HostPort), ContainerPort: target.Port(app.Endpoint.ContainerPort), Exposure: spec.UDPExposure(app.Endpoint.Exposure)},
 	}
 	proofPath := filepath.Join(filepath.Dir(ledger.Path), "ready.json")
 	proof := ProductionProof{Schema: ReceiptSchema, RunID: manifest.RunID, Target: manifest.Target.Name, Kind: "ready", App: app.Name, Endpoint: app.Endpoint, Release: "release-a", ReleaseID: "op-ready", Incarnation: app.Incarnation, ImageDigest: manifest.Fixture.ReleaseDigests["release-a"], HTTPHealth: "healthy", NetworkMode: "pasta", Mapping: MappingProof{Present: true, BindAddress: app.Endpoint.BindAddress, HostPort: app.Endpoint.HostPort, ContainerPort: app.Endpoint.ContainerPort}, Socket: &SocketProof{Address: app.Endpoint.BindAddress, Port: app.Endpoint.HostPort, App: app.Name, Process: "pasta", Unit: app.Name + ".service", Inode: 42, Source: "ss -H -lunpe", Ownership: "affirmed"}, InodeGate: "confirmed", ForeignOverlap: "none", RouteUnchanged: true}
 	writeJSON(t, proofPath, proof)
-	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", proofPath, "", "", ""); err != nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
 	proofHash := mustFileHash(t, proofPath)
-	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", proofPath, proofHash, manifest.RunID, manifest.Target.Name); err != nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, proofHash, manifest.RunID, manifest.Target.Name); err != nil {
 		t.Fatal(err)
 	}
 	proof.Target = "other-target"
 	writeJSON(t, proofPath, proof)
-	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", proofPath, proofHash, manifest.RunID, manifest.Target.Name); err == nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, proofHash, manifest.RunID, manifest.Target.Name); err == nil {
 		t.Fatal("accepted production proof after its bytes changed")
 	}
-	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", proofPath, mustFileHash(t, proofPath), manifest.RunID, manifest.Target.Name); err == nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, mustFileHash(t, proofPath), manifest.RunID, manifest.Target.Name); err == nil {
 		t.Fatal("accepted production proof for another target")
 	}
 	status.Health.Direct = "unhealthy"
-	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", proofPath, "", "", ""); err == nil {
+	if err := validateReadyFor(status, &app, ReleaseExpectation{Release: "release-a", ImageDigest: manifest.Fixture.ReleaseDigests["release-a"]}, "op-ready", "plan-ready", proofPath, "", "", ""); err == nil {
 		t.Fatal("accepted unhealthy HTTP alongside UDP proof")
 	}
 }

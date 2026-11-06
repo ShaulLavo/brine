@@ -59,3 +59,5 @@ This is a display placeholder, never a submitted release ID.
 `expectations_test.go` exercises one immutable fixture manifest through v1, v2,
 a failed replacement preserving v2, and rollback to v1. These are local scripted
 observations, not physical acceptance or permission to perform host operations.
+
+The ledger uses schema 2. Each submitted operation retains its exact app, plan, kind and recovery source. Polling compares those fields before settlement. A plan_step must be an earlier successful plan for the same app with its deterministic key and original command hash. Ready status must name the successful apply's plan, including a rollback's new plan rather than its historical target's plan. Missing or contradictory bindings leave the original accepted entry unsettled and never authorize mutation replay.

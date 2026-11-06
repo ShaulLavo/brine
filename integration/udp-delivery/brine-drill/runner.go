@@ -24,13 +24,14 @@ import (
 	"github.com/ShaulLavo/brine/fixtures/udp-echo/protocol"
 	"github.com/ShaulLavo/brine/internal/apps"
 	"github.com/ShaulLavo/brine/internal/localexec"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
 const (
 	ManifestSchema = 2
-	LedgerSchema   = 1
+	LedgerSchema   = 2
 	ReceiptSchema  = 1
 	maxManifest    = 1 << 20
 	maxReceipt     = 1 << 20
@@ -180,6 +181,8 @@ type LedgerEntry struct {
 	PlanID        string    `json:"plan_id,omitempty"`
 	ReleaseID     string    `json:"release_id,omitempty"`
 	OperationID   string    `json:"operation_id,omitempty"`
+	OperationKind ops.Kind  `json:"operation_kind,omitempty"`
+	RecoveryOf    string    `json:"recovery_of,omitempty"`
 	State         string    `json:"state"`
 	CommandSHA256 string    `json:"command_sha256"`
 	UpdatedAt     time.Time `json:"updated_at"`
@@ -875,6 +878,7 @@ func (r *Runner) runPlan(ctx context.Context, ledger *Ledger, step Step) (StepRe
 		return StepReport{}, errors.New("plan entry needs inspection before replay")
 	}
 	command := r.planCommand(step)
+	entry.CommandSHA256 = commandHash(command)
 	if err := r.persistPrepared(ledger, entry, command); err != nil {
 		return StepReport{}, err
 	}
@@ -915,6 +919,7 @@ func (r *Runner) runApply(ctx context.Context, ledger *Ledger, step Step) (StepR
 		return StepReport{}, errors.New("existing apply entry requires inspection")
 	}
 	entry.PlanID, entry.ReleaseID = planID, step.releaseID
+	entry.OperationKind = ops.Deploy
 	command := r.applyCommand(planID, entry.Key)
 	entry.CommandSHA256 = commandHash(command)
 	if !found {
@@ -950,7 +955,7 @@ func (r *Runner) runApply(ctx context.Context, ledger *Ledger, step Step) (StepR
 	if err := r.Ledger.Save(*ledger); err != nil {
 		return StepReport{}, err
 	}
-	status, err := r.waitOperation(ctx, accepted.OperationID)
+	status, err := r.waitOperation(ctx, entry)
 	if err != nil {
 		return StepReport{ID: step.ID, Action: step.Action, State: "accepted", OperationID: accepted.OperationID}, err
 	}
@@ -992,7 +997,7 @@ func (r *Runner) runLifecycle(ctx context.Context, ledger *Ledger, step Step) (S
 }
 
 func (r *Runner) runRollback(ctx context.Context, ledger *Ledger, step Step) (StepReport, error) {
-	_, releaseID, err := r.releaseFor(*ledger, step)
+	_, sourceRelease, err := r.releaseFor(*ledger, step)
 	if err != nil {
 		return StepReport{}, err
 	}
@@ -1006,6 +1011,7 @@ func (r *Runner) runRollback(ctx context.Context, ledger *Ledger, step Step) (St
 		}
 		return reportApplyOutcome(entry, "succeeded")
 	}
+	releaseID := sourceRelease.OperationID
 	command := r.rollbackCommand(step, releaseID)
 	response, err := r.readEnvelope(ctx, command, true)
 	if err != nil {
@@ -1027,10 +1033,10 @@ func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (Step
 		return StepReport{}, errors.New("status step names an unknown app")
 	}
 	var expected ReleaseExpectation
-	var releaseID string
+	var release LedgerEntry
 	if step.ExpectedOutcome == "ready" || step.ExpectedOutcome == "absent" {
 		var err error
-		expected, releaseID, err = r.releaseFor(*ledger, step)
+		expected, release, err = r.releaseFor(*ledger, step)
 		if err != nil {
 			return StepReport{}, err
 		}
@@ -1057,7 +1063,7 @@ func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (Step
 		if err != nil {
 			return StepReport{}, err
 		}
-		if err := validateProofFor(proof, "absent", app, expected, releaseID, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
+		if err := validateProofFor(proof, "absent", app, expected, release.OperationID, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
 			return StepReport{}, err
 		}
 		return StepReport{ID: step.ID, Action: step.Action, State: "absent"}, nil
@@ -1067,7 +1073,7 @@ func (r *Runner) runStatus(ctx context.Context, ledger *Ledger, step Step) (Step
 		return StepReport{}, err
 	}
 	if step.ExpectedOutcome == "ready" {
-		if err := validateReadyFor(*item, app, expected, releaseID, step.Proof, step.ProofSHA256, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
+		if err := validateReadyFor(*item, app, expected, release.OperationID, release.PlanID, step.Proof, step.ProofSHA256, r.Manifest.RunID, r.Manifest.Target.Name); err != nil {
 			return StepReport{}, err
 		}
 	}
@@ -1152,7 +1158,7 @@ func (r *Runner) runInspect(ctx context.Context, ledger *Ledger, step Step) (Ste
 	if err != nil {
 		return StepReport{}, err
 	}
-	status, err := r.operationStatus(ctx, entry.OperationID)
+	status, err := r.operationStatus(ctx, entry)
 	if err != nil {
 		return StepReport{}, err
 	}
@@ -1164,7 +1170,7 @@ func (r *Runner) runResume(ctx context.Context, ledger *Ledger, step Step) (Step
 	if err != nil {
 		return StepReport{}, err
 	}
-	status, err := r.operationStatus(ctx, entry.OperationID)
+	status, err := r.operationStatus(ctx, entry)
 	if err != nil {
 		return StepReport{}, err
 	}
@@ -1231,6 +1237,8 @@ func (r *Runner) resolve(ctx context.Context, ledger *Ledger, step Step) (StepRe
 	if !operationIDPattern.MatchString(accepted.OperationID) {
 		return reportFor(entry), errors.New("resolve response has an invalid successor operation ID")
 	}
+	entry.RecoveryOf = entry.OperationID
+	entry.OperationKind = ops.Resolve
 	entry.OperationID, entry.State = accepted.OperationID, "accepted"
 	entry.UpdatedAt = time.Now().UTC()
 	if err := r.replaceEntry(ledger, entry); err != nil {
@@ -1239,7 +1247,7 @@ func (r *Runner) resolve(ctx context.Context, ledger *Ledger, step Step) (StepRe
 	if err := r.Ledger.Save(*ledger); err != nil {
 		return StepReport{}, err
 	}
-	status, err := r.waitOperation(ctx, accepted.OperationID)
+	status, err := r.waitOperation(ctx, entry)
 	if err != nil {
 		return StepReport{}, err
 	}
@@ -1269,13 +1277,24 @@ func (r *Runner) lifecyclePlan(ctx context.Context, step Step, action string) (s
 }
 
 func (r *Runner) planReference(ledger Ledger, step Step) (string, error) {
+	if (step.PlanID == "") == (step.PlanStep == "") {
+		return "", errors.New("apply needs one exact plan selection")
+	}
 	if step.PlanID != "" {
 		return step.PlanID, nil
 	}
+	source, err := r.Manifest.planSource(step)
+	if err != nil {
+		return "", err
+	}
 	for _, entry := range ledger.Entries {
-		if entry.ID == step.PlanStep && entry.PlanID != "" && entry.State == "succeeded" {
-			return entry.PlanID, nil
+		if entry.ID != source.ID {
+			continue
 		}
+		if entry.Action != ActionPlan || entry.App != step.App || entry.State != "succeeded" || entry.PlanID == "" || entry.Key != operationKey(r.Manifest.RunID, source.ID) || entry.CommandSHA256 != commandHash(r.planCommand(source)) {
+			return "", errors.New("source plan is not a settled ledger-owned plan")
+		}
+		return entry.PlanID, nil
 	}
 	return "", errors.New("apply plan reference is not settled")
 }
@@ -1423,9 +1442,9 @@ func readOnlyDeadline(manifest Manifest) time.Duration {
 	return time.Duration(manifest.ReadDeadlineSeconds) * time.Second
 }
 
-func (r *Runner) waitOperation(ctx context.Context, operationID string) (string, error) {
+func (r *Runner) waitOperation(ctx context.Context, entry LedgerEntry) (string, error) {
 	for attempt := 0; attempt < r.readAttempts(); attempt++ {
-		status, err := r.operationStatus(ctx, operationID)
+		status, err := r.operationStatus(ctx, entry)
 		if err != nil {
 			if attempt+1 == r.readAttempts() {
 				return "", err
@@ -1439,21 +1458,22 @@ func (r *Runner) waitOperation(ctx context.Context, operationID string) (string,
 	return "", errors.New("operation did not settle within the read bound")
 }
 
-func (r *Runner) operationStatus(ctx context.Context, operationID string) (string, error) {
-	response, err := r.readEnvelope(ctx, r.operationCommand(operationID), true)
+func (r *Runner) operationStatus(ctx context.Context, entry LedgerEntry) (string, error) {
+	response, err := r.readEnvelope(ctx, r.operationCommand(entry.OperationID), true)
 	if err != nil {
 		return "", err
 	}
 	var status struct {
-		Operation struct {
-			ID    string `json:"id"`
-			State string `json:"state"`
-		} `json:"operation"`
+		Operation ops.Operation `json:"operation"`
 	}
-	if err := decodeData(response, &status); err != nil || status.Operation.ID != operationID || status.Operation.State == "" {
-		return "", errors.New("operation status is invalid")
+	if err := decodeData(response, &status); err != nil {
+		return "", err
 	}
-	return status.Operation.State, nil
+	o := status.Operation
+	if entry.OperationKind != ops.Deploy && entry.OperationKind != ops.Resolve || entry.App == "" || entry.PlanID == "" || o.ID != entry.OperationID || o.App != entry.App || o.PlanID != entry.PlanID || o.Kind != entry.OperationKind || o.RecoveryOf != entry.RecoveryOf || o.State == "" {
+		return "", errors.New("operation status does not match its submitted identity")
+	}
+	return string(o.State), nil
 }
 
 func (r *Runner) readAttempts() int {
@@ -1522,11 +1542,11 @@ func containsDomain(domains []spec.Domain, expected string) bool {
 	return false
 }
 
-func validateReadyFor(status apps.Status, app *AppSpec, expected ReleaseExpectation, releaseID, proofPath, proofHash, runID, targetName string) error {
+func validateReadyFor(status apps.Status, app *AppSpec, expected ReleaseExpectation, releaseID, planID, proofPath, proofHash, runID, targetName string) error {
 	if app == nil || status.Current == nil || status.UDP == nil || status.Health.Direct != "healthy" || status.UDP.Local != "ready" || status.UDP.Remote != "unverified" || status.UDP.Reservation != "active" {
 		return errors.New("Brine status is not production-ready")
 	}
-	if status.App != app.Name || status.Current.ID != releaseID || status.UDP.Incarnation != app.Incarnation || status.Current.ImageDigest != expected.ImageDigest || !containsDomain(status.Current.Domains, app.Domain) || status.Current.UDP == nil || status.Current.UDP.Endpoint.BindAddress != app.Endpoint.BindAddress || status.Current.UDP.Endpoint.HostPort != target.Port(app.Endpoint.HostPort) || status.Current.UDP.ContainerPort != target.Port(app.Endpoint.ContainerPort) || status.UDP.ClientAddress != app.Endpoint.ClientAddress || string(status.UDP.Exposure) != app.Endpoint.Exposure {
+	if status.App != app.Name || status.Current.ID != releaseID || planID == "" || status.Current.PlanID != planID || status.UDP.Incarnation != app.Incarnation || status.Current.ImageDigest != expected.ImageDigest || !containsDomain(status.Current.Domains, app.Domain) || status.Current.UDP == nil || status.Current.UDP.Endpoint.BindAddress != app.Endpoint.BindAddress || status.Current.UDP.Endpoint.HostPort != target.Port(app.Endpoint.HostPort) || status.Current.UDP.ContainerPort != target.Port(app.Endpoint.ContainerPort) || status.UDP.ClientAddress != app.Endpoint.ClientAddress || string(status.UDP.Exposure) != app.Endpoint.Exposure {
 		return errors.New("Brine status does not match the approved app identity")
 	}
 	if proofPath == "" {

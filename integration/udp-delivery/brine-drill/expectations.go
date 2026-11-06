@@ -3,6 +3,8 @@ package brinedrill
 import (
 	"errors"
 	"slices"
+
+	"github.com/ShaulLavo/brine/internal/ops"
 )
 
 // ReleaseExpectation pins the fixture identity independently of observed status.
@@ -16,6 +18,9 @@ func (m Manifest) releaseExpectations() (map[string]ReleaseExpectation, error) {
 	declarations := map[string]Step{}
 	expectations := map[string]ReleaseExpectation{}
 	for _, step := range m.Phases.allSteps() {
+		if err := validatePlanSelection(step, declarations); err != nil {
+			return nil, err
+		}
 		if err := m.addReleaseExpectation(step, declarations, expectations); err != nil {
 			return nil, err
 		}
@@ -49,32 +54,32 @@ func (m Manifest) addReleaseExpectation(step Step, prior map[string]Step, expect
 	return nil
 }
 
-func (r *Runner) releaseFor(ledger Ledger, step Step) (ReleaseExpectation, string, error) {
+func (r *Runner) releaseFor(ledger Ledger, step Step) (ReleaseExpectation, LedgerEntry, error) {
 	if ledger.Schema != LedgerSchema || ledger.RunID != r.Manifest.RunID || ledger.ManifestHash != manifestHash(r.Manifest) {
-		return ReleaseExpectation{}, "", errors.New("release ledger does not match manifest")
+		return ReleaseExpectation{}, LedgerEntry{}, errors.New("release ledger does not match manifest")
 	}
 	expectations, err := r.Manifest.releaseExpectations()
 	if err != nil {
-		return ReleaseExpectation{}, "", err
+		return ReleaseExpectation{}, LedgerEntry{}, err
 	}
 	expected, ok := expectations[step.ReleaseStep]
 	if !ok {
-		return ReleaseExpectation{}, "", errors.New("release expectation is missing")
+		return ReleaseExpectation{}, LedgerEntry{}, errors.New("release expectation is missing")
 	}
 	source := r.Manifest.releaseStep(step.ReleaseStep)
 	for _, entry := range ledger.Entries {
 		if entry.ID != step.ReleaseStep {
 			continue
 		}
-		if entry.App != step.App || entry.Action != source.Action || entry.State != "succeeded" || entry.OperationID == "" || entry.Key != operationKey(r.Manifest.RunID, source.ID) || entry.PlanID == "" || entry.CommandSHA256 != commandHash(r.applyCommand(entry.PlanID, entry.Key)) {
-			return ReleaseExpectation{}, "", errors.New("release operation is not a settled ledger-owned apply")
+		if entry.App != step.App || entry.Action != source.Action || entry.State != "succeeded" || entry.OperationID == "" || entry.OperationKind != ops.Deploy || entry.RecoveryOf != "" || entry.Key != operationKey(r.Manifest.RunID, source.ID) || entry.PlanID == "" || entry.CommandSHA256 != commandHash(r.applyCommand(entry.PlanID, entry.Key)) {
+			return ReleaseExpectation{}, LedgerEntry{}, errors.New("release operation is not a settled ledger-owned apply")
 		}
 		if err := r.checkReleasePlan(ledger, source, entry); err != nil {
-			return ReleaseExpectation{}, "", err
+			return ReleaseExpectation{}, LedgerEntry{}, err
 		}
-		return expected, entry.OperationID, nil
+		return expected, entry, nil
 	}
-	return ReleaseExpectation{}, "", errors.New("release operation is missing from the ledger")
+	return ReleaseExpectation{}, LedgerEntry{}, errors.New("release operation is missing from the ledger")
 }
 
 func (m Manifest) releaseStep(id string) Step {
@@ -96,8 +101,8 @@ func (p PhaseSteps) allSteps() []Step {
 
 func (r *Runner) checkReleasePlan(ledger Ledger, source Step, entry LedgerEntry) error {
 	if source.Action == ActionRollback {
-		_, releaseID, err := r.releaseFor(ledger, source)
-		if err != nil || entry.ReleaseID != releaseID {
+		_, release, err := r.releaseFor(ledger, source)
+		if err != nil || entry.ReleaseID != release.OperationID {
 			return errors.New("rollback release does not match its source step")
 		}
 		return nil
@@ -107,4 +112,35 @@ func (r *Runner) checkReleasePlan(ledger Ledger, source Step, entry LedgerEntry)
 		return errors.New("release plan does not match its source step")
 	}
 	return nil
+}
+
+func validatePlanSelection(step Step, prior map[string]Step) error {
+	if step.Action != ActionApply {
+		return nil
+	}
+	if (step.PlanID == "") == (step.PlanStep == "") {
+		return errors.New("apply needs one exact plan selection")
+	}
+	if step.PlanID != "" {
+		return nil
+	}
+	source, ok := prior[step.PlanStep]
+	if !ok || source.Action != ActionPlan || source.App != step.App {
+		return errors.New("plan_step must name an earlier plan for the same app")
+	}
+	return nil
+}
+
+func (m Manifest) planSource(step Step) (Step, error) {
+	prior := map[string]Step{}
+	for _, declared := range m.Phases.allSteps() {
+		if declared.ID == step.ID {
+			if err := validatePlanSelection(step, prior); err != nil {
+				return Step{}, err
+			}
+			return prior[step.PlanStep], nil
+		}
+		prior[declared.ID] = declared
+	}
+	return Step{}, errors.New("apply step is not declared")
 }

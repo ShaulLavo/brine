@@ -14,6 +14,7 @@ import (
 	"github.com/ShaulLavo/brine/fixtures/udp-echo/client"
 	"github.com/ShaulLavo/brine/fixtures/udp-echo/protocol"
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/spec"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -85,14 +86,16 @@ func releaseSequence(t *testing.T) (Manifest, FileLedger) {
 }
 
 type sequenceCommands struct {
-	t         *testing.T
-	manifest  Manifest
-	calls     []CommandSpec
-	mutations int
-	current   string
-	poll      string
-	lost      bool
-	refused   bool
+	t             *testing.T
+	manifest      Manifest
+	calls         []CommandSpec
+	mutations     int
+	current       string
+	pollPlanID    string
+	currentPlanID string
+	poll          string
+	lost          bool
+	refused       bool
 }
 
 func (s *sequenceCommands) runner() *scriptedRunner {
@@ -106,7 +109,7 @@ func (s *sequenceCommands) run(c CommandSpec) (CommandResult, error) {
 		return s.apply(c)
 	}
 	if slices.Contains(c.Args, "--operation") {
-		return fixtureEnvelope(s.t, "status", map[string]any{"operation": map[string]string{"id": c.Args[slices.Index(c.Args, "--operation")+1], "state": s.poll}}), nil
+		return fixtureEnvelope(s.t, "status", map[string]any{"operation": map[string]string{"id": c.Args[slices.Index(c.Args, "--operation")+1], "state": s.poll, "app": "udp-a", "plan_id": s.pollPlanID, "kind": "deploy"}}), nil
 	}
 	if slices.Contains(c.Args, "rollback") {
 		i := slices.Index(c.Args, "--release")
@@ -118,7 +121,9 @@ func (s *sequenceCommands) run(c CommandSpec) (CommandResult, error) {
 	if slices.Contains(c.Args, "-endpoint") {
 		return s.probe(c), nil
 	}
-	return fixtureEnvelope(s.t, "status", apps.Report{Apps: []apps.Status{sequenceStatus(s.manifest, s.current)}}), nil
+	status := sequenceStatus(s.manifest, s.current)
+	status.Current.PlanID = s.currentPlanID
+	return fixtureEnvelope(s.t, "status", apps.Report{Apps: []apps.Status{status}}), nil
 }
 
 func (s *sequenceCommands) apply(c CommandSpec) (CommandResult, error) {
@@ -138,11 +143,13 @@ func (s *sequenceCommands) apply(c CommandSpec) (CommandResult, error) {
 	if s.refused {
 		return commandResult(`{"schema_version":1,"command":"brine apply","ok":false,"error":{"code":"conflict"}}`), nil
 	}
+	s.pollPlanID = c.Args[len(c.Args)-3]
 	s.poll = "succeeded"
 	if id == "c-replacement" {
 		s.poll = "failed"
 	} else {
 		s.current = id
+		s.currentPlanID = s.pollPlanID
 	}
 	return fixtureEnvelope(s.t, "apply", map[string]string{"status": "accepted", "operation_id": "op-" + id}), nil
 }
@@ -172,7 +179,11 @@ func sequenceStatus(m Manifest, id string) apps.Status {
 	}
 	allocation := plan.UDPAllocation{Endpoint: plan.UDPEndpoint{BindAddress: app.Endpoint.BindAddress, HostPort: 4433}, ContainerPort: 4433, ClientAddress: app.Endpoint.ClientAddress, Exposure: spec.UDPExposure(app.Endpoint.Exposure)}
 	incarnation := "sha256:" + strings.Repeat("d", 64)
-	return apps.Status{App: app.Name, Current: &apps.Release{ID: "op-" + id, ImageDigest: m.Fixture.ReleaseDigests[release], Domains: []spec.Domain{spec.Domain(app.Domain)}, UDP: &allocation}, Health: apps.Health{Direct: "healthy", UnitActive: target.Known(true)}, UDP: &apps.UDPStatus{Protocol: "udp", Local: udpready.Ready, Remote: "unverified", Reservation: "active", Incarnation: incarnation, BindAddress: app.Endpoint.BindAddress, ClientAddress: app.Endpoint.ClientAddress, HostPort: 4433, ContainerPort: 4433, Exposure: spec.UDPExposure(app.Endpoint.Exposure), Reservations: []plan.UDPReservation{{ID: "reservation", App: app.Name, Incarnation: incarnation, Endpoint: allocation.Endpoint, State: "active"}}}}
+	planID := m.releaseStep(id).PlanID
+	if id == "rollback" {
+		planID = "plan-rollback"
+	}
+	return apps.Status{App: app.Name, Current: &apps.Release{ID: "op-" + id, PlanID: planID, ImageDigest: m.Fixture.ReleaseDigests[release], Domains: []spec.Domain{spec.Domain(app.Domain)}, UDP: &allocation}, Health: apps.Health{Direct: "healthy", UnitActive: target.Known(true)}, UDP: &apps.UDPStatus{Protocol: "udp", Local: udpready.Ready, Remote: "unverified", Reservation: "active", Incarnation: incarnation, BindAddress: app.Endpoint.BindAddress, ClientAddress: app.Endpoint.ClientAddress, HostPort: 4433, ContainerPort: 4433, Exposure: spec.UDPExposure(app.Endpoint.Exposure), Reservations: []plan.UDPReservation{{ID: "reservation", App: app.Name, Incarnation: incarnation, Endpoint: allocation.Endpoint, State: "active"}}}}
 }
 
 func fixtureEnvelope(t *testing.T, command string, data any) CommandResult {
@@ -393,7 +404,7 @@ func TestStepReleaseDryRunUsesReferencedRelease(t *testing.T) {
 
 func releaseEntry(runner Runner, step Step, operation string) LedgerEntry {
 	key := operationKey(runner.Manifest.RunID, step.ID)
-	return LedgerEntry{ID: step.ID, Action: step.Action, App: step.App, Key: key, PlanID: step.PlanID, OperationID: operation, State: "succeeded", CommandSHA256: commandHash(runner.applyCommand(step.PlanID, key))}
+	return LedgerEntry{ID: step.ID, Action: step.Action, App: step.App, Key: key, PlanID: step.PlanID, OperationID: operation, OperationKind: ops.Deploy, State: "succeeded", CommandSHA256: commandHash(runner.applyCommand(step.PlanID, key))}
 }
 
 func TestStepReleaseCrossedPriorOperation(t *testing.T) {
