@@ -22,42 +22,68 @@ import (
 
 func TestConfigAndLifecycleClient(t *testing.T) {
 	for _, mode := range []string{"", "--json", "--jsonl"} {
-		for _, command := range []string{"config", "restart", "stop", "start", "remove"} {
-			t.Run(command+mode, func(t *testing.T) {
-				var out, stderr bytes.Buffer
-				deps := testDependencies(t, &out, &stderr)
-				deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
-				calls := 0
-				deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, req dispatch.Request) (result.Envelope, error) {
-					calls++
-					if command == "config" {
-						var a dispatch.ConfigArgs
-						json.Unmarshal(req.Args, &a)
-						if a.App != "hello" || len(a.Edits) != 3 || a.Edits[0].Key != "environment.API_KEY" || a.Edits[0].Value != "PLANTED_PRIVATE_SETTING" {
-							t.Fatal("wrong edit request")
-						}
-					} else if req.Op != "lifecycle" {
-						t.Fatal(req.Op)
-					}
-					return result.Success("brine host "+req.Op, apps.ConfigPlan{PlanID: "sha256:" + strings.Repeat("a", 64), Kind: plan.Update, Conflicts: []plan.Diagnostic{}}), nil
-				})
-				args := []string{command, "hello", "--target", "fixture"}
-				if command == "config" {
-					args = []string{"config", "set", "hello", "API_KEY=PLANTED_PRIVATE_SETTING", "resources.memory_mb=256", "--unset", "environment.OLD_KEY", "--target", "fixture"}
-				}
-				if mode != "" {
-					args = append(args, mode)
-				}
-				if err := Execute(deps, args); err != nil || calls != 1 {
-					t.Fatal(err, calls)
-				}
-				if strings.Contains(out.String()+stderr.String(), "PLANTED_PRIVATE_SETTING") {
-					t.Fatal("value in output")
-				}
-			})
-		}
+		testConfigLifecycleMode(t, mode)
 	}
 }
+
+func testConfigLifecycleMode(t *testing.T, mode string) {
+	t.Helper()
+	for _, command := range []string{"config", "restart", "stop", "start", "remove"} {
+		t.Run(command+mode, func(t *testing.T) { testConfigLifecycleCommand(t, command, mode) })
+	}
+}
+
+func testConfigLifecycleCommand(t *testing.T, command, mode string) {
+	t.Helper()
+	var out, stderr bytes.Buffer
+	deps := testDependencies(t, &out, &stderr)
+	deps.LoadOperationTarget = func(string, string) (transport.Target, error) { return transport.Target{Name: "fixture"}, nil }
+	calls := 0
+	deps.OperationClient = callFunc(func(_ context.Context, _ transport.Target, req dispatch.Request) (result.Envelope, error) {
+		calls++
+		return result.Success("brine host "+req.Op, configLifecycleReply(t, command, req)), nil
+	})
+	args := []string{command, "hello", "--target", "fixture"}
+	if command == "config" {
+		args = []string{"config", "set", "hello", "API_KEY=PLANTED_PRIVATE_SETTING", "resources.memory_mb=256", "--unset", "environment.OLD_KEY", "--target", "fixture"}
+	}
+	if mode != "" {
+		args = append(args, mode)
+	}
+	if err := Execute(deps, args); err != nil || calls != 1 {
+		t.Fatal(err, calls)
+	}
+	if strings.Contains(out.String()+stderr.String(), "PLANTED_PRIVATE_SETTING") {
+		t.Fatal("value in output")
+	}
+}
+
+func configLifecycleReply(t *testing.T, command string, req dispatch.Request) apps.ConfigPlan {
+	t.Helper()
+	var action plan.ChangeKind
+	if command == "config" {
+		checkConfigEdits(t, req)
+	} else {
+		var args dispatch.LifecycleArgs
+		if req.Op != "lifecycle" || json.Unmarshal(req.Args, &args) != nil || args.App != "hello" {
+			t.Fatal("wrong lifecycle request")
+		}
+		action = map[string]plan.ChangeKind{"restart": plan.RestartApp, "stop": plan.StopApp, "start": plan.StartApp, "remove": plan.RemoveApp}[command]
+		if args.Action != action {
+			t.Fatal("wrong lifecycle action", args.Action)
+		}
+	}
+	return apps.ConfigPlan{PlanID: "sha256:" + strings.Repeat("a", 64), Kind: plan.Update, Lifecycle: action, Conflicts: []plan.Diagnostic{}}
+}
+
+func checkConfigEdits(t *testing.T, req dispatch.Request) {
+	t.Helper()
+	var args dispatch.ConfigArgs
+	if json.Unmarshal(req.Args, &args) != nil || args.App != "hello" || len(args.Edits) != 3 || args.Edits[0].Key != "environment.API_KEY" || args.Edits[0].Value != "PLANTED_PRIVATE_SETTING" {
+		t.Fatal("wrong edit request")
+	}
+}
+
 func TestSecretClientStdinOnly(t *testing.T) {
 	var out, stderr bytes.Buffer
 	deps := testDependencies(t, &out, &stderr)

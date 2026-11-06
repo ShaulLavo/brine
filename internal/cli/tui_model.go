@@ -20,6 +20,8 @@ const (
 	screenApp
 	screenLogs
 	screenOperation
+	screenActions
+	screenReview
 )
 
 type loadState uint8
@@ -83,9 +85,17 @@ type logsMsg struct {
 	err   error
 }
 
-// tuiModel is the read-only terminal UI. Every value it shows was read from
+// tuiModel is the terminal UI. Every value it shows was read from
 // the selected target in this session; there is no sample or demo data.
 type tuiModel struct {
+	review       loadable[tuiReview]
+	reviewFlags  operationFlags
+	actionIndex  int
+	reviewOffset int
+	confirm      bool
+	issued       *issuedApply
+	nextIssued   uint64
+	newKey       func() (string, error)
 	ctx          context.Context // session context; canceled when the runner returns
 	connect      func(operationFlags) tuiHost
 	listTargets  func() ([]string, error)
@@ -106,6 +116,8 @@ type tuiModel struct {
 	selected     int // app list selection
 	app          string
 	logs         loadable[[]logs.Line]
+	logFlags     operationFlags
+	logApp       string
 	logOffset    int // entries scrolled back from the newest
 	detailOffset int // app detail rows scrolled from the top
 	observe      *tuiObservation
@@ -126,6 +138,7 @@ func newTUIModel(ctx context.Context, deps Dependencies, flags operationFlags) t
 		height:      24,
 		theme:       ui.ThemeFromEnv(),
 		now:         time.Now,
+		newKey:      randomOperationKey,
 		after:       tuiAfter,
 		loc:         time.Local,
 	}
@@ -151,6 +164,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.logOffset = m.clampLogOffset(m.logOffset)
 		m.detailOffset = m.clampDetailOffset(m.detailOffset)
 		m.clampOperationOffset()
+		m.reviewOffset = m.clampReviewOffset(m.reviewOffset)
 	case tea.KeyPressMsg:
 		return m.key(msg.String())
 	case targetsMsg:
@@ -163,6 +177,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.apps.finish(msg.report, msg.err, m.now())
 			m.selected = clampIndex(m.selected, len(m.apps.Value.Apps))
 		}
+	case reviewMsg:
+		if m.current(msg.token) {
+			m.review.finish(msg.review, msg.err, m.now())
+			m.reviewOffset = m.clampReviewOffset(m.reviewOffset)
+		}
+	case acceptMsg:
+		return m.acceptance(msg)
 	case pageMsg:
 		return m.operationPage(msg)
 	case pollMsg:
@@ -192,6 +213,16 @@ func (m *tuiModel) current(token uint64) bool {
 }
 
 func (m tuiModel) key(key string) (tea.Model, tea.Cmd) {
+	if m.confirm {
+		if key == "y" {
+			return m.issueApply()
+		}
+		m.confirm = false
+		m.reviewOffset = m.clampReviewOffset(m.reviewOffset)
+		if key != "ctrl+c" {
+			return m, nil
+		}
+	}
 	switch key {
 	case "ctrl+c":
 		return m.quit()
@@ -210,6 +241,14 @@ func (m tuiModel) key(key string) (tea.Model, tea.Cmd) {
 		return m.refresh()
 	case "enter":
 		return m.enter()
+	case "a":
+		return m.confirmApply()
+	case "p":
+		if m.screen == screenApp {
+			return m.openActions()
+		}
+	case "u":
+		return m.openIssued()
 	case "t":
 		if m.screen == screenApp {
 			return m.openOperation()
@@ -237,6 +276,8 @@ func (m *tuiModel) stopRead() {
 	m.targets.abandon()
 	m.apps.abandon()
 	m.logs.abandon()
+	m.review.abandon()
+	m.confirm = false
 	if m.observe != nil {
 		m.observe.Loading = false
 	}
@@ -271,7 +312,11 @@ func (m tuiModel) loadApps() (tuiModel, tea.Cmd) {
 }
 
 func (m tuiModel) loadLogs() (tuiModel, tea.Cmd) {
-	host, app := m.host, m.app
+	flags, app := m.logSelection()
+	host := m.host
+	if flags != m.flags {
+		host = m.connect(flags)
+	}
 	m, ctx, token := m.beginRead()
 	m.logs.start()
 	return m, func() tea.Msg {
@@ -293,12 +338,15 @@ func (m tuiModel) goBack() (tea.Model, tea.Cmd) {
 	m.stopRead()
 	last := len(m.back) - 1
 	m.screen, m.back = m.back[last], m.back[:last]
+	m.reviewOffset = m.clampReviewOffset(m.reviewOffset)
 	return m.reload()
 }
 
 // reload restarts a read that navigation abandoned before it ever succeeded.
 func (m tuiModel) reload() (tea.Model, tea.Cmd) {
 	switch {
+	case m.screen == screenReview && m.review.State == loadIdle:
+		return m.loadReview()
 	case m.screen == screenOperation:
 		return m.loadOperation()
 	case m.screen == screenTargets && m.targets.State == loadIdle:
@@ -311,6 +359,10 @@ func (m tuiModel) reload() (tea.Model, tea.Cmd) {
 
 func (m tuiModel) refresh() (tea.Model, tea.Cmd) {
 	switch m.screen {
+	case screenReview:
+		return m.loadReview()
+	case screenActions:
+		return m, nil
 	case screenTargets:
 		return m.loadTargets()
 	case screenLogs:
@@ -325,6 +377,8 @@ func (m tuiModel) refresh() (tea.Model, tea.Cmd) {
 
 func (m tuiModel) enter() (tea.Model, tea.Cmd) {
 	switch m.screen {
+	case screenActions:
+		return m.planAction()
 	case screenTargets:
 		return m.openTarget()
 	case screenApps:
@@ -357,6 +411,10 @@ func (m tuiModel) openApp() (tea.Model, tea.Cmd) {
 }
 
 func (m tuiModel) openLogs() (tea.Model, tea.Cmd) {
+	m.logFlags, m.logApp = m.flags, m.app
+	if m.screen == screenOperation {
+		m.logFlags, m.logApp = m.observe.Flags, m.observe.Operation.App
+	}
 	m.logs, m.logOffset = loadable[[]logs.Line]{}, 0
 	m = m.push(screenLogs)
 	return m.loadLogs()
@@ -364,6 +422,10 @@ func (m tuiModel) openLogs() (tea.Model, tea.Cmd) {
 
 func (m tuiModel) move(delta int) tuiModel {
 	switch m.screen {
+	case screenActions:
+		m.actionIndex = clampIndex(m.actionIndex+delta, len(m.actions()))
+	case screenReview:
+		m.reviewOffset = m.clampReviewOffset(m.reviewOffset + delta)
 	case screenTargets:
 		m.target = clampIndex(m.target+delta, len(m.targets.Value))
 	case screenApps:
@@ -387,4 +449,11 @@ func (m tuiModel) clampLogOffset(offset int) int {
 
 func clampIndex(i, n int) int {
 	return max(0, min(i, n-1))
+}
+
+func (m tuiModel) logSelection() (operationFlags, string) {
+	if m.logApp == "" {
+		return m.flags, m.app
+	}
+	return m.logFlags, m.logApp
 }

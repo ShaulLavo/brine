@@ -3,6 +3,13 @@
 package host
 
 import (
+	"context"
+	"errors"
+	"github.com/ShaulLavo/brine/internal/cdnoperator"
+	"github.com/ShaulLavo/brine/internal/dispatch"
+	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/store"
+	"reflect"
 	"testing"
 
 	"github.com/ShaulLavo/brine/internal/archive"
@@ -51,5 +58,81 @@ func TestArchiveAbandonSchemaVerificationNeedsNoManifestButRefusesUnknown(t *tes
 	}
 	if !archiveDispositionSchemaMatches(previous, previous, false) {
 		t.Fatal("exact coverage refused")
+	}
+}
+
+func TestArchiveCDNHostRefusesBeforeCleanupAndRecovery(t *testing.T) {
+	for _, mode := range []string{"reservation", "enabled"} {
+		t.Run(mode, func(t *testing.T) { testArchiveCDNHostRefusal(t, mode) })
+	}
+}
+
+func testArchiveCDNHostRefusal(t *testing.T, mode string) {
+	rig, fixture, coordinator, request := cdnHostFixture(t)
+	ctx := t.Context()
+	p, err := coordinator.Plan(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode == "reservation" {
+		if _, _, err := rig.store.AdmitCDN(ctx, p.ID, "operator", "archive-pending"); err != nil {
+			t.Fatal(err)
+		}
+	} else {
+		progress, err := coordinator.Apply(ctx, cdnoperator.ApplyRequest{PlanID: p.ID, IdempotencyKey: "archive-enable"})
+		assertCDNFinished(t, progress, err)
+	}
+	before, headErr := rig.store.CDNHead(ctx, "hello")
+	writes := fixture.NativeWrites(request.Profile)
+	h := archiveHost{service: rig.service}
+	planned := archive.Plan{Candidate: archive.Candidate{App: "hello"}}
+	checks := []func(context.Context) error{
+		func(ctx context.Context) error { return h.RecheckArchive(ctx, planned, archive.Operation{}, false) },
+		func(ctx context.Context) error { return h.RetireArchiveRuntime(ctx, planned) },
+		func(ctx context.Context) error {
+			return h.CheckArchiveRecovery(ctx, planned, archive.Operation{}, archive.Manifest{})
+		},
+		func(ctx context.Context) error { return h.ReconcileArchiveRuntime(ctx, planned) },
+	}
+	for i, check := range checks {
+		if err := check(ctx); !errors.Is(err, store.ErrConflict) {
+			t.Fatal("CDN conflict reached runtime checks or effects", i, err)
+		}
+	}
+	after, err := rig.store.CDNHead(ctx, "hello")
+	if !errors.Is(err, headErr) || !reflect.DeepEqual(before, after) || fixture.NativeWrites(request.Profile) != writes {
+		t.Fatal("refusal changed CDN work or configuration", err)
+	}
+}
+
+func TestNativeArchiveCallerRefusesWithoutPreparedAuthority(t *testing.T) {
+	f := initializedMaterialFixture(t)
+	ctx := t.Context()
+	reserved, err := f.service.Store.ReadReservedEngine(ctx, f.plan.Managed.Database.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	head, runtime, err := f.service.Store.ReadEngineHead(ctx, reserved.Database.BindingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	candidate := archive.Candidate{App: f.plan.App, Incarnation: reserved.Database.IncarnationID, Databases: []archive.Database{archive.NativeDatabaseVariant(archive.NativeDatabase{Binding: reserved.Database, Head: head, State: runtime.State})}}
+	if !nativeArchiveCandidate(candidate) {
+		t.Fatal("genuine native allocation did not select native caller")
+	}
+	if err := f.service.Store.CheckArchiveCDN(ctx, candidate.App); err != nil {
+		t.Fatal("absent CDN blocked native control", err)
+	}
+	h := archiveHost{service: f.service, stateRoot: f.stateRoot, home: f.home}
+	if err := h.RetireArchiveRuntime(ctx, archive.Plan{Candidate: candidate}); err == nil {
+		t.Fatal("native runtime retired without prepared authority")
+	}
+	caller := nativeRetireOperations{state: f.service.Store}
+	if _, err := caller.PlanNativeArchive(ctx, dispatch.NativeRetirePlanArgs{App: candidate.App}); err == nil || result.Classify(err).Code() != result.PolicyRefused {
+		t.Fatal("native task planner admitted unprepared allocation", err)
+	}
+	retained, err := f.service.Store.ReadReservedEngine(ctx, reserved.Database.BindingID)
+	if err != nil || !reflect.DeepEqual(retained, reserved) {
+		t.Fatal("native refusal changed protected allocation", err)
 	}
 }

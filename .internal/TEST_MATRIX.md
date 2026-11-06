@@ -1267,3 +1267,7 @@ Live acceptance remains unchecked:
 - [ ] Install teardown before setup, record pre-existing resources, and verify
   cleanup on every actual provider and host. Retain only the small review
   evidence; name any retained resource, owner and removal condition.
+
+## Phase 05 local lifecycle slice
+
+T20 has partial lifecycle-only evidence in `TestTUILifecycleJSONParity` and `TestTUILifecycleWireErrorsPreserveOriginalRecovery`, including explicit same-plan/key acceptance recovery. Full deployment parity stays open. T23 additionally has value-free review/redaction coverage in `TestTUILifecycleReviewRedactionAndRollbackAvailability` and review goldens. `TestRunTUIPendingAcceptanceCleanupAndRecoveryNotice` covers real terminal cleanup with a pending acceptance. The transport is synthetic; this is not remote deployment or restore evidence.

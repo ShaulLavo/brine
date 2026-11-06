@@ -431,3 +431,10 @@ func canonicalDiff(input *plan.ConfigurationDiff) *plan.ConfigurationDiff {
 	slices.SortFunc(d.Secrets, func(a, b plan.SecretChange) int { return strings.Compare(a.Environment, b.Environment) })
 	return &d
 }
+
+// DiffLines presents a value-free, sanitized configuration diff.
+func DiffLines(diff *plan.ConfigurationDiff) []string {
+	lines := []string{}
+	renderDiff(presentation{Diff: canonicalDiff(diff)}, func(line string) { lines = append(lines, safe(line)) })
+	return lines
+}

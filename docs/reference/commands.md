@@ -1,6 +1,6 @@
 # Command reference
 
-Every command, subcommand and flag of `brine` 0.1.72-dev. Sections under [Commands](#commands) are generated from the CLI's own `--help` text. Do not edit them by hand.
+Every implemented command, subcommand and flag of `brine`. Sections under [Commands](#commands) are generated from the CLI's own `--help` text. Do not edit them by hand.
 
 Regenerate this page after a command changes:
 
@@ -1484,7 +1484,7 @@ Flags:
 ### `brine tui`
 
 ```text
-Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. The TUI only reads: it never plans, applies or cancels anything. Without --target it starts on the target picker.
+Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. Review restart, stop, start or previous known-good rollback plans, then confirm with a and y to apply. Uncertain acceptance retains the same plan and key for explicit recovery. Quitting never cancels a host job. Without --target it starts on the target picker.
 
 Usage:
   brine tui [flags]
