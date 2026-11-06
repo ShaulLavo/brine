@@ -58,3 +58,7 @@ func DecodePreparedPoint(raw []byte) (PreparedPoint, error) {
 }
 func DecodeReceipt(raw []byte) (Receipt, error)   { v, err := decode(raw, &Receipt{}); return *v, err }
 func DecodeConsumer(raw []byte) (Consumer, error) { v, err := decode(raw, &Consumer{}); return *v, err }
+func DecodeAbandonStop(raw []byte) (AbandonStop, error) {
+	v, err := decode(raw, &AbandonStop{})
+	return *v, err
+}

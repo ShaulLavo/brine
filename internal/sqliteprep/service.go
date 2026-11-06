@@ -35,6 +35,7 @@ type work struct {
 	baseline  StoppedBundle
 	source    RemoteSource
 	expected  *PreparedPoint
+	stop      *AbandonStop
 }
 
 func (w *work) close(r *Result, err *error) {

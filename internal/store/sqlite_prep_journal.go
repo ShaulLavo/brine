@@ -91,10 +91,14 @@ func (j *SQLitePreparationJournal) ReadTask(ctx context.Context, task sqliteprep
 }
 
 // sqliteClaimed reports a protected claim: a preparation journal for a prepare
-// task, or a point consumer for an abandon task.
+// task, or a joined stop intent or point consumer for an abandon task.
 func sqliteClaimed(ctx context.Context, q dataQuerier, op ops.Operation) (bool, error) {
 	query := "SELECT count(*) FROM data_sqlite_preparations WHERE operation_id=?"
 	if op.Kind == ops.SQLitePrepareAbandon {
+		stopped, err := sqliteAbandonStopped(ctx, q, op)
+		if err != nil || stopped {
+			return stopped, err
+		}
 		query = "SELECT count(*) FROM data_sqlite_point_consumers WHERE operation_id=?"
 	}
 	var n int

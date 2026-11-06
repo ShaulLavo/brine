@@ -124,9 +124,10 @@ func completeSQLiteTaskTx(ctx context.Context, tx *sql.Tx, id string, receipt sq
 	return completeTaskTx(ctx, tx, id, ops.Succeeded, ops.TaskOutcome{Receipt: raw})
 }
 
-// CompleteAbandon validates local settlement, records its consumer and exact
-// completion, releases only the original fence and completes the task in one
-// transaction. A failed local predicate is a typed no-effect refusal.
+// CompleteAbandon validates local settlement and the task's own stop intent,
+// records its consumer and exact completion, releases only the original fence
+// and completes the task in one transaction. A failed local predicate is a
+// typed refusal; after a recorded stop intent it still settles as claimed.
 func (j *SQLitePreparationJournal) CompleteAbandon(ctx context.Context, task sqliteprep.Task, in sqliteprep.Input, a sqliteprep.Abandonment, held sqliteprep.StoppedSource) (sqliteprep.Receipt, error) {
 	hold := sqliteHoldOf(held)
 	now := sqliteNow()
@@ -193,6 +194,9 @@ func admitSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, task sqliteprep.Task,
 	scope, err := sqliteTaskScope(c, task.Kind, &prev.intent.Scope, nil, now)
 	if err != nil || !sqliteprep.SameSourceScope(prev.intent.Scope, scope) || c.held == nil || *c.held != prev.intent.Fence {
 		return prev, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
+	}
+	if err = checkSQLiteAbandonStop(ctx, tx, task, in, a.Stop, scope.PolicySHA256); err != nil {
+		return prev, err
 	}
 	origins, err := sqliteprep.ResolveOrigins(lineage)
 	if err != nil || a.Stopped.Location != prev.intent.Location || origins.Baseline != nil && !origins.Baseline.Matches(a.Stopped) {
@@ -366,7 +370,8 @@ func checkSQLiteSettlement(ctx context.Context, tx *sql.Tx, op ops.Operation, ta
 		}
 		return tx.QueryRowContext(ctx, "SELECT code FROM data_sqlite_task_settlements WHERE operation_id=?", op.ID).Scan(&code)
 	case ops.RecoveryRequired:
-		return nil
+		_, err := sqliteClaimed(ctx, tx, op)
+		return err
 	default:
 		return ErrConflict
 	}
@@ -397,6 +402,9 @@ func readSQLiteSuccess(ctx context.Context, tx *sql.Tx, op ops.Operation, task s
 	}
 	if task.Kind == sqliteprep.PrepareTask {
 		return receipt, checkSQLitePrepared(ctx, tx, prev, receipt)
+	}
+	if _, err = readSQLiteAbandonStop(ctx, tx, task, input); err != nil {
+		return sqliteprep.Receipt{}, err
 	}
 	return receipt, checkSQLiteAbandoned(ctx, tx, prev, receipt)
 }

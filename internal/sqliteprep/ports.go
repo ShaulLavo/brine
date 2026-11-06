@@ -63,6 +63,10 @@ const (
 // write is permitted. CompleteAbandon similarly inserts its consumer and completion, releases ONLY the original fence and completes its
 // task/receipt/state event atomically. A typed Refusal from CompleteAbandon means
 // no effect was issued; FailUnclaimed still confirms no claim transactionally.
+// ClaimAbandon records an abandonment's stop intent before any stop, joined to
+// the real preflight task, input, terminal unconsumed predecessor without a
+// stopped baseline, current policy and original held fence under the live
+// store-minted guard. It is that task's claim; CompleteAbandon must join it.
 // Other completion errors remain uncertain until joined readback. Unused points AND active consumers protect
 // generic fence release. The adapters must validate on reads as well as writes.
 //
@@ -79,6 +83,7 @@ type Journal interface {
 	Claim(context.Context, Intent, HostObservation, StoppedSource) error
 	Append(context.Context, Intent, Event) error
 	CompletePrepare(context.Context, History, PreparedPoint, StoppedSource) (Receipt, error)
+	ClaimAbandon(context.Context, AbandonStop, HostObservation) error
 	CompleteAbandon(context.Context, Task, Input, Abandonment, StoppedSource) (Receipt, error)
 	FailUnclaimed(context.Context, Task, Code) error
 	MarkRecovery(context.Context, Task, Code) error
@@ -125,6 +130,7 @@ type StoppedSource interface {
 type Abandonment struct {
 	Intent     Intent
 	Point      *PreparedPoint
+	Stop       *AbandonStop
 	Stopped    StoppedBundle
 	OldObject  ObjectState
 	ObservedAt time.Time

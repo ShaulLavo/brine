@@ -6,7 +6,8 @@ import (
 )
 
 // migrateSQLitePreparation adds the two closed SQLite preparation task kinds and
-// their protected journal. The operations rebuild copies every row unchanged and
+// their protected journal, including abandonment stop intents recorded before
+// any stop. The operations rebuild copies every row unchanged and
 // recreates every index and trigger attached to operations, including
 // cdn_reserved_app; migration 33's unrelated CDN tables are not recreated.
 func migrateSQLitePreparation(ctx context.Context, tx *sql.Tx) error {
@@ -147,6 +148,37 @@ CREATE TRIGGER data_fences_sqlite_preparation_release BEFORE UPDATE OF state ON 
 WHEN OLD.state='held' AND NEW.state<>'held' AND EXISTS (SELECT 1 FROM data_sqlite_preparations WHERE fence_id=OLD.id)
  AND NOT EXISTS (SELECT 1 FROM data_sqlite_consumer_completions WHERE fence_id=OLD.id)
 BEGIN SELECT RAISE(ABORT,'SQLite preparation protects fence'); END;
+
+CREATE TABLE data_sqlite_abandon_stops(
+ operation_id TEXT PRIMARY KEY REFERENCES operations(id),
+ preparation_id TEXT NOT NULL REFERENCES data_sqlite_preparations(id),
+ fence_id TEXT NOT NULL REFERENCES data_fences(id),
+ canonical BLOB NOT NULL CHECK(length(canonical)<=16384));
+CREATE TRIGGER data_sqlite_abandon_stops_no_update BEFORE UPDATE ON data_sqlite_abandon_stops BEGIN SELECT RAISE(ABORT,'immutable SQLite abandon stop'); END;
+CREATE TRIGGER data_sqlite_abandon_stops_no_delete BEFORE DELETE ON data_sqlite_abandon_stops BEGIN SELECT RAISE(ABORT,'immutable SQLite abandon stop'); END;
+CREATE TRIGGER data_sqlite_abandon_stops_exact BEFORE INSERT ON data_sqlite_abandon_stops
+WHEN NOT EXISTS (
+ SELECT 1 FROM operations o
+ JOIN data_sqlite_task_inputs i ON i.id=o.secret_ref
+ JOIN data_sqlite_preparations p ON p.id=NEW.preparation_id
+ JOIN operations previous ON previous.id=p.operation_id
+ JOIN data_fences f ON f.id=p.fence_id
+ WHERE o.id=NEW.operation_id AND o.kind='sqlite_prepare_abandon' AND o.state='preflight'
+ AND i.kind=o.kind AND i.app=o.app AND i.preparation_id=p.id AND i.supersedes IS NULL AND i.database_id=p.database_id
+ AND previous.state IN ('succeeded','failed','recovery_required') AND p.fence_id=NEW.fence_id AND f.state='held'
+ AND json_extract(NEW.canonical,'$.task.operation_id')=NEW.operation_id
+ AND json_extract(NEW.canonical,'$.task.requester')=o.requester AND o.requester=json_extract(p.canonical,'$.task.requester')
+ AND json_extract(NEW.canonical,'$.task.input_sha256')=o.secret_ref
+ AND json_extract(NEW.canonical,'$.input.preparation_id')=NEW.preparation_id
+ AND json_extract(NEW.canonical,'$.fence.id')=NEW.fence_id)
+ OR EXISTS (SELECT 1 FROM data_sqlite_point_consumers WHERE preparation_id=NEW.preparation_id)
+ OR EXISTS (SELECT 1 FROM data_sqlite_point_consumers WHERE operation_id=NEW.operation_id)
+ OR EXISTS (SELECT 1 FROM data_sqlite_abandon_stops s JOIN operations o ON o.id=s.operation_id WHERE s.preparation_id=NEW.preparation_id AND o.state='preflight')
+BEGIN SELECT RAISE(ABORT,'SQLite abandon stop is not exact'); END;
+CREATE TRIGGER data_sqlite_point_consumers_pending_stop BEFORE INSERT ON data_sqlite_point_consumers
+WHEN EXISTS (SELECT 1 FROM data_sqlite_abandon_stops s JOIN operations o ON o.id=s.operation_id WHERE s.preparation_id=NEW.preparation_id AND s.operation_id<>NEW.operation_id AND o.state='preflight')
+ OR EXISTS (SELECT 1 FROM data_sqlite_abandon_stops WHERE operation_id=NEW.operation_id AND preparation_id<>NEW.preparation_id)
+BEGIN SELECT RAISE(ABORT,'SQLite abandon stop is pending'); END;
 
 CREATE TABLE data_sqlite_task_settlements(
  operation_id TEXT PRIMARY KEY REFERENCES operations(id),

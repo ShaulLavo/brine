@@ -147,6 +147,7 @@ type fakeJournal struct {
 	observedHeld    bool
 	abandonObserved ObjectState
 	calls           []string
+	stop            *AbandonStop
 }
 
 func (j *fakeJournal) ReadTask(_ context.Context, t Task) (TaskStatus, error) {
@@ -220,10 +221,30 @@ func (j *fakeJournal) CompletePrepare(ctx context.Context, h History, p Prepared
 	}
 	return r, nil
 }
+func (j *fakeJournal) ClaimAbandon(ctx context.Context, s AbandonStop, observation HostObservation) error {
+	if _, err := observation.Observe(ctx); err != nil || s.Validate() != nil || j.status.Claimed {
+		return errors.Join(ErrInvalid, err)
+	}
+	if h, ok := observation.(*fakeHost); ok {
+		h.calls = append(h.calls, "claim_abandon")
+	}
+	if j.fail == "abandon_before" {
+		return errFault
+	}
+	j.stop = &s
+	j.status.Claimed = true
+	if j.fail == "abandon_after" {
+		return errFault
+	}
+	return nil
+}
 func (j *fakeJournal) CompleteAbandon(ctx context.Context, t Task, in Input, a Abandonment, g StoppedSource) (Receipt, error) {
 	j.completeCalls++
 	if j.fail == "complete_before" {
 		return Receipt{}, errFault
+	}
+	if !reflect.DeepEqual(a.Stop, j.stop) {
+		return Receipt{}, &Refusal{Code: InvalidEvidence}
 	}
 	b, err := g.Recheck(ctx)
 	j.observedHeld = err == nil

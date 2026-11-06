@@ -193,6 +193,9 @@ type prepHost struct {
 	calls      []string
 	fail       string
 	hide       bool
+	unowned    bool
+	// onCall observes durable state immediately before a named effect.
+	onCall func(string)
 }
 
 func newPrepHost(fx *prepFixture, running bool) *prepHost {
@@ -213,6 +216,9 @@ func (h *prepHost) startSupervisor() {
 }
 
 func (h *prepHost) call(name string) error {
+	if h.onCall != nil {
+		h.onCall(name)
+	}
 	h.calls = append(h.calls, name)
 	if h.fail == name {
 		return errPrepFault
@@ -291,7 +297,7 @@ func (g *prepGuard) schema() data.SQLiteSchemaObservation {
 }
 
 func (g *prepGuard) Observe(context.Context) (sqliteprep.Observation, error) {
-	o := sqliteprep.Observation{Replica: g.host.replica, WritersStopped: g.host.writers, JobsAbsent: true, Owned: true, Schema: g.schema()}
+	o := sqliteprep.Observation{Replica: g.host.replica, WritersStopped: g.host.writers, JobsAbsent: true, Owned: !g.host.unowned, Schema: g.schema()}
 	return o, g.host.call("observe")
 }
 
@@ -393,6 +399,19 @@ type faultJournal struct {
 	complete      string
 	settle        bool
 	claimLost     bool
+	// abandon faults the stop-intent claim "before" its commit or "after" it.
+	abandon string
+}
+
+func (j *faultJournal) ClaimAbandon(ctx context.Context, s sqliteprep.AbandonStop, o sqliteprep.HostObservation) error {
+	if j.abandon == "before" {
+		return errPrepFault
+	}
+	err := j.SQLitePreparationJournal.ClaimAbandon(ctx, s, o)
+	if err == nil && j.abandon == "after" {
+		return errPrepFault
+	}
+	return err
 }
 
 func (j *faultJournal) Claim(ctx context.Context, i sqliteprep.Intent, o sqliteprep.HostObservation, held sqliteprep.StoppedSource) error {
@@ -428,6 +447,14 @@ func (j *faultJournal) CompletePrepare(ctx context.Context, h sqliteprep.History
 func (j *faultJournal) CompleteAbandon(ctx context.Context, t sqliteprep.Task, in sqliteprep.Input, a sqliteprep.Abandonment, held sqliteprep.StoppedSource) (sqliteprep.Receipt, error) {
 	if j.complete == "release_hold" {
 		_ = sqliteHoldOf(held).Release()
+	}
+	if j.complete == "strip_stop" {
+		a.Stop = nil
+	}
+	if j.complete == "cross_stop" && a.Stop != nil {
+		crossed := *a.Stop
+		crossed.StopWriters = !crossed.StopWriters
+		a.Stop = &crossed
 	}
 	r, err := j.SQLitePreparationJournal.CompleteAbandon(ctx, t, in, a, held)
 	if err == nil && j.complete == "after" {
