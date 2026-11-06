@@ -122,7 +122,7 @@ async function buildArtifacts(options: { output: string; tag: string; version: s
   for (const target of targets) {
     const name = `brine-${target.os}-${target.arch}`;
     const path = join(output, name);
-    command(["go", "build", "-mod=readonly", "-buildvcs=true", "-trimpath", "-o", path, "./cmd/brine"], root, { ...env, GOOS: target.os, GOARCH: target.arch });
+    command(["go", "build", "-mod=readonly", "-buildvcs=true", "-trimpath", "-ldflags=-s -w", "-o", path, "./cmd/brine"], root, { ...env, GOOS: target.os, GOARCH: target.arch });
     checkMetadata(path, target, snapshot, pin, env);
     artifacts.push({ name, os: target.os, architecture: target.arch, ...await digest(path) });
   }

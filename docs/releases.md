@@ -20,7 +20,7 @@ the Linux host runtime. They have no Apple signing or notarization. Confirming
 this as the public supported matrix remains an owner decision.
 
 Every build uses the exact Go version in `mise.toml`, `CGO_ENABLED=0`,
-`-trimpath`, read-only modules and required VCS stamping. The helper verifies the
+`-trimpath`, stripped debug sections, read-only modules and required VCS stamping. The helper verifies the
 executable format, architecture, source commit, clean VCS flag and commit time in
 each binary. It checks the native Linux binary's reported CLI version. A bounded
 `receipt.json` records source commit and tree, version, candidate tag, Go version,
