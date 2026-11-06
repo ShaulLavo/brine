@@ -248,7 +248,7 @@ func (h archiveHost) coverSQLite(ctx context.Context, p archive.Plan, d archive.
 		return coverage, err
 	}
 	engine := h.archiveRestoreEngine(d, binding, credentials)
-	receipt, err := restore.VerifySQLite(ctx, &engine, request)
+	receipt, err := checkSQLiteRestore(ctx, &engine, request)
 	if err != nil {
 		return coverage, err
 	}

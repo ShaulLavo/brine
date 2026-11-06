@@ -414,7 +414,7 @@ func (h archiveHost) recheckRecoverySource(ctx context.Context, p archive.Plan, 
 		return err
 	}
 	engine := h.archiveRestoreEngine(d, binding, credentials)
-	receipt, err := restore.VerifySQLite(ctx, &engine, request)
+	receipt, err := checkSQLiteRestore(ctx, &engine, request)
 	if err != nil || receipt.OperationID != request.OperationID || !archiveRecoveryReceiptMatches(archive.SQLiteCoverageVariant(coverage), receipt, time.Now().UTC()) || len(d.Invariants) > 0 && receipt.InvariantCheck != "passed" {
 		return archive.ErrRefused
 	}

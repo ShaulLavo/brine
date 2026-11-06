@@ -342,7 +342,7 @@ func (h archiveHost) VerifyArchiveRetention(ctx context.Context, p archive.Plan,
 			return out, err
 		}
 		engine := h.archiveRestoreEngine(database, remote, credentials)
-		receipt, err := restore.VerifySQLite(ctx, &engine, request)
+		receipt, err := checkSQLiteRestore(ctx, &engine, request)
 		if err != nil || receipt.OperationID != request.OperationID || !archiveRecoveryReceiptMatches(m.Coverage[i], receipt, time.Now().UTC()) || len(database.Invariants) > 0 && receipt.InvariantCheck != "passed" {
 			return out, archive.ErrRefused
 		}

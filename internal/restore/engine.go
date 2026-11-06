@@ -6,11 +6,20 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 )
 
+// OutputLifetime declares whether a verified file has a consumer after return.
+type OutputLifetime uint8
+
+const (
+	RetainOutput OutputLifetime = iota
+	MetadataOnly
+)
+
 // Verification is closed over concrete checks. Engine-specific invariants and
 // schema observations cannot be reinterpreted by a different verifier.
 type Verification struct {
 	kind   data.EngineKind
 	sqlite SQLiteRequest
+	output OutputLifetime
 }
 
 func SQLiteVerification(r SQLiteRequest) (Verification, error) {
@@ -37,12 +46,22 @@ func (v Verifier) Test(ctx context.Context, r Verification) (VerifiedReceipt, er
 	if ctx.Err() != nil || !r.kind.Valid() {
 		return VerifiedReceipt{}, refuse("engine_mismatch")
 	}
+	if r.output != RetainOutput && r.output != MetadataOnly {
+		return VerifiedReceipt{}, refuse("invalid_output_lifetime")
+	}
 	switch r.kind {
 	case data.EngineSQLite:
 		if v.SQLite == nil {
 			return VerifiedReceipt{}, refuse("engine_mismatch")
 		}
-		receipt, err := v.SQLite.Test(ctx, cloneSQLiteRequest(r.sqlite))
+		var receipt SQLiteReceipt
+		var err error
+		switch r.output {
+		case RetainOutput:
+			receipt, err = v.SQLite.Test(ctx, cloneSQLiteRequest(r.sqlite))
+		case MetadataOnly:
+			receipt, err = v.SQLite.TestMetadata(ctx, cloneSQLiteRequest(r.sqlite))
+		}
 		if err != nil {
 			return VerifiedReceipt{}, err
 		}
@@ -52,11 +71,12 @@ func (v Verifier) Test(ctx context.Context, r Verification) (VerifiedReceipt, er
 	}
 }
 
-func VerifySQLite(ctx context.Context, engine *SQLiteEngine, r SQLiteRequest) (SQLiteReceipt, error) {
+func VerifySQLite(ctx context.Context, engine *SQLiteEngine, r SQLiteRequest, output OutputLifetime) (SQLiteReceipt, error) {
 	request, err := SQLiteVerification(r)
 	if err != nil {
 		return SQLiteReceipt{}, err
 	}
+	request.output = output
 	receipt, err := (Verifier{SQLite: engine}).Test(ctx, request)
 	if err != nil {
 		return SQLiteReceipt{}, err
