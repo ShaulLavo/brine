@@ -341,3 +341,72 @@ func TestOperatorDrillRejectsInputBeyondByteBound(t *testing.T) {
 		t.Fatalf("wrong refusal %s", text)
 	}
 }
+
+func TestRestoreMetadataDisposalRefusesSubstitution(t *testing.T) {
+	for _, name := range []string{"live", "sibling", "archive", "symlink", "root"} {
+		t.Run(name, func(t *testing.T) { testRestoreMetadataSubstitution(t, name) })
+	}
+}
+
+func testRestoreMetadataSubstitution(t *testing.T, name string) {
+	engine, request, _ := setup(t, fixture(t, fixtureSQL))
+	operation := filepath.Join(engine.Root, request.OperationID)
+	foreign := filepath.Join(t.TempDir(), name)
+	mustRestoreTest(t, os.Mkdir(foreign, 0700))
+	sentinel := filepath.Join(foreign, "keep.sqlite")
+	mustRestoreTest(t, os.WriteFile(sentinel, []byte("preserved"), 0600))
+	engine.Observer = restoreCallbackObserver{next: engine.Observer, before: func() {
+		substituteRestoreDirectory(t, engine.Root, operation, foreign, name)
+	}}
+	receipt, err := engine.TestMetadata(context.Background(), request)
+	if err == nil || receipt.OperationID != "" {
+		t.Fatal("substituted workspace accepted", err)
+	}
+	preserved := filepath.Join(operation, "keep.sqlite")
+	if name == "root" {
+		preserved = filepath.Join(engine.Root, "keep.sqlite")
+	}
+	// #nosec G304 -- Reads the preserved sentinel in this test-owned substitution fixture.
+	got, err := os.ReadFile(preserved)
+	if err != nil || string(got) != "preserved" {
+		t.Fatal("substitution deleted foreign data", err)
+	}
+}
+
+func substituteRestoreDirectory(t *testing.T, root, operation, foreign, kind string) {
+	t.Helper()
+	if kind == "root" {
+		mustRestoreTest(t, os.Rename(root, root+"-original"))
+		mustRestoreTest(t, os.Rename(foreign, root))
+		return
+	}
+	mustRestoreTest(t, os.Rename(operation, operation+"-original"))
+	if kind == "symlink" {
+		mustRestoreTest(t, os.Symlink(foreign, operation))
+		return
+	}
+	mustRestoreTest(t, os.Rename(foreign, operation))
+}
+
+func TestRestoreMetadataCleanupFailureIsNotSuccess(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("directory permissions do not deny root")
+	}
+	engine, request, _ := setup(t, fixture(t, fixtureSQL))
+	t.Cleanup(func() {
+		// #nosec G302 -- Restore owner traversal and write permission so fixture teardown can run.
+		mustRestoreTest(t, os.Chmod(engine.Root, 0700))
+	})
+	engine.Observer = restoreCallbackObserver{next: engine.Observer, before: func() {
+		// #nosec G302 -- Deliberately deny parent writes while retaining owner traversal for this failure fixture.
+		mustRestoreTest(t, os.Chmod(engine.Root, 0500))
+	}}
+	receipt, err := engine.TestMetadata(context.Background(), request)
+	if err == nil || receipt.OperationID != "" {
+		t.Fatal("failed disposal returned a successful receipt", err)
+	}
+	var failure *Error
+	if !errors.As(err, &failure) || failure.Code != "workspace_cleanup" {
+		t.Fatal("cleanup failure not surfaced", err)
+	}
+}

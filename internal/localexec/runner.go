@@ -68,11 +68,19 @@ func run(ctx context.Context, stdoutOnly bool, limit int, path string, args ...s
 	}
 	// Bound pipe draining if a descendant keeps the output descriptors open.
 	cmd.WaitDelay = 100 * time.Millisecond
-	err = cmd.Run()
+	err = runCapturedCommand(cmd)
 	if ctx.Err() != nil {
 		err = ctx.Err()
 	}
 	return output.snapshot(), err
+}
+
+func runCapturedCommand(cmd *exec.Cmd) error {
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	defer cleanupProcessGroup(cmd)
+	return cmd.Wait()
 }
 
 type boundedOutput struct {

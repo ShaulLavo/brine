@@ -21,7 +21,7 @@ func configureProcessGroup(cmd *exec.Cmd) {
 }
 
 func cleanupProcessGroup(cmd *exec.Cmd) {
-	// Streaming adapters own this group, including any descendants still alive
+	// Adapters own this group, including any descendants still alive
 	// after the immediate child exits or its pipes exceed WaitDelay.
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 }
