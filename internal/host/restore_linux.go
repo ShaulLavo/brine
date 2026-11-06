@@ -103,7 +103,7 @@ func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, ope
 	if err := ensurePrivateChild(o.stateDir, "restores"); err != nil {
 		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
-	receipt, err := restore.VerifySQLite(ctx, &engine, request)
+	receipt, err := checkSQLiteRestore(ctx, &engine, request)
 	if err != nil {
 		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
@@ -175,4 +175,8 @@ func requestAtPoint(request restore.SQLiteRequest, point data.SQLiteRestorePoint
 		request.Source.LTX = &restore.LTXSource{BindingID: string(point.BindingID), Epoch: string(point.EpochID), TXID: point.LTX.TXID, Barrier: &restore.BarrierReceipt{BindingID: string(b.BindingID), Epoch: string(b.EpochID), TXID: b.TXID, ReplicaTXID: b.ReplicaTXID, ObservedAt: b.ObservedAt, Succeeded: true}}
 	}
 	return request
+}
+
+func checkSQLiteRestore(ctx context.Context, engine *restore.SQLiteEngine, request restore.SQLiteRequest) (restore.SQLiteReceipt, error) {
+	return engine.TestMetadata(ctx, request)
 }

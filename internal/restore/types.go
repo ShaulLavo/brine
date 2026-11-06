@@ -203,7 +203,8 @@ type SQLiteReceipt struct {
 	ForeignKeyCheck  string                  `json:"foreign_key_check"`
 	InvariantCheck   string                  `json:"invariant_check"`
 	PositionEvidence string                  `json:"position_evidence,omitempty"`
-	DatabasePath     string                  `json:"-"`
+	// DatabasePath is owned by a successful Test caller; TestMetadata disposes it.
+	DatabasePath string `json:"-"`
 }
 
 type Error struct{ Code string }
