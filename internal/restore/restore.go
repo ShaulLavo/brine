@@ -6,8 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -352,49 +350,27 @@ func (e *SQLiteEngine) restoreLTX(ctx context.Context, b Binding, c Credentials,
 	if cli == nil {
 		cli = ExecCLI{}
 	}
-	version, err := cli.Execute(ctx, Command{Args: []string{"version"}, Credentials: c, Directory: directory})
-	if err != nil || version.Truncated || strings.TrimSpace(string(version.Stdout)) != LitestreamVersion {
-		return 0, refuse("litestream_version")
-	}
-	selector := filepath.Join(directory, "remote-selector.sqlite")
-	configPath := filepath.Join(directory, "restore.yml")
-	config := renderConfig(selector, b.Destination)
-	if err := os.WriteFile(configPath, config, 0600); err != nil {
-		return 0, refuse("restore_config")
+	command, err := ltxRestoreCommand(ctx, cli, b, c, s.TXID, directory, output)
+	if err != nil {
+		return 0, err
 	}
 	defer func() {
-		if err := os.Remove(configPath); err != nil && resultErr == nil {
-			recovered, resultErr = 0, refuse("restore_config_cleanup")
+		if err := os.Remove(filepath.Join(directory, "restore.yml")); err != nil {
+			recovered, resultErr = 0, errors.Join(resultErr, refuse("restore_config_cleanup"))
 		}
 	}()
-	base := []string{"restore", "-config", configPath, "-no-expand-env", "-o", output, "-json", "-integrity-check", "full"}
-	if s.TXID != 0 {
-		base = append(base, "-txid", txidString(s.TXID))
-	}
-
-	planResult, err := cli.Execute(ctx, Command{Args: append(append([]string(nil), base...), "-dry-run", selector), Credentials: c, Directory: directory})
-	if err != nil || planResult.Truncated {
-		return 0, refuse("ltx_plan_failed")
-	}
-	var plan struct {
-		Target  string `json:"target_path"`
-		Replica string `json:"replica"`
-		MaxTXID string `json:"max_txid"`
-	}
-	if err := json.Unmarshal(planResult.Stdout, &plan); err != nil || plan.Target != output || plan.Replica != "s3" {
-		return 0, refuse("ltx_point_not_exact")
-	}
-	selected, err := strconv.ParseUint(plan.MaxTXID, 16, 64)
-	if err != nil || selected == 0 || plan.MaxTXID != txidString(selected) || s.TXID != 0 && selected != s.TXID {
-		return 0, refuse("ltx_point_not_exact")
+	selected, err := planLTX(ctx, cli, command, output, s.TXID)
+	if err != nil {
+		return 0, err
 	}
 	if s.TXID == 0 {
 		s.TXID = selected
-		base = append(base, "-txid", txidString(selected))
+		command.Args = append(command.Args, "-txid", txidString(selected))
 	}
 	// v0.5.17's restore JSON echoes the requested TXID. The independently selected
 	// plan boundary must match first; an arbitrary mid-file TXID is not evidence.
-	result, err := cli.Execute(ctx, Command{Args: append(base, selector), Credentials: c, Directory: directory})
+	command.Args = append(command.Args, filepath.Join(directory, "remote-selector.sqlite"))
+	result, err := cli.Execute(ctx, command)
 	if err != nil || result.Truncated {
 		return 0, refuse("ltx_restore_failed")
 	}
@@ -409,6 +385,7 @@ func (e *SQLiteEngine) restoreLTX(ctx context.Context, b Binding, c Credentials,
 	}
 	return s.TXID, nil
 }
+
 func renderConfig(selector string, d Destination) []byte {
 	quote := func(value string) string { data, _ := json.Marshal(value); return string(data) }
 	config := "logging:\n  stderr: true\ndbs:\n  - path: " + quote(selector) + "\n    replica:\n      type: s3\n      bucket: " + quote(d.Bucket) + "\n      path: " + quote(d.Prefix) + "\n      endpoint: " + quote(d.Endpoint) + "\n      region: " + quote(d.Region) + "\n      force-path-style: "
