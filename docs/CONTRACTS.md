@@ -1295,8 +1295,19 @@ recorded. Completion and abandon recheck the retained stopped source inside
 their store transactions. Success leaves writers and replica stopped under the
 original fence; a ten-minute point admission lifetime, clipped by recorded
 retention, never releases it. Abandon checks the stopped source against its
-recorded baseline, releases only the original fence and starts nothing. An
-unknown outcome after claim remains `recovery_required` with the fence held.
+recorded baseline, releases only the original fence and starts nothing. If a
+live preparation failed before the replica stopped, abandon records a durable
+local stop intent before stopping the freshly proven owned writers and replica.
+That path needs no credentials, barrier, upload or remote request. A stop intent
+is a claim: an unknown stop or lost reply remains `recovery_required`, and a
+same-key retry does not repeat effects. A new explicit abandon can recover it.
+An already recorded stopped baseline with a restarted unit refuses before claim.
+
+Source checks retain no-follow descriptors and rewalk the absolute root and its
+ancestors to detect replacement. Writer stops require the committed rendered
+unit, the loaded unit's exact provenance and the running process's own cgroup.
+Foreign or replaced units refuse. Host observation runs outside control-store
+write transactions; completion rechecks only retained physical source handles.
 
 While a preparation fence is held, the existing writer and replica startup
 permits refuse, including at boot. After abandon, units start only through the
