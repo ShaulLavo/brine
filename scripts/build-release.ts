@@ -75,9 +75,16 @@ function checkMetadata(path: string, target: typeof targets[number], snapshot: R
   checkHeader(path, target);
 }
 
-function unchanged(before: ReturnType<typeof source>) {
+export function unchanged(before: ReturnType<typeof source>, operation = "the build") {
   const after = source();
-  if (before.head !== after.head || before.tree !== after.tree || after.dirty !== "") throw new Error("source changed during the build");
+  if (before.head !== after.head || before.tree !== after.tree || after.dirty !== "") throw new Error(`source changed during ${operation}`);
+}
+
+export async function withCleanSource<T>(work: (snapshot: ReturnType<typeof source>) => Promise<T>): Promise<T> {
+  const snapshot = source();
+  if (snapshot.dirty) throw new Error("release verification requires a clean checkout, including ignored files");
+  try { return await work(snapshot); }
+  finally { unchanged(snapshot, "release verification"); }
 }
 
 function outputPath(path: string) {
@@ -136,6 +143,10 @@ async function buildArtifacts(options: { output: string; tag: string; version: s
 }
 
 export async function verifyDirectory(directory: string, tag: string) {
+  return withCleanSource(snapshot => verifyArtifacts(directory, tag, snapshot));
+}
+
+async function verifyArtifacts(directory: string, tag: string, snapshot: ReturnType<typeof source>) {
   const files = readdirSync(directory).sort();
   if (JSON.stringify(files) !== JSON.stringify(releaseFiles.toSorted())) throw new Error("unexpected release files");
   for (const name of releaseFiles) {
@@ -146,7 +157,6 @@ export async function verifyDirectory(directory: string, tag: string) {
   if (lstatSync(receiptFile).size > maxReceipt) throw new Error("receipt exceeds 16 KiB");
   const raw = readFileSync(receiptFile, "utf8");
   const receipt: unknown = JSON.parse(raw);
-  const snapshot = source();
   const artifacts = [];
   for (const target of targets) {
     const name = `brine-${target.os}-${target.arch}`;
@@ -162,7 +172,9 @@ export async function verifyDirectory(directory: string, tag: string) {
 }
 
 export async function compare(first: string, second: string, tag: string) {
-  if (await verifyDirectory(first, tag) !== await verifyDirectory(second, tag)) throw new Error("independent rebuild differs");
+  return withCleanSource(async snapshot => {
+    if (await verifyArtifacts(first, tag, snapshot) !== await verifyArtifacts(second, tag, snapshot)) throw new Error("independent rebuild differs");
+  });
 }
 
 if (import.meta.main) {

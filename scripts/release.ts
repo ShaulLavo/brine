@@ -1,4 +1,4 @@
-import { compare, command, source, verifyDirectory, versionTag, releaseFiles } from "./build-release.ts";
+import { compare, command, unchanged, withCleanSource, verifyDirectory, versionTag, releaseFiles } from "./build-release.ts";
 import { join } from "node:path";
 
 const repository = "ShaulLavo/brine";
@@ -20,10 +20,40 @@ async function api(path: string) {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" },
     signal: AbortSignal.timeout(30_000),
   });
-  const raw = await response.text();
-  if (Buffer.byteLength(raw) > 1024 * 1024) throw new Error("GitHub response exceeds 1 MiB");
-  const value: unknown = raw ? JSON.parse(raw) : null;
+  const raw = await boundedBody(response);
+  const value = parseJSON(raw);
   return { status: response.status, value };
+}
+
+async function boundedBody(response: Response) {
+  const reader = response.body?.getReader();
+  if (!reader) return "";
+  try { return await readBody(reader, response.headers.get("content-length")); }
+  catch (error) {
+    await reader.cancel().catch(() => {});
+    throw error;
+  } finally { reader.releaseLock(); }
+}
+
+async function readBody(reader: ReadableStreamDefaultReader<Uint8Array>, length: string | null) {
+  const cap = 1024 * 1024;
+  if (length !== null && Number(length) > cap) throw new Error("GitHub response exceeds 1 MiB");
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  while (true) {
+    const chunk = await reader.read();
+    if (chunk.done) break;
+    bytes += chunk.value.byteLength;
+    if (bytes > cap) throw new Error("GitHub response exceeds 1 MiB");
+    chunks.push(chunk.value);
+  }
+  return Buffer.concat(chunks, bytes).toString("utf8");
+}
+
+function parseJSON(raw: string): unknown {
+  if (!raw) return null;
+  try { return JSON.parse(raw); }
+  catch { throw new Error("invalid GitHub JSON response"); }
 }
 
 async function readAPI(path: string) {
@@ -60,32 +90,42 @@ export function verifyAbsentRelease(result: { status: number; value: unknown }) 
 }
 
 async function gate() {
-  const context = releaseContext();
-  const snapshot = source();
-  if (snapshot.dirty || snapshot.head !== context.sha) throw new Error("checkout does not match clean workflow source");
+  return withCleanSource(async snapshot => {
+    const context = releaseContext();
+    if (snapshot.head !== context.sha) throw new Error("checkout does not match clean workflow source");
+    await gateReads(context);
+    return context;
+  });
+}
+
+async function gateReads(context: ReturnType<typeof releaseContext>) {
   verifyMainComparison(await readAPI(`compare/${context.sha}...main`), context.sha);
   verifyGreenRun(await readAPI(`actions/workflows/ci.yml/runs?head_sha=${context.sha}&event=push&branch=main&per_page=1`), context.sha);
-  if (context.publish) {
-    const commit = await readAPI(`commits/${encodeURIComponent(context.tag)}`);
-    if (commit.sha !== context.sha) throw new Error("tag does not identify workflow source");
-  }
-  return context;
+  if (!context.publish) return;
+  const commit = await readAPI(`commits/${encodeURIComponent(context.tag)}`);
+  if (commit.sha !== context.sha) throw new Error("tag does not identify workflow source");
 }
 
 async function preflight(directory: string) {
   if (!releaseContext().publish) throw new Error("manual dispatch cannot publish or attest");
-  const context = await gate();
-  await verifyDirectory(directory, context.tag);
-  await readAPI(""); // A successful repository read rules out a hidden/unauthorized repository 404.
-  verifyAbsentRelease(await api(`releases/tags/${context.tag}`));
-  return context;
+  return withCleanSource(async () => {
+    const context = await gate();
+    await verifyDirectory(directory, context.tag);
+    await readAPI(""); // A successful repository read rules out a hidden/unauthorized repository 404.
+    verifyAbsentRelease(await api(`releases/tags/${context.tag}`));
+    return context;
+  });
 }
 
 async function publish(directory: string) {
-  const { tag, sha } = await preflight(directory);
-  const paths = releaseFiles.map(name => join(directory, name));
-  // No upload --clobber, edit, delete, or retry: an ambiguous create must be inspected, never replayed.
-  command(["gh", "release", "create", tag].concat(paths, ["--repo", repository, "--verify-tag", "--target", sha, "--title", `Brine ${tag}`, "--notes", `Experimental Brine client binaries from ${sha}. Verify attestations and SHA256SUMS as described in docs/releases.md.`, "--latest=false"]));
+  if (!releaseContext().publish) throw new Error("manual dispatch cannot publish or attest");
+  return withCleanSource(async snapshot => {
+    const { tag, sha } = await preflight(directory);
+    const paths = releaseFiles.map(name => join(directory, name));
+    unchanged(snapshot, "release verification");
+    // No upload --clobber, edit, delete, or retry: an ambiguous create must be inspected, never replayed.
+    command(["gh", "release", "create", tag].concat(paths, ["--repo", repository, "--verify-tag", "--target", sha, "--title", `Brine ${tag}`, "--notes", `Experimental Brine client binaries from ${sha}. Verify attestations and SHA256SUMS as described in docs/releases.md.`, "--latest=false"]));
+  });
 }
 
 async function main() {
