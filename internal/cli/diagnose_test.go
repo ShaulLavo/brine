@@ -65,6 +65,7 @@ type diagnoseTransport struct {
 }
 
 func (f *diagnoseTransport) Call(ctx context.Context, _ transport.Target, request dispatch.Request) (result.Envelope, error) {
+	request.Args = bytes.Clone(request.Args)
 	f.requests = append(f.requests, request)
 	raw, e := dispatch.EncodeRequest(request)
 	if e != nil {
@@ -78,7 +79,7 @@ func (f *diagnoseTransport) Call(ctx context.Context, _ transport.Target, reques
 	if e != nil {
 		return result.Envelope{}, e
 	}
-	return dispatch.DecodeResponse(raw, "diagnose")
+	return dispatch.DecodeResponse(raw, request.Op)
 }
 func diagnosticServer() *dispatch.Server {
 	s := dispatch.NewServer("test", diagnoseInventory{})

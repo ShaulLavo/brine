@@ -45,6 +45,7 @@ type Dependencies struct {
 	LogsClient                 LogsClient
 	HostApps                   dispatch.AppOperations
 	HostDiagnose               dispatch.DiagnosticReader
+	HostReadiness              dispatch.ReadinessReader
 	HostConfig                 dispatch.ConfigurationOperations
 	HostSecrets                dispatch.SecretOperations
 	HostWriterAttempt          func(context.Context, string) error
@@ -113,7 +114,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newDiagnoseCmd(deps, &modes))
 	root.AddCommand(newEnrollCmd(deps, &noInput, &modes))
 	root.AddCommand(newPermissionsCmd(deps, &modes))
-	root.AddCommand(newDoctorCmd(&jsonOutput, deps.LookPath, deps.DoctorRunner))
+	root.AddCommand(newDoctorCmd(deps, &modes))
 	root.AddCommand(newVersionCmd(&jsonOutput, deps.Version))
 	root.AddCommand(newApplyCmd(&jsonOutput, deps), newOperationStatusCmd(&jsonOutput, &modes, deps), newRollbackCmd(deps, &modes))
 	root.AddCommand(newValidateCmd(&jsonOutput))

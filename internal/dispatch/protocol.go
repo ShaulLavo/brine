@@ -109,6 +109,7 @@ var operations = map[string]operation{
 	"secret_set":                            {Mutating, decodeSecret},
 	"reconcile":                             {Mutating, decodeReconcile},
 	"resolve":                               {Mutating, decodeResolve},
+	"readiness":                             {ReadOnly, decodeReadiness},
 	"diagnose":                              {ReadOnly, func(raw json.RawMessage) (any, error) { return diagnose.DecodeRequest(raw) }},
 	"status":                                {ReadOnly, decodeAppStatus},
 	"rollback":                              {Mutating, decodeRollback},
@@ -210,6 +211,7 @@ func IsReconcilePreview(ctx context.Context) bool {
 type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
+	Readiness              ReadinessReader
 	SQLiteBackupStatus     SQLiteBackupStatusReader
 	SQLitePreparation      SQLitePreparationOperations
 	CDN                    cdnoperator.Host
@@ -593,6 +595,15 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = p
+	case ReadinessArgs:
+		if s.Readiness == nil {
+			return fail(result.New(result.DependencyMissing, nil))
+		}
+		report, err := s.Readiness.Read(ctx)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = report
 	case diagnose.Request:
 		reader := s.Diagnose
 		if reader == nil {

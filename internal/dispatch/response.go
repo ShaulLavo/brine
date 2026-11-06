@@ -59,6 +59,8 @@ func DecodeResponse(data []byte, op string) (result.Envelope, error) {
 		}
 		var value any
 		switch op {
+		case "readiness":
+			return decodeReadinessEnvelope(command, fields["data"])
 		case "sqlite_backup_status":
 			status, err := sqlitestatus.Decode(fields["data"])
 			if err != nil {

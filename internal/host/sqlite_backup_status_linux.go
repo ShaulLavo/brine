@@ -24,6 +24,8 @@ import (
 
 type sqliteBackupStatusReader struct {
 	stateDir                  string
+	open                      func(context.Context, string) (*store.Store, error)
+	workspaceRoot             string
 	policy                    PolicyLoader
 	executor                  localexec.Executor
 	cli                       restore.CLI
@@ -34,21 +36,25 @@ type sqliteBackupStatusReader struct {
 func newSQLiteBackupStatusReader(dir string) dispatch.SQLiteBackupStatusReader {
 	return &sqliteBackupStatusReader{stateDir: dir, policy: DiskPolicy{}, executor: localexec.ExecRunner{}, probe: restore.ProbeRemote, listingBudget: 15 * time.Second, timeBudget: 30 * time.Second}
 }
-func (r *sqliteBackupStatusReader) SQLiteBackupStatus(ctx context.Context, a dispatch.SQLiteBackupStatusArgs) (sqlitestatus.Status, error) {
+func (r *sqliteBackupStatusReader) SQLiteBackupStatus(ctx context.Context, a dispatch.SQLiteBackupStatusArgs) (_ sqlitestatus.Status, err error) {
 	if ctx.Err() != nil {
 		return sqlitestatus.Status{}, ctx.Err()
 	}
 	if !a.Valid() {
 		return sqlitestatus.Status{}, result.New(result.InvalidUsage, nil)
 	}
-	state, err := store.OpenReadOnly(ctx, r.stateDir)
+	open := r.open
+	if open == nil {
+		open = store.OpenReadOnly
+	}
+	state, err := open(ctx, r.stateDir)
 	if err != nil {
 		if ctx.Err() != nil {
 			return sqlitestatus.Status{}, ctx.Err()
 		}
 		return sqlitestatus.Status{}, result.New(result.PolicyRefused, nil)
 	}
-	defer func() { _ = state.Close() }()
+	defer func() { err = errors.Join(err, state.Close()) }()
 	facts, err := state.ReadSQLiteStatus(ctx, a.App, a.Database)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -186,7 +192,11 @@ func (r *sqliteBackupStatusReader) watermark(ctx context.Context, b restore.Bind
 func (r *sqliteBackupStatusReader) readWatermark(ctx context.Context, b restore.Binding, c restore.Credentials) (txid uint64, err error) {
 	// Every call owns a different parent. Remove only this exact, empty directory,
 	// never another caller's workspace or a substituted parent.
-	root, err := os.OpenRoot(r.stateDir)
+	directory := r.workspaceRoot
+	if directory == "" {
+		directory = r.stateDir
+	}
+	root, err := os.OpenRoot(directory)
 	if err != nil {
 		return 0, err
 	}
@@ -210,7 +220,7 @@ func (r *sqliteBackupStatusReader) readWatermark(ctx context.Context, b restore.
 	if err != nil {
 		return 0, err
 	}
-	return restore.RemoteWatermark(ctx, filepath.Join(r.stateDir, name), r.cli, b, c)
+	return restore.RemoteWatermark(ctx, filepath.Join(directory, name), r.cli, b, c)
 }
 func removeSQLiteStatusParent(root *os.Root, name string, created os.FileInfo) error {
 	current, err := root.Lstat(name)

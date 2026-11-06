@@ -468,7 +468,7 @@ A response that accepts a background operation says **accepted**, not **deployed
 
 ### Local client doctor
 
-`brine doctor` checks the **local client machine only**. It never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to the connected commands. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
+`brine doctor` without `--target` checks the **local client machine only**. That local form never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to the connected commands. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
 
 The local client requires `ssh`, the system OpenSSH executable used for transport. `git` is optional for working with app source repositories. Missing or failed optional tools do not fail doctor. A missing required tool or a failed required version probe returns `dependency_missing` and exit 3. This identifies a missing or unverified dependency, not a minimum supported version policy.
 
@@ -2443,3 +2443,87 @@ the retained original point, released fence, release, routes, and stopped
 revision. A later legitimate lifecycle revision does not invalidate that
 historical receipt. Failed or unknown attempts retain their recorded outcome
 and cannot infer success from an unjoined receipt.
+
+## Read-only target readiness
+
+`brine doctor` checks this client's SSH and optional Git dependency only. It
+explicitly says that remote readiness was not checked. `doctor --target NAME`
+uses the restricted `readiness` operation. Its only accepted payload is `{}` and
+its dispatcher class is `read_only`. The response contains `client` and `host`.
+JSONL emits one `complete` event containing the same report as JSON and human
+output. A successful envelope means collection succeeded, not that the host is
+ready. `host.ready` is `true`, `false`, or the string `"unknown"`.
+
+Facts have a typed value only when known. Unknown and absent facts have a fixed
+reason and a null value. Known failing requirements produce fixed findings.
+Unknown facts do not fail a rule or establish readiness. Any failure makes the
+verdict false; otherwise any unknown requirement or truncation makes it unknown.
+Next-operation suggestions do not authorize changes. Readiness is not app health,
+a successful deployment, or physical acceptance.
+
+The fixed findings are `os_unsupported`, `runtime_version_mismatch`,
+`cgroup_unsupported`, `rootless_helper_missing`, `user_session_missing`,
+`disk_below_reserve`, `policy_invalid`, `policy_denies_deploy`, `caddy_inactive`,
+`caddy_admin_exposed`, `proxy_conflict`, `catch_all_site`, `control_store_missing`,
+`control_store_unhealthy`, `control_store_upgrade_required`,
+`registry_unreachable`, `domain_unresolved`, `domain_elsewhere`, `tls_untrusted`,
+and `backup_stale`. Each includes severity, a fixed message and next operations.
+
+Inventory supplies OS, architecture, D2 runtime versions, cgroup v2, disk,
+linger, listener ownership and committed route observations. Fixed read-only
+runtime probes add uidmap executable modes, installed session packages, the
+user bus, Caddy activity, loopback administration and hostless sites. A hostless
+site observed in either loaded or adapted configuration is retained. Absence
+requires both observations; a failed observation does not establish absence.
+Free disk is compared with the protected policy reserve. Invalid policy and valid policy
+that allows no deployment registries or domains are separate facts.
+
+The control store is read through `OpenSnapshotReadOnly`, including WAL, without
+opening live SQLite files or acquiring or creating a live lock. Its states are
+`missing`, `current`, `schema_upgrade_required`, `schema_unsupported` and
+`preview_unavailable`. The exact same isolated Store runs one bounded
+`PRAGMA quick_check(1)`. Only the exact positive result proves SQLite structural
+health. It does not validate all retained authority or history. Readiness never
+creates a missing database, migrates a schema, or repairs state.
+
+Outbound DNS, HTTPS and TLS are observations. Registry hosts come only from
+policy-allowed repository prefixes. Each gets one anonymous HTTPS `GET /v2/`,
+with no proxy environment, credentials, cookies or redirects. Docker Hub aliases
+use the existing resolver's fixed `registry-1.docker.io` API origin. Only 200 and 401
+mean reachable. Registries with no repository prefixes grant no deployment
+permission and are not probed. Exact policy domains resolve A and AAAA from the
+host and compare with local interface addresses. Wildcard policy grants are not
+expanded or sent to exact-name probes. Their omitted coverage sets `truncated`
+and prevents a ready verdict, while exact grants are still checked. Results are `resolves_here`,
+`resolves_elsewhere`, `unresolved` or `unknown_behind_nat`. The latter cannot
+establish health. Semantic store reads are bound to the independently measured
+host identity. Missing or mismatched identity leaves routes and backups unknown;
+SQLite structural health remains a separate fact. Current route selection joins
+release identity, protected managed route and withdrawal records, the selected
+observed generation and the complete file hashes. Disk absence alone is not a
+withdrawal. A domain with a proven current route gets a handshake to
+`127.0.0.1:443` with its SNI name, system roots and mandatory hostname verification.
+TLS is `trusted`, `untrusted` or `unreachable`; errors never disable verification.
+
+Backup facts use the existing read-only status readers. SQLite facts reuse the
+connected status composition, snapshot reader, service probe, remote listing and
+dry-run watermark probe. Coverage is checked per exact database and replica
+binding against every prepared database, not by app name. If the existing read
+ports cannot enumerate a complete engine set, including native engine ownership,
+the backup set remains unknown rather than asserting complete coverage. Local position and possible loss
+remain unknown; a remote watermark does not prove durability. Active data
+preparation not represented by a committed release remains unknown rather than
+an empty backup set. A missing verification, missed cadence or explicit known
+backup degradation can produce `backup_stale`; unknown observations alone cannot.
+The SQLite status dependency is source-composed. Its physical acceptance is a
+separate gate, not a consequence of this readiness report.
+
+Collection has a fixed 12-second total deadline, four-second inventory and
+runtime-group budgets, and one-second remaining probes. Inventory subprocesses
+retain their existing three-second cap within the group budget. At most four
+probes can remain outstanding, including dependencies that ignore cancellation.
+Policy registries, domains and backup summaries are capped at 16 each. The
+wire report is capped at 128 KiB. A timed-out probe returns a partial report,
+never a healthy fallback. Every isolated copy and dry-run directory is owned by
+its request and cleaned on exit. No generic shell, request-selected path,
+request-selected host or arbitrary subprocess arguments are accepted.

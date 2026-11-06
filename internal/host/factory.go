@@ -19,15 +19,18 @@ type ServerFactory struct {
 	open               func(context.Context, string) (*Runtime, error)
 	previewOpen        func(context.Context, string) (*Runtime, error)
 	inventory          func(context.Context) (dispatch.Inventory, error)
+	readinessInventory func(context.Context) (dispatch.Inventory, error)
 	closeRuntime       func() error
 	diagnosticStateDir string
 }
 
 func NewServerFactory(version, capturedMarker string) *ServerFactory {
-	return newServerFactory(version, capturedMarker, Open, func(ctx context.Context) (dispatch.Inventory, error) { return NewInventory(ctx) })
+	factory := newServerFactory(version, capturedMarker, Open, func(ctx context.Context) (dispatch.Inventory, error) { return NewInventory(ctx) })
+	factory.readinessInventory = newReadinessInventory
+	return factory
 }
 func newServerFactory(version, marker string, open func(context.Context, string) (*Runtime, error), inventory func(context.Context) (dispatch.Inventory, error)) *ServerFactory {
-	return &ServerFactory{version: version, authenticated: marker, open: open, previewOpen: OpenPreview, inventory: inventory, diagnosticStateDir: "/home/brine/.local/state/brine"}
+	return &ServerFactory{version: version, authenticated: marker, open: open, previewOpen: OpenPreview, inventory: inventory, readinessInventory: inventory, diagnosticStateDir: "/home/brine/.local/state/brine"}
 }
 func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server, error) {
 	if _, ok := dispatch.ClassOf(op); !ok {
@@ -65,6 +68,11 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	if op == "native_point" {
 		server := dispatch.NewServer(f.version, nil)
 		server.NativePoints = nativePointInspection{stateDir: f.diagnosticStateDir}
+		return server, nil
+	}
+	if op == "readiness" {
+		server := dispatch.NewServer(f.version, nil)
+		server.Readiness = readinessReader(f.diagnosticStateDir, f.readinessInventory)
 		return server, nil
 	}
 	if op == "inventory" || op == "diagnose" {
