@@ -109,3 +109,51 @@ func TestRevokedAttemptIsStillStrictlyDecoded(t *testing.T) {
 	}
 	rejectState(t, strings.Replace(string(raw), p.ExemptAttempt, "invalid", 1))
 }
+
+func TestTimestampGrammarAndBound(t *testing.T) {
+	for _, since := range []string{
+		"2026-11-06T1:00:00Z", "2026-11-06T12:00:00,5Z",
+		"2026-11-06T12:00:00+24:00", "2026-11-06T12:00:00+00:60",
+		"2026-11-06T12:00:00." + strings.Repeat("0", MaxStateBytes) + "Z",
+	} {
+		checkInvalidTimestamp(t, since)
+	}
+	for _, since := range []string{"2026-11-06T12:00:00Z", "2026-11-06T12:00:00.123456789Z", "2026-11-06T12:00:00+23:59", "2026-11-06T12:00:00.5-02:30"} {
+		p := pendingFixture()
+		p.Since = since
+		raw, err := Encode(State{Version: 1, Pending: &p})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Decode(raw); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func checkInvalidTimestamp(t *testing.T, since string) {
+	t.Helper()
+	p := pendingFixture()
+	p.Since = since
+	s := State{Version: 1, Pending: &p}
+	if raw, err := Encode(s); err == nil {
+		t.Errorf("encoded malformed timestamp, %d bytes", len(raw))
+	}
+	raw, err := json.Marshal(s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejectState(t, string(raw))
+}
+
+func TestStateExactByteBoundary(t *testing.T) {
+	raw, err := Encode(State{Version: 1, Open: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = append(raw, []byte(strings.Repeat(" ", MaxStateBytes-len(raw)))...)
+	if _, err := Decode(raw); err != nil {
+		t.Fatal(err)
+	}
+	rejectState(t, string(append(raw, ' ')))
+}

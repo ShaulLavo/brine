@@ -43,11 +43,12 @@ const (
 const MaxStateBytes = 16 << 10
 
 var (
-	ErrUnavailable  = errors.New("admission_unavailable")
-	ErrClosed       = errors.New("admission_closed")
-	ErrInconsistent = errors.New("admission_inconsistent")
-	ErrDrainTimeout = errors.New("admission_drain_timeout")
-	tokenPattern    = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	ErrUnavailable   = errors.New("admission_unavailable")
+	ErrClosed        = errors.New("admission_closed")
+	ErrInconsistent  = errors.New("admission_inconsistent")
+	ErrDrainTimeout  = errors.New("admission_drain_timeout")
+	tokenPattern     = regexp.MustCompile(`^[a-f0-9]{32}$`)
+	timestampPattern = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,9})?(Z|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$`)
 )
 
 type State struct {
@@ -63,7 +64,7 @@ type Pending struct {
 	Quiescence    Quiescence `json:"quiescence"`
 	ExemptOpen    bool       `json:"exempt_open"`
 	ExemptAttempt string     `json:"exempt_attempt,omitempty"`
-	Since         string     `json:"since"`
+	Since         string     `json:"since"` // RFC 3339 with at most nanosecond precision.
 }
 
 // Exemption selects an exact root-published attempt. Possessing one is not
@@ -107,6 +108,9 @@ func Encode(s State) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
+	if len(raw) > MaxStateBytes {
+		return nil, ErrUnavailable
+	}
 	return raw, nil
 }
 
@@ -124,7 +128,10 @@ func validate(s State) error {
 	if p.Quiescence != Store && p.Quiescence != Runner {
 		return ErrUnavailable
 	}
-	if _, err := time.Parse(time.RFC3339, p.Since); err != nil {
+	if len(p.Since) > 35 || !timestampPattern.MatchString(p.Since) {
+		return ErrUnavailable
+	}
+	if _, err := time.Parse(time.RFC3339Nano, p.Since); err != nil {
 		return ErrUnavailable
 	}
 	if p.ExemptAttempt != "" && !tokenPattern.MatchString(p.ExemptAttempt) {
