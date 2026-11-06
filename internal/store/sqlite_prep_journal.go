@@ -22,17 +22,31 @@ const claimWindow = time.Minute
 // evidence and runner ownership, and the held source must later match it.
 type SQLiteLocationObserver func(context.Context, data.SQLiteDatabaseBinding) (sqliteprep.Location, error)
 
+// SQLiteSchemaObserver reads the actual source schema with the registered
+// definitions of that database. Its result is only a claim: the journal admits
+// it against the current declaration and registry, and every later held-source
+// and host observation must equal it.
+type SQLiteSchemaObserver func(context.Context, data.SQLiteDatabaseBinding, []data.SQLiteSchemaDefinition) data.SQLiteSchemaObservation
+
 // SQLitePreparationJournal is the protected sqliteprep.Journal of one task.
 // Writes need the store-minted mutation guard presented at Claim, or for
 // abandon the source hold beneath it; reads rejoin every protected record.
 type SQLitePreparationJournal struct {
 	store    *Store
 	location SQLiteLocationObserver
+	schema   SQLiteSchemaObserver
 	guard    *SQLiteMutationGuard
 }
 
 func (s *Store) SQLitePreparationJournal(location SQLiteLocationObserver) *SQLitePreparationJournal {
 	return &SQLitePreparationJournal{store: s, location: location}
+}
+
+// SQLiteObservedPreparationJournal additionally selects a fresh preparation's
+// schema from an actual source observation, so a declaration accepting
+// several markers is resolved by evidence rather than refused or guessed.
+func (s *Store) SQLiteObservedPreparationJournal(location SQLiteLocationObserver, schema SQLiteSchemaObserver) *SQLitePreparationJournal {
+	return &SQLitePreparationJournal{store: s, location: location, schema: schema}
 }
 
 func sqliteNow() time.Time { return time.Now().UTC() }
@@ -96,6 +110,12 @@ func (j *SQLitePreparationJournal) Inspect(ctx context.Context, task sqliteprep.
 	if err != nil {
 		return sqliteprep.Facts{}, err
 	}
+	var observed *data.SQLiteSchemaObservation
+	if task.Kind == sqliteprep.PrepareTask && in.Supersedes == "" {
+		if observed, err = j.observeSchema(ctx, in.DatabaseID); err != nil {
+			return sqliteprep.Facts{}, err
+		}
+	}
 	tx, err := j.readTx(ctx)
 	if err != nil {
 		return sqliteprep.Facts{}, err
@@ -115,9 +135,48 @@ func (j *SQLitePreparationJournal) Inspect(ctx context.Context, task sqliteprep.
 	}
 	facts := sqliteprep.Facts{Location: location, CredentialExpiresAt: c.expires}
 	if task.Kind == sqliteprep.PrepareTask && in.Supersedes == "" {
-		return j.freshFacts(c, task, facts, now)
+		return j.freshFacts(c, task, facts, observed, now)
 	}
 	return facts, j.lineageFacts(ctx, tx, c, task, in, &facts, now)
+}
+
+// observeSchema reads the actual source with every registered definition of
+// the database before the read transaction. Without an observer it reports
+// nothing and the single-marker rule applies.
+func (j *SQLitePreparationJournal) observeSchema(ctx context.Context, database data.DatabaseID) (*data.SQLiteSchemaObservation, error) {
+	if j.schema == nil {
+		return nil, nil
+	}
+	permit, err := readReplicaPermit(ctx, j.store.db, database)
+	if err != nil {
+		return nil, err
+	}
+	definitions, err := readRegisteredSQLiteSchemas(ctx, j.store.db, permit.Database)
+	if err != nil {
+		return nil, err
+	}
+	observed := j.schema(ctx, permit.Database, definitions)
+	return &observed, nil
+}
+
+func readRegisteredSQLiteSchemas(ctx context.Context, q dataQuerier, database data.SQLiteDatabaseBinding) (definitions []data.SQLiteSchemaDefinition, resultErr error) {
+	rows, err := q.QueryContext(ctx, "SELECT marker,catalog_sha256 FROM data_schema_definitions WHERE database_id=? ORDER BY marker LIMIT 65", database.DatabaseID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { resultErr = errors.Join(resultErr, rows.Close()) }()
+	definitions = []data.SQLiteSchemaDefinition{}
+	for rows.Next() {
+		d := data.SQLiteSchemaDefinition{Database: database.Name}
+		if err = rows.Scan(&d.Marker, &d.CatalogSHA256); err != nil {
+			return nil, err
+		}
+		if !data.ValidMarker(d.Marker) || !data.ValidCatalogHash(d.CatalogSHA256) || len(definitions) == 64 {
+			return nil, &IntegrityError{}
+		}
+		definitions = append(definitions, d)
+	}
+	return definitions, rows.Err()
 }
 
 func (j *SQLitePreparationJournal) observeLocation(ctx context.Context, database data.DatabaseID) (sqliteprep.Location, error) {
@@ -131,8 +190,8 @@ func (j *SQLitePreparationJournal) observeLocation(ctx context.Context, database
 	return j.location(ctx, permit.Database)
 }
 
-func (j *SQLitePreparationJournal) freshFacts(c sqliteCurrent, task sqliteprep.Task, facts sqliteprep.Facts, now time.Time) (sqliteprep.Facts, error) {
-	scope, err := sqliteTaskScope(c, task.Kind, nil, now)
+func (j *SQLitePreparationJournal) freshFacts(c sqliteCurrent, task sqliteprep.Task, facts sqliteprep.Facts, observed *data.SQLiteSchemaObservation, now time.Time) (sqliteprep.Facts, error) {
+	scope, err := sqliteTaskScope(c, task.Kind, nil, observed, now)
 	if err != nil {
 		return facts, err
 	}
@@ -161,7 +220,7 @@ func (j *SQLitePreparationJournal) lineageFacts(ctx context.Context, tx *sql.Tx,
 	if prev.intent.Scope.DatabaseID != in.DatabaseID || c.held == nil || *c.held != prev.intent.Fence {
 		return sqliteRefuse(sqliteprep.InvalidEvidence)
 	}
-	facts.Scope, err = sqliteTaskScope(c, task.Kind, &prev.intent.Scope, now)
+	facts.Scope, err = sqliteTaskScope(c, task.Kind, &prev.intent.Scope, nil, now)
 	if err != nil {
 		return err
 	}
@@ -172,8 +231,8 @@ func (j *SQLitePreparationJournal) lineageFacts(ctx context.Context, tx *sql.Tx,
 
 // sqliteTaskScope re-derives the scope a task may use now. Preparation needs
 // current retention and exact credentials; abandon keeps the original record.
-func sqliteTaskScope(c sqliteCurrent, kind sqliteprep.TaskKind, previous *sqliteprep.Scope, now time.Time) (sqliteprep.Scope, error) {
-	schema, err := c.schema(previous, now)
+func sqliteTaskScope(c sqliteCurrent, kind sqliteprep.TaskKind, previous *sqliteprep.Scope, observed *data.SQLiteSchemaObservation, now time.Time) (sqliteprep.Scope, error) {
+	schema, err := c.schema(previous, observed, now)
 	if err != nil {
 		return sqliteprep.Scope{}, err
 	}
@@ -304,7 +363,9 @@ func (j *SQLitePreparationJournal) claimTx(ctx context.Context, tx *sql.Tx, i sq
 }
 
 func (j *SQLitePreparationJournal) claimFresh(ctx context.Context, tx *sql.Tx, c sqliteCurrent, i sqliteprep.Intent, observed sqliteObserved, now time.Time) error {
-	scope, err := sqliteTaskScope(c, i.Task.Kind, nil, now)
+	// The fresh schema is re-derived from the live guarded host observation,
+	// never from the intent; it must name the identical admitted schema.
+	scope, err := sqliteTaskScope(c, i.Task.Kind, nil, &observed.host.Schema, now)
 	if err != nil || !sameSQLiteCurrent(i.Scope, scope) || c.held != nil || i.Fence.OperationID != i.Task.OperationID || !sqliteSelectionAdmits(i, scope, nil, observed) {
 		return errors.Join(ErrConflict, err)
 	}
@@ -320,7 +381,7 @@ func (j *SQLitePreparationJournal) claimSuccessor(ctx context.Context, tx *sql.T
 	if err != nil {
 		return errors.Join(ErrConflict, err)
 	}
-	scope, err := sqliteTaskScope(c, i.Task.Kind, &prev.intent.Scope, now)
+	scope, err := sqliteTaskScope(c, i.Task.Kind, &prev.intent.Scope, nil, now)
 	if err != nil || !sameSQLiteCurrent(i.Scope, scope) || !sqliteprep.SameLineageScope(prev.intent.Scope, scope) {
 		return errors.Join(ErrConflict, err)
 	}

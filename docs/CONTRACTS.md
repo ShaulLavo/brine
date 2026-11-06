@@ -1265,6 +1265,47 @@ loss is `unknown`. There is no placeholder local-position adapter, invented zero
 lag, or implied count of application commits. `observed`, `unverified`, and
 `degraded` describe observations only, not a durability guarantee.
 
+### Fenced SQLite preparation
+
+`brine restore prepare APP [--database NAME] [--supersedes PREPARATION_ID] --target TARGET`
+sends the mutating `sqlite_prepare` request with exact `app`, `database`,
+`supersedes` and `idempotency_key` fields. `brine restore abandon PREPARATION_ID`
+sends `sqlite_prepare_abandon` with `preparation_id` and `idempotency_key`.
+Unknown fields refuse. Both return an accepted detached operation; the CLI
+waits for its `sqliteprep.Receipt` unless `--no-wait` is given. The host derives
+the preparation ID from the requester, selected database, predecessor and
+idempotency key, so a retried admission reaches the same operation. Supersede
+and abandon admit only the preparation's own app, database and requester.
+
+The task runs the single `sqliteprep` state machine with the protected store
+journal; no generic shell or SQL port exists. Prepare stops the app's writer
+unit and, when the mode requires, the replica unit. It never starts, restarts
+or execs into either, activates credentials or deletes remote objects. Fresh
+preparation takes the replica's own sync barrier when a committed replica is
+running and proven to hold its lifetime lock, otherwise one create-only
+snapshot upload (one conditional create plus the expected 412 check). Every
+point is restored in a private workspace that is disposed before the receipt is
+recorded. Completion and abandon recheck the retained stopped source inside
+their store transactions. Success leaves writers and replica stopped under the
+original fence; a ten-minute point admission lifetime, clipped by recorded
+retention, never releases it. Abandon checks the stopped source against its
+recorded baseline, releases only the original fence and starts nothing. An
+unknown outcome after claim remains `recovery_required` with the fence held.
+
+While a preparation fence is held, the existing writer and replica startup
+permits refuse, including at boot. After abandon, units start only through the
+next explicit start, deploy or boot; there is no separate stopped-desired-state
+record and no promise of staying stopped across later reboots.
+
+`restore test --point PREPARATION_ID` admits a completed SQLite preparation by
+its retained origin source (a reverify successor resolves to the origin point),
+schema, declared checks, coverage cutoff and exact delivered credential version
+before the ordinary committed and writer-schema gates, and bounds possible loss
+by that cutoff. A preparation of another app or database, an incomplete
+preparation or a changed current binding refuses rather than falling back.
+Only committed replicas are supported; uncommitted, pre-first-release,
+allocated-empty and initialized-snapshot sources refuse.
+
 ### State transitions and restore evidence
 
 The native replacement prerequisite adds append-only epoch reservations and an

@@ -222,22 +222,9 @@ func (c *sqliteCurrent) retention(desired policy.Desired, now time.Time) error {
 
 // readCredential binds the exact activated delivered version, never the newest.
 func (c *sqliteCurrent) readCredential(ctx context.Context, tx *sql.Tx) error {
-	var raw []byte
-	var id string
-	err := tx.QueryRowContext(ctx, "SELECT id,canonical FROM data_credential_records WHERE binding_id=? AND kind='receipt' AND json_extract(canonical,'$.version')=?", c.scope.BindingID, c.scope.CredentialVersion).Scan(&id, &raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return sqliteRefuse(sqliteprep.InvalidEvidence)
-	}
+	record, err := readSQLiteCredential(ctx, tx, c.scope.App, c.permit.Replica, c.scope.CredentialVersion)
 	if err != nil {
 		return err
-	}
-	var record CredentialRecord
-	if len(raw) > 8192 || json.Unmarshal(raw, &record) != nil || record.ID != id || !data.ValidID(id) || record.App != c.scope.App || record.Destination != c.permit.Replica.Destination.Reference || record.Kind != "receipt" || record.BindingID != c.scope.BindingID || record.EpochID != c.scope.EpochID || record.Version != c.scope.CredentialVersion || record.CredentialRef != c.permit.Replica.Destination.CredentialRef || record.ReceivedAt.IsZero() {
-		return &IntegrityError{}
-	}
-	canonical, err := json.Marshal(record)
-	if err != nil || !bytes.Equal(raw, canonical) {
-		return &IntegrityError{}
 	}
 	// A non-expiring delivery is represented as covering the bounded budget.
 	if record.ExpiresAt != nil {
@@ -246,9 +233,35 @@ func (c *sqliteCurrent) readCredential(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// schema selects the identical accepted schema. Without a lineage exactly one
-// registered accepted marker is admissible; an ambiguous set refuses.
-func (c sqliteCurrent) schema(previous *sqliteprep.Scope, now time.Time) (data.SQLiteSchemaObservation, error) {
+// readSQLiteCredential joins the exact delivered version's receipt with its
+// app, destination, binding, epoch and credential reference. It never selects
+// the newest delivery and never reads the credential packet itself.
+func readSQLiteCredential(ctx context.Context, q dataQuerier, app string, replica data.ReplicaBinding, version uint64) (CredentialRecord, error) {
+	var raw []byte
+	var id string
+	err := q.QueryRowContext(ctx, "SELECT id,canonical FROM data_credential_records WHERE binding_id=? AND kind='receipt' AND json_extract(canonical,'$.version')=?", replica.BindingID, version).Scan(&id, &raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return CredentialRecord{}, sqliteRefuse(sqliteprep.InvalidEvidence)
+	}
+	if err != nil {
+		return CredentialRecord{}, err
+	}
+	var record CredentialRecord
+	if version == 0 || len(raw) > 8192 || json.Unmarshal(raw, &record) != nil || record.ID != id || !data.ValidID(id) || record.App != app || record.Destination != replica.Destination.Reference || record.Kind != "receipt" || record.BindingID != replica.BindingID || record.EpochID != replica.EpochID || record.Version != version || record.CredentialRef != replica.Destination.CredentialRef || record.ReceivedAt.IsZero() {
+		return CredentialRecord{}, &IntegrityError{}
+	}
+	canonical, err := json.Marshal(record)
+	if err != nil || !bytes.Equal(raw, canonical) {
+		return CredentialRecord{}, &IntegrityError{}
+	}
+	return record, nil
+}
+
+// schema selects the identical accepted schema. A lineage keeps its recorded
+// schema. A fresh preparation uses an actual source observation whose marker
+// and catalog equal one declared and registered definition. Without one, only
+// a single accepted marker is admissible; an ambiguous set refuses.
+func (c sqliteCurrent) schema(previous *sqliteprep.Scope, observed *data.SQLiteSchemaObservation, now time.Time) (data.SQLiteSchemaObservation, error) {
 	if previous != nil {
 		s := previous.Schema
 		if catalog, ok := c.accepted[s.Marker]; !ok || catalog != s.CatalogSHA256 {
@@ -256,6 +269,9 @@ func (c sqliteCurrent) schema(previous *sqliteprep.Scope, now time.Time) (data.S
 		}
 		s.ObservedAt = now
 		return s, nil
+	}
+	if observed != nil {
+		return c.observedSchema(*observed, now)
 	}
 	if len(c.accepted) != 1 {
 		return data.SQLiteSchemaObservation{}, sqliteRefuse(sqliteprep.InvalidEvidence)
@@ -268,6 +284,18 @@ func (c sqliteCurrent) schema(previous *sqliteprep.Scope, now time.Time) (data.S
 		return data.SQLiteSchemaObservation{State: state, DatabaseID: c.scope.DatabaseID, ObservedAt: now, Marker: marker, CatalogSHA256: catalog}, nil
 	}
 	return data.SQLiteSchemaObservation{}, sqliteRefuse(sqliteprep.InvalidEvidence)
+}
+
+// observedSchema never guesses: an unknown, foreign or unregistered marker, or
+// a catalog other than the registered declared one, refuses before any effect.
+func (c sqliteCurrent) observedSchema(o data.SQLiteSchemaObservation, now time.Time) (data.SQLiteSchemaObservation, error) {
+	catalog, accepted := c.accepted[o.Marker]
+	known := o.State == data.VerifiedSchema && o.Marker != data.EmptyMarker || o.State == data.VerifiedEmpty && o.Marker == data.EmptyMarker
+	if !accepted || !known || catalog != o.CatalogSHA256 || o.DatabaseID != c.scope.DatabaseID || o.UnknownReason != "" {
+		return data.SQLiteSchemaObservation{}, sqliteRefuse(sqliteprep.InvalidEvidence)
+	}
+	o.ObservedAt = now
+	return o, nil
 }
 
 // location admits a host-observed pre-stop directory only when it matches the

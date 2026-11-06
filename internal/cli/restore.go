@@ -14,7 +14,7 @@ import (
 )
 
 func newRestoreCmd(deps Dependencies, modes *machineModes) *cobra.Command {
-	root := &cobra.Command{Use: "restore", Short: "Verify remote backups without changing live application data"}
+	root := &cobra.Command{Use: "restore", Short: "Verify remote backups and prepare fenced recovery points", Long: "Verify remote backups in isolation without changing live application data. Only prepare, abandon and native-live change the host: SQLite prepare stops the app's writers and its replica and holds a data fence, and abandon releases that fence without starting anything."}
 	var flags operationFlags
 	var database, txid, point string
 	var noWait bool
@@ -63,6 +63,6 @@ func newRestoreCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	test.Flags().StringVar(&point, "point", "", "Durable immutable restore-point ID")
 	test.MarkFlagsMutuallyExclusive("txid", "point")
 	flags.register(test)
-	root.AddCommand(newSQLiteBackupStatusCmd(deps, modes), test, newNativePointCmd(deps, modes), newNativePointTaskCmd(deps, modes, ops.NativeRestoreTest), newNativeLiveRestoreCmd(deps, modes))
+	root.AddCommand(newSQLiteBackupStatusCmd(deps, modes), newSQLitePrepareCmd(deps, modes), newSQLiteAbandonCmd(deps, modes), test, newNativePointCmd(deps, modes), newNativePointTaskCmd(deps, modes, ops.NativeRestoreTest), newNativeLiveRestoreCmd(deps, modes))
 	return root
 }

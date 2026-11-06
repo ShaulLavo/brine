@@ -94,6 +94,8 @@ var operations = map[string]operation{
 	"native_capture":                        {Mutating, decodeNativeCapture},
 	"native_prepare":                        {Mutating, decodeNativePrepare},
 	"native_prepare_abandon":                {Mutating, decodeNativeAbandon},
+	"sqlite_prepare":                        {Mutating, decodeSQLitePrepare},
+	"sqlite_prepare_abandon":                {Mutating, decodeSQLiteAbandon},
 	"native_restore_test":                   {ReadOnly, decodeNativeRestoreTest},
 	"deploy_operation":                      {ReadOnly, decodeDeploymentOperationQuery},
 	"deploy_state":                          {ReadOnly, decodeDeployment},
@@ -209,6 +211,7 @@ type Factory func(context.Context, string) (*Server, error)
 
 type Server struct {
 	SQLiteBackupStatus     SQLiteBackupStatusReader
+	SQLitePreparation      SQLitePreparationOperations
 	CDN                    cdnoperator.Host
 	ModulePublications     ModulePublicationOperations
 	DataInitialization     DataInitializationOperations
@@ -410,6 +413,12 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.New(result.DependencyMissing, nil))
 		}
 		accepted, err := s.NativeRecovery.SetRecovery(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
+		value = accepted
+	case SQLitePrepareArgs, SQLiteAbandonArgs:
+		accepted, err := s.submitSQLitePreparation(ctx, args)
 		if err != nil {
 			return fail(result.Classify(err))
 		}

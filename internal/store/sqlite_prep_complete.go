@@ -64,7 +64,7 @@ func completeSQLitePrepareTx(ctx context.Context, tx *sql.Tx, h sqliteprep.Histo
 	if err != nil {
 		return sqliteprep.Receipt{}, err
 	}
-	scope, err := sqliteTaskScope(c, i.Task.Kind, &i.Scope, now)
+	scope, err := sqliteTaskScope(c, i.Task.Kind, &i.Scope, nil, now)
 	if err != nil || !sameSQLiteCurrent(i.Scope, scope) || c.held == nil || *c.held != i.Fence {
 		return sqliteprep.Receipt{}, errors.Join(ErrConflict, err)
 	}
@@ -190,7 +190,7 @@ func admitSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, task sqliteprep.Task,
 	if err != nil {
 		return prev, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
 	}
-	scope, err := sqliteTaskScope(c, task.Kind, &prev.intent.Scope, now)
+	scope, err := sqliteTaskScope(c, task.Kind, &prev.intent.Scope, nil, now)
 	if err != nil || !sqliteprep.SameSourceScope(prev.intent.Scope, scope) || c.held == nil || *c.held != prev.intent.Fence {
 		return prev, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
 	}

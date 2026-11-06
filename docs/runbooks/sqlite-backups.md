@@ -32,6 +32,43 @@
    brine restore test APP --database NAME --target TARGET
    ```
 
+## Prepare a fenced recovery point
+
+Preparation stops the app. Run it only when an outage is acceptable.
+
+1. Prepare and keep the reported `idempotency_key` and `operation_id`:
+
+   ```sh
+   brine restore prepare APP --database NAME --target TARGET
+   ```
+
+   It stops the app's writers and the replica, verifies an exact remote point
+   in isolation and leaves both units stopped under a held data fence. The
+   startup permits refuse while the fence is held, so a reboot does not start
+   them. Only committed replicas are supported today.
+
+2. Optionally test the prepared point again, within ten minutes for a later
+   reviewed consumer, or at any time as historical evidence:
+
+   ```sh
+   brine restore test APP --point PREPARATION_ID --target TARGET
+   ```
+
+3. If the task ends `recovery_required`, inspect it; do not start the app by
+   hand. Replace it with `brine restore prepare APP --supersedes PREPARATION_ID`
+   or release it with `brine restore abandon PREPARATION_ID`. A changed stopped
+   source refuses both until it is understood.
+
+4. To give up the preparation, abandon it. Abandon starts nothing. Start the
+   app afterwards through the normal start or deploy workflow, or let the next
+   boot start it:
+
+   ```sh
+   brine restore abandon PREPARATION_ID --target TARGET
+   ```
+
+## Unknown values
+
 Local position, position distance, lag, and possible loss remain unknown because
 no qualified local-position reader is installed. A TXID difference, if measured
 in future, is a replication-position distance, not an application commit count.
