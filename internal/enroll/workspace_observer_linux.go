@@ -13,13 +13,14 @@ import (
 )
 
 func (h *host) checkWorkspaceObserver(ctx context.Context) (bool, error) {
-	if _, owned := h.r.Files[workspaceobserve.UnitPath]; !owned {
-		if _, err := os.Lstat(workspaceobserve.UnitPath); !os.IsNotExist(err) {
+	unit := enrollmentArtifacts()[artifactObserverUnit]
+	if _, owned := h.r.Files[unit.path]; !owned {
+		if _, err := os.Lstat(unit.path); !os.IsNotExist(err) {
 			return false, errors.New("unowned workspace observer unit")
 		}
 		return false, nil
 	}
-	matched, err := h.fileMatches(workspaceobserve.UnitPath, hash([]byte(workspaceobserve.Unit)))
+	matched, err := h.fileMatches(unit.path, hash(unit.render(h)))
 	if err != nil || !matched {
 		return false, err
 	}
@@ -35,14 +36,16 @@ func (h *host) checkWorkspaceObserver(ctx context.Context) (bool, error) {
 	return observerInstalled(observed.Stdout), nil
 }
 func (h *host) installWorkspaceObserver(ctx context.Context) error {
-	if err := protectedParents(workspaceobserve.UnitPath); err != nil {
+	artifacts := enrollmentArtifacts()
+	unit, grant := artifacts[artifactObserverUnit], artifacts[artifactObserverGrant]
+	if err := protectedParents(unit.path); err != nil {
 		return err
 	}
-	if err := h.file(ctx, workspaceobserve.UnitPath, []byte(workspaceobserve.Unit), 0644, false); err != nil {
+	if err := h.file(ctx, unit.path, unit.render(h), unit.mode, false); err != nil {
 		return err
 	}
-	if info, err := os.Lstat(workspaceobserve.GrantPath); os.IsNotExist(err) {
-		if err := h.file(ctx, workspaceobserve.GrantPath, []byte(workspaceobserve.DefaultGrant), 0600, false); err != nil {
+	if info, err := os.Lstat(grant.path); os.IsNotExist(err) {
+		if err := h.file(ctx, grant.path, grant.render(h), grant.mode, false); err != nil {
 			return err
 		}
 	} else if err != nil || !trustedObserverGrant(info) {
@@ -64,10 +67,12 @@ func trustedObserverGrant(info os.FileInfo) bool {
 	return ok && info.Mode().IsRegular() && (info.Mode().Perm() == 0600 || info.Mode().Perm() == 0644) && stat.Uid == 0 && stat.Nlink == 1
 }
 func (h *host) undoWorkspaceObserver(ctx context.Context) error {
-	if _, owned := h.r.Files[workspaceobserve.UnitPath]; !owned {
+	artifacts := enrollmentArtifacts()
+	unit := artifacts[artifactObserverUnit]
+	if _, owned := h.r.Files[unit.path]; !owned {
 		return nil
 	}
-	matches, err := h.fileMatches(workspaceobserve.UnitPath, hash([]byte(workspaceobserve.Unit)))
+	matches, err := h.fileMatches(unit.path, hash(unit.render(h)))
 	if err != nil || !matches {
 		return errors.New("workspace observer unit changed")
 	}
@@ -77,22 +82,25 @@ func (h *host) undoWorkspaceObserver(ctx context.Context) error {
 	if _, err := h.run(ctx, true, "systemctl", "disable", workspaceobserve.UnitName); err != nil {
 		return err
 	}
-	if err := h.restoreFile(workspaceobserve.UnitPath); err != nil {
+	if err := h.restoreFile(unit.path); err != nil {
 		return err
 	}
-	if _, owned := h.r.Files[workspaceobserve.GrantPath]; owned {
-		matches, err := h.fileMatches(workspaceobserve.GrantPath, hash([]byte(workspaceobserve.DefaultGrant)))
-		if err != nil {
-			return err
-		}
-		if matches {
-			if err = h.restoreFile(workspaceobserve.GrantPath); err != nil {
-				return err
-			}
-		}
+	if err := h.restoreObserverGrant(artifacts[artifactObserverGrant]); err != nil {
+		return err
 	}
 	_, err = h.run(ctx, true, "systemctl", "daemon-reload")
 	return err
+}
+
+func (h *host) restoreObserverGrant(grant enrollmentArtifact) error {
+	if _, owned := h.r.Files[grant.path]; !owned {
+		return nil
+	}
+	matches, err := h.fileMatches(grant.path, hash(grant.render(h)))
+	if err != nil || !matches {
+		return err
+	}
+	return h.restoreFile(grant.path)
 }
 
 func readObserverGrant() ([]byte, error) {

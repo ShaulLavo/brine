@@ -546,6 +546,8 @@ func (h *host) dir(path string, mode os.FileMode, uid, gid int) error {
 	return nil
 }
 func (h *host) steps() []Step {
+	artifacts := enrollmentArtifacts()
+	binary := artifacts[artifactBinary]
 	command := func(path string, args ...string) func(context.Context) error {
 		return func(ctx context.Context) error { _, err := h.run(ctx, true, path, args...); return err }
 	}
@@ -570,8 +572,8 @@ func (h *host) steps() []Step {
 			_, err := os.Lstat("/var/lib/systemd/linger/brine")
 			return err == nil, nil
 		}, Apply: command("loginctl", "enable-linger", "brine"), Undo: command("loginctl", "disable-linger", "brine")},
-		{Name: "binary", Check: func(context.Context) (bool, error) { return h.fileMatches(binaryPath, h.r.BinaryHash) }, Apply: func(ctx context.Context) error { return h.file(ctx, binaryPath, h.source, 0755, false) }, Undo: func(context.Context) error { return h.restoreFile(binaryPath) }},
-		{Name: "polkit", Check: func(context.Context) (bool, error) { return h.fileMatches(rulePath, hash([]byte(policy))) }, Apply: func(ctx context.Context) error { return h.file(ctx, rulePath, []byte(policy), 0644, false) }, Undo: func(context.Context) error { return h.restoreFile(rulePath) }},
+		{Name: "binary", Check: func(context.Context) (bool, error) { return h.fileMatches(binary.path, h.r.BinaryHash) }, Apply: func(ctx context.Context) error { return h.file(ctx, binary.path, binary.render(h), binary.mode, false) }, Undo: func(context.Context) error { return h.restoreFile(binary.path) }},
+		artifacts[artifactPolkit].step(h, "polkit"),
 		{Name: "caddy-tree", Check: h.checkCaddyTree, Apply: h.caddyTree, Undo: h.removeCaddyTree},
 		{Name: "caddy-import", Check: func(context.Context) (bool, error) {
 			old, ok := h.r.Files[mainPath]
@@ -616,23 +618,11 @@ func (h *host) steps() []Step {
 			return command("systemctl", "stop", "caddy.service")(ctx)
 		}},
 		{Name: "caddy-writable", Check: h.caddyWritable, Apply: h.allowCaddyWrites, Undo: h.protectCaddyTree},
-		{Name: "inventory-key", Check: func(context.Context) (bool, error) {
-			return h.fileMatches(sshIdentityPath, hash(h.identityKey))
-		}, Apply: func(ctx context.Context) error {
-			return h.file(ctx, sshIdentityPath, h.identityKey, 0644, false)
-		}, Undo: func(context.Context) error { return h.restoreFile(sshIdentityPath) }},
+		artifacts[artifactInventoryKey].step(h, "inventory-key"),
 		operatorPolicyStep(diskOperatorPolicy{h}),
 		{Name: "workspace-observer", Check: h.checkWorkspaceObserver, Apply: h.installWorkspaceObserver, Undo: h.undoWorkspaceObserver},
-		{Name: "requester", Check: func(context.Context) (bool, error) {
-			return h.fileMatches(requesterPath, hash([]byte("deploy:"+hash([]byte(h.r.Key))+"\n")))
-		}, Apply: func(ctx context.Context) error {
-			return h.file(ctx, requesterPath, []byte("deploy:"+hash([]byte(h.r.Key))+"\n"), 0644, false)
-		}, Undo: func(context.Context) error { return h.restoreFile(requesterPath) }},
-		{Name: "key", Check: func(context.Context) (bool, error) {
-			return h.fileMatches(sshKeyPath, hash(h.keyFile()))
-		}, Apply: func(ctx context.Context) error {
-			return h.file(ctx, sshKeyPath, h.keyFile(), 0644, false)
-		}, Undo: func(context.Context) error { return h.restoreFile(sshKeyPath) }},
+		artifacts[artifactRequester].step(h, "requester"),
+		artifacts[artifactDeployKey].step(h, "key"),
 		{Name: "ssh-policy", Check: h.checkSSH, Apply: h.installSSH, Undo: h.undoSSH},
 		{Name: "bypass", Check: h.bypass, Apply: noop, Undo: func(context.Context) error { return h.removeBypassFiles() }},
 		{Name: "boot-reconcile", Check: h.checkBootReconcile, Apply: h.installBootReconcile, Undo: h.undoBootReconcile},
