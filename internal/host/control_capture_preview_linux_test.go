@@ -9,7 +9,10 @@ import (
 )
 
 func TestControlCapturePreviewSymlinkReturnsUnavailable(t *testing.T) {
-	dir := t.TempDir()
+	dir := filepath.Join(t.TempDir(), "state")
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
 	target := filepath.Join(t.TempDir(), "target")
 	if err := os.WriteFile(target, []byte("not a database"), 0600); err != nil {
 		t.Fatal(err)
