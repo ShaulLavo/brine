@@ -248,17 +248,16 @@ func testDiagnosisPTYExit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output := &lockedBuffer{}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	h := newDiagnosisRunnerWire(t)
-	notice := diagnosisRestoredNotice{t: t, terminal: slave, before: before}
-	deps := diagnosisRunnerDeps(t, ctx, h, slave, slave, output, notice)
 	collected, joined := collectDiagnosisPTY(t, master)
+	notice := diagnosisRestoredNotice{t: t, terminal: slave, before: before}
+	deps := diagnosisRunnerDeps(t, ctx, h, slave, slave, slave, notice)
 	done := startEntryCommand(t, deps, diagnosisRunnerArgs(), cancel)
-	waitForOutput(t, output, "settled")
+	waitForOutput(t, collected, "settled")
 	writeKeys(t, master, "d")
-	waitForOutput(t, output, "Diagnosis for target fixture")
+	waitForOutput(t, collected, "Diagnosis for target fixture")
 	writeKeys(t, master, "x")
 	if err := awaitEntryCommand(t, done); err != nil {
 		t.Fatal(err)

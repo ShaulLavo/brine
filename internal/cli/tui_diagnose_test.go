@@ -120,12 +120,25 @@ func testDiagnosisScrolling(t *testing.T, m tuiModel) {
 }
 
 func testDiagnosisUnknown(t *testing.T) {
+	for _, app := range []string{"", "demo"} {
+		t.Run("scope-"+app, func(t *testing.T) { checkDiagnosisUnknown(t, app) })
+	}
+}
+
+func checkDiagnosisUnknown(t *testing.T, app string) {
+	t.Helper()
 	s := dispatch.NewServer("test", nil)
 	s.Diagnose = diagnose.Reader{}
 	m := diagnosisModel(t, wireDependencies(t, &diagnoseTransport{server: s}), lifecycleSelection)
+	if app != "" {
+		m.screen, m.app = screenApp, app
+	}
 	m, _ = press(m, "d")
 	if m.diagnosis.State != loadReady || len(m.diagnosis.Value.Findings) != 0 || !strings.Contains(strings.Join(m.diagnosisText, "\n"), "inventory_unavailable") {
 		t.Fatalf("unknown became healthy: %+v", m.diagnosis)
+	}
+	if app != "" && (m.diagnosis.Value.Apps[0].Logs.Reason != "log_reader_unavailable" || m.diagnosis.Value.Apps[0].UnitLogs.Reason != "log_reader_unavailable") {
+		t.Fatal("missing app and unit logs were not unknown")
 	}
 	m, quit := press(m, "x")
 	if !quit || !strings.Contains(m.diagnosisExit, "Unknown facts are not evidence of health.") {
@@ -214,6 +227,7 @@ func mutatedDiagnosis(t *testing.T, op string, raw []byte, mutation string) (res
 
 func TestTUIDiagnosisNavigation(t *testing.T) {
 	t.Run("captured host and app", testDiagnosisCapturedScope)
+	t.Run("target changed before late reply", testDiagnosisCrossedTargetReply)
 	t.Run("stale and canceled replies", testDiagnosisStaleReplies)
 	t.Run("failed first release and crossed pages", testDiagnosisOperationScope)
 	t.Run("unbound operation refuses", testDiagnosisUnknownOperationScope)
@@ -294,6 +308,9 @@ func testDiagnosisUnknownOperationScope(t *testing.T) {
 		m.stopRead()
 		m.screen = screenOperation
 		m.observe = &tuiObservation{Bound: bound, Flags: lifecycleSelection, Operation: ops.Operation{ID: "op-direct"}}
+		if !bound {
+			m.observe.Operation.App = "demo"
+		}
 		after, cmd := model(m.openDiagnosis())
 		if cmd != nil || after.screen != screenOperation || after.diagnosisFlags.target != "" {
 			t.Fatal("unknown app silently diagnosed the host")
@@ -405,3 +422,21 @@ func testDiagnosisNoticeOrder(t *testing.T) {
 }
 
 var _ tuiHost = (*fakeTUIHost)(nil)
+
+func testDiagnosisCrossedTargetReply(t *testing.T) {
+	h := fixtureHost()
+	h.diagnose = func(ctx context.Context, app string) (diagnose.Report, error) {
+		return diagnosisTestServer().Diagnose.Read(ctx, diagnose.Request{App: app})
+	}
+	m := start(fixtureModel(h, ""))
+	m, _ = press(m, "enter", "d")
+	m, _ = model(m.refresh())
+	late := diagnosisMsg{token: m.token, report: m.diagnosis.Value, lines: slices.Clone(m.diagnosisText)}
+	m, _ = press(m, "esc", "esc", "down", "enter", "d")
+	before := m.diagnosis
+	m, _ = step(m, late)
+	if m.diagnosisFlags.target != "fixture-pi" || m.screen != screenDiagnosis || !reflect.DeepEqual(m.diagnosis, before) {
+		t.Fatal("old-target reply replaced a new-target report")
+	}
+	m.stopRead()
+}
