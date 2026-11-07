@@ -28,7 +28,7 @@ func reviewWire(t *testing.T, op string, value any) (result.Envelope, error) {
 
 func reviewConnected(t *testing.T, client OperationClient) tuiModel {
 	t.Helper()
-	m := start(newTUIModel(t.Context(), wireDependencies(t, client), lifecycleSelection))
+	m := start(newTUIModel(t.Context(), wireDependencies(t, client), lifecycleSelection, tuiEntry{}))
 	m, _ = press(m, "enter", "p", "enter")
 	m.newKey = func() (string, error) { return "review-original-key", nil }
 	if m.review.State != loadReady {
@@ -52,7 +52,7 @@ func reviewCrossedLifecycle(t *testing.T, actual plan.ChangeKind) {
 		}
 		return h.Call(ctx, target, req)
 	})
-	m := start(newTUIModel(t.Context(), wireDependencies(t, client), lifecycleSelection))
+	m := start(newTUIModel(t.Context(), wireDependencies(t, client), lifecycleSelection, tuiEntry{}))
 	m, _ = press(m, "enter", "p", "enter")
 	keys := 0
 	m.newKey = func() (string, error) { keys++; return "review-original-key", nil }

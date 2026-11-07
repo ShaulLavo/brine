@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · target-target-target-target-target-target-target-target-name › long-long│
+────────────────────────────────────────────────────────────────────────────────│
+Deploy long-long-long-long-long-long-long-long-long-long-long-long-app          │
+plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    │
+Image                                                                           │
+ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaa                                                                   │
+Container port 3000                                                             │
+Domains                                                                         │
+longlonglonglonglonglonglonglonglonglonglonglonglonglonglonglong.example.com,   │
+unicode-界.example.test ]52;c;secret                                            │
+Health /health界 [31m, expected 200, startup 30s, timeout 3s                    │
+Environment keys A_KEY, Z_KEY (values hidden)                                   │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+Confirm: apply sha256:aaaaaaaaaaaa… (deploy) to long-long-long-long-long-long-  │
+long-long-long-long-long-long-app on target-target-target-target-target-target- │
+target-target-name? y apply · any other key cancels                             │
+a apply  ↑↓ scroll  esc discard                                                 │
+== 80x24 color ==
+"\x1b[1;94mbrine · target-target-target-target-target-target-target-target-name › long-long\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Deploy long-long-long-long-long-long-long-long-long-long-long-long-app"
+"plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"Image"
+"ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaa"
+"Container port 3000"
+"Domains"
+"longlonglonglonglonglonglonglonglonglonglonglonglonglonglonglong.example.com,"
+"unicode-界.example.test ]52;c;secret "
+"Health /health界 [31m, expected 200, startup 30s, timeout 3s"
+"Environment keys A_KEY, Z_KEY (values hidden)"
+""
+""
+""
+""
+""
+""
+""
+"\x1b[33mConfirm: apply sha256:aaaaaaaaaaaa… (deploy) to long-long-long-long-long-long-\x1b[m"
+"\x1b[33mlong-long-long-long-long-long-app on target-target-target-target-target-target-\x1b[m"
+"\x1b[33mtarget-target-name? y apply · any other key cancels\x1b[m"
+"\x1b[90ma apply  ↑↓ scroll  esc discard\x1b[m"
+== 50x16 no color ==
+brine · target-target-target-target-target-target-│
+──────────────────────────────────────────────────│
+Deploy long-long-long-long-long-long-long-long-   │
+long-long-long-long-app                           │
+plan                                              │
+sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaa                             │
+Image                                             │
+ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa       │
+Container port 3000                               │
+Domains                                           │
+Confirm: apply sha256:aaaaaaaaaaaa… (deploy) to   │
+long-long-long-long-long-long-long-long-long-long-│
+long-long-app on target-target-target-target- tar…│
+resize to confirm  esc cancel                     │
+== 50x16 color ==
+"\x1b[1;94mbrine · target-target-target-target-target-target-\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Deploy long-long-long-long-long-long-long-long-"
+"long-long-long-long-app"
+"plan"
+"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaa"
+"Image"
+"ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"Container port 3000"
+"Domains"
+"\x1b[33mConfirm: apply sha256:aaaaaaaaaaaa… (deploy) to\x1b[m"
+"\x1b[33mlong-long-long-long-long-long-long-long-long-long-\x1b[m"
+"\x1b[33mlong-long-app on target-target-target-target- tar…\x1b[m"
+"\x1b[90mresize to confirm  esc cancel\x1b[m"
+== 30x8 no color ==
+brine · target-target-target-t│
+──────────────────────────────│
+Deploy long-long-long-long-   │
+long-long-long-long-long-long-│
+Confirm: apply                │
+sha256:aaaaaaaaaaaa… (deploy) │
+to long-long-long-long-long- …│
+resize to confirm  esc cancel │
+== 30x8 color ==
+"\x1b[1;94mbrine · target-target-target-t\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Deploy long-long-long-long-"
+"long-long-long-long-long-long-"
+"\x1b[33mConfirm: apply\x1b[m"
+"\x1b[33msha256:aaaaaaaaaaaa… (deploy)\x1b[m"
+"\x1b[33mto long-long-long-long-long- …\x1b[m"
+"\x1b[90mresize to confirm  esc cancel\x1b[m"

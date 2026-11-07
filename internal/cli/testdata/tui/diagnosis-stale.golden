@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › demo › diagnosis            7 findings · stale · read 12:04:31│
+────────────────────────────────────────────────────────────────────────────────│
+Diagnosis for target fixture                                                    │
+  host.arch: "arm64"                                                            │
+  host.free_disk_bytes: 5                                                       │
+  host.linger: true                                                             │
+  host.live_generation: unknown (live_generation_unproven)                      │
+  host.memory_available_bytes: unknown (probe_unavailable)                      │
+  host.minimum_free_disk_bytes: 10                                              │
+  host.os: {"id":"debian","version":"13"}                                       │
+  host.runner: "brine"                                                          │
+  host.selected_generation: 2                                                   │
+  host.versions:                                                                │
+{"caddy":{"status":"known","value":"2.6"},"litestream":{"reason":"inventory_abse│
+nt","status":"unknown"},"passt":{"reason":"inventory_unknown","status":"unknown"│
+},"podman":{"status":"known","value":"5.4"},"systemd":{"status":"known","value":│
+"257"}}                                                                         │
+  app_names: ["demo"]                                                           │
+                                                                                │
+App demo                                                                        │
+  container_running: false                                                      │
+Last report is stale, read 12:04:31. Error: transport_invalid_response. The SSH │
+dispatcher response is invalid.                                                 │
+↑↓ scroll  x exit  esc back  r read                                             │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › demo › diagnosis\x1b[m            \x1b[90m7 findings · stale · read 12:04:31\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Diagnosis for target fixture"
+"  host.arch: \"arm64\""
+"  host.free_disk_bytes: 5"
+"  host.linger: true"
+"  host.live_generation: unknown (live_generation_unproven)"
+"  host.memory_available_bytes: unknown (probe_unavailable)"
+"  host.minimum_free_disk_bytes: 10"
+"  host.os: {\"id\":\"debian\",\"version\":\"13\"}"
+"  host.runner: \"brine\""
+"  host.selected_generation: 2"
+"  host.versions:"
+"{\"caddy\":{\"status\":\"known\",\"value\":\"2.6\"},\"litestream\":{\"reason\":\"inventory_abse"
+"nt\",\"status\":\"unknown\"},\"passt\":{\"reason\":\"inventory_unknown\",\"status\":\"unknown\""
+"},\"podman\":{\"status\":\"known\",\"value\":\"5.4\"},\"systemd\":{\"status\":\"known\",\"value\":"
+"\"257\"}}"
+"  app_names: [\"demo\"]"
+""
+"App demo"
+"  container_running: false"
+"\x1b[33mLast report is stale, read 12:04:31. Error: transport_invalid_response. The SSH\x1b[m"
+"\x1b[33mdispatcher response is invalid.\x1b[m"
+"\x1b[90m↑↓ scroll  x exit  esc back  r read\x1b[m"
+== 50x16 no color ==
+brine · fixture › demo › diagnosis                │
+──────────────────────────────────────────────────│
+Diagnosis for target fixture                      │
+  host.arch: "arm64"                              │
+  host.free_disk_bytes: 5                         │
+  host.linger: true                               │
+  host.live_generation: unknown                   │
+(live_generation_unproven)                        │
+  host.memory_available_bytes: unknown            │
+(probe_unavailable)                               │
+  host.minimum_free_disk_bytes: 10                │
+  host.os: {"id":"debian","version":"13"}         │
+Last report is stale, read 12:04:31. Error:       │
+transport_invalid_response. The SSH dispatcher    │
+response is invalid.                              │
+↑↓ scroll  x exit  esc back  r read               │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › demo › diagnosis\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Diagnosis for target fixture"
+"  host.arch: \"arm64\""
+"  host.free_disk_bytes: 5"
+"  host.linger: true"
+"  host.live_generation: unknown"
+"(live_generation_unproven)"
+"  host.memory_available_bytes: unknown"
+"(probe_unavailable)"
+"  host.minimum_free_disk_bytes: 10"
+"  host.os: {\"id\":\"debian\",\"version\":\"13\"}"
+"\x1b[33mLast report is stale, read 12:04:31. Error:\x1b[m"
+"\x1b[33mtransport_invalid_response. The SSH dispatcher\x1b[m"
+"\x1b[33mresponse is invalid.\x1b[m"
+"\x1b[90m↑↓ scroll  x exit  esc back  r read\x1b[m"
+== 30x8 no color ==
+brine · fixture › demo › diagn│
+──────────────────────────────│
+Diagnosis for target fixture  │
+  host.arch: "arm64"          │
+Last report is stale, read    │
+12:04:31. Error:              │
+transport_invalid_response. T…│
+↑↓ scroll  x exit  esc back   │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › demo › diagn\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Diagnosis for target fixture"
+"  host.arch: \"arm64\""
+"\x1b[33mLast report is stale, read\x1b[m"
+"\x1b[33m12:04:31. Error:\x1b[m"
+"\x1b[33mtransport_invalid_response. T…\x1b[m"
+"\x1b[90m↑↓ scroll  x exit  esc back\x1b[m"

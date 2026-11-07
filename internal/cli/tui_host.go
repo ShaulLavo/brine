@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -17,7 +18,9 @@ const tuiLogTail = 100
 // dispatcher op, validated exactly like its CLI command.
 type tuiHost interface {
 	Plan(context.Context, tuiAction, string) (tuiReview, error)
+	DeploymentPlan(context.Context, string) (tuiReview, error)
 	Apply(context.Context, string, string) (jobs.Accepted, error)
+	Diagnose(context.Context, string) (diagnose.Report, error)
 	Apps(ctx context.Context) (apps.Report, error)
 	Logs(ctx context.Context, app string) ([]logs.Line, error)
 	Operation(ctx context.Context, id string, cursor uint64) (jobs.Status, error)
@@ -68,4 +71,8 @@ func readLogLines(ctx context.Context, deps Dependencies, flags operationFlags, 
 
 func (h connectedHost) Operation(ctx context.Context, id string, cursor uint64) (jobs.Status, error) {
 	return readOperationPage(ctx, h.deps, h.flags, id, cursor)
+}
+
+func (h connectedHost) Diagnose(ctx context.Context, app string) (diagnose.Report, error) {
+	return readDiagnosis(ctx, h.deps, h.flags, diagnose.Request{App: app})
 }

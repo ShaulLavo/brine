@@ -22,7 +22,7 @@ Deploy with: brine deploy brine.toml --target fixture                           
                                                                                 │
                                                                                 │
                                                                                 │
-r refresh  q quit                                                               │
+r refresh  d diagnose  q quit                                                   │
 == 80x24 color ==
 "\x1b[1;94mbrine · fixture\x1b[m                                           \x1b[90m0 apps · read 12:04:31\x1b[m"
 "\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
@@ -47,7 +47,7 @@ r refresh  q quit                                                               
 ""
 ""
 ""
-"\x1b[90mr refresh  q quit\x1b[m"
+"\x1b[90mr refresh  d diagnose  q quit\x1b[m"
 == 50x16 no color ==
 brine · fixture                  0 apps · 12:04:31│
 ──────────────────────────────────────────────────│
@@ -64,7 +64,7 @@ fixture                                           │
                                                   │
                                                   │
                                                   │
-r refresh  q quit                                 │
+r refresh  d diagnose  q quit                     │
 == 50x16 color ==
 "\x1b[1;94mbrine · fixture\x1b[m                  \x1b[90m0 apps · 12:04:31\x1b[m"
 "\x1b[90m──────────────────────────────────────────────────\x1b[m"
@@ -81,7 +81,7 @@ r refresh  q quit                                 │
 ""
 ""
 ""
-"\x1b[90mr refresh  q quit\x1b[m"
+"\x1b[90mr refresh  d diagnose  q quit\x1b[m"
 == 30x8 no color ==
 brine · fixture               │
 ──────────────────────────────│
@@ -90,7 +90,7 @@ fixture.                      │
                               │
 Deploy with: brine deploy     │
 brine.toml --target fixture   │
-r refresh  q quit             │
+r refresh  d diagnose  q quit │
 == 30x8 color ==
 "\x1b[1;94mbrine · fixture\x1b[m"
 "\x1b[90m──────────────────────────────\x1b[m"
@@ -99,4 +99,4 @@ r refresh  q quit             │
 ""
 "Deploy with: brine deploy"
 "brine.toml --target fixture"
-"\x1b[90mr refresh  q quit\x1b[m"
+"\x1b[90mr refresh  d diagnose  q quit\x1b[m"

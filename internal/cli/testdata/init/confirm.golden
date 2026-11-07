@@ -1,0 +1,106 @@
+== 80x24 no color ==
+brine · init                                                       local preview│
+────────────────────────────────────────────────────────────────────────────────│
+Create fixture-project/brine.toml                                               │
+No host changes. No image or host-policy verification.                          │
+                                                                                │
+schema_version = 1                                                              │
+name = 'hello'                                                                  │
+image =                                                                         │
+'ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaa'                                                                 │
+container_port = 3000                                                           │
+domains = ['hello.example.com']                                                 │
+                                                                                │
+[health]                                                                        │
+path = '/'                                                                      │
+expected_status = 200                                                           │
+startup_deadline_seconds = 30                                                   │
+timeout_seconds = 3                                                             │
+                                                                                │
+                                                                                │
+                                                                                │
+Confirm: create fixture-project/brine.toml for hello? y create · any other key  │
+cancels                                                                         │
+y create  esc/q cancel                                                          │
+== 80x24 color ==
+"\x1b[1;94mbrine · init\x1b[m                                                       \x1b[90mlocal preview\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Create fixture-project/brine.toml"
+"No host changes. No image or host-policy verification."
+""
+"schema_version = 1"
+"name = 'hello'"
+"image ="
+"'ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaa'"
+"container_port = 3000"
+"domains = ['hello.example.com']"
+""
+"[health]"
+"path = '/'"
+"expected_status = 200"
+"startup_deadline_seconds = 30"
+"timeout_seconds = 3"
+""
+""
+""
+"\x1b[33mConfirm: create fixture-project/brine.toml for hello? y create · any other key\x1b[m"
+"\x1b[33mcancels\x1b[m"
+"\x1b[90my create  esc/q cancel\x1b[m"
+== 50x16 no color ==
+brine · init                         local preview│
+──────────────────────────────────────────────────│
+Create fixture-project/brine.toml                 │
+No host changes. No image or host-policy          │
+verification.                                     │
+                                                  │
+schema_version = 1                                │
+name = 'hello'                                    │
+image =                                           │
+'ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'     │
+container_port = 3000                             │
+domains = ['hello.example.com']                   │
+Confirm: create fixture-project/brine.toml for    │
+hello? y create · any other key cancels           │
+y create  esc/q cancel                            │
+== 50x16 color ==
+"\x1b[1;94mbrine · init\x1b[m                         \x1b[90mlocal preview\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Create fixture-project/brine.toml"
+"No host changes. No image or host-policy"
+"verification."
+""
+"schema_version = 1"
+"name = 'hello'"
+"image ="
+"'ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'"
+"container_port = 3000"
+"domains = ['hello.example.com']"
+"\x1b[33mConfirm: create fixture-project/brine.toml for\x1b[m"
+"\x1b[33mhello? y create · any other key cancels\x1b[m"
+"\x1b[90my create  esc/q cancel\x1b[m"
+== 30x8 no color ==
+brine · init     local preview│
+──────────────────────────────│
+Create fixture-               │
+project/brine.toml            │
+Confirm: create fixture-      │
+project/brine.toml for hello? │
+y create · any other key canc…│
+resize to confirm             │
+== 30x8 color ==
+"\x1b[1;94mbrine · init\x1b[m     \x1b[90mlocal preview\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Create fixture-"
+"project/brine.toml"
+"\x1b[33mConfirm: create fixture-\x1b[m"
+"\x1b[33mproject/brine.toml for hello?\x1b[m"
+"\x1b[33my create · any other key canc…\x1b[m"
+"\x1b[90mresize to confirm\x1b[m"
+== 1x1 no color ==
+ │
+== 1x1 color ==
+"\x1b[90m\x1b[m"

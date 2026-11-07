@@ -1,43 +1,3 @@
-# Command reference
-
-Every implemented command, subcommand and flag of `brine`. Sections under [Commands](#commands) are generated from the CLI's own `--help` text. Do not edit them by hand.
-
-Regenerate this page after a command changes:
-
-```sh
-go build -o /tmp/brine ./cmd/brine
-{ sed '/^<!-- generated below -->$/q' docs/reference/commands.md; scripts/docs-commands.sh /tmp/brine; } > /tmp/commands.md
-mv /tmp/commands.md docs/reference/commands.md
-```
-
-## Global flags
-
-Every command accepts these flags.
-
-```text
-      --json       Machine-readable JSON output
-      --jsonl      Machine-readable JSON event stream
-      --no-input   Never request interactive input
-```
-
-`--json` and `--jsonl` cannot be combined. Envelope fields, error codes and exit codes are in [CONTRACTS](../CONTRACTS.md#machine-modes). Exit codes are 0 success, 1 internal failure, 2 usage or validation, 3 missing dependency, 4 policy refusal, 5 stale plan or lock conflict, 6 manual recovery required, and 130 interrupted.
-
-## Command index
-
-| Group | Commands |
-| --- | --- |
-| Set up and check | `doctor`, `validate`, `enroll`, `permissions`, `version`, `tui` |
-| Plan and deploy | `plan`, `apply`, `deploy`, `status`, `logs` |
-| Change a running app | `config set`, `secret set`, `rollback`, `start`, `stop`, `restart`, `remove` |
-| Recover | `diagnose`, `reconcile`, `resolve` |
-| Data and backups | `data`, `backup`, `restore`, `archive` |
-| CDN | `cdn` |
-
-`brine completion bash|zsh|fish|powershell` prints a shell completion script. `brine tui` needs a terminal and refuses `--json`, `--jsonl` and `--no-input`. It browses targets, apps, operations and bounded logs read-only.
-
-## Commands
-
-<!-- generated below -->
 
 ### `brine apply`
 
@@ -979,6 +939,26 @@ Flags:
       --yes                                Still requires terminal stdin and typed target-name confirmation
 ```
 
+### `brine init`
+
+```text
+Generate a local app spec from explicit flags in an existing directory. Machine, no-input and nonterminal invocations preview without writing unless --yes is supplied. Human terminals review with a, then y. Existing identical files are unchanged; other paths are never overwritten. A target checks only its existing local pin. No image, host policy or deployment is verified.
+
+Usage:
+  brine init [DIRECTORY] --name NAME --image REPOSITORY@sha256:DIGEST --container-port PORT --domain DOMAIN [flags]
+
+Flags:
+      --config-dir string    Private client target directory
+      --container-port int   Explicit container HTTP port
+      --domain stringArray   Explicit domain, repeat for each domain
+      --health-path string   HTTP health path (default "/")
+  -h, --help                 help for init
+      --image string         Explicit OCI image pinned by sha256 digest
+      --name string          Explicit app name
+      --target string        Pinned target name
+      --yes                  Authorize only local brine.toml creation
+```
+
 ### `brine logs`
 
 ```text
@@ -1490,7 +1470,7 @@ Flags:
 ### `brine tui`
 
 ```text
-Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. Review restart, stop, start or previous known-good rollback plans, then confirm with a and y to apply. Uncertain acceptance retains the same plan and key for explicit recovery. Quitting never cancels a host job. Without --target it starts on the target picker.
+Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. Use --spec FILE to plan a stateless HTTP release, or --operation ID to resume observation without a committed app. Database, managed-engine and UDP specs use deploy instead. Review release, restart, stop, start or previous known-good rollback plans, then confirm with a and y to apply. Uncertain acceptance retains the same plan and key for explicit recovery. Use d on apps, app details or a validated operation to read diagnosis. In diagnosis, r refreshes the captured scope, esc or q goes back, and x exits locally with a six-finding-code summary and the original diagnose command after terminal cleanup. Suggestions are never executed. Quitting never cancels a host job. Without --target it starts on the target picker.
 
 Usage:
   brine tui [flags]
@@ -1498,6 +1478,8 @@ Usage:
 Flags:
       --config-dir string   Private client target directory
   -h, --help                help for tui
+      --operation string    Existing operation ID to observe, even without a committed app
+      --spec string         Local stateless HTTP app spec to plan and review
       --target string       Pinned target name
 ```
 
