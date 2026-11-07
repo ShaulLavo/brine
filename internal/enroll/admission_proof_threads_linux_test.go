@@ -28,6 +28,7 @@ func startPrivateThreadFD(t *testing.T, binary, path string) privateThreadFD {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(t.Context()), 10*time.Second)
 	t.Cleanup(cancel)
+	// #nosec G204 -- Runs only the fixed helper compiled into this test's private directory.
 	cmd := exec.CommandContext(ctx, binary, path)
 	cmd.WaitDelay = 100 * time.Millisecond
 	input, err := cmd.StdinPipe()
@@ -129,6 +130,7 @@ func buildPrivateThreadHelper(t *testing.T) string {
 	binary := filepath.Join(t.TempDir(), "private-thread")
 	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
 	defer cancel()
+	// #nosec G204 -- Fixed C fixture and private output; compiler is resolved from PATH.
 	output, err := exec.CommandContext(ctx, compiler, "-Wall", "-Wextra", "-Werror", "-pthread", "testdata/admission-proof-private-thread.c", "-o", binary).CombinedOutput()
 	if err != nil {
 		t.Fatalf("compile private-table helper: %v %s", err, output)
