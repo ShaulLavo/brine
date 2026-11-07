@@ -50,6 +50,7 @@ type Plan struct {
 	Candidate  Candidate          `json:"candidate"`
 	Trees      []data.ArchiveTree `json:"trees"`
 	CreatedAt  time.Time          `json:"created_at"`
+	Removal    *Removal           `json:"removal,omitempty"`
 }
 
 func (p Plan) Fingerprint() (string, error) {
@@ -65,6 +66,9 @@ func (p Plan) Fingerprint() (string, error) {
 func (p Plan) Valid() bool {
 	id, err := p.Fingerprint()
 	if err != nil || id != p.ID || !digest.MatchString(p.ID) || !data.ValidID(string(p.ArchiveID)) || !digest.MatchString(p.PolicyHash) || !digest.MatchString(p.TargetHash) || p.CreatedAt.IsZero() || !requesterName.MatchString(p.Requester) || len(p.Candidate.ReleaseID) > 256 || !appName.MatchString(p.Candidate.App) || !data.ValidID(string(p.Candidate.Incarnation)) || len(p.Candidate.Databases) == 0 || len(p.Candidate.Databases) > 16 || len(p.Trees) == 0 || len(p.Trees) > 16 {
+		return false
+	}
+	if p.Removal != nil && !p.Removal.valid(p) {
 		return false
 	}
 	roots := map[data.PersistentRoot]bool{}
@@ -143,9 +147,16 @@ type SQLiteCoverage struct {
 	Observation       data.SQLiteSchemaObservation `json:"observation"`
 	Point             *data.SQLiteRestorePoint     `json:"point,omitempty"`
 	Receipt           *restore.SQLiteReceipt       `json:"restore_receipt,omitempty"`
+	Prepared          *PreparedCoverage            `json:"prepared,omitempty"`
 }
 
 func (c SQLiteCoverage) Admits(p Plan, database SQLiteDatabase, operation string, now time.Time) bool {
+	if c.Prepared != nil {
+		return c.Receipt != nil && c.Receipt.OperationID != operation && c.Prepared.Admits(p, database, c, now)
+	}
+	if p.Removal != nil && (database.Written || p.Removal.hasRef(database.Binding.DatabaseID)) {
+		return false
+	}
 	b := database.Binding
 	if c.DatabaseID != b.DatabaseID || c.WritersQuiescedAt.Before(p.CreatedAt) || now.Before(c.WritersQuiescedAt) || now.Sub(c.WritersQuiescedAt) > MaxEvidenceAge || c.Observation.DatabaseID != b.DatabaseID || c.Observation.ObservedAt.Before(c.WritersQuiescedAt) || now.Before(c.Observation.ObservedAt) || c.Observation.UnknownReason != "" {
 		return false

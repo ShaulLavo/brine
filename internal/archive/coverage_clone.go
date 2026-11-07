@@ -3,6 +3,10 @@ package archive
 import "github.com/ShaulLavo/brine/internal/data"
 
 func cloneSQLiteCoverage(c SQLiteCoverage) SQLiteCoverage {
+	if c.Prepared != nil {
+		prepared := *c.Prepared
+		c.Prepared = &prepared
+	}
 	c.Empty = cloneAllocation(c.Empty)
 	if c.Point != nil {
 		point := *c.Point
