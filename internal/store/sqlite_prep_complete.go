@@ -37,7 +37,7 @@ func (j *SQLitePreparationJournal) CompletePrepare(ctx context.Context, h sqlite
 		return sqliteprep.Receipt{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	receipt, err := completeSQLitePrepareTx(ctx, tx, h, p)
+	receipt, err := completeSQLitePrepareTx(ctx, tx, h, p, j.guard)
 	if err != nil {
 		return sqliteprep.Receipt{}, err
 	}
@@ -47,7 +47,7 @@ func (j *SQLitePreparationJournal) CompletePrepare(ctx context.Context, h sqlite
 	return receipt, tx.Commit()
 }
 
-func completeSQLitePrepareTx(ctx context.Context, tx *sql.Tx, h sqliteprep.History, p sqliteprep.PreparedPoint) (sqliteprep.Receipt, error) {
+func completeSQLitePrepareTx(ctx context.Context, tx *sql.Tx, h sqliteprep.History, p sqliteprep.PreparedPoint, guard *SQLiteMutationGuard) (sqliteprep.Receipt, error) {
 	i := h.Intent
 	prev, err := readSQLiteAppendable(ctx, tx, i)
 	if err != nil {
@@ -60,9 +60,15 @@ func completeSQLitePrepareTx(ctx context.Context, tx *sql.Tx, h sqliteprep.Histo
 	if p.PreparedAt.After(now) || now.Sub(p.PreparedAt) > claimWindow {
 		return sqliteprep.Receipt{}, ErrConflict
 	}
-	c, err := readSQLiteCurrent(ctx, tx, i.Task.App, i.Scope.DatabaseID, now)
+	c, err := readSQLiteCurrent(ctx, tx, i.Input, now)
 	if err != nil {
 		return sqliteprep.Receipt{}, err
+	}
+	if err = guard.admitUnreleased(c, i.Task.Kind); err != nil {
+		return sqliteprep.Receipt{}, err
+	}
+	if c.scope.EmptyAllocation != nil {
+		c.scope.EmptyAllocation.Location = p.Stopped.Location
 	}
 	scope, err := sqliteTaskScope(c, i.Task.Kind, &i.Scope, nil, now)
 	if err != nil || !sameSQLiteCurrent(i.Scope, scope) || c.held == nil || *c.held != i.Fence {
@@ -146,7 +152,7 @@ func (j *SQLitePreparationJournal) CompleteAbandon(ctx context.Context, task sql
 		return sqliteprep.Receipt{}, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	prev, err := admitSQLiteAbandonTx(ctx, tx, task, in, a, now)
+	prev, err := admitSQLiteAbandonTx(ctx, tx, task, in, a, now, hold.guard)
 	if err != nil {
 		return sqliteprep.Receipt{}, err
 	}
@@ -174,7 +180,7 @@ func (j *SQLitePreparationJournal) checkHeldSource(ctx context.Context, held sql
 	return nil
 }
 
-func admitSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, task sqliteprep.Task, in sqliteprep.Input, a sqliteprep.Abandonment, now time.Time) (sqlitePreparation, error) {
+func admitSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, task sqliteprep.Task, in sqliteprep.Input, a sqliteprep.Abandonment, now time.Time, guard *SQLiteMutationGuard) (sqlitePreparation, error) {
 	op, stored, err := readSQLiteOperation(ctx, tx, task)
 	if err != nil || op.State != ops.Preflight || stored != in {
 		return sqlitePreparation{}, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
@@ -187,9 +193,15 @@ func admitSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, task sqliteprep.Task,
 	if err != nil || !bytes.Equal(raw, prev.raw) || !lineage.Terminal || !lineage.Unconsumed || prev.intent.Task.Requester != task.Requester || prev.intent.Scope.DatabaseID != in.DatabaseID || !sameSQLitePoint(prev.point, a.Point) {
 		return prev, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
 	}
-	c, err := readSQLiteCurrent(ctx, tx, task.App, in.DatabaseID, now)
+	c, err := readSQLiteCurrent(ctx, tx, in, now)
 	if err != nil {
 		return prev, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
+	}
+	if err = guard.admitUnreleased(c, task.Kind); err != nil {
+		return prev, err
+	}
+	if c.scope.EmptyAllocation != nil {
+		c.scope.EmptyAllocation.Location = a.Stopped.Location
 	}
 	scope, err := sqliteTaskScope(c, task.Kind, &prev.intent.Scope, nil, now)
 	if err != nil || !sqliteprep.SameSourceScope(prev.intent.Scope, scope) || c.held == nil || *c.held != prev.intent.Fence {

@@ -14,6 +14,12 @@ var ErrObject = errors.New("invalid JSON object")
 // Object rejects aliases, duplicates, missing fields and trailing values.
 // Each caller owns typed validation of its field values and nested objects.
 func Object(data []byte, fields ...string) (map[string]json.RawMessage, error) {
+	return OptionalObject(data, fields, nil)
+}
+
+// OptionalObject requires every required key and admits only named optional keys.
+func OptionalObject(data []byte, required, optional []string) (map[string]json.RawMessage, error) {
+	fields := append(append([]string{}, required...), optional...)
 	if !utf8.Valid(data) {
 		return nil, ErrObject
 	}
@@ -43,11 +49,16 @@ func Object(data []byte, fields ...string) (map[string]json.RawMessage, error) {
 		values[name] = raw
 	}
 	end, err := d.Token()
-	if err != nil || end != json.Delim('}') || len(values) != len(fields) {
+	if err != nil || end != json.Delim('}') {
 		return nil, ErrObject
 	}
 	if _, err := d.Token(); err != io.EOF {
 		return nil, ErrObject
+	}
+	for _, name := range required {
+		if _, ok := values[name]; !ok {
+			return nil, ErrObject
+		}
 	}
 	return values, nil
 }

@@ -328,7 +328,7 @@ func testSQLiteSourceRootName(t *testing.T, changed string) {
 	if err = os.WriteFile(filepath.Join(directory, "app.db"), []byte("held physical bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	source, err := openSQLiteSource(binding, nil, nil)
+	source, err := openSQLiteSource(binding, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

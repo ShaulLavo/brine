@@ -36,6 +36,8 @@ var errSQLitePrepareHost = errors.New("host: SQLite preparation host refused")
 // sync barrier, capture, upload create-only and verify in isolation. It has no
 // start, restart, exec-into-replica, credential activation or deletion path.
 type sqlitePreparationHost struct {
+	policy    PolicyLoader
+	identity  func(context.Context) (target.Identity, error)
 	state     *store.Store
 	stateRoot string
 	home      string
@@ -49,12 +51,12 @@ type sqlitePreparationHost struct {
 	allowHTTP bool
 }
 
-func (h sqlitePreparationHost) Acquire(ctx context.Context, scope sqliteprep.Scope, _ data.QuiescenceFence) (sqliteprep.HostGuard, error) {
+func (h sqlitePreparationHost) Acquire(ctx context.Context, in sqliteprep.Input, scope sqliteprep.Scope, _ data.QuiescenceFence) (sqliteprep.HostGuard, error) {
 	guard, err := h.state.AcquireSQLiteMutationGuard(ctx, scope.DatabaseID)
 	if err != nil {
 		return nil, err
 	}
-	g := &sqliteHostGuard{host: h, guard: guard, scope: scope, snapshots: map[string][]byte{}}
+	g := &sqliteHostGuard{host: h, guard: guard, scope: scope, input: in, snapshots: map[string][]byte{}}
 	if err = g.bind(ctx); err != nil {
 		return nil, errors.Join(err, g.Close())
 	}
@@ -63,16 +65,19 @@ func (h sqlitePreparationHost) Acquire(ctx context.Context, scope sqliteprep.Sco
 
 // sqliteHostGuard holds the store-minted host mutation guard for one task.
 type sqliteHostGuard struct {
-	host          sqlitePreparationHost
-	guard         *store.SQLiteMutationGuard
-	scope         sqliteprep.Scope
-	permit        store.ReplicaPermit
-	artifact      replication.Artifacts
-	definitions   []data.SQLiteSchemaDefinition
-	held          *sqliteSource
-	snapshots     map[string][]byte
-	writer        target.Unit
-	writerRelease string
+	input            sqliteprep.Input
+	unreleased       *store.SQLiteUnreleasedMetadata
+	requiredDeadline time.Time
+	host             sqlitePreparationHost
+	guard            *store.SQLiteMutationGuard
+	scope            sqliteprep.Scope
+	permit           store.ReplicaPermit
+	artifact         replication.Artifacts
+	definitions      []data.SQLiteSchemaDefinition
+	held             *sqliteSource
+	snapshots        map[string][]byte
+	writer           target.Unit
+	writerRelease    string
 }
 
 func (g *sqliteHostGuard) SQLiteMutationGuard() *store.SQLiteMutationGuard { return g.guard }
@@ -80,6 +85,9 @@ func (g *sqliteHostGuard) SQLiteMutationGuard() *store.SQLiteMutationGuard { ret
 // bind proves the committed binding, the admitted persistent root, the
 // replica unit artifact on disk and the exact delivered credential version.
 func (g *sqliteHostGuard) bind(ctx context.Context) error {
+	if !g.scope.ReplicaCommitted {
+		return g.bindUnreleased(ctx)
+	}
 	s := g.scope
 	permit, err := g.host.state.ReadReplicaPermit(ctx, s.DatabaseID)
 	if err != nil {
@@ -140,6 +148,9 @@ func (g *sqliteHostGuard) sourceDirectory() string {
 // running replica counts only when its unit's main process in its own cgroup
 // holds the replica lifetime lock; transitional states are not a known state.
 func (g *sqliteHostGuard) Observe(ctx context.Context) (sqliteprep.Observation, error) {
+	if g.unreleased != nil {
+		return g.observeUnreleased(ctx)
+	}
 	app, err := showUnit(ctx, g.host.session, g.appUnit())
 	if err != nil {
 		return sqliteprep.Observation{}, err
@@ -166,6 +177,9 @@ func (g *sqliteHostGuard) Observe(ctx context.Context) (sqliteprep.Observation, 
 func (g *sqliteHostGuard) observeSchema(ctx context.Context) (data.SQLiteSchemaObservation, error) {
 	if g.held != nil {
 		return g.held.Schema(ctx)
+	}
+	if g.unreleased != nil && g.unreleased.NeverWrittenSHA256 != "" {
+		return observeSQLiteEmptyCandidate(ctx, g.permit.Database)
 	}
 	return observeSQLiteSchema(ctx, g.permit.Database, g.definitions), nil
 }
@@ -257,6 +271,9 @@ func (g *sqliteHostGuard) stopUnit(ctx context.Context, name string) error {
 }
 
 func (g *sqliteHostGuard) StopWriters(ctx context.Context, _ sqliteprep.Intent) error {
+	if g.unreleased != nil {
+		return g.unreleasedQuiescent(ctx)
+	}
 	writer, err := showUnit(ctx, g.host.session, g.appUnit())
 	if err != nil || !g.writerOwned(ctx, writer) {
 		return errSQLitePrepareHost
@@ -271,6 +288,9 @@ func (g *sqliteHostGuard) StopWriters(ctx context.Context, _ sqliteprep.Intent) 
 }
 
 func (g *sqliteHostGuard) StopReplica(ctx context.Context, _ sqliteprep.Intent) error {
+	if !g.scope.ReplicaCommitted {
+		return errSQLitePrepareHost
+	}
 	unit, err := systemd.ParseUnit(g.replicaUnit())
 	if err != nil || verifyEngineLoadedService(ctx, g.host.session, g.host.home, unit) != nil {
 		return errSQLitePrepareHost
@@ -285,7 +305,7 @@ func (g *sqliteHostGuard) StopReplica(ctx context.Context, _ sqliteprep.Intent) 
 // Barrier asks the running replica, through its own control socket, to upload
 // through the current position. Writers already stopped at the cutoff.
 func (g *sqliteHostGuard) Barrier(ctx context.Context, i sqliteprep.Intent, cutoff time.Time) (sqliteprep.RemoteSource, error) {
-	if g.host.executor == nil {
+	if !g.scope.ReplicaCommitted || g.host.executor == nil {
 		return sqliteprep.RemoteSource{}, errSQLitePrepareHost
 	}
 	barrier, err := replication.SyncBarrier(ctx, g.host.executor, g.artifact.Binding, 2*time.Minute)
@@ -308,13 +328,24 @@ func (g *sqliteHostGuard) HoldStopped(ctx context.Context) (sqliteprep.StoppedSo
 	if g.held != nil {
 		return nil, errSQLitePrepareHost
 	}
+	if g.unreleased != nil {
+		if err := g.unreleasedQuiescent(ctx); err != nil {
+			return nil, err
+		}
+		if err := ensurePrivateChild(g.host.stateRoot, "replica-locks"); err != nil {
+			return nil, err
+		}
+	}
 	hold, err := g.guard.HoldSource(ctx)
 	if err != nil {
 		return nil, err
 	}
-	source, err := openSQLiteSource(g.permit.Database, g.definitions, hold)
+	source, err := openSQLiteSource(g.permit.Database, g.definitions, g.scope.EmptyAllocation, hold)
 	if err != nil {
 		return nil, errors.Join(err, hold.Release())
+	}
+	if g.unreleased != nil && !source.matchesAllocation(g.unreleased.Allocation) {
+		return nil, errors.Join(errSQLiteSource, source.Close())
 	}
 	g.held = source
 	return source, nil
@@ -332,7 +363,7 @@ func (g *sqliteHostGuard) Capture(ctx context.Context, i sqliteprep.Intent, held
 		return sqliteprep.SnapshotPlan{}, err
 	}
 	id := i.Input.PreparationID
-	raw, err := captureStoppedSQLite(ctx, g.host.stateRoot, "sqlite-prepare-snapshots", g.permit.Database, id)
+	raw, err := g.captureBytes(ctx, id)
 	if err != nil {
 		return sqliteprep.SnapshotPlan{}, err
 	}
@@ -369,6 +400,9 @@ func withTestEndpoint(b restore.Binding, endpoint string) restore.Binding {
 
 // credentials reads exactly the scope's delivered version; never the newest.
 func (g *sqliteHostGuard) credentials(ctx context.Context) (restore.Credentials, error) {
+	if g.unreleased != nil {
+		return g.unreleasedCredentials(ctx)
+	}
 	r := g.permit.Replica
 	receipt, err := g.host.state.CredentialReceipt(ctx, r.BindingID, g.scope.CredentialVersion)
 	if err != nil || receipt.App != g.scope.App || receipt.Version != g.scope.CredentialVersion || receipt.EpochID != r.EpochID || receipt.CredentialRef != r.Destination.CredentialRef || receipt.Destination != r.Destination.Reference {
@@ -420,7 +454,11 @@ func (g *sqliteHostGuard) Verify(ctx context.Context, i sqliteprep.Intent, s sql
 	if err = ensurePrivateChild(g.host.stateRoot, "sqlite-prepare-restores"); err != nil {
 		return restore.SQLiteReceipt{}, err
 	}
-	return checkSQLiteRestore(ctx, &engine, request)
+	receipt, err := checkSQLiteRestore(ctx, &engine, request)
+	if err == nil && g.scope.EmptyAllocation != nil {
+		receipt.InvariantCheck = "unknown"
+	}
+	return receipt, err
 }
 
 // sqliteSourceRequest restores exactly one recorded point, bound to its

@@ -88,11 +88,15 @@ func (s *Store) SaveInitArtifact(ctx context.Context, p datainit.Plan) error {
 }
 
 func (s *Store) LoadInitPlan(ctx context.Context, id string) (datainit.Plan, error) {
+	return readInitPlan(ctx, s.db, id)
+}
+
+func readInitPlan(ctx context.Context, q dataQuerier, id string) (datainit.Plan, error) {
 	if !datainit.ValidID(id) {
 		return datainit.Plan{}, ErrInvalid
 	}
 	var raw []byte
-	if err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_init_plans WHERE id=?", id).Scan(&raw); err != nil {
+	if err := q.QueryRowContext(ctx, "SELECT canonical FROM data_init_plans WHERE id=?", id).Scan(&raw); err != nil {
 		return datainit.Plan{}, err
 	}
 	var p datainit.Plan
@@ -100,7 +104,7 @@ func (s *Store) LoadInitPlan(ctx context.Context, id string) (datainit.Plan, err
 		return p, &IntegrityError{}
 	}
 	var catalog []byte
-	if err := s.db.QueryRowContext(ctx, "SELECT artifact,catalog FROM data_init_reviews WHERE plan_id=?", id).Scan(&p.Request.ArtifactBytes, &catalog); err != nil {
+	if err := q.QueryRowContext(ctx, "SELECT artifact,catalog FROM data_init_reviews WHERE plan_id=?", id).Scan(&p.Request.ArtifactBytes, &catalog); err != nil {
 		return p, &IntegrityError{}
 	}
 	if len(p.Request.ArtifactBytes) > datainit.ArtifactLimit || len(catalog) > 2<<20 || json.Unmarshal(catalog, &p.Catalog) != nil || !p.Valid() {

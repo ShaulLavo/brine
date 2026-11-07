@@ -107,7 +107,7 @@ func (w *work) begin(ctx context.Context) (*Result, error) {
 		_, settled := w.settle(ctx, err, false)
 		return nil, settled
 	}
-	w.guard, err = w.service.Host.Acquire(ctx, w.facts.Scope, w.facts.Fence)
+	w.guard, err = w.service.Host.Acquire(ctx, w.input, w.facts.Scope, w.facts.Fence)
 	if err != nil {
 		_, settled := w.settle(ctx, err, false)
 		return nil, settled

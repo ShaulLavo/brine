@@ -36,6 +36,7 @@ type sqliteCurrent struct {
 	// new preparation requires them; abandon depends only on local source facts
 	// and must not be stranded by a later policy admission or expiry.
 	authorization error
+	unreleased    *SQLiteUnreleasedMetadata
 }
 
 func sqliteHash(raw []byte) string {
@@ -45,21 +46,23 @@ func sqliteHash(raw []byte) string {
 
 func sqliteRefuse(code sqliteprep.Code) error { return &sqliteprep.Refusal{Code: code} }
 
-func readSQLiteCurrent(ctx context.Context, tx *sql.Tx, app string, database data.DatabaseID, now time.Time) (sqliteCurrent, error) {
-	if err := checkSQLiteTaskDatabase(ctx, tx, app, database); err != nil {
+func readSQLiteCurrent(ctx context.Context, tx *sql.Tx, in sqliteprep.Input, now time.Time) (sqliteCurrent, error) {
+	if err := checkSQLiteTaskDatabase(ctx, tx, in.App, in.DatabaseID); err != nil {
 		return sqliteCurrent{}, err
 	}
-	permit, err := readReplicaPermit(ctx, tx, database)
+	permit, err := readReplicaPermit(ctx, tx, in.DatabaseID)
 	if err != nil {
 		return sqliteCurrent{}, err
 	}
-	// Pre-release, uncommitted and allocated-empty sources have no protected
-	// release declaration or retention record here; they refuse honestly.
-	if !permit.Replica.Committed || permit.Replica.CredentialVersion == 0 {
-		return sqliteCurrent{}, sqliteRefuse(sqliteprep.InvalidEvidence)
+	if !permit.Replica.Committed {
+		return readSQLiteUnreleased(ctx, tx, in, permit, now)
+	}
+	effective, err := effectiveSQLiteInput(ctx, tx, in)
+	if err != nil || effective.DeclarationPlanID != "" || permit.Replica.CredentialVersion == 0 {
+		return sqliteCurrent{}, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
 	}
 	c := sqliteCurrent{permit: permit, expires: now.Add(sqliteprep.PreparationBudget + time.Minute)}
-	c.scope = sqliteprep.Scope{App: app, DatabaseName: permit.Database.Name, IncarnationID: permit.Database.IncarnationID, DatabaseID: database, BindingID: permit.Replica.BindingID, EpochID: permit.Replica.EpochID, ReplicaCommitted: true, ConfigSHA256: permit.Replica.ConfigSHA256, CredentialVersion: permit.Replica.CredentialVersion, ActivatedCredentialVersion: permit.Replica.CredentialVersion, RemotePrefix: strings.TrimSuffix(permit.Replica.RemotePrefix, "/") + "/"}
+	c.scope = sqliteprep.Scope{App: in.App, DatabaseName: permit.Database.Name, IncarnationID: permit.Database.IncarnationID, DatabaseID: in.DatabaseID, BindingID: permit.Replica.BindingID, EpochID: permit.Replica.EpochID, ReplicaCommitted: true, ConfigSHA256: permit.Replica.ConfigSHA256, CredentialVersion: permit.Replica.CredentialVersion, ActivatedCredentialVersion: permit.Replica.CredentialVersion, RemotePrefix: strings.TrimSuffix(permit.Replica.RemotePrefix, "/") + "/"}
 	destination, err := json.Marshal(permit.Replica.Destination)
 	if err != nil {
 		return sqliteCurrent{}, ErrInvalid
@@ -78,7 +81,7 @@ func readSQLiteCurrent(ctx context.Context, tx *sql.Tx, app string, database dat
 		return sqliteCurrent{}, err
 	}
 	c.authorization = errors.Join(c.authorization, c.readCredential(ctx, tx))
-	c.allocated, err = readPreparationEvidence(ctx, tx, database)
+	c.allocated, err = readPreparationEvidence(ctx, tx, in.DatabaseID)
 	return c, err
 }
 
@@ -148,7 +151,7 @@ type sqliteDeclaration struct {
 	Checks        []data.RestoreInvariant        `json:"checks"`
 }
 
-func (c *sqliteCurrent) declaration(ctx context.Context, tx *sql.Tx, desired policy.Desired) (sqliteDeclaration, error) {
+func (c *sqliteCurrent) declaration(ctx context.Context, tx dataQuerier, desired policy.Desired) (sqliteDeclaration, error) {
 	out := sqliteDeclaration{Definitions: []data.SQLiteSchemaDefinition{}, Checks: []data.RestoreInvariant{}}
 	found, compatible := 0, 0
 	for _, d := range desired.Databases {
@@ -238,6 +241,10 @@ func (c *sqliteCurrent) readCredential(ctx context.Context, tx *sql.Tx) error {
 // the newest delivery and never reads the credential packet itself.
 func readSQLiteCredential(ctx context.Context, q dataQuerier, app string, replica data.ReplicaBinding, version uint64) (CredentialRecord, error) {
 	var raw []byte
+	var count int
+	if err := q.QueryRowContext(ctx, "SELECT count(*) FROM data_credential_records WHERE binding_id=? AND kind='receipt' AND json_extract(canonical,'$.version')=?", replica.BindingID, version).Scan(&count); err != nil || count != 1 {
+		return CredentialRecord{}, errors.Join(ErrConflict, err)
+	}
 	var id string
 	err := q.QueryRowContext(ctx, "SELECT id,canonical FROM data_credential_records WHERE binding_id=? AND kind='receipt' AND json_extract(canonical,'$.version')=?", replica.BindingID, version).Scan(&id, &raw)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -262,8 +269,20 @@ func readSQLiteCredential(ctx context.Context, q dataQuerier, app string, replic
 // and catalog equal one declared and registered definition. Without one, only
 // a single accepted marker is admissible; an ambiguous set refuses.
 func (c sqliteCurrent) schema(previous *sqliteprep.Scope, observed *data.SQLiteSchemaObservation, now time.Time) (data.SQLiteSchemaObservation, error) {
+	if c.scope.EmptyAllocation != nil {
+		if previous != nil && previous.Schema.State != data.AllocatedEmpty {
+			return data.SQLiteSchemaObservation{}, ErrConflict
+		}
+		if observed != nil {
+			return c.observedSchema(*observed, now)
+		}
+		return data.SQLiteSchemaObservation{State: data.AllocatedEmpty, DatabaseID: c.scope.DatabaseID, ObservedAt: now, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256}, nil
+	}
 	if previous != nil {
 		s := previous.Schema
+		if c.unreleased != nil && c.unreleased.Initialization != nil && (s.Marker != c.unreleased.Initialization.Definition.Marker || s.CatalogSHA256 != c.unreleased.Initialization.Definition.CatalogSHA256) {
+			return data.SQLiteSchemaObservation{}, ErrConflict
+		}
 		if catalog, ok := c.accepted[s.Marker]; !ok || catalog != s.CatalogSHA256 {
 			return data.SQLiteSchemaObservation{}, sqliteRefuse(sqliteprep.InvalidEvidence)
 		}
@@ -289,6 +308,16 @@ func (c sqliteCurrent) schema(previous *sqliteprep.Scope, observed *data.SQLiteS
 // observedSchema never guesses: an unknown, foreign or unregistered marker, or
 // a catalog other than the registered declared one, refuses before any effect.
 func (c sqliteCurrent) observedSchema(o data.SQLiteSchemaObservation, now time.Time) (data.SQLiteSchemaObservation, error) {
+	if c.scope.EmptyAllocation != nil {
+		if o.State != data.AllocatedEmpty || o.DatabaseID != c.scope.DatabaseID || o.Marker != data.EmptyMarker || o.CatalogSHA256 != data.EmptyCatalogSHA256 || o.UnknownReason != "" {
+			return data.SQLiteSchemaObservation{}, sqliteRefuse(sqliteprep.InvalidEvidence)
+		}
+		o.ObservedAt = now
+		return o, nil
+	}
+	if c.unreleased != nil && c.unreleased.Initialization != nil && (o.Marker != c.unreleased.Initialization.Definition.Marker || o.CatalogSHA256 != c.unreleased.Initialization.Definition.CatalogSHA256) {
+		return data.SQLiteSchemaObservation{}, ErrConflict
+	}
 	catalog, accepted := c.accepted[o.Marker]
 	known := o.State == data.VerifiedSchema && o.Marker != data.EmptyMarker || o.State == data.VerifiedEmpty && o.Marker == data.EmptyMarker
 	if !accepted || !known || catalog != o.CatalogSHA256 || o.DatabaseID != c.scope.DatabaseID || o.UnknownReason != "" {
@@ -300,10 +329,13 @@ func (c sqliteCurrent) observedSchema(o data.SQLiteSchemaObservation, now time.T
 
 // location admits a host-observed pre-stop directory only when it matches the
 // protected allocation evidence and runner ownership. It grants nothing alone.
-func (c sqliteCurrent) location(observed sqliteprep.Location, uid, gid uint32) error {
+func (c *sqliteCurrent) location(observed sqliteprep.Location, uid, gid uint32) error {
 	a := c.allocated
 	if a == nil || observed.Validate() != nil || observed.Device != a.DirectoryDevice || observed.Inode != a.DirectoryInode || observed.UID != uid || observed.GID != gid {
 		return sqliteRefuse(sqliteprep.LocalUncertain)
+	}
+	if c.scope.EmptyAllocation != nil {
+		c.scope.EmptyAllocation.Location = observed
 	}
 	return nil
 }

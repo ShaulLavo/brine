@@ -1279,7 +1279,14 @@ lag, or implied count of application commits. `observed`, `unverified`, and
 
 `brine restore prepare APP [--database NAME] [--supersedes PREPARATION_ID] --target TARGET`
 sends the mutating `sqlite_prepare` request with exact `app`, `database`,
-`supersedes` and `idempotency_key` fields. `brine restore abandon PREPARATION_ID`
+`supersedes` and `idempotency_key` fields. Unreleased SQLite sources additionally
+require the optional pair `declaration_plan_id` and
+`delivered_credential_version`, exposed as `--declaration-plan PLAN_ID` and
+`--credential-version N`. The version is a positive JSON uint64 no greater than
+9223372036854775807. Null, duplicate, partial, fractional or invalid selectors
+refuse. Committed sources reject the pair. A supersede may inherit it through
+its protected producing lineage; abandon accepts neither selector.
+`brine restore abandon PREPARATION_ID`
 sends `sqlite_prepare_abandon` with `preparation_id` and `idempotency_key`.
 Unknown fields refuse. Both return an accepted detached operation; the CLI
 waits for its `sqliteprep.Receipt` unless `--no-wait` is given. The host derives
@@ -1324,8 +1331,34 @@ schema, declared checks, coverage cutoff and exact delivered credential version
 before the ordinary committed and writer-schema gates, and bounds possible loss
 by that cutoff. A preparation of another app or database, an incomplete
 preparation or a changed current binding refuses rather than falling back.
-Only committed replicas are supported; uncommitted, pre-first-release,
-allocated-empty and initialized-snapshot sources refuse.
+An unreleased source requires its exact retained declaration plan, measured
+allocation, settled initialization history and selected real credential delivery.
+The declaration and delivery host identities must independently match the fresh
+host identity; the destination digest remains a separate fact. Preparation checks
+the current parsed policy and the exact packet under the host guard before claim.
+Credential lifetime must cover the original remaining preparation budget, not a
+budget shortened to its own expiry. No latest-delivery selection or credential
+activation occurs.
+
+Successfully initialized data without a release uses a new stopped snapshot and
+its declared schema checks. Earlier settled `not_initialized` attempts are allowed;
+the unique successful initializer must explain the writer history. Reconciliation
+never rewrites an original terminal outer task. Qualified allocated absence needs
+no writer or writer-start history and a complete empty-directory census under the
+original root/directory handles. It produces real SQLite bytes only in private
+staging, persists coverage intent before upload and verifies the remote empty
+snapshot. The live directory stays empty. Future writer compatibility is unchanged,
+and undeclared staging invariants remain unknown.
+
+Unpublished writers and replicas must have no installed artifacts, loaded units,
+processes, jobs, cgroups or overlapping containers. This branch observes absence
+and never stops a service. Held source and negative-history checks repeat at claim
+and atomic completion. Local abandon uses protected producing references and
+current local permission without reading a credential packet or requiring fresh
+remote evidence. Historical successful source reads survive consumption, retirement
+and recreation without fresh admission. Ordinary latest/TXID restore and startup
+remain committed-only. These local software paths do not establish physical host
+or provider acceptance.
 
 ### State transitions and restore evidence
 

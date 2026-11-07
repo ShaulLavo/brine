@@ -516,3 +516,24 @@ func (r probeRunner) CaptureStdout(ctx context.Context, limit int, p string, arg
 	out, err := r.RunStdout(ctx, p, args...)
 	return fixtureCapture(out, limit), err
 }
+
+func TestIdentityNeedsNoRunnerOrControl(t *testing.T) {
+	collector := Collector{FS: baseFixture(), IdentityKey: []byte("fixture-only-key")}
+	identity, err := collector.Identity(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	collector.Runner = fakeRunner{"uname -m": "aarch64\n", "ss -H -ltnpe": "", "ss -H -lunpe": "", "df -B1 --output=avail /home": "Avail\n42\n"}
+	snapshot, err := collector.Collect(t.Context())
+	if err != nil || snapshot.Identity != identity {
+		t.Fatal("identity extraction changed bytes", err)
+	}
+	collector.Runner = nil
+	collector.StateInventory = func(context.Context) (target.ControlInventory, error) {
+		t.Fatal("identity read control state")
+		return target.ControlInventory{}, nil
+	}
+	if got, err := collector.Identity(t.Context()); err != nil || got != identity {
+		t.Fatal("identity observed unrelated state", got, err)
+	}
+}

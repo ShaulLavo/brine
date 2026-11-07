@@ -419,14 +419,15 @@ func (sqlitePrepValidator) Validate(ctx context.Context, candidate quadlet.Candi
 }
 
 type sqlitePrepExecutor struct {
-	home       string
-	mu         sync.Mutex
-	units      map[string]string
-	calls      []string
-	forbidden  []string
-	dbPath     string
-	onStop     func(string)
-	containers string
+	unpublished bool
+	home        string
+	mu          sync.Mutex
+	units       map[string]string
+	calls       []string
+	forbidden   []string
+	dbPath      string
+	onStop      func(string)
+	containers  string
 }
 
 const sqlitePrepRunning = "LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=%d\nControlPID=0\nControlGroup=/user.slice/app.slice/%s\nJob=\n"
@@ -441,6 +442,9 @@ func (e *sqlitePrepExecutor) Execute(_ context.Context, c localexec.Command) (lo
 	case c.Path == "/usr/bin/systemctl" && len(c.Args) == 5 && c.Args[1] == "show":
 		return e.loadedWriter(c.Args[2], c.Args[4]), nil
 	case c.Path == "/usr/bin/systemctl" && len(c.Args) == 4 && c.Args[1] == "show":
+		if e.unpublished && e.units[c.Args[2]] == "" {
+			return localexec.Result{Stdout: strings.Replace(sqlitePrepStopped, "loaded", "not-found", 1)}, nil
+		}
 		if e.units[c.Args[2]] == "running" {
 			return localexec.Result{Stdout: fmt.Sprintf(sqlitePrepRunning, e.mainPID(c.Args[2]), c.Args[2])}, nil
 		}

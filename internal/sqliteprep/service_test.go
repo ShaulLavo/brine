@@ -43,7 +43,7 @@ func (h *fakeHost) call(name string) error {
 	}
 	return nil
 }
-func (h *fakeHost) Acquire(_ context.Context, s Scope, fence data.QuiescenceFence) (HostGuard, error) {
+func (h *fakeHost) Acquire(_ context.Context, _ Input, s Scope, fence data.QuiescenceFence) (HostGuard, error) {
 	h.scope = s
 	h.fence = fence
 	return h, h.call("acquire")
@@ -718,6 +718,7 @@ func TestServiceAllocatedEmptyKeepsAbsenceAndAllocationProof(t *testing.T) {
 	s, j, h, task, in := serviceFixture()
 	scope := j.facts.Scope
 	scope.ReplicaCommitted = false
+	scope.ConfigSHA256 = ""
 	scope.ActivatedCredentialVersion = 0
 	scope.Schema.State = data.AllocatedEmpty
 	scope.Schema.Marker = data.EmptyMarker

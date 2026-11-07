@@ -86,7 +86,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	closers := []func() error{closeState}
 	defer func() {
 		if err != nil {
-			_ = closeRuntimeResources(closers)
+			err = errors.Join(err, closeRuntimeResources(closers))
 		}
 	}()
 	loader := DiskPolicy{}
@@ -184,7 +184,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	r.Runner.TaskHandlers[ops.NativeRestoreTest] = nativeHistoricalRestoreTask(service, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativePrepare] = nativePrepareTask(service, stateDir, identity.HomeDir, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativePrepareAbandon] = nativeAbandonTask(service, nativeRuntime)
-	sqlitePreparation := sqlitePreparations{service: service, jobs: taskJobs, host: sqlitePreparationHost{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session, executor: localexec.ExecRunner{}}}
+	sqlitePreparation := sqlitePreparations{service: service, jobs: taskJobs, host: sqlitePreparationHost{policy: service.Policy, identity: collector.Identity, state: state, stateRoot: stateDir, home: identity.HomeDir, session: session, executor: localexec.ExecRunner{}}}
 	r.SQLitePreparation = sqlitePreparation
 	r.Runner.TaskHandlers[ops.SQLitePrepare] = sqlitePreparation.task(sqliteprep.PrepareTask)
 	r.Runner.TaskHandlers[ops.SQLitePrepareAbandon] = sqlitePreparation.task(sqliteprep.AbandonTask)

@@ -146,7 +146,7 @@ func checkRemovalTerminalSources(ctx context.Context, tx *sql.Tx, p archive.Plan
 }
 
 func checkRemovalRetention(ctx context.Context, tx *sql.Tx, p archive.Plan, prep sqlitePreparation, next archive.Disposition) error {
-	current, err := readSQLiteCurrent(ctx, tx, p.Candidate.App, prep.intent.Scope.DatabaseID, next.CommittedAt)
+	current, err := readSQLiteCurrent(ctx, tx, prep.intent.Input, next.CommittedAt)
 	if err != nil || current.authorization != nil || current.scope.PolicySHA256 != prep.intent.Scope.PolicySHA256 || !next.CommittedAt.Before(current.scope.Retention.FreshUntil) || current.scope.Retention.RetainUntil.Before(next.RetainUntil) {
 		return errors.Join(ErrConflict, err)
 	}

@@ -98,3 +98,18 @@ func TestSQLitePrepareHelpSaysItStopsWriters(t *testing.T) {
 		}
 	}
 }
+
+func TestSQLitePrepareUnreleasedSelectorFlags(t *testing.T) {
+	for _, flags := range [][]string{{"--credential-version", "0", "--declaration-plan", ""}, {"--credential-version", "1"}, {"--declaration-plan", "latest", "--credential-version", "1"}, {"--declaration-plan", "sha256:" + strings.Repeat("a", 64), "--credential-version", "9223372036854775808"}} {
+		var out, stderr bytes.Buffer
+		deps := testDependencies(t, &out, &stderr)
+		deps.OperationClient = callFunc(func(context.Context, transport.Target, dispatch.Request) (result.Envelope, error) {
+			t.Fatal("invalid selectors reached transport")
+			return result.Envelope{}, nil
+		})
+		args := []string{"restore", "prepare", "hello", "--target", "fixture", "--idempotency-key", strings.Repeat("b", 32)}
+		if err := Execute(deps, append(args, flags...)); err == nil {
+			t.Fatal("invalid flags accepted", flags)
+		}
+	}
+}

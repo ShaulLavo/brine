@@ -132,31 +132,10 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 		arch = "amd64"
 	}
 	s.Arch = arch
-	machine, e := c.FS.ReadFile(ctx, "/etc/machine-id")
+	s.Identity, e = c.Identity(ctx)
 	if e != nil {
-		return s, fmt.Errorf("cannot read target identity")
+		return s, e
 	}
-	id := strings.TrimSpace(string(machine))
-	if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(id) || id == strings.Repeat("0", 32) {
-		return s, fmt.Errorf("invalid target identity")
-	}
-	h := hmac.New(sha256.New, c.IdentityKey)
-	h.Write([]byte("brine-target-v1\x00" + id))
-	s.Identity.ID = "host-" + hex.EncodeToString(h.Sum(nil))
-	key, e := c.FS.ReadFile(ctx, "/etc/ssh/ssh_host_ed25519_key.pub")
-	if e != nil {
-		return s, fmt.Errorf("cannot read SSH host public key")
-	}
-	fields := strings.Fields(string(key))
-	if len(fields) < 2 || fields[0] != "ssh-ed25519" {
-		return s, fmt.Errorf("invalid SSH host public key")
-	}
-	blob, e := base64.StdEncoding.DecodeString(fields[1])
-	if e != nil || len(blob) != 51 || string(blob[4:15]) != "ssh-ed25519" || blob[0] != 0 || blob[1] != 0 || blob[2] != 0 || blob[3] != 11 || blob[15] != 0 || blob[16] != 0 || blob[17] != 0 || blob[18] != 32 {
-		return s, fmt.Errorf("invalid SSH host public key")
-	}
-	hash := sha256.Sum256(blob)
-	s.Identity.HostKeyFingerprint = "SHA256:" + base64.RawStdEncoding.EncodeToString(hash[:])
 	s.Versions = target.Versions{Systemd: c.version(ctx, "systemctl", []string{"--version"}), Podman: c.version(ctx, "podman", []string{"version", "--format", "json"}), Passt: c.version(ctx, "passt", []string{"--version"}), Caddy: c.version(ctx, "caddy", []string{"version"}), Litestream: c.litestreamVersion(ctx)}
 	if s.Versions.Passt.Status == target.Unknown {
 		if out, err := c.probe(ctx, versionOutputLimit, "dpkg-query", "-W", "-f=${Version}", "passt"); err == nil && versionToken.MatchString(out) && regexp.MustCompile(`^[0-9]`).MatchString(out) {
@@ -385,4 +364,38 @@ func releaseValue(value string) (string, error) {
 		out.WriteByte(ch)
 	}
 	return out.String(), nil
+}
+
+// Identity reads only the existing machine identity and SSH public key.
+func (c Collector) Identity(ctx context.Context) (target.Identity, error) {
+	if c.FS == nil || len(c.IdentityKey) == 0 {
+		return target.Identity{}, fmt.Errorf("inventory identity requires filesystem and key")
+	}
+	var identity target.Identity
+	machine, e := c.FS.ReadFile(ctx, "/etc/machine-id")
+	if e != nil {
+		return target.Identity{}, fmt.Errorf("cannot read target identity")
+	}
+	id := strings.TrimSpace(string(machine))
+	if !regexp.MustCompile(`^[0-9a-f]{32}$`).MatchString(id) || id == strings.Repeat("0", 32) {
+		return target.Identity{}, fmt.Errorf("invalid target identity")
+	}
+	h := hmac.New(sha256.New, c.IdentityKey)
+	h.Write([]byte("brine-target-v1\x00" + id))
+	identity.ID = "host-" + hex.EncodeToString(h.Sum(nil))
+	key, e := c.FS.ReadFile(ctx, "/etc/ssh/ssh_host_ed25519_key.pub")
+	if e != nil {
+		return target.Identity{}, fmt.Errorf("cannot read SSH host public key")
+	}
+	fields := strings.Fields(string(key))
+	if len(fields) < 2 || fields[0] != "ssh-ed25519" {
+		return target.Identity{}, fmt.Errorf("invalid SSH host public key")
+	}
+	blob, e := base64.StdEncoding.DecodeString(fields[1])
+	if e != nil || len(blob) != 51 || string(blob[4:15]) != "ssh-ed25519" || blob[0] != 0 || blob[1] != 0 || blob[2] != 0 || blob[3] != 11 || blob[15] != 0 || blob[16] != 0 || blob[17] != 0 || blob[18] != 32 {
+		return target.Identity{}, fmt.Errorf("invalid SSH host public key")
+	}
+	hash := sha256.Sum256(blob)
+	identity.HostKeyFingerprint = "SHA256:" + base64.RawStdEncoding.EncodeToString(hash[:])
+	return identity, nil
 }

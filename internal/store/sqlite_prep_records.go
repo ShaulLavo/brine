@@ -64,9 +64,12 @@ func readSQLitePreparationCore(ctx context.Context, q dataQuerier, id string) (s
 	if i.Input.PreparationID != id || i.Task.OperationID != operation || i.Scope.DatabaseID != database || i.Scope.BindingID != binding || i.Scope.EpochID != epoch || string(i.Fence.ID) != fence || string(i.Mode) != mode || string(i.Arm) != arm || i.Input.Supersedes != supersedes.String || i.CoverageOrigin != coverage.String || i.BaselineFrom != baseline.String {
 		return p, &IntegrityError{}
 	}
-	op, _, err := readSQLiteOperation(ctx, q, i.Task)
-	if err != nil {
+	op, stored, err := readSQLiteOperation(ctx, q, i.Task)
+	if err != nil || stored != i.Input {
 		return p, errors.Join(&IntegrityError{}, err)
+	}
+	if err = validateRetainedUnreleased(ctx, q, i); err != nil {
+		return p, err
 	}
 	p.state = op.State
 	if err = p.readJournal(ctx, q); err != nil {

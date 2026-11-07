@@ -136,6 +136,7 @@ func (i *fakeInventory) Collect(ctx context.Context) (target.Snapshot, error) {
 }
 
 type deployRig struct {
+	stateRoot string
 	store     *store.Store
 	service   Service
 	inventory *fakeInventory
@@ -175,7 +176,7 @@ func newDeployRigAt(t *testing.T, dir string) *deployRig {
 		t.Fatal(err)
 	}
 	text := string(bytes.ReplaceAll(read("../spec/testdata/valid-minimal.toml"), []byte("example/hello"), []byte("team/hello")))
-	r := &deployRig{store: state, inventory: &fakeInventory{snapshot: snap, store: state}, policy: &fakePolicy{p: pol}, images: &fakeImages{image: plan.Image{Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known("sha256:" + strings.Repeat("c", 64))}}, launcher: &fakeLaunch{}, units: &fakeUnits{}, health: &fakeHealth{}, spec: text}
+	r := &deployRig{stateRoot: dir, store: state, inventory: &fakeInventory{snapshot: snap, store: state}, policy: &fakePolicy{p: pol}, images: &fakeImages{image: plan.Image{Digest: "sha256:" + strings.Repeat("a", 64), Platform: target.Platform{OS: "linux", Arch: "arm64"}, ManifestDigest: target.Known("sha256:" + strings.Repeat("c", 64))}}, launcher: &fakeLaunch{}, units: &fakeUnits{}, health: &fakeHealth{}, spec: text}
 	r.service = Service{Store: state, Inventory: r.inventory, Policy: r.policy, Images: r.images, Requester: "fixture-deploy-key"}
 	runtime := &podman.Fake{PullFunc: func(context.Context, podman.Image) error { r.pulls++; return nil }, InspectFunc: func(context.Context, podman.Image) (podman.ImageInfo, error) {
 		return podman.ImageInfo{IndexDigest: r.images.image.Digest, ManifestDigest: *r.images.image.ManifestDigest.Value, Platform: podman.Platform{OS: "linux", Architecture: "arm64"}}, nil

@@ -144,9 +144,12 @@ func removalCandidateMatches(current, wanted archive.Candidate) bool {
 }
 
 func removalCurrentScope(ctx context.Context, tx *sql.Tx, p archive.Plan, d archive.SQLiteDatabase, prep sqlitePreparation, now time.Time) (sqliteprep.Scope, error) {
-	current, err := readSQLiteCurrent(ctx, tx, p.Candidate.App, d.Binding.DatabaseID, now)
+	current, err := readSQLiteCurrent(ctx, tx, prep.intent.Input, now)
 	if err != nil {
 		return sqliteprep.Scope{}, err
+	}
+	if current.scope.EmptyAllocation != nil {
+		current.scope.EmptyAllocation.Location = prep.intent.Location
 	}
 	scope, err := sqliteTaskScope(current, sqliteprep.PrepareTask, &prep.intent.Scope, nil, now)
 	if err != nil || scope.PolicySHA256 != strings.TrimPrefix(p.PolicyHash, "sha256:") || prep.point == nil || !sqliteprep.SameLineageScope(prep.intent.Scope, scope) || current.held == nil || *current.held != prep.intent.Fence {
@@ -172,7 +175,7 @@ func matchingRemovalDefinitions(d archive.SQLiteDatabase, scope sqliteprep.Scope
 			return d.Definitions
 		}
 	}
-	if scope.Schema.Marker == data.EmptyMarker && len(d.Definitions) == 0 {
+	if scope.Schema.Marker == data.EmptyMarker && (len(d.Definitions) == 0 || scope.EmptyAllocation != nil && !d.Written) {
 		return d.Definitions
 	}
 	return nil
