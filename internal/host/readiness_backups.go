@@ -4,49 +4,60 @@ import (
 	"context"
 
 	"github.com/ShaulLavo/brine/internal/data"
-
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/readiness"
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
-// The existing writer read port enumerates every SQLite database, including
-// undeclared preparations. An engine it cannot enumerate stays unknown.
 func readinessDatabaseCoverage(ctx context.Context, snapshot *store.Store, state plan.BrineState) error {
-	bindings := map[data.DatabaseID]data.SQLiteDatabaseBinding{}
+	bindings := map[store.ReadinessBinding]struct{}{}
 	for _, release := range state.Releases {
-		p, _, err := snapshot.LoadPlan(ctx, release.PlanID)
-		if err != nil {
-			return err
-		}
-		for _, mount := range p.DataMounts {
-			bindings[mount.Database.DatabaseID] = mount.Database
-		}
-	}
-	for _, incarnation := range state.DataIncarnations {
-		if err := readinessIncarnationCoverage(ctx, snapshot, incarnation.ID, bindings); err != nil {
+		if err := readinessReleaseBindings(ctx, snapshot, release, bindings); err != nil {
 			return err
 		}
 	}
-	if len(bindings) != 0 {
-		return store.ErrNotFound
+	return readinessBindingCoverage(ctx, snapshot, bindings)
+}
+
+func readinessReleaseBindings(ctx context.Context, snapshot *store.Store, release plan.CurrentRelease, bindings map[store.ReadinessBinding]struct{}) error {
+	p, _, err := snapshot.LoadPlan(ctx, release.PlanID)
+	if err != nil {
+		return err
+	}
+	for _, mount := range p.DataMounts {
+		binding := store.ReadinessBinding{App: release.App, Engine: data.EngineSQLite, SQLite: mount.Database}
+		if err := readinessExpectedBinding(bindings, binding); err != nil {
+			return err
+		}
+	}
+	if p.Managed != nil {
+		binding := store.ReadinessBinding{App: release.App, Engine: data.EngineSpacetimeDB, SpacetimeDB: p.Managed.Database}
+		return readinessExpectedBinding(bindings, binding)
 	}
 	return nil
 }
 
-func readinessIncarnationCoverage(ctx context.Context, snapshot *store.Store, incarnation string, bindings map[data.DatabaseID]data.SQLiteDatabaseBinding) error {
-	permits, err := snapshot.ReadWriterPermits(ctx, data.AppIncarnationID(incarnation))
+func readinessExpectedBinding(bindings map[store.ReadinessBinding]struct{}, binding store.ReadinessBinding) error {
+	if _, duplicate := bindings[binding]; duplicate || len(bindings) == readiness.MaxItems {
+		return store.ErrInvalid
+	}
+	bindings[binding] = struct{}{}
+	return nil
+}
+
+func readinessBindingCoverage(ctx context.Context, snapshot *store.Store, bindings map[store.ReadinessBinding]struct{}) error {
+	active, err := snapshot.ReadReadinessBindings(ctx, readiness.MaxItems)
 	if err != nil {
 		return err
 	}
-	if len(permits) > readiness.MaxItems {
-		return store.ErrInvalid
-	}
-	for _, permit := range permits {
-		if expected, ok := bindings[permit.Database.DatabaseID]; !ok || expected != permit.Database {
+	for _, binding := range active {
+		if _, ok := bindings[binding]; !ok {
 			return store.ErrNotFound
 		}
-		delete(bindings, permit.Database.DatabaseID)
+		delete(bindings, binding)
+	}
+	if len(bindings) != 0 {
+		return store.ErrNotFound
 	}
 	return nil
 }
