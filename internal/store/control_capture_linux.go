@@ -13,6 +13,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+type controlNameState struct {
+	present bool
+	stat    unix.Stat_t
+}
+type controlPair struct {
+	capture Capture
+	names   [2]controlNameState
+}
+
 // CaptureBytes never opens live SQLite. The caller supplies admission and any
 // required quiescence; a stable double read alone does not establish authority.
 func CaptureBytes(ctx context.Context, stateDir string, ownerUID int) (c Capture, err error) {
@@ -32,7 +41,7 @@ func CaptureBytes(ctx context.Context, stateDir string, ownerUID int) (c Capture
 	if err != nil {
 		return c, err
 	}
-	if !sameControlCapture(first, second) {
+	if !sameControlCapture(first.capture, second.capture) || !sameControlNames(first.names, second.names) {
 		return c, ErrPreviewUnavailable
 	}
 	current, err := openControlDirectory(stateDir, ownerUID)
@@ -51,7 +60,11 @@ func CaptureBytes(ctx context.Context, stateDir string, ownerUID int) (c Capture
 	if !os.SameFile(originalInfo, currentInfo) {
 		return c, ErrPreviewUnavailable
 	}
-	return first, ctx.Err()
+	lastNames, err := controlNames(dir)
+	if err != nil || !sameControlNames(second.names, lastNames) {
+		return c, errors.Join(ErrPreviewUnavailable, err)
+	}
+	return first.capture, ctx.Err()
 }
 
 func openControlDirectory(path string, ownerUID int) (_ *os.File, err error) {
@@ -87,26 +100,58 @@ func openControlDirectory(path string, ownerUID int) (_ *os.File, err error) {
 	return f, nil
 }
 
-func readControlPair(ctx context.Context, dir *os.File, ownerUID int) (c Capture, err error) {
+func readControlPair(ctx context.Context, dir *os.File, ownerUID int) (pair controlPair, err error) {
+	before, err := controlNames(dir)
+	if err != nil {
+		return pair, err
+	}
+	var c Capture
 	c.DB, c.DBID, err = readControlFile(ctx, dir, "control.db", ownerUID, maxPreviewBytes)
 	if errors.Is(err, os.ErrNotExist) {
 		c.Absent = true
 		err = nil
 	}
 	if err != nil {
-		return Capture{}, err
+		return pair, err
 	}
 	c.WAL, c.WALID, err = readControlFile(ctx, dir, "control.db-wal", ownerUID, int64(maxPreviewBytes-len(c.DB)))
 	if errors.Is(err, os.ErrNotExist) {
 		err = nil
 	}
 	if err != nil {
-		return Capture{}, err
+		return pair, err
 	}
 	if c.Absent && c.WAL != nil {
-		return Capture{}, ErrPreviewUnavailable
+		return pair, ErrPreviewUnavailable
 	}
-	return c, nil
+	after, err := controlNames(dir)
+	if err != nil || !sameControlNames(before, after) {
+		return pair, errors.Join(ErrPreviewUnavailable, err)
+	}
+	return controlPair{capture: c, names: after}, nil
+}
+
+func controlNames(dir *os.File) (names [2]controlNameState, err error) {
+	for i, name := range []string{"control.db", "control.db-wal"} {
+		var st unix.Stat_t
+		err := unix.Fstatat(int(dir.Fd()), name, &st, unix.AT_SYMLINK_NOFOLLOW)
+		if errors.Is(err, unix.ENOENT) {
+			continue
+		}
+		if err != nil {
+			return names, err
+		}
+		names[i] = controlNameState{present: true, stat: st}
+	}
+	return names, nil
+}
+func sameControlNames(a, b [2]controlNameState) bool {
+	for i := range a {
+		if a[i].present != b[i].present || a[i].present && !sameControlFile(a[i].stat, b[i].stat) {
+			return false
+		}
+	}
+	return true
 }
 
 func sameControlCapture(a, b Capture) bool {
@@ -157,5 +202,8 @@ func previewReadOwned(ctx context.Context, path string, ownerUID int) (_ []byte,
 	}
 	defer func() { err = errors.Join(err, dir.Close()) }()
 	data, _, err := readControlFile(ctx, dir, filepath.Base(path), ownerUID, maxPreviewBytes)
+	if errors.Is(err, unix.ELOOP) {
+		return nil, ErrPreviewUnavailable
+	}
 	return data, err
 }
