@@ -1274,7 +1274,7 @@ T20 has local lifecycle evidence in `TestTUILifecycleJSONParity` and `TestTUILif
 
 T23 has value-free review/redaction coverage in `TestTUILifecycleReviewRedactionAndRollbackAvailability` and review goldens. `TestRunTUIPendingAcceptanceCleanupAndRecoveryNotice` covers real terminal cleanup with pending acceptance. `TestTUIDiagnosisJSONParity` and `TestTUIDiagnosisExitRunner` cover captured diagnosis scope, stale reports and explicit restored-terminal exit. `TestInit*` covers local-only spec approval, conflicts, cleanup, valid output, short writes and executable next-command guidance. Full Phase 05 and physical acceptance remain open.
 
-### T22 local Plan 008 integration evidence
+## T22 local Plan 008 integration evidence
 
 Normal SQLite removal is locally connected through the factory, transport,
 strict dispatcher, jobs runner and protected Store. Temporary SQLite and bounded

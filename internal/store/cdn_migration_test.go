@@ -7,10 +7,11 @@ import (
 	"testing"
 )
 
-// dropSQLitePreparationMigrationFixture removes only version 35's own objects
-// so older-version migration fixtures can be rebuilt from a current store.
+// dropSQLitePreparationMigrationFixture first rewinds later removal/drop
+// objects, then removes version 35 so older fixtures have a valid predecessor.
 func dropSQLitePreparationMigrationFixture(t *testing.T, ctx context.Context, s *Store) {
 	t.Helper()
+	makeExactV35DropFixture(t, s)
 	statements := []string{"DROP TRIGGER data_fences_sqlite_preparation_release"}
 	for _, table := range []string{"data_sqlite_task_settlements", "data_sqlite_abandon_stops", "data_sqlite_consumer_completions", "data_sqlite_point_consumers", "data_sqlite_prepared_points", "data_sqlite_preparation_events", "data_sqlite_preparations", "data_sqlite_task_inputs"} {
 		statements = append(statements, "DROP TABLE "+table)
