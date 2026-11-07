@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/ui"
@@ -22,6 +23,7 @@ const (
 	screenOperation
 	screenActions
 	screenReview
+	screenDiagnosis
 )
 
 type loadState uint8
@@ -88,43 +90,49 @@ type logsMsg struct {
 // tuiModel is the terminal UI. Every value it shows was read from
 // the selected target in this session; there is no sample or demo data.
 type tuiModel struct {
-	entry        tuiEntry
-	review       loadable[tuiReview]
-	reviewFlags  operationFlags
-	actionIndex  int
-	reviewOffset int
-	confirm      bool
-	issued       *issuedApply
-	nextIssued   uint64
-	newKey       func() (string, error)
-	ctx          context.Context // session context; canceled when the runner returns
-	connect      func(operationFlags) tuiHost
-	listTargets  func() ([]string, error)
-	configDir    string
-	flags        operationFlags // current target selection; empty on the picker
-	host         tuiHost
-	screen       tuiScreen
-	back         []tuiScreen
-	width        int
-	height       int
-	theme        ui.Theme
-	token        uint64             // bumped on every navigation and read
-	cancelRead   context.CancelFunc // the one current read, if any
-	initial      tea.Cmd            // the first read, returned once by Init
-	targets      loadable[[]string]
-	target       int // picker selection
-	apps         loadable[apps.Report]
-	selected     int // app list selection
-	app          string
-	logs         loadable[[]logs.Line]
-	logFlags     operationFlags
-	logApp       string
-	logOffset    int // entries scrolled back from the newest
-	detailOffset int // app detail rows scrolled from the top
-	observe      *tuiObservation
-	after        func(time.Duration, tea.Msg) tea.Cmd
-	now          func() time.Time
-	loc          *time.Location
+	diagnosis       loadable[diagnose.Report]
+	diagnosisFlags  operationFlags
+	diagnosisApp    string
+	diagnosisText   []string
+	diagnosisOffset int
+	diagnosisExit   string
+	entry           tuiEntry
+	review          loadable[tuiReview]
+	reviewFlags     operationFlags
+	actionIndex     int
+	reviewOffset    int
+	confirm         bool
+	issued          *issuedApply
+	nextIssued      uint64
+	newKey          func() (string, error)
+	ctx             context.Context // session context; canceled when the runner returns
+	connect         func(operationFlags) tuiHost
+	listTargets     func() ([]string, error)
+	configDir       string
+	flags           operationFlags // current target selection; empty on the picker
+	host            tuiHost
+	screen          tuiScreen
+	back            []tuiScreen
+	width           int
+	height          int
+	theme           ui.Theme
+	token           uint64             // bumped on every navigation and read
+	cancelRead      context.CancelFunc // the one current read, if any
+	initial         tea.Cmd            // the first read, returned once by Init
+	targets         loadable[[]string]
+	target          int // picker selection
+	apps            loadable[apps.Report]
+	selected        int // app list selection
+	app             string
+	logs            loadable[[]logs.Line]
+	logFlags        operationFlags
+	logApp          string
+	logOffset       int // entries scrolled back from the newest
+	detailOffset    int // app detail rows scrolled from the top
+	observe         *tuiObservation
+	after           func(time.Duration, tea.Msg) tea.Cmd
+	now             func() time.Time
+	loc             *time.Location
 }
 
 // newTUIModel starts the selected entry for an explicit target, or the target
@@ -167,6 +175,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.detailOffset = m.clampDetailOffset(m.detailOffset)
 		m.clampOperationOffset()
 		m.reviewOffset = m.clampReviewOffset(m.reviewOffset)
+		m.diagnosisOffset = m.clampDiagnosisOffset(m.diagnosisOffset)
 	case tea.KeyPressMsg:
 		return m.key(msg.String())
 	case targetsMsg:
@@ -184,6 +193,8 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.review.finish(msg.review, msg.err, m.now())
 			m.reviewOffset = m.clampReviewOffset(m.reviewOffset)
 		}
+	case diagnosisMsg:
+		return m.diagnosisReply(msg)
 	case acceptMsg:
 		return m.acceptance(msg)
 	case pageMsg:
@@ -239,6 +250,13 @@ func (m tuiModel) key(key string) (tea.Model, tea.Cmd) {
 		return m.move(-1), nil
 	case "down", "j":
 		return m.move(1), nil
+	case "d":
+		return m.openDiagnosis()
+	case "x":
+		if m.screen == screenDiagnosis {
+			m.diagnosisExit = m.diagnosisExitNotice()
+			return m.quit()
+		}
 	case "r":
 		return m.refresh()
 	case "enter":
@@ -279,6 +297,7 @@ func (m *tuiModel) stopRead() {
 	m.apps.abandon()
 	m.logs.abandon()
 	m.review.abandon()
+	m.diagnosis.abandon()
 	m.confirm = false
 	if m.observe != nil {
 		m.observe.Loading = false
@@ -347,6 +366,11 @@ func (m tuiModel) goBack() (tea.Model, tea.Cmd) {
 // reload restarts a read that navigation abandoned before it ever succeeded.
 func (m tuiModel) reload() (tea.Model, tea.Cmd) {
 	switch {
+	case m.screen == screenDiagnosis:
+		if m.diagnosis.State == loadIdle {
+			return m.loadDiagnosis()
+		}
+		return m, nil
 	case m.screen == screenReview:
 		if m.review.State == loadIdle {
 			return m.loadReview()
@@ -364,6 +388,8 @@ func (m tuiModel) reload() (tea.Model, tea.Cmd) {
 
 func (m tuiModel) refresh() (tea.Model, tea.Cmd) {
 	switch m.screen {
+	case screenDiagnosis:
+		return m.loadDiagnosis()
 	case screenReview:
 		return m.loadReview()
 	case screenActions:
@@ -427,6 +453,8 @@ func (m tuiModel) openLogs() (tea.Model, tea.Cmd) {
 
 func (m tuiModel) move(delta int) tuiModel {
 	switch m.screen {
+	case screenDiagnosis:
+		m.diagnosisOffset = m.clampDiagnosisOffset(m.diagnosisOffset + delta)
 	case screenActions:
 		m.actionIndex = clampIndex(m.actionIndex+delta, len(m.actions()))
 	case screenReview:

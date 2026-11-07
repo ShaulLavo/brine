@@ -3,12 +3,14 @@ package cli
 import (
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/ui"
 )
 
 const tuiEventLimit = 1024
@@ -194,7 +196,10 @@ func writeTUIExitNotice(final tea.Model, output io.Writer) error {
 	if !ok {
 		return nil
 	}
-	notice := m.exitNotice()
+	notice := ui.Sanitize(m.exitNotice())
+	if m.diagnosisExit != "" {
+		notice = strings.TrimPrefix(notice+"\n"+ui.Sanitize(m.diagnosisExit), "\n")
+	}
 	if notice == "" {
 		return nil
 	}

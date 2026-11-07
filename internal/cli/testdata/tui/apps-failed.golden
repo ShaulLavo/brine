@@ -22,7 +22,7 @@ Could not read apps from fixture.                                               
                                                                                 │
 Error: transport_failure. The SSH transport failed; reconcile before retrying   │
 any mutation.                                                                   │
-r refresh  q quit                                                               │
+r refresh  d diagnose  q quit                                                   │
 == 80x24 color ==
 "\x1b[1;94mbrine · fixture\x1b[m"
 "\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
@@ -47,7 +47,7 @@ r refresh  q quit                                                               
 ""
 "\x1b[31mError: transport_failure. The SSH transport failed; reconcile before retrying\x1b[m"
 "\x1b[31many mutation.\x1b[m"
-"\x1b[90mr refresh  q quit\x1b[m"
+"\x1b[90mr refresh  d diagnose  q quit\x1b[m"
 == 50x16 no color ==
 brine · fixture                                   │
 ──────────────────────────────────────────────────│
@@ -64,7 +64,7 @@ Could not read apps from fixture.                 │
                                                   │
 Error: transport_failure. The SSH transport       │
 failed; reconcile before retrying any mutation.   │
-r refresh  q quit                                 │
+r refresh  d diagnose  q quit                     │
 == 50x16 color ==
 "\x1b[1;94mbrine · fixture\x1b[m"
 "\x1b[90m──────────────────────────────────────────────────\x1b[m"
@@ -81,7 +81,7 @@ r refresh  q quit                                 │
 ""
 "\x1b[31mError: transport_failure. The SSH transport\x1b[m"
 "\x1b[31mfailed; reconcile before retrying any mutation.\x1b[m"
-"\x1b[90mr refresh  q quit\x1b[m"
+"\x1b[90mr refresh  d diagnose  q quit\x1b[m"
 == 30x8 no color ==
 brine · fixture               │
 ──────────────────────────────│
@@ -90,7 +90,7 @@ fixture.                      │
 Error: transport_failure. The │
 SSH transport failed;         │
 reconcile before retrying any…│
-r refresh  q quit             │
+r refresh  d diagnose  q quit │
 == 30x8 color ==
 "\x1b[1;94mbrine · fixture\x1b[m"
 "\x1b[90m──────────────────────────────\x1b[m"
@@ -99,4 +99,4 @@ r refresh  q quit             │
 "\x1b[31mError: transport_failure. The\x1b[m"
 "\x1b[31mSSH transport failed;\x1b[m"
 "\x1b[31mreconcile before retrying any…\x1b[m"
-"\x1b[90mr refresh  q quit\x1b[m"
+"\x1b[90mr refresh  d diagnose  q quit\x1b[m"

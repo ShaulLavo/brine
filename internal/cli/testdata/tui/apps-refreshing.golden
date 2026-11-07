@@ -22,7 +22,7 @@ brine · fixture                                                3 apps · readin
                                                                                 │
                                                                                 │
                                                                                 │
-↑↓ select  enter open  r refresh  q quit                                        │
+↑↓ select  enter open  d diagnose  r refresh  q quit                            │
 == 80x24 color ==
 "\x1b[1;94mbrine · fixture\x1b[m                                                \x1b[90m3 apps · reading…\x1b[m"
 "\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
@@ -47,7 +47,7 @@ brine · fixture                                                3 apps · readin
 ""
 ""
 ""
-"\x1b[90m↑↓ select  enter open  r refresh  q quit\x1b[m"
+"\x1b[90m↑↓ select  enter open  d diagnose  r refresh  q quit\x1b[m"
 == 50x16 no color ==
 brine · fixture                  3 apps · reading…│
 ──────────────────────────────────────────────────│
@@ -64,7 +64,7 @@ brine · fixture                  3 apps · reading…│
                                                   │
                                                   │
                                                   │
-↑↓ select  enter open  q quit                     │
+↑↓ select  enter open  d diagnose  q quit         │
 == 50x16 color ==
 "\x1b[1;94mbrine · fixture\x1b[m                  \x1b[90m3 apps · reading…\x1b[m"
 "\x1b[90m──────────────────────────────────────────────────\x1b[m"
@@ -81,7 +81,7 @@ brine · fixture                  3 apps · reading…│
 ""
 ""
 ""
-"\x1b[90m↑↓ select  enter open  q quit\x1b[m"
+"\x1b[90m↑↓ select  enter open  d diagnose  q quit\x1b[m"
 == 30x8 no color ==
 brine · fixture               │
 ──────────────────────────────│
@@ -90,7 +90,7 @@ brine · fixture               │
   fixture-web   starting      │
   fixture-jobs  recovery requ…│
                               │
-enter open  q quit            │
+enter open  d diagnose  q quit│
 == 30x8 color ==
 "\x1b[1;94mbrine · fixture\x1b[m"
 "\x1b[90m──────────────────────────────\x1b[m"
@@ -99,4 +99,4 @@ enter open  q quit            │
 "\x1b[94m  \x1b[mfixture-web   \x1b[94mstarting\x1b[m"
 "\x1b[94m  \x1b[mfixture-jobs  \x1b[33mrecovery requ…\x1b[m"
 ""
-"\x1b[90menter open  q quit\x1b[m"
+"\x1b[90menter open  d diagnose  q quit\x1b[m"

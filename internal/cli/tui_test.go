@@ -17,6 +17,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/logs"
@@ -45,6 +46,7 @@ type fakeTUIHost struct {
 	plan       func(context.Context, tuiAction, string) (tuiReview, error)
 	apply      func(context.Context, string, string) (jobs.Accepted, error)
 	deployment func(context.Context, string) (tuiReview, error)
+	diagnose   func(context.Context, string) (diagnose.Report, error)
 }
 
 func (h *fakeTUIHost) record(call string) {
@@ -497,4 +499,9 @@ func TestReadLogLinesBounds(t *testing.T) {
 func (h *fakeTUIHost) DeploymentPlan(ctx context.Context, path string) (tuiReview, error) {
 	h.record("deployment " + path)
 	return h.deployment(ctx, path)
+}
+
+func (h *fakeTUIHost) Diagnose(ctx context.Context, app string) (diagnose.Report, error) {
+	h.record("diagnose " + app)
+	return h.diagnose(ctx, app)
 }

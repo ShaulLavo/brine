@@ -22,7 +22,7 @@ started 12:01:07                                                                
 #16  12:04:31  state  preflight                                                 │
 Error: transport_failure. The SSH transport failed; reconcile before retrying   │
 any mutation.                                                                   │
-↑↓ scroll  r read  esc back  l logs                                             │
+↑↓ scroll  r read  esc back  l logs  d diagnose                                 │
 == 80x24 color ==
 "\x1b[1;94mbrine · fixture › fixture-api › op-direct\x1b[m               \x1b[90mfailed · polled 12:04:31\x1b[m"
 "\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
@@ -47,7 +47,7 @@ any mutation.                                                                   
 "#16  12:04:31  state  preflight"
 "\x1b[31mError: transport_failure. The SSH transport failed; reconcile before retrying\x1b[m"
 "\x1b[31many mutation.\x1b[m"
-"\x1b[90m↑↓ scroll  r read  esc back  l logs\x1b[m"
+"\x1b[90m↑↓ scroll  r read  esc back  l logs  d diagnose\x1b[m"
 == 50x16 no color ==
 brine · fixture › fixture-api › op-direct         │
 ──────────────────────────────────────────────────│
@@ -64,7 +64,7 @@ started 12:01:07                                  │
 #8  12:04:31  state  preflight                    │
 Error: transport_failure. The SSH transport       │
 failed; reconcile before retrying any mutation.   │
-↑↓ scroll  r read  esc back  l logs               │
+↑↓ scroll  r read  esc back  l logs  d diagnose   │
 == 50x16 color ==
 "\x1b[1;94mbrine · fixture › fixture-api › op-direct\x1b[m"
 "\x1b[90m──────────────────────────────────────────────────\x1b[m"
@@ -81,7 +81,7 @@ failed; reconcile before retrying any mutation.   │
 "#8  12:04:31  state  preflight"
 "\x1b[31mError: transport_failure. The SSH transport\x1b[m"
 "\x1b[31mfailed; reconcile before retrying any mutation.\x1b[m"
-"\x1b[90m↑↓ scroll  r read  esc back  l logs\x1b[m"
+"\x1b[90m↑↓ scroll  r read  esc back  l logs  d diagnose\x1b[m"
 == 30x8 no color ==
 brine · fixture › fixture-api │
 ──────────────────────────────│

@@ -22,7 +22,7 @@ Drift                drifted (image)                                            
                                                                                 │
                                                                                 │
                                                                                 │
-↑↓ scroll  p plan  esc back  t events  l logs  r refresh                        │
+↑↓ scroll  p plan  d diagnose  esc back  t events  l logs  r refresh            │
 == 80x24 color ==
 "\x1b[1;94mbrine · fixture › fixture-jobs\x1b[m                                     \x1b[90mread 12:04:31\x1b[m"
 "\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
@@ -47,7 +47,7 @@ Drift                drifted (image)                                            
 ""
 ""
 ""
-"\x1b[90m↑↓ scroll  p plan  esc back  t events  l logs  r refresh\x1b[m"
+"\x1b[90m↑↓ scroll  p plan  d diagnose  esc back  t events  l logs  r refresh\x1b[m"
 == 50x16 no color ==
 brine · fixture › fixture-jobs            12:04:31│
 ──────────────────────────────────────────────────│
@@ -64,7 +64,7 @@ Unit                                              │
 Direct health                                     │
   not checked                                     │
 Drift                                             │
-↑↓ scroll  p plan  esc back  t events  l logs     │
+↑↓ scroll  p plan  d diagnose  esc back  t events │
 == 50x16 color ==
 "\x1b[1;94mbrine · fixture › fixture-jobs\x1b[m            \x1b[90m12:04:31\x1b[m"
 "\x1b[90m──────────────────────────────────────────────────\x1b[m"
@@ -81,7 +81,7 @@ Drift                                             │
 "Direct health"
 "  not checked"
 "Drift"
-"\x1b[90m↑↓ scroll  p plan  esc back  t events  l logs\x1b[m"
+"\x1b[90m↑↓ scroll  p plan  d diagnose  esc back  t events\x1b[m"
 == 30x8 no color ==
 brine · fixture › fixture-jobs│
 ──────────────────────────────│
@@ -90,7 +90,7 @@ Current                       │
   plan sha256:666666666666…   │
   image sha256:eeeeeeeeeeee   │
   port 20041                  │
-↑↓ scroll  p plan  esc back   │
+↑↓ scroll  p plan  d diagnose │
 == 30x8 color ==
 "\x1b[1;94mbrine · fixture › fixture-jobs\x1b[m"
 "\x1b[90m──────────────────────────────\x1b[m"
@@ -99,4 +99,4 @@ Current                       │
 "  plan sha256:666666666666…"
 "  image sha256:eeeeeeeeeeee"
 "  port 20041"
-"\x1b[90m↑↓ scroll  p plan  esc back\x1b[m"
+"\x1b[90m↑↓ scroll  p plan  d diagnose\x1b[m"

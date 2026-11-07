@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › host › diagnosis                    0 findings · read 12:04:31│
+────────────────────────────────────────────────────────────────────────────────│
+Diagnosis for target fixture                                                    │
+  host.arch: unknown (inventory_unavailable)                                    │
+  host.free_disk_bytes: unknown (inventory_unavailable)                         │
+  host.linger: unknown (inventory_unavailable)                                  │
+  host.live_generation: unknown (live_generation_unproven)                      │
+  host.memory_available_bytes: unknown (probe_unavailable)                      │
+  host.minimum_free_disk_bytes: unknown (policy_unavailable)                    │
+  host.os: unknown (inventory_unavailable)                                      │
+  host.runner: unknown (inventory_unavailable)                                  │
+  host.selected_generation: unknown (inventory_unavailable)                     │
+  host.versions: unknown (inventory_unavailable)                                │
+  app_names: unknown (app_discovery_incomplete)                                 │
+                                                                                │
+Findings                                                                        │
+No failure rule matched. Unknown facts are not evidence of health.              │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+↑↓ scroll  x exit  esc back  r read                                             │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › host › diagnosis\x1b[m                    \x1b[90m0 findings · read 12:04:31\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Diagnosis for target fixture"
+"  host.arch: unknown (inventory_unavailable)"
+"  host.free_disk_bytes: unknown (inventory_unavailable)"
+"  host.linger: unknown (inventory_unavailable)"
+"  host.live_generation: unknown (live_generation_unproven)"
+"  host.memory_available_bytes: unknown (probe_unavailable)"
+"  host.minimum_free_disk_bytes: unknown (policy_unavailable)"
+"  host.os: unknown (inventory_unavailable)"
+"  host.runner: unknown (inventory_unavailable)"
+"  host.selected_generation: unknown (inventory_unavailable)"
+"  host.versions: unknown (inventory_unavailable)"
+"  app_names: unknown (app_discovery_incomplete)"
+""
+"Findings"
+"No failure rule matched. Unknown facts are not evidence of health."
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ scroll  x exit  esc back  r read\x1b[m"
+== 50x16 no color ==
+brine · fixture › host › diagnosis                │
+──────────────────────────────────────────────────│
+Diagnosis for target fixture                      │
+  host.arch: unknown (inventory_unavailable)      │
+  host.free_disk_bytes: unknown                   │
+(inventory_unavailable)                           │
+  host.linger: unknown (inventory_unavailable)    │
+  host.live_generation: unknown                   │
+(live_generation_unproven)                        │
+  host.memory_available_bytes: unknown            │
+(probe_unavailable)                               │
+  host.minimum_free_disk_bytes: unknown           │
+(policy_unavailable)                              │
+  host.os: unknown (inventory_unavailable)        │
+  host.runner: unknown (inventory_unavailable)    │
+↑↓ scroll  x exit  esc back  r read               │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › host › diagnosis\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Diagnosis for target fixture"
+"  host.arch: unknown (inventory_unavailable)"
+"  host.free_disk_bytes: unknown"
+"(inventory_unavailable)"
+"  host.linger: unknown (inventory_unavailable)"
+"  host.live_generation: unknown"
+"(live_generation_unproven)"
+"  host.memory_available_bytes: unknown"
+"(probe_unavailable)"
+"  host.minimum_free_disk_bytes: unknown"
+"(policy_unavailable)"
+"  host.os: unknown (inventory_unavailable)"
+"  host.runner: unknown (inventory_unavailable)"
+"\x1b[90m↑↓ scroll  x exit  esc back  r read\x1b[m"
+== 30x8 no color ==
+brine · fixture › host › diagn│
+──────────────────────────────│
+Diagnosis for target fixture  │
+  host.arch: unknown          │
+(inventory_unavailable)       │
+  host.free_disk_bytes:       │
+unknown                       │
+↑↓ scroll  x exit  esc back   │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › host › diagn\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Diagnosis for target fixture"
+"  host.arch: unknown"
+"(inventory_unavailable)"
+"  host.free_disk_bytes:"
+"unknown"
+"\x1b[90m↑↓ scroll  x exit  esc back\x1b[m"

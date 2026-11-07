@@ -16,6 +16,9 @@ func (m tuiModel) operationScreen() ui.Screen {
 		Title: "brine · " + o.Flags.target + " › " + o.Operation.App + " › " + o.Operation.ID,
 		Help:  m.help(helpKey{"↑↓ scroll", 0}, helpKey{"r read", 0}, keyBack, helpKey{"l logs", 1}),
 	}
+	if o.Bound && o.Operation.App != "" {
+		s.Help = append(s.Help, m.help(helpKey{"d diagnose", 1})...)
+	}
 	state := words(string(o.Operation.State))
 	s.Context = state
 	if !o.At.IsZero() {

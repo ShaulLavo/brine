@@ -21,7 +21,7 @@ func newTUICmd(machineOutput, noInput *bool, deps Dependencies) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "tui",
 		Short: "Browse operations and review stateless HTTP releases or lifecycle plans",
-		Long:  "Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. Use --spec FILE to plan a stateless HTTP release, or --operation ID to resume observation without a committed app. Database, managed-engine and UDP specs use deploy instead. Review release, restart, stop, start or previous known-good rollback plans, then confirm with a and y to apply. Uncertain acceptance retains the same plan and key for explicit recovery. Quitting never cancels a host job. Without --target it starts on the target picker.",
+		Long:  "Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. Use --spec FILE to plan a stateless HTTP release, or --operation ID to resume observation without a committed app. Database, managed-engine and UDP specs use deploy instead. Review release, restart, stop, start or previous known-good rollback plans, then confirm with a and y to apply. Uncertain acceptance retains the same plan and key for explicit recovery. Use d on apps, app details or a validated operation to read diagnosis. In diagnosis, r refreshes the captured scope, esc or q goes back, and x exits locally with a six-finding-code summary and the original diagnose command after terminal cleanup. Suggestions are never executed. Quitting never cancels a host job. Without --target it starts on the target picker.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if *machineOutput || *noInput {
 				return result.New(result.TUIInteractive, nil)
