@@ -42,77 +42,49 @@ func TestFactoryDiagnosisNeverOpensMutationRuntime(t *testing.T) {
 func TestProductionFactoryDiagnosticState(t *testing.T) {
 	for _, kind := range []string{"missing", "old", "current", "permissions"} {
 		t.Run(kind, func(t *testing.T) {
-			dir := filepath.Join(t.TempDir(), "state")
-			if kind != "missing" {
-				if err := os.Mkdir(dir, 0700); err != nil {
-					t.Fatal(err)
-				}
-				state, err := store.OpenContext(t.Context(), dir)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if err := state.Close(); err != nil {
-					t.Fatal(err)
-				}
-				{
-					db, err := sql.Open("sqlite", filepath.Join(dir, "control.db"))
-					if err != nil {
-						t.Fatal(err)
-					}
-					if _, err := db.Exec("PRAGMA journal_mode=DELETE"); err != nil {
-						t.Fatal(err)
-					}
-					if kind == "old" {
-						if _, err := db.Exec("UPDATE schema_version SET version = 0"); err != nil {
-							t.Fatal(err)
-						}
-					}
-					if err := db.Close(); err != nil {
-						t.Fatal(err)
-					}
-				}
-				if kind == "permissions" {
-					if err := os.Chmod(dir, 0750); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-			before := diagnosticFiles(t, dir)
-			f := NewServerFactory("fixture", "deploy")
-			f.diagnosticStateDir = dir
-			f.inventory = func(context.Context) (dispatch.Inventory, error) { return &inventory.Collector{}, nil }
-			server, err := f.Build(context.Background(), "diagnose")
-			if err != nil {
-				t.Fatal(err)
-			}
-			reader := server.Diagnose.(diagnose.Reader)
-			_, err = reader.Store.AppNames(context.Background())
-			if (kind == "current") != (err == nil) {
-				t.Fatalf("kind=%s read error=%v", kind, err)
-			}
-			readCollector := reader.Inventory.(*inventory.Collector)
-			_, inventoryErr := readCollector.StateInventory(context.Background())
-			if (kind == "current") != (inventoryErr == nil) {
-				t.Fatalf("kind=%s inventory read error=%v", kind, inventoryErr)
-			}
-			reader.Inventory, reader.Runner, reader.FS, reader.Logs, reader.MinimumFreeDiskBytes = nil, nil, nil, nil, nil
-			report, reportErr := reader.Read(context.Background(), diagnose.Request{})
-			if reportErr != nil || report.AppNames.Value != nil {
-				t.Fatalf("missing inventory must remain a partial report: %+v %v", report.AppNames, reportErr)
-			}
-			if err := f.Close(); err != nil {
-				t.Fatal(err)
-			}
-			after := diagnosticFiles(t, dir)
-			if len(before) != len(after) {
-				t.Fatal("diagnosis changed durable file count")
-			}
-			for path, content := range before {
-				if !bytes.Equal(content, after[path]) {
-					t.Fatalf("diagnosis changed %s", path)
-				}
-			}
+			assertProductionDiagnosticState(t, kind)
 		})
+	}
+}
+
+func assertProductionDiagnosticState(t *testing.T, kind string) {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "state")
+	seedProductionDiagnosticState(t, kind, dir)
+	before := diagnosticFiles(t, dir)
+	f := NewServerFactory("fixture", "deploy")
+	f.diagnosticStateDir = dir
+	f.inventory = func(context.Context) (dispatch.Inventory, error) { return &inventory.Collector{}, nil }
+	server, err := f.Build(context.Background(), "diagnose")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := server.Diagnose.(diagnose.Reader)
+	_, err = reader.Store.AppNames(context.Background())
+	if (kind == "current") != (err == nil) {
+		t.Fatalf("kind=%s read error=%v", kind, err)
+	}
+	readCollector := reader.Inventory.(*inventory.Collector)
+	_, inventoryErr := readCollector.StateInventory(context.Background())
+	if (kind == "current") != (inventoryErr == nil) {
+		t.Fatalf("kind=%s inventory read error=%v", kind, inventoryErr)
+	}
+	reader.Inventory, reader.Runner, reader.FS, reader.Logs, reader.MinimumFreeDiskBytes = nil, nil, nil, nil, nil
+	report, reportErr := reader.Read(context.Background(), diagnose.Request{})
+	if reportErr != nil || report.AppNames.Value != nil {
+		t.Fatalf("missing inventory must remain a partial report: %+v %v", report.AppNames, reportErr)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	after := diagnosticFiles(t, dir)
+	if len(before) != len(after) {
+		t.Fatal("diagnosis changed durable file count")
+	}
+	for path, content := range before {
+		if !bytes.Equal(content, after[path]) {
+			t.Fatalf("diagnosis changed %s", path)
+		}
 	}
 }
 
@@ -168,5 +140,43 @@ func TestProductionFactoryDiagnosisDoesNotTakeMutationLock(t *testing.T) {
 	}
 	if err := f.Close(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func seedProductionDiagnosticState(t *testing.T, kind, dir string) {
+	t.Helper()
+	if kind == "missing" {
+		return
+	}
+	if err := os.Mkdir(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	state, err := store.OpenContext(t.Context(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := state.Close(); err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(dir, "control.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("PRAGMA journal_mode=DELETE"); err != nil {
+		t.Fatal(err)
+	}
+	if kind == "old" {
+		if _, err := db.Exec("UPDATE schema_version SET version = 0"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if kind == "permissions" {
+		// #nosec G302 -- Deliberately insecure directory metadata must be refused by diagnosis.
+		if err := os.Chmod(dir, 0750); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

@@ -74,40 +74,45 @@ func TestUDPArchiveAdmissionRefusesLiveClaimsWithoutBlockingAbandon(t *testing.T
 func TestUDPArchiveFinalTransactionRechecksLateClaim(t *testing.T) {
 	for _, state := range []string{"staged", "active", "releasing", "released"} {
 		t.Run(state, func(t *testing.T) {
-			s := openTest(t)
-			p, o, _ := preparedStoredArchive(t, s)
-			current := archive.Disposition{}
-			for _, stage := range []archive.DispositionStage{archive.CleanupIntent, archive.RuntimeRetired, archive.RenameIntent, archive.Renamed} {
-				next := archive.Disposition{ArchiveID: p.ArchiveID, Sequence: current.Sequence + 1, Stage: stage}
-				var err error
-				current, err = s.AdvanceArchiveDisposition(t.Context(), o, current, next)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-			// A separate SQLite handle installs a claim after retirement admission.
-			other, err := OpenContext(t.Context(), s.dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = other.Close() }()
-			setArchiveUDPRow(t, other, p.Candidate.App, state)
-			done := archive.Disposition{ArchiveID: p.ArchiveID, Sequence: current.Sequence + 1, Stage: archive.Retired, CommittedAt: time.Now().UTC()}
-			done.RetainUntil = done.CommittedAt.Add(30 * 24 * time.Hour)
-			_, err = s.FinishArchiveDisposition(t.Context(), o, current, done)
-			if (err == nil) != (state == "released") {
-				t.Fatal(state, err)
-			}
-			var live bool
-			if err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM data_active_incarnations WHERE app=?)", p.Candidate.App).Scan(&live); err != nil {
-				t.Fatal(err)
-			}
-			if live != (state != "released") {
-				t.Fatal("wrong data retirement", live)
-			}
+			assertArchiveFinalRechecksUDP(t, state)
 		})
 	}
 }
+func assertArchiveFinalRechecksUDP(t *testing.T, state string) {
+	t.Helper()
+	s := openTest(t)
+	p, o, _ := preparedStoredArchive(t, s)
+	current := archive.Disposition{}
+	for _, stage := range []archive.DispositionStage{archive.CleanupIntent, archive.RuntimeRetired, archive.RenameIntent, archive.Renamed} {
+		next := archive.Disposition{ArchiveID: p.ArchiveID, Sequence: current.Sequence + 1, Stage: stage}
+		var err error
+		current, err = s.AdvanceArchiveDisposition(t.Context(), o, current, next)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A separate SQLite handle installs a claim after retirement admission.
+	other, err := OpenContext(t.Context(), s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Close() }()
+	setArchiveUDPRow(t, other, p.Candidate.App, state)
+	done := archive.Disposition{ArchiveID: p.ArchiveID, Sequence: current.Sequence + 1, Stage: archive.Retired, CommittedAt: time.Now().UTC()}
+	done.RetainUntil = done.CommittedAt.Add(30 * 24 * time.Hour)
+	_, err = s.FinishArchiveDisposition(t.Context(), o, current, done)
+	if (err == nil) != (state == "released") {
+		t.Fatal(state, err)
+	}
+	var live bool
+	if err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM data_active_incarnations WHERE app=?)", p.Candidate.App).Scan(&live); err != nil {
+		t.Fatal(err)
+	}
+	if live != (state != "released") {
+		t.Fatal("wrong data retirement", live)
+	}
+}
+
 func TestUDPArchiveUnreadableClaimsRefuse(t *testing.T) {
 	s := openTest(t)
 	if err := s.Close(); err != nil {

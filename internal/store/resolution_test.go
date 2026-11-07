@@ -156,45 +156,51 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 func TestResolutionFencesActiveAndSuccessfulDescendantsAcrossAncestry(t *testing.T) {
 	for _, settled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "active", true: "succeeded"}[settled], func(t *testing.T) {
-			s, err := OpenContext(t.Context(), stateDir(t))
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer s.Close()
-			ctx := context.Background()
-			root, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.SecretSet, App: "hello", SecretRef: "token"}, "fixture", "root")
-			if err != nil {
-				t.Fatal(err)
-			}
-			for _, state := range []ops.State{ops.Preparing, ops.RecoveryRequired} {
-				if err = s.SetOperationState(ctx, root.ID, state); err != nil {
-					t.Fatal(err)
-				}
-			}
-			makeChild := func(source, key string) Operation {
-				op, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, App: "hello", SecretRef: "token", RecoveryOf: source}, "fixture", key)
-				if e != nil {
-					t.Fatal(e)
-				}
-				return op
-			}
-			middle := makeChild(root.ID, "middle")
-			for _, state := range []ops.State{ops.Preflight, ops.RecoveryRequired} {
-				if err = s.SetOperationState(ctx, middle.ID, state); err != nil {
-					t.Fatal(err)
-				}
-			}
-			descendant := makeChild(middle.ID, "descendant")
-			if settled {
-				for _, state := range []ops.State{ops.Preflight, ops.Succeeded} {
-					if err = s.SetOperationState(ctx, descendant.ID, state); err != nil {
-						t.Fatal(err)
-					}
-				}
-			}
-			if _, _, err = s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, App: "hello", SecretRef: "token", RecoveryOf: root.ID}, "fixture", "old-source-again"); !errors.Is(err, ErrConflict) {
-				t.Fatalf("ancestor accepted despite descendant: %v", err)
-			}
+			assertResolutionAncestryFence(t, settled)
 		})
+	}
+}
+
+func assertResolutionAncestryFence(t *testing.T, settled bool) {
+	t.Helper()
+	s, err := OpenContext(t.Context(), stateDir(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	ctx := context.Background()
+	root, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.SecretSet, App: "hello", SecretRef: "token"}, "fixture", "root")
+	if err != nil {
+		t.Fatal(err)
+	}
+	advanceAncestryStates(t, s, ctx, root.ID, ops.Preparing, ops.RecoveryRequired)
+	makeChild := func(source, key string) Operation {
+		op, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, App: "hello", SecretRef: "token", RecoveryOf: source}, "fixture", key)
+		if e != nil {
+			t.Fatal(e)
+		}
+		return op
+	}
+	middle := makeChild(root.ID, "middle")
+	advanceAncestryStates(t, s, ctx, middle.ID, ops.Preflight, ops.RecoveryRequired)
+	descendant := makeChild(middle.ID, "descendant")
+	if settled {
+		advanceAncestryStates(t, s, ctx, descendant.ID, ops.Preflight, ops.Succeeded)
+	}
+	if _, _, err = s.CreateOperation(ctx, ops.Intent{Kind: ops.Resolve, App: "hello", SecretRef: "token", RecoveryOf: root.ID}, "fixture", "old-source-again"); !errors.Is(err, ErrConflict) {
+		t.Fatalf("ancestor accepted despite descendant: %v", err)
+	}
+}
+
+func advanceAncestryStates(t *testing.T, s *Store, ctx context.Context, id string, states ...ops.State) {
+	t.Helper()
+	for _, state := range states {
+		if err := s.SetOperationState(ctx, id, state); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

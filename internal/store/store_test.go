@@ -378,24 +378,11 @@ func TestConcurrentStoresShareIdempotencyAndEventSequence(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			s := a
-			if i%2 != 0 {
-				s = b
-			}
-			started := time.Now()
-			op, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "retry")
-			if e != nil {
-				t.Errorf("create request %d after %s: %v", i, time.Since(started), e)
-				return
-			}
-			ids <- op.ID
-			started = time.Now()
-			if _, e = s.AppendEvent(ctx, op.ID, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)}); e != nil {
-				t.Errorf("append request %d after %s: %v", i, time.Since(started), e)
-			}
-		}(i)
+		s := a
+		if i%2 != 0 {
+			s = b
+		}
+		go appendSharedStoreEvent(t, ctx, s, id, i, ids, &wg)
 	}
 	wg.Wait()
 	close(ids)
@@ -510,47 +497,7 @@ func TestConditionalTransitionsRaceWithoutOverwritingWinner(t *testing.T) {
 	defer b.Close()
 	id, _ := saved(t, a)
 	for iteration := 0; iteration < 64; iteration++ {
-		op, _, e := a.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", fmt.Sprintf("race-%d", iteration))
-		if e != nil {
-			t.Fatal(e)
-		}
-		type result struct {
-			state ops.State
-			err   error
-		}
-		results := make(chan result, 2)
-		start := make(chan struct{})
-		for i, state := range []ops.State{ops.Failed, ops.Preflight} {
-			s := a
-			if i == 1 {
-				s = b
-			}
-			go func(s *Store, state ops.State) {
-				<-start
-				results <- result{state, s.TransitionOperation(ctx, op.ID, ops.Queued, state)}
-			}(s, state)
-		}
-		close(start)
-		first, second := <-results, <-results
-		winner, loser := first, second
-		if winner.err != nil {
-			winner, loser = loser, winner
-		}
-		if winner.err != nil {
-			t.Fatalf("no winner: %v / %v", first.err, second.err)
-		}
-		var conflict *ops.StateConflictError
-		if !errors.Is(loser.err, ops.ErrStateConflict) || !errors.As(loser.err, &conflict) || conflict.Current != winner.state {
-			t.Fatalf("loser conflict: %#v %v", conflict, loser.err)
-		}
-		got, e := a.GetOperation(ctx, op.ID)
-		if e != nil || got.State != winner.state {
-			t.Fatalf("winner overwritten: %s %v", got.State, e)
-		}
-		events, e := a.EventsAfter(ctx, op.ID, 0, 10)
-		if e != nil || len(events) != 1 || events[0].State != winner.state {
-			t.Fatalf("loser changed journal: %+v %v", events, e)
-		}
+		assertConditionalTransitionRace(t, ctx, a, b, id, iteration)
 	}
 }
 func TestConditionalTransitionRefusesIllegalEdge(t *testing.T) {
@@ -643,23 +590,31 @@ func TestOpenSecuresExistingFilesAndDirectory(t *testing.T) {
 func TestOpenRefusesAuxiliaryFileSymlinks(t *testing.T) {
 	for _, name := range []string{"control.db-wal", "control.db-shm"} {
 		t.Run(name, func(t *testing.T) {
-			dir := stateDir(t)
-			victim := filepath.Join(dir, "victim")
-			if e := os.WriteFile(victim, []byte("untouched"), 0644); e != nil {
-				t.Fatal(e)
-			}
-			if e := os.Symlink(victim, filepath.Join(dir, name)); e != nil {
-				t.Fatal(e)
-			}
-			if s, e := OpenContext(t.Context(), dir); e == nil {
-				s.Close()
-				t.Fatal("followed sidecar symlink")
-			}
-			info, e := os.Stat(victim)
-			if e != nil || info.Mode().Perm() != 0644 {
-				t.Fatal("changed symlink target")
-			}
+			assertOpenRefusesAuxiliarySymlink(t, name)
 		})
+	}
+}
+
+func assertOpenRefusesAuxiliarySymlink(t *testing.T, name string) {
+	t.Helper()
+	dir := stateDir(t)
+	victim := filepath.Join(dir, "victim")
+	// #nosec G306 -- Deliberately readable symlink target must retain its bytes and metadata.
+	if e := os.WriteFile(victim, []byte("untouched"), 0644); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Symlink(victim, filepath.Join(dir, name)); e != nil {
+		t.Fatal(e)
+	}
+	if s, e := OpenContext(t.Context(), dir); e == nil {
+		if err := s.Close(); err != nil {
+			t.Error(err)
+		}
+		t.Fatal("followed sidecar symlink")
+	}
+	info, e := os.Stat(victim)
+	if e != nil || info.Mode().Perm() != 0644 {
+		t.Fatal("changed symlink target")
 	}
 }
 
@@ -866,5 +821,65 @@ func corruptReleaseRecord(t *testing.T, s *Store, r Release, kind string) {
 	}
 	if _, err := s.db.ExecContext(t.Context(), "UPDATE releases SET content=?,content_hash=? WHERE id=?", raw, digest(raw), id); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func assertConditionalTransitionRace(t *testing.T, ctx context.Context, a, b *Store, id string, iteration int) {
+	t.Helper()
+	op, _, e := a.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", fmt.Sprintf("race-%d", iteration))
+	if e != nil {
+		t.Fatal(e)
+	}
+	type result struct {
+		state ops.State
+		err   error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for i, state := range []ops.State{ops.Failed, ops.Preflight} {
+		s := a
+		if i == 1 {
+			s = b
+		}
+		go func(s *Store, state ops.State) {
+			<-start
+			results <- result{state, s.TransitionOperation(ctx, op.ID, ops.Queued, state)}
+		}(s, state)
+	}
+	close(start)
+	first, second := <-results, <-results
+	winner, loser := first, second
+	if winner.err != nil {
+		winner, loser = loser, winner
+	}
+	if winner.err != nil {
+		t.Fatalf("no winner: %v / %v", first.err, second.err)
+	}
+	var conflict *ops.StateConflictError
+	if !errors.Is(loser.err, ops.ErrStateConflict) || !errors.As(loser.err, &conflict) || conflict.Current != winner.state {
+		t.Fatalf("loser conflict: %#v %v", conflict, loser.err)
+	}
+	got, e := a.GetOperation(ctx, op.ID)
+	if e != nil || got.State != winner.state {
+		t.Fatalf("winner overwritten: %s %v", got.State, e)
+	}
+	events, e := a.EventsAfter(ctx, op.ID, 0, 10)
+	if e != nil || len(events) != 1 || events[0].State != winner.state {
+		t.Fatalf("loser changed journal: %+v %v", events, e)
+	}
+}
+
+func appendSharedStoreEvent(t *testing.T, ctx context.Context, s *Store, id string, i int, ids chan<- string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	started := time.Now()
+	op, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "retry")
+	if err != nil {
+		t.Errorf("create request %d after %s: %v", i, time.Since(started), err)
+		return
+	}
+	ids <- op.ID
+	started = time.Now()
+	if _, err = s.AppendEvent(ctx, op.ID, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)}); err != nil {
+		t.Errorf("append request %d after %s: %v", i, time.Since(started), err)
 	}
 }

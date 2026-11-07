@@ -135,65 +135,76 @@ func TestStoreCrashHelper(t *testing.T) {
 func TestSIGKILLJournalConsistency(t *testing.T) {
 	for _, stage := range []string{"event", "state", "state-uncommitted", "release", "release-uncommitted"} {
 		t.Run(stage, func(t *testing.T) {
-			ctx := context.Background()
-			dir := stateDir(t)
-			s, e := OpenContext(t.Context(), dir)
-			if e != nil {
-				t.Fatal(e)
-			}
-			op := operation(t, s)
-			r := release(t, s, "release-0001")
-			if e = s.CommitRelease(ctx, "hello", r); e != nil {
-				t.Fatal(e)
-			}
-			s.Close()
-			cmd := startHelper(t, dir, op, stage)
-			killHelper(t, cmd)
-			s, e = OpenContext(t.Context(), dir)
-			if e != nil {
-				t.Fatal(e)
-			}
-			defer s.Close()
-			var integrity string
-			if e = s.db.QueryRow("PRAGMA integrity_check").Scan(&integrity); e != nil || integrity != "ok" {
-				t.Fatalf("database integrity %s %v", integrity, e)
-			}
-			current, e := s.CurrentRelease(ctx, "hello")
-			if e != nil {
-				t.Fatal(e)
-			}
-			wantID := "release-0001"
-			if stage == "release" {
-				wantID = "release-0002"
-			}
-			if current.ID != wantID {
-				t.Fatalf("release head %s want %s", current.ID, wantID)
-			}
-			operation, e := s.GetOperation(ctx, op)
-			if e != nil {
-				t.Fatal(e)
-			}
-			wantState := ops.Queued
-			if stage == "state" {
-				wantState = ops.Preflight
-			}
-			if operation.State != wantState {
-				t.Fatalf("state %s want %s", operation.State, wantState)
-			}
-			events, e := s.EventsAfter(ctx, op, 0, 100)
-			if e != nil {
-				t.Fatal(e)
-			}
-			wantEvents := 0
-			if stage == "event" || stage == "state" {
-				wantEvents = 1
-			}
-			if len(events) != wantEvents {
-				t.Fatalf("events %d want %d", len(events), wantEvents)
-			}
+			assertSIGKILLJournalConsistency(t, stage)
 		})
 	}
 }
+func assertSIGKILLJournalConsistency(t *testing.T, stage string) {
+	t.Helper()
+	ctx := context.Background()
+	dir := stateDir(t)
+	s, e := OpenContext(t.Context(), dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	op := operation(t, s)
+	r := release(t, s, "release-0001")
+	if e = s.CommitRelease(ctx, "hello", r); e != nil {
+		t.Fatal(e)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cmd := startHelper(t, dir, op, stage)
+	killHelper(t, cmd)
+	s, e = OpenContext(t.Context(), dir)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer func() {
+		if err := s.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	var integrity string
+	if e = s.db.QueryRow("PRAGMA integrity_check").Scan(&integrity); e != nil || integrity != "ok" {
+		t.Fatalf("database integrity %s %v", integrity, e)
+	}
+	current, e := s.CurrentRelease(ctx, "hello")
+	if e != nil {
+		t.Fatal(e)
+	}
+	wantID := "release-0001"
+	if stage == "release" {
+		wantID = "release-0002"
+	}
+	if current.ID != wantID {
+		t.Fatalf("release head %s want %s", current.ID, wantID)
+	}
+	operation, e := s.GetOperation(ctx, op)
+	if e != nil {
+		t.Fatal(e)
+	}
+	wantState := ops.Queued
+	if stage == "state" {
+		wantState = ops.Preflight
+	}
+	if operation.State != wantState {
+		t.Fatalf("state %s want %s", operation.State, wantState)
+	}
+	events, e := s.EventsAfter(ctx, op, 0, 100)
+	if e != nil {
+		t.Fatal(e)
+	}
+	wantEvents := 0
+	if stage == "event" || stage == "state" {
+		wantEvents = 1
+	}
+	if len(events) != wantEvents {
+		t.Fatalf("events %d want %d", len(events), wantEvents)
+	}
+}
+
 func TestHostLockExclusionAndSIGKILLRecovery(t *testing.T) {
 	dir := stateDir(t)
 	cmd := startHelper(t, dir, "", "lock")
