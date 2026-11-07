@@ -32,7 +32,7 @@ type deploymentEngineSession struct {
 	changes     chan struct{}
 }
 
-func startDeploymentEngineSession(t *testing.T, f *deploymentEngineFixture, entry tuiEntry, key string, client OperationClient) *deploymentEngineSession {
+func startDeploymentEngineSession(t *testing.T, f *deploymentEngineFixture, entry tuiEntry, client OperationClient) *deploymentEngineSession {
 	t.Helper()
 	input, keys := pipe(t)
 	s := &deploymentEngineSession{input: &applyInput{File: input}, keys: keys, output: &applyOutput{}, final: make(chan tuiModel, 1), changes: make(chan struct{}, 1)}
@@ -42,7 +42,7 @@ func startDeploymentEngineSession(t *testing.T, f *deploymentEngineFixture, entr
 	deps.Context, deps.Stdin, deps.Stdout, deps.Stderr = ctx, input, deploymentEngineOutput{s}, &s.diagnostics
 	deps.OperationClient = client
 	withTestTerminal(t, &deps)
-	deps.RunTUI = s.run(key)
+	deps.RunTUI = s.run()
 	args := []string{"tui", "--target", f.flags.target, "--config-dir", f.flags.configDir}
 	if entry.Spec != "" {
 		args = append(args, "--spec", entry.Spec)
@@ -61,12 +61,9 @@ func startDeploymentEngineSession(t *testing.T, f *deploymentEngineFixture, entr
 	return s
 }
 
-func (s *deploymentEngineSession) run(key string) func(context.Context, tea.Model, io.Reader, io.Writer) (tea.Model, error) {
+func (s *deploymentEngineSession) run() func(context.Context, tea.Model, io.Reader, io.Writer) (tea.Model, error) {
 	return func(ctx context.Context, model tea.Model, _ io.Reader, _ io.Writer) (tea.Model, error) {
 		m := model.(tuiModel)
-		if key != "" {
-			m.newKey = deploymentEngineKey(key)
-		}
 		m.after = deploymentEnginePoll
 		final, err := RunTUI(ctx, m, s.input, deploymentEngineOutput{s})
 		s.final <- final.(tuiModel)
@@ -80,11 +77,16 @@ func deploymentEnginePoll(_ time.Duration, msg tea.Msg) tea.Cmd {
 
 func (s *deploymentEngineSession) approve(t *testing.T) {
 	t.Helper()
+	s.confirm(t)
+	s.wait(t, "queued")
+}
+
+func (s *deploymentEngineSession) confirm(t *testing.T) {
+	t.Helper()
 	s.wait(t, "a apply")
 	writeKeys(t, s.keys, "a")
 	s.wait(t, "y apply")
 	writeKeys(t, s.keys, "y")
-	s.wait(t, "queued")
 }
 
 func (s *deploymentEngineSession) end(t *testing.T, ending string) tuiModel {
@@ -124,7 +126,7 @@ func testDeploymentEngineDetach(t *testing.T, failed bool, ending string) {
 	t.Helper()
 	f := newDeploymentEngineFixture(t, failed, true)
 	read := &deploymentEngineReadBlock{fixture: f, started: make(chan uint64, 1), done: make(chan struct{})}
-	s := startDeploymentEngineSession(t, f, tuiEntry{Spec: f.path}, "a3-detach", read)
+	s := startDeploymentEngineSession(t, f, tuiEntry{Spec: f.path}, read)
 	s.output.short = ending == "short write"
 	s.approve(t)
 	id := f.operationID()
@@ -155,7 +157,7 @@ func testDeploymentEngineDetach(t *testing.T, failed bool, ending string) {
 	if snapshot.Operation.ID != id {
 		t.Fatal("runner changed operation")
 	}
-	resume := startDeploymentEngineSession(t, f, tuiEntry{Operation: id}, "", f)
+	resume := startDeploymentEngineSession(t, f, tuiEntry{Operation: id}, f)
 	resume.wait(t, "settled")
 	observed := resume.end(t, "quit")
 	assertDeploymentEngineObservation(t, observed, snapshot)
@@ -224,7 +226,7 @@ func testDeploymentEngineCombinedInterruption(t *testing.T) {
 	close(f.pullGate)
 	f.finish()
 	status := f.assertOutcome()
-	resume := startDeploymentEngineSession(t, f, tuiEntry{Operation: id}, "", f)
+	resume := startDeploymentEngineSession(t, f, tuiEntry{Operation: id}, f)
 	resume.wait(t, "settled")
 	final := resume.diagnoseExit(t, f)
 	assertDeploymentEngineObservation(t, final, status)
@@ -235,10 +237,6 @@ func deploymentEngineEndings(t *testing.T, failed bool) {
 	for _, ending := range []string{"quit", "eof", "read error", "write error", "short write", "cancel"} {
 		t.Run(ending, func(t *testing.T) { testDeploymentEngineDetach(t, failed, ending) })
 	}
-}
-
-func deploymentEngineKey(key string) func() (string, error) {
-	return func() (string, error) { return key, nil }
 }
 
 type deploymentEngineReadBlock struct {
@@ -270,15 +268,16 @@ func (h *deploymentEngineReadBlock) Call(ctx context.Context, selected transport
 	return response, err
 }
 
-func deploymentEngineReceive(t *testing.T, values <-chan uint64) uint64 {
+func deploymentEngineReceive[T any](t *testing.T, values <-chan T) T {
 	t.Helper()
 	select {
 	case value := <-values:
 		return value
 	case <-time.After(5 * time.Second):
-		t.Fatal("client read did not start")
+		t.Fatal("request was not observed")
 	}
-	return 0
+	var zero T
+	return zero
 }
 
 type deploymentEngineOutput struct{ session *deploymentEngineSession }

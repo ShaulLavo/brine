@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,26 +40,34 @@ func testDeploymentEngineParity(t *testing.T, failed bool, first string) {
 	f := newDeploymentEngineFixture(t, failed, false)
 	envelope, err := f.machine("plan", f.path)
 	planned := deploymentEngineData[dispatch.Planned](t, envelope, err)
-	s := startDeploymentEngineSession(t, f, tuiEntry{Spec: f.path}, "a3-parity", f)
+	gate := &deploymentEngineApplyGate{fixture: f, request: make(chan dispatch.ApplyArgs, 1), release: make(chan struct{})}
+	s := startDeploymentEngineSession(t, f, tuiEntry{Spec: f.path}, gate)
 	s.wait(t, "a apply")
 	if f.requestCount("plan") != 2 || f.requestCount("apply") != 0 {
 		t.Fatal("both real reviews must be ready before acceptance")
 	}
 	f.assertReleaseIntent(planned)
+	s.confirm(t)
+	request := deploymentEngineReceive(t, gate.request)
+	if request.PlanID != planned.PlanID {
+		t.Fatal("TUI applied a different reviewed plan")
+	}
 	var accepted jobs.Accepted
 	if first == "json" {
-		envelope, err = f.machine("apply", planned.PlanID, "--idempotency-key", "a3-parity")
+		envelope, err = f.machine("apply", planned.PlanID, "--idempotency-key", request.IdempotencyKey)
 		accepted = deploymentEngineData[jobs.Accepted](t, envelope, err)
 	}
-	s.approve(t)
+	close(gate.release)
+	s.wait(t, "queued")
 	if first == "tui" {
-		envelope, err = f.machine("apply", planned.PlanID, "--idempotency-key", "a3-parity")
+		envelope, err = f.machine("apply", planned.PlanID, "--idempotency-key", request.IdempotencyKey)
 		accepted = deploymentEngineData[jobs.Accepted](t, envelope, err)
 	}
 	if accepted.OperationID != f.operationID() {
 		t.Fatal("same plan/key returned a different real operation")
 	}
 	f.assertMutations(2, 2)
+	f.assertGeneratedApplyKeys()
 	queued, err := f.state.GetOperation(f.ctx, accepted.OperationID)
 	if err != nil || queued.State != ops.Queued || len(f.effects) != 0 {
 		t.Fatal("executor gate opened before frozen reviews/recovered acceptance", queued, err)
@@ -281,7 +290,7 @@ func TestTUIDeploymentCursorDisconnect(t *testing.T) {
 		t.Fatal("cursor case requires a real nonzero queued journal", initial)
 	}
 	fault := &deploymentEngineCursorFault{fixture: f, fail: true}
-	s := startDeploymentEngineSession(t, f, tuiEntry{Operation: accepted.OperationID}, "", fault)
+	s := startDeploymentEngineSession(t, f, tuiEntry{Operation: accepted.OperationID}, fault)
 	s.wait(t, "Observation paused after 3 failed reads")
 	fault.assertPaused(t, initial.NextCursor)
 	close(f.gate)
@@ -365,4 +374,55 @@ func deploymentEnginePublicEqual(a, b any) bool {
 func mustDeploymentEngineJSON(value any) []byte {
 	raw, _ := json.Marshal(value)
 	return raw
+}
+
+func (f *deploymentEngineFixture) assertGeneratedApplyKeys() {
+	f.t.Helper()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	key := ""
+	for _, request := range f.requests {
+		if request.Op != "apply" {
+			continue
+		}
+		var args dispatch.ApplyArgs
+		if err := json.Unmarshal(request.Args, &args); err != nil {
+			f.t.Fatal(err)
+		}
+		raw, err := hex.DecodeString(args.IdempotencyKey)
+		if err != nil || len(raw) != 16 {
+			f.t.Fatal("apply did not retain the production-generated key shape")
+		}
+		if key != "" && key != args.IdempotencyKey {
+			f.t.Fatal("presentations did not share the captured generated key")
+		}
+		key = args.IdempotencyKey
+	}
+}
+
+type deploymentEngineApplyGate struct {
+	fixture *deploymentEngineFixture
+	request chan dispatch.ApplyArgs
+	release chan struct{}
+}
+
+func (g *deploymentEngineApplyGate) Call(ctx context.Context, selected transport.Target, request dispatch.Request) (result.Envelope, error) {
+	if request.Op != "apply" {
+		return g.fixture.Call(ctx, selected, request)
+	}
+	var args dispatch.ApplyArgs
+	if err := json.Unmarshal(request.Args, &args); err != nil {
+		return result.Envelope{}, err
+	}
+	select {
+	case g.request <- args:
+	case <-ctx.Done():
+		return result.Envelope{}, ctx.Err()
+	}
+	select {
+	case <-g.release:
+	case <-ctx.Done():
+		return result.Envelope{}, ctx.Err()
+	}
+	return g.fixture.Call(ctx, selected, request)
 }
