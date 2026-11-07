@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -20,6 +21,19 @@ import (
 
 func gateDirectory(t *testing.T) *admission.Directory {
 	t.Helper()
+	original := os.Geteuid()
+	if err := syscall.Seteuid(0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := syscall.Seteuid(original); err != nil {
+			t.Error(err)
+		}
+	})
+	// The administrative tests create root-owned stores below the synthetic
+	// root-owned temp ancestor, not below a bound user-owned /work ancestor.
+	t.Setenv("TMPDIR", "/tmp")
+	t.Setenv("GOTMPDIR", "/tmp")
 	directory, err := admission.OpenDirectory(admissionRoot)
 	if err != nil {
 		t.Fatal(err)
@@ -64,8 +78,17 @@ func gateStateDir(t *testing.T) string {
 
 func TestAdmissionClosedRefusesEveryStoreMode(t *testing.T) {
 	directory := gateDirectory(t)
-	gateDrain(t, directory)
+	drain := gateDrain(t, directory)
 	dir := gateStateDir(t)
+	assertClosedGateModes(t, dir)
+	if err := drain.Close(); err != nil {
+		t.Fatal(err)
+	}
+	assertClosedGateModes(t, dir)
+}
+
+func assertClosedGateModes(t *testing.T, dir string) {
+	t.Helper()
 	for _, mode := range []stateMode{stateMutating, stateReadOnly, stateSnapshot, statePreview} {
 		state, err := openState(t.Context(), dir, mode, nil)
 		if state != nil || !errors.Is(err, admission.ErrClosed) {
@@ -135,9 +158,9 @@ func TestAdmissionStoreLifetimeBlocksDrainThroughCancellation(t *testing.T) {
 	defer func() { _ = state.Close() }()
 	cancel()
 	assertGateLock(t, "lock", true)
-	bounded, stop := context.WithTimeout(t.Context(), 40*time.Millisecond)
-	defer stop()
-	drain, err := directory.CloseAdmission(bounded, gatePending())
+	err = cancelHeldGateOperation(t, directory, "lock", func(ctx context.Context) error { _, err := directory.CloseAdmission(ctx, gatePending()); return err })
+	var drain *admission.Drain
+
 	if drain != nil || !errors.Is(err, admission.ErrDrainTimeout) {
 		t.Fatal(drain, err)
 	}
@@ -172,13 +195,14 @@ func assertEmptyGateState(t *testing.T, dir string) {
 func TestAdmissionInventoryEmptyAndClosed(t *testing.T) {
 	directory := gateDirectory(t)
 	dir := gateStateDir(t)
-	value, err := readControlInventory(t.Context(), dir)
+	collector := inventoryCollector(make([]byte, 32), dir)
+	value, err := collector.StateInventory(t.Context())
 	if err != nil || value.Generation != 0 || value.Apps == nil || len(value.Apps) != 0 {
 		t.Fatal(value, err)
 	}
 	assertEmptyGateState(t, dir)
 	gateDrain(t, directory)
-	if _, err := readControlInventory(t.Context(), dir); !errors.Is(err, admission.ErrClosed) {
+	if _, err := collector.StateInventory(t.Context()); !errors.Is(err, admission.ErrClosed) {
 		t.Fatal(err)
 	}
 	assertEmptyGateState(t, dir)
@@ -245,7 +269,7 @@ func TestAdmissionExemptPausedBeforeOpenBlocksRevokeAndAbort(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = lease.Close() }()
-	assertStageDrainBlocked(t, drain)
+	assertStageDrainBlocked(t, directory, drain)
 	if denied, err := acquireStateLease(t.Context(), &selector); denied != nil || !errors.Is(err, admission.ErrClosed) {
 		t.Fatal(denied, err)
 	}
@@ -256,7 +280,7 @@ func TestAdmissionExemptPausedBeforeOpenBlocksRevokeAndAbort(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = state.Close() }()
-	assertStageDrainBlocked(t, drain)
+	assertStageDrainBlocked(t, directory, drain)
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -279,18 +303,76 @@ func TestAdmissionExemptPausedBeforeOpenBlocksRevokeAndAbort(t *testing.T) {
 	}
 }
 
-func assertStageDrainBlocked(t *testing.T, drain *admission.Drain) {
+func assertStageDrainBlocked(t *testing.T, directory *admission.Directory, drain *admission.Drain) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(t.Context(), 40*time.Millisecond)
-	defer cancel()
-	if err := drain.RevokeAndDrain(ctx); !errors.Is(err, admission.ErrDrainTimeout) {
+	before, err := directory.Read(t.Context())
+	if err != nil {
 		t.Fatal(err)
 	}
-	ctx2, cancel2 := context.WithTimeout(t.Context(), 40*time.Millisecond)
-	defer cancel2()
-	if err := drain.SetStage(ctx2, admission.Terminal); !errors.Is(err, admission.ErrDrainTimeout) {
+	err = cancelHeldGateOperation(t, directory, "stage.lock", drain.RevokeAndDrain)
+	if !errors.Is(err, admission.ErrDrainTimeout) {
+		t.Fatal(err)
+	}
+	err = cancelHeldGateOperation(t, directory, "stage.lock", func(ctx context.Context) error { return drain.SetStage(ctx, admission.Terminal) })
+	if !errors.Is(err, admission.ErrDrainTimeout) {
 		t.Fatal("abort passed undrained stage", err)
 	}
+	after, err := directory.Read(t.Context())
+	if err != nil || after.Open || after.Pending.Stage != before.Pending.Stage || after.Pending.ExemptOpen {
+		t.Fatal("stage changed before admitted child closed", after, err)
+	}
+}
+
+func cancelHeldGateOperation(t *testing.T, directory *admission.Directory, name string, operation func(context.Context) error) error {
+	t.Helper()
+	assertGateLock(t, name, true)
+	before, err := os.Stat(filepath.Join(admissionRoot, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	finished := make(chan struct{})
+	result := make(chan error, 1)
+	go func() { defer close(finished); result <- operation(ctx) }()
+	defer func() { cancel(); <-finished }()
+	waitGatePublication(t, directory, before, name)
+	assertGateLock(t, name, true)
+	cancel()
+	return <-result
+}
+
+func waitGatePublication(t *testing.T, directory *admission.Directory, before os.FileInfo, name string) {
+	t.Helper()
+	outer, cancel := context.WithTimeout(t.Context(), 30*time.Second)
+	defer cancel()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if gatePublicationObserved(t, directory, before, name) {
+			return
+		}
+		select {
+		case <-outer.Done():
+			t.Fatal("hung admission fixture publication", outer.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func gatePublicationObserved(t *testing.T, directory *admission.Directory, before os.FileInfo, name string) bool {
+	t.Helper()
+	current, err := os.Stat(filepath.Join(admissionRoot, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if os.SameFile(before, current) {
+		return false
+	}
+	state, err := directory.Read(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return !state.Open && (name != "stage.lock" || !state.Pending.ExemptOpen)
 }
 
 func TestAdmissionLostStageReplyStillDrainsStore(t *testing.T) {
@@ -313,7 +395,7 @@ func TestAdmissionLostStageReplyStillDrainsStore(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = resumed.Close() }()
-	assertStageDrainBlocked(t, resumed)
+	assertStageDrainBlocked(t, directory, resumed)
 	if err := state.Close(); err != nil {
 		t.Fatal(err)
 	}

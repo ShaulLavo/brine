@@ -131,3 +131,25 @@ func TestEmptyStateDirectoryOnlyReportsAffirmativeAbsence(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestEmptyStateDirectoryDoesNotRepairExistingDatabaseDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "control.db"), []byte("damaged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0750); err != nil {
+		t.Fatal(err)
+	} // #nosec G302 -- Deliberately unsafe existing-store fixture must remain unchanged.
+	empty, err := EmptyStateDirectory(t.Context(), dir)
+	if err != nil || empty {
+		t.Fatal(empty, err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil || info.Mode().Perm() != 0750 {
+		t.Fatal("read helper repaired existing directory", info, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "control.db" {
+		t.Fatal(entries, err)
+	}
+}
