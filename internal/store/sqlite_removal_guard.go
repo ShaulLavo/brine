@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"sync"
 	"sync/atomic"
 
 	"github.com/ShaulLavo/brine/internal/archive"
@@ -30,6 +32,7 @@ type sqliteRemovalAuthority struct {
 // SQLiteRemovalGuard retains one host lock and exact per-database capabilities.
 // Its concrete identity, not a successful interface callback, admits effects.
 type SQLiteRemovalGuard struct {
+	commitMu  sync.Mutex
 	store     *Store
 	host      Lock
 	children  []*sqliteRemovalChild
@@ -122,6 +125,11 @@ func (g *SQLiteRemovalGuard) AttachSource(ctx context.Context, database data.Dat
 	if err != nil || baseline.Validate() != nil || !hold.live(g.store, database) {
 		return errors.Join(ErrConflict, err)
 	}
+	g.commitMu.Lock()
+	defer g.commitMu.Unlock()
+	if !hold.live(g.store, database) {
+		return ErrConflict
+	}
 	for _, entry := range g.children {
 		if entry.guard == child && entry.source.CompareAndSwap(nil, &sqliteRemovalSource{source: source, hold: hold, baseline: baseline}) {
 			return nil
@@ -138,6 +146,9 @@ func (g *SQLiteRemovalGuard) Recheck(ctx context.Context) error {
 		if err := g.recheckChild(ctx, child, nil); err != nil {
 			return err
 		}
+	}
+	if !g.sourcesLive() {
+		return ErrConflict
 	}
 	return nil
 }
@@ -167,7 +178,7 @@ func (g *SQLiteRemovalGuard) recheckPrepared(ctx context.Context, database data.
 }
 
 func (g *SQLiteRemovalGuard) Close() error {
-	if g == nil || g.released.Swap(true) {
+	if g == nil || g.markClosed() {
 		return nil
 	}
 	var err error
@@ -220,4 +231,19 @@ func (g *SQLiteRemovalGuard) sourcesLive() bool {
 		}
 	}
 	return true
+}
+
+func (g *SQLiteRemovalGuard) markClosed() bool {
+	g.commitMu.Lock()
+	defer g.commitMu.Unlock()
+	return g.released.Swap(true)
+}
+
+func (g *SQLiteRemovalGuard) commit(tx *sql.Tx) error {
+	g.commitMu.Lock()
+	defer g.commitMu.Unlock()
+	if !g.sourcesLive() {
+		return ErrConflict
+	}
+	return tx.Commit()
 }

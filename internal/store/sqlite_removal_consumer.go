@@ -22,7 +22,7 @@ func (prep sqlitePreparation) validateArchiveConsumer(ctx context.Context, q dat
 		return errors.Join(&IntegrityError{}, err)
 	}
 	op, in, err := readSQLiteRetireOperation(ctx, q, c.OperationID)
-	if err != nil || op.Kind != ops.SQLiteRetire || op.State != ops.Preflight && op.State != ops.RecoveryRequired && op.State != ops.Succeeded || claim.TaskOperationID != op.ID {
+	if err != nil || op.Kind != ops.SQLiteRetire || op.State != ops.Preflight && op.State != ops.RecoveryRequired && op.State != ops.Succeeded || claim.TaskOperationID != op.ID || c.InputSHA256 != op.SecretRef {
 		return errors.Join(&IntegrityError{}, err)
 	}
 	p, err := loadArchivePlan(ctx, q, in.PlanID)

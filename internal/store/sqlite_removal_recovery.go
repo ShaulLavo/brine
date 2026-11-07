@@ -81,7 +81,7 @@ func (s *Store) RecordSQLiteRemovalRecovery(ctx context.Context, task string, o 
 	if err = recheckRemovalOriginals(ctx, tx, p, guard); err != nil {
 		return err
 	}
-	return tx.Commit()
+	return guard.commit(tx)
 }
 
 func currentRemovalRecoveryAuthority(ctx context.Context, q dataQuerier, p archive.Plan, g *SQLiteRemovalGuard, now time.Time) ([]data.RetentionEvidence, error) {

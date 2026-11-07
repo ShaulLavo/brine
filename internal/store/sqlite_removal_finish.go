@@ -82,10 +82,7 @@ func (s *Store) FinishRemoval(ctx context.Context, task string, o archive.Operat
 			return old, receipt, err
 		}
 	}
-	if !guard.live(s) {
-		return old, receipt, ErrConflict
-	}
-	return next, receipt, tx.Commit()
+	return next, receipt, guard.commit(tx)
 }
 
 func admitRemovalCompletion(ctx context.Context, tx *sql.Tx, p archive.Plan, o archive.Operation, id string, stage archive.DispositionStage) (ops.Operation, ops.Operation, error) {

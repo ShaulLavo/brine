@@ -337,11 +337,10 @@ func (s *sqliteSource) Close() error {
 		return nil
 	}
 	s.closed = true
-	err := s.closeHandles()
 	if s.hold != nil {
-		err = errors.Join(err, s.hold.Release())
+		return s.hold.ReleaseSource(s.closeHandles)
 	}
-	return err
+	return s.closeHandles()
 }
 
 func (s *sqliteSource) closeHandles() error {

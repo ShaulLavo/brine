@@ -96,7 +96,7 @@ func (s *Store) ClaimRemoval(ctx context.Context, p archive.Plan, task string, h
 	if _, err = tx.ExecContext(ctx, "INSERT INTO data_archive_events VALUES(?,?,?,?,NULL)", o.ID, o.Sequence, o.Stage, now.Format(time.RFC3339Nano)); err != nil {
 		return archive.Operation{}, err
 	}
-	return o, tx.Commit()
+	return o, guard.commit(tx)
 }
 
 func admitRemovalTask(ctx context.Context, tx *sql.Tx, p archive.Plan, task string, guard *SQLiteRemovalGuard, now time.Time) (ops.Operation, error) {

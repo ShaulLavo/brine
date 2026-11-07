@@ -57,7 +57,14 @@ func (s *Store) AcquireSQLiteMutationGuard(ctx context.Context, database data.Da
 }
 
 func (g *SQLiteMutationGuard) Release() error {
-	if g == nil || g.released.Swap(true) {
+	if g == nil {
+		return nil
+	}
+	if g.removal != nil {
+		g.removal.commitMu.Lock()
+		defer g.removal.commitMu.Unlock()
+	}
+	if g.released.Swap(true) {
 		return nil
 	}
 	if g.removal != nil {
@@ -73,6 +80,10 @@ func (g *SQLiteMutationGuard) live(s *Store, database data.DatabaseID) bool {
 // HoldSource acquires the replica lifetime lock without waiting. A running
 // replica supervisor or any foreign holder refuses rather than blocks.
 func (g *SQLiteMutationGuard) HoldSource(ctx context.Context) (*SQLiteSourceHold, error) {
+	if g != nil && g.removal != nil {
+		g.removal.commitMu.Lock()
+		defer g.removal.commitMu.Unlock()
+	}
 	if g == nil || !g.live(g.store, g.database) {
 		return nil, ErrConflict
 	}
@@ -89,10 +100,30 @@ func (g *SQLiteMutationGuard) HoldSource(ctx context.Context) (*SQLiteSourceHold
 }
 
 func (h *SQLiteSourceHold) Release() error {
-	if h == nil || h.released.Swap(true) {
+	return h.ReleaseSource(nil)
+}
+
+// ReleaseSource closes the source's owned handles before releasing its lifetime
+// lock. Removal commits exclude both actions; cleanup must not reenter the hold.
+func (h *SQLiteSourceHold) ReleaseSource(cleanup func() error) error {
+	if h == nil {
+		if cleanup != nil {
+			return cleanup()
+		}
 		return nil
 	}
-	return h.lifetime.Release()
+	if h.guard.removal != nil {
+		h.guard.removal.commitMu.Lock()
+		defer h.guard.removal.commitMu.Unlock()
+	}
+	var err error
+	if cleanup != nil {
+		err = cleanup()
+	}
+	if h.released.Swap(true) {
+		return err
+	}
+	return errors.Join(err, h.lifetime.Release())
 }
 
 func (h *SQLiteSourceHold) live(s *Store, database data.DatabaseID) bool {
