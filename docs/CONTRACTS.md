@@ -1775,7 +1775,7 @@ withdraw UDP or cancel provider work.
 `apply` first looks up the immutable removal plan. A valid lookup submits a
 `sqlite_retire` task with a content-addressed protected input, not a deploy
 operation. Any lookup corruption refuses without fallback. Host-local archive
-plans are not routable here. Submit and claim both refuse an expired plan.
+plans are not routable here. New submissions and claims refuse an expired plan.
 Expiry is the earlier of 15 minutes after planning and every selected point's
 expiry. Explicit `sqlite_archive_removal` bounds constrain original backup age,
 verification age and recovery time. They do not grant removal permission.
@@ -1812,6 +1812,11 @@ rename, abandonment refuses. Safe abandonment retains and rechecks the original
 source holds at commit and does not require remote credentials. A resolver
 completes only itself; the original `recovery_required` history stays immutable.
 Lost completion replies return the protected stored receipt without replay.
+An exact requester/key/input retry returns its existing acceptance before fresh
+action or expiry checks, including after resolver completion. Changed input under
+the same key conflicts. A definite launcher failure stays readable as failed
+without a handler receipt, validated against its exact launch journal and the
+absence of task-owned archive effects. Missing terminal outcomes otherwise refuse.
 
 The terminal receipt format is `brine-sqlite-archive-receipt-v1`. It binds the
 executing `operation_id`, `attempt_operation_id`, `plan_id`, `archive_id`, manifest

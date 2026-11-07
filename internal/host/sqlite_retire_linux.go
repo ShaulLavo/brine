@@ -87,10 +87,14 @@ func (o sqliteRetireOperations) Apply(ctx context.Context, id, key string) (jobs
 	if p.Requester != o.jobs.Requester {
 		return jobs.Accepted{}, result.New(result.PolicyRefused, nil)
 	}
+	in := store.SQLiteRetireInput{Kind: ops.SQLiteRetire, App: p.Candidate.App, PlanID: p.ID}
+	if accepted, found, err := o.replay(ctx, in, key); err != nil || found {
+		return accepted, err
+	}
 	if !time.Now().UTC().Before(p.Removal.ExpiresAt) {
 		return jobs.Accepted{}, result.New(result.PlanStale, nil)
 	}
-	return o.submit(ctx, store.SQLiteRetireInput{Kind: ops.SQLiteRetire, App: p.Candidate.App, PlanID: p.ID}, key)
+	return o.submit(ctx, in, key)
 }
 func (o sqliteRetireOperations) Operation(ctx context.Context, id string, cursor uint64) (jobs.Status, error) {
 	return o.jobs.Operation(ctx, id, cursor)
@@ -124,10 +128,14 @@ func (o sqliteRetireOperations) ResolveSQLiteArchive(ctx context.Context, a disp
 	if err != nil || !found {
 		return jobs.Accepted{}, result.New(result.PolicyRefused, err)
 	}
+	resolver := store.SQLiteRetireInput{Kind: ops.SQLiteRetireResolve, App: original.App, PlanID: in.PlanID, OriginalOperationID: original.ID, Disposition: a.Disposition}
+	if accepted, found, err := o.replay(ctx, resolver, a.IdempotencyKey); err != nil || found {
+		return accepted, err
+	}
 	if err = checkSQLiteRemovalResolution(ctx, o.workflow, p, a.Disposition); err != nil {
 		return jobs.Accepted{}, err
 	}
-	return o.submit(ctx, store.SQLiteRetireInput{Kind: ops.SQLiteRetireResolve, App: original.App, PlanID: in.PlanID, OriginalOperationID: original.ID, Disposition: a.Disposition}, a.IdempotencyKey)
+	return o.submit(ctx, resolver, a.IdempotencyKey)
 }
 
 func (o sqliteRetireOperations) task(ctx context.Context, op ops.Operation) (json.RawMessage, error) {

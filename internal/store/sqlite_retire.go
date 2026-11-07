@@ -248,8 +248,11 @@ func (s *Store) ReadSQLiteRetireOutcome(ctx context.Context, id string) (*ops.Ta
 func readSQLiteRetireOutcome(ctx context.Context, tx *sql.Tx, op ops.Operation, in SQLiteRetireInput) (*ops.TaskOutcome, error) {
 	var raw []byte
 	err := tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", op.ID).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) && !op.State.IsTerminal() {
-		return nil, nil
+	if errors.Is(err, sql.ErrNoRows) {
+		if !op.State.IsTerminal() {
+			return nil, nil
+		}
+		return nil, checkSQLiteRetireLaunchFailure(ctx, tx, op)
 	}
 	if err != nil {
 		return nil, err
