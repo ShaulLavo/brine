@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 )
@@ -87,38 +86,6 @@ func readOnlyDirectory(dir string) error {
 	return nil
 }
 
-func previewRead(ctx context.Context, path string) (_ []byte, err error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	if err := readOnlyOwner(path); err != nil {
-		return nil, err
-	}
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0 || info.Size() > maxPreviewBytes {
-		return nil, ErrPreviewUnavailable
-	}
-	f, err := os.Open(path) // #nosec G304 -- Owned private regular runner file, checked above and against the opened inode below.
-	if err != nil {
-		return nil, err
-	}
-	defer func() { err = errors.Join(err, f.Close()) }()
-	opened, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	if !os.SameFile(info, opened) {
-		return nil, ErrPreviewUnavailable
-	}
-	data, err := io.ReadAll(io.LimitReader(f, maxPreviewBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxPreviewBytes {
-		return nil, ErrPreviewUnavailable
-	}
-	return data, ctx.Err()
+func previewRead(ctx context.Context, path string) ([]byte, error) {
+	return previewReadOwned(ctx, path, os.Geteuid())
 }
