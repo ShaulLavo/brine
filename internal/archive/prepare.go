@@ -35,6 +35,7 @@ type Service struct {
 	Journal   Journal
 	Host      Host
 	Requester string
+	Operation string
 	Authorize func(context.Context) error
 	Lock      func(context.Context) (func() error, error)
 	Now       func() time.Time
@@ -64,7 +65,10 @@ func (s Service) Plan(ctx context.Context, app string) (p Plan, err error) {
 	}
 	defer func() { err = errors.Join(err, release()) }()
 	p, err = s.Host.Facts(ctx, app)
-	if err != nil || !preparationCoverageSupported(p.Candidate) {
+	if err != nil {
+		return Plan{}, err
+	}
+	if !preparationCoverageSupported(p.Candidate) {
 		return Plan{}, ErrRefused
 	}
 	id, err := data.NewID()
@@ -74,6 +78,9 @@ func (s Service) Plan(ctx context.Context, app string) (p Plan, err error) {
 	p.ArchiveID = data.ArchiveID(id)
 	p.Requester = s.Requester
 	p.CreatedAt = s.now()
+	if p.Removal != nil {
+		p.Removal.ExpiresAt = removalExpiry(p.CreatedAt, p.Removal.Points)
+	}
 	roots := map[data.PersistentRoot]bool{}
 	p.Trees = nil
 	for _, database := range p.Candidate.Databases {
@@ -104,6 +111,9 @@ func (s Service) Plan(ctx context.Context, app string) (p Plan, err error) {
 }
 
 func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest, err error) {
+	if p, removal, _ := s.removalPlan(ctx, id); removal {
+		return s.prepareRemoval(ctx, p, app)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Minute)
 	defer cancel()
 	if !appName.MatchString(app) || !digest.MatchString(id) {
@@ -138,12 +148,8 @@ func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest
 			return manifest, ErrRefused
 		}
 	}
-	for _, database := range p.Candidate.Databases {
-		for i, epoch := range database.ArchiveBindings() {
-			if !database.Retention()[i].Admits(epoch.Destination, s.now()) {
-				return manifest, ErrRefused
-			}
-		}
+	if !preparationRetentionAdmits(p, s.now()) {
+		return manifest, ErrRefused
 	}
 	op, err := s.Journal.ClaimArchive(ctx, p)
 	if err != nil {
@@ -216,6 +222,24 @@ func (s Service) Prepare(ctx context.Context, app, id string) (manifest Manifest
 func preparationCoverageSupported(candidate Candidate) bool {
 	for _, database := range candidate.Databases {
 		if database.Engine() == data.EngineSQLite && database.Written() && len(database.ArchiveBindings()) != 1 {
+			return false
+		}
+	}
+	return true
+}
+
+func preparationRetentionAdmits(p Plan, now time.Time) bool {
+	for _, database := range p.Candidate.Databases {
+		if !databaseRetentionAdmits(database, now) {
+			return false
+		}
+	}
+	return true
+}
+
+func databaseRetentionAdmits(database Database, now time.Time) bool {
+	for i, epoch := range database.ArchiveBindings() {
+		if !database.Retention()[i].Admits(epoch.Destination, now) {
 			return false
 		}
 	}

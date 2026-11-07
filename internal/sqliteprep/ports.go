@@ -93,7 +93,7 @@ type Journal interface {
 // exact scope and immutable fence owner, and rechecks policy before effects.
 // No start, restart, exec, credential activation or remote deletion port exists.
 type Host interface {
-	Acquire(context.Context, Scope, data.QuiescenceFence) (HostGuard, error)
+	Acquire(context.Context, Input, Scope, data.QuiescenceFence) (HostGuard, error)
 }
 type HostObservation interface {
 	Observe(context.Context) (Observation, error)

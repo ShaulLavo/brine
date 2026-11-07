@@ -249,7 +249,7 @@ func TestSQLiteSourceRetainedHandles(t *testing.T) {
 	if err := os.WriteFile(r.path("-wal"), []byte("inert wal bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	source, err := openSQLiteSource(r.database, nil, nil)
+	source, err := openSQLiteSource(r.database, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

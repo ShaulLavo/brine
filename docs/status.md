@@ -16,8 +16,8 @@ Brine is pre-1.0 and experimental. It has one maintainer, no release and no tag.
 | Enrollment, restricted dispatcher, operator permissions | Implemented. |
 | Detached deploy, status, logs, diagnose, reconcile, resolve | Implemented. |
 | Config and secret changes, start, stop, restart, rollback | Implemented. |
-| Stateless app removal | Implemented. Removal of an app with persistent data is refused. |
-| SQLite databases, Litestream backups, isolated restore tests, reviewed first initialization | Implemented. Backup status and fenced preparation support committed replicas. Pre-first-release preparation and physical acceptance remain open. |
+| App removal | Stateless removal and prepared SQLite archive removal are implemented. SQLite removal retains data for thirty days, starts no service, and refuses unsupported engines or missing preparation. Physical archive-removal acceptance remains open. |
+| SQLite databases, Litestream backups, isolated restore tests, reviewed first initialization | Implemented. Backup status and fenced preparation support committed replicas and qualified allocated or initialized sources before their first release. Prospective declaration-plan refresh and physical acceptance remain open. |
 | Managed SpacetimeDB commands | Implemented. Module-update, live-restore, archive and fault drills are still open. |
 | CDN attachments (Cloudflare first) | Implemented behind its own commands. Physical provider acceptance is still open. |
 | Migrations for an existing database schema | Not implemented. |

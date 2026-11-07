@@ -64,9 +64,13 @@ The plan no longer matches the server, or another operation holds the host lock.
 
 ## `brine remove` refuses an app with data
 
-**Symptom:** `persistent_archive_required`, exit 4.
+**Symptom:** `removal_preparation_required`, `udp_withdrawal_required`, `plan_stale`, or `persistent_archive_required`.
 
-Removal refuses and deletes nothing. Retiring a persistent SQLite app is not implemented yet . For a managed SpacetimeDB app, follow [Archive and retain the app](runbooks/spacetimedb.md#archive-and-retain-the-app).
+Removal deletes nothing. For written SQLite data, run `brine restore prepare APP --database NAME --target NAME` for every database, then review `brine remove APP --target NAME` and apply its plan. Unreleased sources also need the exact declaration plan and delivered credential version. If UDP is active, first apply a reviewed release without `[udp]`. An expired point needs preparation or supersession and a new removal plan.
+
+For a `recovery_required` SQLite removal, use `brine archive sqlite inspect ARCHIVE_ID --target NAME`. Before a manifest exists, continuation is unavailable; use `brine archive sqlite resolve OPERATION_ID --abandon --target NAME` only while inspection and fresh source checks allow it. Once runtime cleanup or a rename has occurred, use `--continue`. Continuation freshly verifies the original source. It never prepares or uploads again. The original operation remains recovery-required after its resolver succeeds. Generic `brine resolve` does not resolve these tasks.
+
+`archive_multi_epoch_unsupported` refuses multiple SQLite replica epochs. `removal_bounds_required` needs explicit operator policy bounds, not a caller-supplied override. Unsupported or mixed engines refuse with `persistent_archive_required`. For managed SpacetimeDB, follow [Archive and retain the app](runbooks/spacetimedb.md#archive-and-retain-the-app).
 
 ## A command asks for input or a terminal
 

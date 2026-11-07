@@ -11,9 +11,11 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/sqliteprep"
@@ -33,20 +35,22 @@ var sqliteSourceSuffixes = [...]string{"", "-wal", "-shm", "-journal"}
 // and Schema inspect only these handles: no store, host lock or control
 // database access, so the store may call them inside its write transaction.
 type sqliteSource struct {
-	mu          sync.RWMutex
-	closed      bool
-	root        *os.File
-	rootPath    string
-	dir         *os.File
-	components  []string
-	filename    string
-	database    data.DatabaseName
-	databaseID  data.DatabaseID
-	definitions []data.SQLiteSchemaDefinition
-	location    sqliteprep.Location
-	members     map[string]*os.File
-	proofs      map[string]memberProof
-	hold        *store.SQLiteSourceHold
+	empty            *sqliteprep.EmptyAllocation
+	absentAllocation *data.AllocationReceipt
+	mu               sync.RWMutex
+	closed           bool
+	root             *os.File
+	rootPath         string
+	dir              *os.File
+	components       []string
+	filename         string
+	database         data.DatabaseName
+	databaseID       data.DatabaseID
+	definitions      []data.SQLiteSchemaDefinition
+	location         sqliteprep.Location
+	members          map[string]*os.File
+	proofs           map[string]memberProof
+	hold             *store.SQLiteSourceHold
 }
 
 // memberProof caches a content digest by the full change identity. A content
@@ -56,12 +60,12 @@ type memberProof struct {
 	digest   string
 }
 
-func openSQLiteSource(b data.SQLiteDatabaseBinding, definitions []data.SQLiteSchemaDefinition, hold *store.SQLiteSourceHold) (source *sqliteSource, err error) {
+func openSQLiteSource(b data.SQLiteDatabaseBinding, definitions []data.SQLiteSchemaDefinition, empty *sqliteprep.EmptyAllocation, hold *store.SQLiteSourceHold) (source *sqliteSource, err error) {
 	relative, err := data.RelativeDirectory(b.IncarnationID, b.DatabaseID)
 	if err != nil || relative != b.RelativeDirectory || !data.ValidRoot(string(b.Root)) || b.Filename == "" || strings.ContainsAny(string(b.Filename), "/\x00") {
 		return nil, errSQLiteSource
 	}
-	s := &sqliteSource{rootPath: string(b.Root), components: strings.Split(relative, "/"), filename: string(b.Filename), database: b.Name, databaseID: b.DatabaseID, definitions: definitions, members: map[string]*os.File{}, proofs: map[string]memberProof{}, hold: hold}
+	s := &sqliteSource{empty: empty, rootPath: string(b.Root), components: strings.Split(relative, "/"), filename: string(b.Filename), database: b.Name, databaseID: b.DatabaseID, definitions: definitions, members: map[string]*os.File{}, proofs: map[string]memberProof{}, hold: hold}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, s.closeHandles())
@@ -178,6 +182,11 @@ func (s *sqliteSource) Recheck(ctx context.Context) (sqliteprep.StoppedBundle, e
 	location, err := s.observeLocation()
 	if err != nil || location != s.location {
 		return sqliteprep.StoppedBundle{}, errSQLiteSource
+	}
+	if s.empty != nil || s.absentAllocation != nil {
+		if err = s.emptyCensus(); err != nil {
+			return sqliteprep.StoppedBundle{}, err
+		}
 	}
 	var members [4]sqliteprep.Member
 	for i, suffix := range sqliteSourceSuffixes {
@@ -300,6 +309,18 @@ func (s *sqliteSource) Schema(ctx context.Context) (data.SQLiteSchemaObservation
 	if s.closed {
 		return data.SQLiteSchemaObservation{}, errSQLiteSource
 	}
+	if s.empty != nil {
+		if s.empty.Validate() != nil || s.empty.DatabaseID != s.databaseID || s.empty.Location != s.location || s.sameDirectory() != nil || s.emptyCensus() != nil || ctx.Err() != nil {
+			return data.SQLiteSchemaObservation{}, errSQLiteSource
+		}
+		return data.SQLiteSchemaObservation{State: data.AllocatedEmpty, DatabaseID: s.databaseID, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: time.Now().UTC()}, nil
+	}
+	if s.absentAllocation != nil {
+		if !s.matchesAllocation(*s.absentAllocation) || s.emptyCensus() != nil || ctx.Err() != nil {
+			return data.SQLiteSchemaObservation{}, errSQLiteSource
+		}
+		return data.SQLiteSchemaObservation{State: data.AllocatedEmpty, DatabaseID: s.databaseID, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: time.Now().UTC()}, nil
+	}
 	path := "/proc/self/fd/" + strconv.Itoa(int(s.dir.Fd())) + "/" + s.filename
 	u := url.URL{Scheme: "file", Path: path}
 	q := u.Query()
@@ -337,11 +358,10 @@ func (s *sqliteSource) Close() error {
 		return nil
 	}
 	s.closed = true
-	err := s.closeHandles()
 	if s.hold != nil {
-		err = errors.Join(err, s.hold.Release())
+		return s.hold.ReleaseSource(s.closeHandles)
 	}
-	return err
+	return s.closeHandles()
 }
 
 func (s *sqliteSource) closeHandles() error {
@@ -362,7 +382,7 @@ func (s *sqliteSource) closeHandles() error {
 // observeSQLiteLocation is the journal's pre-stop location observer. It
 // retains nothing; the store admits it against protected allocation evidence.
 func observeSQLiteLocation(_ context.Context, b data.SQLiteDatabaseBinding) (sqliteprep.Location, error) {
-	source, err := openSQLiteSource(b, nil, nil)
+	source, err := openSQLiteSource(b, nil, nil, nil)
 	if err != nil {
 		return sqliteprep.Location{}, err
 	}
@@ -374,7 +394,36 @@ func observeSQLiteLocation(_ context.Context, b data.SQLiteDatabaseBinding) (sql
 // registered definitions. Writers may still run; every later held observation
 // must name the identical schema.
 func observeSQLiteSchema(ctx context.Context, b data.SQLiteDatabaseBinding, definitions []data.SQLiteSchemaDefinition) data.SQLiteSchemaObservation {
+	if _, err := os.Lstat(filepath.Join(string(b.Root), b.RelativeDirectory, string(b.Filename))); errors.Is(err, os.ErrNotExist) {
+		candidate, censusErr := observeSQLiteEmptyCandidate(ctx, b)
+		if censusErr == nil {
+			return candidate
+		}
+	}
 	observed := data.ObserveSQLiteSchema(ctx, b, definitions)
 	observed.DatabaseID = b.DatabaseID
 	return observed
+}
+
+// emptyCensus opens an independent directory description on every observation.
+func (s *sqliteSource) emptyCensus() error {
+	if err := s.sameDirectory(); err != nil {
+		return err
+	}
+	fd, err := unix.Openat(int(s.dir.Fd()), ".", unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return errSQLiteSource
+	}
+	directory := os.NewFile(uintptr(fd), "empty-census")
+	entries, readErr := directory.ReadDir(1)
+	closeErr := directory.Close()
+	if len(entries) != 0 || !errors.Is(readErr, io.EOF) || closeErr != nil {
+		return errSQLiteSource
+	}
+	return nil
+}
+
+func (s *sqliteSource) matchesAllocation(a data.AllocationReceipt) bool {
+	root, err := statxFD(int(s.root.Fd()), "")
+	return err == nil && a.Valid() && a.DatabaseID == s.databaseID && a.RootDevice == unix.Mkdev(root.Dev_major, root.Dev_minor) && a.RootInode == root.Ino && a.DirectoryDevice == s.location.Device && a.DirectoryInode == s.location.Inode
 }

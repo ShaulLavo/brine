@@ -111,6 +111,7 @@ func (f *ServerFactory) Build(ctx context.Context, op string) (*dispatch.Server,
 	server.CDN = runtime.CDN
 	server.NativeLiveRestore = runtime.NativeLiveRestore
 	server.NativeRetire = runtime.NativeRetire
+	server.SQLiteRetire = runtime.SQLiteRetire
 	server.ArchiveMaintenance = runtime.PublicArchiveMaintenance
 	server.BackupCredentials = runtime.BackupCredentials
 	server.DataInitialization = runtime.DataInitialization

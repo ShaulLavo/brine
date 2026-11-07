@@ -35,6 +35,15 @@ func (p sqlitePreparation) event(stage sqliteprep.Stage) *sqliteprep.Event {
 }
 
 func readSQLitePreparation(ctx context.Context, q dataQuerier, id string) (sqlitePreparation, error) {
+	p, err := readSQLitePreparationCore(ctx, q, id)
+	if err != nil {
+		return p, err
+	}
+	err = p.readConsumer(ctx, q)
+	return p, err
+}
+
+func readSQLitePreparationCore(ctx context.Context, q dataQuerier, id string) (sqlitePreparation, error) {
 	var p sqlitePreparation
 	var operation, fence, mode, arm string
 	var database data.DatabaseID
@@ -55,15 +64,18 @@ func readSQLitePreparation(ctx context.Context, q dataQuerier, id string) (sqlit
 	if i.Input.PreparationID != id || i.Task.OperationID != operation || i.Scope.DatabaseID != database || i.Scope.BindingID != binding || i.Scope.EpochID != epoch || string(i.Fence.ID) != fence || string(i.Mode) != mode || string(i.Arm) != arm || i.Input.Supersedes != supersedes.String || i.CoverageOrigin != coverage.String || i.BaselineFrom != baseline.String {
 		return p, &IntegrityError{}
 	}
-	op, _, err := readSQLiteOperation(ctx, q, i.Task)
-	if err != nil {
+	op, stored, err := readSQLiteOperation(ctx, q, i.Task)
+	if err != nil || stored != i.Input {
 		return p, errors.Join(&IntegrityError{}, err)
+	}
+	if err = validateRetainedUnreleased(ctx, q, i); err != nil {
+		return p, err
 	}
 	p.state = op.State
 	if err = p.readJournal(ctx, q); err != nil {
 		return p, err
 	}
-	return p, p.readConsumer(ctx, q)
+	return p, nil
 }
 
 // readConsumer validates the single immutable consumer, when present.

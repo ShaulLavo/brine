@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -325,5 +326,33 @@ func closeUnknownReply(t *testing.T, w http.ResponseWriter) {
 	}
 	if err := conn.Close(); err != nil {
 		t.Error(err)
+	}
+}
+
+func TestEmptySnapshotBytesStagingCleanup(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "staging")
+	if err := os.Mkdir(root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := EmptySnapshotBytes(t.Context(), root, "staging-only")
+	if err != nil || len(raw) < 16 || string(raw[:16]) != "SQLite format 3\x00" {
+		t.Fatal("not real SQLite bytes", err)
+	}
+	clear(raw)
+	entries, err := os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("successful staging retained workspace", entries, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if raw, err = EmptySnapshotBytes(ctx, root, "canceled"); err == nil || raw != nil {
+		t.Fatal("canceled staging returned bytes")
+	}
+	if raw, err = EmptySnapshotBytes(t.Context(), root, "../invalid"); err == nil || raw != nil {
+		t.Fatal("invalid staging returned bytes")
+	}
+	entries, err = os.ReadDir(root)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("failed staging retained workspace", entries, err)
 	}
 }

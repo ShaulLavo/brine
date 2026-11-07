@@ -23,43 +23,49 @@ const (
 type Code string
 
 const (
-	PersistentArchiveRequired Code = "persistent_archive_required"
-	AppNotFound               Code = "app_not_found"
-	ReleaseNotFound           Code = "release_not_found"
-	NativePointNotFound       Code = "native_point_not_found"
-	RollbackNoOp              Code = "rollback_no_op"
-	LogsOwnershipRefused      Code = "logs_ownership_refused"
-	LogsTruncated             Code = "logs_truncated"
-	LogsLimitExceeded         Code = "logs_limit_exceeded"
-	LogsInvalidJournal        Code = "logs_invalid_journal"
-	LogsInventoryFailed       Code = "logs_inventory_failed"
-	LogsInventoryTimeout      Code = "logs_inventory_timeout"
-	LogsJournalFailed         Code = "logs_journal_failed"
-	LogsJournalTimeout        Code = "logs_journal_timeout"
-	LogsJournalUnavailable    Code = "logs_journal_unavailable"
-	LogsContainerFailed       Code = "logs_container_failed"
-	LogsContainerTimeout      Code = "logs_container_timeout"
-	LogsContainerUnavailable  Code = "logs_container_unavailable"
-	LogsInvalidContainer      Code = "logs_invalid_container"
-	InternalError             Code = "internal_error"
-	InvalidUsage              Code = "invalid_usage"
-	DependencyMissing         Code = "dependency_missing"
-	PolicyRefused             Code = "policy_refused"
-	PolicyRegistryDenied      Code = "policy_registry_denied"
-	Conflict                  Code = "conflict"
-	RecoveryRequired          Code = "recovery_required"
-	Interrupted               Code = "interrupted"
-	TUIInteractive            Code = "tui_interactive"
-	TUITerminalRequired       Code = "tui_terminal_required"
-	InputRequired             Code = "input_required"
-	OfflineRequired           Code = "offline_required"
-	DispatchInvalidRequest    Code = "dispatch_invalid_request"
-	DispatchUnsupportedSchema Code = "dispatch_unsupported_schema"
-	DispatchOperationRefused  Code = "dispatch_operation_refused"
-	DispatchRootRefused       Code = "dispatch_root_refused"
-	TransportInvalidTarget    Code = "transport_invalid_target"
-	TransportFailure          Code = "transport_failure"
-	TransportInvalidResponse  Code = "transport_invalid_response"
+	RemovalPreparationRequired   Code = "removal_preparation_required"
+	UDPReleaseRequired           Code = "udp_withdrawal_required"
+	ArchiveMultiEpochUnsupported Code = "archive_multi_epoch_unsupported"
+	ContinueUnavailable          Code = "continue_unavailable"
+	PlanStale                    Code = "plan_stale"
+	RemovalBoundsRequired        Code = "removal_bounds_required"
+	PersistentArchiveRequired    Code = "persistent_archive_required"
+	AppNotFound                  Code = "app_not_found"
+	ReleaseNotFound              Code = "release_not_found"
+	NativePointNotFound          Code = "native_point_not_found"
+	RollbackNoOp                 Code = "rollback_no_op"
+	LogsOwnershipRefused         Code = "logs_ownership_refused"
+	LogsTruncated                Code = "logs_truncated"
+	LogsLimitExceeded            Code = "logs_limit_exceeded"
+	LogsInvalidJournal           Code = "logs_invalid_journal"
+	LogsInventoryFailed          Code = "logs_inventory_failed"
+	LogsInventoryTimeout         Code = "logs_inventory_timeout"
+	LogsJournalFailed            Code = "logs_journal_failed"
+	LogsJournalTimeout           Code = "logs_journal_timeout"
+	LogsJournalUnavailable       Code = "logs_journal_unavailable"
+	LogsContainerFailed          Code = "logs_container_failed"
+	LogsContainerTimeout         Code = "logs_container_timeout"
+	LogsContainerUnavailable     Code = "logs_container_unavailable"
+	LogsInvalidContainer         Code = "logs_invalid_container"
+	InternalError                Code = "internal_error"
+	InvalidUsage                 Code = "invalid_usage"
+	DependencyMissing            Code = "dependency_missing"
+	PolicyRefused                Code = "policy_refused"
+	PolicyRegistryDenied         Code = "policy_registry_denied"
+	Conflict                     Code = "conflict"
+	RecoveryRequired             Code = "recovery_required"
+	Interrupted                  Code = "interrupted"
+	TUIInteractive               Code = "tui_interactive"
+	TUITerminalRequired          Code = "tui_terminal_required"
+	InputRequired                Code = "input_required"
+	OfflineRequired              Code = "offline_required"
+	DispatchInvalidRequest       Code = "dispatch_invalid_request"
+	DispatchUnsupportedSchema    Code = "dispatch_unsupported_schema"
+	DispatchOperationRefused     Code = "dispatch_operation_refused"
+	DispatchRootRefused          Code = "dispatch_root_refused"
+	TransportInvalidTarget       Code = "transport_invalid_target"
+	TransportFailure             Code = "transport_failure"
+	TransportInvalidResponse     Code = "transport_invalid_response"
 )
 
 const (
@@ -86,12 +92,18 @@ type description struct {
 }
 
 var descriptions = map[Code]description{
+	RemovalPreparationRequired:     {StateConflict, "Removal needs a current SQLite preparation for every written database. Run brine restore prepare, or inspect and resolve the existing preparation, then plan removal again.", false},
+	UDPReleaseRequired:             {StateConflict, "Apply a reviewed release without UDP before preparing or removing this app.", false},
+	ArchiveMultiEpochUnsupported:   {Policy, "SQLite removal does not support multiple replica epochs.", false},
+	ContinueUnavailable:            {Recovery, "This archive preparation cannot continue. Inspect it and use brine archive sqlite resolve with --abandon when safe.", false},
+	PlanStale:                      {StateConflict, "The removal plan expired. Prepare again if needed and review a new removal plan.", false},
+	RemovalBoundsRequired:          {Policy, "SQLite removal requires explicit sqlite_archive_removal policy bounds.", false},
 	NativeModuleSchemaRefused:      {Policy, "Managed publication cannot remove or change existing schema definitions. Use an additive module or a separate operator procedure.", false},
 	NativeSchemaMarkerConflict:     {StateConflict, "The schema marker already names a different schema. Use a distinct marker and a compatible recovery release.", false},
 	NativeMaterialRequiresStop:     {StateConflict, "Material activation requires a reviewed full stop. Plan and apply stop --engine, then review material activation again.", false},
 	NativeMaterialLeaseExpired:     {Policy, "The selected native material lease cannot cover the operation. Deliver renewed material and review its activation.", false},
 	BackupAdmissionRefreshRequired: {Policy, "Backup credential delivery refused: the operator policy changed. An explicit approved admission refresh is required before continuing.", false},
-	PersistentArchiveRequired:      {Policy, "Removal refused. Persistent data needs the P04-08 archive path; no data will be deleted.", false},
+	PersistentArchiveRequired:      {Policy, "Removal refused. Unsupported or mixed persistent engines need brine archive native plan for the native archive path. No data will be deleted.", false},
 	AppNotFound:                    {Validation, "The app has no committed Brine release.", false},
 	ReleaseNotFound:                {Validation, "The rollback release is not known for this app.", false},
 	NativePointNotFound:            {Validation, "The native point reference is not known on this target.", false},

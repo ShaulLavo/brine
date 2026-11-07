@@ -2,6 +2,7 @@ package apps
 
 import (
 	"context"
+	"errors"
 
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -24,7 +25,11 @@ func (s Service) remove(ctx context.Context, app string) (ConfigPlan, error) {
 	if err != nil {
 		return ConfigPlan{}, err
 	}
-	defer lock.Release()
+	defer func() {
+		if lock != nil {
+			_ = lock.Release()
+		}
+	}()
 	pol, err := s.LoadPolicy(ctx)
 	if err != nil {
 		return ConfigPlan{}, err
@@ -43,6 +48,13 @@ func (s Service) remove(ctx context.Context, app string) (ConfigPlan, error) {
 	}
 	d = RemovalDesired(d, pol)
 	p, err := plan.BuildRemove(plan.Input{Desired: d, Snapshot: snap, State: state, Image: image})
+	if errors.Is(err, plan.ErrPersistentData) && s.PersistentRemoval != nil {
+		if err = lock.Release(); err != nil {
+			return ConfigPlan{}, err
+		}
+		lock = nil
+		return s.PersistentRemoval(ctx, app)
+	}
 	if err != nil {
 		return ConfigPlan{}, err
 	}

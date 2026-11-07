@@ -5,11 +5,13 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/result"
 )
 
 func (s *Store) ArchiveCandidate(ctx context.Context, app string) (archive.Candidate, error) {
@@ -32,6 +34,9 @@ func readArchiveCandidate(ctx context.Context, tx *sql.Tx, app string) (archive.
 	return readArchiveCandidateOwned(ctx, tx, app, "")
 }
 func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner string) (archive.Candidate, error) {
+	return readArchiveCandidateFor(ctx, q, app, owner, false)
+}
+func readArchiveCandidateFor(ctx context.Context, q dataQuerier, app, owner string, removal bool) (archive.Candidate, error) {
 	c := archive.Candidate{App: app, Databases: []archive.Database{}}
 	if app == "" {
 		return c, ErrInvalid
@@ -82,86 +87,128 @@ func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner st
 		return c, ErrConflict
 	}
 	for _, id := range ids {
-		var kind data.EngineKind
-		if err = q.QueryRowContext(ctx, "SELECT engine FROM data_engine_kinds WHERE database_id=?", id).Scan(&kind); err != nil {
-			return c, err
-		}
-		if kind == data.EngineSpacetimeDB {
-			tx, ok := q.(*sql.Tx)
-			if !ok {
-				return c, ErrConflict
-			}
-			native, err := readNativeArchiveDatabase(ctx, tx, id, owner)
-			if err != nil || native.Binding.IncarnationID != c.Incarnation {
-				return c, errors.Join(ErrConflict, err)
-			}
-			c.Databases = append(c.Databases, archive.NativeDatabaseVariant(native))
-			continue
-		}
-
-		permit, err := readReplicaPermit(ctx, q, id)
-		if err != nil || permit.Database.IncarnationID != c.Incarnation {
-			return c, ErrConflict
-		}
-		if owner != "" && permit.FenceState != "held" {
-			return c, ErrConflict
-		}
-		for _, fence := range permit.Fences {
-			if fence.State == data.FenceHeld && (owner == "" || fence.OperationID != owner) {
-				return c, ErrConflict
-			}
-		}
-		var allocation data.AllocationReceipt
-		var raw []byte
-		if err = q.QueryRowContext(ctx, "SELECT canonical FROM data_allocations WHERE database_id=?", id).Scan(&raw); err != nil {
-			return c, err
-		}
-		if len(raw) > 4096 || json.Unmarshal(raw, &allocation) != nil || !allocation.Valid() || allocation.DatabaseID != id || allocation.IncarnationID != c.Incarnation {
-			return c, &IntegrityError{}
-		}
-		database := archive.SQLiteDatabase{Binding: permit.Database, Allocation: &allocation, Definitions: []data.SQLiteSchemaDefinition{}, Invariants: []data.RestoreInvariant{}, Epochs: []data.ReplicaBinding{}, Retention: []data.RetentionEvidence{}}
-		var written int
-		if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM data_writer_history WHERE database_id=? UNION ALL SELECT 1 FROM data_writer_starts WHERE incarnation_id=?)`, id, c.Incarnation).Scan(&written); err != nil {
-			return c, err
-		}
-		database.Written = written != 0
-		for _, definition := range definitions {
-			if definition.Database == permit.Database.Name {
-				database.Definitions = append(database.Definitions, definition)
-			}
-		}
-		for _, invariant := range invariants {
-			if invariant.Database == permit.Database.Name {
-				database.Invariants = append(database.Invariants, invariant)
-			}
-		}
-		history, err := q.QueryContext(ctx, `SELECT canonical FROM data_replica_bindings WHERE id=? UNION ALL SELECT canonical FROM data_replica_commits WHERE binding_id=? ORDER BY canonical`, permit.Replica.BindingID, permit.Replica.BindingID)
+		database, err := readArchiveCandidateDatabase(ctx, q, c.Incarnation, id, owner, removal, definitions, invariants)
 		if err != nil {
 			return c, err
 		}
-		epochs := map[data.ReplicaEpochID]data.ReplicaBinding{}
-		for history.Next() {
-			if err = history.Scan(&raw); err != nil {
-				return c, errors.Join(err, history.Close())
-			}
-			var binding data.ReplicaBinding
-			if len(raw) > 65536 || json.Unmarshal(raw, &binding) != nil || binding.BindingID != permit.Replica.BindingID || binding.DatabaseID != id {
-				return c, errors.Join(&IntegrityError{}, history.Close())
-			}
-			previous, exists := epochs[binding.EpochID]
-			if !exists || binding.CredentialVersion > previous.CredentialVersion {
-				epochs[binding.EpochID] = binding
-			}
-		}
-		if err = errors.Join(history.Err(), history.Close()); err != nil {
-			return c, err
-		}
-		epochs[permit.Replica.EpochID] = permit.Replica
-		for _, epoch := range epochs {
-			database.Epochs = append(database.Epochs, epoch)
-		}
-		slices.SortFunc(database.Epochs, func(a, b data.ReplicaBinding) int { return strings.Compare(string(a.EpochID), string(b.EpochID)) })
-		c.Databases = append(c.Databases, archive.SQLiteDatabaseVariant(database))
+		c.Databases = append(c.Databases, database)
 	}
 	return c, nil
+}
+
+func readArchiveCandidateDatabase(ctx context.Context, q dataQuerier, incarnation data.AppIncarnationID, id data.DatabaseID, owner string, removal bool, definitions []data.SQLiteSchemaDefinition, invariants []data.RestoreInvariant) (archive.Database, error) {
+
+	var kind data.EngineKind
+	if err := q.QueryRowContext(ctx, "SELECT engine FROM data_engine_kinds WHERE database_id=?", id).Scan(&kind); err != nil {
+		return archive.Database{}, err
+	}
+	if kind == data.EngineSpacetimeDB {
+		tx, ok := q.(*sql.Tx)
+		if !ok {
+			return archive.Database{}, ErrConflict
+		}
+		native, err := readNativeArchiveDatabase(ctx, tx, id, owner)
+		if err != nil || native.Binding.IncarnationID != incarnation {
+			return archive.Database{}, errors.Join(ErrConflict, err)
+		}
+		return archive.NativeDatabaseVariant(native), nil
+	}
+
+	permit, err := readReplicaPermit(ctx, q, id)
+	if err != nil || permit.Database.IncarnationID != incarnation {
+		return archive.Database{}, ErrConflict
+	}
+	if owner != "" && permit.FenceState != "held" {
+		return archive.Database{}, ErrConflict
+	}
+	for _, fence := range permit.Fences {
+		if fence.State == data.FenceHeld && (owner == "" || fence.OperationID != owner) && !sqliteArchiveFenceAllowed(ctx, q, fence, owner, removal) {
+			return archive.Database{}, archiveFenceConflict(removal)
+		}
+	}
+	var allocation data.AllocationReceipt
+	var raw []byte
+	if err = q.QueryRowContext(ctx, "SELECT canonical FROM data_allocations WHERE database_id=?", id).Scan(&raw); err != nil {
+		return archive.Database{}, err
+	}
+	if len(raw) > 4096 || json.Unmarshal(raw, &allocation) != nil || !allocation.Valid() || allocation.DatabaseID != id || allocation.IncarnationID != incarnation {
+		return archive.Database{}, &IntegrityError{}
+	}
+	database := archive.SQLiteDatabase{Binding: permit.Database, Allocation: &allocation, Definitions: []data.SQLiteSchemaDefinition{}, Invariants: []data.RestoreInvariant{}, Epochs: []data.ReplicaBinding{}, Retention: []data.RetentionEvidence{}}
+	var written int
+	if err = q.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM data_writer_history WHERE database_id=? UNION ALL SELECT 1 FROM data_writer_starts WHERE incarnation_id=?)`, id, incarnation).Scan(&written); err != nil {
+		return archive.Database{}, err
+	}
+	database.Written = written != 0
+	for _, definition := range definitions {
+		if definition.Database == permit.Database.Name {
+			database.Definitions = append(database.Definitions, definition)
+		}
+	}
+	for _, invariant := range invariants {
+		if invariant.Database == permit.Database.Name {
+			database.Invariants = append(database.Invariants, invariant)
+		}
+	}
+	history, err := q.QueryContext(ctx, `SELECT canonical FROM data_replica_bindings WHERE id=? UNION ALL SELECT canonical FROM data_replica_commits WHERE binding_id=? ORDER BY canonical`, permit.Replica.BindingID, permit.Replica.BindingID)
+	if err != nil {
+		return archive.Database{}, err
+	}
+	epochs := map[data.ReplicaEpochID]data.ReplicaBinding{}
+	for history.Next() {
+		if err = history.Scan(&raw); err != nil {
+			return archive.Database{}, errors.Join(err, history.Close())
+		}
+		var binding data.ReplicaBinding
+		if len(raw) > 65536 || json.Unmarshal(raw, &binding) != nil || binding.BindingID != permit.Replica.BindingID || binding.DatabaseID != id {
+			return archive.Database{}, errors.Join(&IntegrityError{}, history.Close())
+		}
+		previous, exists := epochs[binding.EpochID]
+		if !exists || binding.CredentialVersion > previous.CredentialVersion {
+			epochs[binding.EpochID] = binding
+		}
+	}
+	if err = errors.Join(history.Err(), history.Close()); err != nil {
+		return archive.Database{}, err
+	}
+	epochs[permit.Replica.EpochID] = permit.Replica
+	for _, epoch := range epochs {
+		database.Epochs = append(database.Epochs, epoch)
+	}
+	slices.SortFunc(database.Epochs, func(a, b data.ReplicaBinding) int { return strings.Compare(string(a.EpochID), string(b.EpochID)) })
+	return archive.SQLiteDatabaseVariant(database), nil
+}
+
+func archiveCandidatesMatch(current, wanted archive.Candidate) bool {
+	if len(current.Databases) != len(wanted.Databases) {
+		return false
+	}
+	for i := range current.Databases {
+		normalized, ok := normalizeArchiveDatabaseCandidate(current.Databases[i], wanted.Databases[i])
+		if !ok {
+			return false
+		}
+		current.Databases[i] = normalized
+	}
+	return reflect.DeepEqual(current, wanted)
+}
+
+func normalizeArchiveDatabaseCandidate(current, wanted archive.Database) (archive.Database, bool) {
+	current = current.WithRetention(wanted.Retention())
+	native, ok := current.Native()
+	if !ok {
+		return current, true
+	}
+	target, ok := wanted.Native()
+	if !ok || !nativeArchiveCandidatesMatch(native, target) {
+		return archive.Database{}, false
+	}
+	return wanted, true
+}
+
+func archiveFenceConflict(removal bool) error {
+	if removal {
+		return result.New(result.RemovalPreparationRequired, ErrConflict)
+	}
+	return ErrConflict
 }

@@ -1273,3 +1273,13 @@ Live acceptance remains unchecked:
 T20 has local lifecycle evidence in `TestTUILifecycleJSONParity` and `TestTUILifecycleWireErrorsPreserveOriginalRecovery`, including explicit same-plan/key acceptance recovery. `TestTUIDeploymentEngineParity`, `TestTUIDeploymentCursorDisconnect`, `TestTUIDeploymentRunnerDetachResume` and `TestDeployCommandUsesReleaseEngine` cover successful and failed releases, interrupted observation, direct resume and identical machine/TUI operation identity through real temporary Store, jobs, dispatcher and release-executor code. TUI keys remain randomly generated. External adapters are synthetic; these tests do not prove remote deployment or restore.
 
 T23 has value-free review/redaction coverage in `TestTUILifecycleReviewRedactionAndRollbackAvailability` and review goldens. `TestRunTUIPendingAcceptanceCleanupAndRecoveryNotice` covers real terminal cleanup with pending acceptance. `TestTUIDiagnosisJSONParity` and `TestTUIDiagnosisExitRunner` cover captured diagnosis scope, stale reports and explicit restored-terminal exit. `TestInit*` covers local-only spec approval, conflicts, cleanup, valid output, short writes and executable next-command guidance. Full Phase 05 and physical acceptance remain open.
+
+## T22 local Plan 008 integration evidence
+
+Normal SQLite removal is locally connected through the factory, transport,
+strict dispatcher, jobs runner and protected Store. Temporary SQLite and bounded
+synthetic manager/provider tests cover summaries, real archive renames,
+allocated-empty sources with and without points, initialized unreleased sources,
+two databases, preparation/disposition interruptions, resolver-only completion
+and lost replies. This does not establish named-host removal, provider retention,
+reboot, expiry or purge acceptance. T22 and P04-08 remain unchecked.

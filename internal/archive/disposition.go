@@ -73,9 +73,15 @@ type DispositionHost interface {
 // Abandon restores ordinary managed startup permission; it never starts a writer
 // or moves data. A committed app can then use the normal start plan/apply path.
 func (s Service) Abandon(ctx context.Context, id data.ArchiveID) (Disposition, error) {
+	if p, ok := s.removalForArchive(ctx, id); ok {
+		return s.disposeRemoval(ctx, p, true, false)
+	}
 	return s.dispose(ctx, id, true)
 }
 func (s Service) Retire(ctx context.Context, id data.ArchiveID) (Disposition, error) {
+	if p, ok := s.removalForArchive(ctx, id); ok {
+		return s.disposeRemoval(ctx, p, false, false)
+	}
 	return s.dispose(ctx, id, false)
 }
 func (s Service) dispose(ctx context.Context, id data.ArchiveID, abandon bool) (out Disposition, err error) {

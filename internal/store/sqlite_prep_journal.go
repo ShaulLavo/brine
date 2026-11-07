@@ -130,7 +130,7 @@ func (j *SQLitePreparationJournal) Inspect(ctx context.Context, task sqliteprep.
 		return sqliteprep.Facts{}, errors.Join(sqliteRefuse(sqliteprep.InvalidEvidence), err)
 	}
 	now := sqliteNow()
-	c, err := readSQLiteCurrent(ctx, tx, task.App, in.DatabaseID, now)
+	c, err := readSQLiteCurrent(ctx, tx, in, now)
 	if err != nil {
 		return sqliteprep.Facts{}, err
 	}
@@ -274,7 +274,7 @@ func (j *SQLitePreparationJournal) Claim(ctx context.Context, i sqliteprep.Inten
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err = j.claimTx(ctx, tx, i, observed); err != nil {
+	if err = j.claimTx(ctx, tx, i, observed, guard); err != nil {
 		return err
 	}
 	if !guard.live(j.store, i.Scope.DatabaseID) || hold != nil && !hold.live(j.store, i.Scope.DatabaseID) {
@@ -341,7 +341,7 @@ func sqliteSelectionAdmits(i sqliteprep.Intent, scope sqliteprep.Scope, lineage 
 	return err == nil && sel.Mode == i.Mode && sel.Arm == i.Arm && sel.StopWritersRequired == i.StopWritersRequired && sel.CoverageOrigin == i.CoverageOrigin && sel.BaselineFrom == i.BaselineFrom
 }
 
-func (j *SQLitePreparationJournal) claimTx(ctx context.Context, tx *sql.Tx, i sqliteprep.Intent, observed sqliteObserved) error {
+func (j *SQLitePreparationJournal) claimTx(ctx context.Context, tx *sql.Tx, i sqliteprep.Intent, observed sqliteObserved, guard *SQLiteMutationGuard) error {
 	now := sqliteNow()
 	if i.ClaimedAt.After(now) || now.Sub(i.ClaimedAt) > claimWindow {
 		return ErrConflict
@@ -353,8 +353,11 @@ func (j *SQLitePreparationJournal) claimTx(ctx context.Context, tx *sql.Tx, i sq
 	if claimed, err := sqliteClaimed(ctx, tx, op); err != nil || claimed {
 		return errors.Join(ErrConflict, err)
 	}
-	c, err := readSQLiteCurrent(ctx, tx, i.Task.App, i.Scope.DatabaseID, now)
+	c, err := readSQLiteCurrent(ctx, tx, i.Input, now)
 	if err != nil {
+		return err
+	}
+	if err = guard.admitUnreleased(c, i.Task.Kind); err != nil {
 		return err
 	}
 	if err = c.location(i.Location, uint32(os.Geteuid()), uint32(os.Getegid())); err != nil { //nolint:gosec // Runner IDs are nonnegative.

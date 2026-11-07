@@ -6,6 +6,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/reconcile"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
@@ -28,4 +29,18 @@ func decodeReconcile(raw json.RawMessage) (any, error) {
 
 type ReconcileJobs interface {
 	Reconcile(context.Context) (jobs.Accepted, error)
+}
+
+func (s *Server) reconcileRequest(ctx context.Context, args ReconcileArgs) (any, error) {
+	if args.DryRun {
+		if s.Reconciler == nil {
+			return nil, result.New(result.DependencyMissing, nil)
+		}
+		return s.Reconciler.DryRun(ctx)
+	}
+	jobs, ok := s.jobs.(ReconcileJobs)
+	if !ok {
+		return nil, result.New(result.DependencyMissing, nil)
+	}
+	return jobs.Reconcile(ctx)
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"net"
 	"net/http"
 	"net/url"
@@ -32,29 +33,48 @@ func CreateEmptySnapshot(ctx context.Context, root string, b Binding, c Credenti
 	if err := validateCredentials(c, time.Now().UTC(), budget); err != nil {
 		return source, time.Time{}, err
 	}
-	directory, err := newDirectory(root, pointID+"-empty")
+	raw, err := EmptySnapshotBytes(ctx, root, pointID)
 	if err != nil {
 		return source, time.Time{}, err
 	}
-	defer func() { _ = os.RemoveAll(directory) }()
+	defer clear(raw)
+	return UploadSnapshot(ctx, b, c, pointID, raw, budget, allowHTTPForTests)
+}
+
+// EmptySnapshotBytes creates real SQLite bytes in private staging, never live data.
+func EmptySnapshotBytes(ctx context.Context, root, pointID string) (raw []byte, resultErr error) {
+	if !token.MatchString(pointID) || ctx.Err() != nil {
+		return nil, refuse("invalid_empty_point")
+	}
+	directory, err := newDirectory(root, pointID+"-empty")
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		resultErr = errors.Join(resultErr, os.RemoveAll(directory))
+		if resultErr != nil {
+			clear(raw)
+			raw = nil
+		}
+	}()
 	file := filepath.Join(directory, "empty.sqlite")
 	db, err := sql.Open("sqlite", file)
 	if err != nil {
-		return source, time.Time{}, refuse("empty_snapshot")
+		return nil, refuse("empty_snapshot")
 	}
 	_, execErr := db.ExecContext(ctx, "PRAGMA user_version=0")
 	closeErr := db.Close()
 	if execErr != nil || closeErr != nil {
-		return source, time.Time{}, refuse("empty_snapshot")
+		return nil, refuse("empty_snapshot")
 	}
 	if err = os.Chmod(file, 0600); err != nil {
-		return source, time.Time{}, refuse("empty_snapshot")
+		return nil, refuse("empty_snapshot")
 	}
-	raw, err := os.ReadFile(file) // #nosec G304 -- File is generated inside the newly created, symlink-free private staging directory.
-	if err != nil || len(raw) == 0 || len(raw) > 1<<20 {
-		return source, time.Time{}, refuse("empty_snapshot")
+	raw, err = os.ReadFile(file) // #nosec G304 -- File is generated inside the newly created, symlink-free private staging directory.
+	if err != nil || ctx.Err() != nil || len(raw) == 0 || len(raw) > 1<<20 {
+		return nil, refuse("empty_snapshot")
 	}
-	return UploadSnapshot(ctx, b, c, pointID, raw, budget, allowHTTPForTests)
+	return raw, nil
 }
 
 // UploadSnapshot conditionally creates one bounded recovery snapshot. It never

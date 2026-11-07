@@ -30,6 +30,12 @@ type TaskOutcome struct {
 
 func DecodeTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
 	switch op.Kind {
+	case SQLiteRetire, SQLiteRetireResolve:
+		receipt, err := archive.DecodeRemovalReceipt(raw)
+		if err != nil || receipt.OperationID != op.ID || op.Kind == SQLiteRetire && receipt.AttemptOperationID != op.ID || op.Kind == SQLiteRetireResolve && receipt.AttemptOperationID != op.RecoveryOf {
+			return nil, strictjson.ErrObject
+		}
+		return receipt, nil
 	case SQLitePrepare, SQLitePrepareAbandon:
 		receipt, err := sqliteprep.DecodeReceipt(raw)
 		task := sqliteprep.Task{OperationID: op.ID, Kind: sqliteprep.TaskKind(op.Kind), Requester: op.Requester, App: op.App, InputSHA256: op.SecretRef}

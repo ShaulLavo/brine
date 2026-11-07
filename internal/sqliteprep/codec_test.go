@@ -25,6 +25,7 @@ func fixturePrepared(mode Mode, arm Arm) (History, PreparedPoint) {
 	}
 	if arm == Empty {
 		i.Scope.ReplicaCommitted = false
+		i.Scope.ConfigSHA256 = ""
 		i.Scope.ActivatedCredentialVersion = 0
 		i.Scope.Schema.State = data.AllocatedEmpty
 		i.Scope.Schema.Marker = data.EmptyMarker
@@ -212,6 +213,7 @@ func TestMemberSafetyAndAuthoritativePresence(t *testing.T) {
 func TestFreshLTXCannotUseUncommittedReplica(t *testing.T) {
 	i := fixtureIntent()
 	i.Scope.ReplicaCommitted = false
+	i.Scope.ConfigSHA256 = ""
 	i.Scope.ActivatedCredentialVersion = 0
 	if i.Validate() == nil {
 		t.Fatal("fresh LTX granted on uncommitted binding")
@@ -306,6 +308,7 @@ func TestPointDecoderRejectsCrossedSchemaAndCoverage(t *testing.T) {
 func TestDeliveredCredentialVersionDoesNotActivateReservedReplica(t *testing.T) {
 	i := fixtureIntent()
 	i.Scope.ReplicaCommitted = false
+	i.Scope.ConfigSHA256 = ""
 	i.Scope.ActivatedCredentialVersion = 0
 	i.Arm = Snapshot
 	if err := i.Validate(); err != nil {
@@ -382,5 +385,38 @@ func TestEventRejectsNegativeSequenceAndCrossedSourceArm(t *testing.T) {
 	p.IntentSHA256 = mustHash(h.Intent)
 	if ValidatePrepared(h, p) == nil {
 		t.Fatal("LTX retained under a snapshot arm")
+	}
+}
+
+func TestInputUnreleasedSelectorCanonicalIdentity(t *testing.T) {
+	input := Input{Kind: PrepareTask, PreparationID: id("a"), App: "fixture", DatabaseID: data.DatabaseID(id("b"))}
+	before, err := Encode(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(before, []byte("declaration_plan_id")) || bytes.Contains(before, []byte("delivered_credential_version")) {
+		t.Fatal("omission changed")
+	}
+	oldHash, err := Fingerprint(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.DeclarationPlanID = "sha256:" + hash("c")
+	input.DeliveredCredentialVersion = 1
+	raw, err := Encode(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	round, err := DecodeInput(raw)
+	if err != nil || round != input {
+		t.Fatal("selector not retained", err)
+	}
+	newHash, err := Fingerprint(input)
+	if err != nil || newHash == oldHash {
+		t.Fatal("selector not bound to canonical identity", err)
+	}
+	input.Kind = AbandonTask
+	if input.Validate() == nil {
+		t.Fatal("abandon accepted selectors")
 	}
 }

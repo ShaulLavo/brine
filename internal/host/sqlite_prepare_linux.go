@@ -61,7 +61,7 @@ func (o sqlitePreparations) Prepare(ctx context.Context, args dispatch.SQLitePre
 			return jobs.Accepted{}, result.New(result.PolicyRefused, nil)
 		}
 	}
-	input := sqliteprep.Input{Kind: sqliteprep.PrepareTask, PreparationID: sqlitePreparationID(o.jobs.Requester, database, args.Supersedes, args.IdempotencyKey), App: args.App, DatabaseID: database, Supersedes: args.Supersedes}
+	input := sqliteprep.Input{Kind: sqliteprep.PrepareTask, PreparationID: sqlitePreparationID(o.jobs.Requester, database, args.Supersedes, args.IdempotencyKey), App: args.App, DatabaseID: database, Supersedes: args.Supersedes, DeclarationPlanID: args.DeclarationPlanID, DeliveredCredentialVersion: args.DeliveredCredentialVersion}
 	return o.submit(ctx, input, ops.SQLitePrepare, args.IdempotencyKey)
 }
 

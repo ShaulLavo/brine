@@ -49,3 +49,35 @@ func TestSQLitePreparationStrictMutatingRequests(t *testing.T) {
 		}
 	}
 }
+
+func TestSQLitePrepareStrictOptionalSelectors(t *testing.T) {
+	base := `"app":"hello","database":"main","supersedes":"","idempotency_key":"` + strings.Repeat("a", 32) + `"`
+	plan := `"declaration_plan_id":"sha256:` + strings.Repeat("b", 64) + `"`
+	valid := "{" + base + "," + plan + `,"delivered_credential_version":9223372036854775807}`
+	if _, err := decodeSQLitePrepare(json.RawMessage(valid)); err != nil {
+		t.Fatal(err)
+	}
+	for _, suffix := range []string{
+		plan,
+		`"delivered_credential_version":1`,
+		plan + `,"delivered_credential_version":null`,
+		plan + `,"delivered_credential_version":0`,
+		plan + `,"delivered_credential_version":-1`,
+		plan + `,"delivered_credential_version":1.5`,
+		plan + `,"delivered_credential_version":1e0`,
+		plan + `,"delivered_credential_version":"1"`,
+		plan + `,"delivered_credential_version":9223372036854775808`,
+		plan + `,"delivered_credential_version":18446744073709551616`,
+		plan + `,"delivered_credential_version":1,"delivered_credential_version":2`,
+		`"declaration_plan_id":null,"delivered_credential_version":1`,
+		`"declaration_plan_id":"latest","delivered_credential_version":1`,
+	} {
+		if _, err := decodeSQLitePrepare(json.RawMessage("{" + base + "," + suffix + "}")); err == nil {
+			t.Fatal("accepted invalid selector", suffix)
+		}
+	}
+	abandon := `{"preparation_id":"` + strings.Repeat("b", 32) + `","idempotency_key":"` + strings.Repeat("a", 32) + `","declaration_plan_id":""}`
+	if _, err := decodeSQLiteAbandon(json.RawMessage(abandon)); err == nil {
+		t.Fatal("abandon accepted selector key")
+	}
+}

@@ -56,7 +56,7 @@ func (c *Coverage) UnmarshalJSON(raw []byte) error {
 		return ErrRefused
 	}
 	if fields["engine"] == nil {
-		if exactArchiveObject(raw, []string{"database_id", "writers_quiesced_at", "observation"}, "never_written", "point", "restore_receipt") != nil {
+		if exactArchiveObject(raw, []string{"database_id", "writers_quiesced_at", "observation"}, "never_written", "point", "restore_receipt", "prepared") != nil || !optionalPreparedCoverage(fields["prepared"]) {
 			return ErrRefused
 		}
 		var record SQLiteCoverage

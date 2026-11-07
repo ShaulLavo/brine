@@ -37,7 +37,7 @@ func refuseGenericSQLiteCompletion(ctx context.Context, tx *sql.Tx, id string, s
 	if err := tx.QueryRowContext(ctx, "SELECT kind FROM operations WHERE id=?", id).Scan(&kind); err != nil {
 		return err
 	}
-	if isSQLiteTaskKind(kind) && state != ops.RecoveryRequired {
+	if (isSQLiteTaskKind(kind) || isSQLiteRetireKind(kind)) && state != ops.RecoveryRequired {
 		return ErrConflict
 	}
 	return nil
@@ -88,6 +88,13 @@ func (s *Store) ReadTaskOutcome(ctx context.Context, id string) (*ops.TaskOutcom
 	op, err := scanOperation(tx.QueryRowContext(ctx, "SELECT id,COALESCE(plan_id,''),requester,idempotency_key,state,created_at,updated_at,kind,app,secret_ref,recovery_of FROM operations WHERE id=?", id))
 	if err != nil {
 		return nil, err
+	}
+	if isSQLiteRetireKind(op.Kind) {
+		in, err := readSQLiteRetireInput(ctx, tx, op)
+		if err != nil {
+			return nil, err
+		}
+		return readSQLiteRetireOutcome(ctx, tx, op, in)
 	}
 	var canonical []byte
 	err = tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", id).Scan(&canonical)

@@ -29,7 +29,7 @@ func (j *SQLitePreparationJournal) ClaimAbandon(ctx context.Context, stop sqlite
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err = claimSQLiteAbandonTx(ctx, tx, stop); err != nil {
+	if err = claimSQLiteAbandonTx(ctx, tx, stop, guard); err != nil {
 		return err
 	}
 	if !guard.live(j.store, stop.Input.DatabaseID) {
@@ -42,7 +42,7 @@ func (j *SQLitePreparationJournal) ClaimAbandon(ctx context.Context, stop sqlite
 	return nil
 }
 
-func claimSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, stop sqliteprep.AbandonStop) error {
+func claimSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, stop sqliteprep.AbandonStop, guard *SQLiteMutationGuard) error {
 	now := sqliteNow()
 	if stop.ClaimedAt.After(now) || now.Sub(stop.ClaimedAt) > claimWindow {
 		return ErrConflict
@@ -66,9 +66,15 @@ func claimSQLiteAbandonTx(ctx context.Context, tx *sql.Tx, stop sqliteprep.Aband
 	if err != nil || origins.Baseline != nil {
 		return errors.Join(sqliteRefuse(sqliteprep.StoppedSourceChanged), err)
 	}
-	c, err := readSQLiteCurrent(ctx, tx, stop.Task.App, in.DatabaseID, now)
+	c, err := readSQLiteCurrent(ctx, tx, in, now)
 	if err != nil {
 		return err
+	}
+	if err = guard.admitUnreleased(c, stop.Task.Kind); err != nil {
+		return err
+	}
+	if c.scope.EmptyAllocation != nil {
+		c.scope.EmptyAllocation.Location = prev.intent.Location
 	}
 	scope, err := sqliteTaskScope(c, stop.Task.Kind, &prev.intent.Scope, nil, now)
 	if err != nil || !sqliteprep.SameSourceScope(prev.intent.Scope, scope) || c.held == nil || *c.held != stop.Fence || scope.PolicySHA256 != stop.PolicySHA256 {

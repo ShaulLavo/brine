@@ -17,6 +17,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/replication"
+	"github.com/ShaulLavo/brine/internal/restore"
 )
 
 var containerIdentity = regexp.MustCompile(`^[a-f0-9]{64}$`)
@@ -26,6 +27,7 @@ type archiveRemovalUnits interface {
 	RemoveArchived(context.Context, string, string) error
 }
 type archiveHost struct {
+	removal          bool
 	service          Service
 	stateRoot        string
 	session          localexec.Session
@@ -33,6 +35,8 @@ type archiveHost struct {
 	home             string
 	routes           apply.RemovalRoutes
 	units            archiveRemovalUnits
+	restoreTesting   *archiveRestoreTesting
+	removalVerified  map[string]restore.SQLiteReceipt
 	recoveryVerified map[string]time.Time
 	nativeLifetimes  map[data.ReplicaBindingID]*data.EngineLock
 }
@@ -106,20 +110,27 @@ func (h archiveHost) stopService(ctx context.Context, name string, allowAbsent b
 	return nil
 }
 func (h archiveHost) StopWriters(ctx context.Context, p archive.Plan) error {
+	if p.Removal != nil {
+		return removalWriterObservation(ctx, h, p)
+	}
 	if nativeArchiveCandidate(p.Candidate) {
-		facts, err := h.nativeArchiveOwnedUnits(ctx, p.Candidate)
-		if err != nil {
-			return archive.ErrRefused
-		}
-		if facts.frontend == nil {
-			stopped, err := h.nativeArchiveStopped(ctx, p)
-			if err != nil || !stopped {
-				return archive.ErrRefused
-			}
-			return nil
-		}
+		return h.stopNativeArchiveWriters(ctx, p)
 	}
 	return h.stopService(ctx, p.Candidate.App+".service", p.Candidate.ReleaseID == "")
+}
+func (h archiveHost) stopNativeArchiveWriters(ctx context.Context, p archive.Plan) error {
+	facts, err := h.nativeArchiveOwnedUnits(ctx, p.Candidate)
+	if err != nil {
+		return archive.ErrRefused
+	}
+	if facts.frontend != nil {
+		return h.stopService(ctx, p.Candidate.App+".service", p.Candidate.ReleaseID == "")
+	}
+	stopped, err := h.nativeArchiveStopped(ctx, p)
+	if err != nil || !stopped {
+		return archive.ErrRefused
+	}
+	return nil
 }
 func (h archiveHost) WritersStopped(ctx context.Context, p archive.Plan) (bool, error) {
 	if nativeArchiveCandidate(p.Candidate) {
@@ -216,6 +227,9 @@ func (c inspectedContainer) mountsOutside(sources []string) bool {
 	return true
 }
 func (h archiveHost) StopReplicas(ctx context.Context, p archive.Plan) error {
+	if p.Removal != nil {
+		return removalReplicaObservation(ctx, h, p)
+	}
 	if nativeArchiveCandidate(p.Candidate) {
 		if stopped, err := h.nativeArchiveStopped(ctx, p); err != nil || !stopped {
 			return archive.ErrRefused
@@ -223,18 +237,8 @@ func (h archiveHost) StopReplicas(ctx context.Context, p archive.Plan) error {
 		return nil
 	}
 	for _, variant := range p.Candidate.Databases {
-		database, sqlite := variant.SQLite()
-		if !sqlite {
-			return archive.ErrRefused
-		}
-		for _, binding := range database.Epochs {
-			name, err := replication.ServiceName(string(binding.BindingID))
-			if err != nil {
-				return err
-			}
-			if err = h.stopService(ctx, name, !binding.Committed); err != nil {
-				return err
-			}
+		if err := h.stopSQLiteArchiveReplicas(ctx, variant); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -299,4 +303,21 @@ func (h archiveHost) AcquireLifetimeLocks(ctx context.Context, p archive.Plan) (
 		}
 	}
 	return release, nil
+}
+
+func (h archiveHost) stopSQLiteArchiveReplicas(ctx context.Context, variant archive.Database) error {
+	database, ok := variant.SQLite()
+	if !ok {
+		return archive.ErrRefused
+	}
+	for _, binding := range database.Epochs {
+		name, err := replication.ServiceName(string(binding.BindingID))
+		if err != nil {
+			return err
+		}
+		if err = h.stopService(ctx, name, !binding.Committed); err != nil {
+			return err
+		}
+	}
+	return nil
 }

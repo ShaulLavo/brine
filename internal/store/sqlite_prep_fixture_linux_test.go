@@ -235,7 +235,7 @@ func (h *prepHost) called(name string) bool {
 	return false
 }
 
-func (h *prepHost) Acquire(ctx context.Context, scope sqliteprep.Scope, _ data.QuiescenceFence) (sqliteprep.HostGuard, error) {
+func (h *prepHost) Acquire(ctx context.Context, _ sqliteprep.Input, scope sqliteprep.Scope, _ data.QuiescenceFence) (sqliteprep.HostGuard, error) {
 	if err := h.call("acquire"); err != nil {
 		return nil, err
 	}

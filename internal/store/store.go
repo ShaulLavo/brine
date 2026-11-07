@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -34,7 +35,7 @@ type Release = ops.Release
 
 const MaxEventBytes = ops.MaxEventBytes
 const MaxPlanBytes = 16 << 20
-const SchemaVersion = 35
+const SchemaVersion = 37
 
 var ErrNotFound = errors.New("control record not found")
 var ErrConflict = errors.New("conflicting control record")
@@ -59,6 +60,7 @@ type StateConflictError = ops.StateConflictError
 var ErrStateConflict = ops.ErrStateConflict
 
 type Store struct {
+	removalClock               func() time.Time
 	db                         *sql.DB
 	dir                        string
 	readOnly                   bool
@@ -158,12 +160,8 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 		if _, err = tx.ExecContext(ctx, schema); err != nil {
 			return err
 		}
-		for from, tos := range ops.Transitions() {
-			for _, to := range tos {
-				if _, err = tx.ExecContext(ctx, "INSERT INTO transitions VALUES(?,?)", from, to); err != nil {
-					return err
-				}
-			}
+		if err = migrateLegacyTransitions(ctx, tx); err != nil {
+			return err
 		}
 		if _, err = tx.ExecContext(ctx, "UPDATE schema_version SET version=1"); err != nil {
 			return err
@@ -345,17 +343,22 @@ func (s *Store) migrate(ctx context.Context) (err error) {
 		}
 	}
 
+	if version < 36 {
+		if err = migrateDrops(ctx, tx); err != nil {
+			return err
+		}
+	}
+
+	if version < 37 {
+		if err = migrateSQLiteRemoval(ctx, tx); err != nil {
+			return err
+		}
+	}
+
 	// Transitions are the current per-kind journal contract. Add new supported
 	// edges transactionally without changing durable operation identities.
-	for _, kind := range []ops.Kind{ops.CDN, ops.Deploy, ops.SecretSet, ops.NativeMaterialSet, ops.ArchiveMaintenanceApply, ops.ArchiveMaintenanceResolve, ops.Reconcile, ops.Resolve, ops.RestoreTest, ops.CredentialActivation, ops.DataInitApply, ops.NativeCapture, ops.NativeRestoreTest, ops.NativePrepare, ops.NativePrepareAbandon, ops.NativeRecoverySet, ops.NativeBackupActivate, ops.NativeBackupResolve, ops.ModulePublishApply, ops.ModulePublishResolve, ops.NativeLiveRestore, ops.NativeLiveRestoreResolve, ops.NativeRetire, ops.NativeRetireResolve, ops.SQLitePrepare, ops.SQLitePrepareAbandon} {
-		for from, tos := range ops.TransitionsFor(kind) {
-			for _, to := range tos {
-				if _, err = tx.ExecContext(ctx, "INSERT INTO transitions VALUES(?,?,?) ON CONFLICT DO NOTHING", kind, from, to); err != nil {
-					return err
-				}
-			}
-
-		}
+	if err = migrateOperationTransitions(ctx, tx); err != nil {
+		return err
 	}
 
 	rows, e := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
@@ -479,4 +482,45 @@ func loadPlan(ctx context.Context, q interface {
 }
 func (s *Store) LoadPlan(ctx context.Context, id PlanID) (plan.Plan, policy.Desired, error) {
 	return loadPlan(ctx, s.db, id)
+}
+
+func migrateLegacyTransitions(ctx context.Context, tx *sql.Tx) error {
+	for from, tos := range ops.Transitions() {
+		if err := insertLegacyTransitions(ctx, tx, from, tos); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func insertLegacyTransitions(ctx context.Context, tx *sql.Tx, from ops.State, tos []ops.State) error {
+	for _, to := range tos {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO transitions VALUES(?,?)", from, to); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func migrateOperationTransitions(ctx context.Context, tx *sql.Tx) error {
+	for _, kind := range []ops.Kind{ops.CDN, ops.Deploy, ops.SecretSet, ops.NativeMaterialSet, ops.ArchiveMaintenanceApply, ops.ArchiveMaintenanceResolve, ops.Reconcile, ops.Resolve, ops.RestoreTest, ops.CredentialActivation, ops.DataInitApply, ops.NativeCapture, ops.NativeRestoreTest, ops.NativePrepare, ops.NativePrepareAbandon, ops.NativeRecoverySet, ops.NativeBackupActivate, ops.NativeBackupResolve, ops.ModulePublishApply, ops.ModulePublishResolve, ops.NativeLiveRestore, ops.NativeLiveRestoreResolve, ops.NativeRetire, ops.NativeRetireResolve, ops.SQLitePrepare, ops.SQLitePrepareAbandon, ops.SQLiteRetire, ops.SQLiteRetireResolve} {
+		if err := migrateKindTransitions(ctx, tx, kind); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func migrateKindTransitions(ctx context.Context, tx *sql.Tx, kind ops.Kind) error {
+	for from, tos := range ops.TransitionsFor(kind) {
+		if err := insertKindTransitions(ctx, tx, kind, from, tos); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+func insertKindTransitions(ctx context.Context, tx *sql.Tx, kind ops.Kind, from ops.State, tos []ops.State) error {
+	for _, to := range tos {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO transitions VALUES(?,?,?) ON CONFLICT DO NOTHING", kind, from, to); err != nil {
+			return err
+		}
+	}
+	return nil
 }

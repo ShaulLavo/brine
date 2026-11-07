@@ -7,20 +7,23 @@ import (
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/result"
+	"github.com/ShaulLavo/brine/internal/sqliteprep"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 )
 
 // SQLitePrepareArgs selects a database and, for a supersede, the unconsumed
 // predecessor. The host derives the preparation ID and every scope fact.
 type SQLitePrepareArgs struct {
-	App            string `json:"app"`
-	Database       string `json:"database"`
-	Supersedes     string `json:"supersedes"`
-	IdempotencyKey string `json:"idempotency_key"`
+	DeclarationPlanID          string `json:"declaration_plan_id,omitempty"`
+	DeliveredCredentialVersion uint64 `json:"delivered_credential_version,omitempty"`
+	App                        string `json:"app"`
+	Database                   string `json:"database"`
+	Supersedes                 string `json:"supersedes"`
+	IdempotencyKey             string `json:"idempotency_key"`
 }
 
 func (a SQLitePrepareArgs) Valid() bool {
-	return ValidApp(a.App) && (a.Database == "" || ValidApp(a.Database)) && (a.Supersedes == "" || data.ValidID(a.Supersedes)) && data.ValidID(a.IdempotencyKey)
+	return sqliteprep.ValidSelectors(a.DeclarationPlanID, a.DeliveredCredentialVersion) && ValidApp(a.App) && (a.Database == "" || ValidApp(a.Database)) && (a.Supersedes == "" || data.ValidID(a.Supersedes)) && data.ValidID(a.IdempotencyKey)
 }
 
 type SQLiteAbandonArgs struct {
@@ -53,11 +56,32 @@ func stringFields(raw json.RawMessage, names ...string) ([]string, error) {
 }
 
 func decodeSQLitePrepare(raw json.RawMessage) (any, error) {
-	v, err := stringFields(raw, "app", "database", "supersedes", "idempotency_key")
+	fields, err := strictjson.OptionalObject(raw, []string{"app", "database", "supersedes", "idempotency_key"}, []string{"declaration_plan_id", "delivered_credential_version"})
 	if err != nil {
 		return nil, err
 	}
-	a := SQLitePrepareArgs{App: v[0], Database: v[1], Supersedes: v[2], IdempotencyKey: v[3]}
+	var a SQLitePrepareArgs
+	if err = json.Unmarshal(raw, &a); err != nil {
+		return nil, strictjson.ErrObject
+	}
+	for _, name := range []string{"app", "database", "supersedes", "idempotency_key"} {
+		if _, err = strictjson.Value[string](fields[name]); err != nil {
+			return nil, err
+		}
+	}
+	plan, hasPlan := fields["declaration_plan_id"]
+	version, hasVersion := fields["delivered_credential_version"]
+	if hasPlan != hasVersion {
+		return nil, strictjson.ErrObject
+	}
+	if hasPlan {
+		if _, err = strictjson.Value[string](plan); err != nil || a.DeclarationPlanID == "" {
+			return nil, strictjson.ErrObject
+		}
+		if _, err = strictjson.Value[uint64](version); err != nil || a.DeliveredCredentialVersion == 0 {
+			return nil, strictjson.ErrObject
+		}
+	}
 	if !a.Valid() {
 		return nil, strictjson.ErrObject
 	}

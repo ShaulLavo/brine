@@ -4,9 +4,6 @@ package host
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -20,6 +17,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/caddy"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/spec"
@@ -304,26 +302,61 @@ func (h archiveHost) CheckArchiveRecovery(ctx context.Context, p archive.Plan, o
 	if nativeArchiveCandidate(p.Candidate) {
 		return h.checkNativeArchiveRecovery(ctx, p, o, m)
 	}
+	_, err := h.checkArchiveRecovery(ctx, p, o, m, "")
+	return err
+}
+
+func (h archiveHost) checkArchiveRecovery(ctx context.Context, p archive.Plan, o archive.Operation, m archive.Manifest, task string) ([]restore.SQLiteReceipt, error) {
+	if err := h.checkArchiveRecoveryIdentity(ctx, p, o, m); err != nil {
+		return nil, err
+	}
 	pol, err := h.service.Policy.Load(ctx)
 	if err != nil {
+		return nil, archive.ErrRefused
+	}
+	receipts := make([]restore.SQLiteReceipt, 0, len(p.Candidate.Databases))
+	for i, variant := range p.Candidate.Databases {
+		d, ok := variant.SQLite()
+		c, covered := m.Coverage[i].SQLite()
+		if !ok || !covered || h.checkRecoveryDatabase(ctx, p, d, c, pol) != nil {
+			return nil, archive.ErrRefused
+		}
+		if !d.Written {
+			continue
+		}
+		receipt, err := h.recheckRecoveryReceipt(ctx, p, d, o.ID, task, c)
+		if err != nil {
+			return nil, err
+		}
+		receipts = append(receipts, receipt)
+	}
+	return receipts, h.recoveryQuiescent(ctx, p)
+}
+
+func (h archiveHost) checkArchiveRecoveryIdentity(ctx context.Context, p archive.Plan, o archive.Operation, m archive.Manifest) error {
+	if !m.Valid() || m.Plan.ID != p.ID || m.OperationID != o.ID {
 		return archive.ErrRefused
+	}
+	if err := h.service.Store.CheckArchiveUDP(ctx, p.Candidate.App); err != nil {
+		return err
+	}
+	if err := h.service.Store.CheckArchiveCDN(ctx, p.Candidate.App); err != nil {
+		return err
 	}
 	current, exists, err := h.service.Store.ReadArchiveOperation(ctx, p.ID)
 	if err != nil || !exists || !reflect.DeepEqual(current, o) {
 		return archive.ErrRefused
 	}
 	state, exists, err := h.service.Store.ReadArchiveDisposition(ctx, p.ArchiveID)
-	if err != nil || !exists {
+	if err != nil || !exists && p.Removal == nil {
 		return archive.ErrRefused
 	}
 	inspected, err := h.InspectArchiveRuntime(ctx, p)
-	if err != nil || state.Stage != archive.CleanupIntent && !inspected.Complete {
+	if err != nil || exists && state.Stage != archive.CleanupIntent && !inspected.Complete {
 		return archive.ErrRefused
 	}
-	for _, f := range current.Fences {
-		if f.State != data.FenceHeld {
-			return archive.ErrRefused
-		}
+	if !exists && h.VerifyArchiveRuntime(ctx, p) != nil {
+		return archive.ErrRefused
 	}
 	candidate, err := h.service.Store.ArchiveOwnedCandidate(ctx, p.Candidate.App, o.ID)
 	if err != nil || len(candidate.Databases) != len(p.Candidate.Databases) {
@@ -339,95 +372,108 @@ func (h archiveHost) CheckArchiveRecovery(ctx context.Context, p archive.Plan, o
 	if err != nil {
 		return archive.ErrRefused
 	}
-	raw, err := json.Marshal(snapshot.Identity)
-	if err != nil {
-		return err
-	}
-	sum := sha256.Sum256(raw)
-	if p.TargetHash != "sha256:"+hex.EncodeToString(sum[:]) || h.recoveryQuiescent(ctx, p) != nil {
+	hash, err := archiveTargetHash(snapshot)
+	if err != nil || hash != p.TargetHash {
 		return archive.ErrRefused
 	}
-	for i, variant := range p.Candidate.Databases {
-		d, sqlite := variant.SQLite()
-		if !sqlite {
+	for _, f := range current.Fences {
+		if f.State != data.FenceHeld {
 			return archive.ErrRefused
-		}
-		coverage, sqliteCoverage := m.Coverage[i].SQLite()
-		if !sqliteCoverage {
-			return archive.ErrRefused
-		}
-		if !slices.Contains(pol.PersistentRoots(), string(d.Binding.Root)) || d.Allocation == nil {
-			return archive.ErrRefused
-		}
-		for _, b := range d.Epochs {
-			destination, ok := pol.BackupDestination(b.Destination.Reference)
-			if !ok || destination != b.Destination {
-				return archive.ErrRefused
-			}
-			retention, ok := pol.BackupRetention(b.Destination.Reference)
-			if !ok || !retention.Admits(destination, time.Now().UTC()) {
-				return archive.ErrRefused
-			}
-		}
-		archived := data.VerifyArchivedAllocation(d.Binding, *d.Allocation, p.ArchiveID) == nil
-		if !archived && data.VerifyArchiveAllocation(d.Binding, *d.Allocation) != nil {
-			return archive.ErrRefused
-		}
-		if !d.Written {
-			if archived {
-				err = data.VerifyArchivedEmpty(d.Binding, *d.Allocation, p.ArchiveID)
-			} else {
-				_, _, err = data.FreshArchiveAllocation(d.Binding, *d.Allocation)
-			}
-			if err != nil {
-				return archive.ErrRefused
-			}
-			continue
-		}
-		observed := data.ObserveSQLiteSchema(ctx, d.Binding, d.Definitions)
-		if archived {
-			observed = data.ObserveArchivedSchema(ctx, d.Binding, *d.Allocation, p.ArchiveID, d.Definitions)
-		}
-		if !archiveDispositionSchemaMatches(observed, coverage.Observation, false) {
-			return archive.ErrRefused
-		}
-		if err = h.recheckRecoverySource(ctx, p, d, o.ID, coverage); err != nil {
-			return err
 		}
 	}
 	return h.recoveryQuiescent(ctx, p)
 }
-func (h archiveHost) recheckRecoverySource(ctx context.Context, p archive.Plan, d archive.SQLiteDatabase, operation string, coverage archive.SQLiteCoverage) error {
-	if at, ok := h.recoveryVerified[string(p.ArchiveID)+":"+string(d.Binding.DatabaseID)]; ok && !time.Now().Before(at) && time.Since(at) < 2*time.Minute {
-		return nil
-	}
-	if len(d.Epochs) != 1 || coverage.Point == nil || coverage.Receipt == nil {
+
+func (h archiveHost) checkRecoveryDatabase(ctx context.Context, p archive.Plan, d archive.SQLiteDatabase, c archive.SQLiteCoverage, pol policy.Policy) error {
+	if !slices.Contains(pol.PersistentRoots(), string(d.Binding.Root)) || d.Allocation == nil {
 		return archive.ErrRefused
 	}
-	b := d.Epochs[0]
-	credentials, err := h.archiveCredentials(ctx, b)
-	if err != nil {
+	for _, b := range d.Epochs {
+		destination, ok := pol.BackupDestination(b.Destination.Reference)
+		retention, known := pol.BackupRetention(b.Destination.Reference)
+		if !ok || destination != b.Destination || !known || !retention.Admits(destination, time.Now().UTC()) {
+			return archive.ErrRefused
+		}
+	}
+	archived := data.VerifyArchivedAllocation(d.Binding, *d.Allocation, p.ArchiveID) == nil
+	if !archived && data.VerifyArchiveAllocation(d.Binding, *d.Allocation) != nil {
+		return archive.ErrRefused
+	}
+	if !d.Written {
+		if archived {
+			return data.VerifyArchivedEmpty(d.Binding, *d.Allocation, p.ArchiveID)
+		}
+		_, _, err := data.FreshArchiveAllocation(d.Binding, *d.Allocation)
 		return err
+	}
+	observed := data.ObserveSQLiteSchema(ctx, d.Binding, d.Definitions)
+	if archived {
+		observed = data.ObserveArchivedSchema(ctx, d.Binding, *d.Allocation, p.ArchiveID, d.Definitions)
+	}
+	if !archiveDispositionSchemaMatches(observed, c.Observation, false) {
+		return archive.ErrRefused
+	}
+	return nil
+}
+
+func (h archiveHost) recheckRecoveryReceipt(ctx context.Context, p archive.Plan, d archive.SQLiteDatabase, operation, task string, coverage archive.SQLiteCoverage) (restore.SQLiteReceipt, error) {
+	key := string(p.ArchiveID) + ":" + string(d.Binding.DatabaseID)
+	if task == "" {
+		if at, ok := h.recoveryVerified[key]; ok && !time.Now().Before(at) && time.Since(at) < 2*time.Minute {
+			return restore.SQLiteReceipt{}, nil
+		}
+	}
+	if task != "" {
+		key = task + ":" + key
+		if receipt, ok := h.removalVerified[key]; ok && archiveRecoveryReceiptMatches(archive.SQLiteCoverageVariant(coverage), receipt, time.Now().UTC()) {
+			return receipt, nil
+		}
+	}
+	receipt, err := h.restoreRecoverySource(ctx, p, d, operation, task, coverage)
+	if err != nil {
+		return receipt, err
+	}
+	if task != "" && h.removalVerified != nil {
+		h.removalVerified[key] = receipt
+	}
+	if task == "" && h.recoveryVerified != nil {
+		h.recoveryVerified[key] = receipt.ObservedAt
+	}
+	return receipt, nil
+}
+
+func (h archiveHost) restoreRecoverySource(ctx context.Context, p archive.Plan, d archive.SQLiteDatabase, operation, task string, coverage archive.SQLiteCoverage) (restore.SQLiteReceipt, error) {
+	if len(d.Epochs) != 1 || coverage.Point == nil || coverage.Receipt == nil {
+		return restore.SQLiteReceipt{}, archive.ErrRefused
+	}
+	b, err := h.removalCredentialBinding(p, d.Epochs[0])
+	if err != nil {
+		return restore.SQLiteReceipt{}, err
+	}
+	credentials, err := h.originalArchiveCredentials(ctx, p.ArchiveID, b)
+	if err != nil {
+		return restore.SQLiteReceipt{}, err
 	}
 	defer func() { credentials = restore.Credentials{} }()
 	binding := restore.Binding{ID: string(b.BindingID), Epoch: string(b.EpochID), CredentialRef: b.Destination.CredentialRef, Destination: restore.Destination{Endpoint: b.Destination.Endpoint, Region: b.Destination.Region, Bucket: b.Destination.Bucket, Prefix: strings.TrimSuffix(b.RemotePrefix, "/"), PathStyle: b.Destination.PathStyle}}
-	request := requestAtPoint(restore.SQLiteRequest{OperationID: fmt.Sprintf("%s-recovery-%s-%d", operation, d.Binding.DatabaseID, time.Now().UnixNano()), Budget: 3 * time.Minute}, *coverage.Point)
+	id := fmt.Sprintf("%s-recovery-%s-%d", operation, d.Binding.DatabaseID, time.Now().UnixNano())
+	if task != "" {
+		id = task + "-" + string(d.Binding.DatabaseID)
+	}
+	request := requestAtPoint(restore.SQLiteRequest{OperationID: id, Budget: 3 * time.Minute}, *coverage.Point)
 	request.Coverage = &restore.CoverageEvidence{Source: request.Source, CoveredThrough: coverage.WritersQuiescedAt}
 	for _, invariant := range d.Invariants {
 		request.Invariants = append(request.Invariants, restore.Invariant{Kind: restore.InvariantKind(invariant.Kind), Table: invariant.Table, Column: invariant.Column, Count: invariant.Count, Minimum: invariant.Minimum, Maximum: invariant.Maximum})
 	}
 	if err = ensurePrivateChild(h.stateRoot, "archive-restores"); err != nil {
-		return err
+		return restore.SQLiteReceipt{}, err
 	}
 	engine := h.archiveRestoreEngine(d, binding, credentials)
 	receipt, err := checkSQLiteRestore(ctx, &engine, request)
 	if err != nil || receipt.OperationID != request.OperationID || !archiveRecoveryReceiptMatches(archive.SQLiteCoverageVariant(coverage), receipt, time.Now().UTC()) || len(d.Invariants) > 0 && receipt.InvariantCheck != "passed" {
-		return archive.ErrRefused
+		return restore.SQLiteReceipt{}, archive.ErrRefused
 	}
-	if h.recoveryVerified != nil {
-		h.recoveryVerified[string(p.ArchiveID)+":"+string(d.Binding.DatabaseID)] = receipt.ObservedAt
-	}
-	return nil
+	return receipt, nil
 }
 
 func archiveRecoveryReceiptMatches(variant archive.Coverage, receipt restore.SQLiteReceipt, now time.Time) bool {

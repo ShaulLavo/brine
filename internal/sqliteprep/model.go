@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/datainit"
 )
 
 const MaxRecordBytes = 128 << 10
@@ -50,14 +51,19 @@ func (t Task) Validate() error {
 }
 
 type Input struct {
-	Kind          TaskKind        `json:"kind"`
-	PreparationID string          `json:"preparation_id"`
-	App           string          `json:"app"`
-	DatabaseID    data.DatabaseID `json:"database_id"`
-	Supersedes    string          `json:"supersedes,omitempty"`
+	Kind                       TaskKind        `json:"kind"`
+	PreparationID              string          `json:"preparation_id"`
+	App                        string          `json:"app"`
+	DatabaseID                 data.DatabaseID `json:"database_id"`
+	Supersedes                 string          `json:"supersedes,omitempty"`
+	DeclarationPlanID          string          `json:"declaration_plan_id,omitempty"`
+	DeliveredCredentialVersion uint64          `json:"delivered_credential_version,omitempty"`
 }
 
 func (i Input) Validate() error {
+	if !ValidSelectors(i.DeclarationPlanID, i.DeliveredCredentialVersion) || i.Kind == AbandonTask && i.DeclarationPlanID != "" {
+		return ErrInvalid
+	}
 	if !data.ValidID(i.PreparationID) || !data.ValidID(string(i.DatabaseID)) || !appName.MatchString(i.App) || i.Kind != PrepareTask && i.Kind != AbandonTask {
 		return ErrInvalid
 	}
@@ -66,6 +72,10 @@ func (i Input) Validate() error {
 	}
 	return nil
 }
+func ValidSelectors(plan string, version uint64) bool {
+	return plan == "" && version == 0 || datainit.ValidID(plan) && version > 0 && version <= 1<<63-1
+}
+
 func (i Input) Matches(t Task) bool {
 	hash, err := Fingerprint(i)
 	return err == nil && t.Validate() == nil && t.Kind == i.Kind && t.App == i.App && t.InputSHA256 == hash
@@ -128,7 +138,10 @@ func (s Scope) Validate() error {
 	if !appName.MatchString(s.App) || !appName.MatchString(string(s.DatabaseName)) || !data.ValidID(string(s.IncarnationID)) || !data.ValidID(string(s.DatabaseID)) || !data.ValidID(string(s.BindingID)) || !data.ValidID(string(s.EpochID)) {
 		return ErrInvalid
 	}
-	for _, h := range []string{s.ConfigSHA256, s.PolicySHA256, s.TargetSHA256, s.DeclarationSHA256} {
+	if s.ReplicaCommitted && !data.ValidCatalogHash(s.ConfigSHA256) || !s.ReplicaCommitted && (s.ConfigSHA256 != "" || s.ActivatedCredentialVersion != 0) {
+		return ErrInvalid
+	}
+	for _, h := range []string{s.PolicySHA256, s.TargetSHA256, s.DeclarationSHA256} {
 		if !data.ValidCatalogHash(h) {
 			return ErrInvalid
 		}
@@ -203,6 +216,9 @@ type Intent struct {
 }
 
 func (i Intent) Validate() error {
+	if i.Input.DeclarationPlanID != "" && (i.Scope.ReplicaCommitted || i.Input.DeliveredCredentialVersion != i.Scope.CredentialVersion) {
+		return ErrInvalid
+	}
 	if !i.Input.Matches(i.Task) || i.Input.Kind != PrepareTask || i.Scope.Validate() != nil || i.Input.App != i.Scope.App || i.Input.DatabaseID != i.Scope.DatabaseID || !validFence(i.Fence, i.Scope) || i.Location.Validate() != nil || !utc(i.ClaimedAt) || !validModeArm(i.Mode, i.Arm) || i.Arm == LTX && !i.Scope.ReplicaCommitted {
 		return ErrInvalid
 	}
