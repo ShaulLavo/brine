@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -209,8 +210,8 @@ func checkDeploymentPreflight(t *testing.T, kind string) {
 	}
 	if kind == "database" || kind == "managed" || kind == "udp" {
 		_, err := readTUIDeploymentInput(t.Context(), path)
-		if result.Classify(err).Code() != result.InvalidUsage {
-			t.Fatalf("scope resolved missing artifact: %v", err)
+		if result.Classify(err).Code() != result.InvalidUsage || errors.Unwrap(err) != nil {
+			t.Fatalf("scope refusal came from artifact access instead of the syntactic boundary: %v", err)
 		}
 	}
 }
