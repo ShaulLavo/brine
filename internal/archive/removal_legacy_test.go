@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -19,5 +20,12 @@ func TestRemovalLegacyFingerprintGolden(t *testing.T) {
 	p := fixedLegacyPlan(t)
 	if p.ID != "sha256:f675549bba6fb8d4ec11cf7391e3def41bcdda3c8ac0e306941ea342bb1a1010" {
 		t.Fatalf("legacy fingerprint %s", p.ID)
+	}
+}
+
+func TestRemovalLegacyConcreteCoverageNullDecode(t *testing.T) {
+	var coverage SQLiteCoverage
+	if err := json.Unmarshal([]byte("null"), &coverage); err != nil {
+		t.Fatal("legacy concrete null decode changed", err)
 	}
 }

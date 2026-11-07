@@ -154,7 +154,7 @@ func (c SQLiteCoverage) Admits(p Plan, database SQLiteDatabase, operation string
 	if c.Prepared != nil {
 		return c.Receipt != nil && c.Receipt.OperationID != operation && c.Prepared.Admits(p, database, c, now)
 	}
-	if p.Removal != nil && (database.Written || p.Removal.hasRef(database.Binding.DatabaseID)) {
+	if p.Removal != nil && database.Written {
 		return false
 	}
 	b := database.Binding

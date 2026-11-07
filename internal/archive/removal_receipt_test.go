@@ -65,7 +65,7 @@ func TestRemovalReceiptStrictCodec(t *testing.T) {
 	for name, text := range cases {
 		t.Run(name, func(t *testing.T) { requireReceiptRefusal(t, []byte(text)) })
 	}
-	padded := append(raw, []byte(strings.Repeat(" ", 4096-len(raw)))...)
+	padded := []byte(text + strings.Repeat(" ", 4096-len(raw)))
 	if _, err := DecodeRemovalReceipt(padded); err != nil {
 		t.Fatal("4096-byte valid receipt refused", err)
 	}

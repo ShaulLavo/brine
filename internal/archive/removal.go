@@ -93,12 +93,3 @@ func (r Removal) valid(p Plan) bool {
 	}
 	return len(refs) == 0
 }
-
-func (r Removal) hasRef(id data.DatabaseID) bool {
-	for _, ref := range r.Points {
-		if ref.DatabaseID == id {
-			return true
-		}
-	}
-	return false
-}

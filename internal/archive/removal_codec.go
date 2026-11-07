@@ -49,21 +49,10 @@ func (c *PreparedCoverage) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-func (c *SQLiteCoverage) UnmarshalJSON(raw []byte) error {
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(raw, &fields) != nil || fields == nil {
-		return ErrRefused
+func optionalPreparedCoverage(raw json.RawMessage) bool {
+	if raw == nil {
+		return true
 	}
-	if prepared, exists := fields["prepared"]; exists {
-		if _, err := strictjson.Value[json.RawMessage](prepared); err != nil {
-			return ErrRefused
-		}
-	}
-	type record SQLiteCoverage
-	var value record
-	if json.Unmarshal(raw, &value) != nil {
-		return ErrRefused
-	}
-	*c = SQLiteCoverage(value)
-	return nil
+	_, err := strictjson.Value[json.RawMessage](raw)
+	return err == nil
 }
