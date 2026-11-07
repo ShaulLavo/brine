@@ -8,7 +8,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"github.com/ShaulLavo/brine/internal/plan"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/plan"
 )
 
 func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
@@ -29,11 +29,7 @@ func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	for from, tos := range ops.Transitions() {
-		for _, to := range tos {
-			if _, err = db.Exec("INSERT INTO transitions VALUES(?,?)", from, to); err != nil {
-				t.Fatal(err)
-			}
-		}
+		seedV1TransitionEdges(t, db, from, tos)
 	}
 	// Construct an actual v1 journal through its historical SQL shape. Current
 	// store methods deliberately only understand the unified v2, not old schemas.
@@ -93,7 +89,7 @@ func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
 	if !bytes.Equal(original, unchanged) || !info.ModTime().Equal(infoAfter.ModTime()) {
 		t.Fatal("v1 preview changed bytes/mtime")
 	}
-	migrated, err := Open(dir)
+	migrated, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,5 +152,14 @@ func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
 	}
 	if _, err := migrated.db.Exec("DELETE FROM events WHERE operation_id=?", id); err == nil {
 		t.Fatal("migration lost append-only trigger")
+	}
+}
+
+func seedV1TransitionEdges(t *testing.T, db *sql.DB, from ops.State, tos []ops.State) {
+	t.Helper()
+	for _, to := range tos {
+		if _, err := db.Exec("INSERT INTO transitions VALUES(?,?)", from, to); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

@@ -38,14 +38,16 @@ set -eu
 `
 
 func (h *host) checkBootReconcile(context.Context) (bool, error) {
-	for _, file := range []struct{ path, content string }{{reconcileUnitPath, reconcileUnit}, {reconcileGeneratorPath, reconcileGenerator}} {
-		if err := protectedParents(file.path); err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				return false, nil
-			}
+	artifacts := enrollmentArtifacts()
+	for _, file := range []enrollmentArtifact{artifacts[artifactReconcileUnit], artifacts[artifactReconcileGenerator]} {
+		err := protectedParents(file.path)
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		if err != nil {
 			return false, err
 		}
-		ok, err := h.fileMatches(file.path, hash([]byte(file.content)))
+		ok, err := h.fileMatches(file.path, hash(file.render(h)))
 		if err != nil || !ok {
 			return false, err
 		}
@@ -54,43 +56,50 @@ func (h *host) checkBootReconcile(context.Context) (bool, error) {
 }
 
 func (h *host) installBootReconcile(ctx context.Context) error {
-	for _, dir := range []string{filepath.Dir(reconcileUnitPath), filepath.Dir(reconcileGeneratorPath)} {
-		if _, owned := h.r.Dirs[dir]; owned {
-			if err := h.dir(dir, 0755, 0, 0); err != nil {
-				return err
-			}
-			continue
-		}
-		info, err := os.Lstat(dir)
-		if errors.Is(err, os.ErrNotExist) {
-			if err := h.dir(dir, 0755, 0, 0); err != nil {
-				return err
-			}
-			continue
-		}
-		if err != nil {
+	artifacts := enrollmentArtifacts()
+	files := []enrollmentArtifact{artifacts[artifactReconcileUnit], artifacts[artifactReconcileGenerator]}
+	for _, file := range files {
+		if err := h.prepareBootReconcileDirectory(filepath.Dir(file.path)); err != nil {
 			return err
 		}
-		st, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || !info.IsDir() || st.Uid != 0 || info.Mode().Perm()&0022 != 0 {
-			return errors.New("boot recovery parent must be a protected root-owned directory")
+	}
+	for _, file := range files {
+		if err := h.file(ctx, file.path, file.render(h), file.mode, false); err != nil {
+			return err
 		}
 	}
-	if err := h.file(ctx, reconcileUnitPath, []byte(reconcileUnit), 0644, false); err != nil {
+	return nil
+}
+
+func (h *host) prepareBootReconcileDirectory(dir string) error {
+	if _, owned := h.r.Dirs[dir]; owned {
+		return h.dir(dir, 0755, 0, 0)
+	}
+	info, err := os.Lstat(dir)
+	if errors.Is(err, os.ErrNotExist) {
+		return h.dir(dir, 0755, 0, 0)
+	}
+	if err != nil {
 		return err
 	}
-	return h.file(ctx, reconcileGeneratorPath, []byte(reconcileGenerator), 0755, false)
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.IsDir() || st.Uid != 0 || info.Mode().Perm()&0022 != 0 {
+		return errors.New("boot recovery parent must be a protected root-owned directory")
+	}
+	return nil
 }
 
 func (h *host) undoBootReconcile(context.Context) error {
+	artifacts := enrollmentArtifacts()
+	unit, generator := artifacts[artifactReconcileUnit], artifacts[artifactReconcileGenerator]
 	// Withdraw activation before removing the service. Never remove an unrecorded
 	// file or adopt a changed unit/generator: restoreFile verifies ownership/hash.
-	for _, path := range []string{reconcileGeneratorPath, reconcileUnitPath} {
+	for _, path := range []string{generator.path, unit.path} {
 		if err := h.restoreFile(path); err != nil {
 			return err
 		}
 	}
-	for _, path := range []string{filepath.Dir(reconcileGeneratorPath), filepath.Dir(reconcileUnitPath)} {
+	for _, path := range []string{filepath.Dir(generator.path), filepath.Dir(unit.path)} {
 		recorded, owned := h.r.Dirs[path]
 		if !owned {
 			continue

@@ -66,14 +66,9 @@ type Store struct {
 	cleanup                    func() error
 }
 
-// Open requires an existing private runner state directory. The connection pool
-// is deliberately one connection; WAL still permits other runner processes to
-// read while a writer commits. Immediate transactions avoid lock-upgrade races.
-func Open(stateDir string) (*Store, error) {
-	return OpenContext(context.Background(), stateDir)
-}
-
-// OpenContext applies the caller deadline to control-store initialization.
+// OpenContext requires an existing private runner state directory and applies
+// the caller deadline to initialization. One connection per pool avoids lock
+// upgrades; WAL permits other processes to read while a writer commits.
 func OpenContext(ctx context.Context, stateDir string) (*Store, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

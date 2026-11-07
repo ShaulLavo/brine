@@ -25,7 +25,7 @@ func TestRollbackPersistsExactDesiredWithoutApplying(t *testing.T) {
 	if e := os.Chmod(dir, 0700); e != nil {
 		t.Fatal(e)
 	}
-	db, e := store.Open(dir)
+	db, e := store.OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}

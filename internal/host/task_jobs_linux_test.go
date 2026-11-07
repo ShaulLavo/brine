@@ -34,7 +34,7 @@ func TestRestoreTaskDisposesVerifiedWorkspaces(t *testing.T) {
 
 func testRestoreTaskDisposesWorkspaces(t *testing.T, kind restore.SourceKind) {
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func restoreTaskFixture(t *testing.T, dir string) (*restore.SQLiteEngine, restor
 
 func TestRestoreTaskSerializationFailureDisposesOutput(t *testing.T) {
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestRestoreTaskInterruptedResultPersistence(t *testing.T) {
 
 func testRestoreTaskInterruptedPersistence(t *testing.T, persisted bool) {
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func testRestoreTaskInterruptedPersistence(t *testing.T, persisted bool) {
 
 func TestRestoreTaskCancellationSettlesWithoutOutput(t *testing.T) {
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -56,7 +56,7 @@ func TestUDPSnapshotAdmissionPreservesLiveFiles(t *testing.T) {
 func checkUDPSnapshotAdmission(t *testing.T, wal bool) {
 	t.Helper()
 	dir := stateDir(t)
-	writer, err := Open(dir)
+	writer, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

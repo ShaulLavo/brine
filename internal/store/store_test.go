@@ -53,15 +53,24 @@ func fixture(t testing.TB) plan.Input {
 	return plan.Input{Desired: d, Snapshot: s, Image: plan.Image{Digest: strings.Split(string(d.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: s.Arch}, ManifestDigest: target.Known("sha256:" + strings.Repeat("b", 64))}, State: plan.BrineState{Target: s.Identity, Generation: *s.Generation.Value, Releases: []plan.CurrentRelease{}}}
 }
 
-var pristineTestControlDB = sync.OnceValues(newPristineTestControlDB)
+var pristineControlSeed struct {
+	once sync.Once
+	data []byte
+	err  error
+}
 
-func newPristineTestControlDB() (data []byte, err error) {
+func pristineTestControlDB(ctx context.Context) ([]byte, error) {
+	pristineControlSeed.once.Do(func() { pristineControlSeed.data, pristineControlSeed.err = newPristineTestControlDB(ctx) })
+	return pristineControlSeed.data, pristineControlSeed.err
+}
+
+func newPristineTestControlDB(ctx context.Context) (data []byte, err error) {
 	dir, err := os.MkdirTemp("", "brine-store-schema-")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
-	s, err := Open(dir)
+	s, err := OpenContext(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +87,7 @@ func newPristineTestControlDB() (data []byte, err error) {
 
 func openTest(t testing.TB) *Store {
 	t.Helper()
-	data, e := pristineTestControlDB()
+	data, e := pristineTestControlDB(t.Context())
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -86,7 +95,7 @@ func openTest(t testing.TB) *Store {
 	if e := os.WriteFile(filepath.Join(dir, "control.db"), data, 0600); e != nil {
 		t.Fatal(e)
 	}
-	s, e := Open(dir)
+	s, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -121,7 +130,7 @@ func operation(t testing.TB, s *Store) OpID {
 }
 func TestMigrationsAndPragmas(t *testing.T) {
 	dir := stateDir(t)
-	s, e := Open(dir)
+	s, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -140,7 +149,7 @@ func TestMigrationsAndPragmas(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.Close()
-	_, e = Open(dir)
+	_, e = OpenContext(t.Context(), dir)
 	var schema *SchemaError
 	if !errors.As(e, &schema) {
 		t.Fatalf("downgrade: %v", e)
@@ -353,12 +362,12 @@ func TestIdempotencyConflictAcrossPlans(t *testing.T) {
 func TestConcurrentStoresShareIdempotencyAndEventSequence(t *testing.T) {
 	ctx := context.Background()
 	dir := stateDir(t)
-	a, e := Open(dir)
+	a, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer a.Close()
-	b, e := Open(dir)
+	b, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -369,24 +378,11 @@ func TestConcurrentStoresShareIdempotencyAndEventSequence(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < n; i++ {
 		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			s := a
-			if i%2 != 0 {
-				s = b
-			}
-			started := time.Now()
-			op, _, e := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "retry")
-			if e != nil {
-				t.Errorf("create request %d after %s: %v", i, time.Since(started), e)
-				return
-			}
-			ids <- op.ID
-			started = time.Now()
-			if _, e = s.AppendEvent(ctx, op.ID, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)}); e != nil {
-				t.Errorf("append request %d after %s: %v", i, time.Since(started), e)
-			}
-		}(i)
+		s := a
+		if i%2 != 0 {
+			s = b
+		}
+		go appendSharedStoreEvent(t, ctx, s, id, i, ids, &wg)
 	}
 	wg.Wait()
 	close(ids)
@@ -418,7 +414,7 @@ func TestPrivateFilesAndSymlinks(t *testing.T) {
 	if e := os.Symlink(other, filepath.Join(dir, "control.db")); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := Open(dir); e == nil {
+	if _, e := OpenContext(t.Context(), dir); e == nil {
 		t.Fatal("followed database symlink")
 	}
 	b, e := os.ReadFile(other)
@@ -452,7 +448,7 @@ func TestSQLBoundaryAndMigrationRollback(t *testing.T) {
 		t.Fatal(e)
 	}
 	db.Close()
-	if store, e := Open(dir); e == nil {
+	if store, e := OpenContext(t.Context(), dir); e == nil {
 		store.Close()
 		t.Fatal("accepted interrupted incompatible schema")
 	}
@@ -489,59 +485,19 @@ var _ interface {
 func TestConditionalTransitionsRaceWithoutOverwritingWinner(t *testing.T) {
 	ctx := context.Background()
 	dir := stateDir(t)
-	a, e := Open(dir)
+	a, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer a.Close()
-	b, e := Open(dir)
+	b, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer b.Close()
 	id, _ := saved(t, a)
 	for iteration := 0; iteration < 64; iteration++ {
-		op, _, e := a.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", fmt.Sprintf("race-%d", iteration))
-		if e != nil {
-			t.Fatal(e)
-		}
-		type result struct {
-			state ops.State
-			err   error
-		}
-		results := make(chan result, 2)
-		start := make(chan struct{})
-		for i, state := range []ops.State{ops.Failed, ops.Preflight} {
-			s := a
-			if i == 1 {
-				s = b
-			}
-			go func(s *Store, state ops.State) {
-				<-start
-				results <- result{state, s.TransitionOperation(ctx, op.ID, ops.Queued, state)}
-			}(s, state)
-		}
-		close(start)
-		first, second := <-results, <-results
-		winner, loser := first, second
-		if winner.err != nil {
-			winner, loser = loser, winner
-		}
-		if winner.err != nil {
-			t.Fatalf("no winner: %v / %v", first.err, second.err)
-		}
-		var conflict *ops.StateConflictError
-		if !errors.Is(loser.err, ops.ErrStateConflict) || !errors.As(loser.err, &conflict) || conflict.Current != winner.state {
-			t.Fatalf("loser conflict: %#v %v", conflict, loser.err)
-		}
-		got, e := a.GetOperation(ctx, op.ID)
-		if e != nil || got.State != winner.state {
-			t.Fatalf("winner overwritten: %s %v", got.State, e)
-		}
-		events, e := a.EventsAfter(ctx, op.ID, 0, 10)
-		if e != nil || len(events) != 1 || events[0].State != winner.state {
-			t.Fatalf("loser changed journal: %+v %v", events, e)
-		}
+		assertConditionalTransitionRace(t, ctx, a, b, id, iteration)
 	}
 }
 func TestConditionalTransitionRefusesIllegalEdge(t *testing.T) {
@@ -598,7 +554,7 @@ func TestOpenSecuresExistingFilesAndDirectory(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	s, e := Open(dir)
+	s, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -615,7 +571,7 @@ func TestOpenSecuresExistingFilesAndDirectory(t *testing.T) {
 	if e = os.Chmod(dir, 0755); e != nil {
 		t.Fatal(e)
 	}
-	second, e := Open(dir)
+	second, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -634,29 +590,37 @@ func TestOpenSecuresExistingFilesAndDirectory(t *testing.T) {
 func TestOpenRefusesAuxiliaryFileSymlinks(t *testing.T) {
 	for _, name := range []string{"control.db-wal", "control.db-shm"} {
 		t.Run(name, func(t *testing.T) {
-			dir := stateDir(t)
-			victim := filepath.Join(dir, "victim")
-			if e := os.WriteFile(victim, []byte("untouched"), 0644); e != nil {
-				t.Fatal(e)
-			}
-			if e := os.Symlink(victim, filepath.Join(dir, name)); e != nil {
-				t.Fatal(e)
-			}
-			if s, e := Open(dir); e == nil {
-				s.Close()
-				t.Fatal("followed sidecar symlink")
-			}
-			info, e := os.Stat(victim)
-			if e != nil || info.Mode().Perm() != 0644 {
-				t.Fatal("changed symlink target")
-			}
+			assertOpenRefusesAuxiliarySymlink(t, name)
 		})
+	}
+}
+
+func assertOpenRefusesAuxiliarySymlink(t *testing.T, name string) {
+	t.Helper()
+	dir := stateDir(t)
+	victim := filepath.Join(dir, "victim")
+	// #nosec G306 -- Deliberately readable symlink target must retain its bytes and metadata.
+	if e := os.WriteFile(victim, []byte("untouched"), 0644); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Symlink(victim, filepath.Join(dir, name)); e != nil {
+		t.Fatal(e)
+	}
+	if s, e := OpenContext(t.Context(), dir); e == nil {
+		if err := s.Close(); err != nil {
+			t.Error(err)
+		}
+		t.Fatal("followed sidecar symlink")
+	}
+	info, e := os.Stat(victim)
+	if e != nil || info.Mode().Perm() != 0644 {
+		t.Fatal("changed symlink target")
 	}
 }
 
 func TestOpenRepairsExistingSQLiteSidecars(t *testing.T) {
 	dir := stateDir(t)
-	first, e := Open(dir)
+	first, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -666,7 +630,7 @@ func TestOpenRepairsExistingSQLiteSidecars(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	second, e := Open(dir)
+	second, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -857,5 +821,65 @@ func corruptReleaseRecord(t *testing.T, s *Store, r Release, kind string) {
 	}
 	if _, err := s.db.ExecContext(t.Context(), "UPDATE releases SET content=?,content_hash=? WHERE id=?", raw, digest(raw), id); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func assertConditionalTransitionRace(t *testing.T, ctx context.Context, a, b *Store, id string, iteration int) {
+	t.Helper()
+	op, _, e := a.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", fmt.Sprintf("race-%d", iteration))
+	if e != nil {
+		t.Fatal(e)
+	}
+	type result struct {
+		state ops.State
+		err   error
+	}
+	results := make(chan result, 2)
+	start := make(chan struct{})
+	for i, state := range []ops.State{ops.Failed, ops.Preflight} {
+		s := a
+		if i == 1 {
+			s = b
+		}
+		go func(s *Store, state ops.State) {
+			<-start
+			results <- result{state, s.TransitionOperation(ctx, op.ID, ops.Queued, state)}
+		}(s, state)
+	}
+	close(start)
+	first, second := <-results, <-results
+	winner, loser := first, second
+	if winner.err != nil {
+		winner, loser = loser, winner
+	}
+	if winner.err != nil {
+		t.Fatalf("no winner: %v / %v", first.err, second.err)
+	}
+	var conflict *ops.StateConflictError
+	if !errors.Is(loser.err, ops.ErrStateConflict) || !errors.As(loser.err, &conflict) || conflict.Current != winner.state {
+		t.Fatalf("loser conflict: %#v %v", conflict, loser.err)
+	}
+	got, e := a.GetOperation(ctx, op.ID)
+	if e != nil || got.State != winner.state {
+		t.Fatalf("winner overwritten: %s %v", got.State, e)
+	}
+	events, e := a.EventsAfter(ctx, op.ID, 0, 10)
+	if e != nil || len(events) != 1 || events[0].State != winner.state {
+		t.Fatalf("loser changed journal: %+v %v", events, e)
+	}
+}
+
+func appendSharedStoreEvent(t *testing.T, ctx context.Context, s *Store, id string, i int, ids chan<- string, wg *sync.WaitGroup) {
+	defer wg.Done()
+	started := time.Now()
+	op, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: id}, "requester", "retry")
+	if err != nil {
+		t.Errorf("create request %d after %s: %v", i, time.Since(started), err)
+		return
+	}
+	ids <- op.ID
+	started = time.Now()
+	if _, err = s.AppendEvent(ctx, op.ID, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)}); err != nil {
+		t.Errorf("append request %d after %s: %v", i, time.Since(started), err)
 	}
 }

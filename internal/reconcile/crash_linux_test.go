@@ -22,7 +22,7 @@ func TestKilledRunnerChild(t *testing.T) {
 	if dir == "" {
 		return
 	}
-	s, err := store.Open(dir)
+	s, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

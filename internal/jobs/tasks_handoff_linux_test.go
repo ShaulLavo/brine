@@ -49,7 +49,7 @@ func TestTaskHandlerReceivesDurablePreflight(t *testing.T) {
 
 func checkTaskHandoff(t *testing.T, scenario taskHandoffCase) {
 	t.Helper()
-	state, err := store.Open(t.TempDir())
+	state, err := store.OpenContext(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

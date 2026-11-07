@@ -21,7 +21,7 @@ func TestEngineFenceSubprocess(t *testing.T) {
 	if root == "" {
 		return
 	}
-	s, err := Open(root)
+	s, err := OpenContext(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}

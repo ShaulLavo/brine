@@ -61,6 +61,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		return nil, err
 	}
 	var state *store.Store
+	var closeState func() error
 	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
 	if preview {
 		read, e := openPreviewState(ctx, stateDir)
@@ -71,18 +72,21 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 			return read, nil
 		}
 		state = read.previewStore
+		closeState = read.Close
 	} else {
-		state, err = store.Open(stateDir)
+		var gated *gatedStore
+		gated, err = openState(ctx, stateDir, stateMutating, nil)
+		if err == nil {
+			state, closeState = gated.Store, gated.Close
+		}
 	}
 	if err != nil {
 		return nil, result.New(result.DependencyMissing, err)
 	}
-	closers := []func() error{state.Close}
+	closers := []func() error{closeState}
 	defer func() {
 		if err != nil {
-			for i := len(closers) - 1; i >= 0; i-- {
-				closers[i]()
-			}
+			_ = closeRuntimeResources(closers)
 		}
 	}()
 	loader := DiskPolicy{}
@@ -223,13 +227,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 		r.Reconciler = readOnlyReconciler{reconciler}
 	}
 	r.Authorize = service.Authorize
-	r.close = func() error {
-		var errs []error
-		for i := len(closers) - 1; i >= 0; i-- {
-			errs = append(errs, closers[i]())
-		}
-		return errors.Join(errs...)
-	}
+	r.close = func() error { return closeRuntimeResources(closers) }
 	return r, nil
 }
 func regexpRequester(s string) bool {
@@ -321,9 +319,11 @@ func NewInventory(ctx context.Context) (*inventory.Collector, error) {
 		return nil, result.New(result.DependencyMissing, nil)
 	}
 	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
-	return &inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: func(ctx context.Context) (target.ControlInventory, error) {
-		return store.ReadInventoryState(ctx, stateDir)
-	}}, nil
+	return inventoryCollector(key, stateDir), nil
+}
+
+func inventoryCollector(key []byte, stateDir string) *inventory.Collector {
+	return &inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: func(ctx context.Context) (target.ControlInventory, error) { return readControlInventory(ctx, stateDir) }}
 }
 
 func (u lazyUnits) VerifyRemove(ctx context.Context, name, hash string) error {
@@ -357,4 +357,12 @@ func (u lazyUnits) RemoveRetained(ctx context.Context, name, hash string) error 
 }
 func (u lazyUnits) RestoreRemoved(ctx context.Context, name, hash string) error {
 	return u.withManager(func(m *quadlet.Manager) error { return m.RestoreRemoved(ctx, name, hash) })
+}
+
+func closeRuntimeResources(closers []func() error) error {
+	var failures []error
+	for i := len(closers) - 1; i >= 0; i-- {
+		failures = append(failures, closers[i]())
+	}
+	return errors.Join(failures...)
 }

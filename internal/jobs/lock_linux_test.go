@@ -50,7 +50,7 @@ func TestHostLockProcessHelper(t *testing.T) {
 	if dir == "" {
 		return
 	}
-	s, err := store.Open(dir)
+	s, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestHostLockProcessHelper(t *testing.T) {
 
 func TestRunnerLockUnavailableAfterAnotherProcess(t *testing.T) {
 	dir := t.TempDir()
-	s, err := store.Open(dir)
+	s, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,13 +114,14 @@ func TestRunnerLockUnavailableAfterAnotherProcess(t *testing.T) {
 	}
 	found := false
 	for _, event := range status.Events {
-		if event.Kind == "failure" {
-			var payload ops.FailurePayload
-			if err = json.Unmarshal(event.Payload, &payload); err != nil {
-				t.Fatal(err)
-			}
-			found = payload.Code == "lock_unavailable"
+		if event.Kind != "failure" {
+			continue
 		}
+		var payload ops.FailurePayload
+		if err = json.Unmarshal(event.Payload, &payload); err != nil {
+			t.Fatal(err)
+		}
+		found = payload.Code == "lock_unavailable"
 	}
 	if status.Operation.State != ops.Failed || !found {
 		t.Fatalf("lock failure was not journaled: %+v", status)

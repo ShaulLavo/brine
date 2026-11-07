@@ -6,27 +6,13 @@ import (
 	"context"
 	"errors"
 	"os"
-	"os/user"
-	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/localexec"
-	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/strictjson"
 	"golang.org/x/sys/unix"
 )
-
-// UDPGrantHeld runs only in the unprivileged local read helper.
-func UDPGrantHeld(ctx context.Context, app string) (bool, error) {
-	identity, err := user.LookupId(strconv.Itoa(os.Geteuid()))
-	if err != nil || identity.Username != "brine" || identity.HomeDir != home || !targetName.MatchString(app) {
-		return false, errPermissionsRefused
-	}
-	root := filepath.Join(home, ".local/state/brine")
-	return store.ReadUDPGrantHeld(ctx, root, app)
-}
 
 func operatorUDPGrantHeld(ctx context.Context, app string) (bool, error) {
 	return udpGrantHeldVia(ctx, localexec.ExecRunner{}, app)

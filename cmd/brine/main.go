@@ -51,7 +51,7 @@ func run(deps cli.Dependencies, args []string) int {
 }
 
 func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) int {
-	lifecycle := cli.RuntimeLifecycle{OpenPermits: func(ctx context.Context) (cli.RuntimeServices, error) {
+	lifecycle := cli.RuntimeLifecycle{ControlMigrate: host.ControlMigrate, UDPGrantHeld: host.UDPGrantHeld, OpenPermits: func(ctx context.Context) (cli.RuntimeServices, error) {
 		runtime, err := host.OpenPermits(ctx)
 		if err != nil {
 			return cli.RuntimeServices{}, err
@@ -89,19 +89,7 @@ func runWithRuntime(deps cli.Dependencies, args []string, authenticated string) 
 		if deps.HostOperationRunner == nil {
 			deps.HostOperationRunner = host.DetachedRunner{}
 		}
-		lifecycle.Open = func(ctx context.Context, preview bool) (cli.RuntimeServices, error) {
-			open := host.Open
-			if preview {
-				open = host.OpenPreview
-			}
-			// Local archive commands use the same enrolled requester as host serve.
-			channel := runtimeRequesterChannel(ctx, args, authenticated)
-			runtime, err := open(ctx, channel)
-			if err != nil {
-				return cli.RuntimeServices{}, err
-			}
-			return cli.RuntimeServices{NativeCapture: runtime.NativeCapture, Archives: runtime.Archives, ArchiveMaintenance: runtime.ArchiveMaintenance, ArchiveCredentials: runtime.ArchiveCredentials, Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
-		}
+		lifecycle.Open = hostRuntimeOpener(args, authenticated)
 	}
 	return result.ExitCode(cli.ExecuteWithRuntime(deps, args, lifecycle))
 }
@@ -126,4 +114,20 @@ func runtimeRequesterChannel(ctx context.Context, args []string, authenticated s
 		return "deploy"
 	}
 	return authenticated
+}
+
+func hostRuntimeOpener(args []string, authenticated string) func(context.Context, bool) (cli.RuntimeServices, error) {
+	return func(ctx context.Context, preview bool) (cli.RuntimeServices, error) {
+		open := host.Open
+		if preview {
+			open = host.OpenPreview
+		}
+		// Local archive commands use the same enrolled requester as host serve.
+		channel := runtimeRequesterChannel(ctx, args, authenticated)
+		runtime, err := open(ctx, channel)
+		if err != nil {
+			return cli.RuntimeServices{}, err
+		}
+		return cli.RuntimeServices{NativeCapture: runtime.NativeCapture, Archives: runtime.Archives, ArchiveMaintenance: runtime.ArchiveMaintenance, ArchiveCredentials: runtime.ArchiveCredentials, Runner: runtime.Runner, Reconciler: runtime.Reconciler, Close: runtime.Close}, nil
+	}
 }

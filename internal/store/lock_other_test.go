@@ -9,7 +9,7 @@ import (
 )
 
 func TestControlStoreRefusesNonLinuxHost(t *testing.T) {
-	if s, err := Open(t.TempDir()); !errors.Is(err, errHostOnly) || s != nil {
+	if s, err := OpenContext(t.Context(), t.TempDir()); !errors.Is(err, errHostOnly) || s != nil {
 		t.Fatalf("host store refusal: %v", err)
 	}
 	var s Store

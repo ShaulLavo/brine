@@ -42,7 +42,7 @@ func (r readinessInventory) Collect(ctx context.Context) (target.Snapshot, error
 	return copy.CollectReadiness(ctx)
 }
 func (r readinessInventory) controlInventory(ctx context.Context) (_ target.ControlInventory, err error) {
-	snapshot, err := store.OpenSnapshotReadOnly(ctx, r.dir)
+	snapshot, err := openState(ctx, r.dir, stateSnapshot, nil)
 	if err != nil {
 		return target.ControlInventory{}, err
 	}
@@ -54,7 +54,7 @@ type readinessControl struct{ dir string }
 
 func (r readinessControl) Control(ctx context.Context) (_ readiness.Control, err error) {
 	value := readiness.Control{State: "preview_unavailable", QuickCheck: readiness.Unknown[bool]("store_unavailable")}
-	snapshot, err := store.OpenSnapshotReadOnly(ctx, r.dir)
+	snapshot, err := openState(ctx, r.dir, stateSnapshot, nil)
 	if err != nil {
 		return readinessControlError(ctx, value, err)
 	}
@@ -85,26 +85,26 @@ func readinessControlError(ctx context.Context, value readiness.Control, err err
 }
 
 func (r readinessControl) Backups(ctx context.Context, identity target.Identity) (_ []readiness.Backup, err error) {
-	snapshot, err := store.OpenSnapshotReadOnly(ctx, r.dir)
+	snapshot, err := openState(ctx, r.dir, stateSnapshot, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, snapshot.Close()) }()
 	// These existing read ports include active preparations as well as releases.
 	// An unrepresented preparation is unknown, never a known empty backup set.
-	state, err := readinessState(ctx, snapshot, identity)
+	state, err := readinessState(ctx, snapshot.Store, identity)
 	if err != nil {
 		return nil, err
 	}
 	if len(state.Releases) > readiness.MaxItems || len(state.DataIncarnations) > readiness.MaxItems {
 		return nil, store.ErrInvalid
 	}
-	if err := readinessDatabaseCoverage(ctx, snapshot, state); err != nil {
+	if err := readinessDatabaseCoverage(ctx, snapshot.Store, state); err != nil {
 		return nil, err
 	}
 	out := []readiness.Backup{}
 	for _, release := range state.Releases {
-		values, err := readinessReleaseBackups(ctx, r.dir, snapshot, release)
+		values, err := readinessReleaseBackups(ctx, r.dir, snapshot.Store, release)
 		if err != nil {
 			return nil, err
 		}
@@ -130,16 +130,16 @@ func readinessState(ctx context.Context, snapshot *store.Store, identity target.
 	return snapshot.LoadBrineState(ctx, identity, control.Generation)
 }
 func (r readinessControl) Routes(ctx context.Context, observed target.Snapshot, policyHash string) (_ []string, err error) {
-	snapshot, err := store.OpenSnapshotReadOnly(ctx, r.dir)
+	snapshot, err := openState(ctx, r.dir, stateSnapshot, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, snapshot.Close()) }()
-	state, err := readinessState(ctx, snapshot, observed.Identity)
+	state, err := readinessState(ctx, snapshot.Store, observed.Identity)
 	if err != nil {
 		return nil, err
 	}
-	files, err := readinessRouteFiles(ctx, snapshot, state, observed, policyHash)
+	files, err := readinessRouteFiles(ctx, snapshot.Store, state, observed, policyHash)
 	if err != nil {
 		return nil, err
 	}

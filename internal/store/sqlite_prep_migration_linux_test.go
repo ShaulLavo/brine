@@ -83,7 +83,7 @@ func TestSQLitePreparationMigrationPreservesV34Journal(t *testing.T) {
 		}
 		t.Fatalf("read-only open of old schema: %v", err)
 	}
-	s, err := Open(dir)
+	s, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func assertSQLiteKindShapes(t *testing.T, s *Store) {
 
 func TestSQLitePreparationMigrationRollsBackOnFailure(t *testing.T) {
 	dir, before := v34Store(t, "CREATE TABLE data_sqlite_task_inputs(conflict TEXT)")
-	if s, err := Open(dir); err == nil {
+	if s, err := OpenContext(t.Context(), dir); err == nil {
 		_ = s.Close()
 		t.Fatal("conflicting migration committed")
 	}

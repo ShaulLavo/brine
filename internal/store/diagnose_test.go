@@ -82,11 +82,11 @@ func TestReadOnlyRefusesSymlinksAndOpenPermissions(t *testing.T) {
 	}
 }
 
-func TestReadGenerationDoesNotInitializeEmptyStore(t *testing.T) {
+func TestEmptyDirectoryReadDoesNotInitializeStore(t *testing.T) {
 	dir := t.TempDir()
-	generation, err := ReadGeneration(context.Background(), dir)
-	if err != nil || generation != 0 {
-		t.Fatalf("generation %d %v", generation, err)
+	empty, err := EmptyStateDirectory(t.Context(), dir)
+	if err != nil || !empty {
+		t.Fatalf("empty %v %v", empty, err)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) != 0 {
@@ -95,7 +95,61 @@ func TestReadGenerationDoesNotInitializeEmptyStore(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "unknown"), []byte("fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadGeneration(context.Background(), dir); err == nil {
+	if _, err := EmptyStateDirectory(t.Context(), dir); err == nil {
 		t.Fatal("unknown state became generation zero")
+	}
+}
+
+func TestEmptyStateDirectoryOnlyReportsAffirmativeAbsence(t *testing.T) {
+	dir := t.TempDir()
+	empty, err := EmptyStateDirectory(t.Context(), dir)
+	if err != nil || !empty {
+		t.Fatal(empty, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("empty check created files", entries, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unknown"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EmptyStateDirectory(t.Context(), dir); err == nil {
+		t.Fatal("unknown state reported empty")
+	}
+	if err := os.Remove(filepath.Join(dir, "unknown")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "control.db"), []byte("damaged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if empty, err := EmptyStateDirectory(t.Context(), dir); err != nil || empty {
+		t.Fatal("damaged database reported absent", empty, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := EmptyStateDirectory(ctx, dir); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}
+
+func TestEmptyStateDirectoryDoesNotRepairExistingDatabaseDirectory(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "control.db"), []byte("damaged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dir, 0750); err != nil {
+		t.Fatal(err)
+	} // #nosec G302 -- Deliberately unsafe existing-store fixture must remain unchanged.
+	empty, err := EmptyStateDirectory(t.Context(), dir)
+	if err != nil || empty {
+		t.Fatal(empty, err)
+	}
+	info, err := os.Stat(dir)
+	if err != nil || info.Mode().Perm() != 0750 {
+		t.Fatal("read helper repaired existing directory", info, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 1 || entries[0].Name() != "control.db" {
+		t.Fatal(entries, err)
 	}
 }

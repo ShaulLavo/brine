@@ -21,7 +21,7 @@ import (
 
 type PermitRuntime struct {
 	Reader replication.LaunchReader
-	state  *store.Store
+	state  *gatedStore
 }
 
 func (r *PermitRuntime) Close() error { return r.state.Close() }
@@ -36,12 +36,12 @@ func OpenPermits(ctx context.Context) (*PermitRuntime, error) {
 	if err != nil || identity.Username != "brine" || identity.HomeDir != "/home/brine" {
 		return nil, replication.ErrPermit
 	}
-	state, err := store.OpenReadOnly(ctx, filepath.Join(identity.HomeDir, ".local/state/brine"))
+	state, err := openState(ctx, filepath.Join(identity.HomeDir, ".local/state/brine"), stateReadOnly, nil)
 	if err != nil {
 		return nil, replication.ErrPermit
 	}
 	evidence := writerEvidence{Operations: attemptOperation{uid: uint32(os.Geteuid()), home: identity.HomeDir}, Home: identity.HomeDir} //nolint:gosec // Linux UID/GID originate as unsigned 32-bit syscall identities.
-	reader := launchPermits{StorePermits: replicapermits.StorePermits{State: state, Configs: replication.DiskConfigs{}, Writers: evidence}, State: state, Files: backupcredentials.Files{Root: filepath.Join(identity.HomeDir, ".local/state/brine/credentials")}}
+	reader := launchPermits{StorePermits: replicapermits.StorePermits{State: state.Store, Configs: replication.DiskConfigs{}, Writers: evidence}, State: state.Store, Files: backupcredentials.Files{Root: filepath.Join(identity.HomeDir, ".local/state/brine/credentials")}}
 	return &PermitRuntime{Reader: reader, state: state}, nil
 }
 

@@ -75,7 +75,7 @@ func TestMigrateV1Operations(t *testing.T) {
 		t.Fatal(err)
 	}
 	db.Close()
-	s, err := Open(dir)
+	s, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

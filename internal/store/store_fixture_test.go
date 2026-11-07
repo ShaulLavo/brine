@@ -34,7 +34,7 @@ func fixtureSchema(t *testing.T, db *sql.DB) [][4]string {
 }
 
 func TestPristineTestControlDBInitialized(t *testing.T) {
-	data, err := pristineTestControlDB()
+	data, err := pristineTestControlDB(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestPristineTestControlDBInitialized(t *testing.T) {
 	if err := db.QueryRow("SELECT version FROM schema_version").Scan(&version); err != nil || version != SchemaVersion {
 		t.Fatal("seed lacks current initialization", version, err)
 	}
-	fresh, err := Open(stateDir(t))
+	fresh, err := OpenContext(t.Context(), stateDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestPristineTestControlDBSingleImmutableSeed(t *testing.T) {
 	results := make(chan result, 4)
 	for range cap(results) {
 		go func() {
-			data, err := pristineTestControlDB()
+			data, err := pristineTestControlDB(t.Context())
 			results <- result{data, err}
 		}()
 	}
@@ -123,7 +123,7 @@ func requireEmptyFixture(t *testing.T, s *Store) {
 }
 
 func TestOpenTestPristineFixtureIsolation(t *testing.T) {
-	seed, err := pristineTestControlDB()
+	seed, err := pristineTestControlDB(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,11 +149,11 @@ func TestOpenTestPristineFixtureIsolation(t *testing.T) {
 func TestPristineTestControlDBTeardown(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("TMPDIR", root)
-	if _, err := newPristineTestControlDB(); err != nil {
+	if _, err := newPristineTestControlDB(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", filepath.Join(root, "missing"))
-	if _, err := newPristineTestControlDB(); err == nil {
+	if _, err := newPristineTestControlDB(t.Context()); err == nil {
 		t.Fatal("seed initialization ignored its unavailable temporary directory")
 	}
 	entries, err := os.ReadDir(root)

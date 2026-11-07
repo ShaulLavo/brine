@@ -52,7 +52,7 @@ func TestArchiveCredentialsPersistExactOriginalScopeWithoutActivation(t *testing
 	if err := s.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := Open(s.dir)
+	reopened, err := OpenContext(t.Context(), s.dir)
 	if err != nil {
 		t.Fatal(err)
 	}

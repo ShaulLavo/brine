@@ -63,7 +63,7 @@ func finishEngineTreeTransitionFixture(t *testing.T, binding data.SpacetimeDBBin
 	// A real store preparation is required; create its separate private state here.
 	ctx := context.Background()
 	stateRoot := t.TempDir()
-	state, err := store.Open(stateRoot)
+	state, err := store.OpenContext(t.Context(), stateRoot)
 	if err != nil {
 		t.Fatal(err)
 	}

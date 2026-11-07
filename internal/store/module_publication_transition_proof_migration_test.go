@@ -51,7 +51,7 @@ func TestPublicationTransitionProofMigrationAdmitsActualWriterKindsAndRetainsRow
 		_ = read.Close()
 		t.Fatal("readonly opener upgraded schema27")
 	}
-	state, err := Open(directory)
+	state, err := OpenContext(t.Context(), directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestPristinePublicationProofSchemaContainsCurrentKindDomain(t *testing.T) {
 	if err := os.Chmod(directory, 0700); err != nil { //nolint:gosec // Private runner state directory fixture.
 		t.Fatal(err)
 	}
-	state, err := Open(directory)
+	state, err := OpenContext(t.Context(), directory)
 	if err != nil {
 		t.Fatal(err)
 	}

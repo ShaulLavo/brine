@@ -964,15 +964,19 @@ Usage:
   brine enroll <ssh-destination> [flags]
 
 Flags:
-      --config-dir string    Private client target directory
-      --deploy-key string    Path to the operator-supplied Ed25519 public deploy key
-      --finish               Verify an existing enrollment and finish its private client target config
-  -h, --help                 help for enroll
-      --host-binary string   Matching-architecture Linux brine binary
-      --identity string      Private key path (defaults to --deploy-key without .pub)
-      --target-name string   Name of the pinned client target
-      --undo                 Remove only verified enrollment-owned resources
-      --yes                  Still requires terminal stdin and typed target-name confirmation
+      --config-dir string                  Private client target directory
+      --deploy-key string                  Path to the operator-supplied Ed25519 public deploy key
+      --finish                             Verify an existing enrollment and finish its private client target config
+  -h, --help                               help for enroll
+      --host-binary string                 Matching-architecture Linux brine binary
+      --identity string                    Private key path (defaults to --deploy-key without .pub)
+      --quiesce string                     Update quiescence: store or runner (all apps stop) (default "store")
+      --replace-unrecorded-binary string   Exact observed SHA256 of an unrecorded installed binary
+      --target-name string                 Name of the pinned client target
+      --undo                               Remove only verified enrollment-owned resources
+      --update                             Review and apply an exact-artifact update, or resume it
+      --update-abort                       Abort the pending update using its retained candidate and capture
+      --yes                                Still requires terminal stdin and typed target-name confirmation
 ```
 
 ### `brine logs`

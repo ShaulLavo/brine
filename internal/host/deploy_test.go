@@ -161,7 +161,7 @@ func newDeployRigAt(t *testing.T, dir string) *deployRig {
 		}
 		return b
 	}
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
