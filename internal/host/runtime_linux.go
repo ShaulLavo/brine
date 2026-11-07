@@ -319,9 +319,11 @@ func NewInventory(ctx context.Context) (*inventory.Collector, error) {
 		return nil, result.New(result.DependencyMissing, nil)
 	}
 	stateDir := filepath.Join(identity.HomeDir, ".local/state/brine")
-	return &inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: func(ctx context.Context) (target.ControlInventory, error) {
-		return readControlInventory(ctx, stateDir)
-	}}, nil
+	return inventoryCollector(key, stateDir), nil
+}
+
+func inventoryCollector(key []byte, stateDir string) *inventory.Collector {
+	return &inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key, StateInventory: func(ctx context.Context) (target.ControlInventory, error) { return readControlInventory(ctx, stateDir) }}
 }
 
 func (u lazyUnits) VerifyRemove(ctx context.Context, name, hash string) error {

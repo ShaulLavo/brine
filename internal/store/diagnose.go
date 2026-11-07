@@ -129,14 +129,14 @@ func EmptyStateDirectory(ctx context.Context, stateDir string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err = secureStateDir(dir); err != nil {
-		return false, err
-	}
 	_, err = os.Lstat(filepath.Join(dir, "control.db"))
 	if err == nil {
 		return false, nil
 	}
 	if !os.IsNotExist(err) {
+		return false, err
+	}
+	if err = secureStateDir(dir); err != nil {
 		return false, err
 	}
 	entries, err := os.ReadDir(dir)

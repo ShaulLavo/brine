@@ -86,7 +86,11 @@ func TestInventoryAbsenceNeedsSettledRetirement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	read, err := reader.InventoryState(t.Context())
 	if err != nil || !reflect.DeepEqual(state, read) {
 		t.Fatal("restricted read differs", read, err)
@@ -166,7 +170,11 @@ func assertInventoryReadersUnknown(t *testing.T, s *Store, generation uint64) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer reader.Close()
+	defer func() {
+		if err := reader.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	state, err := reader.InventoryState(t.Context())
 	if err != nil || len(state.Apps) != 1 || state.Apps[0].Status != target.Unknown || state.Generation != generation {
 		t.Fatal("read-only inventory invented absence", state, err)
