@@ -35,6 +35,10 @@ func PermissionsHostOperation(ctx context.Context, request PermissionsRequest) (
 	if err != nil || record.ID == "" || record.Journal.Phase != Enrolled {
 		return PermissionsResponse{}, errPermissionsRefused
 	}
+	h := &host{r: record}
+	if err := h.requireFreshAdmission(ctx, false); err != nil {
+		return PermissionsResponse{}, err
+	}
 	if err = permissionIdentity(request); err != nil {
 		return PermissionsResponse{}, err
 	}

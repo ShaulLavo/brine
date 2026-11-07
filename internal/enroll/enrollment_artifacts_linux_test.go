@@ -33,6 +33,10 @@ func TestEnrollmentArtifactRegistry(t *testing.T) {
 		{"/opt/brine/restic/0.19.1/restic", 0755, artifactToolPin},
 		{"/opt/brine/native-reader/brine-native-reader-v1/pin.json", 0644, artifactToolPin},
 		{"/etc/brine/runner-storage.conf", 0644, artifactToolPin},
+		{admissionDir + "/state.json", 0644, artifactAdmission},
+		{admissionDir + "/lock", 0644, artifactAdmission},
+		{admissionDir + "/stage.lock", 0644, artifactAdmission},
+		{settleUnitPath, 0644, artifactUpdatable},
 	}
 	if len(artifacts) != len(want) {
 		t.Fatal("artifact set changed")

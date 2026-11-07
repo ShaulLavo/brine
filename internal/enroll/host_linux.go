@@ -55,26 +55,32 @@ type ownedDir struct {
 	GID     int    `json:"gid"`
 }
 type hostRecord struct {
-	RetainedPolicy   bool                   `json:"retained_policy,omitempty"`
-	SSHReloadPending bool                   `json:"ssh_reload_pending,omitempty"`
-	Runtime          map[string]runtimeFile `json:"runtime"`
-	Journal          Journal                `json:"journal"`
-	ID               string                 `json:"id"`
-	Key              string                 `json:"key"`
-	BinaryHash       string                 `json:"binary_hash"`
-	GID              int                    `json:"gid"`
-	UID              int                    `json:"uid"`
-	Files            map[string]ownedFile   `json:"files"`
-	Dirs             map[string]ownedDir    `json:"dirs"`
-	Packages         []Package              `json:"packages"`
-	CaddyActive      bool                   `json:"caddy_active"`
-	CaddyEnabled     bool                   `json:"caddy_enabled"`
+	Update               *updateRecord          `json:"update,omitempty"`
+	AbortedUpdate        string                 `json:"aborted_update,omitempty"`
+	LastUpdate           string                 `json:"last_update,omitempty"`
+	AdmissionAbandonment *admissionAbandonment  `json:"admission_abandonment,omitempty"`
+	Admission            *admissionIdentity     `json:"admission,omitempty"`
+	RetainedPolicy       bool                   `json:"retained_policy,omitempty"`
+	SSHReloadPending     bool                   `json:"ssh_reload_pending,omitempty"`
+	Runtime              map[string]runtimeFile `json:"runtime"`
+	Journal              Journal                `json:"journal"`
+	ID                   string                 `json:"id"`
+	Key                  string                 `json:"key"`
+	BinaryHash           string                 `json:"binary_hash"`
+	GID                  int                    `json:"gid"`
+	UID                  int                    `json:"uid"`
+	Files                map[string]ownedFile   `json:"files"`
+	Dirs                 map[string]ownedDir    `json:"dirs"`
+	Packages             []Package              `json:"packages"`
+	CaddyActive          bool                   `json:"caddy_active"`
+	CaddyEnabled         bool                   `json:"caddy_enabled"`
 }
 type host struct {
 	r           hostRecord
 	exec        localexec.Executor
 	source      []byte
 	identityKey []byte
+	updateEnv   *updateEnvironment
 }
 
 func hash(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
@@ -152,7 +158,7 @@ func boundedRead(path string) ([]byte, error) {
 // enrollmentToolPath pins tools Debian installs only under /usr/sbin, which
 // the controlled localexec search path deliberately excludes.
 func enrollmentToolPath(path string) string {
-	if slices.Contains([]string{"useradd", "userdel", "runuser"}, path) {
+	if slices.Contains([]string{"useradd", "userdel", "usermod", "runuser"}, path) {
 		return "/usr/sbin/" + path
 	}
 	return path
@@ -179,7 +185,9 @@ func (h *host) facts(ctx context.Context, key []byte) (Facts, error) {
 	if err := h.verifySSHSourceManifest(ctx, "/etc/ssh/sshd_config"); err != nil {
 		return Facts{}, err
 	}
-	return (Prober{FS: inventory.HostFS{}, Runner: probeRunner{h.exec}, IdentityKey: key, OwnedRunner: h.owned, CheckAuthorization: h.checkAuthorizedKeyPaths}).Collect(ctx)
+	facts, err := (Prober{FS: inventory.HostFS{}, Runner: probeRunner{h.exec}, IdentityKey: key, OwnedRunner: h.owned, CheckAuthorization: h.checkAuthorizedKeyPaths}).Collect(ctx)
+	facts.Pending = h.pendingSummary()
+	return facts, err
 }
 func readRecord() (hostRecord, error) {
 	data, err := boundedRead(recordDir + "/record.json")
@@ -211,7 +219,7 @@ func readRecord() (hostRecord, error) {
 	}
 	return r, nil
 }
-func HostOperation(ctx context.Context, req HostRequest) (any, error) {
+func HostOperation(ctx context.Context, req HostRequest) (_ any, err error) {
 	if os.Geteuid() != 0 {
 		return nil, errors.New("enrollment host operations require operator admin access")
 	}
@@ -226,6 +234,9 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		return nil, err
 	}
 	h := &host{r: r, exec: localexec.ExecRunner{}, identityKey: req.IdentityKey}
+	if isUpdateAction(req.Action) && (r.ID == "" || r.Journal.Phase != Enrolled) {
+		return nil, errors.New("update requires completed enrollment")
+	}
 	if req.Action == "undo-probe" {
 		// Undo uses authenticated operator SSH and journal provenance, not deploy
 		// environment prerequisites. Unsafe SSH policy must not prevent removal.
@@ -245,7 +256,7 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		if err != nil {
 			return nil, err
 		}
-		return Facts{HostKey: hostKey, OwnedRunner: owned}, nil
+		return Facts{HostKey: hostKey, OwnedRunner: owned, Pending: h.pendingSummary()}, nil
 	}
 	if req.Action == "probe" {
 		if h.r.ID == "" {
@@ -255,7 +266,7 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		}
 		return h.facts(ctx, req.IdentityKey)
 	}
-	if req.Action != "apply" && req.Action != "undo" && req.Action != "verify" {
+	if !isUpdateAction(req.Action) && req.Action != "apply" && req.Action != "undo" && req.Action != "verify" {
 		return nil, errors.New("unknown enrollment action")
 	}
 	if req.Action == "verify" {
@@ -285,19 +296,37 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 	if err != nil || !info.IsDir() || info.Mode().Perm() != 0700 || info.Sys().(*syscall.Stat_t).Uid != 0 {
 		return nil, errors.New("unprotected enrollment journal directory")
 	}
-	lock, err := os.OpenFile(recordDir+"/lock", os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+	flags := os.O_RDWR | syscall.O_NOFOLLOW | syscall.O_CLOEXEC
+	if !isUpdateAction(req.Action) {
+		flags |= os.O_CREATE
+	}
+	lock, err := os.OpenFile(recordDir+"/lock", flags, 0600)
 	if err != nil {
 		return nil, err
 	}
-	defer lock.Close()
+	defer func() { err = errors.Join(err, lock.Close()) }()
+	lockInfo, err := lock.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if err := permissionRecordMetadata(lockInfo); err != nil {
+		return nil, err
+	}
 	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		return nil, errors.New("enrollment already running")
 	}
-	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
 	// Reload under the lock. The deploy user cannot write these records.
 	h.r, err = readRecord()
 	if err != nil {
 		return nil, err
+	}
+	if isUpdateAction(req.Action) {
+		return h.updateOperation(ctx, req)
+	}
+	if h.r.ID != "" {
+		if err := h.requireFreshAdmission(ctx, false); err != nil {
+			return nil, err
+		}
 	}
 	if req.Action == "undo" {
 		if h.r.ID == "" {
@@ -373,8 +402,8 @@ func HostOperation(ctx context.Context, req HostRequest) (any, error) {
 		if err = h.Save(h.r.Journal); err != nil {
 			return nil, err
 		}
-	} else if h.r.Key != key || (h.r.BinaryHash != hash(h.source) && h.r.Journal.Intents["binary"]) {
-		return nil, errors.New("enrollment options differ from durable intent")
+	} else if err := h.checkApplyIntent(key); err != nil {
+		return nil, err
 	}
 	if err := h.checkRecordedTransaction(ctx, f); err != nil {
 		return nil, err
@@ -565,6 +594,8 @@ func (h *host) steps() []Step {
 		{Name: "litestream", Check: h.checkLitestream, Apply: h.installLitestream, Undo: h.undoLitestream},
 		{Name: "restic", Check: h.checkRestic, Apply: h.installRestic, Undo: h.undoRestic},
 		{Name: "native-reader", Check: h.checkNativeReader, Apply: h.installNativeReader, Undo: h.undoNativeReader},
+		{Name: "admission", Check: h.checkAdmissionInstall, Apply: h.installAdmission, Undo: h.undoAdmission},
+		{Name: "admission-settle", Check: h.checkAdmissionSettle, Apply: h.installAdmissionSettle, Undo: h.undoAdmissionSettle},
 		{Name: "user", Check: h.checkUser, Apply: h.createUser, Undo: h.removeUser},
 		{Name: "layout", Check: h.checkLayout, Apply: h.layout, Undo: noop},
 		{Name: "runner-storage", Check: h.checkRunnerStorage, Apply: h.installRunnerStorage, Undo: h.undoRunnerStorage},
@@ -1109,7 +1140,7 @@ func (p probeRunner) RunStdout(ctx context.Context, path string, args ...string)
 }
 
 func (h *host) preflight(ctx context.Context) error {
-	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath, reconcileUnitPath, reconcileGeneratorPath, LitestreamPath, "/etc/brine", runnerstorage.Path} {
+	for _, p := range []string{home, binaryPath, "/etc/caddy/brine", rulePath, sshDir, sshPolicyPath, reconcileUnitPath, reconcileGeneratorPath, admissionDir, settleUnitPath, LitestreamPath, "/etc/brine", runnerstorage.Path} {
 		if _, err := os.Lstat(p); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("preexisting enrollment resource refused")
 		}
@@ -1258,4 +1289,11 @@ func runnerStateComplete(root *os.Root, uid, gid int) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+func (h *host) checkApplyIntent(key string) error {
+	if h.r.Key != key || (h.r.BinaryHash != hash(h.source) && h.r.Journal.Intents["binary"]) {
+		return errors.New("enrollment options differ from durable intent")
+	}
+	return nil
 }
