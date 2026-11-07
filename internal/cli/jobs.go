@@ -93,7 +93,7 @@ func newAcceptanceCmd(machine *bool, deps Dependencies, verb string) *cobra.Comm
 	argument, description := "PLAN_ID", "Accept a plan for detached execution on the target"
 	valid := jobs.ValidPlanID
 	if verb == "resolve" {
-		argument, description = "OPERATION_ID", "Inspect and resolve a terminal recovery-required operation"
+		argument, description = "OPERATION_ID", "Resolve deployment recovery; SQLite tasks use brine archive sqlite resolve"
 		valid = jobs.ValidID
 	}
 	cmd := &cobra.Command{Use: verb + " " + argument + " --target NAME", Short: description, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {

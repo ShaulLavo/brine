@@ -11,6 +11,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/result"
 )
 
 func (s *Store) ArchiveCandidate(ctx context.Context, app string) (archive.Candidate, error) {
@@ -122,7 +123,7 @@ func readArchiveCandidateDatabase(ctx context.Context, q dataQuerier, incarnatio
 	}
 	for _, fence := range permit.Fences {
 		if fence.State == data.FenceHeld && (owner == "" || fence.OperationID != owner) && !sqliteArchiveFenceAllowed(ctx, q, fence, owner, removal) {
-			return archive.Database{}, ErrConflict
+			return archive.Database{}, archiveFenceConflict(removal)
 		}
 	}
 	var allocation data.AllocationReceipt
@@ -203,4 +204,11 @@ func normalizeArchiveDatabaseCandidate(current, wanted archive.Database) (archiv
 		return archive.Database{}, false
 	}
 	return wanted, true
+}
+
+func archiveFenceConflict(removal bool) error {
+	if removal {
+		return result.New(result.RemovalPreparationRequired, ErrConflict)
+	}
+	return ErrConflict
 }

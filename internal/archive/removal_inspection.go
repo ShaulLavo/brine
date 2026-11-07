@@ -29,6 +29,9 @@ func (s Service) inspectRemoval(ctx context.Context, p Plan) (out Inspection, er
 	if err != nil {
 		return out, err
 	}
+	if !exists {
+		d.ArchiveID = p.ArchiveID
+	}
 	out.Disposition = d
 	if exists && (d.Stage == Retired || d.Stage == Abandoned) {
 		return out, nil

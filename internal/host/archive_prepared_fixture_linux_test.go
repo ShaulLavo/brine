@@ -162,6 +162,13 @@ func newRemovalHostRigMode(t *testing.T, two bool) *removalHostRig {
 
 func newRemovalHostRigSource(t *testing.T, two, running bool) *removalHostRig {
 	t.Helper()
+	r := newUnclaimedRemovalHostRigSource(t, two, running)
+	r.task = r.newTask(t, ops.SQLiteRetire, "", "")
+	r.service.Operation = r.task.ID
+	return r
+}
+func newUnclaimedRemovalHostRigSource(t *testing.T, two, running bool) *removalHostRig {
+	t.Helper()
 	ctx := t.Context()
 	sources, pol := newRemovalSources(t, two)
 	prep := sources[0]
@@ -197,8 +204,6 @@ func newRemovalHostRigSource(t *testing.T, two, running bool) *removalHostRig {
 		t.Fatal("removal planning", err)
 	}
 	r := &removalHostRig{prep: prep, host: h, service: s, plan: p, inventory: inv, recorder: recorder}
-	r.task = r.newTask(t, ops.SQLiteRetire, "", "")
-	r.service.Operation = r.task.ID
 	return r
 }
 
@@ -460,6 +465,13 @@ func removalReleasePlan(t *testing.T, r *sqlitePrepRig, desired policy.Desired, 
 
 func newEmptyRemovalHostRig(t *testing.T, two bool) *removalHostRig {
 	t.Helper()
+	r := newUnclaimedEmptyRemovalHostRig(t, two)
+	r.task = r.newTask(t, ops.SQLiteRetire, "", "")
+	r.service.Operation = r.task.ID
+	return r
+}
+func newUnclaimedEmptyRemovalHostRig(t *testing.T, two bool) *removalHostRig {
+	t.Helper()
 	_, desired, facts := persistentHostFixture(t)
 	root := shortReplicaStateRoot(t)
 	state, err := store.OpenContext(t.Context(), root)
@@ -489,8 +501,6 @@ func newEmptyRemovalHostRig(t *testing.T, two bool) *removalHostRig {
 		t.Fatal("empty removal plan", err)
 	}
 	r := &removalHostRig{prep: prep, host: h, service: s, plan: p, inventory: inv, recorder: recorder}
-	r.task = r.newTask(t, ops.SQLiteRetire, "", "")
-	r.service.Operation = r.task.ID
 	return r
 }
 func addEmptyRemovalDatabase(t *testing.T, state *store.Store, facts DataFacts, desired policy.Desired) data.SQLiteDatabaseBinding {

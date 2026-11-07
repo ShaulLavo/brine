@@ -203,6 +203,7 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	r.CDN = cdnOperations{service: service}
 	r.Runner.TaskHandlers[ops.NativeRecoverySet] = nativeRecoveryTask(service)
 	r.Archives = newArchiveService(service, stateDir, identity.HomeDir, session, localexec.ExecRunner{}, engine.Routes.(apply.RemovalRoutes), units)
+	wireSQLiteRemoval(r, appService, r.Archives, taskJobs, state)
 	nativeRetire := nativeRetireOperations{workflow: r.Archives, jobs: taskJobs, state: state}
 	r.NativeRetire = nativeRetire
 	r.Runner.TaskHandlers[ops.NativeRetire] = nativeRetire.task

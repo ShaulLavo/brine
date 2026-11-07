@@ -12,6 +12,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
 	"github.com/ShaulLavo/brine/internal/ops"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/sqliteprep"
 )
 
@@ -33,6 +34,9 @@ func readRemovalCandidate(ctx context.Context, tx *sql.Tx, app string, now time.
 		return archive.Candidate{}, nil, err
 	}
 	if err := guardArchiveUDP(ctx, tx, app); err != nil {
+		return archive.Candidate{}, nil, result.New(result.UDPReleaseRequired, err)
+	}
+	if err := guardRemovalEngines(ctx, tx, app); err != nil {
 		return archive.Candidate{}, nil, err
 	}
 	c, err := readArchiveCandidateFor(ctx, tx, app, "", true)
@@ -42,12 +46,18 @@ func readRemovalCandidate(ctx context.Context, tx *sql.Tx, app string, now time.
 	refs := []archive.PreparedRef{}
 	for _, variant := range c.Databases {
 		database, ok := variant.SQLite()
-		if !ok || len(database.Epochs) != 1 {
-			return c, nil, ErrConflict
+		if !ok {
+			return c, nil, result.New(result.PersistentArchiveRequired, nil)
+		}
+		if len(database.Epochs) != 1 {
+			return c, nil, result.New(result.ArchiveMultiEpochUnsupported, nil)
 		}
 		ref, found, err := readRemovalRef(ctx, tx, database.Binding.DatabaseID, now)
-		if err != nil || database.Written && !found {
-			return c, nil, errors.Join(ErrConflict, err)
+		if err != nil {
+			return c, nil, result.New(result.RemovalPreparationRequired, err)
+		}
+		if database.Written && !found {
+			return c, nil, result.New(result.RemovalPreparationRequired, nil)
 		}
 		if found {
 			refs = append(refs, ref)
@@ -177,6 +187,18 @@ func matchingRemovalDefinitions(d archive.SQLiteDatabase, scope sqliteprep.Scope
 	}
 	if scope.Schema.Marker == data.EmptyMarker && (len(d.Definitions) == 0 || scope.EmptyAllocation != nil && !d.Written) {
 		return d.Definitions
+	}
+	return nil
+}
+
+func guardRemovalEngines(ctx context.Context, q dataQuerier, app string) error {
+	var count int
+	err := q.QueryRowContext(ctx, `SELECT count(*) FROM data_engine_kinds k JOIN data_databases d ON d.id=k.database_id JOIN data_active_incarnations a ON a.incarnation_id=d.incarnation_id WHERE a.app=? AND k.engine!='sqlite'`, app).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count != 0 {
+		return result.New(result.PersistentArchiveRequired, nil)
 	}
 	return nil
 }

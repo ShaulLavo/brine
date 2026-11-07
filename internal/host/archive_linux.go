@@ -18,6 +18,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/replication"
 	"github.com/ShaulLavo/brine/internal/restore"
+	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/target"
 )
@@ -72,7 +73,7 @@ func (h archiveHost) archiveFacts(ctx context.Context, app, owner string, requir
 	if h.removal && owner == "" {
 		bounds, ok := pol.SQLiteRemovalBounds()
 		if !ok {
-			return archive.Plan{}, archive.ErrRefused
+			return archive.Plan{}, result.New(result.RemovalBoundsRequired, nil)
 		}
 		p.Removal = &archive.Removal{Bounds: bounds, Points: refs}
 		if err = removalWriterObservation(ctx, h, p); err != nil {

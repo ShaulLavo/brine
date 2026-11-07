@@ -31,6 +31,7 @@ type Runtime struct {
 	NativeRecovery           dispatch.NativeRecoveryOperations
 	NativeMaterial           dispatch.NativeMaterialOperations
 	NativeLiveRestore        dispatch.NativeLiveRestoreOperations
+	SQLiteRetire             dispatch.SQLiteRetireOperations
 	NativeRetire             dispatch.NativeRetireOperations
 	BackupCredentials        dispatch.BackupCredentialOperations
 	Config                   dispatch.ConfigurationOperations

@@ -120,6 +120,8 @@ var operations = map[string]operation{
 	"plan":                                  {Mutating, decodePlan},
 	"data_prepare_plan":                     {Mutating, decodePreparation},
 	"operation":                             {ReadOnly, decodeOperation},
+	"sqlite_retire_inspect":                 {ReadOnly, decodeSQLiteRetireInspect},
+	"sqlite_retire_resolve":                 {Mutating, decodeSQLiteRetireResolve},
 	"native_retire_plan":                    {Mutating, decodeNativeRetirePlan},
 	"native_retire":                         {Mutating, decodeNativeRetireApply},
 	"native_retire_inspect":                 {ReadOnly, decodeNativeRetireInspect},
@@ -238,6 +240,7 @@ type Server struct {
 	NativeMaterial         NativeMaterialOperations
 	NativeBackups          NativeBackupOperations
 	NativeLiveRestore      NativeLiveRestoreOperations
+	SQLiteRetire           SQLiteRetireOperations
 	NativeRetire           NativeRetireOperations
 	NativeBackupResolution NativeBackupResolutionOperations
 	ArchiveMaintenance     ArchiveMaintenanceOperations
@@ -370,6 +373,11 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 			return fail(result.Classify(err))
 		}
 		value = accepted
+	case SQLiteRetireInspectArgs, SQLiteRetireResolveArgs:
+		value, err = s.sqliteRetire(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
+		}
 	case NativeRetirePlanArgs, NativeRetireApplyArgs, NativeRetireInspectArgs, NativeRetireResolveArgs:
 		value, err = s.plannedNativeDataOperation(ctx, args)
 		if err != nil {
@@ -526,25 +534,9 @@ func (s *Server) Handle(ctx context.Context, stdin io.Reader) (result.Envelope, 
 		}
 		value = accepted
 	case ReconcileArgs:
-		if args.DryRun {
-			if s.Reconciler == nil {
-				return fail(result.New(result.DependencyMissing, nil))
-			}
-			report, err := s.Reconciler.DryRun(ctx)
-			if err != nil {
-				return fail(result.Classify(err))
-			}
-			value = report
-		} else {
-			jobs, ok := s.jobs.(ReconcileJobs)
-			if !ok {
-				return fail(result.New(result.DependencyMissing, nil))
-			}
-			accepted, err := jobs.Reconcile(ctx)
-			if err != nil {
-				return fail(result.Classify(err))
-			}
-			value = accepted
+		value, err = s.reconcileRequest(ctx, args)
+		if err != nil {
+			return fail(result.Classify(err))
 		}
 	case deploymentCheckpointArgs:
 		reader, ok := s.Planner.(DeploymentCheckpointReader)

@@ -66,6 +66,7 @@ Available Commands:
   credentials Renew only one retained archive binding and epoch without activating a replica
   maintain    Review retained-data verification or local deletion and inspect interrupted deletion
   native      Archive an exactly prepared SpacetimeDB app and preserve its recovery history
+  sqlite      Inspect and resolve prepared SQLite removal without deleting data
   status      Read archived credential health, retained verification and local deletion state
 
 Flags:
@@ -268,6 +269,56 @@ Usage:
 
 Flags:
       --config-dir string        Private client target directory
+  -h, --help                     help for resolve
+      --idempotency-key string   Reuse the reported key to recover the same operation after a lost response
+      --no-wait                  Return the accepted operation ID without waiting for verification
+      --target string            Pinned target name
+```
+
+### `brine archive sqlite`
+
+```text
+Inspect and resolve prepared SQLite removal without deleting data
+
+Usage:
+  brine archive sqlite [command]
+
+Available Commands:
+  inspect     Inspect preparation and disposition progress, including before a manifest exists
+  resolve     Continue retirement or safely abandon the original removal attempt
+
+Flags:
+  -h, --help   help for sqlite
+
+Use "brine archive sqlite [command] --help" for more information about a command.
+```
+
+### `brine archive sqlite inspect`
+
+```text
+Inspect preparation and disposition progress, including before a manifest exists
+
+Usage:
+  brine archive sqlite inspect ARCHIVE_ID --target NAME [flags]
+
+Flags:
+      --config-dir string   Private client target directory
+  -h, --help                help for inspect
+      --target string       Pinned target name
+```
+
+### `brine archive sqlite resolve`
+
+```text
+Continue retirement or safely abandon the original removal attempt
+
+Usage:
+  brine archive sqlite resolve OPERATION_ID --continue|--abandon --target NAME [flags]
+
+Flags:
+      --abandon                  Release the original fences only if runtime and data are unchanged
+      --config-dir string        Private client target directory
+      --continue                 Continue with fresh original-source verification
   -h, --help                     help for resolve
       --idempotency-key string   Reuse the reported key to recover the same operation after a lost response
       --no-wait                  Return the accepted operation ID without waiting for verification
@@ -1130,7 +1181,7 @@ Flags:
 ### `brine remove`
 
 ```text
-Plan to remove the app's owned unit
+Plan removal without deleting local or remote data. SQLite removal consumes reviewed preparation points, starts nothing and retains its archive for 30 days after commit. Early purge requires a separate reviewed plan.
 
 Usage:
   brine remove APP --target NAME [flags]
@@ -1144,7 +1195,7 @@ Flags:
 ### `brine resolve`
 
 ```text
-Inspect and resolve a terminal recovery-required operation
+Resolve deployment recovery; SQLite tasks use brine archive sqlite resolve
 
 Usage:
   brine resolve OPERATION_ID --target NAME [flags]
@@ -1348,19 +1399,23 @@ This command STOPS the app's writers, then obtains and independently verifies an
 
 The replica is stopped as part of preparation and is never started or restarted by it. Use --supersedes PREPARATION_ID to replace an unconsumed preparation under the same fence without starting anything; it re-verifies retained coverage, takes a new barrier from a replica that is still running, or captures a new snapshot of an unchanged stopped source.
 
+For an unreleased source, pass both --declaration-plan PLAN_ID and --credential-version N. A successor may inherit those exact references. Neither option activates replication.
+
 A prepared point is admissible for ten minutes, clipped by recorded retention. Its fence never expires on its own. Check it with: brine restore test APP --point PREPARATION_ID.
 
 Usage:
   brine restore prepare APP --target NAME [flags]
 
 Flags:
-      --config-dir string        Private client target directory
-      --database string          SQLite database name (required when more than one is present)
-  -h, --help                     help for prepare
-      --idempotency-key string   Reuse the reported key to recover the same operation after a lost response
-      --no-wait                  Return the accepted operation ID without waiting for verification
-      --supersedes string        Unconsumed preparation ID to replace under the same fence
-      --target string            Pinned target name
+      --config-dir string         Private client target directory
+      --credential-version uint   Exact delivered credential version for an unreleased SQLite source
+      --database string           SQLite database name (required when more than one is present)
+      --declaration-plan string   Exact retained declaration plan for an unreleased SQLite source
+  -h, --help                      help for prepare
+      --idempotency-key string    Reuse the reported key to recover the same operation after a lost response
+      --no-wait                   Return the accepted operation ID without waiting for verification
+      --supersedes string         Unconsumed preparation ID to replace under the same fence
+      --target string             Pinned target name
 ```
 
 ### `brine restore status`

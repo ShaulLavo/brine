@@ -35,21 +35,22 @@ var sqliteSourceSuffixes = [...]string{"", "-wal", "-shm", "-journal"}
 // and Schema inspect only these handles: no store, host lock or control
 // database access, so the store may call them inside its write transaction.
 type sqliteSource struct {
-	empty       *sqliteprep.EmptyAllocation
-	mu          sync.RWMutex
-	closed      bool
-	root        *os.File
-	rootPath    string
-	dir         *os.File
-	components  []string
-	filename    string
-	database    data.DatabaseName
-	databaseID  data.DatabaseID
-	definitions []data.SQLiteSchemaDefinition
-	location    sqliteprep.Location
-	members     map[string]*os.File
-	proofs      map[string]memberProof
-	hold        *store.SQLiteSourceHold
+	empty            *sqliteprep.EmptyAllocation
+	absentAllocation *data.AllocationReceipt
+	mu               sync.RWMutex
+	closed           bool
+	root             *os.File
+	rootPath         string
+	dir              *os.File
+	components       []string
+	filename         string
+	database         data.DatabaseName
+	databaseID       data.DatabaseID
+	definitions      []data.SQLiteSchemaDefinition
+	location         sqliteprep.Location
+	members          map[string]*os.File
+	proofs           map[string]memberProof
+	hold             *store.SQLiteSourceHold
 }
 
 // memberProof caches a content digest by the full change identity. A content
@@ -182,7 +183,7 @@ func (s *sqliteSource) Recheck(ctx context.Context) (sqliteprep.StoppedBundle, e
 	if err != nil || location != s.location {
 		return sqliteprep.StoppedBundle{}, errSQLiteSource
 	}
-	if s.empty != nil {
+	if s.empty != nil || s.absentAllocation != nil {
 		if err = s.emptyCensus(); err != nil {
 			return sqliteprep.StoppedBundle{}, err
 		}
@@ -310,6 +311,12 @@ func (s *sqliteSource) Schema(ctx context.Context) (data.SQLiteSchemaObservation
 	}
 	if s.empty != nil {
 		if s.empty.Validate() != nil || s.empty.DatabaseID != s.databaseID || s.empty.Location != s.location || s.sameDirectory() != nil || s.emptyCensus() != nil || ctx.Err() != nil {
+			return data.SQLiteSchemaObservation{}, errSQLiteSource
+		}
+		return data.SQLiteSchemaObservation{State: data.AllocatedEmpty, DatabaseID: s.databaseID, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: time.Now().UTC()}, nil
+	}
+	if s.absentAllocation != nil {
+		if !s.matchesAllocation(*s.absentAllocation) || s.emptyCensus() != nil || ctx.Err() != nil {
 			return data.SQLiteSchemaObservation{}, errSQLiteSource
 		}
 		return data.SQLiteSchemaObservation{State: data.AllocatedEmpty, DatabaseID: s.databaseID, Marker: data.EmptyMarker, CatalogSHA256: data.EmptyCatalogSHA256, ObservedAt: time.Now().UTC()}, nil

@@ -1271,3 +1271,13 @@ Live acceptance remains unchecked:
 ## Phase 05 local lifecycle slice
 
 T20 has partial lifecycle-only evidence in `TestTUILifecycleJSONParity` and `TestTUILifecycleWireErrorsPreserveOriginalRecovery`, including explicit same-plan/key acceptance recovery. Full deployment parity stays open. T23 additionally has value-free review/redaction coverage in `TestTUILifecycleReviewRedactionAndRollbackAvailability` and review goldens. `TestRunTUIPendingAcceptanceCleanupAndRecoveryNotice` covers real terminal cleanup with a pending acceptance. The transport is synthetic; this is not remote deployment or restore evidence.
+
+### T22 local Plan 008 integration evidence
+
+Normal SQLite removal is locally connected through the factory, transport,
+strict dispatcher, jobs runner and protected Store. Temporary SQLite and bounded
+synthetic manager/provider tests cover summaries, real archive renames,
+allocated-empty sources with and without points, initialized unreleased sources,
+two databases, preparation/disposition interruptions, resolver-only completion
+and lost replies. This does not establish named-host removal, provider retention,
+reboot, expiry or purge acceptance. T22 and P04-08 remain unchecked.

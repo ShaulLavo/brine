@@ -89,6 +89,13 @@ func (s *Store) ReadTaskOutcome(ctx context.Context, id string) (*ops.TaskOutcom
 	if err != nil {
 		return nil, err
 	}
+	if isSQLiteRetireKind(op.Kind) {
+		in, err := readSQLiteRetireInput(ctx, tx, op)
+		if err != nil {
+			return nil, err
+		}
+		return readSQLiteRetireOutcome(ctx, tx, op, in)
+	}
 	var canonical []byte
 	err = tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", id).Scan(&canonical)
 	if errors.Is(err, sql.ErrNoRows) {

@@ -65,7 +65,10 @@ func (s Service) Plan(ctx context.Context, app string) (p Plan, err error) {
 	}
 	defer func() { err = errors.Join(err, release()) }()
 	p, err = s.Host.Facts(ctx, app)
-	if err != nil || !preparationCoverageSupported(p.Candidate) {
+	if err != nil {
+		return Plan{}, err
+	}
+	if !preparationCoverageSupported(p.Candidate) {
 		return Plan{}, ErrRefused
 	}
 	id, err := data.NewID()

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -68,6 +70,9 @@ func newLifecycleCmd(deps Dependencies, modes *machineModes, verb string, action
 		return lifecycleOutput(cmd, deps, flags, args[0], action, includeEngine, *modes)
 	}}
 	flags.register(cmd)
+	if action == plan.RemoveApp {
+		cmd.Long = "Plan removal without deleting local or remote data. SQLite removal consumes reviewed preparation points, starts nothing and retains its archive for 30 days after commit. Early purge requires a separate reviewed plan."
+	}
 	if action == plan.StopApp {
 		cmd.Flags().BoolVar(&includeEngine, "engine", false, "Include the managed engine in the reviewed stop for material reload")
 	}
@@ -121,7 +126,11 @@ func configPlanOutput(cmd *cobra.Command, p apps.ConfigPlan, modes machineModes,
 	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Plan %s (%s). No app changes have been applied.\n", p.PlanID, p.Kind); err != nil {
 		return err
 	}
-	if p.Lifecycle == plan.RemoveApp {
+	if p.Archive != nil {
+		if err := printRemovalSummary(cmd, *p.Archive); err != nil {
+			return err
+		}
+	} else if p.Lifecycle == plan.RemoveApp {
 		if _, err := fmt.Fprintln(cmd.OutOrStdout(), "Action: remove_app. Withdraw the route, stop the app, remove its unit and release its port. Retained releases and secret versions stay for D5 rollback history. Persistent data needs P04-08 archival."); err != nil {
 			return err
 		}
@@ -178,4 +187,16 @@ func newSecretCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	flags.register(cmd)
 	parent.AddCommand(cmd)
 	return parent
+}
+
+func printRemovalSummary(cmd *cobra.Command, summary archive.RemovalSummary) error {
+	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Action: remove_app. Archive %s retains data for %d days after commit. Plan expires %s. Removal starts nothing and deletes no local or remote data. Early purge requires a separate reviewed plan.\n", summary.ArchiveID, summary.RetainDays, summary.ExpiresAt.Format(time.RFC3339)); err != nil {
+		return err
+	}
+	for _, d := range summary.Databases {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Database %s (%s): %s, preparation %s, source point %s.\n", d.Name, d.DatabaseID, d.Arm, d.PreparationID, d.SourcePointID); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/plan"
 	"github.com/ShaulLavo/brine/internal/policy"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -23,6 +24,7 @@ type Edit struct {
 	Action string `json:"action"`
 }
 type ConfigPlan struct {
+	Archive          *archive.RemovalSummary    `json:"archive,omitempty"`
 	ManagedLifecycle *plan.ManagedLifecyclePlan `json:"managed_lifecycle,omitempty"`
 	SecretRetention  string                     `json:"secret_retention,omitempty"`
 	Lifecycle        plan.ChangeKind            `json:"lifecycle,omitempty"`

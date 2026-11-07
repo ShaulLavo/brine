@@ -103,7 +103,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.PersistentFlags().BoolVar(&modes.jsonl, "jsonl", false, "Machine-readable JSON event stream")
 	root.PersistentFlags().BoolVar(&noInput, "no-input", false, "Never request interactive input")
 	archiveCommand := &cobra.Command{Use: "archive", Short: "Review and retire data archives"}
-	archiveCommand.AddCommand(newNativeRetireCmd(deps, &modes), newPublicArchiveStatusCmd(deps, &modes), newPublicArchiveMaintainCmd(deps, &modes), newPublicArchiveCredentialsCmd(deps, &modes))
+	archiveCommand.AddCommand(newSQLiteRetireCmd(deps, &modes), newNativeRetireCmd(deps, &modes), newPublicArchiveStatusCmd(deps, &modes), newPublicArchiveMaintainCmd(deps, &modes), newPublicArchiveCredentialsCmd(deps, &modes))
 	root.AddCommand(archiveCommand)
 	root.AddCommand(newCDNCmd(deps, &modes))
 	root.AddCommand(newHostCmd(deps), newBackupCmd(deps, &modes), newRestoreCmd(deps, &modes), newDataCmd(deps, &modes))

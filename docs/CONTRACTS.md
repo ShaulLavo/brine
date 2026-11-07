@@ -383,7 +383,7 @@ brine rollback APP [--release RELEASE_ID] --target staging
 brine config set APP KEY=VALUE --target staging        # env, resources, domains, health
 brine secret set APP NAME --target staging             # value from stdin; stores a new immutable version, unbound until applied
 brine restart|stop|start APP --target staging
-brine remove APP --target staging                      # stateless removal plan; persistent data archival is not implemented (D8)
+brine remove APP --target staging                      # stateless removal or prepared SQLite archive plan (D8)
 brine data purge ARCHIVE_ID --target staging           # only if policy allows agent purge (D8)
 brine restore live APP --backup BACKUP_ID --target staging   # only if policy allows (D8)
 brine diagnose [APP] --target staging                  # read-only report
@@ -509,7 +509,13 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `logs_container_timeout` | 1 | false | Log collection timed out while inspecting or reading the owned app container with Podman. |
 | `logs_container_unavailable` | 3 | false | App logs require Podman and the managed k8s-file log driver; inspect the app unit and container configuration. |
 | `logs_invalid_container` | 1 | false | The container log response is malformed. |
-| `persistent_archive_required` | 4 | false | Removal refused. Persistent data needs the P04-08 archive path; no data will be deleted. |
+| `persistent_archive_required` | 4 | false | Unsupported or mixed persistent engines require the native archive path. No data is deleted. |
+| `removal_preparation_required` | 5 | false | Prepare every written SQLite database, or inspect and resolve its existing preparation, then plan removal again. |
+| `udp_withdrawal_required` | 5 | false | Apply a reviewed release without UDP before preparation and removal. |
+| `archive_multi_epoch_unsupported` | 4 | false | SQLite removal does not support multiple replica epochs. |
+| `removal_bounds_required` | 4 | false | Explicit `sqlite_archive_removal` policy bounds are required. |
+| `plan_stale` | 5 | false | Review a new removal plan after preparing again if necessary. |
+| `continue_unavailable` | 6 | false | Inspect preparation progress and use safe abandonment when available. |
 | `app_not_found` | 2 | false | The app has no committed Brine release. |
 | `release_not_found` | 2 | false | The rollback release is not known for this app. |
 | `native_point_not_found` | 2 | false | The native point reference is not known on this target. |
@@ -1704,6 +1710,77 @@ Evidence is synthetic. Tests cover each rule, read-only database behavior, fake 
 Secret allocation journal writes each receive a fresh bounded detached context, independent of runtime-list and durable-version read deadlines. The transactional secret-version intent append is itself the name reservation, not a separate allocation write: either the reservation and intent commit together, or neither exists. Podman creation starts only after that commit; a failed intent consumes no version and causes no runtime create. Unknown committed reservations remain unavailable for reuse.
 
 
+### Prepared SQLite application removal
+
+`lifecycle` with `action: remove_app` returns an ordinary `apps.ConfigPlan`
+review with `kind: update`, `lifecycle: remove_app` and the archive plan's
+`plan_id`. Its optional `archive` summary includes `archive_id`, `expires_at`,
+`release_id`, the route file and units, `retain_days: 30` and per-database
+`name`, `database_id` and `arm`. Written arms are `prepared_ltx` or
+`prepared_snapshot`, with the producing `preparation_id`, `source_point_id`
+and original `cutoff`. Never-written allocations use `never_written`.
+The summary contains no credentials, SQL or data paths.
+
+Each written database needs one current, unconsumed preparation point.
+Unreleased initialized snapshots use their retained declaration and exact
+delivered credential version. A never-written allocation needs protected
+allocation identity, negative writer and settled initialization history, and a
+fresh complete empty-directory census. It needs no invented point or backup
+receipt. If it has an allocated-empty point, removal consumes that point and
+keeps its original fence. Multiple SQLite databases are supported, up to 16.
+Multiple epochs, unknown history, active UDP and enabled CDN attachments refuse
+before an archive plan is saved. Released UDP history does not block removal.
+Apply a reviewed release without UDP before preparation; removal does not
+withdraw UDP or cancel provider work.
+
+`apply` first looks up the immutable removal plan. A valid lookup submits a
+`sqlite_retire` task with a content-addressed protected input, not a deploy
+operation. Any lookup corruption refuses without fallback. Host-local archive
+plans are not routable here. Submit and claim both refuse an expired plan.
+Expiry is the earlier of 15 minutes after planning and every selected point's
+expiry. Explicit `sqlite_archive_removal` bounds constrain original backup age,
+verification age and recovery time. They do not grant removal permission.
+
+The existing archive engine claims the points once, verifies stopped sources,
+withdraws the exact route and units, and journal-renames the data trees. It
+never starts, restarts or stops a writer or replica. One host lock and one
+physical source/lifetime hold per database remain registered through claim and
+terminal settlement. Host identity and replica destination hashes are checked
+separately. Disposition admission checks the exact executing task and action
+before effects. The final transaction records the disposition, completion,
+receipt and executing task outcome together. Retirement keeps the original
+fences held and promises retention until the actual commit time plus 30 days.
+No local data or remote object is deleted. Early purge remains a separate
+reviewed maintenance operation.
+
+Recovery uses these exact dispatcher shapes, with aliases, duplicate keys,
+unknown fields and null required values refused:
+
+| Operation | Class | Arguments |
+| --- | --- | --- |
+| `sqlite_retire_inspect` | Read-only | `archive_id` |
+| `sqlite_retire_resolve` | Mutating | `operation_id`, `disposition` (`continue` or `abandon`), `idempotency_key` |
+
+The human routes are `brine archive sqlite inspect ARCHIVE_ID --target NAME`
+and `brine archive sqlite resolve OPERATION_ID --continue|--abandon --target NAME`.
+JSON and JSONL each return one envelope. Resolver tasks may be observed with
+`--no-wait` and `status --operation`. Generic `brine resolve` still refuses tasks.
+Inspection reports preparation progress without requiring a manifest or a
+disposition. Before sequence 8, only safe abandonment is available. A saved
+manifest permits continuation through fresh verification of the original source,
+without preparing, uploading or claiming again. After runtime retirement or a
+rename, abandonment refuses. Safe abandonment retains and rechecks the original
+source holds at commit and does not require remote credentials. A resolver
+completes only itself; the original `recovery_required` history stays immutable.
+Lost completion replies return the protected stored receipt without replay.
+
+The terminal receipt format is `brine-sqlite-archive-receipt-v1`. It binds the
+executing `operation_id`, `attempt_operation_id`, `plan_id`, `archive_id`, manifest
+and completion digests, `outcome` (`retired` or `abandoned`) and `retain_until`.
+Pre-manifest abandonment has an empty manifest digest, not a fabricated manifest.
+Local synthetic-provider tests do not establish physical retention or removal
+acceptance. P04-08 and T22 remain open.
+
 ### Stateless application removal
 
 `brine remove APP --target NAME` records a plan, not a deletion. Apply it through
@@ -1742,14 +1819,12 @@ An old removal receipt cannot retire a recreated application's different head.
 A genuinely uninstalled app yields a clean no-op plan; repeated removal is safe.
 An observed orphan artifact is a conflict, not proof of an uninstalled app.
 
-Active persistent incarnations, committed volume units and mounted-data
-directives refuse with `persistent_archive_required` (exit 4) before effects
-and explain that archival is required. Active incarnation ownership is
-loaded from the same control-store transaction as release heads; a missing
-release is not proof of absence. Prepared, settled-empty and successfully
-initialized incarnations without a release all refuse. Initialization attempts,
-fences, allocations, replica bindings and restore receipts remain untouched.
-This does not implement archival, retirement, expiry or purge.
+Persistent incarnations do not enter this stateless executor. The lifecycle
+service releases its planning lock and delegates SQLite removal to the archive
+engine below. A missing release is not proof of absence. Unsupported or mixed
+engines refuse with `persistent_archive_required`; native apps use
+`brine archive native plan`. No path falls back to deployment after a failed
+archive-plan lookup.
 
 Interrupted removal uses a read-only, ownership-bound contiguous-prefix
 assessment under the same host lock as single-use continuation. Policy, target,

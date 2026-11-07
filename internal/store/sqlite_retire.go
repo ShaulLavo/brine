@@ -66,7 +66,7 @@ func (s *Store) SaveSQLiteRetireInput(ctx context.Context, in SQLiteRetireInput)
 		return "", errors.Join(ErrConflict, err)
 	}
 	if in.Kind == ops.SQLiteRetire && !s.removalNow().Before(p.Removal.ExpiresAt) {
-		return "", ErrConflict
+		return "", result.New(result.PlanStale, ErrConflict)
 	}
 	if in.Kind == ops.SQLiteRetireResolve {
 		if _, err = readSQLiteRetireOriginal(ctx, tx, p, in.OriginalOperationID); err != nil {
@@ -238,10 +238,18 @@ func (s *Store) ReadSQLiteRetireOutcome(ctx context.Context, id string) (*ops.Ta
 	if err != nil {
 		return nil, err
 	}
+	outcome, err := readSQLiteRetireOutcome(ctx, tx, op, in)
+	if err != nil {
+		return nil, err
+	}
+	return outcome, tx.Commit()
+}
+
+func readSQLiteRetireOutcome(ctx context.Context, tx *sql.Tx, op ops.Operation, in SQLiteRetireInput) (*ops.TaskOutcome, error) {
 	var raw []byte
-	err = tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", id).Scan(&raw)
+	err := tx.QueryRowContext(ctx, "SELECT canonical FROM operation_outcomes WHERE operation_id=?", op.ID).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) && !op.State.IsTerminal() {
-		return nil, tx.Commit()
+		return nil, nil
 	}
 	if err != nil {
 		return nil, err
@@ -254,13 +262,13 @@ func (s *Store) ReadSQLiteRetireOutcome(ctx context.Context, id string) (*ops.Ta
 		if _, err = readSQLiteRetireSuccess(ctx, tx, op, in); err != nil {
 			return nil, err
 		}
-	} else if err = checkSQLiteRetireSettlement(ctx, tx, op, in); err != nil {
+	} else if err = checkSQLiteRetireSettlement(ctx, tx, op); err != nil {
 		return nil, err
 	}
-	return &outcome, tx.Commit()
+	return &outcome, nil
 }
 
-func checkSQLiteRetireSettlement(ctx context.Context, q dataQuerier, op ops.Operation, in SQLiteRetireInput) error {
+func checkSQLiteRetireSettlement(ctx context.Context, q dataQuerier, op ops.Operation) error {
 	var code string
 	if err := q.QueryRowContext(ctx, "SELECT code FROM data_sqlite_retire_settlements WHERE operation_id=?", op.ID).Scan(&code); err != nil {
 		return err
@@ -272,7 +280,7 @@ func checkSQLiteRetireSettlement(ctx context.Context, q dataQuerier, op ops.Oper
 		return nil
 	}
 	var claimed int
-	err := q.QueryRowContext(ctx, "SELECT count(*) FROM data_archive_operations WHERE plan_id=?", in.PlanID).Scan(&claimed)
+	err := q.QueryRowContext(ctx, "SELECT count(*) FROM data_sqlite_archive_attempts WHERE task_operation_id=?", op.ID).Scan(&claimed)
 	if err != nil || claimed != 0 || op.Kind != ops.SQLiteRetire {
 		return errors.Join(&IntegrityError{}, err)
 	}

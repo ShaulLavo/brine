@@ -83,6 +83,11 @@ func (h archiveHost) attachPreparedSource(ctx context.Context, p archive.Plan, v
 	if err != nil {
 		return errors.Join(err, hold.Release())
 	}
+	if empty == nil && !d.Written {
+		if err = h.qualifyAbsentSource(ctx, p, d, source); err != nil {
+			return errors.Join(err, source.Close())
+		}
+	}
 	if err = h.checkPreparedSource(ctx, p, d, source); err != nil {
 		return errors.Join(err, source.Close())
 	}
@@ -259,4 +264,12 @@ func (h archiveHost) preparedEmptyExpectation(ctx context.Context, p archive.Pla
 		return source.Scope.EmptyAllocation, nil
 	}
 	return nil, nil
+}
+
+func (h archiveHost) qualifyAbsentSource(ctx context.Context, p archive.Plan, d archive.SQLiteDatabase, source *sqliteSource) error {
+	allocation, err := h.absentRemovalAllocation(ctx, p, d)
+	if err != nil {
+		return err
+	}
+	return qualifyAbsentRemovalSource(source, allocation)
 }
