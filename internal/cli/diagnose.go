@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,29 +20,9 @@ func newDiagnoseCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 		if len(args) > 0 {
 			request.App = args[0]
 		}
-		if err := request.Validate(); err != nil {
-			return err
-		}
-		response, err := flags.call(cmd.Context(), deps, "diagnose", request)
+		report, err := readDiagnosis(cmd.Context(), deps, flags, request)
 		if err != nil {
 			return err
-		}
-		if !response.OK {
-			if response.Error != nil {
-				return result.New(response.Error.Code, nil)
-			}
-			return result.New(result.TransportInvalidResponse, nil)
-		}
-		raw, err := json.Marshal(response.Data)
-		if err != nil {
-			return result.New(result.TransportInvalidResponse, nil)
-		}
-		report, err := diagnose.DecodeReport(raw)
-		if err != nil {
-			return err
-		}
-		if request.App != "" && (len(report.Apps) != 1 || report.Apps[0].Name != request.App) {
-			return result.New(result.TransportInvalidResponse, nil)
 		}
 		encoder := json.NewEncoder(cmd.OutOrStdout())
 		if modes.json {
@@ -58,15 +39,56 @@ func newDiagnoseCmd(deps Dependencies, modes *machineModes) *cobra.Command {
 	flags.register(cmd)
 	return cmd
 }
+func readDiagnosis(ctx context.Context, deps Dependencies, flags operationFlags, request diagnose.Request) (diagnose.Report, error) {
+	if err := request.Validate(); err != nil {
+		return diagnose.Report{}, err
+	}
+	response, err := flags.call(ctx, deps, "diagnose", request)
+	if err != nil {
+		return diagnose.Report{}, err
+	}
+	if !response.OK {
+		return diagnose.Report{}, rejectedDiagnosis(response)
+	}
+	raw, err := json.Marshal(response.Data)
+	if err != nil {
+		return diagnose.Report{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	report, err := diagnose.DecodeReport(raw)
+	if err != nil {
+		return diagnose.Report{}, err
+	}
+	if request.App != "" && (len(report.Apps) != 1 || report.Apps[0].Name != request.App) {
+		return diagnose.Report{}, result.New(result.TransportInvalidResponse, nil)
+	}
+	return report, nil
+}
+
+func rejectedDiagnosis(response result.Envelope) error {
+	if response.Error != nil {
+		return result.New(response.Error.Code, nil)
+	}
+	return result.New(result.TransportInvalidResponse, nil)
+}
+
 func printDiagnosis(out io.Writer, report diagnose.Report, flags operationFlags) error {
-	// Render every fact, including unknown reasons, rather than presenting missing data as healthy.
-	raw, err := json.Marshal(report)
+	lines, err := diagnosisLines(report, flags)
 	if err != nil {
 		return err
 	}
+	_, err = io.WriteString(out, strings.Join(lines, "\n")+"\n")
+	return err
+}
+
+func diagnosisLines(report diagnose.Report, flags operationFlags) ([]string, error) {
+	// Render every fact, including unknown reasons, rather than presenting missing data as healthy.
+	raw, err := json.Marshal(report)
+	if err != nil {
+		return nil, err
+	}
 	var tree map[string]any
 	if err = json.Unmarshal(raw, &tree); err != nil {
-		return err
+		return nil, err
 	}
 	var text strings.Builder
 	fmt.Fprintf(&text, "Diagnosis for target %s\n", flags.target)
@@ -90,20 +112,23 @@ func printDiagnosis(out io.Writer, report diagnose.Report, flags operationFlags)
 		}
 		fmt.Fprintf(&text, "[%s] %s (%s): %s\n", finding.Severity, finding.Code, scope, finding.Message)
 		for _, next := range finding.NextOperations {
-			args := strings.Fields(next)
-			for i, arg := range args {
-				if arg == "--target" && i+1 < len(args) && args[i+1] == "NAME" {
-					args = append(args[:i], args[i+2:]...)
-					next = flags.command(args[1:]...)
-					break
-				}
-			}
-			fmt.Fprintf(&text, "  Next: %s\n", next)
+			fmt.Fprintf(&text, "  Next: %s\n", diagnosisCommand(next, flags))
 		}
 	}
-	_, err = io.WriteString(out, text.String())
-	return err
+	return strings.Split(strings.TrimSuffix(text.String(), "\n"), "\n"), nil
 }
+
+func diagnosisCommand(next string, flags operationFlags) string {
+	args := strings.Fields(next)
+	for i, arg := range args {
+		if arg == "--target" && i+1 < len(args) && args[i+1] == "NAME" {
+			args = append(args[:i], args[i+2:]...)
+			return flags.command(args[1:]...)
+		}
+	}
+	return next
+}
+
 func printFacts(out *strings.Builder, path string, value any) {
 	object, ok := value.(map[string]any)
 	if !ok {
