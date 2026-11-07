@@ -353,18 +353,20 @@ func TestReadinessBindingCoverageIncludesEveryDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = copy.Close() }()
-	both := map[data.DatabaseID]data.SQLiteDatabaseBinding{first.Database.DatabaseID: first.Database, second.Database.DatabaseID: second.Database}
-	if err := readinessIncarnationCoverage(t.Context(), copy, string(first.Database.IncarnationID), both); err != nil || len(both) != 0 {
+	firstBinding := store.ReadinessBinding{App: "hello", Engine: data.EngineSQLite, SQLite: first.Database}
+	secondBinding := store.ReadinessBinding{App: "hello", Engine: data.EngineSQLite, SQLite: second.Database}
+	both := map[store.ReadinessBinding]struct{}{firstBinding: {}, secondBinding: {}}
+	if err := readinessBindingCoverage(t.Context(), copy, both); err != nil || len(both) != 0 {
 		t.Fatal("exact bindings lost coverage", both, err)
 	}
-	onlyFirst := map[data.DatabaseID]data.SQLiteDatabaseBinding{first.Database.DatabaseID: first.Database}
-	if err := readinessIncarnationCoverage(t.Context(), copy, string(first.Database.IncarnationID), onlyFirst); err == nil {
+	onlyFirst := map[store.ReadinessBinding]struct{}{firstBinding: {}}
+	if err := readinessBindingCoverage(t.Context(), copy, onlyFirst); err == nil {
 		t.Fatal("another prepared database disappeared behind an existing binding")
 	}
-	crossed := first.Database
-	crossed.ReplicaBindingID = data.ReplicaBindingID(strings.Repeat("f", 32))
-	bindings := map[data.DatabaseID]data.SQLiteDatabaseBinding{first.Database.DatabaseID: crossed, second.Database.DatabaseID: second.Database}
-	if err := readinessIncarnationCoverage(t.Context(), copy, string(first.Database.IncarnationID), bindings); err == nil {
+	crossed := firstBinding
+	crossed.SQLite.ReplicaBindingID = data.ReplicaBindingID(strings.Repeat("f", 32))
+	bindings := map[store.ReadinessBinding]struct{}{crossed: {}, secondBinding: {}}
+	if err := readinessBindingCoverage(t.Context(), copy, bindings); err == nil {
 		t.Fatal("database name substituted for exact binding identity")
 	}
 	if !reflect.DeepEqual(before, diagnosticFiles(t, dir)) {
