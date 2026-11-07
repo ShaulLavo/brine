@@ -488,6 +488,9 @@ func (h *host) abortUpdate(ctx context.Context, d updateDrain) (any, error) {
 	if err := h.disableAddedSettle(ctx); err != nil {
 		return nil, err
 	}
+	if err := h.removeAddedUpdateObserver(ctx); err != nil {
+		return nil, err
+	}
 	if err := h.replaceUpdateArtifacts(ctx, d, true); err != nil {
 		return nil, err
 	}

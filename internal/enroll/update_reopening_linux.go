@@ -27,7 +27,7 @@ func (h *host) finishUpdate(ctx context.Context, d updateDrain) error {
 		return err
 	}
 	u.Reopening = &updateReopening{}
-	if u.Fence == nil {
+	if u.Fence == nil && h.updateReconcileRequired() {
 		p, err := h.userUpdateUnit(ctx, "brine-reconcile.service")
 		if err != nil {
 			return err
@@ -194,7 +194,7 @@ func (h *host) retireUpdateActivation(ctx context.Context, a *updateActivation, 
 	if abort {
 		suffix = "abort"
 	}
-	for label, e := range map[string]*updateEffect{"daemon-reload": &a.Reload, "settle-enable": &a.Enable, "observer": &a.Observer, "user-reload": &a.UserReload} {
+	for label, e := range map[string]*updateEffect{"daemon-reload": &a.Reload, "settle-enable": &a.Enable, "observer": &a.Observer, "observer-remove": &a.ObserverRemoval, "user-reload": &a.UserReload} {
 		if !e.Intent || !e.Done {
 			continue
 		}
@@ -208,7 +208,7 @@ func (h *host) retireUpdateActivation(ctx context.Context, a *updateActivation, 
 
 func (h *host) removeBootstrapAdmission(ctx context.Context) (err error) {
 	u := h.r.Update
-	if !u.Aborting || !u.Plan.Bootstrap || u.Reopening == nil || !u.Reopening.Reconcile.Done {
+	if !u.Aborting || !u.Plan.Bootstrap || u.Reopening == nil || h.updateReconcileRequired() && !u.Reopening.Reconcile.Done {
 		return admission.ErrInconsistent
 	}
 	if err := h.bindAdmission(); err != nil {
@@ -343,6 +343,9 @@ func (h *host) userUpdateUnit(ctx context.Context, unit string) (map[string]stri
 	return p, nil
 }
 func (h *host) handoffUpdateReconcile(ctx context.Context) error {
+	if !h.updateReconcileRequired() {
+		return nil
+	}
 	e := &h.r.Update.Reopening.Reconcile
 	if e.Observed != "" {
 		return nil
@@ -530,4 +533,8 @@ func (h *host) checkBootstrapRemovalState(ctx context.Context) error {
 		return admission.ErrInconsistent
 	}
 	return nil
+}
+
+func (h *host) updateReconcileRequired() bool {
+	return !h.r.Update.Aborting || !h.r.Update.Plan.addsArtifact(reconcileUnitPath)
 }

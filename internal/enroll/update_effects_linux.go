@@ -202,6 +202,9 @@ func (h *host) activateUpdate(ctx context.Context, a *updateActivation, abort bo
 	return nil
 }
 func (h *host) activateUpdateObserver(ctx context.Context, e *updateEffect, abort bool) error {
+	if abort && h.r.Update.Plan.addsArtifact(workspaceobserve.UnitPath) {
+		return nil
+	}
 	if !e.Intent {
 		p, err := h.nativeUnit(ctx, workspaceobserve.UnitName)
 		if err != nil {
@@ -292,4 +295,39 @@ func (h *host) disableAddedSettle(ctx context.Context) error {
 		}
 	}
 	return h.issueUpdateEffect(ctx, effect, "settle-enable", "/usr/bin/systemctl", "disable", "brine-admission-settle.service")
+}
+
+func (h *host) removeAddedUpdateObserver(ctx context.Context) error {
+	u := h.r.Update
+	if !u.Plan.addsArtifact(workspaceobserve.UnitPath) || !u.Activation.Observer.Intent {
+		return nil
+	}
+	if !u.Activation.Observer.Done {
+		return errors.New("activation_pending: abort waits for observer completion")
+	}
+	effect := &u.RollbackActivation.ObserverRemoval
+	if effect.Observed == "stopped" {
+		return nil
+	}
+	if !effect.Intent {
+		current, _, err := h.updateEnv.fs.read(workspaceobserve.UnitPath)
+		if err != nil || !current.Present || current.UID != h.updateEnv.fs.owner || current.Mode != 0644 || current.SHA256 != hash([]byte(workspaceobserve.Unit)) {
+			return errors.Join(errors.New("update_drift: added observer unit"), err)
+		}
+	}
+	if err := h.issueUpdateEffect(ctx, effect, "observer-remove", "/usr/bin/systemctl", "disable", "--now", workspaceobserve.UnitName); err != nil {
+		return err
+	}
+	unit, err := h.nativeUnit(ctx, workspaceobserve.UnitName)
+	if err != nil || !updateObserverStopped(unit) {
+		return errors.Join(errors.New("observer_removal_pending"), err)
+	}
+	effect.Observed = "stopped"
+	return h.updateSave()
+}
+
+func updateObserverStopped(unit map[string]string) bool {
+	loaded := unit["LoadState"] == "loaded" || unit["LoadState"] == "not-found"
+	inactive := unit["ActiveState"] == "inactive" || unit["ActiveState"] == "failed"
+	return loaded && inactive && unit["MainPID"] == "0" && unit["Job"] == "0"
 }

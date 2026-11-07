@@ -60,10 +60,11 @@ type updateRunnerFence struct {
 	StopIntent    bool   `json:"stop_intent"`
 }
 type updateActivation struct {
-	Enable     updateEffect `json:"enable"`
-	Reload     updateEffect `json:"reload"`
-	Observer   updateEffect `json:"observer"`
-	UserReload updateEffect `json:"user_reload"`
+	Enable          updateEffect `json:"enable"`
+	Reload          updateEffect `json:"reload"`
+	Observer        updateEffect `json:"observer"`
+	ObserverRemoval updateEffect `json:"observer_removal"`
+	UserReload      updateEffect `json:"user_reload"`
 }
 type updateEffect struct {
 	Intent   bool   `json:"intent"`

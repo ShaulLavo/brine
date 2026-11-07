@@ -41,6 +41,12 @@ update supersedes it. Raw abort quarantine is retained separately in the
 runner state directory for inspection. Remove it only after the operator has
 accepted recovery and no pending transaction references it.
 
+After enrollment undo verifies that its resources are absent, it retires the
+recorded committed and aborted staging before removing the enrollment journal.
+Retirement checks the saved manifest and file identities. Unknown entries or
+changed files refuse and leave the journal available for inspection. This does
+not remove raw abort quarantine from the runner state directory.
+
 These commands are not permission to deploy an unreviewed binary or change a
 real host. Physical PAM, reboot, observer-listener and systemd qualification
 belong to the separately authorized host drill.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 
+	"github.com/ShaulLavo/brine/internal/admission"
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/reconcile"
 	"github.com/ShaulLavo/brine/internal/result"
@@ -53,6 +54,8 @@ func (readOnlyReconciler) Reconcile(context.Context) (reconcile.Report, error) {
 func previewControlState(err error) (string, error) {
 	var schema *store.SchemaError
 	switch {
+	case errors.Is(err, admission.ErrUnavailable):
+		return "", err
 	case errors.Is(err, store.ErrPreviewUnavailable):
 		return "preview_unavailable", nil
 	case errors.Is(err, os.ErrNotExist):

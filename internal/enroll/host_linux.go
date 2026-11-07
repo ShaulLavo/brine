@@ -58,6 +58,7 @@ type hostRecord struct {
 	Update               *updateRecord          `json:"update,omitempty"`
 	AbortedUpdate        string                 `json:"aborted_update,omitempty"`
 	LastUpdate           string                 `json:"last_update,omitempty"`
+	UndoUpdate           *updateRetiredStage    `json:"undo_update,omitempty"`
 	AdmissionAbandonment *admissionAbandonment  `json:"admission_abandonment,omitempty"`
 	Admission            *admissionIdentity     `json:"admission,omitempty"`
 	RetainedPolicy       bool                   `json:"retained_policy,omitempty"`
@@ -341,13 +342,7 @@ func HostOperation(ctx context.Context, req HostRequest) (_ any, err error) {
 		if err = h.absence(ctx); err != nil {
 			return nil, err
 		}
-		if err = os.Remove(recordDir + "/record.json"); err != nil {
-			return nil, err
-		}
-		if err = os.Remove(recordDir + "/lock"); err != nil {
-			return nil, err
-		}
-		if err = os.Remove(recordDir); err != nil {
+		if err = h.removeEnrollmentRecord(ctx); err != nil {
 			return nil, err
 		}
 		return UndoResult{Removed: true, RetainedPolicy: h.r.RetainedPolicy}, nil

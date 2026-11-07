@@ -54,3 +54,12 @@ type UpdateResult struct {
 	Retained   string `json:"retained"`
 	Quarantine string `json:"quarantine,omitempty"`
 }
+
+func (p UpdatePlan) addsArtifact(path string) bool {
+	for _, artifact := range p.Artifacts {
+		if artifact.Path == path {
+			return artifact.Action == "add" && !artifact.Before.Present && artifact.After.Present
+		}
+	}
+	return false
+}

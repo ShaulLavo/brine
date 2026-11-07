@@ -31,11 +31,14 @@ func (h *host) pruneRecordedUpdates(ctx context.Context) error {
 	}
 	return h.pruneRecordedUpdate(ctx, u.PreviousUpdate)
 }
-func (h *host) pruneRecordedUpdate(ctx context.Context, id string) (err error) {
+func (h *host) pruneRecordedUpdate(ctx context.Context, id string) error {
 	u := h.r.Update
 	if id == "" || id == u.ID {
 		return nil
 	}
+	return h.retireUpdateStage(ctx, id, &u.Retired)
+}
+func (h *host) retireUpdateStage(ctx context.Context, id string, receipt **updateRetiredStage) (err error) {
 	if !proofID(id) {
 		return errors.New("retained_update_drift")
 	}
@@ -53,23 +56,23 @@ func (h *host) pruneRecordedUpdate(ctx context.Context, id string) (err error) {
 	if err != nil {
 		return err
 	}
-	if u.Retired == nil || u.Retired.ID != id {
-		if err := h.previousRetirementComplete(id); err != nil {
+	if *receipt == nil || (*receipt).ID != id {
+		if err := h.previousRetirementComplete(id, *receipt); err != nil {
 			return err
 		}
 		retired, err := h.retiredUpdateManifest(dir, id, updateNodeIdentity(info))
 		if err != nil {
 			return err
 		}
-		u.Retired = retired
+		*receipt = retired
 		if err := h.updateSave(); err != nil {
 			return err
 		}
 	}
-	if u.Retired.ID != id || u.Retired.Directory != updateNodeIdentity(info) {
+	if (*receipt).ID != id || (*receipt).Directory != updateNodeIdentity(info) {
 		return errors.New("retained_update_drift")
 	}
-	for name, expected := range u.Retired.Files {
+	for name, expected := range (*receipt).Files {
 		if err := h.removeRetiredUpdateFile(ctx, path, name, expected); err != nil {
 			return err
 		}
@@ -195,8 +198,7 @@ func (h *host) removeUpdateTemporary(parent, name string) error {
 	return fs.remove(filepath.Join(parent, name))
 }
 
-func (h *host) previousRetirementComplete(id string) error {
-	old := h.r.Update.Retired
+func (h *host) previousRetirementComplete(id string, old *updateRetiredStage) error {
 	if old == nil || old.ID == id {
 		return nil
 	}
