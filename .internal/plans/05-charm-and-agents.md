@@ -24,4 +24,12 @@ An agent can plan, apply, poll and diagnose with structured responses; a human c
 
 The TUI reviews and confirms restart, stop, start and previous known-good rollback through the existing host APIs. `TestTUILifecycleJSONParity` and `TestTUILifecycleWireErrorsPreserveOriginalRecovery` cross the real response decoder and compare machine/TUI plans, exact request arguments, event order, terminal outcomes and explicit same-key recovery. `TestRunTUIPendingAcceptanceCleanupAndRecoveryNotice` drives Execute/RunTUI through quit, EOF, read/write/short-write errors and cancellation. Crossed lifecycle replies refuse before confirmation. These synthetic wire fixtures are not remote deployment evidence.
 
-P05-03 remains partial because init is absent. P05-07 and full T20 remain open for successful/failed deployment parity, and the diagnosis exit journey remains open. No task checkbox changes from this local slice.
+## Local release, diagnosis and init evidence
+
+The TUI accepts a bounded stateless HTTP spec, reviews the existing deployment plan, and confirms apply through the same dispatcher and release executor as machine commands. Direct `--operation` entry observes an operation without requiring a committed app. An unreadable operation never implies acceptance. Read-only diagnosis retains its captured target/app/operation scope and offers an explicit exit after restoring the terminal.
+
+`TestTUIDeploymentEngineParity`, `TestTUIDeploymentCursorDisconnect`, `TestTUIDeploymentRunnerDetachResume` and `TestDeployCommandUsesReleaseEngine` cross actual temporary Store, jobs, dispatcher and release-executor code. They cover success, failure, disconnected observation, detach/resume and shared randomly generated idempotency keys. External runtime, transport and provider adapters are synthetic. `TestTUIDiagnosisExitRunner` covers the real terminal exit journey.
+
+`brine init` previews or creates only a local app spec after approval. `TestInit*` covers valid generated specs, conflicts, cancellation, cleanup, output failures and the human `tui --spec` hint. Machine output keeps the deterministic plan command.
+
+These local journeys close the named implementation gaps, not the full phase exit gate. Physical deployment acceptance, the remaining UI views and the complete T20/T23 matrix stay open. No whole-phase task checkbox changes follow from this slice.
