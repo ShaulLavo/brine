@@ -12,13 +12,12 @@ import (
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/sqlitestatus"
-	"github.com/ShaulLavo/brine/internal/store"
 )
 
 func TestReadinessConnectedSQLiteReusesSnapshotAndFixtures(t *testing.T) {
 	_, reader, _, dir := sqliteStatusRig(t, nil, true)
 	scratch := t.TempDir()
-	reader.open = store.OpenSnapshotReadOnly
+	reader.mode = stateSnapshot
 	reader.workspaceRoot = scratch
 	reader.probe = func(context.Context, restore.Destination, restore.Credentials) restore.RemoteProbe {
 		return restore.RemoteProbe{State: restore.RemoteReachable, ObservedAt: time.Now().UTC()}

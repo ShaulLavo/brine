@@ -3,12 +3,11 @@ package host
 import (
 	"context"
 	"github.com/ShaulLavo/brine/internal/replicapermits"
-	"github.com/ShaulLavo/brine/internal/store"
 )
 
 // WriterAttemptRuntime has no deployment managers or ambient agent authority.
 type WriterAttemptRuntime struct {
-	state   *store.Store
+	state   *gatedStore
 	attempt replicapermits.WriterAttempts
 }
 

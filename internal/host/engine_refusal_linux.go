@@ -100,7 +100,7 @@ func (r *EngineStartupRuntime) recordEngineRefusal(parent context.Context, bindi
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), time.Second)
 	defer cancel()
-	if _, err := r.state.ReadReservedEngine(ctx, binding); err != nil {
+	if !r.refusalBindingKnown(ctx, binding) {
 		return
 	}
 	code := engineRefusalUnknown
@@ -190,4 +190,12 @@ func (c engineRefusalCode) valid() bool {
 		return true
 	}
 	return false
+}
+
+func (r *EngineStartupRuntime) refusalBindingKnown(ctx context.Context, binding data.ReplicaBindingID) bool {
+	if r.state == nil {
+		return r.refusalBinding == binding && binding != ""
+	}
+	_, err := r.state.ReadReservedEngine(ctx, binding)
+	return err == nil
 }

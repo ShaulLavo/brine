@@ -99,3 +99,35 @@ func TestReadGenerationDoesNotInitializeEmptyStore(t *testing.T) {
 		t.Fatal("unknown state became generation zero")
 	}
 }
+
+func TestEmptyStateDirectoryOnlyReportsAffirmativeAbsence(t *testing.T) {
+	dir := t.TempDir()
+	empty, err := EmptyStateDirectory(t.Context(), dir)
+	if err != nil || !empty {
+		t.Fatal(empty, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil || len(entries) != 0 {
+		t.Fatal("empty check created files", entries, err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "unknown"), nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := EmptyStateDirectory(t.Context(), dir); err == nil {
+		t.Fatal("unknown state reported empty")
+	}
+	if err := os.Remove(filepath.Join(dir, "unknown")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "control.db"), []byte("damaged"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if empty, err := EmptyStateDirectory(t.Context(), dir); err != nil || empty {
+		t.Fatal("damaged database reported absent", empty, err)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err := EmptyStateDirectory(ctx, dir); !errors.Is(err, context.Canceled) {
+		t.Fatal(err)
+	}
+}

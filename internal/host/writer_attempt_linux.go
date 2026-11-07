@@ -14,7 +14,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/replicapermits"
 	"github.com/ShaulLavo/brine/internal/replication"
-	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
 )
 
@@ -29,11 +28,11 @@ func OpenWriterAttempt(ctx context.Context) (*WriterAttemptRuntime, error) {
 	if err != nil || identity.Username != "brine" || identity.HomeDir != "/home/brine" {
 		return nil, replication.ErrPermit
 	}
-	state, err := store.OpenContext(ctx, filepath.Join(identity.HomeDir, ".local/state/brine"))
+	state, err := openState(ctx, filepath.Join(identity.HomeDir, ".local/state/brine"), stateMutating, nil)
 	if err != nil {
 		return nil, replication.ErrPermit
 	}
-	return &WriterAttemptRuntime{state: state, attempt: replicapermits.WriterAttempts{State: state, Operations: attemptOperation{uid: uint32(uid), home: identity.HomeDir}}}, nil
+	return &WriterAttemptRuntime{state: state, attempt: replicapermits.WriterAttempts{State: state.Store, Operations: attemptOperation{uid: uint32(uid), home: identity.HomeDir}}}, nil
 }
 
 // A committed restart never needs a subprocess or consumes allocation evidence.

@@ -5,13 +5,12 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/nativecapture"
-	"github.com/ShaulLavo/brine/internal/store"
 )
 
 type nativeBackupStatusReader struct{ stateDir string }
 
 func (r nativeBackupStatusReader) BackupStatus(ctx context.Context, args dispatch.NativeBackupStatusArgs) (nativecapture.BackupStatus, error) {
-	state, err := store.OpenReadOnly(ctx, r.stateDir)
+	state, err := openState(ctx, r.stateDir, stateReadOnly, nil)
 	if err != nil {
 		return nativecapture.BackupStatus{}, err
 	}

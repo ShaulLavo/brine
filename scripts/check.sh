@@ -34,6 +34,7 @@ golangci() {
 }
 
 rules() {
+  ./scripts/check-openers.sh
   go run ./tools/checkgate rules --baseline tools/baselines/rules.json
 }
 

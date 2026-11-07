@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"os/user"
-	"path/filepath"
 
 	"github.com/ShaulLavo/brine/internal/diagnose"
 	"github.com/ShaulLavo/brine/internal/dispatch"
@@ -28,6 +27,7 @@ func newHostCmd(deps Dependencies) *cobra.Command {
 	host.AddCommand(newHostModuleDescribeProfile(deps))
 	host.AddCommand(newHostModuleStage(deps))
 	host.AddCommand(newHostEngineMountProfile(deps))
+	host.AddCommand(newHostControlMigrateCmd())
 	host.AddCommand(newArchivePrepareCmd(deps), newArchiveDispositionCmd(deps, false), newArchiveDispositionCmd(deps, true), newArchiveReconcileCmd(deps))
 	host.AddCommand(newArchiveMaintainCmd(deps), newArchiveMaintenanceReadCmd(deps, false), newArchiveMaintenanceReadCmd(deps, true), newArchiveCredentialsCmd(deps))
 	return host
@@ -52,14 +52,9 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		ctx := deps.Context
 		collector := deps.HostInventory
 		if collector == nil {
-			identity, e := user.LookupId(fmt.Sprint(uid()))
-			if e == nil && identity.Username == "brine" {
-				key, e := os.ReadFile("/etc/ssh/brine/inventory-key")
-				if e == nil && len(key) == 32 {
-					collector = inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key}
-				}
-			}
+			collector = fallbackHostInventory(uid())
 		}
+
 		server := dispatch.NewServer(deps.Version, collector).WithJobs(deps.HostJobs, deps.HostAuthorization)
 		server.Factory = deps.HostServerFactory
 		server.Reconciler = deps.HostReconciler
@@ -83,9 +78,6 @@ func executeHostServeFinalized(deps Dependencies, finalize func(error) error) er
 		server.Diagnose = deps.HostDiagnose
 		if server.Diagnose == nil {
 			reader := diagnose.Reader{Inventory: collector, Logs: deps.HostLogs, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}}
-			if identity, e := user.LookupId(fmt.Sprint(uid())); e == nil && identity.Username == "brine" {
-				reader.Store = diagnose.DiskStore{Dir: filepath.Join(identity.HomeDir, ".local/state/brine")}
-			}
 			server.Diagnose = reader
 		}
 		envelope, err = server.Handle(ctx, deps.Stdin)
@@ -130,4 +122,16 @@ func HostStartupRequested(args []string) bool {
 	default:
 		return false
 	}
+}
+
+func fallbackHostInventory(uid int) dispatch.Inventory {
+	identity, err := user.LookupId(fmt.Sprint(uid))
+	if err != nil || identity.Username != "brine" {
+		return nil
+	}
+	key, err := os.ReadFile("/etc/ssh/brine/inventory-key")
+	if err != nil || len(key) != 32 {
+		return nil
+	}
+	return inventory.Collector{FS: inventory.HostFS{}, Runner: localexec.ExecRunner{}, IdentityKey: key}
 }

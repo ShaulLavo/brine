@@ -16,7 +16,7 @@ func (r nativePointInspection) InspectNativePoint(ctx context.Context, args disp
 	if !args.Valid() {
 		return nativecapture.PointInspection{}, result.New(result.InvalidUsage, nil)
 	}
-	state, err := store.OpenReadOnly(ctx, r.stateDir)
+	state, err := openState(ctx, r.stateDir, stateReadOnly, nil)
 	if err != nil {
 		return nativecapture.PointInspection{}, result.New(result.PolicyRefused, nil)
 	}

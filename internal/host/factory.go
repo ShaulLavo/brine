@@ -9,7 +9,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/localexec"
 	"github.com/ShaulLavo/brine/internal/logs"
 	"github.com/ShaulLavo/brine/internal/result"
-	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/target"
 )
 
@@ -131,17 +130,13 @@ func (f *ServerFactory) Close() error {
 func diagnosticReaders(dir string, collector dispatch.Inventory) (dispatch.DiagnosticReader, dispatch.LogReader) {
 	if hostCollector, ok := collector.(*inventory.Collector); ok {
 		readCollector := *hostCollector
-		readCollector.StateInventory = func(ctx context.Context) (target.ControlInventory, error) {
-			state, err := store.OpenReadOnly(ctx, dir)
-			if err != nil {
-				return target.ControlInventory{}, err
-			}
-			defer state.Close()
-			return state.InventoryState(ctx)
-		}
+		readCollector.StateInventory = func(ctx context.Context) (target.ControlInventory, error) { return readControlInventory(ctx, dir) }
+
 		collector = &readCollector
 	}
 	logReader := logs.Reader{Inventory: collector, Executor: localexec.ExecRunner{}}
-	reader := diagnose.Reader{Inventory: collector, Store: diagnose.DiskStore{Dir: dir}, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: diagnosticMinimumFreeDiskBytes}
+	reader := diagnose.Reader{Inventory: collector, Store: diagnose.DiskStore{Open: func(ctx context.Context) (diagnose.OpenedStore, error) {
+		return openState(ctx, dir, stateReadOnly, nil)
+	}}, Logs: logReader, Runner: localexec.ExecRunner{}, FS: inventory.HostFS{}, MinimumFreeDiskBytes: diagnosticMinimumFreeDiskBytes}
 	return reader, logReader
 }

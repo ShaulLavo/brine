@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/ShaulLavo/brine/internal/admission"
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
 	"github.com/ShaulLavo/brine/internal/dispatch"
@@ -28,6 +29,7 @@ func Execute(deps Dependencies, args []string) error {
 // handlers use them, and closes all services before committing a response.
 func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifecycle) error {
 	runtime := invocationRuntime{lifecycle: lifecycle}
+	deps.Context = context.WithValue(deps.Context, hostControlKey{}, hostControlPorts{migrate: lifecycle.ControlMigrate, udpHeld: lifecycle.UDPGrantHeld})
 	if lifecycle.Open != nil {
 		// A supplied worker owns its composition (including metadata-only restore).
 		if deps.HostOperationRunner == nil {
@@ -173,6 +175,8 @@ type RuntimeServices struct {
 	Close                 func() error
 }
 type RuntimeLifecycle struct {
+	ControlMigrate            func(context.Context, admission.Exemption) error
+	UDPGrantHeld              func(context.Context, string) (bool, error)
 	OpenPermits               func(context.Context) (RuntimeServices, error)
 	OpenWriterAttempt         func(context.Context) (RuntimeServices, error)
 	OpenEngineStartup         func(context.Context) (RuntimeServices, error)

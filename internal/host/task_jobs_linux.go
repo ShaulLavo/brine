@@ -45,7 +45,7 @@ func (a restoreAdmission) Test(ctx context.Context, input dispatch.RestoreTestAr
 
 // This composition opens only protected control metadata and the job launcher.
 // It never opens mutation runtime, live inventory, policy or a host mutation lock.
-func openMetadataJobs(ctx context.Context, dir string, admission bool) (jobs.Service, *store.Store, error) {
+func openMetadataJobs(ctx context.Context, dir string, admission bool) (jobs.Service, *gatedStore, error) {
 	identity, err := user.LookupId(strconv.Itoa(os.Geteuid()))
 	if err != nil || identity.Username != "brine" || identity.HomeDir != "/home/brine" || os.Geteuid() == 0 {
 		return jobs.Service{}, nil, result.New(result.DispatchOperationRefused, nil)
@@ -69,11 +69,11 @@ func openMetadataJobs(ctx context.Context, dir string, admission bool) (jobs.Ser
 	if err != nil {
 		return jobs.Service{}, nil, err
 	}
-	state, err := store.OpenContext(ctx, dir)
+	state, err := openState(ctx, dir, stateMutating, nil)
 	if err != nil {
 		return jobs.Service{}, nil, err
 	}
-	return jobs.Service{Store: state, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, state, nil
+	return jobs.Service{Store: state.Store, Launcher: systemd.NewJobLauncher(session, uint32(uid)), Requester: requester}, state, nil
 }
 
 func restoreTaskHandler(state *store.Store, dir string) jobs.TaskHandler {
@@ -100,7 +100,7 @@ type DetachedRunner struct{}
 
 func (DetachedRunner) Run(ctx context.Context, id string) error {
 	dir := "/home/brine/.local/state/brine"
-	state, err := store.OpenReadOnly(ctx, dir)
+	state, err := openState(ctx, dir, stateReadOnly, nil)
 	if err != nil {
 		return err
 	}
@@ -122,6 +122,6 @@ func (DetachedRunner) Run(ctx context.Context, id string) error {
 		return err
 	}
 	defer func() { _ = state.Close() }()
-	runner := jobs.Runner{Store: state, TaskHandlers: map[ops.Kind]jobs.TaskHandler{ops.RestoreTest: restoreTaskHandler(state, dir)}}
+	runner := jobs.Runner{Store: state.Store, TaskHandlers: map[ops.Kind]jobs.TaskHandler{ops.RestoreTest: restoreTaskHandler(state.Store, dir)}}
 	return runner.Run(ctx, id)
 }

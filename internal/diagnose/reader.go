@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -423,10 +422,20 @@ func drift(s target.Snapshot, name string, r ops.Release, desired Fact[policy.De
 }
 
 // DiskStore opens existing state read-only for each bounded query. It never enrolls or migrates a host.
-type DiskStore struct{ Dir string }
+type OpenedStore interface {
+	ControlStore
+	Close() error
+}
 
-func (d DiskStore) open(ctx context.Context) (*store.Store, error) {
-	return store.OpenReadOnly(ctx, filepath.Clean(d.Dir))
+type DiskStore struct {
+	Open func(context.Context) (OpenedStore, error)
+}
+
+func (d DiskStore) open(ctx context.Context) (OpenedStore, error) {
+	if d.Open == nil {
+		return nil, result.New(result.DependencyMissing, nil)
+	}
+	return d.Open(ctx)
 }
 func (d DiskStore) AppNames(ctx context.Context) ([]string, error) {
 	s, e := d.open(ctx)
