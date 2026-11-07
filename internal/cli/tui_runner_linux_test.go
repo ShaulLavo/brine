@@ -6,10 +6,8 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/sys/unix"
@@ -57,21 +55,6 @@ func collect(master *os.File) *lockedBuffer {
 		}
 	}()
 	return out
-}
-
-func waitForOutput(t *testing.T, out *lockedBuffer, text string) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		out.mu.Lock()
-		found := strings.Contains(out.buf.String(), text)
-		out.mu.Unlock()
-		if found {
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatalf("terminal never showed %q", text)
 }
 
 func noFallback(t *testing.T) func() (*os.File, error) {

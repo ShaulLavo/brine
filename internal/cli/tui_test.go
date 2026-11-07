@@ -37,13 +37,14 @@ func runTUIStub(run func() error) func(context.Context, tea.Model, io.Reader, io
 
 // fakeTUIHost records each read and answers it from a per-method function.
 type fakeTUIHost struct {
-	mu        sync.Mutex
-	calls     []string
-	apps      func(context.Context) (apps.Report, error)
-	logs      func(context.Context, string) ([]logs.Line, error)
-	operation func(context.Context, string, uint64) (jobs.Status, error)
-	plan      func(context.Context, tuiAction, string) (tuiReview, error)
-	apply     func(context.Context, string, string) (jobs.Accepted, error)
+	mu         sync.Mutex
+	calls      []string
+	apps       func(context.Context) (apps.Report, error)
+	logs       func(context.Context, string) ([]logs.Line, error)
+	operation  func(context.Context, string, uint64) (jobs.Status, error)
+	plan       func(context.Context, tuiAction, string) (tuiReview, error)
+	apply      func(context.Context, string, string) (jobs.Accepted, error)
+	deployment func(context.Context, string) (tuiReview, error)
 }
 
 func (h *fakeTUIHost) record(call string) {
@@ -491,4 +492,9 @@ func TestReadLogLinesBounds(t *testing.T) {
 	if got, err := readLogLines(context.Background(), deps, flags, logs.Request{App: "fixture-api", Tail: 3}); err != nil || len(got) != 3 {
 		t.Fatalf("got %d, %v", len(got), err)
 	}
+}
+
+func (h *fakeTUIHost) DeploymentPlan(ctx context.Context, path string) (tuiReview, error) {
+	h.record("deployment " + path)
+	return h.deployment(ctx, path)
 }

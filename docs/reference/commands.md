@@ -33,7 +33,7 @@ Every command accepts these flags.
 | Data and backups | `data`, `backup`, `restore`, `archive` |
 | CDN | `cdn` |
 
-`brine completion bash|zsh|fish|powershell` prints a shell completion script. `brine tui` needs a terminal and refuses `--json`, `--jsonl` and `--no-input`. It browses targets, apps, operations and bounded logs read-only.
+`brine completion bash|zsh|fish|powershell` prints a shell completion script. `brine tui` needs a terminal and refuses `--json`, `--jsonl` and `--no-input`. It browses targets, apps, operations and bounded logs, reviews stateless HTTP releases with `--spec FILE`, and resumes operation observation with `--operation ID`.
 
 ## Commands
 
@@ -1486,7 +1486,7 @@ Flags:
 ### `brine tui`
 
 ```text
-Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. Review restart, stop, start or previous known-good rollback plans, then confirm with a and y to apply. Uncertain acceptance retains the same plan and key for explicit recovery. Quitting never cancels a host job. Without --target it starts on the target picker.
+Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. Use --spec FILE to plan a stateless HTTP release, or --operation ID to resume observation without a committed app. Database, managed-engine and UDP specs use deploy instead. Review release, restart, stop, start or previous known-good rollback plans, then confirm with a and y to apply. Uncertain acceptance retains the same plan and key for explicit recovery. Quitting never cancels a host job. Without --target it starts on the target picker.
 
 Usage:
   brine tui [flags]
@@ -1494,6 +1494,8 @@ Usage:
 Flags:
       --config-dir string   Private client target directory
   -h, --help                help for tui
+      --operation string    Existing operation ID to observe, even without a committed app
+      --spec string         Local stateless HTTP app spec to plan and review
       --target string       Pinned target name
 ```
 

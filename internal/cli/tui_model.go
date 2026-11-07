@@ -88,6 +88,7 @@ type logsMsg struct {
 // tuiModel is the terminal UI. Every value it shows was read from
 // the selected target in this session; there is no sample or demo data.
 type tuiModel struct {
+	entry        tuiEntry
 	review       loadable[tuiReview]
 	reviewFlags  operationFlags
 	actionIndex  int
@@ -126,10 +127,11 @@ type tuiModel struct {
 	loc          *time.Location
 }
 
-// newTUIModel starts on the app list for an explicit target, or on the target
+// newTUIModel starts the selected entry for an explicit target, or the target
 // picker otherwise. The first read starts when the runner calls Init.
-func newTUIModel(ctx context.Context, deps Dependencies, flags operationFlags) tuiModel {
+func newTUIModel(ctx context.Context, deps Dependencies, flags operationFlags, entry tuiEntry) tuiModel {
 	m := tuiModel{
+		entry:       entry,
 		ctx:         ctx,
 		connect:     func(f operationFlags) tuiHost { return connectedHost{flags: f, deps: deps} },
 		listTargets: func() ([]string, error) { return listTargets(flags) },
@@ -150,8 +152,8 @@ func (m tuiModel) begin(flags operationFlags) tuiModel {
 		m, m.initial = m.loadTargets()
 		return m
 	}
-	m.flags, m.host, m.screen = flags, m.connect(flags), screenApps
-	m, m.initial = m.loadApps()
+	m.flags, m.host = flags, m.connect(flags)
+	m, m.initial = m.loadEntry()
 	return m
 }
 
@@ -345,8 +347,11 @@ func (m tuiModel) goBack() (tea.Model, tea.Cmd) {
 // reload restarts a read that navigation abandoned before it ever succeeded.
 func (m tuiModel) reload() (tea.Model, tea.Cmd) {
 	switch {
-	case m.screen == screenReview && m.review.State == loadIdle:
-		return m.loadReview()
+	case m.screen == screenReview:
+		if m.review.State == loadIdle {
+			return m.loadReview()
+		}
+		return m, nil
 	case m.screen == screenOperation:
 		return m.loadOperation()
 	case m.screen == screenTargets && m.targets.State == loadIdle:
@@ -396,8 +401,8 @@ func (m tuiModel) openTarget() (tea.Model, tea.Cmd) {
 	m.flags = operationFlags{target: m.targets.Value[m.target], configDir: m.configDir}
 	m.host = m.connect(m.flags)
 	m.apps, m.selected = loadable[apps.Report]{}, 0
-	m = m.push(screenApps)
-	return m.loadApps()
+	m.back = append(slices.Clip(m.back), m.screen)
+	return m.loadEntry()
 }
 
 func (m tuiModel) openApp() (tea.Model, tea.Cmd) {

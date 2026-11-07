@@ -17,6 +17,7 @@ const tuiLogTail = 100
 // dispatcher op, validated exactly like its CLI command.
 type tuiHost interface {
 	Plan(context.Context, tuiAction, string) (tuiReview, error)
+	DeploymentPlan(context.Context, string) (tuiReview, error)
 	Apply(context.Context, string, string) (jobs.Accepted, error)
 	Apps(ctx context.Context) (apps.Report, error)
 	Logs(ctx context.Context, app string) ([]logs.Line, error)

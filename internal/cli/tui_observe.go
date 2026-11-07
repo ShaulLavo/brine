@@ -25,6 +25,7 @@ const (
 
 // tuiObservation tracks only this client's reads, never host execution state.
 type tuiObservation struct {
+	Bound     bool
 	Flags     operationFlags
 	Operation ops.Operation
 	Events    []ops.Event
@@ -87,10 +88,11 @@ func (m tuiModel) operationPage(msg pageMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		return m.observationError(msg.err)
 	}
-	if err := m.issuedPageError(msg.status); err != nil {
+	if err := m.observationPageError(msg.status); err != nil {
 		return m.observationError(err)
 	}
 	o := m.observe
+	o.Bound = true
 	o.Operation, o.Outcome, o.Cursor = msg.status.Operation, msg.status.Outcome, msg.status.NextCursor
 	o.appendEvents(msg.status.Events)
 	o.At, o.Err, o.Failures = m.now(), nil, 0
@@ -101,7 +103,7 @@ func (m tuiModel) operationPage(msg pageMsg) (tea.Model, tea.Cmd) {
 	if o.Operation.State.IsTerminal() {
 		o.Phase = observeSettled
 		m.settleIssued()
-		if !o.Refreshed {
+		if !o.Refreshed && m.entry.Operation == "" {
 			o.Refreshed = true
 			return m.loadApps()
 		}
@@ -147,14 +149,27 @@ func (m tuiModel) exitNotice() string {
 
 func (m tuiModel) observedExitNotice() string {
 	o := m.observe
-	if o == nil || o.Operation.State.IsTerminal() {
+	if o == nil || o.Phase == observeSettled {
 		return ""
 	}
 	observe := o.Flags.command("status", "--operation", o.Operation.ID, "--after-cursor", fmt.Sprint(o.Cursor))
-	if o.Operation.State == ops.LaunchUnknown {
-		return recoveryGuidance(o.Flags, o.Operation, o.Events, false) + " Resume observation with: " + observe
+	resume := " Resume in the TUI with: " + o.Flags.command("tui", "--operation", o.Operation.ID)
+	if o.Operation.State.IsTerminal() {
+		return fmt.Sprintf("Operation %s on %s is terminal; its history has not been fully observed. Observe with: %s%s", o.Operation.ID, o.Flags.target, observe, resume)
 	}
-	return fmt.Sprintf("Operation %s is still running on %s; quitting did not stop it. Observe with: %s", o.Operation.ID, o.Flags.target, observe)
+	if o.Operation.State == ops.LaunchUnknown {
+		return recoveryGuidance(o.Flags, o.Operation, o.Events, false) + " Resume observation with: " + observe + resume
+	}
+	return fmt.Sprintf("Operation %s is still running on %s; quitting did not stop it. Observe with: %s", o.Operation.ID, o.Flags.target, observe) + resume
+}
+
+func (m tuiModel) observationPageError(status jobs.Status) error {
+	o := m.observe
+	op := status.Operation
+	if op.ID != o.Operation.ID || o.Bound && (op.App != o.Operation.App || op.PlanID != o.Operation.PlanID || op.Kind != o.Operation.Kind) {
+		return result.New(result.TransportInvalidResponse, nil)
+	}
+	return m.issuedPageError(status)
 }
 
 // Each validated host page has at most 128 events. The fixed-capacity window
