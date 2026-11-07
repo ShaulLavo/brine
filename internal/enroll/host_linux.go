@@ -585,14 +585,14 @@ func (h *host) steps() []Step {
 			if err := errors.Join(h.restoreFile(mainPath), h.removeCandidate()); err != nil {
 				return err
 			}
-			if h.r.CaddyActive {
-				if _, err := h.run(ctx, false, "caddy", "validate", "--adapter", "caddyfile", "--config", mainPath); err != nil {
-					return err
-				}
-				_, err := h.run(ctx, true, "systemctl", "reload", "caddy.service")
+			if !h.r.CaddyActive {
+				return nil
+			}
+			if _, err := h.run(ctx, false, "caddy", "validate", "--adapter", "caddyfile", "--config", mainPath); err != nil {
 				return err
 			}
-			return nil
+			_, err := h.run(ctx, true, "systemctl", "reload", "caddy.service")
+			return err
 		}},
 		{Name: "caddy-validate", Check: func(ctx context.Context) (bool, error) {
 			_, err := h.run(ctx, false, "caddy", "validate", "--adapter", "caddyfile", "--config", mainPath)
