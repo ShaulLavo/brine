@@ -52,8 +52,13 @@ func (s *Store) RecordAllocation(ctx context.Context, receipt data.AllocationRec
 	return tx.Commit()
 }
 func readAllocation(ctx context.Context, q dataQuerier, database data.DatabaseID) (*data.AllocationReceipt, error) {
+	return readAllocationRecord(ctx, q, "SELECT canonical FROM data_allocations a WHERE database_id=? AND NOT EXISTS(SELECT 1 FROM data_writer_history h WHERE h.database_id=a.database_id)", database)
+}
+
+// readAllocationRecord decodes one canonical allocation receipt row.
+func readAllocationRecord(ctx context.Context, q dataQuerier, query string, database data.DatabaseID) (*data.AllocationReceipt, error) {
 	var raw []byte
-	err := q.QueryRowContext(ctx, "SELECT canonical FROM data_allocations a WHERE database_id=? AND NOT EXISTS(SELECT 1 FROM data_writer_history h WHERE h.database_id=a.database_id)", database).Scan(&raw)
+	err := q.QueryRowContext(ctx, query, database).Scan(&raw)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -106,21 +111,9 @@ func (s *Store) ActiveDataIncarnation(ctx context.Context, app string) (data.App
 // ReadPreparationEvidence retains measured root/mapping evidence after the
 // untouched-empty receipt has been consumed. It grants no empty-schema proof.
 func (s *Store) ReadPreparationEvidence(ctx context.Context, database data.DatabaseID) (*data.AllocationReceipt, error) {
-	var raw []byte
-	err := s.db.QueryRowContext(ctx, "SELECT canonical FROM data_allocations WHERE database_id=?", database).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	var receipt data.AllocationReceipt
-	if len(raw) > 4096 || json.Unmarshal(raw, &receipt) != nil || !receipt.Valid() || receipt.DatabaseID != database {
-		return nil, &IntegrityError{}
-	}
-	encoded, err := json.Marshal(receipt)
-	if err != nil || !bytes.Equal(encoded, raw) {
-		return nil, &IntegrityError{}
-	}
-	return &receipt, nil
+	return readPreparationEvidence(ctx, s.db, database)
+}
+
+func readPreparationEvidence(ctx context.Context, q dataQuerier, database data.DatabaseID) (*data.AllocationReceipt, error) {
+	return readAllocationRecord(ctx, q, "SELECT canonical FROM data_allocations WHERE database_id=?", database)
 }

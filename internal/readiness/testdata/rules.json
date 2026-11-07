@@ -1,0 +1,202 @@
+{
+  "backup_stale": [
+    {
+      "code": "backup_stale",
+      "severity": "warning",
+      "message": "An existing database backup is unverified, overdue or explicitly degraded.",
+      "next_operations": [
+        "brine backup status app --database db --target NAME"
+      ]
+    }
+  ],
+  "caddy_admin_exposed": [
+    {
+      "code": "caddy_admin_exposed",
+      "severity": "error",
+      "message": "Caddy administration is not restricted to loopback.",
+      "next_operations": [
+        "brine diagnose --target NAME"
+      ]
+    }
+  ],
+  "caddy_inactive": [
+    {
+      "code": "caddy_inactive",
+      "severity": "error",
+      "message": "Caddy is not active.",
+      "next_operations": [
+        "brine diagnose --target NAME"
+      ]
+    }
+  ],
+  "catch_all_site": [
+    {
+      "code": "catch_all_site",
+      "severity": "error",
+      "message": "A hostless Caddy site conflicts with routed deployments.",
+      "next_operations": [
+        "brine diagnose --target NAME"
+      ]
+    }
+  ],
+  "cgroup_unsupported": [
+    {
+      "code": "cgroup_unsupported",
+      "severity": "error",
+      "message": "The target does not use cgroup v2.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "control_store_missing": [
+    {
+      "code": "control_store_missing",
+      "severity": "error",
+      "message": "The control store is missing.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "control_store_unhealthy": [
+    {
+      "code": "control_store_unhealthy",
+      "severity": "error",
+      "message": "The isolated control store failed its SQLite structural check.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "control_store_upgrade_required": [
+    {
+      "code": "control_store_upgrade_required",
+      "severity": "error",
+      "message": "The control store requires a schema upgrade.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "disk_below_reserve": [
+    {
+      "code": "disk_below_reserve",
+      "severity": "error",
+      "message": "Free disk space is below the protected policy reserve.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "domain_elsewhere": [
+    {
+      "code": "domain_elsewhere",
+      "severity": "error",
+      "message": "A policy domain resolves to another host.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "domain_unresolved": [
+    {
+      "code": "domain_unresolved",
+      "severity": "error",
+      "message": "A policy domain has no host DNS A or AAAA answer.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "os_unsupported": [
+    {
+      "code": "os_unsupported",
+      "severity": "error",
+      "message": "The target requires Debian 13 on amd64 or arm64.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "policy_denies_deploy": [
+    {
+      "code": "policy_denies_deploy",
+      "severity": "error",
+      "message": "The protected policy allows no deployment registries or domains.",
+      "next_operations": [
+        "brine permissions show --target NAME"
+      ]
+    }
+  ],
+  "policy_invalid": [
+    {
+      "code": "policy_invalid",
+      "severity": "error",
+      "message": "The protected operator policy is invalid.",
+      "next_operations": [
+        "brine permissions show --target NAME"
+      ]
+    }
+  ],
+  "proxy_conflict": [
+    {
+      "code": "proxy_conflict",
+      "severity": "error",
+      "message": "An unrelated listener occupies HTTP or HTTPS ingress.",
+      "next_operations": [
+        "brine diagnose --target NAME"
+      ]
+    }
+  ],
+  "registry_unreachable": [
+    {
+      "code": "registry_unreachable",
+      "severity": "error",
+      "message": "A policy registry did not answer anonymous HTTPS /v2/ with 200 or 401.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "rootless_helper_missing": [
+    {
+      "code": "rootless_helper_missing",
+      "severity": "error",
+      "message": "Rootless uidmap helpers are missing or not setuid executables.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "runtime_version_mismatch": [
+    {
+      "code": "runtime_version_mismatch",
+      "severity": "error",
+      "message": "A required runtime is absent or outside the D2 reference versions.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ],
+  "tls_untrusted": [
+    {
+      "code": "tls_untrusted",
+      "severity": "error",
+      "message": "A committed route lacks a reachable, hostname-verified local TLS endpoint.",
+      "next_operations": [
+        "brine diagnose --target NAME"
+      ]
+    }
+  ],
+  "user_session_missing": [
+    {
+      "code": "user_session_missing",
+      "severity": "error",
+      "message": "A required runner session prerequisite is missing.",
+      "next_operations": [
+        "brine doctor --target NAME"
+      ]
+    }
+  ]
+}

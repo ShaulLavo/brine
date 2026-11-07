@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -143,15 +144,26 @@ func (h archiveHost) archiveFacts(ctx context.Context, app, owner string, requir
 }
 
 func (h archiveHost) archiveCredentials(ctx context.Context, b data.ReplicaBinding) (restore.Credentials, error) {
-	var credentials restore.Credentials
 	receipt, err := h.service.Store.CredentialReceipt(ctx, b.BindingID, b.CredentialVersion)
 	if err != nil || receipt.EpochID != b.EpochID || receipt.CredentialRef != b.Destination.CredentialRef || receipt.Destination != b.Destination.Reference {
-		return credentials, archive.ErrRefused
+		return restore.Credentials{}, archive.ErrRefused
 	}
-	files := backupcredentials.Files{Root: filepath.Join(h.stateRoot, "credentials")}
+	credentials, err := readDeliveredCredentials(h.stateRoot, receipt)
+	if err != nil {
+		return restore.Credentials{}, archive.ErrRefused
+	}
+	return credentials, nil
+}
+
+// readDeliveredCredentials reads exactly the receipt's immutable delivered
+// version through the secure file reader. It never selects another version,
+// creates credential directories or activates anything.
+func readDeliveredCredentials(stateRoot string, receipt store.CredentialRecord) (restore.Credentials, error) {
+	var credentials restore.Credentials
+	files := backupcredentials.Files{Root: filepath.Join(stateRoot, "credentials")}
 	packet, err := files.Read(receipt.CredentialRef, receipt.Version)
 	if err != nil {
-		return credentials, archive.ErrRefused
+		return credentials, err
 	}
 	defer packet.Clear()
 	credentials.ReceivedAt = receipt.ReceivedAt
@@ -258,30 +270,49 @@ func (h archiveHost) coverSQLite(ctx context.Context, p archive.Plan, d archive.
 }
 
 func (h archiveHost) snapshot(ctx context.Context, d archive.SQLiteDatabase, id string) ([]byte, error) {
-	if err := ensurePrivateChild(h.stateRoot, "archive-snapshots"); err != nil {
+	raw, err := captureStoppedSQLite(ctx, h.stateRoot, "archive-snapshots", d.Binding, id)
+	if errors.Is(err, errCaptureKind) {
+		return nil, archive.ErrRefused
+	}
+	return raw, err
+}
+
+var errCaptureKind = errors.New("host: capture returned another engine")
+
+// captureStoppedSQLite makes one bounded SQLite backup-API copy in a private
+// staging child that is removed before returning. The caller owns writer and
+// replica quiescence and any source-identity recheck around it.
+func captureStoppedSQLite(ctx context.Context, stateRoot, staging string, b data.SQLiteDatabaseBinding, id string) ([]byte, error) {
+	if err := ensurePrivateChild(stateRoot, staging); err != nil {
 		return nil, err
 	}
-	target := data.SQLiteCaptureTarget(data.SQLiteCaptureRequest{Binding: d.Binding, StagingRoot: filepath.Join(h.stateRoot, "archive-snapshots"), PointID: id, MaxBytes: data.MaxSQLiteCaptureBytes})
+	target := data.SQLiteCaptureTarget(data.SQLiteCaptureRequest{Binding: b, StagingRoot: filepath.Join(stateRoot, staging), PointID: id, MaxBytes: data.MaxSQLiteCaptureBytes})
 	captured, err := data.CaptureEngine(ctx, target, data.MaxCaptureBudget)
 	if err != nil {
 		return nil, err
 	}
 	raw, ok := captured.SQLite()
 	if !ok {
-		return nil, archive.ErrRefused
+		return nil, errCaptureKind
 	}
 	return raw, nil
 }
 
 func (h archiveHost) archiveRestoreEngine(d archive.SQLiteDatabase, binding restore.Binding, credentials restore.Credentials) restore.SQLiteEngine {
-	return restore.SQLiteEngine{Root: filepath.Join(h.stateRoot, "archive-restores"), MaxSnapshotBytes: 64 << 20, Observer: restoreSchemaObserver{database: d.Binding.Name, definitions: d.Definitions}, Bindings: restore.BindingReaderFunc(func(_ context.Context, id, epoch string) (restore.Binding, error) {
+	return pinnedRestoreEngine(filepath.Join(h.stateRoot, "archive-restores"), d.Binding.Name, d.Definitions, binding, credentials, archive.ErrRefused)
+}
+
+// pinnedRestoreEngine admits only one binding and its already-read
+// credentials; any other request fails with refusal.
+func pinnedRestoreEngine(root string, database data.DatabaseName, definitions []data.SQLiteSchemaDefinition, binding restore.Binding, credentials restore.Credentials, refusal error) restore.SQLiteEngine {
+	return restore.SQLiteEngine{Root: root, MaxSnapshotBytes: 64 << 20, Observer: restoreSchemaObserver{database: database, definitions: definitions}, Bindings: restore.BindingReaderFunc(func(_ context.Context, id, epoch string) (restore.Binding, error) {
 		if id != binding.ID || epoch != binding.Epoch {
-			return restore.Binding{}, archive.ErrRefused
+			return restore.Binding{}, refusal
 		}
 		return binding, nil
 	}), Credentials: restore.CredentialReaderFunc(func(_ context.Context, ref string) (restore.Credentials, error) {
 		if ref != binding.CredentialRef {
-			return restore.Credentials{}, archive.ErrRefused
+			return restore.Credentials{}, refusal
 		}
 		return credentials, nil
 	})}

@@ -5,6 +5,7 @@ package host
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,7 +19,14 @@ import (
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
-type restoreTests struct{ stateDir string }
+type restoreTests struct {
+	stateDir string
+	// cli, endpoint and allowHTTP are test seams; production uses the pinned
+	// CLI and the recorded HTTPS destination.
+	cli       restore.CLI
+	endpoint  string
+	allowHTTP bool
+}
 
 func newRestoreTests(dir string) dispatch.RestoreTestOperations {
 	return restoreAdmission{stateDir: dir}
@@ -37,6 +45,17 @@ func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, ope
 		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
 	defer func() { _ = state.Close() }()
+	// A point naming a SQLite preparation is admitted only by its retained
+	// source, before the ordinary committed and writer-schema gates.
+	if a.Point != "" {
+		prepared, err := state.ReadSQLitePreparedSource(ctx, a.App, a.Database, a.Point)
+		if err == nil {
+			return o.checkPrepared(ctx, prepared, operationID)
+		}
+		if !errors.Is(err, store.ErrNotFound) {
+			return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
+		}
+	}
 	scopes, err := state.ReadCredentialScopes(ctx, a.App)
 	if err != nil {
 		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
@@ -108,6 +127,35 @@ func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, ope
 		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
 	return receipt, nil
+}
+
+// checkPrepared restores a preparation's exact origin source with its retained
+// schema, declared checks, coverage cutoff and exact delivered credential
+// version. It never reads the current release, a writer schema or another
+// credential version, and it consumes nothing.
+func (o restoreTests) checkPrepared(ctx context.Context, p store.SQLitePreparedSource, operationID string) (restore.SQLiteReceipt, error) {
+	credentials, err := readDeliveredCredentials(o.stateDir, p.Credential)
+	if err != nil {
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
+	}
+	defer func() { credentials = restore.Credentials{} }()
+	request := sqliteSourceRequest(operationID, p.Point, p.Cutoff, p.Scope.Checks)
+	request.Budget = 9 * time.Minute
+	engine := pinnedRestoreEngine(filepath.Join(o.stateDir, "restores"), p.Scope.DatabaseName, p.Definitions, withTestEndpoint(restoreBinding(p.Replica), o.endpoint), credentials, data.ErrInvalid)
+	engine.CLI, engine.AllowHTTPForTests = o.cli, o.allowHTTP
+	if err = ensurePrivateChild(o.stateDir, "restores"); err != nil {
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
+	}
+	receipt, err := checkSQLiteRestore(ctx, &engine, request)
+	if err != nil {
+		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
+	}
+	return receipt, nil
+}
+
+func restoreBinding(r data.ReplicaBinding) restore.Binding {
+	d := r.Destination
+	return restore.Binding{ID: string(r.BindingID), Epoch: string(r.EpochID), CredentialRef: d.CredentialRef, Destination: restore.Destination{Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket, Prefix: strings.TrimSuffix(r.RemotePrefix, "/"), PathStyle: d.PathStyle}}
 }
 
 type restoreSchemaObserver struct {

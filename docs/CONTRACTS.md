@@ -1,6 +1,6 @@
 # Brine v1 contracts
 
-**Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` is a read-only browser of targets, apps and bounded logs, without operation observation, plan review or apply. Do not infer that every contract below is shipped.
+**Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` browses targets, apps, bounded logs and operations, and reviews and confirms bounded lifecycle plans. Deployment, diagnosis and initialization flows remain open. Do not infer that every contract below is shipped.
 
 ## App-owned UDP and WebTransport (D10)
 
@@ -432,7 +432,11 @@ Terminal detection uses the injected stream's `Fd()` when available, never an un
 
 The exported TUI runner accepts explicit inputs only when they provide read/write/close file capabilities, a descriptor and a name, which the pinned input adapter needs to interrupt a blocked read. Unsupported borrowed readers are refused before starting the program and are never closed. Descriptor-bearing wrappers retain raw mode and terminal-size detection. See the [agent workflow guide](guides/agents.md) for noninteractive automation.
 
-The TUI is read-only. It lists target names from `*.json` file names in the target directory without opening them, then reads app status (`status`) and one bounded tail of 100 log entries (`logs`) through the same client validation, redaction and bounds as `brine status` and `brine logs`. It never plans, applies or cancels host work. Navigation and refresh cancel the one read in flight; late replies are dropped. Errors show only the stable code and catalog message. Input end of file, a terminal read error, an output write error or a short write ends the session as `internal_error`, exit 1, and cancels reads in flight; signals and other context cancellation stay `interrupted`, exit 130. Plan review and apply are not part of the TUI yet.
+The TUI lists enrolled target names without opening their private files, then reads app status and bounded, redacted logs through the same client helpers as machine commands. It plans restart, stop, start and rollback to the previous known-good release. The review shows the exact returned plan, lifecycle or rollback details, value-free configuration differences and conflicts. A lifecycle response must match the requested action in both machine and TUI callers. Conflict and no-op plans cannot apply. Applying requires `a` followed by `y`, and the complete confirmation must fit before `y` is enabled. Deployment, configuration edits, secret edits, removal, diagnosis and init remain outside the TUI.
+
+Before issuing apply, the session retains the original target and config selection, app, exact plan, once-generated idempotency key and request identity separately from navigation. Browsing and refresh cancel only read requests. Late acceptance and every possibly post-issue acceptance error retain that original record. `u` opens it, and explicit `a`, `y` recovery reuses the same plan and key without re-planning. Until the accepted operation is validated terminal on its original selection with its history drained, no new plan or mutation can replace the record. Read-only browsing remains available. Quitting, EOF, read/write failure and short write attempt original-context recovery guidance on stderr after terminal cleanup. An undrained terminal page retains the issued identity and an observation command. Nothing cancels, relaunches or automatically repeats host work.
+
+Errors show only the stable code and catalog message. EOF, terminal read errors, output write errors and short writes end the session as `internal_error`, exit 1. Signals and context cancellation stay `interrupted`, exit 130. Existing plan freshness, authorization and detached operation execution are unchanged.
 
 From an app's last operation, `t` or Enter opens read-only operation observation through the shared strict `operation` page reader. It drains full 128-event pages immediately, then polls once per second while the screen is active. Transport failures wait 2 and 4 seconds between reads, then pause after the third failure. Other read errors pause immediately. `r` resumes at the retained cursor. `launch_unknown` is nonterminal uncertainty: after draining pages, observation pauses with manual refresh and quoted `reconcile --dry-run` guidance, never automatic reconciliation or relaunch. The view retains at most 1024 events and reports older events it discarded; incomplete history never establishes automatic recovery eligibility. A terminal page refreshes app status once after the history is drained. Leaving the screen or quitting cancels only the client read, never the host job; stale pages and ticks cannot change another view or target. After terminal restoration, an unsettled observation prints its operation ID and a copyable status command on stderr, with its cursor and original target/config selection. Launch uncertainty retains its explicit diagnostic guidance on exit. App details and operation history can be scrolled with the arrow keys. These views do not establish full Phase 05 deployment parity or diagnosis acceptance.
 
@@ -464,7 +468,7 @@ A response that accepts a background operation says **accepted**, not **deployed
 
 ### Local client doctor
 
-`brine doctor` checks the **local client machine only**. It never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to the connected commands. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
+`brine doctor` without `--target` checks the **local client machine only**. That local form never connects to a target, changes files, installs software, or checks remote host readiness. Host inventory and readiness belong to the connected commands. Per D1, Podman, systemd, Caddy, Litestream, and Tailscale are not local client requirements.
 
 The local client requires `ssh`, the system OpenSSH executable used for transport. `git` is optional for working with app source repositories. Missing or failed optional tools do not fail doctor. A missing required tool or a failed required version probe returns `dependency_missing` and exit 3. This identifies a missing or unverified dependency, not a minimum supported version policy.
 
@@ -1227,6 +1231,101 @@ The default is one operator-provisioned bucket with immutable per-database/epoch
 `brine backup credentials set APP` plans a `backup_credentials_set` operation. `CredentialDelivery` carries the credential-plan ID, target/binding/destination/epoch references, policy hash, externally obtained access key/secret/optional session token and optional UTC expiry over bounded private dispatcher stdin. It is never persisted as a plan/event, echoed or logged. Host authorization rechecks scope references/policy/epoch, stores the private versioned credential file and a `CredentialReceipt` containing immutable version, received time and optional supplied expiry, and refuses stale delivery. Initial binding allocation precedes credential assignment; archive access binds archive/epoch references rather than an app-name lookup. No parent/provider management token or mint helper enters Brine.
 
 Versioned runner-owned 0600 environment files contain `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and optional `AWS_SESSION_TOKEN`. Installing a new version changes/restarts only the replica service, retaining its database, binding and epoch. Serialize activation through its lifetime lock, verify remote access and reconcile unknown outcomes. No app restart occurs. Backup/restore admission checks supplied remaining lifetime; status reports age, expiry/renewal-needed and authentication/network failures. An external operator/script/layer renews credentials. Archive restores may require newly supplied credentials for their authorized destination. Provider scope tests prove least privilege; Brine's prefix records alone cannot prove a key's scope.
+
+### Connected SQLite backup status
+
+`brine restore status APP [--database NAME] --target TARGET` sends the read-only
+`sqlite_backup_status` request with exact `app` and `database` fields. An empty
+database selects the sole SQLite database, never a native database. Ambiguous,
+foreign, missing, or inconsistent scope refuses. Native backup status remains a
+separate operation. See the [SQLite backup runbook](runbooks/sqlite-backups.md).
+
+The host factory routes status directly to a lightweight reader. It opens the
+existing control store read-only without migration or a mutation runtime. There
+are no SQL record, schema, permission, app, service, or live-data changes. SQLite
+WAL/SHM bookkeeping is the existing read-only connection's narrow filesystem
+exception. Missing stores and credential directories are never created. Private
+dry-run scratch is operation-owned and disposed, including its safely empty
+operation-created parent, on success, failure, and cancellation.
+
+The operation has a shared 60-second host budget. The actual transport adds the
+existing request, cleanup, and SSH margins. No unrelated deadline changes. The
+signed epoch listing has a 15-second child budget. The pinned Litestream remote
+dry-run has 30 seconds and returns only its exact selected TXID. These are two
+logical probes, not a promise of two HTTP requests. Child timeout yields typed
+partial facts before the overall deadline. Caller cancellation remains failure,
+not a successful degraded report. Provider diagnostics and credential values
+have no output representation.
+
+The response includes engine, app, database and binding/epoch identities,
+observation times, replica service state, closed remote-access class, remote
+watermark state, exact credential version and supplied expiry, remaining lifetime,
+renewal-needed within 20 minutes, lifecycle evidence times/freshness, held fence
+owners, and existing independent verification history. Known missing, expired,
+or unreadable credentials skip both probes. Committed replicas use only their
+exact delivered credential version. Uncommitted reservations can report the
+newest delivered version in that exact binding/epoch scope without activating it.
+
+A running process, successful listing, dry-run watermark, or uploaded point alone
+is not durability. `last_verified` selects the newest retained successful
+restore-test or initialization verification receipt in the selected scope. Its
+original verification time and source remain historical, even if old. No U3
+preparation table is assumed. Local position and position distance are null, and
+loss is `unknown`. There is no placeholder local-position adapter, invented zero
+lag, or implied count of application commits. `observed`, `unverified`, and
+`degraded` describe observations only, not a durability guarantee.
+
+### Fenced SQLite preparation
+
+`brine restore prepare APP [--database NAME] [--supersedes PREPARATION_ID] --target TARGET`
+sends the mutating `sqlite_prepare` request with exact `app`, `database`,
+`supersedes` and `idempotency_key` fields. `brine restore abandon PREPARATION_ID`
+sends `sqlite_prepare_abandon` with `preparation_id` and `idempotency_key`.
+Unknown fields refuse. Both return an accepted detached operation; the CLI
+waits for its `sqliteprep.Receipt` unless `--no-wait` is given. The host derives
+the preparation ID from the requester, selected database, predecessor and
+idempotency key, so a retried admission reaches the same operation. Supersede
+and abandon admit only the preparation's own app, database and requester.
+
+The task runs the single `sqliteprep` state machine with the protected store
+journal; no generic shell or SQL port exists. Prepare stops the app's writer
+unit and, when the mode requires, the replica unit. It never starts, restarts
+or execs into either, activates credentials or deletes remote objects. Fresh
+preparation takes the replica's own sync barrier when a committed replica is
+running and proven to hold its lifetime lock, otherwise one create-only
+snapshot upload (one conditional create plus the expected 412 check). Every
+point is restored in a private workspace that is disposed before the receipt is
+recorded. Completion and abandon recheck the retained stopped source inside
+their store transactions. Success leaves writers and replica stopped under the
+original fence; a ten-minute point admission lifetime, clipped by recorded
+retention, never releases it. Abandon checks the stopped source against its
+recorded baseline, releases only the original fence and starts nothing. If a
+live preparation failed before the replica stopped, abandon records a durable
+local stop intent before stopping the freshly proven owned writers and replica.
+That path needs no credentials, barrier, upload or remote request. A stop intent
+is a claim: an unknown stop or lost reply remains `recovery_required`, and a
+same-key retry does not repeat effects. A new explicit abandon can recover it.
+An already recorded stopped baseline with a restarted unit refuses before claim.
+
+Source checks retain no-follow descriptors and rewalk the absolute root and its
+ancestors to detect replacement. Writer stops require the committed rendered
+unit, the loaded unit's exact provenance and the running process's own cgroup.
+Foreign or replaced units refuse. Host observation runs outside control-store
+write transactions; completion rechecks only retained physical source handles.
+
+While a preparation fence is held, the existing writer and replica startup
+permits refuse, including at boot. After abandon, units start only through the
+next explicit start, deploy or boot; there is no separate stopped-desired-state
+record and no promise of staying stopped across later reboots.
+
+`restore test --point PREPARATION_ID` admits a completed SQLite preparation by
+its retained origin source (a reverify successor resolves to the origin point),
+schema, declared checks, coverage cutoff and exact delivered credential version
+before the ordinary committed and writer-schema gates, and bounds possible loss
+by that cutoff. A preparation of another app or database, an incomplete
+preparation or a changed current binding refuses rather than falling back.
+Only committed replicas are supported; uncommitted, pre-first-release,
+allocated-empty and initialized-snapshot sources refuse.
 
 ### State transitions and restore evidence
 
@@ -2344,3 +2443,87 @@ the retained original point, released fence, release, routes, and stopped
 revision. A later legitimate lifecycle revision does not invalidate that
 historical receipt. Failed or unknown attempts retain their recorded outcome
 and cannot infer success from an unjoined receipt.
+
+## Read-only target readiness
+
+`brine doctor` checks this client's SSH and optional Git dependency only. It
+explicitly says that remote readiness was not checked. `doctor --target NAME`
+uses the restricted `readiness` operation. Its only accepted payload is `{}` and
+its dispatcher class is `read_only`. The response contains `client` and `host`.
+JSONL emits one `complete` event containing the same report as JSON and human
+output. A successful envelope means collection succeeded, not that the host is
+ready. `host.ready` is `true`, `false`, or the string `"unknown"`.
+
+Facts have a typed value only when known. Unknown and absent facts have a fixed
+reason and a null value. Known failing requirements produce fixed findings.
+Unknown facts do not fail a rule or establish readiness. Any failure makes the
+verdict false; otherwise any unknown requirement or truncation makes it unknown.
+Next-operation suggestions do not authorize changes. Readiness is not app health,
+a successful deployment, or physical acceptance.
+
+The fixed findings are `os_unsupported`, `runtime_version_mismatch`,
+`cgroup_unsupported`, `rootless_helper_missing`, `user_session_missing`,
+`disk_below_reserve`, `policy_invalid`, `policy_denies_deploy`, `caddy_inactive`,
+`caddy_admin_exposed`, `proxy_conflict`, `catch_all_site`, `control_store_missing`,
+`control_store_unhealthy`, `control_store_upgrade_required`,
+`registry_unreachable`, `domain_unresolved`, `domain_elsewhere`, `tls_untrusted`,
+and `backup_stale`. Each includes severity, a fixed message and next operations.
+
+Inventory supplies OS, architecture, D2 runtime versions, cgroup v2, disk,
+linger, listener ownership and committed route observations. Fixed read-only
+runtime probes add uidmap executable modes, installed session packages, the
+user bus, Caddy activity, loopback administration and hostless sites. A hostless
+site observed in either loaded or adapted configuration is retained. Absence
+requires both observations; a failed observation does not establish absence.
+Free disk is compared with the protected policy reserve. Invalid policy and valid policy
+that allows no deployment registries or domains are separate facts.
+
+The control store is read through `OpenSnapshotReadOnly`, including WAL, without
+opening live SQLite files or acquiring or creating a live lock. Its states are
+`missing`, `current`, `schema_upgrade_required`, `schema_unsupported` and
+`preview_unavailable`. The exact same isolated Store runs one bounded
+`PRAGMA quick_check(1)`. Only the exact positive result proves SQLite structural
+health. It does not validate all retained authority or history. Readiness never
+creates a missing database, migrates a schema, or repairs state.
+
+Outbound DNS, HTTPS and TLS are observations. Registry hosts come only from
+policy-allowed repository prefixes. Each gets one anonymous HTTPS `GET /v2/`,
+with no proxy environment, credentials, cookies or redirects. Docker Hub aliases
+use the existing resolver's fixed `registry-1.docker.io` API origin. Only 200 and 401
+mean reachable. Registries with no repository prefixes grant no deployment
+permission and are not probed. Exact policy domains resolve A and AAAA from the
+host and compare with local interface addresses. Wildcard policy grants are not
+expanded or sent to exact-name probes. Their omitted coverage sets `truncated`
+and prevents a ready verdict, while exact grants are still checked. Results are `resolves_here`,
+`resolves_elsewhere`, `unresolved` or `unknown_behind_nat`. The latter cannot
+establish health. Semantic store reads are bound to the independently measured
+host identity. Missing or mismatched identity leaves routes and backups unknown;
+SQLite structural health remains a separate fact. Current route selection joins
+release identity, protected managed route and withdrawal records, the selected
+observed generation and the complete file hashes. Disk absence alone is not a
+withdrawal. A domain with a proven current route gets a handshake to
+`127.0.0.1:443` with its SNI name, system roots and mandatory hostname verification.
+TLS is `trusted`, `untrusted` or `unreachable`; errors never disable verification.
+
+Backup facts use the existing read-only status readers. SQLite facts reuse the
+connected status composition, snapshot reader, service probe, remote listing and
+dry-run watermark probe. Coverage is checked per exact database and replica
+binding against every prepared database, not by app name. If the existing read
+ports cannot enumerate a complete engine set, including native engine ownership,
+the backup set remains unknown rather than asserting complete coverage. Local position and possible loss
+remain unknown; a remote watermark does not prove durability. Active data
+preparation not represented by a committed release remains unknown rather than
+an empty backup set. A missing verification, missed cadence or explicit known
+backup degradation can produce `backup_stale`; unknown observations alone cannot.
+The SQLite status dependency is source-composed. Its physical acceptance is a
+separate gate, not a consequence of this readiness report.
+
+Collection has a fixed 12-second total deadline, four-second inventory and
+runtime-group budgets, and one-second remaining probes. Inventory subprocesses
+retain their existing three-second cap within the group budget. At most four
+probes can remain outstanding, including dependencies that ignore cancellation.
+Policy registries, domains and backup summaries are capped at 16 each. The
+wire report is capped at 128 KiB. A timed-out probe returns a partial report,
+never a healthy fallback. Every isolated copy and dry-run directory is owned by
+its request and cleaned on exit. No generic shell, request-selected path,
+request-selected host or arbitrary subprocess arguments are accepted.

@@ -139,6 +139,9 @@ func validateDispositionOperation(ctx context.Context, tx *sql.Tx, o archive.Ope
 		if err := guardArchiveUDP(ctx, tx, p.Candidate.App); err != nil {
 			return p, err
 		}
+		if err := guardArchiveCDN(ctx, tx, p.Candidate.App); err != nil {
+			return p, err
+		}
 	}
 	return p, nil
 }
@@ -251,6 +254,9 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 			return old, err
 		}
 		if _, err = tx.ExecContext(ctx, "INSERT INTO data_archive_retirements VALUES(?,?,?,?,?)", p.ArchiveID, p.Candidate.Incarnation, p.Candidate.App, p.Candidate.ReleaseID, raw); err != nil {
+			return old, err
+		}
+		if _, err = tx.ExecContext(ctx, "DELETE FROM cdn_heads WHERE app=?", p.Candidate.App); err != nil {
 			return old, err
 		}
 	}

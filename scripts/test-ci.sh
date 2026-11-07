@@ -5,6 +5,7 @@ scratch=$(mktemp -d "${TMPDIR:-/tmp}/brine-ci-tests-XXXXXX")
 trap 'rm -rf "$scratch"' EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM HUP
+export BRINE_CHECK_OUTPUT="$scratch/output"
 
 check_scope() {
   local old=$1 new=$2 want=$3 base got
@@ -43,7 +44,7 @@ count=0
 for path in README.md docs/CONTRACTS.md 'docs/guides/new guide.md' .internal/plans/release.md docs/assets/hero.webp; do
   check_scope "$path" "$path" docs
 done
-for path in internal/example.go internal/testdata/input.md fixtures/app/README.md docs/testdata/input.md docs/Fixtures/input.md docs/fixture/input.md docs/example.go docs/example.toml docs/assets/new.wasm .github/workflows/ci.yml scripts/check.sh scripts/publish-udp-fixture.ts tools/ci/udp-fixture/*.ts fixtures/udp-echo/pins.json .github/workflows/udp-fixture.yml internal/cdn/cloudflare/worker.test.mjs internal/cdn/testdata/eligibility.json go.sum mise.toml unknown.txt; do
+for path in internal/example.go internal/testdata/input.md fixtures/app/README.md docs/testdata/input.md docs/Fixtures/input.md docs/fixture/input.md docs/example.go docs/example.toml docs/assets/new.wasm .github/workflows/ci.yml scripts/check.sh scripts/publish-udp-fixture.ts scripts/build-release.ts scripts/release.ts tools/ci/udp-fixture/*.ts tools/ci/release/*.ts .github/workflows/release.yml fixtures/udp-echo/pins.json .github/workflows/udp-fixture.yml internal/cdn/cloudflare/worker.test.mjs internal/cdn/testdata/eligibility.json go.sum mise.toml unknown.txt; do
   check_scope "$path" "$path" full
 done
 check_scope docs/old.md docs/new.md full
@@ -99,10 +100,10 @@ check_commands() {
 }
 
 check_commands test-helpers <<'EXPECTED'
-bun|test tools/ci/udp-fixture
+bun|test tools/ci/udp-fixture tools/ci/release
 EXPECTED
 if HELPER_TEST_STATUS=17 check_commands test-helpers <<'EXPECTED'
-bun|test tools/ci/udp-fixture
+bun|test tools/ci/udp-fixture tools/ci/release
 EXPECTED
 then
   echo 'A failing helper assertion must fail its CI command.' >&2

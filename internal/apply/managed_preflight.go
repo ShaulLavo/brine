@@ -21,11 +21,15 @@ func (r *managedExecution) preflight(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	fresh, err := plan.Build(facts.Input)
+	input, _, err := plan.RebuildInput(facts.Input, p, []string{x.id})
+	if err != nil {
+		return err
+	}
+	fresh, err := plan.Build(input)
 	if p.Lifecycle == plan.StopApp && p.ManagedLifecycle != nil && p.ManagedLifecycle.Engine {
-		fresh, err = plan.BuildEngineStop(facts.Input)
+		fresh, err = plan.BuildEngineStop(input)
 	} else if p.Lifecycle != "" {
-		fresh, err = plan.BuildLifecycle(facts.Input, p.Lifecycle)
+		fresh, err = plan.BuildLifecycle(input, p.Lifecycle)
 	}
 	if err != nil {
 		return err

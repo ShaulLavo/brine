@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › fixture-api › review                                  conflict│
+────────────────────────────────────────────────────────────────────────────────│
+Restart fixture-api                                                             │
+plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    │
+Action: restart_app. Releases and app data stay unchanged.                      │
+! artifact_drift [unit [31m]: Live app files differ from the committed release. │
+Apply disabled. No changes or unresolved plan conflicts. Plan again after       │
+resolving conflicts.                                                            │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+↑↓ scroll  esc discard                                                          │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m                                  \x1b[90mconflict\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"Action: restart_app. Releases and app data stay unchanged."
+"! artifact_drift [unit [31m]: Live app files differ from the committed release."
+"Apply disabled. No changes or unresolved plan conflicts. Plan again after"
+"resolving conflicts."
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ scroll  esc discard\x1b[m"
+== 50x16 no color ==
+brine · fixture › fixture-api › review    conflict│
+──────────────────────────────────────────────────│
+Restart fixture-api                               │
+plan                                              │
+sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaa                             │
+Action: restart_app. Releases and app data stay un│
+! artifact_drift [unit [31m]: Live app files diffe│
+Apply disabled. No changes or unresolved plan     │
+conflicts. Plan again after resolving conflicts.  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+                                                  │
+↑↓ scroll  esc discard                            │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › fixture-api › review\x1b[m    \x1b[90mconflict\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan"
+"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaa"
+"Action: restart_app. Releases and app data stay un"
+"! artifact_drift [unit [31m]: Live app files diffe"
+"Apply disabled. No changes or unresolved plan"
+"conflicts. Plan again after resolving conflicts."
+""
+""
+""
+""
+""
+"\x1b[90m↑↓ scroll  esc discard\x1b[m"
+== 30x8 no color ==
+brine · fixture › fixture-api │
+──────────────────────────────│
+Restart fixture-api           │
+plan                          │
+sha256:aaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaa                   │
+↑↓ scroll  esc back           │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › fixture-api \x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Restart fixture-api"
+"plan"
+"sha256:aaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaa"
+"\x1b[90m↑↓ scroll  esc back\x1b[m"

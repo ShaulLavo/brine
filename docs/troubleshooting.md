@@ -78,7 +78,7 @@ Removal refuses and deletes nothing. Retiring a persistent SQLite app is not imp
 
 **Symptom:** `dependency_missing`, exit 3.
 
-Run `brine doctor`. It checks the client only: `ssh` is required, `git` is optional. It does not check the server.
+Run `brine doctor` for local dependencies only. SSH is required and Git is optional. Use `brine doctor --target NAME` for a bounded read-only host readiness report. A successful response means the report was collected. Read `host.ready` and the unknown reasons before acting. Neither command changes the host.
 
 ## `plan` says to choose a target
 

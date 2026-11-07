@@ -25,8 +25,11 @@ func (s *Store) ArchiveCandidate(ctx context.Context, app string) (archive.Candi
 	return candidate, tx.Commit()
 }
 
-func readArchiveCandidate(ctx context.Context, q dataQuerier, app string) (archive.Candidate, error) {
-	return readArchiveCandidateOwned(ctx, q, app, "")
+func readArchiveCandidate(ctx context.Context, tx *sql.Tx, app string) (archive.Candidate, error) {
+	if err := guardArchiveCDN(ctx, tx, app); err != nil {
+		return archive.Candidate{}, err
+	}
+	return readArchiveCandidateOwned(ctx, tx, app, "")
 }
 func readArchiveCandidateOwned(ctx context.Context, q dataQuerier, app, owner string) (archive.Candidate, error) {
 	c := archive.Candidate{App: app, Databases: []archive.Database{}}

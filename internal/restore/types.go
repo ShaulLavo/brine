@@ -217,7 +217,8 @@ var identifier = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]{0,127}$`)
 var hash = regexp.MustCompile(`^[0-9a-f]{64}$`)
 var schemaMarker = regexp.MustCompile(`^(?:[A-Za-z0-9][A-Za-z0-9_.-]{0,127}|sha256:[a-f0-9]{12})$`)
 
-func (s SQLiteSource) reference() (string, string, error) {
+// Reference validates source invariants and returns its declared binding and epoch.
+func (s SQLiteSource) Reference() (string, string, error) {
 	switch s.Kind {
 	case LitestreamLTX:
 		if s.LTX == nil || s.Snapshot != nil || s.LTX.TXID == 0 {
@@ -302,7 +303,7 @@ func validateChecks(r SQLiteRequest) error {
 func txidString(txid uint64) string { return fmt.Sprintf("%016x", txid) }
 
 func samePoint(first, second SQLiteSource) bool {
-	if _, _, err := first.reference(); err != nil {
+	if _, _, err := first.Reference(); err != nil {
 		return false
 	}
 	if first.Kind != second.Kind {

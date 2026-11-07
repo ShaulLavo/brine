@@ -57,6 +57,9 @@ func (r Runner) runTask(ctx context.Context, op ops.Operation) error {
 	if op.Kind == ops.NativePrepareAbandon {
 		return r.finishNativeAbandonTask(ctx, op, receipt, runErr, state)
 	}
+	if isSQLitePreparationTask(op.Kind) {
+		return r.finishSQLiteTask(ctx, op, receipt, runErr)
+	}
 	outcome := ops.TaskOutcome{Receipt: receipt}
 	to := ops.Succeeded
 	terminal := op

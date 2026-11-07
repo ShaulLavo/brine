@@ -1,0 +1,34 @@
+Local client dependency check
+Checks this machine only; not a remote host readiness audit. No changes are made.
+  ssh          required 9.9p2
+  git          optional not_found
+
+Read-only readiness for target fixture
+A collected report is not host health or approval. Unknown facts are not evidence of readiness.
+  host.backups: unknown (store_unavailable)
+  host.domains: []
+  host.facts.admin_loopback: unknown (probe_unavailable)
+  host.facts.arch: unknown (inventory_unavailable)
+  host.facts.caddy: unknown (inventory_unavailable)
+  host.facts.caddy_active: unknown (probe_unavailable)
+  host.facts.catch_all: unknown (probe_unavailable)
+  host.facts.cgroup_v2: unknown (inventory_unavailable)
+  host.facts.committed_domains: unknown (store_unavailable)
+  host.facts.control_store: {"quick_check":{"reason":"store_unavailable","status":"unknown","value":null},"state":"missing"}
+  host.facts.dbus_user_session: unknown (probe_unavailable)
+  host.facts.free_disk_bytes: unknown (inventory_unavailable)
+  host.facts.linger: unknown (inventory_unavailable)
+  host.facts.os: unknown (inventory_unavailable)
+  host.facts.passt: unknown (inventory_unavailable)
+  host.facts.podman: unknown (inventory_unavailable)
+  host.facts.policy: unknown (policy_unavailable)
+  host.facts.polkitd: unknown (probe_unavailable)
+  host.facts.proxy_conflict: unknown (inventory_unavailable)
+  host.facts.systemd: unknown (inventory_unavailable)
+  host.facts.uidmap: unknown (probe_unavailable)
+  host.facts.user_bus: unknown (probe_unavailable)
+  host.findings: [{"code":"control_store_missing","message":"The control store is missing.","next_operations":["brine doctor --target NAME"],"severity":"error"}]
+  host.ready: false
+  host.registries: []
+  host.schema_version: 1
+  host.truncated: false

@@ -31,6 +31,7 @@ func buildManagedLifecycle(in Input, action ChangeKind, includeEngine bool) (Pla
 		return Plan{}, errors.New("managed lifecycle cannot change configuration")
 	}
 	in.Desired = requested
+	in.SecretExact = append([]SecretBinding{}, current.Secrets...)
 	p, err := Build(in)
 	if err != nil {
 		return Plan{}, err

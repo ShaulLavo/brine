@@ -137,3 +137,8 @@ func hmacSHA(key []byte, value string) []byte {
 	_, _ = h.Write([]byte(value))
 	return h.Sum(nil)
 }
+
+func newS3ReadClient() *http.Client {
+	transport := &http.Transport{DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext, TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 15 * time.Second, MaxResponseHeaderBytes: 32 << 10, DisableCompression: true}
+	return &http.Client{Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+}

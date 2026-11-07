@@ -18,8 +18,8 @@ func newTUICmd(machineOutput, noInput *bool, deps Dependencies) *cobra.Command {
 	var flags operationFlags
 	cmd := &cobra.Command{
 		Use:   "tui",
-		Short: "Browse targets, apps, operations and bounded logs read-only",
-		Long:  "Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. The TUI only reads: it never plans, applies or cancels anything. Without --target it starts on the target picker.",
+		Short: "Browse apps and operations, review and apply lifecycle plans",
+		Long:  "Browse enrolled targets, app status, operation timelines and bounded, redacted log tails. Review restart, stop, start or previous known-good rollback plans, then confirm with a and y to apply. Uncertain acceptance retains the same plan and key for explicit recovery. Quitting never cancels a host job. Without --target it starts on the target picker.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if *machineOutput || *noInput {
 				return result.New(result.TUIInteractive, nil)

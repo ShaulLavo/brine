@@ -1,6 +1,7 @@
 name: Native passive reader
 on:
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - tools/native-reader/**
       - .github/workflows/native-reader.yml
@@ -14,8 +15,13 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   portable:
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) }}
     name: Portable native reader (${{ matrix.arch }})
     strategy:
       fail-fast: false
@@ -77,7 +83,7 @@ jobs:
 
   gate:
     name: Complete native reader gate
-    if: always()
+    if: ${{ (github.event_name != 'pull_request' || !github.event.pull_request.draft) && (always()) }}
     needs: [portable]
     runs-on: ubuntu-24.04
     steps:

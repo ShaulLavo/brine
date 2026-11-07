@@ -144,3 +144,67 @@ func TestDecisionDriftOmitsInvalidPathsWithoutLosingValidChanges(t *testing.T) {
 		t.Fatalf("invalid path poisoned valid changes %+v", drift)
 	}
 }
+
+func TestManagedDecisionDriftDecodesRealDeploymentDocuments(t *testing.T) {
+	in := managedInitializedFixture(t, true)
+	before := build(t, in)
+	in.Managed.LoggingRootSHA256 = strings.Repeat("e", 64)
+	in.Snapshot.Identity.ID = "private-managed-identity"
+	after := build(t, in)
+	drift, err := CompareDecisionInputs(before.DecisionInput(), after.DecisionInput())
+	if err != nil || !drift.Valid() || !slices.Contains(drift.Paths, "snapshot.managed.logging_root_sha256") || !slices.Contains(drift.Paths, "snapshot.snapshot.identity.id") {
+		t.Fatalf("managed decision document drift %+v: %v", drift, err)
+	}
+	raw, err := json.Marshal(drift)
+	if err != nil || strings.Contains(string(raw), "private-managed-identity") || strings.Contains(string(raw), strings.Repeat("e", 64)) {
+		t.Fatal("managed drift leaked values", err)
+	}
+}
+
+func TestManagedDecisionDriftKeepsClosedSchemas(t *testing.T) {
+	in := managedInitializedFixture(t, true)
+	original := build(t, in).DecisionInput()
+	for _, change := range []struct{ old, next string }{
+		{`"logging_root_sha256":`, `"unknown_managed":true,"logging_root_sha256":`},
+		{`"sufficient_disk":`, `"unknown_snapshot":true,"sufficient_disk":`},
+		{`"brine_state":`, `"unknown_document":true,"brine_state":`},
+		{`"managed":{"route_revision":`, `"managed":{"unknown_fact":true,"route_revision":`},
+	} {
+		altered := strings.Replace(string(original), change.old, change.next, 1)
+		if altered == string(original) {
+			t.Fatal("fixture field missing", change.old)
+		}
+		if _, err := CompareDecisionInputs(original, []byte(altered)); err == nil {
+			t.Fatal("unknown managed decision field accepted", change.next)
+		}
+	}
+	if _, err := CompareDecisionInputs(original, append(slices.Clone(original), []byte(` {}`)...)); err == nil {
+		t.Fatal("trailing decision document accepted")
+	}
+}
+
+func TestManagedDecisionDriftDecodesLifecycleAndPreparationDocuments(t *testing.T) {
+	in := managedInitializedFixture(t, true)
+	created := build(t, in)
+	in.State.Releases = []CurrentRelease{{App: created.App, ID: "current", Desired: in.Desired, Image: created.Image, HostPort: created.HostPort, Secrets: created.Secrets, Units: []target.Unit{}, CaddyFile: target.CaddyFile{Name: created.App + ".caddy", Hash: "sha256:" + strings.Repeat("a", 64)}, Managed: created.Managed}}
+	lifecycle, err := BuildLifecycle(in, StartApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preparation, proposed, root := managedPreparationFixture(t, true)
+	prepared, err := BuildManagedPreparation(preparation, proposed, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []Plan{created, lifecycle, prepared} {
+		drift, err := CompareDecisionInputs(p.DecisionInput(), p.DecisionInput())
+		if err != nil || !drift.Valid() || drift.Changed != 0 {
+			t.Fatal("real managed decision cannot decode", err, drift)
+		}
+	}
+	plain := build(t, fixture(t, "ready-arm64"))
+	drift, err := CompareDecisionInputs(plain.DecisionInput(), created.DecisionInput())
+	if err != nil || !drift.Valid() || !slices.Contains(drift.Paths, "snapshot") {
+		t.Fatal("different decision domains cannot compare", err, drift)
+	}
+}

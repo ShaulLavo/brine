@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/ShaulLavo/brine/internal/archive"
+	"github.com/ShaulLavo/brine/internal/cdn"
+	"github.com/ShaulLavo/brine/internal/cdn/cdntest"
 	"github.com/ShaulLavo/brine/internal/data"
 )
 
@@ -196,13 +198,16 @@ func TestArchiveMigrationTwelvePreservesPreparedManifestAndFences(t *testing.T) 
 	}
 }
 
-func TestArchivePublishedRetirementReleasesHeadAndInventoryForRecreation(t *testing.T) {
-	s := openTest(t)
+func publishedStoredArchive(t *testing.T, s *Store, domains ...spec.Domain) archive.Plan {
+	t.Helper()
 	ctx := context.Background()
 	p := storedArchivePlan(t, s)
 	req := dataRequest()
 	in := fixture(t)
 	in.Desired.Name = spec.Name(req.App)
+	if len(domains) != 0 {
+		in.Desired.Domains = domains
+	}
 	in.Desired.Runtime = &data.RuntimeIdentity{UID: 10001, GID: 10001}
 	in.Desired.Databases = []data.SQLiteDatabase{req.Database}
 	in.Desired.SchemaCompatibility = []data.SQLiteSchemaCompatibility{{Database: "main", Startup: "preserve", Accepts: []string{data.EmptyMarker}}}
@@ -233,7 +238,16 @@ func TestArchivePublishedRetirementReleasesHeadAndInventoryForRecreation(t *test
 	if err = s.SaveArchivePlan(ctx, p); err != nil {
 		t.Fatal(err)
 	}
+	return p
+}
+
+func TestArchivePublishedRetirementReleasesHeadAndInventoryForRecreation(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	req := dataRequest()
+	p := publishedStoredArchive(t, s)
 	p, o, _ := preparedStoredArchive(t, s, p)
+	var err error
 	if _, err = s.ReadWriterSchema(ctx, p.Candidate.Incarnation); !errors.Is(err, ErrConflict) {
 		t.Fatal("ordinary writer bypassed archive fence", err)
 	}
@@ -264,7 +278,7 @@ func TestArchivePublishedRetirementReleasesHeadAndInventoryForRecreation(t *test
 	if err != nil || next.Database.IncarnationID == p.Candidate.Incarnation {
 		t.Fatal("recreation reused incarnation", err)
 	}
-	if _, err = s.ReleaseByID(ctx, req.App, release.ID); err != nil {
+	if _, err = s.ReleaseByID(ctx, req.App, p.Candidate.ReleaseID); err != nil {
 		t.Fatal("release history lost", err)
 	}
 }
@@ -356,5 +370,242 @@ func TestArchiveAbandonEveryStoredPreManifestBoundary(t *testing.T) {
 				t.Fatal("app remains blocked", err)
 			}
 		})
+	}
+}
+
+func archiveCDNFixture(t *testing.T) (*Store, archive.Plan, *cdntest.Fixture) {
+	t.Helper()
+	s := openTest(t)
+	f := cdntest.New(t)
+	a := f.Attachment(f.EdgeA.Profile().Reference)
+	return s, publishedStoredArchive(t, s, spec.Domain(a.Binding.Hostname)), f
+}
+
+func setArchiveCDN(t *testing.T, s *Store, p archive.Plan, f *cdntest.Fixture, mode string) {
+	t.Helper()
+	a := f.Attachment(f.EdgeA.Profile().Reference)
+	a.Binding.App, a.SourceRelease = p.Candidate.App, p.Candidate.ReleaseID
+	a.Owner = cdn.AttachmentFor(a.Binding.Target, a.Binding.App, a.SourceRelease)
+	a.Revision = cdn.RevisionFor(a, cdn.Hash([]byte("policy")), "")
+	planned := cdnPlanFixture(t, s, f, a, "")
+	o, _, err := s.AdmitCDN(t.Context(), planned.ID, "operator", "archive-enable")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mode == "reservation" {
+		return
+	}
+	cdnRunEffects(t, s, f, o.ID)
+	a = cdnQualify(t, s, f, o.ID).Attachment
+	if mode != "direct" {
+		return
+	}
+	a.Mode = cdn.Direct
+	a.Revision = cdn.RevisionFor(a, cdn.Hash([]byte("policy")), "")
+	planned = cdnPlanFixture(t, s, f, a, "")
+	o, _, err = s.AdmitCDN(t.Context(), planned.ID, "operator", "archive-direct")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cdnRunEffects(t, s, f, o.ID)
+	cdnQualify(t, s, f, o.ID)
+}
+
+func advanceArchiveRetirement(t *testing.T, s *Store, o archive.Operation) archive.Disposition {
+	t.Helper()
+	var state archive.Disposition
+	for _, stage := range []archive.DispositionStage{archive.CleanupIntent, archive.RuntimeRetired, archive.RenameIntent, archive.Renamed} {
+		next := archive.Disposition{ArchiveID: o.ArchiveID, Sequence: state.Sequence + 1, Stage: stage}
+		var err error
+		state, err = s.AdvanceArchiveDisposition(t.Context(), o, state, next)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	return state
+}
+
+func archiveRetirementDone(state archive.Disposition) archive.Disposition {
+	now := time.Now().UTC()
+	return archive.Disposition{ArchiveID: state.ArchiveID, Sequence: state.Sequence + 1, Stage: archive.Retired, CommittedAt: now, RetainUntil: now.Add(30 * 24 * time.Hour)}
+}
+
+func TestArchiveCDNAdmission(t *testing.T) {
+	for _, mode := range []string{"reservation", "enabled", "direct"} {
+		t.Run(mode, func(t *testing.T) { testArchiveCDNAdmission(t, mode) })
+	}
+}
+
+func testArchiveCDNAdmission(t *testing.T, mode string) {
+	s, p, f := archiveCDNFixture(t)
+	setArchiveCDN(t, s, p, f, mode)
+	if mode == "direct" {
+		if _, err := s.ArchiveCandidate(t.Context(), p.Candidate.App); err != nil {
+			t.Fatal("direct candidate refused", err)
+		}
+		preparedStoredArchive(t, s, p)
+		return
+	}
+	if err := s.CheckArchiveCDN(t.Context(), p.Candidate.App); !errors.Is(err, ErrConflict) {
+		t.Fatal("CDN conflict admitted", err)
+	}
+	if _, err := s.ArchiveCandidate(t.Context(), p.Candidate.App); !errors.Is(err, ErrConflict) {
+		t.Fatal("candidate admitted CDN conflict", err)
+	}
+	if _, err := s.ClaimArchive(t.Context(), p); !errors.Is(err, ErrConflict) {
+		t.Fatal("stale plan claimed over CDN conflict", err)
+	}
+	if _, exists, err := s.ReadArchiveOperation(t.Context(), p.ID); err != nil || exists {
+		t.Fatal("refused claim left operation or fences", exists, err)
+	}
+}
+
+func TestArchiveCDNFinalTransaction(t *testing.T) {
+	for _, mode := range []string{"reservation", "enabled", "direct"} {
+		t.Run(mode, func(t *testing.T) { testArchiveCDNFinalTransaction(t, mode) })
+	}
+}
+
+func testArchiveCDNFinalTransaction(t *testing.T, mode string) {
+	s, p, f := archiveCDNFixture(t)
+	_, o, _ := preparedStoredArchive(t, s, p)
+	state := advanceArchiveRetirement(t, s, o)
+	other, err := Open(s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = other.Close() })
+	setArchiveCDN(t, other, p, f, mode)
+	before, headErr := s.CDNHead(t.Context(), p.Candidate.App)
+	_, finishErr := s.FinishArchiveDisposition(t.Context(), o, state, archiveRetirementDone(state))
+	_, releaseErr := s.CurrentRelease(t.Context(), p.Candidate.App)
+	if mode != "direct" {
+		if !errors.Is(finishErr, ErrConflict) || releaseErr != nil {
+			t.Fatal("retirement bypassed CDN conflict", finishErr, releaseErr)
+		}
+		assertArchiveCDNUnchanged(t, s, p, o, state, before, headErr)
+		return
+	}
+	if finishErr != nil || !errors.Is(releaseErr, ErrNotFound) {
+		t.Fatal("direct retirement refused", finishErr, releaseErr)
+	}
+	if _, err := s.CDNHead(t.Context(), p.Candidate.App); !errors.Is(err, ErrNotFound) {
+		t.Fatal("direct head survived retirement", err)
+	}
+	retained, err := s.CDNRevision(t.Context(), p.Candidate.App, before.Attachment.Revision)
+	if err != nil || !reflect.DeepEqual(retained, before) {
+		t.Fatal("retirement changed retained provider configuration", err)
+	}
+	if _, err := s.ReleaseByID(t.Context(), p.Candidate.App, p.Candidate.ReleaseID); err != nil {
+		t.Fatal("retirement removed release history", err)
+	}
+}
+
+func assertArchiveCDNUnchanged(t *testing.T, s *Store, p archive.Plan, o archive.Operation, state archive.Disposition, before cdn.Revision, headErr error) {
+	t.Helper()
+	assertArchiveCDNHeadPreserved(t, s, p, before, headErr)
+	current, exists, err := s.ReadArchiveDisposition(t.Context(), p.ArchiveID)
+	if err != nil || !exists || current != state {
+		t.Fatal("refusal changed disposition", err)
+	}
+	if _, err := s.ArchiveOwnedCandidate(t.Context(), p.Candidate.App, o.ID); err != nil {
+		t.Fatal("refusal lost active incarnation or fences", err)
+	}
+}
+
+func TestArchiveCDNCleanupAdmissionAndAbandon(t *testing.T) {
+	for _, mode := range []string{"reservation", "enabled", "direct"} {
+		t.Run(mode, func(t *testing.T) { testArchiveCDNCleanupAndAbandon(t, mode) })
+	}
+}
+
+func testArchiveCDNCleanupAndAbandon(t *testing.T, mode string) {
+	s, p, f := archiveCDNFixture(t)
+	_, o, _ := preparedStoredArchive(t, s, p)
+	setArchiveCDN(t, s, p, f, mode)
+	before, headErr := s.CDNHead(t.Context(), p.Candidate.App)
+	intent := archive.Disposition{ArchiveID: p.ArchiveID, Sequence: 1, Stage: archive.CleanupIntent}
+	_, err := s.AdvanceArchiveDisposition(t.Context(), o, archive.Disposition{}, intent)
+	if mode == "direct" {
+		if err != nil {
+			t.Fatal("direct cleanup refused", err)
+		}
+	} else if !errors.Is(err, ErrConflict) {
+		t.Fatal("cleanup admitted CDN conflict", err)
+	}
+	var old archive.Disposition
+	if mode == "direct" {
+		old = intent
+	}
+	intent.Sequence, intent.Stage = old.Sequence+1, archive.AbandonIntent
+	state, err := s.AdvanceArchiveDisposition(t.Context(), o, old, intent)
+	if err != nil {
+		t.Fatal("CDN stranded abandon intent", err)
+	}
+	done := archive.Disposition{ArchiveID: p.ArchiveID, Sequence: state.Sequence + 1, Stage: archive.Abandoned, CommittedAt: time.Now().UTC()}
+	if _, err := s.FinishArchiveDisposition(t.Context(), o, state, done); err != nil {
+		t.Fatal("CDN stranded safe abandon", err)
+	}
+	assertArchiveCDNHeadPreserved(t, s, p, before, headErr)
+	if _, err := s.CurrentRelease(t.Context(), p.Candidate.App); err != nil {
+		t.Fatal("abandon removed release head", err)
+	}
+	writer, err := s.ReadWriterSchema(t.Context(), p.Candidate.Incarnation)
+	if err != nil || writer.ReleaseID != p.Candidate.ReleaseID {
+		t.Fatal("abandon lost active incarnation or retained fences", err)
+	}
+}
+
+func TestArchiveCDNDirectHeadRollsBackWithFailedRetirement(t *testing.T) {
+	s, p, f := archiveCDNFixture(t)
+	_, o, _ := preparedStoredArchive(t, s, p)
+	state := advanceArchiveRetirement(t, s, o)
+	setArchiveCDN(t, s, p, f, "direct")
+	before, err := s.CDNHead(t.Context(), p.Candidate.App)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(t.Context(), `CREATE TRIGGER reject_archive_finish BEFORE INSERT ON data_archive_dispositions BEGIN SELECT RAISE(ABORT,'synthetic terminal write failure'); END`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FinishArchiveDisposition(t.Context(), o, state, archiveRetirementDone(state)); err == nil {
+		t.Fatal("failed terminal transaction succeeded")
+	}
+	assertArchiveCDNUnchanged(t, s, p, o, state, before, nil)
+	if _, err := s.CurrentRelease(t.Context(), p.Candidate.App); err != nil {
+		t.Fatal("failed retirement lost release", err)
+	}
+	var retirements int
+	if err := s.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM data_archive_retirements WHERE archive_id=?", p.ArchiveID).Scan(&retirements); err != nil || retirements != 0 {
+		t.Fatal("failed retirement left receipt", retirements, err)
+	}
+}
+
+func TestArchiveCDNUnreadableStateRefuses(t *testing.T) {
+	s := openTest(t)
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckArchiveCDN(t.Context(), "hello"); err == nil {
+		t.Fatal("unreadable CDN state admitted retirement")
+	}
+}
+
+func assertArchiveCDNHeadPreserved(t *testing.T, s *Store, p archive.Plan, before cdn.Revision, headErr error) {
+	t.Helper()
+	after, err := s.CDNHead(t.Context(), p.Candidate.App)
+	if !errors.Is(err, headErr) || !reflect.DeepEqual(before, after) {
+		t.Fatal("CDN head changed", err)
+	}
+	var reservations int
+	if err := s.db.QueryRowContext(t.Context(), "SELECT COUNT(*) FROM cdn_reservations WHERE app=?", p.Candidate.App).Scan(&reservations); err != nil {
+		t.Fatal(err)
+	}
+	want := 0
+	if errors.Is(headErr, ErrNotFound) {
+		want = 1
+	}
+	if reservations != want {
+		t.Fatal("CDN reservation changed", reservations, want)
 	}
 }

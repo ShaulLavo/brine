@@ -48,6 +48,7 @@ type HostFS struct{}
 // StateGeneration connects the future control database without assuming its schema.
 // A present state directory without a state reader produces unknown, not zero.
 type Collector struct {
+	hostOnly                 bool
 	FS                       FileSystem
 	Runner                   localexec.CaptureRunner
 	IdentityKey              []byte
@@ -182,15 +183,22 @@ func (c Collector) Collect(ctx context.Context) (target.Snapshot, error) {
 	}
 	s.LocalAddresses = c.localAddresses(ctx)
 	c.disk(ctx, &s, home)
-	artifacts := c.apps(ctx, &s, home, exists, control)
+	artifacts := appArtifacts{}
+	if !c.hostOnly {
+		artifacts = c.apps(ctx, &s, home, exists, control)
+	}
 	udpPorts := c.listeners(ctx, &s, home, artifacts.publications)
-	c.bindUDPControl(ctx, &s, control, artifacts.publications, home)
-	c.absence(ctx, &s, artifacts, control, udpPorts)
-	attachCommittedPorts(&s, control)
+	if !c.hostOnly {
+		c.bindUDPControl(ctx, &s, control, artifacts.publications, home)
+		c.absence(ctx, &s, artifacts, control, udpPorts)
+		attachCommittedPorts(&s, control)
+	}
 	if e = c.caddy(ctx, &s); e != nil {
 		return s, e
 	}
-	c.images(ctx, &s, home, artifacts)
+	if !c.hostOnly {
+		c.images(ctx, &s, home, artifacts)
+	}
 	if err := ctx.Err(); err != nil {
 		return s, err
 	}

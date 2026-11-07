@@ -31,6 +31,7 @@ import (
 	"github.com/ShaulLavo/brine/internal/result"
 	"github.com/ShaulLavo/brine/internal/secrets"
 	"github.com/ShaulLavo/brine/internal/spec"
+	"github.com/ShaulLavo/brine/internal/sqliteprep"
 	"github.com/ShaulLavo/brine/internal/store"
 	"github.com/ShaulLavo/brine/internal/systemd"
 	"github.com/ShaulLavo/brine/internal/target"
@@ -179,6 +180,10 @@ func openRuntime(ctx context.Context, authenticated string, preview bool) (_ *Ru
 	r.Runner.TaskHandlers[ops.NativeRestoreTest] = nativeHistoricalRestoreTask(service, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativePrepare] = nativePrepareTask(service, stateDir, identity.HomeDir, nativeRuntime)
 	r.Runner.TaskHandlers[ops.NativePrepareAbandon] = nativeAbandonTask(service, nativeRuntime)
+	sqlitePreparation := sqlitePreparations{service: service, jobs: taskJobs, host: sqlitePreparationHost{state: state, stateRoot: stateDir, home: identity.HomeDir, session: session, executor: localexec.ExecRunner{}}}
+	r.SQLitePreparation = sqlitePreparation
+	r.Runner.TaskHandlers[ops.SQLitePrepare] = sqlitePreparation.task(sqliteprep.PrepareTask)
+	r.Runner.TaskHandlers[ops.SQLitePrepareAbandon] = sqlitePreparation.task(sqliteprep.AbandonTask)
 	backupOperations := nativeBackupOperations{service: service, jobs: taskJobs}
 	r.NativeCapture = nativeCaptureScheduler(backupOperations, nativeRuntime)
 	r.NativeBackups = backupOperations
