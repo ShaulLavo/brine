@@ -206,7 +206,7 @@ func fixtureNamespaceArguments() ([]string, error) {
 }
 
 func fixtureNamespacePrefix() ([]string, error) {
-	uid, gid := os.Geteuid(), os.Getegid()
+	uid := os.Geteuid()
 	arguments := []string{"--user", "--mount", "--setuid=0", "--setgid=0"}
 	if uid == 0 {
 		return append(arguments, "--map-root-user"), nil
@@ -223,7 +223,7 @@ func fixtureNamespacePrefix() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	arguments = append(arguments, "--map-users=0:"+rootUID+":1", "--map-users="+strconv.Itoa(uid)+":"+strconv.Itoa(uid)+":1", "--map-groups=0:"+rootGID+":1", "--map-groups="+strconv.Itoa(gid)+":"+strconv.Itoa(gid)+":1")
+	arguments = append(arguments, "--map-current-user", "--map-users=0:"+rootUID+":1", "--map-groups=0:"+rootGID+":1")
 	return arguments, nil
 }
 

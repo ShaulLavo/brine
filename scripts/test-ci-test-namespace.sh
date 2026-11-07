@@ -31,7 +31,7 @@ cat > "$scratch/bin/unshare" <<'MOCK'
 #!/usr/bin/env bash
 set -eu
 printf 'unshare %s\n' "$*" >> "$NAMESPACE_LOG"
-[[ $* == '--user --mount --setuid=0 --setgid=0 --map-users=0:100000:1 --map-users=1001:1001:1 --map-groups=0:200000:1 --map-groups=1002:1002:1 /usr/bin/true' ]]
+[[ $* == '--user --mount --setuid=0 --setgid=0 --map-current-user --map-users=0:100000:1 --map-groups=0:200000:1 /usr/bin/true' ]]
 [[ ${NAMESPACE_PROBE:-restricted} != blocked ]] || exit 17
 [[ ${NAMESPACE_PROBE:-restricted} == allowed || $(cat "$NAMESPACE_STATE") == 0 ]] || exit 17
 MOCK

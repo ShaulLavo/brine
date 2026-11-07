@@ -22,9 +22,8 @@ fi
 
 probe_namespace() {
   # Match TestMain's maps, including its original UID, and unshare's private mount propagation.
-  unshare --user --mount --setuid=0 --setgid=0 \
-    "--map-users=0:$subuid:1" "--map-users=$uid:$uid:1" \
-    "--map-groups=0:$subgid:1" "--map-groups=$gid:$gid:1" /usr/bin/true
+  unshare --user --mount --setuid=0 --setgid=0 --map-current-user \
+    "--map-users=0:$subuid:1" "--map-groups=0:$subgid:1" /usr/bin/true
 }
 
 restriction=$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || printf 'unavailable')
