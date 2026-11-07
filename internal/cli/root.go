@@ -120,6 +120,7 @@ func NewRootCommand(deps Dependencies) *cobra.Command {
 	root.AddCommand(newValidateCmd(&jsonOutput))
 	root.AddCommand(newPlanCmd(&jsonOutput, deps.Version, deps), newDeployCmd(deps, &modes, &noInput))
 	root.AddCommand(newTUICmd(&jsonOutput, &noInput, deps))
+	root.AddCommand(newInitCmd(deps, &modes, &noInput))
 	for _, cmd := range root.Commands() {
 		if cmd.Args == nil {
 			cmd.Args = cobra.NoArgs

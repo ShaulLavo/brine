@@ -1,6 +1,36 @@
 # Brine v1 contracts
 
-**Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` browses targets, apps, bounded logs and operations, and reviews and confirms bounded lifecycle plans. Bounded stateless HTTP release entry and direct operation resume are implemented. Read-only diagnosis and explicit diagnostic exit are implemented. Deployment parity and initialization remain open. Do not infer that every contract below is shipped.
+**Status: Approved design target; implementation is tracked per task.** See [DECISIONS.md](DECISIONS.md) for where state lives, transport, Caddy, secrets and ports, and the phase plans for shipped behavior and remaining acceptance gates. Connected planning and stateless deployment/recovery are implemented; `tui` browses targets, apps, bounded logs and operations, and reviews and confirms bounded lifecycle plans. Bounded stateless HTTP release entry and direct operation resume are implemented. Read-only diagnosis and explicit diagnostic exit are implemented. Local initialization creates one app spec after explicit approval. Deployment parity remains open. Do not infer that every contract below is shipped.
+
+## Local initialization
+
+`brine init [DIRECTORY]` requires `--name`, a digest-pinned `--image`,
+`--container-port`, and at least one `--domain`. The directory must exist.
+`--health-path` defaults to `/`; health status, startup deadline, and probe
+timeout default to 200, 30 seconds, and 3 seconds.
+
+Init generates only `brine.toml`. Machine modes, `--no-input`, and nonterminals
+preview without writing. `--yes`, or a successful terminal review with `a` then
+visible `y`, authorizes only this local creation. Deliberate back or quit returns
+`cancelled` with exit 0; interruption returns exit 130. Failed terminal I/O cannot
+approve creation. Identical regular files return `unchanged`; different files,
+symlinks, directories, and special files return conflict with exit 5. Unreadable
+paths return an operational error. Init never overwrites an existing path.
+
+The command holds the selected directory, stages a private same-directory file,
+syncs and closes it, and publishes without replacement. It removes its staging
+file on handled exits. A process crash can leave `.brine-init-*.tmp`; init never
+removes another invocation's files. Failure after publication preserves the spec
+and returns failure. An exact rerun returns `unchanged`.
+
+The schema-1 envelope adds only command-local data: ordered fields `status`,
+`file`, `content`, `target`, and `next_commands`. Status is `preview`, `created`,
+`unchanged`, or human `cancelled`. JSONL emits one final envelope. An explicit
+`--target` checks only an existing local pin and appears in next commands, never
+in TOML or global defaults. Without a selection, `NAME` in the next plan command
+is an unbound placeholder. Init does not build an app, contact a registry or host,
+check host policy, enroll a target, or deploy. The human `tui --spec` next step
+requires the separate connected-entry delivery and is not advertised here yet.
 
 ## App-owned UDP and WebTransport (D10)
 

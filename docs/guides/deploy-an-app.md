@@ -28,6 +28,22 @@ flowchart LR
 
 *Every change follows this loop. A `conflict` plan loops back to planning, and `recovery_required` leaves the loop for the recovery commands.*
 
+## Create a local app definition
+
+In an existing project directory, run the following command. Replace each
+uppercase placeholder and use your actual digest-pinned image.
+
+```sh
+brine init . --name APP --image IMAGE --container-port PORT --domain DOMAIN
+```
+
+Review with `a` then `y`, or use `--yes` to
+create only `brine.toml`. Without approval, machine and nonterminal invocations
+preview the same content. Existing identical files are unchanged; other paths
+are never overwritten. Init makes no host changes and does not check image
+availability or host policy. Follow its connected `plan` command after selecting
+an enrolled target. See the [init contract](../CONTRACTS.md#local-initialization).
+
 ## What enrollment changes on the server
 
 `brine enroll` is the only command that sets a server up. You run it once per server, over your own admin SSH access. It does the following, in this order of concern:

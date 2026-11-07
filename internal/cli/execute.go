@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/backupcredentials"
@@ -67,7 +68,7 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 	}
 	modes := requestedModes(args)
 	machine := modes.enabled()
-	stdout := deps.Stdout
+	stdout := finalOutputWriter{deps.Stdout}
 	var output bytes.Buffer
 	buffered := machine || HostRuntimeRequested(args) || HostStartupRequested(args)
 	if buffered {
@@ -141,6 +142,17 @@ func ExecuteWithRuntime(deps Dependencies, args []string, lifecycle RuntimeLifec
 		fmt.Fprintln(deps.Stderr, "error:", err)
 	}
 	return err
+}
+
+// Encoders may accept a nil-error short write, so check the final boundary once.
+type finalOutputWriter struct{ io.Writer }
+
+func (w finalOutputWriter) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	if err == nil && n != len(p) {
+		err = io.ErrShortWrite
+	}
+	return n, err
 }
 
 func usageError(_ *cobra.Command, err error) error { return result.New(result.InvalidUsage, err) }

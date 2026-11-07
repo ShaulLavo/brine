@@ -935,6 +935,26 @@ Flags:
       --yes                  Still requires terminal stdin and typed target-name confirmation
 ```
 
+### `brine init`
+
+```text
+Generate a local app spec from explicit flags in an existing directory. Machine, no-input and nonterminal invocations preview without writing unless --yes is supplied. Human terminals review with a, then y. Existing identical files are unchanged; other paths are never overwritten. A target checks only its existing local pin. No image, host policy or deployment is verified.
+
+Usage:
+  brine init [DIRECTORY] --name NAME --image REPOSITORY@sha256:DIGEST --container-port PORT --domain DOMAIN [flags]
+
+Flags:
+      --config-dir string    Private client target directory
+      --container-port int   Explicit container HTTP port
+      --domain stringArray   Explicit domain, repeat for each domain
+      --health-path string   HTTP health path (default "/")
+  -h, --help                 help for init
+      --image string         Explicit OCI image pinned by sha256 digest
+      --name string          Explicit app name
+      --target string        Pinned target name
+      --yes                  Authorize only local brine.toml creation
+```
+
 ### `brine logs`
 
 ```text
