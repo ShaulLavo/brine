@@ -82,7 +82,12 @@ func TestInventoryAbsenceNeedsSettledRetirement(t *testing.T) {
 	if !reflect.DeepEqual(state.Apps[0].RetiredPorts, []target.Port{r.HostPort}) {
 		t.Fatal("lost orphan-listener evidence", state)
 	}
-	read, err := ReadInventoryState(context.Background(), s.dir)
+	reader, err := OpenReadOnly(t.Context(), s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	read, err := reader.InventoryState(t.Context())
 	if err != nil || !reflect.DeepEqual(state, read) {
 		t.Fatal("restricted read differs", read, err)
 	}
@@ -149,7 +154,7 @@ func TestReadInventoryRejectsUnreadableState(t *testing.T) {
 	if _, err := s.InventoryState(context.Background()); err == nil {
 		t.Fatal("closed state accepted")
 	}
-	if _, err := ReadInventoryState(context.Background(), filepath.Join(s.dir, "missing")); err == nil {
+	if _, err := EmptyStateDirectory(t.Context(), filepath.Join(s.dir, "missing")); err == nil {
 		t.Fatal("missing state accepted")
 	}
 }
@@ -157,7 +162,12 @@ func TestReadInventoryRejectsUnreadableState(t *testing.T) {
 func assertInventoryReadersUnknown(t *testing.T, s *Store, generation uint64) {
 	t.Helper()
 	assertInventoryApp(t, s, target.Unknown, generation)
-	state, err := ReadInventoryState(context.Background(), s.dir)
+	reader, err := OpenReadOnly(t.Context(), s.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	state, err := reader.InventoryState(t.Context())
 	if err != nil || len(state.Apps) != 1 || state.Apps[0].Status != target.Unknown || state.Generation != generation {
 		t.Fatal("read-only inventory invented absence", state, err)
 	}

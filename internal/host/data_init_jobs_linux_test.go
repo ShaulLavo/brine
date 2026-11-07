@@ -25,7 +25,7 @@ import (
 
 func initializationJobFixture(t *testing.T, requester datainit.Requester) (*store.Store, datainit.Service, datainit.Plan) {
 	t.Helper()
-	state, err := store.Open(t.TempDir())
+	state, err := store.OpenContext(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

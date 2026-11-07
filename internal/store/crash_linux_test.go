@@ -69,7 +69,7 @@ func TestStoreCrashHelper(t *testing.T) {
 	if os.Getenv("BRINE_STORE_CHILD") != "1" {
 		return
 	}
-	s, e := Open(os.Getenv("BRINE_STORE_DIR"))
+	s, e := OpenContext(t.Context(), os.Getenv("BRINE_STORE_DIR"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -137,7 +137,7 @@ func TestSIGKILLJournalConsistency(t *testing.T) {
 		t.Run(stage, func(t *testing.T) {
 			ctx := context.Background()
 			dir := stateDir(t)
-			s, e := Open(dir)
+			s, e := OpenContext(t.Context(), dir)
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -149,7 +149,7 @@ func TestSIGKILLJournalConsistency(t *testing.T) {
 			s.Close()
 			cmd := startHelper(t, dir, op, stage)
 			killHelper(t, cmd)
-			s, e = Open(dir)
+			s, e = OpenContext(t.Context(), dir)
 			if e != nil {
 				t.Fatal(e)
 			}
@@ -197,7 +197,7 @@ func TestSIGKILLJournalConsistency(t *testing.T) {
 func TestHostLockExclusionAndSIGKILLRecovery(t *testing.T) {
 	dir := stateDir(t)
 	cmd := startHelper(t, dir, "", "lock")
-	s, e := Open(dir)
+	s, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}

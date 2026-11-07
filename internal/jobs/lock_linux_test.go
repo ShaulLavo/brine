@@ -50,7 +50,7 @@ func TestHostLockProcessHelper(t *testing.T) {
 	if dir == "" {
 		return
 	}
-	s, err := store.Open(dir)
+	s, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestHostLockProcessHelper(t *testing.T) {
 
 func TestRunnerLockUnavailableAfterAnotherProcess(t *testing.T) {
 	dir := t.TempDir()
-	s, err := store.Open(dir)
+	s, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

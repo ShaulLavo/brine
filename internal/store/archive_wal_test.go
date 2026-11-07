@@ -21,7 +21,7 @@ func TestArchiveCandidateReadsLiveWALWhileAnotherHandleWrites(t *testing.T) {
 			if readOnly {
 				reader, err = OpenReadOnly(ctx, writer.dir)
 			} else {
-				reader, err = Open(writer.dir)
+				reader, err = OpenContext(t.Context(), writer.dir)
 			}
 			if err != nil {
 				t.Fatal(err)

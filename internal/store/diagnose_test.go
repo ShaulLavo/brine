@@ -82,11 +82,11 @@ func TestReadOnlyRefusesSymlinksAndOpenPermissions(t *testing.T) {
 	}
 }
 
-func TestReadGenerationDoesNotInitializeEmptyStore(t *testing.T) {
+func TestEmptyDirectoryReadDoesNotInitializeStore(t *testing.T) {
 	dir := t.TempDir()
-	generation, err := ReadGeneration(context.Background(), dir)
-	if err != nil || generation != 0 {
-		t.Fatalf("generation %d %v", generation, err)
+	empty, err := EmptyStateDirectory(t.Context(), dir)
+	if err != nil || !empty {
+		t.Fatalf("empty %v %v", empty, err)
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) != 0 {
@@ -95,7 +95,7 @@ func TestReadGenerationDoesNotInitializeEmptyStore(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "unknown"), []byte("fixture"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadGeneration(context.Background(), dir); err == nil {
+	if _, err := EmptyStateDirectory(t.Context(), dir); err == nil {
 		t.Fatal("unknown state became generation zero")
 	}
 }

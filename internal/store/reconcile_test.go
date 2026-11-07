@@ -93,7 +93,7 @@ func TestV1MigrationPreservesDeployJournalAndForeignKeys(t *testing.T) {
 	if !bytes.Equal(original, unchanged) || !info.ModTime().Equal(infoAfter.ModTime()) {
 		t.Fatal("v1 preview changed bytes/mtime")
 	}
-	migrated, err := Open(dir)
+	migrated, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

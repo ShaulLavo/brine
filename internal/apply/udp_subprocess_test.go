@@ -138,7 +138,7 @@ func (r *udpSQLiteRig) save(t testing.TB) {
 }
 func newSQLiteUDPRig(t testing.TB, directory, mode string) *udpSQLiteRig {
 	t.Helper()
-	db, err := store.Open(directory)
+	db, err := store.OpenContext(t.Context(), directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func udpKillSteps(mode string) []string {
 func runUDPSubprocessBoundary(t *testing.T, mode, step, outcome string) {
 	t.Helper()
 	directory := t.TempDir()
-	if err := seedSQLiteUDP(directory); err != nil {
+	if err := seedSQLiteUDP(t.Context(), directory); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 45*time.Second)
@@ -290,7 +290,7 @@ func runUDPSubprocessBoundary(t *testing.T, mode, step, outcome string) {
 	if err := json.Unmarshal(raw, &checkpoint); err != nil {
 		t.Fatal(err)
 	}
-	db, err := store.Open(directory)
+	db, err := store.OpenContext(t.Context(), directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +432,7 @@ func TestUDPRemovalFailedBoundariesResolveFromRealSQLiteState(t *testing.T) {
 func checkUDPRemovalFailureResolution(t *testing.T, boundary string) {
 	t.Helper()
 	directory := t.TempDir()
-	if err := seedSQLiteUDP(directory); err != nil {
+	if err := seedSQLiteUDP(t.Context(), directory); err != nil {
 		t.Fatal(err)
 	}
 	r := newSQLiteUDPRig(t, directory, "remove")

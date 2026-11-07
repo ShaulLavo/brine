@@ -38,7 +38,7 @@ func TestHostRotationReplacesOnlySelectedReplicaCredential(t *testing.T) {
 	ctx := context.Background()
 	_, desired, facts := persistentHostFixture(t)
 	root := shortReplicaStateRoot(t)
-	state, err := store.Open(root)
+	state, err := store.OpenContext(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}

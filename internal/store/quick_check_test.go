@@ -18,7 +18,7 @@ func TestQuickCheckSnapshot(t *testing.T) {
 func testQuickCheckSnapshot(t *testing.T, damaged bool) {
 	ctx := t.Context()
 	dir := t.TempDir()
-	s, err := Open(dir)
+	s, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

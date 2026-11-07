@@ -22,7 +22,7 @@ import (
 func engineRefusalFixture(t *testing.T) (*EngineStartupRuntime, data.ReplicaBindingID) {
 	t.Helper()
 	stateRoot := t.TempDir()
-	state, err := store.Open(stateRoot)
+	state, err := store.OpenContext(t.Context(), stateRoot)
 	if err != nil {
 		t.Fatal(err)
 	}

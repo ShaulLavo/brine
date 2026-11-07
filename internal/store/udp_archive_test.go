@@ -86,7 +86,7 @@ func TestUDPArchiveFinalTransactionRechecksLateClaim(t *testing.T) {
 				}
 			}
 			// A separate SQLite handle installs a claim after retirement admission.
-			other, err := Open(s.dir)
+			other, err := OpenContext(t.Context(), s.dir)
 			if err != nil {
 				t.Fatal(err)
 			}

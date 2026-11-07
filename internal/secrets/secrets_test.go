@@ -59,7 +59,7 @@ func secretFixture(t *testing.T) (Service, *store.Store, *fakePodman) {
 	t.Helper()
 	dir := t.TempDir()
 	os.Chmod(dir, 0700)
-	db, err := store.Open(dir)
+	db, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestSecretPolicyRefusal(t *testing.T) {
 }
 func TestSecretConcurrentVersions(t *testing.T) {
 	s, _, f := secretFixture(t)
-	second, err := store.Open(f.dir)
+	second, err := store.OpenContext(t.Context(), f.dir)
 	if err != nil {
 		t.Fatal(err)
 	}

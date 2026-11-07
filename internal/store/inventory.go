@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/ShaulLavo/brine/internal/archive"
@@ -281,22 +279,4 @@ func removalSettled(ctx context.Context, tx *sql.Tx, id, app, planID string) (bo
  ) SELECT EXISTS(SELECT 1 FROM family f WHERE f.state='succeeded'
  AND EXISTS(SELECT 1 FROM events e WHERE e.operation_id=f.id AND e.kind='state' AND e.state='succeeded'))`, id, app, planID, app, planID).Scan(&settled)
 	return settled, err
-}
-
-func ReadInventoryState(ctx context.Context, stateDir string) (target.ControlInventory, error) {
-	if _, err := os.Lstat(filepath.Join(stateDir, "control.db")); os.IsNotExist(err) {
-		generation, err := ReadGeneration(ctx, stateDir)
-		if err == nil && generation != 0 {
-			return target.ControlInventory{}, ErrInvalid
-		}
-		return target.ControlInventory{Apps: []target.ControlApp{}}, err
-	} else if err != nil {
-		return target.ControlInventory{}, err
-	}
-	s, err := OpenReadOnly(ctx, stateDir)
-	if err != nil {
-		return target.ControlInventory{}, err
-	}
-	defer s.Close()
-	return s.InventoryState(ctx)
 }

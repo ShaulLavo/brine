@@ -53,15 +53,24 @@ func fixture(t testing.TB) plan.Input {
 	return plan.Input{Desired: d, Snapshot: s, Image: plan.Image{Digest: strings.Split(string(d.Image), "@")[1], Platform: target.Platform{OS: "linux", Arch: s.Arch}, ManifestDigest: target.Known("sha256:" + strings.Repeat("b", 64))}, State: plan.BrineState{Target: s.Identity, Generation: *s.Generation.Value, Releases: []plan.CurrentRelease{}}}
 }
 
-var pristineTestControlDB = sync.OnceValues(newPristineTestControlDB)
+var pristineControlSeed struct {
+	once sync.Once
+	data []byte
+	err  error
+}
 
-func newPristineTestControlDB() (data []byte, err error) {
+func pristineTestControlDB(ctx context.Context) ([]byte, error) {
+	pristineControlSeed.once.Do(func() { pristineControlSeed.data, pristineControlSeed.err = newPristineTestControlDB(ctx) })
+	return pristineControlSeed.data, pristineControlSeed.err
+}
+
+func newPristineTestControlDB(ctx context.Context) (data []byte, err error) {
 	dir, err := os.MkdirTemp("", "brine-store-schema-")
 	if err != nil {
 		return nil, err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(dir)) }()
-	s, err := Open(dir)
+	s, err := OpenContext(ctx, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +87,7 @@ func newPristineTestControlDB() (data []byte, err error) {
 
 func openTest(t testing.TB) *Store {
 	t.Helper()
-	data, e := pristineTestControlDB()
+	data, e := pristineTestControlDB(t.Context())
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -86,7 +95,7 @@ func openTest(t testing.TB) *Store {
 	if e := os.WriteFile(filepath.Join(dir, "control.db"), data, 0600); e != nil {
 		t.Fatal(e)
 	}
-	s, e := Open(dir)
+	s, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -121,7 +130,7 @@ func operation(t testing.TB, s *Store) OpID {
 }
 func TestMigrationsAndPragmas(t *testing.T) {
 	dir := stateDir(t)
-	s, e := Open(dir)
+	s, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -140,7 +149,7 @@ func TestMigrationsAndPragmas(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.Close()
-	_, e = Open(dir)
+	_, e = OpenContext(t.Context(), dir)
 	var schema *SchemaError
 	if !errors.As(e, &schema) {
 		t.Fatalf("downgrade: %v", e)
@@ -353,12 +362,12 @@ func TestIdempotencyConflictAcrossPlans(t *testing.T) {
 func TestConcurrentStoresShareIdempotencyAndEventSequence(t *testing.T) {
 	ctx := context.Background()
 	dir := stateDir(t)
-	a, e := Open(dir)
+	a, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer a.Close()
-	b, e := Open(dir)
+	b, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -418,7 +427,7 @@ func TestPrivateFilesAndSymlinks(t *testing.T) {
 	if e := os.Symlink(other, filepath.Join(dir, "control.db")); e != nil {
 		t.Fatal(e)
 	}
-	if _, e := Open(dir); e == nil {
+	if _, e := OpenContext(t.Context(), dir); e == nil {
 		t.Fatal("followed database symlink")
 	}
 	b, e := os.ReadFile(other)
@@ -452,7 +461,7 @@ func TestSQLBoundaryAndMigrationRollback(t *testing.T) {
 		t.Fatal(e)
 	}
 	db.Close()
-	if store, e := Open(dir); e == nil {
+	if store, e := OpenContext(t.Context(), dir); e == nil {
 		store.Close()
 		t.Fatal("accepted interrupted incompatible schema")
 	}
@@ -489,12 +498,12 @@ var _ interface {
 func TestConditionalTransitionsRaceWithoutOverwritingWinner(t *testing.T) {
 	ctx := context.Background()
 	dir := stateDir(t)
-	a, e := Open(dir)
+	a, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer a.Close()
-	b, e := Open(dir)
+	b, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -598,7 +607,7 @@ func TestOpenSecuresExistingFilesAndDirectory(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	s, e := Open(dir)
+	s, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -615,7 +624,7 @@ func TestOpenSecuresExistingFilesAndDirectory(t *testing.T) {
 	if e = os.Chmod(dir, 0755); e != nil {
 		t.Fatal(e)
 	}
-	second, e := Open(dir)
+	second, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -642,7 +651,7 @@ func TestOpenRefusesAuxiliaryFileSymlinks(t *testing.T) {
 			if e := os.Symlink(victim, filepath.Join(dir, name)); e != nil {
 				t.Fatal(e)
 			}
-			if s, e := Open(dir); e == nil {
+			if s, e := OpenContext(t.Context(), dir); e == nil {
 				s.Close()
 				t.Fatal("followed sidecar symlink")
 			}
@@ -656,7 +665,7 @@ func TestOpenRefusesAuxiliaryFileSymlinks(t *testing.T) {
 
 func TestOpenRepairsExistingSQLiteSidecars(t *testing.T) {
 	dir := stateDir(t)
-	first, e := Open(dir)
+	first, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -666,7 +675,7 @@ func TestOpenRepairsExistingSQLiteSidecars(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	second, e := Open(dir)
+	second, e := OpenContext(t.Context(), dir)
 	if e != nil {
 		t.Fatal(e)
 	}

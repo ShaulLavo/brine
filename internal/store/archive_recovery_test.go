@@ -81,7 +81,7 @@ func TestArchiveReconcileDurableJournalAndFilesystemAfterReopen(t *testing.T) {
 		t.Run(boundary, func(t *testing.T) {
 			ctx := context.Background()
 			home := stateDir(t)
-			s, err := Open(home)
+			s, err := OpenContext(t.Context(), home)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -154,7 +154,7 @@ func TestArchiveReconcileDurableJournalAndFilesystemAfterReopen(t *testing.T) {
 			if err = s.Close(); err != nil {
 				t.Fatal(err)
 			}
-			s, err = Open(home)
+			s, err = OpenContext(t.Context(), home)
 			if err != nil {
 				t.Fatal(err)
 			}

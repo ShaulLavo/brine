@@ -76,7 +76,7 @@ func managedRollbackHistory(t *testing.T) (*rig, *managedRuntimeFake, apps.Servi
 		t.Fatal(err)
 	}
 	r.facts.Input.Desired = r.desired
-	db, err := store.Open(t.TempDir())
+	db, err := store.OpenContext(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

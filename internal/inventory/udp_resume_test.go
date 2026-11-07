@@ -16,7 +16,7 @@ import (
 )
 
 func TestUDPPreparedUnpublishedCollectorRebuildUsesOnlyOwnFacts(t *testing.T) {
-	database, err := store.Open(t.TempDir())
+	database, err := store.OpenContext(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -3,6 +3,7 @@
 package apply
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -11,15 +12,24 @@ import (
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
-var pristineUDPTestSchema = sync.OnceValues(newUDPTestSchema)
+var pristineUDPSeed struct {
+	once sync.Once
+	data string
+	err  error
+}
 
-func newUDPTestSchema() (data string, err error) {
+func pristineUDPTestSchema(ctx context.Context) (string, error) {
+	pristineUDPSeed.once.Do(func() { pristineUDPSeed.data, pristineUDPSeed.err = newUDPTestSchema(ctx) })
+	return pristineUDPSeed.data, pristineUDPSeed.err
+}
+
+func newUDPTestSchema(ctx context.Context) (data string, err error) {
 	directory, err := os.MkdirTemp("", "brine-udp-schema-")
 	if err != nil {
 		return "", err
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(directory)) }()
-	db, err := store.Open(directory)
+	db, err := store.OpenContext(ctx, directory)
 	if err != nil {
 		return "", err
 	}
@@ -35,8 +45,8 @@ func newUDPTestSchema() (data string, err error) {
 	return string(raw), err
 }
 
-func seedSQLiteUDP(directory string) (err error) {
-	data, err := pristineUDPTestSchema()
+func seedSQLiteUDP(ctx context.Context, directory string) (err error) {
+	data, err := pristineUDPTestSchema(ctx)
 	if err != nil {
 		return err
 	}

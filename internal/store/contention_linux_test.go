@@ -38,7 +38,7 @@ func TestStoreReplacementConnectionKeepsPragmas(t *testing.T) {
 
 func TestStoreWriteTransactionWaitsBeforeReading(t *testing.T) {
 	a := openTest(t)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestStoreContendedJournalWritesWait(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			a := openTest(t)
 			id := operation(t, a)
-			b, err := Open(a.dir)
+			b, err := OpenContext(t.Context(), a.dir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -137,7 +137,7 @@ func TestStoreContendedJournalWritesWait(t *testing.T) {
 func TestStoreBusyBudgetRefusesWithoutJournalEffect(t *testing.T) {
 	a := openTest(t)
 	id := operation(t, a)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestStoreBusyBudgetRefusesWithoutJournalEffect(t *testing.T) {
 func TestStoreWriteAdmissionRetriesRefusedBegin(t *testing.T) {
 	a := openTest(t)
 	id := operation(t, a)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestStoreWriteAdmissionRetriesRefusedBegin(t *testing.T) {
 func TestStoreWriteAdmissionRespectsCancellation(t *testing.T) {
 	a := openTest(t)
 	id := operation(t, a)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestConcurrentRuntimeStoresShareJournal(t *testing.T) {
 	planID, _ := saved(t, dispatcher)
 	stores := []*Store{dispatcher}
 	for i := 0; i < 4; i++ {
-		s, err := Open(dispatcher.dir)
+		s, err := OpenContext(t.Context(), dispatcher.dir)
 		if err != nil {
 			t.Fatal(err)
 		}

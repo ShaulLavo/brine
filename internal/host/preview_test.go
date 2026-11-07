@@ -52,7 +52,7 @@ func TestPreviewNeverInitializesOrMigratesDatabase(t *testing.T) {
 				t.Fatal(err)
 			}
 			if fixture != "missing" {
-				s, err := store.Open(dir)
+				s, err := store.OpenContext(t.Context(), dir)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -74,7 +74,7 @@ func TestPreviewNeverInitializesOrMigratesDatabase(t *testing.T) {
 			writable := 0
 			f := newServerFactory("fixture", "deploy", func(context.Context, string) (*Runtime, error) {
 				writable++
-				s, err := store.Open(dir)
+				s, err := store.OpenContext(t.Context(), dir)
 				if err != nil {
 					return nil, err
 				}
@@ -128,7 +128,7 @@ func TestPreviewNeverInitializesOrMigratesDatabase(t *testing.T) {
 
 func TestPreviewLiveWALDoesNotChangeFiles(t *testing.T) {
 	dir := t.TempDir()
-	s, err := store.Open(dir)
+	s, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

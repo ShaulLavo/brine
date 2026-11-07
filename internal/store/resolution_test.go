@@ -93,7 +93,7 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 	if err = os.Chmod(filepath.Join(dir, "control.db"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := Open(dir)
+	migrated, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +156,7 @@ func TestV2TerminalRemovalMigrationAndResolution(t *testing.T) {
 func TestResolutionFencesActiveAndSuccessfulDescendantsAcrossAncestry(t *testing.T) {
 	for _, settled := range []bool{false, true} {
 		t.Run(map[bool]string{false: "active", true: "succeeded"}[settled], func(t *testing.T) {
-			s, err := Open(stateDir(t))
+			s, err := OpenContext(t.Context(), stateDir(t))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -47,7 +47,7 @@ func TestProductionFactoryDiagnosticState(t *testing.T) {
 				if err := os.Mkdir(dir, 0700); err != nil {
 					t.Fatal(err)
 				}
-				state, err := store.Open(dir)
+				state, err := store.OpenContext(t.Context(), dir)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -144,7 +144,7 @@ func diagnosticFiles(t *testing.T, dir string) map[string][]byte {
 
 func TestProductionFactoryDiagnosisDoesNotTakeMutationLock(t *testing.T) {
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

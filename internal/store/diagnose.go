@@ -119,21 +119,6 @@ func (s *Store) RecentOperations(ctx context.Context, app string, limit int) ([]
 	return records, rows.Err()
 }
 
-// ReadGeneration leaves an affirmatively empty enrolled state directory empty.
-// Unknown contents and an existing damaged database never become generation zero.
-func ReadGeneration(ctx context.Context, stateDir string) (uint64, error) {
-	empty, err := EmptyStateDirectory(ctx, stateDir)
-	if err != nil || empty {
-		return 0, err
-	}
-	s, err := OpenReadOnly(ctx, stateDir)
-	if err != nil {
-		return 0, err
-	}
-	defer s.Close()
-	return s.Generation(ctx)
-}
-
 // EmptyStateDirectory checks affirmative initial state without opening SQLite.
 // Unknown contents and a damaged existing database are never an empty store.
 func EmptyStateDirectory(ctx context.Context, stateDir string) (bool, error) {
