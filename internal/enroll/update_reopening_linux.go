@@ -435,6 +435,9 @@ func (h *host) drainBootstrapRemoval(ctx context.Context) (_ *bootstrapRemovalLe
 	if err := h.checkBootstrapRemovalDirectory(); err != nil {
 		return nil, err
 	}
+	if err := h.checkBootstrapRemovalState(ctx); err != nil {
+		return nil, err
+	}
 	leases := &bootstrapRemovalLeases{}
 	defer func() {
 		if err != nil {
@@ -503,4 +506,28 @@ func waitBootstrapRemovalLease(ctx context.Context, file *os.File) error {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (h *host) checkBootstrapRemovalState(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	file, raw, err := h.updateEnv.fs.read(admissionDir + "/state.json")
+	if err != nil {
+		return err
+	}
+	if !file.Present {
+		return nil
+	}
+	if file.UID != h.updateEnv.fs.owner || file.Mode != 0644 {
+		return admission.ErrUnavailable
+	}
+	state, err := admission.Decode(raw)
+	if err != nil {
+		return err
+	}
+	if state.Open || state.Pending.Kind != admission.Update || state.Pending.ID != h.r.Update.ID || state.Pending.Stage != admission.Terminal {
+		return admission.ErrInconsistent
+	}
+	return nil
 }

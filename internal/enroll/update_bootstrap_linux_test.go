@@ -331,3 +331,18 @@ func bootstrapPausedLease(t *testing.T, name string) {
 		t.Fatal("drained removal failed", err)
 	}
 }
+
+func TestUpdateBootstrapRemovalRejectsOpenAdmission(t *testing.T) {
+	f, _ := bootstrapRemovalFixture(t)
+	raw, err := admission.Encode(admission.State{Version: 1, Open: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, admissionDir+"/state.json", raw, 0644)
+	if err := f.h.completeBootstrapRemoval(context.Background()); !errors.Is(err, admission.ErrInconsistent) {
+		t.Fatal("open gate accepted during removal", err)
+	}
+	if f.h.r.Update.RemovedAdmission != ([3]bool{}) {
+		t.Fatal("inconsistent tail removed artifacts")
+	}
+}

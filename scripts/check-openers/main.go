@@ -117,9 +117,15 @@ func openingFunctions(functions map[string]*ast.FuncDecl) map[string]bool {
 func referencesOpening(node ast.Node, opening map[string]bool) bool {
 	found := false
 	ast.Inspect(node, func(node ast.Node) bool {
-		identifier, ok := node.(*ast.Ident)
-		if ok && opening[identifier.Name] {
-			found = true
+		if found {
+			return false
+		}
+		switch reference := node.(type) {
+		case *ast.SelectorExpr:
+			found = referencesOpening(reference.X, opening)
+			return false
+		case *ast.Ident:
+			found = opening[reference.Name]
 		}
 		return !found
 	})

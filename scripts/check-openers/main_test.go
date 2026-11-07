@@ -65,3 +65,24 @@ func TestRealInventoryBypassFixture(t *testing.T) {
 		}
 	}
 }
+
+func TestIsolatedSQLCaptureIsNotControlOpener(t *testing.T) {
+	functions := map[string]*ast.FuncDecl{}
+	file, err := parser.ParseFile(token.NewFileSet(), "capture.go", `package store
+ func openControlCapture() { sql.Open("sqlite", "isolated.db") }
+ func InspectCapture() { openControlCapture() }
+ func RehearseMigration() { InspectCapture() }
+ func RealIndirectOpener() { callback := OpenReadOnly; callback() }
+ `, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	collectFunctions(file, functions)
+	opening := openingFunctions(functions)
+	for _, name := range []string{"openControlCapture", "InspectCapture", "RehearseMigration"} {
+		if opening[name] {
+			t.Fatal("isolated SQL copy classified as a live store opener", name)
+		}
+	}
+	assertRejectedReference(t, "RealIndirectOpener", opening)
+}
