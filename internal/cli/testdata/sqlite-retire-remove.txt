@@ -1,4 +1,6 @@
 Plan sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd (update). No app changes have been applied.
 Action: remove_app. Archive aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa retains data for 30 days after commit. Plan expires 2026-11-07T12:00:00Z. Removal starts nothing and deletes no local or remote data. Early purge requires a separate reviewed plan.
-Database main (cccccccccccccccccccccccccccccccc): never_written, preparation , source point .
+Withdraw route hello.caddy (sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee).
+Remove unit hello.container (sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff).
+Database main (cccccccccccccccccccccccccccccccc): prepared_snapshot, preparation 11111111111111111111111111111111, source point 22222222222222222222222222222222, coverage cutoff 2026-11-07T11:50:00Z.
 Apply with brine apply sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd --target fixture.

@@ -240,3 +240,34 @@ func TestSQLiteRetireZeroPointRetainsAbsentBundleContract(t *testing.T) {
 		t.Fatal("fresh census failed", err)
 	}
 }
+
+func TestSQLiteRetireAdapterPreservesStatelessRemoval(t *testing.T) {
+	h := newRemovalHost(t, t.TempDir(), true)
+	app := apps.Service{Store: h.store, Inventory: h, LoadPolicy: h.policy.Load}
+	runtime := &Runtime{Inventory: h, Runner: h.runner, Authorize: h.service.Authorize, close: func() error { return nil }}
+	runtime.Runner.TaskHandlers = map[ops.Kind]jobs.TaskHandler{}
+	workflow := newArchiveService(h.service, h.stateRoot, privateRemovalDirectory(t), localexec.Session{}, nil, nil, nil)
+	wireSQLiteRemoval(runtime, app, workflow, jobs.Service{Store: h.store, Launcher: h.launcher, Requester: h.service.Requester}, h.store)
+	factory := newServerFactory("fixture", "deploy", func(context.Context, string) (*Runtime, error) { return runtime, nil }, nil)
+	server, err := factory.Build(t.Context(), "lifecycle")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.server = server
+	p := h.call(t, "lifecycle", dispatch.LifecycleArgs{App: "hello", Action: plan.RemoveApp}).Data.(apps.ConfigPlan)
+	if p.Archive != nil || p.Kind != plan.Update {
+		t.Fatal("stateless path became an archive", p)
+	}
+	accepted := h.call(t, "apply", dispatch.ApplyArgs{PlanID: p.PlanID, IdempotencyKey: "stateless-through-removal-adapter"}).Data.(jobs.Accepted)
+	if err = runtime.Runner.Run(t.Context(), accepted.OperationID); err != nil {
+		t.Fatal(err)
+	}
+	status := h.call(t, "operation", dispatch.OperationArgs{OperationID: accepted.OperationID}).Data.(jobs.Status)
+	if status.Operation.Kind != ops.Deploy || status.Operation.State != ops.Succeeded {
+		t.Fatal(status)
+	}
+	disk, err := h.read()
+	if err != nil || disk.Active || !disk.RouteReloaded {
+		t.Fatal("stateless effects changed", disk, err)
+	}
+}

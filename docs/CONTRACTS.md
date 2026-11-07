@@ -509,13 +509,13 @@ Human output identifies the local scope and shows each tool's requirement and ve
 | `logs_container_timeout` | 1 | false | Log collection timed out while inspecting or reading the owned app container with Podman. |
 | `logs_container_unavailable` | 3 | false | App logs require Podman and the managed k8s-file log driver; inspect the app unit and container configuration. |
 | `logs_invalid_container` | 1 | false | The container log response is malformed. |
-| `persistent_archive_required` | 4 | false | Unsupported or mixed persistent engines require the native archive path. No data is deleted. |
-| `removal_preparation_required` | 5 | false | Prepare every written SQLite database, or inspect and resolve its existing preparation, then plan removal again. |
-| `udp_withdrawal_required` | 5 | false | Apply a reviewed release without UDP before preparation and removal. |
+| `persistent_archive_required` | 4 | false | Removal refused. Unsupported or mixed persistent engines need brine archive native plan for the native archive path. No data will be deleted. |
+| `removal_preparation_required` | 5 | false | Removal needs a current SQLite preparation for every written database. Run brine restore prepare, or inspect and resolve the existing preparation, then plan removal again. |
+| `udp_withdrawal_required` | 5 | false | Apply a reviewed release without UDP before preparing or removing this app. |
 | `archive_multi_epoch_unsupported` | 4 | false | SQLite removal does not support multiple replica epochs. |
-| `removal_bounds_required` | 4 | false | Explicit `sqlite_archive_removal` policy bounds are required. |
-| `plan_stale` | 5 | false | Review a new removal plan after preparing again if necessary. |
-| `continue_unavailable` | 6 | false | Inspect preparation progress and use safe abandonment when available. |
+| `removal_bounds_required` | 4 | false | SQLite removal requires explicit sqlite_archive_removal policy bounds. |
+| `plan_stale` | 5 | false | The removal plan expired. Prepare again if needed and review a new removal plan. |
+| `continue_unavailable` | 6 | false | This archive preparation cannot continue. Inspect it and use brine archive sqlite resolve with --abandon when safe. |
 | `app_not_found` | 2 | false | The app has no committed Brine release. |
 | `release_not_found` | 2 | false | The rollback release is not known for this app. |
 | `native_point_not_found` | 2 | false | The native point reference is not known on this target. |

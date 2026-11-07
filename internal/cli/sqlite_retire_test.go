@@ -84,7 +84,7 @@ func sqliteRetireCLIReply(t *testing.T, command string, req dispatch.Request) re
 		if req.Op != "lifecycle" {
 			t.Fatal(req.Op)
 		}
-		summary := archive.RemovalSummary{ArchiveID: id, ExpiresAt: time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC), RetainDays: 30, Units: []target.Unit{}, Databases: []archive.RemovalDatabaseSummary{{Name: "main", DatabaseID: data.DatabaseID(strings.Repeat("c", 32)), Arm: "never_written"}}}
+		summary := archive.RemovalSummary{ArchiveID: id, ExpiresAt: time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC), RetainDays: 30, ReleaseID: "release", Route: target.CaddyFile{Name: "hello.caddy", Hash: "sha256:" + strings.Repeat("e", 64)}, Units: []target.Unit{{Name: "hello.container", Hash: "sha256:" + strings.Repeat("f", 64)}}, Databases: []archive.RemovalDatabaseSummary{{Name: "main", DatabaseID: data.DatabaseID(strings.Repeat("c", 32)), Arm: "prepared_snapshot", PreparationID: strings.Repeat("1", 32), SourcePointID: strings.Repeat("2", 32), Cutoff: time.Date(2026, 11, 7, 11, 50, 0, 0, time.UTC)}}}
 		out := apps.ConfigPlan{Archive: &summary, PlanID: "sha256:" + strings.Repeat("d", 64), Kind: plan.Update, Lifecycle: plan.RemoveApp, Conflicts: []plan.Diagnostic{}}
 		out.SecretRetention = "d5_retained_releases"
 		return result.Success("brine host lifecycle", out)

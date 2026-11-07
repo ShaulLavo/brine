@@ -193,10 +193,28 @@ func printRemovalSummary(cmd *cobra.Command, summary archive.RemovalSummary) err
 	if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Action: remove_app. Archive %s retains data for %d days after commit. Plan expires %s. Removal starts nothing and deletes no local or remote data. Early purge requires a separate reviewed plan.\n", summary.ArchiveID, summary.RetainDays, summary.ExpiresAt.Format(time.RFC3339)); err != nil {
 		return err
 	}
+	if summary.Route.Name != "" {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Withdraw route %s (%s).\n", summary.Route.Name, summary.Route.Hash); err != nil {
+			return err
+		}
+	}
+	for _, unit := range summary.Units {
+		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Remove unit %s (%s).\n", unit.Name, unit.Hash); err != nil {
+			return err
+		}
+	}
 	for _, d := range summary.Databases {
-		if _, err := fmt.Fprintf(cmd.OutOrStdout(), "Database %s (%s): %s, preparation %s, source point %s.\n", d.Name, d.DatabaseID, d.Arm, d.PreparationID, d.SourcePointID); err != nil {
+		if err := printRemovalDatabaseSummary(cmd, d); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+func printRemovalDatabaseSummary(cmd *cobra.Command, d archive.RemovalDatabaseSummary) error {
+	cutoff := "not applicable"
+	if !d.Cutoff.IsZero() {
+		cutoff = d.Cutoff.Format(time.RFC3339)
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "Database %s (%s): %s, preparation %s, source point %s, coverage cutoff %s.\n", d.Name, d.DatabaseID, d.Arm, d.PreparationID, d.SourcePointID, cutoff)
+	return err
 }
