@@ -11,31 +11,3 @@ CREATE TRIGGER drop_gateway_configs_unique BEFORE INSERT ON drop_gateway_configs
 CREATE TRIGGER drop_gateway_configs_identity BEFORE UPDATE ON drop_gateway_configs BEGIN SELECT RAISE(ABORT,'immutable drop gateway configuration'); END;
 CREATE TRIGGER drop_gateway_configs_retained BEFORE DELETE ON drop_gateway_configs BEGIN SELECT RAISE(ABORT,'retained drop gateway configuration'); END;
 `
-
-// ReadCommittedDropGatewayConfig selects one stable lifecycle/configuration
-// snapshot. Enabled is only a routing expectation here, never a process proof.
-func (s *Store) ReadCommittedDropGatewayConfig(ctx context.Context) (DropGatewayConfig, error) {
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
-	if err != nil {
-		return DropGatewayConfig{}, err
-	}
-	defer func() { _ = tx.Rollback() }()
-	head, err := readDropGatewayHead(ctx, tx)
-	if err != nil {
-		return DropGatewayConfig{}, err
-	}
-	if head.State == "disabled" {
-		return DropGatewayConfig{}, ErrNotFound
-	}
-	if head.State != "enabled" {
-		return DropGatewayConfig{}, ErrConflict
-	}
-	config, err := readDropGatewayConfig(ctx, tx, head.Revision)
-	if errors.Is(err, ErrNotFound) {
-		return DropGatewayConfig{}, ErrConflict
-	}
-	if err != nil {
-		return DropGatewayConfig{}, err
-	}
-	return config, tx.Commit()
-}

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ShaulLavo/brine/internal/archive"
 	"github.com/ShaulLavo/brine/internal/data"
+	"github.com/ShaulLavo/brine/internal/sqliteprep"
 	"github.com/ShaulLavo/brine/internal/store"
 )
 
@@ -74,7 +75,11 @@ func (h archiveHost) attachPreparedSource(ctx context.Context, p archive.Plan, v
 	if err != nil {
 		return err
 	}
-	source, err := openArchiveSQLiteSource(p, d, hold)
+	empty, err := h.preparedEmptyExpectation(ctx, p, d)
+	if err != nil {
+		return errors.Join(err, hold.Release())
+	}
+	source, err := openArchiveSQLiteSource(p, d, empty, hold)
 	if err != nil {
 		return errors.Join(err, hold.Release())
 	}
@@ -162,18 +167,18 @@ func (h archiveHost) removalFence(ctx context.Context, p archive.Plan, operation
 	return nil
 }
 
-func openArchiveSQLiteSource(p archive.Plan, d archive.SQLiteDatabase, hold *store.SQLiteSourceHold) (*sqliteSource, error) {
+func openArchiveSQLiteSource(p archive.Plan, d archive.SQLiteDatabase, empty *sqliteprep.EmptyAllocation, hold *store.SQLiteSourceHold) (*sqliteSource, error) {
 	if data.VerifyArchiveAllocation(d.Binding, *d.Allocation) == nil {
-		return openSQLiteSource(d.Binding, d.Definitions, hold)
+		return openSQLiteSource(d.Binding, d.Definitions, empty, hold)
 	}
 	if data.VerifyArchivedAllocation(d.Binding, *d.Allocation, p.ArchiveID) != nil {
 		return nil, archive.ErrRefused
 	}
-	return openArchivedSQLiteSource(p, d, hold)
+	return openArchivedSQLiteSource(p, d, empty, hold)
 }
 
-func openArchivedSQLiteSource(p archive.Plan, d archive.SQLiteDatabase, hold *store.SQLiteSourceHold) (out *sqliteSource, err error) {
-	s := &sqliteSource{rootPath: string(d.Binding.Root), components: []string{"archives", string(p.ArchiveID), "databases", string(d.Binding.DatabaseID)}, filename: string(d.Binding.Filename), database: d.Binding.Name, databaseID: d.Binding.DatabaseID, definitions: d.Definitions, members: map[string]*os.File{}, proofs: map[string]memberProof{}, hold: hold}
+func openArchivedSQLiteSource(p archive.Plan, d archive.SQLiteDatabase, empty *sqliteprep.EmptyAllocation, hold *store.SQLiteSourceHold) (out *sqliteSource, err error) {
+	s := &sqliteSource{empty: empty, rootPath: string(d.Binding.Root), components: []string{"archives", string(p.ArchiveID), "databases", string(d.Binding.DatabaseID)}, filename: string(d.Binding.Filename), database: d.Binding.Name, databaseID: d.Binding.DatabaseID, definitions: d.Definitions, members: map[string]*os.File{}, proofs: map[string]memberProof{}, hold: hold}
 	defer func() {
 		if err != nil {
 			err = errors.Join(err, s.closeHandles())
@@ -240,4 +245,18 @@ func (h archiveHost) checkPreparedSource(ctx context.Context, p archive.Plan, d 
 		}
 	}
 	return nil
+}
+
+func (h archiveHost) preparedEmptyExpectation(ctx context.Context, p archive.Plan, d archive.SQLiteDatabase) (*sqliteprep.EmptyAllocation, error) {
+	for _, ref := range p.Removal.Points {
+		if ref.DatabaseID != d.Binding.DatabaseID {
+			continue
+		}
+		source, err := h.service.Store.ReadSQLitePreparedSource(ctx, p.Candidate.App, string(d.Binding.Name), ref.PreparationID)
+		if err != nil {
+			return nil, err
+		}
+		return source.Scope.EmptyAllocation, nil
+	}
+	return nil, nil
 }

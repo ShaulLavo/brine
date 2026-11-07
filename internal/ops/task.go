@@ -154,16 +154,3 @@ func DecodeTaskOutcome(op Operation, raw []byte) (TaskOutcome, error) {
 	}
 	return o, nil
 }
-
-func decodeDropTaskReceipt(op Operation, raw json.RawMessage) (any, error) {
-	if op.Kind == DropResolve {
-		if prepared, err := DecodeDropPreparationReceipt(raw); err == nil && prepared.OperationID == op.ID && prepared.PlanID == op.SecretRef && prepared.RecoveryOf == op.RecoveryOf {
-			return prepared, nil
-		}
-	}
-	receipt, err := drop.DecodeReceipt(raw)
-	if err != nil || string(receipt.OperationID) != op.ID || receipt.PlanID != op.SecretRef || string(receipt.RecoveryOf) != op.RecoveryOf || op.Kind == DropApply && string(receipt.AttemptOperationID) != op.ID {
-		return nil, strictjson.ErrObject
-	}
-	return receipt, nil
-}
