@@ -156,6 +156,9 @@ func (m tuiModel) observedExitNotice() string {
 	}
 	observe := o.Flags.command("status", "--operation", o.Operation.ID, "--after-cursor", fmt.Sprint(o.Cursor))
 	resume := " Resume in the TUI with: " + o.Flags.command("tui", "--operation", o.Operation.ID)
+	if !o.Bound && o.Operation.State == "" {
+		return "Operation state was not obtained. Observe with: " + observe + resume
+	}
 	if o.Operation.State.IsTerminal() {
 		return fmt.Sprintf("Operation %s on %s is terminal; its history has not been fully observed. Observe with: %s%s", o.Operation.ID, o.Flags.target, observe, resume)
 	}

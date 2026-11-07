@@ -51,6 +51,9 @@ func (m tuiModel) observationNotice() (string, ui.Tone) {
 func (m tuiModel) operationLines() []string {
 	o := m.observe
 	op := o.Operation
+	if op.State == "" && m.entry.Operation != "" && !o.Bound {
+		return m.message("Reading operation state…")
+	}
 	if op.State == "" {
 		return m.message("Accepted. Reading operation state…", "plan "+op.PlanID)
 	}
