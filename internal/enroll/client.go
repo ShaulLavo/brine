@@ -22,6 +22,8 @@ import (
 type Options struct {
 	Destination, Name, DeployKeyPath, IdentityPath, HostBinary, ConfigDir string
 	Undo, Finish, NoInput                                                 bool
+	Update, UpdateAbort                                                   bool
+	Quiesce, ReplaceUnrecordedBinary                                      string
 }
 type Client struct {
 	Runner   localexec.InputRunner
@@ -71,6 +73,9 @@ func DefaultTargetName(destination string) string {
 }
 
 func (c Client) Run(ctx context.Context, o Options) (err error) {
+	if err := validateUpdateOptions(o); err != nil {
+		return err
+	}
 	if o.Undo && o.Finish {
 		return errors.New("--finish and --undo cannot be combined")
 	}
@@ -87,7 +92,7 @@ func (c Client) Run(ctx context.Context, o Options) (err error) {
 		return err
 	}
 	keyPath := filepath.Join(o.ConfigDir, o.Name+".identity-key")
-	identityKey, err := clientKey(keyPath, !o.Finish)
+	identityKey, err := clientKey(keyPath, !o.Finish && !o.Update && !o.UpdateAbort)
 	if err != nil {
 		return err
 	}
@@ -162,6 +167,9 @@ func (c Client) Run(ctx context.Context, o Options) (err error) {
 			return nil, err
 		}
 		return c.exec(ctx, "ssh", remote, data, 10*time.Minute)
+	}
+	if o.Update || o.UpdateAbort {
+		return c.runUpdate(ctx, o, identityKey, remote)
 	}
 	probeAction := "probe"
 	if o.Undo {
@@ -369,11 +377,14 @@ func clientKey(path string, create bool) ([]byte, error) {
 }
 
 type HostRequest struct {
-	VerifyOnly  bool   `json:"verify_only,omitempty"`
-	Confirmed   string `json:"confirmed,omitempty"`
-	Action      string `json:"action"`
-	IdentityKey []byte `json:"identity_key"`
-	DeployKey   string `json:"deploy_key"`
+	VerifyOnly              bool   `json:"verify_only,omitempty"`
+	HostKey                 string `json:"host_key,omitempty"`
+	Quiesce                 string `json:"quiesce,omitempty"`
+	ReplaceUnrecordedBinary string `json:"replace_unrecorded_binary,omitempty"`
+	Confirmed               string `json:"confirmed,omitempty"`
+	Action                  string `json:"action"`
+	IdentityKey             []byte `json:"identity_key"`
+	DeployKey               string `json:"deploy_key"`
 }
 
 func PublicKey(input string) (string, error) {

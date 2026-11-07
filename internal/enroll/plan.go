@@ -18,7 +18,14 @@ type Package struct {
 	Version string `json:"version"`
 }
 
+type EnrollmentPending struct {
+	Kind  string `json:"kind"`
+	ID    string `json:"id"`
+	Stage string `json:"stage"`
+}
+
 type Facts struct {
+	Pending                 *EnrollmentPending                       `json:"pending,omitempty"`
 	Litestream              target.Observation[inventory.Litestream] `json:"litestream"`
 	SSHAuthorizationChecked bool                                     `json:"ssh_authorization_checked"`
 	PackageInstall          []Package                                `json:"package_install"`
@@ -126,12 +133,13 @@ func MakePlan(f Facts) (Plan, error) {
 		"Polkit's package creates its protected rules directory and provides the system D-Bus activated authorization daemon used for the runner's Caddy reload grant.",
 		"Before any package installation, mask Caddy so its package default site cannot start; its post-install normally enables and starts caddy.service.",
 		"Podman's netavark dependency can enable netavark-dhcp-proxy.service, netavark-dhcp-proxy.socket and netavark-firewalld-reload.service, and activate the DHCP proxy socket on installation. These package post-install effects are part of the transaction.",
+		"Before creating the runner, install root-owned durable admission, both drain locks and the enabled admission-settle boot service. Missing admission fails closed.",
 		"Create only the Brine runner account, with an empty skeleton and login shell /bin/sh; refuse a preexisting unowned account, group or home.",
 		"Create a root-owned home (root:brine, 0755), root-owned .ssh (0755) kept empty after verification; create runner-owned .config, .local, .cache and .local/state/brine (0700).",
 		"Keep the home top level free of startup files and writable symlinks; require effective global SSH PermitUserEnvironment=no for loopback and remote connections require locale/display-only AcceptEnv and locale-only SetEnv across every included branch, and refuse per-user PAM environment files. Verify startup-file bypasses after enrollment.",
 		"Install the root-owned canonical /etc/brine/runner-storage.conf selecting overlay with /usr/bin/fuse-overlayfs for the Brine runner only, before rootless runtime queries. Refuse configuration drift; FUSE layers make a later native-overlay rollback unsafe.",
 		"Enable lingering for the Brine runner and install the binary at /usr/local/bin/brine, with root-owned parents and mode 0755.",
-		"Install a private root-owned workspace consumer observer with only read-only process inspection. It accepts one runner-owned0700 directory descriptor under current allowed persistent roots. The separate root-owned allow_workspace_observation grant defaults false and is required for every request; no command, signal, deletion, root SSH or path/PID request authority.",
+		"Install a private root-owned workspace consumer observer with only read-only process inspection. It accepts one runner-owned 0700 directory descriptor under current allowed persistent roots. The separate root-owned allow_workspace_observation grant defaults false and is required for every request; no command, signal, deletion, root SSH or path/PID request authority.",
 		"Create root-owned /etc/ssh/brine and authorized_keys directories (0755), install the root-owned deploy key at /etc/ssh/brine/authorized_keys/brine (0644), and the inventory identity at /etc/ssh/brine/inventory-key (0644).",
 		"Install and journal /etc/ssh/sshd_config.d/00-brine-brine.conf (root-owned 0644), forcing the dispatcher for every runner login and runner-only key sources and disabling PTY, tunnels and forwarding. Validate the staged complete SSH configuration and reload ssh.service; restore verified original state and reload on known failure, and require explicit undo after an unknown reload outcome.",
 		"Install a root-owned /etc/ssh/brine/operator-policy.toml (0644) with no allowed registries, domains or secrets, 512 MiB and 128 PID ceilings, app ports 20000-20999 and Caddy HTTPS port 443. The operator must explicitly edit this deny-all policy before planning a deployment.",

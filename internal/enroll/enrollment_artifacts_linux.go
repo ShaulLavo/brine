@@ -30,12 +30,17 @@ const (
 	artifactRestic
 	artifactNativeReader
 	artifactRunnerStorage
+	artifactAdmissionState
+	artifactAdmissionLock
+	artifactAdmissionStageLock
+	artifactAdmissionSettle
 	artifactCount
 )
 
 type enrollmentArtifactClass string
 
 const (
+	artifactAdmission     enrollmentArtifactClass = "admission"
 	artifactUpdatable     enrollmentArtifactClass = "updatable"
 	artifactAuthority     enrollmentArtifactClass = "authority"
 	artifactOperatorOwned enrollmentArtifactClass = "operator-owned"
@@ -53,6 +58,10 @@ type enrollmentArtifact struct {
 
 func enrollmentArtifacts() [artifactCount]enrollmentArtifact {
 	return [artifactCount]enrollmentArtifact{
+		artifactAdmissionState:     {admissionDir + "/state.json", 0644, artifactAdmission, func(*host) []byte { return []byte(`{"version":1,"open":true}`) }},
+		artifactAdmissionLock:      {admissionDir + "/lock", 0644, artifactAdmission, func(*host) []byte { return nil }},
+		artifactAdmissionStageLock: {admissionDir + "/stage.lock", 0644, artifactAdmission, func(*host) []byte { return nil }},
+		artifactAdmissionSettle:    {settleUnitPath, 0644, artifactUpdatable, func(*host) []byte { return []byte(settleUnit) }},
 		artifactBinary:             {binaryPath, 0755, artifactUpdatable, func(h *host) []byte { return h.source }},
 		artifactObserverUnit:       {workspaceobserve.UnitPath, 0644, artifactUpdatable, func(*host) []byte { return []byte(workspaceobserve.Unit) }},
 		artifactReconcileUnit:      {reconcileUnitPath, 0644, artifactUpdatable, func(*host) []byte { return []byte(reconcileUnit) }},
