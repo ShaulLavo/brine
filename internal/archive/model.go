@@ -85,59 +85,60 @@ func (p Plan) Valid() bool {
 	bindings := map[data.ReplicaBindingID]bool{}
 	epochs := map[data.ReplicaEpochID]bool{}
 	for i, variant := range p.Candidate.Databases {
-		if native, initialized := variant.Native(); initialized {
-			ref := variant.Reference()
-			if !native.valid(p, rootIdentity[ref.Root]) || databases[ref.DatabaseID] || bindings[ref.BindingID] ||
-				i > 0 && p.Candidate.Databases[i-1].Reference().DatabaseID >= ref.DatabaseID {
-				return false
-			}
-			if !recordNativeEpochs(native, epochs) {
-				return false
-			}
-			databases[ref.DatabaseID], bindings[ref.BindingID], usedRoots[ref.Root] = true, true, true
-			continue
-		}
-		database, sqlite := variant.SQLite()
-		if !sqlite {
+		ref := variant.Reference()
+		if databases[ref.DatabaseID] || bindings[ref.BindingID] || i > 0 && p.Candidate.Databases[i-1].Reference().DatabaseID >= ref.DatabaseID {
 			return false
 		}
-		b := database.Binding
-		relative, err := data.RelativeDirectory(b.IncarnationID, b.DatabaseID)
-		if err != nil || relative != b.RelativeDirectory || b.IncarnationID != p.Candidate.Incarnation || !roots[b.Root] || databases[b.DatabaseID] || bindings[b.ReplicaBindingID] || !data.ValidID(string(b.ReplicaBindingID)) || i > 0 && p.Candidate.Databases[i-1].Reference().DatabaseID >= b.DatabaseID || len(database.Epochs) == 0 || len(database.Epochs) != len(database.Retention) {
+		if !validPlanDatabase(p, variant, rootIdentity, epochs) {
 			return false
 		}
-		declaration := data.SQLiteDatabase{Name: b.Name, PersistentRoot: b.Root, MountPath: b.MountPath, Filename: b.Filename, BackupDestination: database.Epochs[0].Destination.Reference}
-		if declaration.Validate() != nil {
-			return false
-		}
-		if database.Allocation == nil || !database.Allocation.Valid() || database.Allocation.DatabaseID != b.DatabaseID || database.Allocation.IncarnationID != b.IncarnationID {
-			return false
-		}
-		if database.Allocation.RootDevice != rootIdentity[b.Root].RootDevice || database.Allocation.RootInode != rootIdentity[b.Root].RootInode {
-			return false
-		}
-		databases[b.DatabaseID] = true
-		bindings[b.ReplicaBindingID] = true
-		usedRoots[b.Root] = true
-		for j, epoch := range database.Epochs {
-			prefix, err := data.RemotePrefix(epoch.Destination.BasePrefix, b.IncarnationID, b.DatabaseID, epoch.EpochID)
-			if err != nil || epoch.Destination.Validate() != nil || epoch.DatabaseID != b.DatabaseID || epoch.BindingID != b.ReplicaBindingID || epoch.RemotePrefix != prefix || epochs[epoch.EpochID] || j > 0 && database.Epochs[j-1].EpochID >= epoch.EpochID || !database.Retention[j].Admits(epoch.Destination, p.CreatedAt) {
-				return false
-			}
-			epochs[epoch.EpochID] = true
-		}
-		for _, definition := range database.Definitions {
-			if definition.Database != b.Name || !data.ValidMarker(definition.Marker) || !data.ValidCatalogHash(definition.CatalogSHA256) {
-				return false
-			}
-		}
-		for _, invariant := range database.Invariants {
-			if invariant.Database != b.Name || invariant.Validate() != nil {
-				return false
-			}
-		}
+		databases[ref.DatabaseID], bindings[ref.BindingID], usedRoots[ref.Root] = true, true, true
 	}
 	return len(usedRoots) == len(roots)
+}
+
+func validPlanDatabase(p Plan, variant Database, trees map[data.PersistentRoot]data.ArchiveTree, epochs map[data.ReplicaEpochID]bool) bool {
+	if native, initialized := variant.Native(); initialized {
+		return native.valid(p, trees[variant.Reference().Root]) && recordNativeEpochs(native, epochs)
+	}
+	database, sqlite := variant.SQLite()
+	if !sqlite {
+		return false
+	}
+	b := database.Binding
+	tree, hasRoot := trees[b.Root]
+	relative, err := data.RelativeDirectory(b.IncarnationID, b.DatabaseID)
+	if err != nil || relative != b.RelativeDirectory || b.IncarnationID != p.Candidate.Incarnation || !hasRoot || !data.ValidID(string(b.ReplicaBindingID)) || len(database.Epochs) == 0 || len(database.Epochs) != len(database.Retention) {
+		return false
+	}
+	declaration := data.SQLiteDatabase{Name: b.Name, PersistentRoot: b.Root, MountPath: b.MountPath, Filename: b.Filename, BackupDestination: database.Epochs[0].Destination.Reference}
+	if declaration.Validate() != nil {
+		return false
+	}
+	if database.Allocation == nil || !database.Allocation.Valid() || database.Allocation.DatabaseID != b.DatabaseID || database.Allocation.IncarnationID != b.IncarnationID {
+		return false
+	}
+	if database.Allocation.RootDevice != tree.RootDevice || database.Allocation.RootInode != tree.RootInode {
+		return false
+	}
+	for j, epoch := range database.Epochs {
+		prefix, err := data.RemotePrefix(epoch.Destination.BasePrefix, b.IncarnationID, b.DatabaseID, epoch.EpochID)
+		if err != nil || epoch.Destination.Validate() != nil || epoch.DatabaseID != b.DatabaseID || epoch.BindingID != b.ReplicaBindingID || epoch.RemotePrefix != prefix || epochs[epoch.EpochID] || j > 0 && database.Epochs[j-1].EpochID >= epoch.EpochID || !database.Retention[j].Admits(epoch.Destination, p.CreatedAt) {
+			return false
+		}
+		epochs[epoch.EpochID] = true
+	}
+	for _, definition := range database.Definitions {
+		if definition.Database != b.Name || !data.ValidMarker(definition.Marker) || !data.ValidCatalogHash(definition.CatalogSHA256) {
+			return false
+		}
+	}
+	for _, invariant := range database.Invariants {
+		if invariant.Database != b.Name || invariant.Validate() != nil {
+			return false
+		}
+	}
+	return true
 }
 
 type SQLiteCoverage struct {
