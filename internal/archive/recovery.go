@@ -16,9 +16,10 @@ type TreeInspection struct {
 	Location string `json:"location"`
 }
 type Inspection struct {
-	Disposition Disposition       `json:"disposition"`
-	Runtime     RuntimeInspection `json:"runtime"`
-	Trees       []TreeInspection  `json:"trees"`
+	Preparation *PreparationInspection `json:"preparation,omitempty"`
+	Disposition Disposition            `json:"disposition"`
+	Runtime     RuntimeInspection      `json:"runtime"`
+	Trees       []TreeInspection       `json:"trees"`
 	// CanReconcile describes journal/artifact structure only. Reconcile must
 	// independently recheck current ownership, quiescence and remote coverage.
 	CanReconcile bool `json:"can_reconcile"`
@@ -58,6 +59,9 @@ func inspectTrees(p Plan, d Disposition) ([]TreeInspection, bool) {
 // Inspect changes no journal or runtime artifact. Terminal receipts are historical
 // and do not inspect a subsequently recreated incarnation.
 func (s Service) Inspect(ctx context.Context, id data.ArchiveID) (out Inspection, err error) {
+	if p, ok := s.removalForArchive(ctx, id); ok {
+		return s.inspectRemoval(ctx, p)
+	}
 	if !data.ValidID(string(id)) {
 		return out, ErrRefused
 	}
@@ -109,6 +113,9 @@ func (s Service) inspectRecovery(ctx context.Context, id data.ArchiveID) (p Plan
 // already at archive authorizes only directory sync and the missing receipt.
 // Fences remain held, including after retirement. No writer is started or stopped.
 func (s Service) Reconcile(ctx context.Context, id data.ArchiveID) (out Disposition, err error) {
+	if p, ok := s.removalForArchive(ctx, id); ok {
+		return s.disposeRemoval(ctx, p, false, true)
+	}
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
 	defer cancel()
 	if !data.ValidID(string(id)) {
@@ -170,40 +177,50 @@ func (s Service) Reconcile(ctx context.Context, id data.ArchiveID) (out Disposit
 		if !valid {
 			return out, ErrRecovery
 		}
-		switch out.Stage {
-		case CleanupIntent:
-			err = advance(RuntimeRetired, 0)
-		case RuntimeRetired:
-			err = advance(RenameIntent, 0)
-		case RenameIntent:
-			tree := p.Trees[out.TreeIndex]
-			if trees[out.TreeIndex].Location == "source" {
-				err = data.RenameArchiveTree(tree, p.Candidate.Incarnation, id)
-			} else {
-				err = data.SyncArchivedTree(tree, p.Candidate.Incarnation, id)
-			}
-			if err == nil {
-				err = advance(Renamed, out.TreeIndex)
-			}
-		case Renamed:
-			if out.TreeIndex+1 < len(p.Trees) {
-				err = advance(RenameIntent, out.TreeIndex+1)
-			} else {
-				if mover, ok := s.Host.(interface {
-					ArchiveNativeTrees(context.Context, Plan) error
-				}); ok {
-					err = mover.ArchiveNativeTrees(ctx, p)
-				}
-				if err == nil {
-					err = advance(Retired, out.TreeIndex)
-				}
-			}
-		default:
-			return out, ErrRecovery
-		}
+		err = reconcileLegacyStep(ctx, s.Host, p, id, out, trees, advance)
 		if err != nil {
 			return out, ErrRecovery
 		}
 	}
 	return out, nil
+}
+
+func reconcileLegacyStep(ctx context.Context, host Host, p Plan, id data.ArchiveID, out Disposition, trees []TreeInspection, advance func(DispositionStage, int) error) error {
+	switch out.Stage {
+	case CleanupIntent:
+		return advance(RuntimeRetired, 0)
+	case RuntimeRetired:
+		return advance(RenameIntent, 0)
+	case RenameIntent:
+		tree := p.Trees[out.TreeIndex]
+		var err error
+		if trees[out.TreeIndex].Location == "source" {
+			err = data.RenameArchiveTree(tree, p.Candidate.Incarnation, id)
+		} else {
+			err = data.SyncArchivedTree(tree, p.Candidate.Incarnation, id)
+		}
+		if err != nil {
+			return err
+		}
+		return advance(Renamed, out.TreeIndex)
+	case Renamed:
+		if out.TreeIndex+1 < len(p.Trees) {
+			return advance(RenameIntent, out.TreeIndex+1)
+		}
+		if err := moveNativeArchiveTrees(ctx, host, p); err != nil {
+			return err
+		}
+		return advance(Retired, out.TreeIndex)
+	default:
+		return ErrRecovery
+	}
+}
+func moveNativeArchiveTrees(ctx context.Context, host Host, p Plan) error {
+	mover, ok := host.(interface {
+		ArchiveNativeTrees(context.Context, Plan) error
+	})
+	if !ok {
+		return nil
+	}
+	return mover.ArchiveNativeTrees(ctx, p)
 }

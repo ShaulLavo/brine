@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
-	"slices"
 	"strings"
 	"time"
 
@@ -103,58 +102,13 @@ func (h archiveHost) ArchiveMaintenanceAdmission(ctx context.Context, p archive.
 		return out, archive.ErrRefused
 	}
 	for _, variant := range p.Candidate.Databases {
-		if native, ok := variant.Native(); ok {
-			admitted, err := h.nativeArchiveMaintenanceAdmission(ctx, p, manifest, native, pol)
-			if err != nil {
-				return out, err
-			}
-			out.RetentionAdmitted = out.RetentionAdmitted && admitted
-			continue
+		admitted, err := h.archiveMaintenanceDatabase(ctx, p, manifest, variant, pol)
+		if err != nil {
+			return out, err
 		}
-		database, sqlite := variant.SQLite()
-		if !sqlite {
-			return out, archive.ErrRefused
-		}
-		if database.Allocation == nil || !slices.Contains(pol.PersistentRoots(), string(database.Binding.Root)) {
-			return out, archive.ErrRefused
-		}
-		root, err := data.InspectRoot(string(database.Binding.Root))
-		if err == nil {
-			root, err = root.WithPreparationProof(database.Allocation.RootProof)
-		}
-		if err != nil || !root.Admits(database.Binding.Root, 0) {
-			return out, archive.ErrRefused
-		}
-		permit, err := h.service.Store.ReadReplicaPermit(ctx, database.Binding.DatabaseID)
-		if err != nil || permit.FenceState != "held" {
-			return out, archive.ErrRefused
-		}
-		held := 0
-		for _, fence := range permit.Fences {
-			if fence.State != data.FenceHeld {
-				continue
-			}
-			if fence.OperationID != manifest.OperationID || fence.DatabaseID != database.Binding.DatabaseID || fence.IncarnationID != p.Candidate.Incarnation {
-				return out, archive.ErrRefused
-			}
-			held++
-		}
-		if held != 1 {
-			return out, archive.ErrRefused
-		}
-		for _, binding := range database.Epochs {
-			destination, ok := pol.BackupDestination(binding.Destination.Reference)
-			if !ok || destination != binding.Destination {
-				return out, archive.ErrRefused
-			}
-			if database.Written {
-				retention, known := pol.BackupRetention(binding.Destination.Reference)
-				if !known || !retention.Admits(binding.Destination, time.Now().UTC()) {
-					out.RetentionAdmitted = false
-				}
-			}
-		}
+		out.RetentionAdmitted = out.RetentionAdmitted && admitted
 	}
+
 	if h.maintenanceQuiescent(ctx, p) != nil {
 		return out, archive.ErrRefused
 	}
@@ -207,7 +161,7 @@ func (h archiveHost) retainedCredentials(ctx context.Context, id data.ArchiveID,
 	if errors.Is(err, sql.ErrNoRows) {
 		// The exact original credential version remains authorized until renewed;
 		// this is not an app-name/latest-version fallback or version-skew path.
-		out, err = h.archiveCredentials(ctx, binding)
+		out, err = h.originalArchiveCredentials(ctx, id, binding)
 		validUntil = deadline
 		if !out.ExpiresAt.IsZero() && out.ExpiresAt.Before(validUntil) {
 			validUntil = out.ExpiresAt
@@ -367,64 +321,12 @@ var _ archive.MaintenanceHost = archiveHost{}
 
 func (h archiveHost) ArchiveCredentialHealth(ctx context.Context, p archive.Plan) ([]archive.CredentialHealth, error) {
 	var out []archive.CredentialHealth
-	files := backupcredentials.Files{Root: filepath.Join(h.stateRoot, "credentials")}
-	now := time.Now().UTC()
 	for _, variant := range p.Candidate.Databases {
-		if native, ok := variant.Native(); ok {
-			health, err := h.nativeArchiveCredentialHealth(ctx, p, native)
-			if err != nil {
-				return nil, err
-			}
-			out = append(out, health...)
-			continue
+		health, err := h.archiveDatabaseHealth(ctx, p, variant)
+		if err != nil {
+			return nil, err
 		}
-		database, sqlite := variant.SQLite()
-		if !sqlite {
-			return nil, archive.ErrRefused
-		}
-		if !database.Written {
-			continue
-		}
-		for _, binding := range database.Epochs {
-			health := archive.CredentialHealth{BindingID: binding.BindingID, EpochID: binding.EpochID}
-			renewed, err := h.service.Store.ReadArchiveCredentialReceipt(ctx, p.ArchiveID, binding.BindingID, binding.EpochID)
-			ref, version := "", uint64(0)
-			if errors.Is(err, sql.ErrNoRows) {
-				original, err := h.service.Store.CredentialReceipt(ctx, binding.BindingID, binding.CredentialVersion)
-				if err != nil || original.EpochID != binding.EpochID || original.CredentialRef != binding.Destination.CredentialRef || original.Destination != binding.Destination.Reference {
-					health.Missing = true
-				} else {
-					health.ReceivedAt, health.ExpiresAt = original.ReceivedAt, original.ExpiresAt
-					ref, version = original.CredentialRef, original.Version
-				}
-			} else if err != nil {
-				health.Missing = true
-			} else {
-				sealed, err := files.ArchiveReceipt(renewed.Plan.Scope.FileReference(), renewed.Plan.Version)
-				if err != nil || !reflect.DeepEqual(sealed, renewed) {
-					health.Missing = true
-				} else {
-					health.ReceivedAt, health.ExpiresAt = renewed.ReceivedAt, renewed.Plan.ExpiresAt
-					ref, version = renewed.Plan.Scope.FileReference(), renewed.Plan.Version
-				}
-			}
-			if !health.Missing {
-				packet, err := files.Read(ref, version)
-				if err != nil {
-					health.Missing = true
-				}
-				packet.Clear()
-			}
-			if !health.ReceivedAt.IsZero() && now.After(health.ReceivedAt) {
-				health.AgeSeconds = int64(now.Sub(health.ReceivedAt) / time.Second)
-			}
-			if health.ExpiresAt != nil {
-				health.Expired = !now.Before(*health.ExpiresAt)
-				health.RenewalNeeded = !now.Add(3 * time.Minute).Before(*health.ExpiresAt)
-			}
-			health.RenewalNeeded = health.RenewalNeeded || health.Missing
-			out = append(out, health)
-		}
+		out = append(out, health...)
 	}
 	return out, nil
 }

@@ -6,12 +6,8 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
-	"reflect"
-	"slices"
 	"strings"
 	"time"
 
@@ -27,7 +23,7 @@ import (
 )
 
 func newArchiveService(s Service, stateRoot, home string, session localexec.Session, executor localexec.Executor, routes apply.RemovalRoutes, units archiveRemovalUnits) archive.Service {
-	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home, routes: routes, units: units, recoveryVerified: make(map[string]time.Time), nativeLifetimes: make(map[data.ReplicaBindingID]*data.EngineLock)}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
+	return archive.Service{Journal: s.Store, Host: archiveHost{service: s, stateRoot: stateRoot, session: session, executor: executor, home: home, routes: routes, units: units, recoveryVerified: make(map[string]time.Time), removalVerified: make(map[string]restore.SQLiteReceipt), nativeLifetimes: make(map[data.ReplicaBindingID]*data.EngineLock)}, Requester: s.Requester, Authorize: func(ctx context.Context) error {
 		_, err := s.Policy.Load(ctx)
 		return err
 	}, Lock: func(ctx context.Context) (func() error, error) {
@@ -43,103 +39,52 @@ func (h archiveHost) Facts(ctx context.Context, app string) (archive.Plan, error
 	return h.archiveFacts(ctx, app, "", true)
 }
 func (h archiveHost) archiveFacts(ctx context.Context, app, owner string, requireRetention bool) (archive.Plan, error) {
-	var p archive.Plan
 	pol, err := h.service.Policy.Load(ctx)
 	if err != nil {
-		return p, err
+		return archive.Plan{}, err
 	}
-	var c archive.Candidate
-	if owner == "" {
-		c, err = h.service.Store.ArchiveCandidate(ctx, app)
-	} else {
-		c, err = h.service.Store.ArchiveOwnedCandidate(ctx, app, owner)
-	}
+	c, refs, err := h.archiveCandidate(ctx, app, owner)
 	if err != nil {
-		return p, err
+		return archive.Plan{}, err
 	}
 	if nativeArchiveCandidate(c) {
 		return h.nativeArchiveFacts(ctx, c, requireRetention)
 	}
 	snapshot, err := h.service.Inventory.Collect(ctx)
 	if err != nil || snapshot.Generation.Status != target.KnownStatus || snapshot.Generation.Value == nil || snapshot.Apps.Status != target.KnownStatus || snapshot.Apps.Value == nil {
-		return p, archive.ErrRefused
+		return archive.Plan{}, archive.ErrRefused
 	}
-	if c.ReleaseID != "" {
-		var writer store.WriterSchema
-		if owner == "" {
-			writer, err = h.service.Store.ReadWriterSchema(ctx, c.Incarnation)
-		} else {
-			writer, err = h.service.Store.ReadArchiveWriterSchema(ctx, c.Incarnation, owner)
-		}
-		if err != nil || writer.ReleaseID != c.ReleaseID {
-			return p, archive.ErrRefused
-		}
-		matched := false
-		for _, observed := range *snapshot.Apps.Value {
-			if observed.Name == app {
-				if observed.QuadletUnits.Status != target.KnownStatus || observed.QuadletUnits.Value == nil || !reflect.DeepEqual(*observed.QuadletUnits.Value, writer.Units) {
-					return p, archive.ErrRefused
-				}
-				matched = true
-			}
-		}
-		if !matched {
-			return p, archive.ErrRefused
-		}
-	} else {
-		for _, observed := range *snapshot.Apps.Value {
-			if observed.Name == app {
-				return p, archive.ErrRefused
-			}
-		}
+	if err = h.archiveWriterFacts(ctx, c, owner, *snapshot.Apps.Value); err != nil {
+		return archive.Plan{}, err
 	}
-	for i := range c.Databases {
-		database, sqlite := c.Databases[i].SQLite()
-		if !sqlite {
-			return p, archive.ErrRefused
-		}
-		if !slices.Contains(pol.PersistentRoots(), string(database.Binding.Root)) || database.Allocation == nil || data.VerifyArchiveAllocation(database.Binding, *database.Allocation) != nil {
-			return p, archive.ErrRefused
-		}
-		root, err := data.InspectRoot(string(database.Binding.Root))
-		if err == nil {
-			root, err = root.WithPreparationProof(database.Allocation.RootProof)
-		}
-		if err != nil || !root.Admits(database.Binding.Root, 0) {
-			return p, archive.ErrRefused
-		}
-		for _, epoch := range database.Epochs {
-			destination, ok := pol.BackupDestination(epoch.Destination.Reference)
-			if !ok || destination != epoch.Destination {
-				return p, archive.ErrRefused
-			}
-			evidence, ok := pol.BackupRetention(destination.Reference)
-			if requireRetention && (!ok || !evidence.Admits(destination, time.Now().UTC())) {
-				return p, archive.ErrRefused
-			}
-			database.Retention = append(database.Retention, evidence)
-			if epoch.Committed {
-				artifact, hash, err := (replicaRotation{state: h.service.Store, stateRoot: h.stateRoot, home: h.home}).artifact(ctx, epoch)
-				if err != nil || hash != epoch.UnitSHA256 || data.VerifyRunnerFile(artifact.ServicePath) != nil {
-					return p, archive.ErrRefused
-				}
-				raw, err := os.ReadFile(artifact.ServicePath)
-				if err != nil || string(raw) != string(artifact.Service) {
-					return p, archive.ErrRefused
-				}
-			}
+	for i, variant := range c.Databases {
+		database, err := h.archiveDatabaseFacts(ctx, variant, pol, requireRetention)
+		if err != nil {
+			return archive.Plan{}, err
 		}
 		c.Databases[i] = archive.SQLiteDatabaseVariant(database)
 	}
-	identity, err := json.Marshal(snapshot.Identity)
+	targetHash, err := archiveTargetHash(snapshot)
 	if err != nil {
-		return p, err
+		return archive.Plan{}, err
 	}
-	sum := sha256.Sum256(identity)
-	p.Candidate = c
-	p.PolicyHash = pol.Hash()
-	p.TargetHash = "sha256:" + hex.EncodeToString(sum[:])
-	p.Generation = *snapshot.Generation.Value
+	p := archive.Plan{Candidate: c, PolicyHash: pol.Hash(), TargetHash: targetHash, Generation: *snapshot.Generation.Value}
+	if h.removal && owner == "" {
+		bounds, ok := pol.SQLiteRemovalBounds()
+		if !ok {
+			return archive.Plan{}, archive.ErrRefused
+		}
+		p.Removal = &archive.Removal{Bounds: bounds, Points: refs}
+		if err = removalWriterObservation(ctx, h, p); err != nil {
+			return archive.Plan{}, err
+		}
+		if err = removalReplicaObservation(ctx, h, p); err != nil {
+			return archive.Plan{}, err
+		}
+		if err = h.VerifyArchiveRuntime(ctx, p); err != nil {
+			return archive.Plan{}, err
+		}
+	}
 	return p, nil
 }
 
@@ -299,7 +244,14 @@ func captureStoppedSQLite(ctx context.Context, stateRoot, staging string, b data
 }
 
 func (h archiveHost) archiveRestoreEngine(d archive.SQLiteDatabase, binding restore.Binding, credentials restore.Credentials) restore.SQLiteEngine {
-	return pinnedRestoreEngine(filepath.Join(h.stateRoot, "archive-restores"), d.Binding.Name, d.Definitions, binding, credentials, archive.ErrRefused)
+	if h.restoreTesting != nil {
+		binding = withTestEndpoint(binding, h.restoreTesting.endpoint)
+	}
+	engine := pinnedRestoreEngine(filepath.Join(h.stateRoot, "archive-restores"), d.Binding.Name, d.Definitions, binding, credentials, archive.ErrRefused)
+	if h.restoreTesting != nil {
+		engine.CLI, engine.AllowHTTPForTests = h.restoreTesting.cli, true
+	}
+	return engine
 }
 
 // pinnedRestoreEngine admits only one binding and its already-read
