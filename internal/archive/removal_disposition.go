@@ -40,11 +40,14 @@ func (s Service) disposeRemoval(ctx context.Context, p Plan, abandon, recovering
 		return out, errors.Join(ErrRecovery, err)
 	}
 	defer func() { err = errors.Join(err, hold.Close()) }()
-	r := removalRun{service: s, plan: p, disposition: out, hold: hold, journal: j, host: h}
+	r := removalRun{service: s, plan: p, disposition: out, hold: hold, action: removalDispositionAction(abandon, recovering), journal: j, host: h}
 	r.operation, ok, err = s.Journal.ReadArchiveOperation(ctx, p.ID)
 	stage, valid := StageAt(r.operation.Sequence)
 	if err != nil || !ok || !valid || stage != r.operation.Stage || r.operation.PlanID != p.ID || r.operation.ArchiveID != p.ArchiveID {
 		return out, ErrRecovery
+	}
+	if err = r.admitTask(ctx); err != nil {
+		return out, errors.Join(ErrRefused, err)
 	}
 	if abandon {
 		err = r.abandon(ctx)
@@ -121,6 +124,9 @@ func (r *removalRun) retire(ctx context.Context, recovering bool) error {
 			return ErrRecovery
 		}
 	}
+	if err := r.admitTask(ctx); err != nil {
+		return ErrRecovery
+	}
 	if recovering && r.forwardCheck(ctx, recovering) != nil {
 		return ErrRecovery
 	}
@@ -144,6 +150,9 @@ func (r *removalRun) retire(ctx context.Context, recovering bool) error {
 }
 
 func (r *removalRun) forwardCheck(ctx context.Context, recovering bool) error {
+	if err := r.admitTask(ctx); err != nil {
+		return err
+	}
 	if !removalLayoutValid(r.plan, r.disposition) {
 		return ErrRecovery
 	}
@@ -214,6 +223,9 @@ func (r *removalRun) rename(ctx context.Context) error {
 }
 
 func (r *removalRun) advanceDisposition(ctx context.Context, stage DispositionStage, index int) error {
+	if err := r.admitTask(ctx); err != nil {
+		return err
+	}
 	next := Disposition{ArchiveID: r.plan.ArchiveID, Sequence: r.disposition.Sequence + 1, Stage: stage, TreeIndex: index}
 	var err error
 	if stage != Retired && stage != Abandoned {
@@ -241,4 +253,18 @@ func removalLayoutValid(p Plan, d Disposition) bool {
 	}
 	_, valid := inspectTrees(p, d)
 	return valid
+}
+
+func removalDispositionAction(abandon, recovering bool) RemovalAction {
+	if abandon {
+		return RemovalAbandon
+	}
+	if recovering {
+		return RemovalContinue
+	}
+	return RemovalDirectRetire
+}
+
+func (r *removalRun) admitTask(ctx context.Context) error {
+	return r.service.Journal.(RemovalJournal).AdmitRemovalDisposition(ctx, r.service.Operation, r.operation, r.action, r.hold)
 }

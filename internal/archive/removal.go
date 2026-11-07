@@ -34,7 +34,16 @@ type PreparedCoverage struct {
 	ClaimedAt time.Time   `json:"claimed_at"`
 }
 
+type RemovalAction string
+
+const (
+	RemovalDirectRetire RemovalAction = "direct_retire"
+	RemovalContinue     RemovalAction = "continue"
+	RemovalAbandon      RemovalAction = "abandon"
+)
+
 type RemovalJournal interface {
+	AdmitRemovalDisposition(ctx context.Context, task string, o Operation, action RemovalAction, hold SourceHold) error
 	ClaimRemoval(ctx context.Context, p Plan, task string, hold SourceHold) (Operation, error)
 	FinishRemoval(ctx context.Context, task string, o Operation, old, next Disposition, hold SourceHold) (Disposition, RemovalReceipt, error)
 }

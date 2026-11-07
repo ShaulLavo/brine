@@ -24,6 +24,7 @@ type removalRun struct {
 	disposition Disposition
 	manifest    Manifest
 	hold        SourceHold
+	action      RemovalAction
 	journal     DispositionJournal
 	host        DispositionHost
 }
