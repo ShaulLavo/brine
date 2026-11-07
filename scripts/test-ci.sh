@@ -44,7 +44,7 @@ count=0
 for path in README.md docs/CONTRACTS.md 'docs/guides/new guide.md' .internal/plans/release.md docs/assets/hero.webp; do
   check_scope "$path" "$path" docs
 done
-for path in internal/example.go internal/testdata/input.md fixtures/app/README.md docs/testdata/input.md docs/Fixtures/input.md docs/fixture/input.md docs/example.go docs/example.toml docs/assets/new.wasm .github/workflows/ci.yml scripts/check.sh scripts/publish-udp-fixture.ts scripts/build-release.ts scripts/release.ts tools/ci/udp-fixture/*.ts tools/ci/release/*.ts .github/workflows/release.yml fixtures/udp-echo/pins.json .github/workflows/udp-fixture.yml internal/cdn/cloudflare/worker.test.mjs internal/cdn/testdata/eligibility.json go.sum mise.toml unknown.txt; do
+for path in internal/example.go internal/testdata/input.md fixtures/app/README.md docs/testdata/input.md docs/Fixtures/input.md docs/fixture/input.md docs/example.go docs/example.toml docs/assets/new.wasm .github/workflows/ci.yml scripts/check.sh scripts/prepare-ci-test-namespace.sh scripts/test-ci-test-namespace.sh scripts/publish-udp-fixture.ts scripts/build-release.ts scripts/release.ts tools/ci/udp-fixture/*.ts tools/ci/release/*.ts .github/workflows/release.yml fixtures/udp-echo/pins.json .github/workflows/udp-fixture.yml internal/cdn/cloudflare/worker.test.mjs internal/cdn/testdata/eligibility.json go.sum mise.toml unknown.txt; do
   check_scope "$path" "$path" full
 done
 check_scope docs/old.md docs/new.md full
@@ -198,4 +198,5 @@ git -C "$root" rev-parse HEAD > "$host/source-head"
 printf '\n' >> "$host/host.test"
 expect_host_race_refusal 1 "$host"
 [[ ! -e $scratch/refused ]]
+bash "$root/scripts/test-ci-test-namespace.sh"
 printf 'CI classifier and exact Go command tests passed.\n'
