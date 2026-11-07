@@ -26,7 +26,7 @@ func (e *proofExecutor) Execute(ctx context.Context, command localexec.Command) 
 	if err := ctx.Err(); err != nil {
 		return localexec.Result{}, err
 	}
-	if command.Mutation || command.Timeout <= 0 || command.OutputLimit != 16384 {
+	if command.Mutation || command.Timeout <= 0 || command.OutputLimit != localexec.CommandOutputLimit {
 		return localexec.Result{}, errors.New("unsafe proof command")
 	}
 	if e.override != nil {
@@ -108,7 +108,11 @@ func syntheticProcess(t *testing.T, p AdmissionProofs, pid string, uid int) stri
 	// Full proc stat fields, including a command containing a closing parenthesis.
 	proofWrite(t, filepath.Join(base, "stat"), pid+" (fixture ) process) S "+strings.Repeat("0 ", 18)+"123 "+strings.TrimSpace(strings.Repeat("0 ", 30))+"\n")
 	proofWrite(t, filepath.Join(base, "status"), fmt.Sprintf("Name:\tfixture\nUid:\t%d\t%d\t%d\t%d\n", uid, uid, uid, uid))
-	return base
+	task := filepath.Join(base, "task", pid)
+	proofMkdir(t, filepath.Join(task, "fd"))
+	proofWrite(t, filepath.Join(task, "stat"), pid+" (fixture ) process) S "+strings.Repeat("0 ", 18)+"123 "+strings.TrimSpace(strings.Repeat("0 ", 30))+"\n")
+	proofWrite(t, filepath.Join(task, "status"), fmt.Sprintf("Name:\tfixture\nUid:\t%d\t%d\t%d\t%d\n", uid, uid, uid, uid))
+	return task
 }
 
 func proofLink(t *testing.T, target, path string) {

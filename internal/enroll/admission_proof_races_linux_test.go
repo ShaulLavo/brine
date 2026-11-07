@@ -38,7 +38,7 @@ type proofEnumerationRace struct {
 }
 
 func TestAdmissionProofSyntheticEnumerationRaces(t *testing.T) {
-	for _, tc := range []proofEnumerationRace{{"process after enumeration", 2, false}, {"process after first scan", 16, false}, {"fd after enumeration", 8, true}, {"fd after fd recheck", 10, true}} {
+	for _, tc := range []proofEnumerationRace{{"process after enumeration", 2, false}, {"process after first scan", 28, false}, {"fd after enumeration", 14, true}, {"fd after fd recheck", 17, true}} {
 		t.Run(tc.name, func(t *testing.T) { testSyntheticEnumerationRace(t, tc) })
 	}
 }
@@ -212,4 +212,58 @@ func TestAdmissionProofSyntheticReadBounds(t *testing.T) {
 	if _, err := proofRead(t.Context(), file, 16); err == nil {
 		t.Fatal("directory read accepted")
 	}
+}
+
+func TestAdmissionProofSyntheticTaskBoundsAndChurn(t *testing.T) {
+	p, b, _ := newSyntheticProof(t)
+	leader := syntheticProcess(t, p, "123", b.RunnerUID+1)
+	syntheticPrivateTask(t, p, "123", "456", b.RunnerUID+1)
+	p.limits.tasks = 2
+	proof, err := p.ProveStoreQuiescent(t.Context(), b)
+	if err != nil || proof.Tasks != 2 || proof.Processes != 1 {
+		t.Fatal("exact task census refused", proof, err)
+	}
+	p.limits.tasks = 1
+	requireProofRefusal(t, p, b, false)
+	p.limits.tasks = 3
+	syntheticProcess(t, p, "789", b.RunnerUID+1)
+	if _, err = p.ProveStoreQuiescent(t.Context(), b); err != nil {
+		t.Fatal("aggregate exact task cap refused", err)
+	}
+	p.limits.tasks = 2
+	requireProofRefusal(t, p, b, false)
+	p.limits.tasks = 10
+	other := filepath.Join(p.Root, "other")
+	proofWrite(t, other, "")
+	proofLink(t, other, filepath.Join(leader, "fd/9"))
+	task := filepath.Join(p.ProcRoot, "123/task/456")
+	proofLink(t, other, filepath.Join(task, "fd/9"))
+	p.limits.fds = 2
+	if _, err = p.ProveStoreQuiescent(t.Context(), b); err != nil {
+		t.Fatal("aggregate exact fd cap refused", err)
+	}
+	p.limits.fds = 1
+	requireProofRefusal(t, p, b, false)
+}
+
+func TestAdmissionProofSyntheticTaskEnumerationRaces(t *testing.T) {
+	for _, at := range []int{8, 23} {
+		t.Run(strconv.Itoa(at), func(t *testing.T) { checkTaskEnumerationRace(t, at) })
+	}
+}
+func checkTaskEnumerationRace(t *testing.T, at int) {
+	t.Helper()
+	p, b, _ := newSyntheticProof(t)
+	syntheticProcess(t, p, "123", b.RunnerUID+1)
+	ctx := &proofMutationContext{Context: t.Context(), at: at, mutate: func() { syntheticPrivateTask(t, p, "123", "456", b.RunnerUID+1) }}
+	if _, err := p.proveStoreQuiescent(ctx, b); err == nil {
+		t.Fatal("task appeared inside stable census", ctx.calls)
+	}
+}
+func syntheticPrivateTask(t *testing.T, p AdmissionProofs, pid, tid string, uid int) {
+	t.Helper()
+	base := filepath.Join(p.ProcRoot, pid, "task", tid)
+	proofMkdir(t, filepath.Join(base, "fd"))
+	proofWrite(t, filepath.Join(base, "stat"), tid+" (fixture) S "+strings.Repeat("0 ", 18)+"123 "+strings.TrimSpace(strings.Repeat("0 ", 30))+"\n")
+	proofWrite(t, filepath.Join(base, "status"), "Uid: "+strings.Repeat(strconv.Itoa(uid)+" ", 4)+"\n")
 }

@@ -36,6 +36,7 @@ type AdmissionQuiescenceProof struct {
 	Context     AdmissionProofContext
 	Runner      bool
 	Processes   int
+	Tasks       int
 	Descriptors int
 }
 
@@ -54,6 +55,7 @@ type AdmissionProofs struct {
 
 type admissionProofLimits struct {
 	entries int
+	tasks   int
 	fds     int
 	groups  int
 	depth   int
@@ -67,7 +69,7 @@ var errAdmissionObservation = errors.New("admission quiescence observation refus
 
 func (p AdmissionProofs) bounded() AdmissionProofs {
 	if p.limits == (admissionProofLimits{}) {
-		p.limits = admissionProofLimits{entries: 65536, fds: 262144, groups: 4096, depth: 32, bytes: 4 << 20}
+		p.limits = admissionProofLimits{entries: 65536, tasks: 65536, fds: 262144, groups: 4096, depth: 32, bytes: 4 << 20}
 	}
 	return p
 }
@@ -178,6 +180,8 @@ func proofSameNames(ctx context.Context, f *os.File, limit int, before []string)
 	return nil
 }
 
+// The executor retains at most 256 KiB per stream. This observer accepts only
+// 16 KiB of stdout and no stderr; larger or truncated observations still refuse.
 func (p AdmissionProofs) command(ctx context.Context, path string, args ...string) (localexec.Result, error) {
 	if err := ctx.Err(); err != nil {
 		return localexec.Result{}, err
@@ -186,7 +190,7 @@ func (p AdmissionProofs) command(ctx context.Context, path string, args ...strin
 		return localexec.Result{}, errAdmissionObservation
 	}
 	out, err := p.Executor.Execute(ctx, localexec.Command{
-		Path: enrollmentToolPath(path), Args: args, Dir: "/", Timeout: 3 * time.Second, OutputLimit: 16384,
+		Path: enrollmentToolPath(path), Args: args, Dir: "/", Timeout: 3 * time.Second, OutputLimit: localexec.CommandOutputLimit,
 	})
 	if ctx.Err() != nil {
 		return out, ctx.Err()

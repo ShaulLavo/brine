@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,6 +30,7 @@ type admissionProcessView struct {
 	start string
 	uids  string
 	fds   map[string]admissionFDView
+	tasks map[string]admissionProcessView
 }
 
 // ProveStoreQuiescent checks all visible processes, not only the recorded UID.
@@ -67,7 +69,11 @@ func (p AdmissionProofs) proveStoreQuiescent(ctx context.Context, binding Admiss
 	if err := ctx.Err(); err != nil {
 		return AdmissionQuiescenceProof{}, err
 	}
-	return AdmissionQuiescenceProof{Context: binding, Processes: len(first), Descriptors: count}, nil
+	tasks := 0
+	for _, process := range first {
+		tasks += len(process.tasks)
+	}
+	return AdmissionQuiescenceProof{Context: binding, Processes: len(first), Tasks: tasks, Descriptors: count}, nil
 }
 
 func fileIdentity(st unix.Stat_t) admissionFileIdentity {
@@ -117,6 +123,7 @@ func (p AdmissionProofs) processView(ctx context.Context, store admissionStoreVi
 		return nil, 0, err
 	}
 	view := make(map[string]admissionProcessView)
+	tasks := 0
 	for _, pid := range names {
 		if pid[0] < '0' || pid[0] > '9' {
 			continue
@@ -124,17 +131,60 @@ func (p AdmissionProofs) processView(ctx context.Context, store admissionStoreVi
 		if n, err := proofNumber(pid); err != nil || n == 0 || n > 1<<31-1 {
 			return nil, count, errAdmissionObservation
 		}
-		process, n, err := p.scanProcess(ctx, pid, store, refuseUID, p.limits.fds-count)
+		scan := p
+		scan.limits.tasks -= tasks
+		process, n, err := scan.scanProcess(ctx, pid, store, refuseUID, p.limits.fds-count)
 		if err != nil {
 			return nil, count, err
 		}
 		view[pid] = process
 		count += n
+		tasks += len(process.tasks)
 	}
 	return view, count, proofSameNames(ctx, proc, p.limits.entries, names)
 }
 
 func (p AdmissionProofs) scanProcess(ctx context.Context, pid string, store admissionStoreView, uid, remaining int) (_ admissionProcessView, count int, err error) {
+	base := filepath.Join(p.ProcRoot, pid)
+	start, uids, err := p.processFacts(ctx, base, pid, uid)
+	if err != nil {
+		return admissionProcessView{}, 0, err
+	}
+	tasks, err := proofOpen(filepath.Join(base, "task"), unix.O_RDONLY|unix.O_DIRECTORY)
+	if err != nil {
+		return admissionProcessView{}, 0, err
+	}
+	defer func() { err = errors.Join(err, tasks.Close()) }()
+	names, err := proofNames(ctx, tasks, p.limits.tasks)
+	if err != nil || !slices.Contains(names, pid) {
+		return admissionProcessView{}, 0, errors.Join(errAdmissionObservation, err)
+	}
+	scan := p
+	scan.ProcRoot = filepath.Join(base, "task")
+	view := admissionProcessView{start: start, uids: uids, tasks: make(map[string]admissionProcessView)}
+	for _, tid := range names {
+		if n, e := proofNumber(tid); e != nil || n == 0 || n > 1<<31-1 {
+			return admissionProcessView{}, 0, errAdmissionObservation
+		}
+		task, n, e := scan.scanTask(ctx, tid, store, uid, remaining-count)
+		if e != nil {
+			return admissionProcessView{}, 0, e
+		}
+		view.tasks[tid] = task
+		count += n
+	}
+	if err = proofSameNames(ctx, tasks, p.limits.tasks, names); err != nil {
+		return admissionProcessView{}, 0, err
+	}
+	end, endUIDs, err := p.processFacts(ctx, base, pid, uid)
+	leader := view.tasks[pid]
+	if err != nil || start != end || uids != endUIDs || leader.start != start || leader.uids != uids {
+		return admissionProcessView{}, 0, errors.Join(errAdmissionObservation, err)
+	}
+	return view, count, nil
+}
+
+func (p AdmissionProofs) scanTask(ctx context.Context, pid string, store admissionStoreView, uid, remaining int) (_ admissionProcessView, count int, err error) {
 	base := filepath.Join(p.ProcRoot, pid)
 	start, uids, err := p.processFacts(ctx, base, pid, uid)
 	if err != nil {
@@ -204,7 +254,7 @@ func proofProcessStat(stat, pid string) (string, error) {
 	if _, err := proofNumber(fields[19]); err != nil {
 		return "", err
 	}
-	return fields[19], nil
+	return strings.Clone(fields[19]), nil
 }
 
 func proofStatNumber(raw string) bool {
@@ -236,7 +286,7 @@ func proofUIDs(status string, refuseUID int) (string, error) {
 			return "", errors.Join(errAdmissionObservation, err)
 		}
 	}
-	return found, nil
+	return strings.Join(strings.Fields(found), " "), nil
 }
 
 func (p AdmissionProofs) fdView(dir *os.File, name string, store admissionStoreView) (admissionFDView, error) {
