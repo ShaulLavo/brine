@@ -29,8 +29,9 @@ The schema-1 envelope adds only command-local data: ordered fields `status`,
 `--target` checks only an existing local pin and appears in next commands, never
 in TOML or global defaults. Without a selection, `NAME` in the next plan command
 is an unbound placeholder. Init does not build an app, contact a registry or host,
-check host policy, enroll a target, or deploy. The human `tui --spec` next step
-requires the separate connected-entry delivery and is not advertised here yet.
+check host policy, enroll a target, or deploy. Human output offers `tui --spec`
+for interactive review and the existing machine plan command. Machine
+`next_commands` retains the deterministic plan command.
 
 ## App-owned UDP and WebTransport (D10)
 

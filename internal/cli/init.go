@@ -179,11 +179,13 @@ func printInit(cmd *cobra.Command, modes machineModes, flags operationFlags, pre
 	if strings.HasPrefix(commandFile, "-") {
 		commandFile = "." + string(filepath.Separator) + commandFile
 	}
-	next := (operationFlags{target: target, configDir: flags.configDir}).command("plan", commandFile, "--json", "--no-input")
+	selection := operationFlags{target: target, configDir: flags.configDir}
+	next := selection.command("plan", commandFile, "--json", "--no-input")
 	data := initResult{status, file, string(preview.Content), flags.target, []string{next}}
 	if modes.enabled() {
 		return json.NewEncoder(cmd.OutOrStdout()).Encode(result.Success(cmd.CommandPath(), data))
 	}
-	_, err := fmt.Fprintf(finalOutputWriter{cmd.OutOrStdout()}, "%s %s\nNo host changes. Image availability and host policy are not checked.\n\n%s\nNext: %s\n", status, ui.Sanitize(file), preview.Content, ui.Sanitize(next))
+	review := selection.command("tui", "--spec", commandFile)
+	_, err := fmt.Fprintf(finalOutputWriter{cmd.OutOrStdout()}, "%s %s\nNo host changes. Image availability and host policy are not checked.\n\n%s\nNext: %s\nMachine plan: %s\n", status, ui.Sanitize(file), preview.Content, ui.Sanitize(review), ui.Sanitize(next))
 	return err
 }
