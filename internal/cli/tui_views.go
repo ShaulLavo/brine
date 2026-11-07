@@ -42,6 +42,8 @@ func (m tuiModel) screenView() ui.Screen {
 
 func (m tuiModel) currentScreen() ui.Screen {
 	switch m.screen {
+	case screenDiagnosis:
+		return m.diagnosisScreen()
 	case screenActions:
 		return m.actionsScreen()
 	case screenReview:
@@ -86,14 +88,14 @@ func (m tuiModel) appsScreen() ui.Screen {
 	if len(m.back) > 0 {
 		back = keyBack
 	}
-	s := ui.Screen{Title: "brine · " + m.flags.target, Help: m.help(keyRefresh(0), back)}
+	s := ui.Screen{Title: "brine · " + m.flags.target, Help: m.help(keyRefresh(0), helpKey{"d diagnose", 0}, back)}
 	switch {
 	case m.apps.known() && len(m.apps.Value.Apps) == 0:
 		s.Context = m.readContext(m.apps.State, m.apps.At, "0 apps")
 		s.Body = m.message("No committed Brine apps on "+m.flags.target+".", "", "Deploy with: "+m.flags.command("deploy", "brine.toml"))
 	case m.apps.known():
 		s.Context = m.readContext(m.apps.State, m.apps.At, count(len(m.apps.Value.Apps), "app"))
-		s.Help = m.help(keySelect, keyOpen, keyRefresh(2), back)
+		s.Help = m.help(keySelect, keyOpen, helpKey{"d diagnose", 0}, keyRefresh(2), back)
 		s.Table = appsTable(m.apps.Value, m.selected, m.width)
 	case m.apps.State == loadFailed:
 		s.Body = m.message("Could not read apps from " + m.flags.target + ".")
@@ -104,14 +106,14 @@ func (m tuiModel) appsScreen() ui.Screen {
 }
 
 func (m tuiModel) appScreen() ui.Screen {
-	s := ui.Screen{Title: "brine · " + m.flags.target + " › " + m.app, Help: m.help(helpKey{"l logs", 0}, keyRefresh(1), keyBack)}
+	s := ui.Screen{Title: "brine · " + m.flags.target + " › " + m.app, Help: m.help(helpKey{"d diagnose", 0}, helpKey{"l logs", 1}, keyRefresh(1), keyBack)}
 	s = withError(s, m.apps.Err)
 	status, found := m.appStatus()
 	switch {
 	case found:
 		s.Context = m.readContext(m.apps.State, m.apps.At, "")
 		s.Body = appDetailLines(status, m.width)
-		keys := []helpKey{{"↑↓ scroll", 0}, {"p plan", 0}, keyBack}
+		keys := []helpKey{{"↑↓ scroll", 0}, {"p plan", 0}, {"d diagnose", 0}, keyBack}
 		if status.LastOperation != nil {
 			keys = append(keys, helpKey{"t events", 1})
 		}

@@ -197,7 +197,7 @@ func machineJourney(t *testing.T, h *lifecycleWireHost) lifecycleJourney {
 
 func tuiJourney(t *testing.T, h *lifecycleWireHost) lifecycleJourney {
 	t.Helper()
-	m := start(newTUIModel(t.Context(), wireDependencies(t, h), lifecycleSelection))
+	m := start(newTUIModel(t.Context(), wireDependencies(t, h), lifecycleSelection, tuiEntry{}))
 	m.after = func(_ time.Duration, msg tea.Msg) tea.Cmd { return func() tea.Msg { return msg } }
 	m, _ = press(m, "enter", "p")
 	m.actionIndex = slices.Index(m.actions(), h.action)
@@ -292,7 +292,7 @@ func testWireRecovery(t *testing.T, failure string) {
 		t.Fatal(err)
 	}
 	h := &lifecycleWireHost{t: t, action: actionRestart, final: ops.Succeeded, acceptanceFailure: failure}
-	m := start(newTUIModel(t.Context(), wireDependencies(t, h), lifecycleSelection))
+	m := start(newTUIModel(t.Context(), wireDependencies(t, h), lifecycleSelection, tuiEntry{}))
 	m, _ = press(m, "enter", "p", "enter")
 	m.newKey = func() (string, error) { return "u4-fixed-key", nil }
 	m, cmd := issueForTest(m)

@@ -6,6 +6,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/ShaulLavo/brine/internal/apps"
+	"github.com/ShaulLavo/brine/internal/dispatch"
 	"github.com/ShaulLavo/brine/internal/jobs"
 	"github.com/ShaulLavo/brine/internal/ops"
 	"github.com/ShaulLavo/brine/internal/plan"
@@ -15,6 +16,7 @@ import (
 type tuiAction string
 
 const (
+	actionDeploy   tuiAction = "deploy"
 	actionRestart  tuiAction = "restart"
 	actionStop     tuiAction = "stop"
 	actionStart    tuiAction = "start"
@@ -22,22 +24,30 @@ const (
 )
 
 type tuiReview struct {
-	Action      tuiAction
-	App, PlanID string
-	Kind        plan.Kind
-	Config      *apps.ConfigPlan
-	Rollback    *apps.RollbackPlan
-	Key         string
+	Deployment        *dispatch.Planned
+	DeploymentSummary *deploymentReviewSummary
+	Action            tuiAction
+	App, PlanID       string
+	Kind              plan.Kind
+	Config            *apps.ConfigPlan
+	Rollback          *apps.RollbackPlan
+	Key               string
 }
 
 func (r tuiReview) applyable() bool {
 	if !jobs.ValidPlanID(r.PlanID) || r.Kind != plan.Create && r.Kind != plan.Update {
 		return false
 	}
-	if r.Config != nil {
-		return len(r.Config.Conflicts) == 0
+	switch r.Action {
+	case actionDeploy:
+		return r.Config == nil && r.Rollback == nil && r.Deployment != nil && r.DeploymentSummary != nil && len(r.Deployment.Conflicts) == 0
+	case actionRollback:
+		return r.Config == nil && r.Deployment == nil && r.DeploymentSummary == nil && r.Rollback != nil && len(r.Rollback.Conflicts) == 0
+	case actionRestart, actionStop, actionStart:
+		return r.Rollback == nil && r.Deployment == nil && r.DeploymentSummary == nil && r.Config != nil && len(r.Config.Conflicts) == 0
+	default:
+		return false
 	}
-	return r.Rollback != nil && len(r.Rollback.Conflicts) == 0
 }
 
 // Issued identity belongs to the session, not to a view or its cancelable read.
@@ -127,12 +137,18 @@ func (m tuiModel) loadReview() (tuiModel, tea.Cmd) {
 		return m, nil
 	}
 	host := m.connect(m.reviewFlags)
-	action, app := m.review.Value.Action, m.review.Value.App
+	action, app, path := m.review.Value.Action, m.review.Value.App, m.entry.Spec
 	m, ctx, token := m.beginRead()
 	m.review.start()
 	m.confirm = false
 	return m, func() tea.Msg {
-		review, err := host.Plan(ctx, action, app)
+		var review tuiReview
+		var err error
+		if action == actionDeploy {
+			review, err = host.DeploymentPlan(ctx, path)
+		} else {
+			review, err = host.Plan(ctx, action, app)
+		}
 		return reviewMsg{token: token, review: review, err: err}
 	}
 }
@@ -234,7 +250,7 @@ func (m tuiModel) issuedPageError(status jobs.Status) error {
 	if issued == nil || issued.Accepted == nil || m.observe.Flags != issued.Flags || m.observe.Operation.ID != issued.Accepted.OperationID {
 		return nil
 	}
-	if status.Operation.App != issued.Review.App || status.Operation.PlanID != issued.Review.PlanID {
+	if status.Operation.App != issued.Review.App || status.Operation.PlanID != issued.Review.PlanID || status.Operation.Kind != ops.Deploy {
 		return result.New(result.TransportInvalidResponse, nil)
 	}
 	return nil
@@ -262,8 +278,5 @@ func (m tuiModel) issuedExitNotice() string {
 	if m.observe == nil || m.observe.Flags != issued.Flags || m.observe.Operation.ID != id {
 		return fmt.Sprintf("Operation %s is still running on %s; quitting did not stop it. Observe with: %s", id, issued.Flags.target, issued.Flags.command("status", "--operation", id))
 	}
-	if !m.observe.Operation.State.IsTerminal() {
-		return m.observedExitNotice()
-	}
-	return fmt.Sprintf("Operation %s on %s has not been fully observed. Observe with: %s", id, issued.Flags.target, issued.Flags.command("status", "--operation", id, "--after-cursor", fmt.Sprint(m.observe.Cursor)))
+	return m.observedExitNotice()
 }

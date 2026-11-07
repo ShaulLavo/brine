@@ -1,0 +1,102 @@
+== 80x24 no color ==
+brine · fixture › hello › review                                          create│
+────────────────────────────────────────────────────────────────────────────────│
+Deploy hello                                                                    │
+plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa    │
+Image                                                                           │
+ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaa                                                                   │
+Container port 3000                                                             │
+Domains hello.example.com                                                       │
+Health /, expected 200, startup 30s, timeout 3s                                 │
+Environment keys A_KEY, Z_KEY (values hidden)                                   │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+                                                                                │
+Confirm: apply sha256:aaaaaaaaaaaa… (deploy) to hello on fixture? y apply · any │
+other key cancels                                                               │
+a apply  ↑↓ scroll  esc discard                                                 │
+== 80x24 color ==
+"\x1b[1;94mbrine · fixture › hello › review\x1b[m                                          \x1b[90mcreate\x1b[m"
+"\x1b[90m────────────────────────────────────────────────────────────────────────────────\x1b[m"
+"Deploy hello"
+"plan sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"Image"
+"ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaa"
+"Container port 3000"
+"Domains hello.example.com"
+"Health /, expected 200, startup 30s, timeout 3s"
+"Environment keys A_KEY, Z_KEY (values hidden)"
+""
+""
+""
+""
+""
+""
+""
+""
+""
+""
+"\x1b[33mConfirm: apply sha256:aaaaaaaaaaaa… (deploy) to hello on fixture? y apply · any\x1b[m"
+"\x1b[33mother key cancels\x1b[m"
+"\x1b[90ma apply  ↑↓ scroll  esc discard\x1b[m"
+== 50x16 no color ==
+brine · fixture › hello › review            create│
+──────────────────────────────────────────────────│
+Deploy hello                                      │
+plan                                              │
+sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaa                             │
+Image                                             │
+ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaa│
+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa       │
+Container port 3000                               │
+Domains hello.example.com                         │
+Health /, expected 200, startup 30s, timeout 3s   │
+Environment keys A_KEY, Z_KEY (values hidden)     │
+Confirm: apply sha256:aaaaaaaaaaaa… (deploy) to   │
+hello on fixture? y apply · any other key cancels │
+a apply  ↑↓ scroll  esc discard                   │
+== 50x16 color ==
+"\x1b[1;94mbrine · fixture › hello › review\x1b[m            \x1b[90mcreate\x1b[m"
+"\x1b[90m──────────────────────────────────────────────────\x1b[m"
+"Deploy hello"
+"plan"
+"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaa"
+"Image"
+"ghcr.io/example/hello@sha256:aaaaaaaaaaaaaaaaaaaaa"
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+"Container port 3000"
+"Domains hello.example.com"
+"Health /, expected 200, startup 30s, timeout 3s"
+"Environment keys A_KEY, Z_KEY (values hidden)"
+"\x1b[33mConfirm: apply sha256:aaaaaaaaaaaa… (deploy) to\x1b[m"
+"\x1b[33mhello on fixture? y apply · any other key cancels\x1b[m"
+"\x1b[90ma apply  ↑↓ scroll  esc discard\x1b[m"
+== 30x8 no color ==
+brine · fixture › hello › revi│
+──────────────────────────────│
+Deploy hello                  │
+plan                          │
+Confirm: apply                │
+sha256:aaaaaaaaaaaa… (deploy) │
+to hello on fixture? y apply …│
+resize to confirm  esc cancel │
+== 30x8 color ==
+"\x1b[1;94mbrine · fixture › hello › revi\x1b[m"
+"\x1b[90m──────────────────────────────\x1b[m"
+"Deploy hello"
+"plan"
+"\x1b[33mConfirm: apply\x1b[m"
+"\x1b[33msha256:aaaaaaaaaaaa… (deploy)\x1b[m"
+"\x1b[33mto hello on fixture? y apply …\x1b[m"
+"\x1b[90mresize to confirm  esc cancel\x1b[m"

@@ -1268,9 +1268,11 @@ Live acceptance remains unchecked:
   cleanup on every actual provider and host. Retain only the small review
   evidence; name any retained resource, owner and removal condition.
 
-## Phase 05 local lifecycle slice
+## Phase 05 local journeys
 
-T20 has partial lifecycle-only evidence in `TestTUILifecycleJSONParity` and `TestTUILifecycleWireErrorsPreserveOriginalRecovery`, including explicit same-plan/key acceptance recovery. Full deployment parity stays open. T23 additionally has value-free review/redaction coverage in `TestTUILifecycleReviewRedactionAndRollbackAvailability` and review goldens. `TestRunTUIPendingAcceptanceCleanupAndRecoveryNotice` covers real terminal cleanup with a pending acceptance. The transport is synthetic; this is not remote deployment or restore evidence.
+T20 has local lifecycle evidence in `TestTUILifecycleJSONParity` and `TestTUILifecycleWireErrorsPreserveOriginalRecovery`, including explicit same-plan/key acceptance recovery. `TestTUIDeploymentEngineParity`, `TestTUIDeploymentCursorDisconnect`, `TestTUIDeploymentRunnerDetachResume` and `TestDeployCommandUsesReleaseEngine` cover successful and failed releases, interrupted observation, direct resume and identical machine/TUI operation identity through real temporary Store, jobs, dispatcher and release-executor code. TUI keys remain randomly generated. External adapters are synthetic; these tests do not prove remote deployment or restore.
+
+T23 has value-free review/redaction coverage in `TestTUILifecycleReviewRedactionAndRollbackAvailability` and review goldens. `TestRunTUIPendingAcceptanceCleanupAndRecoveryNotice` covers real terminal cleanup with pending acceptance. `TestTUIDiagnosisJSONParity` and `TestTUIDiagnosisExitRunner` cover captured diagnosis scope, stale reports and explicit restored-terminal exit. `TestInit*` covers local-only spec approval, conflicts, cleanup, valid output, short writes and executable next-command guidance. Full Phase 05 and physical acceptance remain open.
 
 ### T22 local Plan 008 integration evidence
 

@@ -114,13 +114,6 @@ func testPendingApplyRunner(t *testing.T, ending string) {
 	}
 }
 
-func writeKeys(t *testing.T, output io.Writer, keys string) {
-	t.Helper()
-	if _, err := io.WriteString(output, keys); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func endPendingRunner(t *testing.T, ending string, keys *os.File, input *applyInput, output *applyOutput, cancel context.CancelFunc) {
 	t.Helper()
 	switch ending {

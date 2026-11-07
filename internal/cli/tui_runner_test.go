@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -272,4 +273,26 @@ func TestRunTUIRejectsUninterruptibleBorrowedInput(t *testing.T) {
 	if _, err := input.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
 		t.Fatalf("runner closed borrowed input: %v", err)
 	}
+}
+
+func writeKeys(t *testing.T, output io.Writer, keys string) {
+	t.Helper()
+	if _, err := io.WriteString(output, keys); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func waitForOutput(t *testing.T, out *lockedBuffer, text string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		out.mu.Lock()
+		found := strings.Contains(out.buf.String(), text)
+		out.mu.Unlock()
+		if found {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("terminal never showed %q", text)
 }

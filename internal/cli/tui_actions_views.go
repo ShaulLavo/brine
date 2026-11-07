@@ -70,9 +70,17 @@ func (m tuiModel) reviewLines() []string {
 		return m.message(fmt.Sprintf("Planning %s for %s on %s…", r.Action, r.App, m.reviewFlags.target))
 	}
 	if m.review.State == loadFailed {
+		if r.Action == actionDeploy {
+			return m.message("Could not plan the local spec. Refresh to plan again.", tuiDeploymentScopeGuidance)
+		}
 		return m.message("Could not read the host plan. Refresh to plan again.")
 	}
 	lines := m.message(actionLabel(r.Action)+" "+r.App, "plan "+r.PlanID)
+	if r.Deployment != nil && r.DeploymentSummary != nil {
+		lines = append(lines, m.message(deploymentSummaryLines(*r.DeploymentSummary)...)...)
+		lines = append(lines, planview.DiffLines(r.Deployment.Diff)...)
+		lines = append(lines, conflictLines(r.Deployment.Conflicts)...)
+	}
 	if r.Config != nil {
 		lines = append(lines, lifecycleReviewLines(*r.Config)...)
 	}
