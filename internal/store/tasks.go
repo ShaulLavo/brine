@@ -37,7 +37,7 @@ func refuseGenericSQLiteCompletion(ctx context.Context, tx *sql.Tx, id string, s
 	if err := tx.QueryRowContext(ctx, "SELECT kind FROM operations WHERE id=?", id).Scan(&kind); err != nil {
 		return err
 	}
-	if isSQLiteTaskKind(kind) && state != ops.RecoveryRequired {
+	if (isSQLiteTaskKind(kind) || isSQLiteRetireKind(kind)) && state != ops.RecoveryRequired {
 		return ErrConflict
 	}
 	return nil

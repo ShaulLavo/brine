@@ -15,6 +15,7 @@ import (
 // SQLiteMutationGuard(); a structurally similar port implementation without
 // it cannot authorize a SQLite preparation journal effect.
 type SQLiteMutationGuard struct {
+	removal  *SQLiteRemovalGuard
 	store    *Store
 	host     Lock
 	database data.DatabaseID
@@ -59,11 +60,14 @@ func (g *SQLiteMutationGuard) Release() error {
 	if g == nil || g.released.Swap(true) {
 		return nil
 	}
+	if g.removal != nil {
+		return nil
+	}
 	return g.host.Release()
 }
 
 func (g *SQLiteMutationGuard) live(s *Store, database data.DatabaseID) bool {
-	return g != nil && g.store == s && s != nil && g.database == database && !g.released.Load()
+	return g != nil && g.store == s && s != nil && g.database == database && !g.released.Load() && (g.removal == nil || g.removal.live(s))
 }
 
 // HoldSource acquires the replica lifetime lock without waiting. A running

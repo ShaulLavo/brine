@@ -61,6 +61,7 @@ type document struct {
 	AllowArchivePurge    bool                             `toml:"allow_archive_purge" json:"allow_archive_purge,omitempty"`
 	AllowLiveRestore     bool                             `toml:"allow_live_restore" json:"allow_live_restore,omitempty"`
 	SpacetimeDB          *SpacetimePolicy                 `toml:"spacetimedb" json:"spacetimedb,omitempty"`
+	SQLiteArchiveRemoval *persistent.InitializationBounds `toml:"sqlite_archive_removal" json:"sqlite_archive_removal,omitempty"`
 	DataInitialization   *persistent.InitializationBounds `toml:"data_initialization" json:"data_initialization,omitempty"`
 	BackupRetention      []persistent.RetentionEvidence   `toml:"backup_retention" json:"backup_retention,omitempty"`
 	Backup               *backupDocument                  `toml:"backup" json:"backup,omitempty"`
@@ -103,6 +104,12 @@ func (p Policy) InitializationBounds() (persistent.InitializationBounds, bool) {
 		return persistent.InitializationBounds{}, false
 	}
 	return *p.config.DataInitialization, p.config.DataInitialization.Valid()
+}
+func (p Policy) SQLiteRemovalBounds() (persistent.InitializationBounds, bool) {
+	if p.config == nil || p.config.SQLiteArchiveRemoval == nil {
+		return persistent.InitializationBounds{}, false
+	}
+	return *p.config.SQLiteArchiveRemoval, p.config.SQLiteArchiveRemoval.Valid()
 }
 func (p Policy) Hash() string { return p.hash }
 func (p Policy) AllowsArchivePurge() bool {
@@ -208,12 +215,7 @@ func Parse(data []byte) (Policy, error) {
 			return bad("policy.invalid_backup_retention", "backup_retention", "retention evidence must bind an authorized destination and bounded freshness")
 		}
 		seenRetention[e.Destination] = true
-		matched := false
-		for _, d := range raw.BackupDestinations {
-			if d.Reference == e.Destination && d.Endpoint == e.Endpoint && d.Bucket == e.Bucket && d.BasePrefix == e.BasePrefix {
-				matched = true
-			}
-		}
+		matched := retentionDestinationMatches(raw.BackupDestinations, e)
 		if !matched {
 			return bad("policy.invalid_backup_retention", "backup_retention", "retention evidence does not match destination")
 		}
@@ -221,6 +223,9 @@ func Parse(data []byte) (Policy, error) {
 	slices.SortFunc(raw.BackupRetention, func(a, b persistent.RetentionEvidence) int {
 		return strings.Compare(string(a.Destination), string(b.Destination))
 	})
+	if raw.SQLiteArchiveRemoval != nil && !raw.SQLiteArchiveRemoval.Valid() {
+		return bad("policy.invalid_removal_bounds", "sqlite_archive_removal", "positive bounded backup age, restore age and recovery window are required")
+	}
 	if raw.DataInitialization != nil && !raw.DataInitialization.Valid() {
 		return bad("policy.invalid_initialization_bounds", "data_initialization", "positive bounded backup age, restore age and recovery window are required")
 	}
@@ -267,10 +272,8 @@ func Parse(data []byte) (Policy, error) {
 		if !validImage(r.Host, "probe") {
 			return bad("policy.invalid_registry", "allowed_registries", "expected an exact ASCII registry host with optional port")
 		}
-		for _, prefix := range r.RepositoryPrefixes {
-			if !validImage(r.Host, prefix) || strings.ContainsAny(prefix, ":@") {
-				return bad("policy.invalid_registry", "allowed_registries", "expected lowercase repository path prefixes")
-			}
+		if !validRegistryPrefixes(*r) {
+			return bad("policy.invalid_registry", "allowed_registries", "expected lowercase repository path prefixes")
 		}
 		r.RepositoryPrefixes = sortedUnique(r.RepositoryPrefixes)
 	}
@@ -303,11 +306,8 @@ func Parse(data []byte) (Policy, error) {
 		if _, e := parseMap(probe); e != nil {
 			return bad("policy.invalid_secrets", "allowed_secrets", "expected valid app names")
 		}
-		for _, ref := range refs {
-			stem := "brine." + name + "." + ref
-			if !referencePattern.MatchString(ref) || len(stem+".v18446744073709551615") > 253 {
-				return bad("policy.invalid_secrets", "allowed_secrets", "expected secret reference names, never values")
-			}
+		if !validPolicySecretRefs(name, refs) {
+			return bad("policy.invalid_secrets", "allowed_secrets", "expected secret reference names, never values")
 		}
 		raw.AllowedSecrets[name] = sortedUnique(refs)
 	}
@@ -318,10 +318,8 @@ func Parse(data []byte) (Policy, error) {
 	}
 	raw.PersistentRoots = sortedUnique(raw.PersistentRoots)
 	for i, root := range raw.PersistentRoots {
-		for _, other := range raw.PersistentRoots[:i] {
-			if persistent.OverlappingPaths(root, other) {
-				return bad("policy.invalid_roots", "persistent_roots", "persistent roots must not overlap")
-			}
+		if policyRootsOverlap(root, raw.PersistentRoots[:i]) {
+			return bad("policy.invalid_roots", "persistent_roots", "persistent roots must not overlap")
 		}
 	}
 	canonical, e := json.Marshal(raw)
@@ -333,55 +331,30 @@ func Parse(data []byte) (Policy, error) {
 }
 
 func exactKeys(keys map[string]any) bool {
-	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "data_initialization", "spacetimedb", "allow_live_restore", "allow_archive_purge", "cdn_bindings", "udp_grants") {
+	if !onlyKeys(keys, "schema_version", "version", "allowed_registries", "allowed_domains", "app_ports", "allowed_secrets", "resources", "persistent_roots", "minimum_free_disk_bytes", "caddy_port", "backup", "backup_destinations", "backup_retention", "sqlite_archive_removal", "data_initialization", "spacetimedb", "allow_live_restore", "allow_archive_purge", "cdn_bindings", "udp_grants") {
 		return false
 	}
 	if v, ok := keys["cdn_bindings"]; ok && !exactCDNBindingRows(v) {
 		return false
 	}
-	for key, allowed := range map[string][]string{"spacetimedb": {"license_use", "license_authority", "capture_interval_seconds", "verification_interval_seconds", "max_remote_loss_seconds", "max_maintenance_seconds"}, "data_initialization": {"max_backup_age_seconds", "max_restore_test_age_seconds", "recovery_window_seconds"}, "backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
-		if v, ok := keys[key]; ok {
-			m, ok := v.(map[string]any)
-			if !ok || !onlyKeys(m, allowed...) {
-				return false
-			}
+	for key, allowed := range map[string][]string{"sqlite_archive_removal": {"max_backup_age_seconds", "max_restore_test_age_seconds", "recovery_window_seconds"}, "spacetimedb": {"license_use", "license_authority", "capture_interval_seconds", "verification_interval_seconds", "max_remote_loss_seconds", "max_maintenance_seconds"}, "data_initialization": {"max_backup_age_seconds", "max_restore_test_age_seconds", "recovery_window_seconds"}, "backup": {"min_sync_interval", "max_sync_interval", "snapshot_interval", "min_snapshot_interval", "max_snapshot_interval"}, "app_ports": {"min", "max"}, "resources": {"memory_mb", "pids_limit"}} {
+		v, present := keys[key]
+		if !present {
+			continue
 		}
-	}
-	if v, ok := keys["backup_retention"]; ok {
-		rows, ok := v.([]any)
-		if !ok {
+		m, ok := v.(map[string]any)
+		if !ok || !onlyKeys(m, allowed...) {
 			return false
 		}
-		for _, row := range rows {
-			m, ok := row.(map[string]any)
-			if !ok || !onlyKeys(m, "destination", "endpoint", "bucket", "base_prefix", "verification_id", "verified_at", "freshness_seconds", "no_object_expiration") {
-				return false
-			}
-		}
 	}
-	if v, ok := keys["backup_destinations"]; ok {
-		rows, ok := v.([]any)
-		if !ok {
-			return false
-		}
-		for _, row := range rows {
-			m, ok := row.(map[string]any)
-			if !ok || !onlyKeys(m, "reference", "endpoint", "region", "bucket", "base_prefix", "path_style", "credential_ref") {
-				return false
-			}
-		}
+	if v, ok := keys["backup_retention"]; ok && !exactPolicyRows(v, "destination", "endpoint", "bucket", "base_prefix", "verification_id", "verified_at", "freshness_seconds", "no_object_expiration") {
+		return false
 	}
-	if v, ok := keys["allowed_registries"]; ok {
-		rows, ok := v.([]any)
-		if !ok {
-			return false
-		}
-		for _, row := range rows {
-			m, ok := row.(map[string]any)
-			if !ok || !onlyKeys(m, "host", "repository_prefixes") {
-				return false
-			}
-		}
+	if v, ok := keys["backup_destinations"]; ok && !exactPolicyRows(v, "reference", "endpoint", "region", "bucket", "base_prefix", "path_style", "credential_ref") {
+		return false
+	}
+	if v, ok := keys["allowed_registries"]; ok && !exactPolicyRows(v, "host", "repository_prefixes") {
+		return false
 	}
 	if v, ok := keys["udp_grants"]; ok && !validUDPPolicyKeys(v) {
 		return false
@@ -522,4 +495,50 @@ func (p Policy) BackupRetention(ref persistent.BackupDestinationRef) (persistent
 		}
 	}
 	return persistent.RetentionEvidence{}, false
+}
+
+func retentionDestinationMatches(destinations []persistent.Destination, e persistent.RetentionEvidence) bool {
+	for _, d := range destinations {
+		if d.Reference == e.Destination && d.Endpoint == e.Endpoint && d.Bucket == e.Bucket && d.BasePrefix == e.BasePrefix {
+			return true
+		}
+	}
+	return false
+}
+func validRegistryPrefixes(r Registry) bool {
+	for _, prefix := range r.RepositoryPrefixes {
+		if !validImage(r.Host, prefix) || strings.ContainsAny(prefix, ":@") {
+			return false
+		}
+	}
+	return true
+}
+func validPolicySecretRefs(name string, refs []string) bool {
+	for _, ref := range refs {
+		if !referencePattern.MatchString(ref) || len("brine."+name+"."+ref+".v18446744073709551615") > 253 {
+			return false
+		}
+	}
+	return true
+}
+func policyRootsOverlap(root string, previous []string) bool {
+	for _, other := range previous {
+		if persistent.OverlappingPaths(root, other) {
+			return true
+		}
+	}
+	return false
+}
+func exactPolicyRows(value any, allowed ...string) bool {
+	rows, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	for _, row := range rows {
+		m, ok := row.(map[string]any)
+		if !ok || !onlyKeys(m, allowed...) {
+			return false
+		}
+	}
+	return true
 }

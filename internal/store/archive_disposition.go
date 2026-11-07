@@ -191,72 +191,26 @@ func (s *Store) FinishArchiveDisposition(ctx context.Context, o archive.Operatio
 	}
 	defer func() { _ = tx.Rollback() }()
 	p, err := validateDispositionOperation(ctx, tx, o, old, next)
+	if p.Removal != nil {
+		return old, ErrConflict
+	}
 	if err != nil {
 		return old, err
 	}
-	{
-		candidate, err := readArchiveCandidateOwned(ctx, tx, p.Candidate.App, o.ID)
-		if err != nil {
-			return old, err
-		}
-		if len(candidate.Databases) != len(p.Candidate.Databases) {
-			return old, ErrConflict
-		}
-		for i := range candidate.Databases {
-			candidate.Databases[i] = candidate.Databases[i].WithRetention(p.Candidate.Databases[i].Retention())
-			if native, ok := candidate.Databases[i].Native(); ok {
-				wanted, ok := p.Candidate.Databases[i].Native()
-				if !ok || !nativeArchiveCandidatesMatch(native, wanted) {
-					return old, ErrConflict
-				}
-				candidate.Databases[i] = p.Candidate.Databases[i]
-			}
-		}
-		if !reflect.DeepEqual(candidate, p.Candidate) {
-			return old, ErrConflict
-		}
+	candidate, err := readArchiveCandidateOwned(ctx, tx, p.Candidate.App, o.ID)
+	if err != nil {
+		return old, err
 	}
+	if !archiveCandidatesMatch(candidate, p.Candidate) {
+		return old, ErrConflict
+	}
+
 	if next.Stage == archive.Abandoned {
-		for _, f := range o.Fences {
-			result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND state='held' AND operation_id=?", f.ID, f.OperationID)
-			if err != nil {
-				return old, err
-			}
-			n, err := result.RowsAffected()
-			if err != nil || n != 1 {
-				return old, ErrConflict
-			}
+		if err = releaseArchiveFencesTx(ctx, tx, o.Fences); err != nil {
+			return old, err
 		}
 	} else {
-		if err = checkNativeArchiveTreesMoved(ctx, tx, p); err != nil {
-			return old, err
-		}
-		result, err := tx.ExecContext(ctx, "DELETE FROM data_active_incarnations WHERE app=? AND incarnation_id=?", p.Candidate.App, p.Candidate.Incarnation)
-		if err != nil {
-			return old, err
-		}
-		n, err := result.RowsAffected()
-		if err != nil || n != 1 {
-			return old, ErrConflict
-		}
-		if p.Candidate.ReleaseID != "" {
-			result, err = tx.ExecContext(ctx, "DELETE FROM release_heads WHERE app=? AND current_id=?", p.Candidate.App, p.Candidate.ReleaseID)
-			if err != nil {
-				return old, err
-			}
-			n, err = result.RowsAffected()
-			if err != nil || n != 1 {
-				return old, ErrConflict
-			}
-		}
-		raw, err := json.Marshal(next)
-		if err != nil {
-			return old, err
-		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO data_archive_retirements VALUES(?,?,?,?,?)", p.ArchiveID, p.Candidate.Incarnation, p.Candidate.App, p.Candidate.ReleaseID, raw); err != nil {
-			return old, err
-		}
-		if _, err = tx.ExecContext(ctx, "DELETE FROM cdn_heads WHERE app=?", p.Candidate.App); err != nil {
+		if err = retireArchiveIdentityTx(ctx, tx, p, next); err != nil {
 			return old, err
 		}
 	}
@@ -282,4 +236,53 @@ func (s *Store) ArchiveOwnedCandidate(ctx context.Context, app, operation string
 		return c, err
 	}
 	return c, tx.Commit()
+}
+
+func retireArchiveIdentityTx(ctx context.Context, tx *sql.Tx, p archive.Plan, next archive.Disposition) error {
+	if err := checkNativeArchiveTreesMoved(ctx, tx, p); err != nil {
+		return err
+	}
+	result, err := tx.ExecContext(ctx, "DELETE FROM data_active_incarnations WHERE app=? AND incarnation_id=?", p.Candidate.App, p.Candidate.Incarnation)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil || n != 1 {
+		return ErrConflict
+	}
+	if p.Candidate.ReleaseID != "" {
+		result, err = tx.ExecContext(ctx, "DELETE FROM release_heads WHERE app=? AND current_id=?", p.Candidate.App, p.Candidate.ReleaseID)
+		if err != nil {
+			return err
+		}
+		n, err = result.RowsAffected()
+		if err != nil || n != 1 {
+			return ErrConflict
+		}
+	}
+	raw, err := json.Marshal(next)
+	if err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "INSERT INTO data_archive_retirements VALUES(?,?,?,?,?)", p.ArchiveID, p.Candidate.Incarnation, p.Candidate.App, p.Candidate.ReleaseID, raw); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "DELETE FROM cdn_heads WHERE app=?", p.Candidate.App); err != nil {
+		return err
+	}
+	return nil
+}
+
+func releaseArchiveFencesTx(ctx context.Context, tx *sql.Tx, fences []data.QuiescenceFence) error {
+	for _, f := range fences {
+		result, err := tx.ExecContext(ctx, "UPDATE data_fences SET state='released' WHERE id=? AND state='held' AND operation_id=?", f.ID, f.OperationID)
+		if err != nil {
+			return err
+		}
+		n, err := result.RowsAffected()
+		if err != nil || n != 1 {
+			return ErrConflict
+		}
+	}
+	return nil
 }

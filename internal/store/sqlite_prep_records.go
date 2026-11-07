@@ -35,6 +35,15 @@ func (p sqlitePreparation) event(stage sqliteprep.Stage) *sqliteprep.Event {
 }
 
 func readSQLitePreparation(ctx context.Context, q dataQuerier, id string) (sqlitePreparation, error) {
+	p, err := readSQLitePreparationCore(ctx, q, id)
+	if err != nil {
+		return p, err
+	}
+	err = p.readConsumer(ctx, q)
+	return p, err
+}
+
+func readSQLitePreparationCore(ctx context.Context, q dataQuerier, id string) (sqlitePreparation, error) {
 	var p sqlitePreparation
 	var operation, fence, mode, arm string
 	var database data.DatabaseID
@@ -63,7 +72,7 @@ func readSQLitePreparation(ctx context.Context, q dataQuerier, id string) (sqlit
 	if err = p.readJournal(ctx, q); err != nil {
 		return p, err
 	}
-	return p, p.readConsumer(ctx, q)
+	return p, nil
 }
 
 // readConsumer validates the single immutable consumer, when present.

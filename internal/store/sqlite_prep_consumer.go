@@ -15,6 +15,9 @@ func (p sqlitePreparation) validateConsumer(ctx context.Context, q dataQuerier, 
 	if c.Requester != p.intent.Task.Requester {
 		return &IntegrityError{}
 	}
+	if c.Kind == sqliteprep.ReviewedConsumer {
+		return p.validateArchiveConsumer(ctx, q, c)
+	}
 	kind := sqliteprep.PrepareTask
 	if c.Kind == sqliteprep.AbandonConsumer {
 		kind = sqliteprep.AbandonTask

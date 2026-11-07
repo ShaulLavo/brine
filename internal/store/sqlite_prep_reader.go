@@ -133,7 +133,9 @@ func readSQLitePreparedSource(ctx context.Context, tx *sql.Tx, app, database, id
 // to be the retained source's binding, epoch, destination and prefix.
 func readSQLiteRetainedReplica(ctx context.Context, tx *sql.Tx, scope sqliteprep.Scope) (data.ReplicaBinding, error) {
 	if err := checkSQLiteTaskDatabase(ctx, tx, scope.App, scope.DatabaseID); err != nil {
-		return data.ReplicaBinding{}, errors.Join(ErrConflict, err)
+		if retiredErr := readSQLiteRetiredScope(ctx, tx, scope); retiredErr != nil {
+			return data.ReplicaBinding{}, errors.Join(ErrConflict, err, retiredErr)
+		}
 	}
 	permit, err := readReplicaPermit(ctx, tx, scope.DatabaseID)
 	if err != nil {

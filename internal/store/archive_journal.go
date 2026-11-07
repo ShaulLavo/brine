@@ -124,7 +124,7 @@ func readArchiveOperation(ctx context.Context, q dataQuerier, id string) (o arch
 		if err = rows.Scan(&fence.ID, &fence.IncarnationID, &fence.DatabaseID, &fence.OperationID, &fence.State); err != nil {
 			return o, false, errors.Join(err, rows.Close())
 		}
-		if fence.State != requiredFence || fence.OperationID != o.ID && checkNativeArchiveFenceOwner(ctx, q, o, fence) != nil {
+		if fence.State != requiredFence || fence.OperationID != o.ID && checkNativeArchiveFenceOwner(ctx, q, o, fence) != nil && checkSQLiteArchiveFenceOwner(ctx, q, o.ID, fence) != nil {
 			return o, false, errors.Join(&IntegrityError{}, rows.Close())
 		}
 		o.Fences = append(o.Fences, fence)
@@ -149,7 +149,7 @@ func (s *Store) ReadArchiveOperation(ctx context.Context, id string) (archive.Op
 }
 func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Operation, error) {
 	o := archive.Operation{PlanID: p.ID, ArchiveID: p.ArchiveID, Stage: archive.Intent, Sequence: 1, Fences: []data.QuiescenceFence{}}
-	if !p.Valid() {
+	if !p.Valid() || p.Removal != nil {
 		return o, ErrInvalid
 	}
 	databases := make([]data.DatabaseID, len(p.Candidate.Databases))
@@ -178,20 +178,7 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 	if err != nil {
 		return o, err
 	}
-	if len(candidate.Databases) != len(p.Candidate.Databases) {
-		return o, ErrConflict
-	}
-	for i := range candidate.Databases {
-		candidate.Databases[i] = candidate.Databases[i].WithRetention(p.Candidate.Databases[i].Retention())
-		if native, ok := candidate.Databases[i].Native(); ok {
-			wanted, nativeWanted := p.Candidate.Databases[i].Native()
-			if !nativeWanted || !nativeArchiveCandidatesMatch(native, wanted) {
-				return o, ErrConflict
-			}
-			candidate.Databases[i] = p.Candidate.Databases[i]
-		}
-	}
-	if !reflect.DeepEqual(candidate, p.Candidate) {
+	if !archiveCandidatesMatch(candidate, p.Candidate) {
 		return o, ErrConflict
 	}
 	o.ID, err = data.NewID()
@@ -202,29 +189,8 @@ func (s *Store) ClaimArchive(ctx context.Context, p archive.Plan) (archive.Opera
 		return o, err
 	}
 	for _, database := range p.Candidate.Databases {
-		if native, ok := database.Native(); ok {
-			var launch *data.EngineLock
-			for _, lock := range guards {
-				if held, ok := lock.(*data.EngineLock); ok && held.HoldsLaunch(s.dir, native.Binding.BindingID) {
-					launch = held
-				}
-			}
-			fence, err := s.claimNativeArchiveDatabase(ctx, tx, p, o, native, launch)
-			if err != nil {
-				return o, err
-			}
-			if _, err = tx.ExecContext(ctx, "INSERT INTO data_archive_fences VALUES(?,?,?)", o.ID, fence.DatabaseID, fence.ID); err != nil {
-				return o, err
-			}
-			o.Fences = append(o.Fences, fence)
-			continue
-		}
-		id, err := data.NewID()
+		fence, err := s.claimArchiveDatabase(ctx, tx, p, o, database, guards)
 		if err != nil {
-			return o, err
-		}
-		fence := data.QuiescenceFence{ID: data.FenceID(id), IncarnationID: p.Candidate.Incarnation, DatabaseID: database.Reference().DatabaseID, OperationID: o.ID, State: data.FenceHeld}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO data_fences VALUES(?,?,?,?,?)", fence.ID, fence.DatabaseID, fence.IncarnationID, fence.OperationID, fence.State); err != nil {
 			return o, err
 		}
 		if _, err = tx.ExecContext(ctx, "INSERT INTO data_archive_fences VALUES(?,?,?)", o.ID, fence.DatabaseID, fence.ID); err != nil {
@@ -278,24 +244,8 @@ func (s *Store) SaveArchiveCoverage(ctx context.Context, o archive.Operation, co
 		return o, ErrInvalid
 	}
 	for i, point := range coverage {
-		if !point.Admits(p, p.Candidate.Databases[i], o.ID, time.Now().UTC()) {
-			return o, ErrInvalid
-		}
-		if nativePoint, ok := point.Native(); ok {
-			native, ok := p.Candidate.Databases[i].Native()
-			if !ok || checkNativeArchiveCoverageTx(ctx, tx, o, p, native, nativePoint) != nil {
-				return o, ErrConflict
-			}
-		}
-		sqlitePoint, sqlite := point.SQLite()
-		if sqlite && sqlitePoint.Point != nil {
-			raw, err := json.Marshal(sqlitePoint.Point)
-			if err != nil {
-				return o, err
-			}
-			if _, err = tx.ExecContext(ctx, "INSERT INTO data_restore_points VALUES(?,?,?,?)", sqlitePoint.Point.ID, sqlitePoint.Point.BindingID, sqlitePoint.Point.EpochID, raw); err != nil {
-				return o, err
-			}
+		if err = saveArchiveCoveragePoint(ctx, tx, o, p, p.Candidate.Databases[i], point); err != nil {
+			return o, err
 		}
 	}
 	raw, err := json.Marshal(coverage)
@@ -363,4 +313,52 @@ func readArchiveManifest(ctx context.Context, q dataQuerier, id data.ArchiveID) 
 		return archive.Manifest{}, &IntegrityError{}
 	}
 	return m, nil
+}
+
+func nativeArchiveLaunchGuard(dir string, guards engineGuards, binding data.ReplicaBindingID) *data.EngineLock {
+	var launch *data.EngineLock
+	for _, lock := range guards {
+		if held, ok := lock.(*data.EngineLock); ok && held.HoldsLaunch(dir, binding) {
+			launch = held
+		}
+	}
+	return launch
+}
+
+func saveArchiveCoveragePoint(ctx context.Context, tx *sql.Tx, o archive.Operation, p archive.Plan, database archive.Database, point archive.Coverage) error {
+	if !point.Admits(p, database, o.ID, time.Now().UTC()) {
+		return ErrInvalid
+	}
+	if nativePoint, ok := point.Native(); ok {
+		native, ok := database.Native()
+		if !ok || checkNativeArchiveCoverageTx(ctx, tx, o, p, native, nativePoint) != nil {
+			return ErrConflict
+		}
+	}
+	sqlitePoint, sqlite := point.SQLite()
+	if !sqlite || sqlitePoint.Point == nil {
+		return nil
+	}
+	raw, err := json.Marshal(sqlitePoint.Point)
+	if err != nil {
+		return err
+	}
+	if p.Removal != nil {
+		return checkSQLiteRemovalCoverage(ctx, tx, o, p, sqlitePoint, raw)
+	}
+	_, err = tx.ExecContext(ctx, "INSERT INTO data_restore_points VALUES(?,?,?,?)", sqlitePoint.Point.ID, sqlitePoint.Point.BindingID, sqlitePoint.Point.EpochID, raw)
+	return err
+}
+
+func (s *Store) claimArchiveDatabase(ctx context.Context, tx *sql.Tx, p archive.Plan, o archive.Operation, database archive.Database, guards engineGuards) (data.QuiescenceFence, error) {
+	if native, ok := database.Native(); ok {
+		return s.claimNativeArchiveDatabase(ctx, tx, p, o, native, nativeArchiveLaunchGuard(s.dir, guards, native.Binding.BindingID))
+	}
+	id, err := data.NewID()
+	if err != nil {
+		return data.QuiescenceFence{}, err
+	}
+	fence := data.QuiescenceFence{ID: data.FenceID(id), IncarnationID: p.Candidate.Incarnation, DatabaseID: database.Reference().DatabaseID, OperationID: o.ID, State: data.FenceHeld}
+	_, err = tx.ExecContext(ctx, "INSERT INTO data_fences VALUES(?,?,?,?,?)", fence.ID, fence.DatabaseID, fence.IncarnationID, fence.OperationID, fence.State)
+	return fence, err
 }

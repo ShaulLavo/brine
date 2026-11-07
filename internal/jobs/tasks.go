@@ -38,6 +38,15 @@ func (s Service) Submit(ctx context.Context, intent ops.Intent, key string) (acc
 }
 
 func (r Runner) runTask(ctx context.Context, op ops.Operation) error {
+	if isSQLiteRetireTask(op.Kind) {
+		outcome, err := r.readSQLiteRetireResult(ctx, op)
+		if err != nil {
+			return err
+		}
+		if outcome != nil {
+			return settledSQLiteTask(op, outcome, nil, nil)
+		}
+	}
 	handler := r.TaskHandlers[op.Kind]
 	state, ok := r.Store.(interface {
 		CompleteTask(context.Context, string, ops.State, ops.TaskOutcome) error
@@ -54,6 +63,9 @@ func (r Runner) runTask(ctx context.Context, op ops.Operation) error {
 	}
 	op.State = ops.Preflight
 	receipt, runErr := handler(ctx, op)
+	if isSQLiteRetireTask(op.Kind) {
+		return r.finishSQLiteRetireTask(ctx, op, receipt, runErr)
+	}
 	if op.Kind == ops.NativePrepareAbandon {
 		return r.finishNativeAbandonTask(ctx, op, receipt, runErr, state)
 	}
@@ -115,4 +127,55 @@ func (r Runner) finishNativeAbandonTask(ctx context.Context, original ops.Operat
 		runErr = result.New(result.InternalError, nil)
 	}
 	return errors.Join(runErr, completer.CompleteTask(journal, original.ID, ops.RecoveryRequired, ops.TaskOutcome{Error: result.Classify(runErr).Code()}))
+}
+
+type sqliteRetireStore interface {
+	ReadSQLiteRetireOutcome(context.Context, string) (*ops.TaskOutcome, error)
+	FailUnclaimedSQLiteRetire(context.Context, ops.Operation, string) error
+	MarkSQLiteRetireRecovery(context.Context, ops.Operation, string) error
+}
+
+func isSQLiteRetireTask(kind ops.Kind) bool {
+	return kind == ops.SQLiteRetire || kind == ops.SQLiteRetireResolve
+}
+
+func (r Runner) readSQLiteRetireResult(ctx context.Context, op ops.Operation) (*ops.TaskOutcome, error) {
+	store, ok := r.Store.(sqliteRetireStore)
+	if !ok {
+		return nil, result.New(result.DependencyMissing, nil)
+	}
+	return store.ReadSQLiteRetireOutcome(ctx, op.ID)
+}
+
+func (r Runner) finishSQLiteRetireTask(ctx context.Context, original ops.Operation, receipt json.RawMessage, runErr error) error {
+	journal, cancel := context.WithTimeout(context.WithoutCancel(ctx), JournalTimeout)
+	defer cancel()
+	store, ok := r.Store.(sqliteRetireStore)
+	if !ok {
+		return result.New(result.DependencyMissing, nil)
+	}
+	outcome, err := store.ReadSQLiteRetireOutcome(journal, original.ID)
+	if err != nil {
+		return errors.Join(runErr, err)
+	}
+	current, err := r.Store.GetOperation(journal, original.ID)
+	if err != nil {
+		return errors.Join(runErr, err)
+	}
+	if current.Kind != original.Kind || current.Requester != original.Requester || current.App != original.App || current.SecretRef != original.SecretRef || current.RecoveryOf != original.RecoveryOf || current.IdempotencyKey != original.IdempotencyKey {
+		return result.New(result.Conflict, nil)
+	}
+	if current.State.IsTerminal() {
+		return settledSQLiteTask(current, outcome, receipt, runErr)
+	}
+	if current.State != ops.Preflight || outcome != nil {
+		return errors.Join(runErr, result.New(result.Conflict, nil))
+	}
+	if runErr == nil {
+		runErr = result.New(result.InternalError, nil)
+	}
+	if err = store.FailUnclaimedSQLiteRetire(journal, current, string(result.Classify(runErr).Code())); err == nil {
+		return runErr
+	}
+	return errors.Join(runErr, store.MarkSQLiteRetireRecovery(journal, current, string(result.Classify(runErr).Code())))
 }
