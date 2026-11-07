@@ -22,10 +22,12 @@ import (
 )
 
 type EngineStartupRuntime struct {
-	state     *store.Store
-	session   localexec.Session
-	stateRoot string
-	home      string
+	state          *store.Store
+	closeState     func() error
+	refusalBinding data.ReplicaBindingID
+	session        localexec.Session
+	stateRoot      string
+	home           string
 }
 
 func OpenEngineStartup(ctx context.Context) (*EngineStartupRuntime, error) {
@@ -35,7 +37,7 @@ func OpenEngineStartup(ctx context.Context) (*EngineStartupRuntime, error) {
 		return nil, errEngineSource
 	}
 	stateRoot := filepath.Join(identity.HomeDir, ".local/state/brine")
-	state, err := store.OpenReadOnly(ctx, stateRoot)
+	state, err := openState(ctx, stateRoot, stateReadOnly, nil)
 	if err != nil {
 		return nil, errEngineSource
 	}
@@ -48,10 +50,18 @@ func OpenEngineStartup(ctx context.Context) (*EngineStartupRuntime, error) {
 		_ = state.Close()
 		return nil, errEngineSource
 	}
-	return &EngineStartupRuntime{state: state, session: session, stateRoot: stateRoot, home: identity.HomeDir}, nil
+	return &EngineStartupRuntime{state: state.Store, closeState: state.Close, session: session, stateRoot: stateRoot, home: identity.HomeDir}, nil
 }
 
-func (r *EngineStartupRuntime) Close() error { return r.state.Close() }
+func (r *EngineStartupRuntime) Close() error {
+	if r.closeState != nil {
+		return r.closeState()
+	}
+	if r.state != nil {
+		return r.state.Close()
+	}
+	return nil
+}
 
 type engineStartGuard struct {
 	root     string
@@ -343,6 +353,11 @@ func (r *EngineStartupRuntime) launchEngine(ctx, startup context.Context, proof 
 		r.retainEngineLifetime(ctx, proof.permit, native)
 		return failure
 	}
+	if err = r.releaseStartupState(startup, proof.permit.Runtime.BindingID); err != nil {
+		_ = r.stopLiveEngine(context.WithoutCancel(ctx), proof.permit)
+		r.retainEngineLifetime(ctx, proof.permit, native)
+		return err
+	}
 	select {
 	case err = <-exited:
 	case <-ctx.Done():
@@ -403,4 +418,18 @@ func engineReadyNotify(ctx context.Context) error {
 	}
 	_, err = connection.Write([]byte("READY=1"))
 	return err
+}
+
+// The foreground wait and stop paths use the pinned permit and native handle,
+// not SQLite. Cache only the refusal binding before releasing admission.
+func (r *EngineStartupRuntime) releaseStartupState(ctx context.Context, binding data.ReplicaBindingID) error {
+	if _, err := r.state.ReadReservedEngine(ctx, binding); err != nil {
+		return err
+	}
+	if err := r.Close(); err != nil {
+		return err
+	}
+	r.refusalBinding = binding
+	r.state = nil
+	return nil
 }

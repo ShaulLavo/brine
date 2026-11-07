@@ -28,12 +28,12 @@ func (r nativeMaterialStatusReader) InspectMaterial(ctx context.Context, args di
 	if identityErr != nil || !identity.Valid() {
 		return nativematerial.Receipt{}, result.New(result.DispatchOperationRefused, nil)
 	}
-	state, err := store.OpenReadOnly(ctx, r.stateDir)
+	state, err := openState(ctx, r.stateDir, stateReadOnly, nil)
 	if err != nil {
 		return nativematerial.Receipt{}, err
 	}
 	defer func() { _ = state.Close() }()
-	return inspectNativeMaterial(ctx, state, requester, args)
+	return inspectNativeMaterial(ctx, state.Store, requester, args)
 }
 
 func inspectNativeMaterial(ctx context.Context, state *store.Store, requester string, args dispatch.NativeMaterialInspectArgs) (nativematerial.Receipt, error) {

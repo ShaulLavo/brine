@@ -60,7 +60,7 @@ func fixture(t testing.TB) (*store.Store, ops.Operation, string) {
 	if err := os.Mkdir(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	s, err := store.Open(dir)
+	s, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

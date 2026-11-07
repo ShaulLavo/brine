@@ -16,7 +16,6 @@ import (
 	"github.com/ShaulLavo/brine/internal/readiness"
 	"github.com/ShaulLavo/brine/internal/restore"
 	"github.com/ShaulLavo/brine/internal/sqlitestatus"
-	"github.com/ShaulLavo/brine/internal/store"
 )
 
 func readinessPolicy() readiness.PolicyLoader { return DiskPolicy{} }
@@ -38,7 +37,7 @@ func readinessSQLiteStatus(ctx context.Context, dir string, args dispatch.SQLite
 	}
 	defer func() { err = errors.Join(err, os.RemoveAll(scratch)) }()
 	reader := newSQLiteBackupStatusReader(dir).(*sqliteBackupStatusReader)
-	reader.open = store.OpenSnapshotReadOnly
+	reader.mode = stateSnapshot
 	reader.workspaceRoot = scratch
 	reader.listingBudget, reader.timeBudget = readiness.ProbeTimeout, readiness.ProbeTimeout
 	return reader.SQLiteBackupStatus(ctx, args)

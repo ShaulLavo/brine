@@ -59,7 +59,7 @@ func secretFixture(t *testing.T) (Service, *store.Store, *fakePodman) {
 	t.Helper()
 	dir := t.TempDir()
 	os.Chmod(dir, 0700)
-	db, err := store.Open(dir)
+	db, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -137,7 +137,7 @@ func TestSecretPolicyRefusal(t *testing.T) {
 }
 func TestSecretConcurrentVersions(t *testing.T) {
 	s, _, f := secretFixture(t)
-	second, err := store.Open(f.dir)
+	second, err := store.OpenContext(t.Context(), f.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,15 +149,11 @@ func TestSecretConcurrentVersions(t *testing.T) {
 	fail := make(chan error, n)
 	for i := 0; i < n; i++ {
 		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
-			service := s
-			if i%2 == 0 {
-				service = s2
-			}
-			_, err := service.Set(context.Background(), "hello", "hello-token", fmt.Sprintf("request%d", i), []byte("PRIVATE"))
-			fail <- err
-		}(i)
+		service := s
+		if i%2 == 0 {
+			service = s2
+		}
+		go setConcurrentSecretVersion(service, i, &wg, fail)
 	}
 	wg.Wait()
 	close(fail)
@@ -347,4 +343,10 @@ func TestFailedIntentLeavesNoReservationOrRuntimeCreate(t *testing.T) {
 	if err != nil || got.VersionName != "brine.hello.hello-token.v1" {
 		t.Fatal("uncommitted reservation consumed version", got, err)
 	}
+}
+
+func setConcurrentSecretVersion(service Service, i int, wg *sync.WaitGroup, fail chan<- error) {
+	defer wg.Done()
+	_, err := service.Set(context.Background(), "hello", "hello-token", fmt.Sprintf("request%d", i), []byte("PRIVATE"))
+	fail <- err
 }

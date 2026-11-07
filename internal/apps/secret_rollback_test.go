@@ -36,7 +36,7 @@ type secretHistoryRelease struct {
 func secretHistory(t *testing.T, refs []policy.Secret) (Service, *store.Store, target.Snapshot) {
 	t.Helper()
 	service, fake, snap := fixture(t)
-	db, err := store.Open(t.TempDir())
+	db, err := store.OpenContext(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

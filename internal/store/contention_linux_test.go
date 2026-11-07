@@ -38,7 +38,7 @@ func TestStoreReplacementConnectionKeepsPragmas(t *testing.T) {
 
 func TestStoreWriteTransactionWaitsBeforeReading(t *testing.T) {
 	a := openTest(t)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,14 +51,7 @@ func TestStoreWriteTransactionWaitsBeforeReading(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		result := make(chan error, 1)
 		started := make(chan struct{})
-		go func() {
-			close(started)
-			contended, err := b.db.BeginTx(ctx, nil)
-			if err == nil {
-				err = contended.Rollback()
-			}
-			result <- err
-		}()
+		go tryContendedTransaction(ctx, b, started, result)
 		<-started
 		select {
 		case err := <-result:
@@ -92,52 +85,61 @@ func TestStoreContendedJournalWritesWait(t *testing.T) {
 			name = "transition"
 		}
 		t.Run(name, func(t *testing.T) {
-			a := openTest(t)
-			id := operation(t, a)
-			b, err := Open(a.dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer b.Close()
-			child := startHelper(t, a.dir, id, "state-uncommitted")
-			ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-			defer cancel()
-			result := make(chan error, 1)
-			started := make(chan struct{})
-			go func() {
-				close(started)
-				if transition {
-					result <- b.TransitionOperation(ctx, id, ops.Queued, ops.Preflight)
-				} else {
-					_, err := b.AppendEvent(ctx, id, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)})
-					result <- err
-				}
-			}()
-			<-started
-			select {
-			case err := <-result:
-				t.Fatalf("journal write finished before the writer released its lock: %v", err)
-			case <-time.After(200 * time.Millisecond):
-			}
-			killHelper(t, child)
-			if err := <-result; err != nil {
-				t.Fatal(err)
-			}
-			events, err := a.EventsAfter(context.Background(), id, 0, 10)
-			if err != nil || len(events) != 1 || events[0].Sequence != 1 {
-				t.Fatalf("journal after contention = %+v, error %v", events, err)
-			}
-			if transition && (events[0].Kind != "state" || events[0].State != ops.Preflight) {
-				t.Fatalf("transition journal = %+v", events)
-			}
+			assertContendedJournalWriteWaits(t, transition)
 		})
+	}
+}
+
+func assertContendedJournalWriteWaits(t *testing.T, transition bool) {
+	t.Helper()
+	a := openTest(t)
+	id := operation(t, a)
+	b, err := OpenContext(t.Context(), a.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := b.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
+	child := startHelper(t, a.dir, id, "state-uncommitted")
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	result := make(chan error, 1)
+	started := make(chan struct{})
+	go func() {
+		close(started)
+		if transition {
+			result <- b.TransitionOperation(ctx, id, ops.Queued, ops.Preflight)
+		} else {
+			_, err := b.AppendEvent(ctx, id, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)})
+			result <- err
+		}
+	}()
+	<-started
+	select {
+	case err := <-result:
+		t.Fatalf("journal write finished before the writer released its lock: %v", err)
+	case <-time.After(200 * time.Millisecond):
+	}
+	killHelper(t, child)
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	events, err := a.EventsAfter(context.Background(), id, 0, 10)
+	if err != nil || len(events) != 1 || events[0].Sequence != 1 {
+		t.Fatalf("journal after contention = %+v, error %v", events, err)
+	}
+	if transition && (events[0].Kind != "state" || events[0].State != ops.Preflight) {
+		t.Fatalf("transition journal = %+v", events)
 	}
 }
 
 func TestStoreBusyBudgetRefusesWithoutJournalEffect(t *testing.T) {
 	a := openTest(t)
 	id := operation(t, a)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +174,7 @@ func TestStoreBusyBudgetRefusesWithoutJournalEffect(t *testing.T) {
 func TestStoreWriteAdmissionRetriesRefusedBegin(t *testing.T) {
 	a := openTest(t)
 	id := operation(t, a)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +211,7 @@ func TestStoreWriteAdmissionRetriesRefusedBegin(t *testing.T) {
 func TestStoreWriteAdmissionRespectsCancellation(t *testing.T) {
 	a := openTest(t)
 	id := operation(t, a)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +241,7 @@ func TestConcurrentRuntimeStoresShareJournal(t *testing.T) {
 	planID, _ := saved(t, dispatcher)
 	stores := []*Store{dispatcher}
 	for i := 0; i < 4; i++ {
-		s, err := Open(dispatcher.dir)
+		s, err := OpenContext(t.Context(), dispatcher.dir)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -251,20 +253,7 @@ func TestConcurrentRuntimeStoresShareJournal(t *testing.T) {
 	var wg sync.WaitGroup
 	for i, s := range stores {
 		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 8; j++ {
-				op, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: planID}, "runtime", "shared")
-				if err != nil {
-					t.Errorf("runtime store %d create %d: %v", i, j, err)
-					return
-				}
-				if _, err := s.AppendEvent(ctx, op.ID, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)}); err != nil {
-					t.Errorf("runtime store %d append %d: %v", i, j, err)
-					return
-				}
-			}
-		}()
+		go appendConcurrentRuntimeEvents(t, ctx, s, planID, i, &wg)
 	}
 	wg.Wait()
 	op, _, err := dispatcher.CreateOperation(context.Background(), ops.Intent{Kind: ops.Deploy, PlanID: planID}, "runtime", "shared")
@@ -278,6 +267,29 @@ func TestConcurrentRuntimeStoresShareJournal(t *testing.T) {
 	for i, event := range events {
 		if event.Sequence != uint64(i+1) {
 			t.Fatal("runtime journal sequence gap")
+		}
+	}
+}
+
+func tryContendedTransaction(ctx context.Context, s *Store, started chan<- struct{}, result chan<- error) {
+	close(started)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err == nil {
+		err = tx.Rollback()
+	}
+	result <- err
+}
+func appendConcurrentRuntimeEvents(t *testing.T, ctx context.Context, s *Store, planID string, i int, wg *sync.WaitGroup) {
+	defer wg.Done()
+	for j := 0; j < 8; j++ {
+		op, _, err := s.CreateOperation(ctx, ops.Intent{Kind: ops.Deploy, PlanID: planID}, "runtime", "shared")
+		if err != nil {
+			t.Errorf("runtime store %d create %d: %v", i, j, err)
+			return
+		}
+		if _, err := s.AppendEvent(ctx, op.ID, Event{Kind: "launch", Payload: []byte(`{"outcome":"intent"}`)}); err != nil {
+			t.Errorf("runtime store %d append %d: %v", i, j, err)
+			return
 		}
 	}
 }

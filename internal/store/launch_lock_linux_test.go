@@ -100,7 +100,7 @@ func TestLaunchLockRejectsUnsafeFiles(t *testing.T) {
 func TestLaunchLockExclusionAndSIGKILLRecovery(t *testing.T) {
 	dir := stateDir(t)
 	cmd := startHelper(t, dir, "", "launch-lock")
-	s, err := Open(dir)
+	s, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

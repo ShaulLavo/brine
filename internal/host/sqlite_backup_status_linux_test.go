@@ -74,7 +74,7 @@ func sqliteStatusRig(t *testing.T, expiry *time.Time, credential bool) (*ServerF
 	if err := os.Chmod(root, 0700); err != nil { // #nosec G302 -- Private fixture directory requires traversal.
 		t.Fatal(err)
 	}
-	state, err := store.Open(root)
+	state, err := store.OpenContext(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}

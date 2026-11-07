@@ -112,12 +112,17 @@ func TestCIWorkflow(t *testing.T) {
 	for id, want := range expected {
 		checkJob(t, id, workflow.Jobs[id], want.name, want.run, want.role)
 	}
-	if workflow.Jobs["test"].Steps[2].Run != "bash scripts/test-ci.sh" {
-		t.Fatal("CI harness tests must run before the normal suite")
+	testSteps := workflow.Jobs["test"].Steps
+	harness := workflowStepIndex(t, testSteps, step{Run: "bash scripts/test-ci.sh"})
+	normal := workflowStepIndex(t, testSteps, step{Run: "./scripts/check.sh test-normal"})
+	cache := workflowStepIndex(t, testSteps, step{Uses: "./.github/actions/go-ci"})
+	if harness <= cache || harness >= normal {
+		t.Fatal("CI harness tests must run after Go setup and before the normal suite")
 	}
 	race := workflow.Jobs["race"]
 	checkRaceLimits(t, race)
 	checkHostRaceWorkflow(t, workflow.Jobs)
+	checkNamespaceWorkflow(t, workflow.Jobs)
 	if !reflect.DeepEqual(race.Strategy.Matrix.Shard, []string{"store", "rest"}) {
 		t.Fatal("store and rest race shards must remain present")
 	}
@@ -212,7 +217,12 @@ func checkHostRaceWorkflow(t *testing.T, jobs map[string]job) {
 	if build.If != selectedRace || build.Needs.Value != "changes" || build.Timeout != 45 {
 		t.Fatal("host build must retain its deadline and select ready code changes")
 	}
-	artifact := build.Steps[3]
+	artifactIndex := workflowStepIndex(t, build.Steps, step{Uses: "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"})
+	buildIndex := workflowStepIndex(t, build.Steps, step{Run: `./scripts/check.sh test-race-host-build "$RUNNER_TEMP/host-race"`})
+	if artifactIndex <= buildIndex {
+		t.Fatal("host race upload must follow the single binary build")
+	}
+	artifact := build.Steps[artifactIndex]
 	if artifact.Uses != "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02" || artifact.With["name"] != "host-race-${{ github.sha }}" || artifact.With["path"] != "${{ runner.temp }}/host-race/" || artifact.With["if-no-files-found"] != "error" {
 		t.Fatal("host race binary artifact lost its pinned upload or provenance")
 	}
@@ -235,12 +245,14 @@ func checkHostRaceWorkflow(t *testing.T, jobs map[string]job) {
 			t.Fatal("host consumers must reuse the binary, not compile it again")
 		}
 	}
-	download := run.Steps[1]
+	downloadIndex := workflowStepIndex(t, run.Steps, step{Uses: "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"})
+	download := run.Steps[downloadIndex]
 	if download.Uses != "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093" || download.With["name"] != artifact.With["name"] || download.With["path"] != "${{ runner.temp }}/host-race" {
 		t.Fatal("host consumers must download the exact build artifact")
 	}
-	if run.Steps[2].Run != `chmod +x "$RUNNER_TEMP/host-race/host.test" && ./scripts/check.sh test-race-host-shard ${{ matrix.shard }} "$RUNNER_TEMP/host-race"` {
-		t.Fatal("host consumers must execute the prebuilt shard")
+	shardIndex := workflowStepIndex(t, run.Steps, step{Run: `chmod +x "$RUNNER_TEMP/host-race/host.test" && ./scripts/check.sh test-race-host-shard ${{ matrix.shard }} "$RUNNER_TEMP/host-race"`})
+	if shardIndex <= downloadIndex {
+		t.Fatal("host consumers must execute the prebuilt shard after download")
 	}
 	checkHostRaceConditions(t, build.Steps)
 	checkHostRaceConditions(t, run.Steps)
@@ -338,7 +350,44 @@ func TestWorkerSemanticRuntime(t *testing.T) {
 	}
 	steps := workflow.Jobs["test"].Steps
 	setup := step{Uses: "actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1", With: map[string]string{"node-version": "26.12.1", "package-manager-cache": "false"}}
-	if len(steps) < 4 || !reflect.DeepEqual(steps[3], setup) {
+	setupIndex := workflowStepIndex(t, steps, step{Uses: setup.Uses})
+	normalIndex := workflowStepIndex(t, steps, step{Run: "./scripts/check.sh test-normal"})
+	if setupIndex >= normalIndex || !reflect.DeepEqual(steps[setupIndex], setup) {
 		t.Fatal("normal tests must explicitly set up pinned Node before running Worker semantics")
+	}
+}
+
+func workflowStepIndex(t *testing.T, steps []step, wanted step) int {
+	t.Helper()
+	found := -1
+	for index, item := range steps {
+		if item.Uses != wanted.Uses || item.Run != wanted.Run {
+			continue
+		}
+		if found != -1 {
+			t.Fatalf("duplicate workflow step: %+v", wanted)
+		}
+		found = index
+	}
+	if found == -1 {
+		t.Fatalf("missing workflow step: %+v", wanted)
+	}
+	return found
+}
+
+func checkNamespaceWorkflow(t *testing.T, jobs map[string]job) {
+	t.Helper()
+	commands := map[string]string{
+		"test":            "./scripts/check.sh test-normal",
+		"race-host-build": `./scripts/check.sh test-race-host-build "$RUNNER_TEMP/host-race"`,
+		"race-host":       `chmod +x "$RUNNER_TEMP/host-race/host.test" && ./scripts/check.sh test-race-host-shard ${{ matrix.shard }} "$RUNNER_TEMP/host-race"`,
+	}
+	for name, command := range commands {
+		steps := jobs[name].Steps
+		setup := workflowStepIndex(t, steps, step{Run: "bash scripts/prepare-ci-test-namespace.sh"})
+		tests := workflowStepIndex(t, steps, step{Run: command})
+		if setup >= tests {
+			t.Fatalf("%s must prepare namespaces before executing host TestMain", name)
+		}
 	}
 }

@@ -40,7 +40,7 @@ func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, ope
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	state, err := store.OpenReadOnly(ctx, o.stateDir)
+	state, err := openState(ctx, o.stateDir, stateReadOnly, nil)
 	if err != nil {
 		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
 	}
@@ -90,34 +90,7 @@ func (o restoreTests) Check(ctx context.Context, a dispatch.RestoreTestArgs, ope
 		d := scope.Replica.Destination
 		return restore.Binding{ID: id, Epoch: epoch, CredentialRef: d.CredentialRef, Destination: restore.Destination{Endpoint: d.Endpoint, Region: d.Region, Bucket: d.Bucket, Prefix: strings.TrimSuffix(scope.Replica.RemotePrefix, "/"), PathStyle: d.PathStyle}}, nil
 	}), Credentials: restore.CredentialReaderFunc(func(_ context.Context, ref string) (restore.Credentials, error) {
-		if ref != scope.Replica.Destination.CredentialRef {
-			return restore.Credentials{}, data.ErrInvalid
-		}
-		receipt, err := files.Receipt(ref, scope.Replica.CredentialVersion)
-		if err != nil || !receipt.Valid() || receipt.Scope.Binding != string(scope.Replica.BindingID) || receipt.Scope.Epoch != string(scope.Replica.EpochID) {
-			return restore.Credentials{}, data.ErrInvalid
-		}
-		packet, err := files.Read(ref, scope.Replica.CredentialVersion)
-		if err != nil {
-			return restore.Credentials{}, err
-		}
-		defer packet.Clear()
-		credentials := restore.Credentials{ReceivedAt: receipt.ReceivedAt}
-		if receipt.ExpiresAt != nil {
-			credentials.ExpiresAt = *receipt.ExpiresAt
-		}
-		for _, entry := range packet.Environment() {
-			name, value, _ := strings.Cut(entry, "=")
-			switch name {
-			case "AWS_ACCESS_KEY_ID":
-				credentials.AccessKey = value
-			case "AWS_SECRET_ACCESS_KEY":
-				credentials.SecretKey = value
-			case "AWS_SESSION_TOKEN":
-				credentials.SessionToken = value
-			}
-		}
-		return credentials, nil
+		return readRestoreCredentials(files, scope, ref)
 	})}
 	if err := ensurePrivateChild(o.stateDir, "restores"); err != nil {
 		return restore.SQLiteReceipt{}, result.New(result.PolicyRefused, nil)
@@ -227,4 +200,35 @@ func requestAtPoint(request restore.SQLiteRequest, point data.SQLiteRestorePoint
 
 func checkSQLiteRestore(ctx context.Context, engine *restore.SQLiteEngine, request restore.SQLiteRequest) (restore.SQLiteReceipt, error) {
 	return restore.VerifySQLite(ctx, engine, request, restore.MetadataOnly)
+}
+
+func readRestoreCredentials(files backupcredentials.Files, scope store.CredentialScope, ref string) (restore.Credentials, error) {
+	if ref != scope.Replica.Destination.CredentialRef {
+		return restore.Credentials{}, data.ErrInvalid
+	}
+	receipt, err := files.Receipt(ref, scope.Replica.CredentialVersion)
+	if err != nil || !receipt.Valid() || receipt.Scope.Binding != string(scope.Replica.BindingID) || receipt.Scope.Epoch != string(scope.Replica.EpochID) {
+		return restore.Credentials{}, data.ErrInvalid
+	}
+	packet, err := files.Read(ref, scope.Replica.CredentialVersion)
+	if err != nil {
+		return restore.Credentials{}, err
+	}
+	defer packet.Clear()
+	credentials := restore.Credentials{ReceivedAt: receipt.ReceivedAt}
+	if receipt.ExpiresAt != nil {
+		credentials.ExpiresAt = *receipt.ExpiresAt
+	}
+	for _, entry := range packet.Environment() {
+		name, value, _ := strings.Cut(entry, "=")
+		switch name {
+		case "AWS_ACCESS_KEY_ID":
+			credentials.AccessKey = value
+		case "AWS_SECRET_ACCESS_KEY":
+			credentials.SecretKey = value
+		case "AWS_SESSION_TOKEN":
+			credentials.SessionToken = value
+		}
+	}
+	return credentials, nil
 }

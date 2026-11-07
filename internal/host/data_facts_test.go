@@ -23,7 +23,7 @@ import (
 
 func persistentHostFixture(t *testing.T) (*store.Store, policy.Desired, DataFacts) {
 	t.Helper()
-	s, err := store.Open(t.TempDir())
+	s, err := store.OpenContext(t.Context(), t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -51,7 +51,7 @@ type nativeWithdrawalRig struct {
 func newNativeWithdrawalRig(t *testing.T) nativeWithdrawalRig {
 	t.Helper()
 	directory := t.TempDir()
-	state, err := store.Open(directory)
+	state, err := store.OpenContext(t.Context(), directory)
 	if err != nil {
 		t.Fatal(err)
 	}

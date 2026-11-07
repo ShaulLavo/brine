@@ -102,7 +102,7 @@ func TestReadinessBackupsPreparedNativeBesideStatelessRelease(t *testing.T) {
 
 func TestReadinessBackupsPreparedNativeWithoutRelease(t *testing.T) {
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

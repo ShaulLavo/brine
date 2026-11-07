@@ -76,7 +76,7 @@ func TestPublicationProofMigrationPreservesBytesAndConstraints(t *testing.T) {
 		_ = read.Close()
 		t.Fatal("readonly opener migrated old schema")
 	}
-	state, err := Open(dir)
+	state, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

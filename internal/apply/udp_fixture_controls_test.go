@@ -40,7 +40,7 @@ func udpFixtureSchema(t *testing.T, db *sql.DB) string {
 
 func TestUDPTestSchemaMatchesFreshInitialization(t *testing.T) {
 	directory := t.TempDir()
-	if err := seedSQLiteUDP(directory); err != nil {
+	if err := seedSQLiteUDP(t.Context(), directory); err != nil {
 		t.Fatal(err)
 	}
 	seeded := openUDPFixtureSQL(t, directory)
@@ -53,7 +53,7 @@ func TestUDPTestSchemaMatchesFreshInitialization(t *testing.T) {
 		t.Fatal("seed integrity", integrity, err)
 	}
 	freshDirectory := t.TempDir()
-	fresh, err := store.Open(freshDirectory)
+	fresh, err := store.OpenContext(t.Context(), freshDirectory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,16 +70,16 @@ func TestUDPTestSchemaMatchesFreshInitialization(t *testing.T) {
 }
 
 func TestUDPTestSchemaKeepsPrivateStateAndRefusesOverwrite(t *testing.T) {
-	seed, err := pristineUDPTestSchema()
+	seed, err := pristineUDPTestSchema(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}
 	firstDirectory, secondDirectory := t.TempDir(), t.TempDir()
-	if err := seedSQLiteUDP(firstDirectory); err != nil {
+	if err := seedSQLiteUDP(t.Context(), firstDirectory); err != nil {
 		t.Fatal(err)
 	}
 	first := newSQLiteUDPRig(t, firstDirectory, "create")
-	if err := seedSQLiteUDP(secondDirectory); err != nil {
+	if err := seedSQLiteUDP(t.Context(), secondDirectory); err != nil {
 		t.Fatal(err)
 	}
 	second := newSQLiteUDPRig(t, secondDirectory, "create")
@@ -89,13 +89,13 @@ func TestUDPTestSchemaKeepsPrivateStateAndRefusesOverwrite(t *testing.T) {
 	if _, err := second.database.GetOperation(t.Context(), first.operation); !errors.Is(err, store.ErrNotFound) {
 		t.Fatal("second fixture inherited first operation", err)
 	}
-	if err := seedSQLiteUDP(firstDirectory); !errors.Is(err, os.ErrExist) {
+	if err := seedSQLiteUDP(t.Context(), firstDirectory); !errors.Is(err, os.ErrExist) {
 		t.Fatal("seed could overwrite a recovery database", err)
 	}
 	if _, err := first.database.GetOperation(t.Context(), first.operation); err != nil {
 		t.Fatal("refused overwrite changed the journal", err)
 	}
-	current, err := pristineUDPTestSchema()
+	current, err := pristineUDPTestSchema(t.Context())
 	if err != nil || current != seed {
 		t.Fatal("fixture writes changed the seed", err)
 	}
@@ -104,11 +104,11 @@ func TestUDPTestSchemaKeepsPrivateStateAndRefusesOverwrite(t *testing.T) {
 func TestUDPTestSchemaTeardown(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("TMPDIR", root)
-	if _, err := newUDPTestSchema(); err != nil {
+	if _, err := newUDPTestSchema(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("TMPDIR", filepath.Join(root, "missing"))
-	if _, err := newUDPTestSchema(); err == nil {
+	if _, err := newUDPTestSchema(t.Context()); err == nil {
 		t.Fatal("seed initialization ignored its unavailable temporary directory")
 	}
 	entries, err := os.ReadDir(root)

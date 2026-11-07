@@ -79,7 +79,7 @@ func testReadinessControl(t *testing.T, kind string) {
 }
 func readinessStoreFixture(t *testing.T, dir, kind string) {
 	t.Helper()
-	s, err := store.Open(dir)
+	s, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

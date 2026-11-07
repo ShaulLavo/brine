@@ -1555,6 +1555,78 @@ The upstream manuals for [Quadlet](https://docs.podman.io/en/stable/markdown/pod
 
 ## Operator enrollment
 
+### Exact-artifact operator updates
+
+`brine enroll SSH_DESTINATION --target-name NAME --update` uses admin SSH,
+the finished pinned target and terminal target-name confirmation. `--yes`
+does not authorize it. `--host-binary FILE` selects the matching Linux candidate.
+`--update-abort` resumes rollback of that candidate's pending transaction.
+These actions cannot combine with `--finish` or `--undo`. Update verification
+uses restricted ping, shell-command rejection and inventory. It never runs
+finish's empty-runtime capture on a used host.
+
+The root `update-plan` response binds the enrollment, host key, candidate bytes,
+artifact before and after hashes, file identities and metadata, control schema,
+quiescence and activation requirements in one digest. `update-apply` checks it
+under the enrollment lock. An existing update resumes its immutable manifest.
+A different candidate refuses. Ordinary enrollment apply retains its different-
+binary refusal and never serves as an upgrade shortcut.
+
+Only registered updatable binary and unit artifacts can change. SSH policy,
+deploy key, requester, inventory key, polkit and the Caddy import remain fixed.
+Operator-owned policy and observation-grant bytes are not update payloads.
+Tool, native-reader, runner-storage and package requirement changes refuse.
+`--replace-unrecorded-binary SHA256` permits only the exact observed binary
+hash. It does not adopt those bytes as a recorded rollback target. Such a
+transaction must finish forward if verified recorded rollback bytes are absent.
+Pre-enrollment original file bytes and metadata remain unchanged.
+
+Root serializes at the enrollment lock, closes durable ordinary admission,
+drains its existing leases, then revokes and drains exempt-stage leases before
+destructive work. The installed admission directory, ordinary lock and stage
+lock retain their recorded device and inode identities. Missing or malformed
+admission refuses fresh work. No process exit or reboot implicitly reopens it.
+The sole bootstrap exception is the same recorded update from a pre-gate binary.
+It fences the entire runner before installing closed admission and the settle
+unit, both before replacing the binary. New enrollment installs them before
+creating the runner user.
+
+`--quiesce=store` is the default. Bootstrap and `--quiesce=runner` stop all apps.
+Runner quiescence journals account expiry, linger and manager state, checks the
+supported PAM boundary, stops the manager, and proves process, cgroup, mount
+and store-fd absence. Store drain blockers require explicit runner quiescence.
+The protocol never takes the runner launch lock or takes exclusive admission
+while holding its mutation lock.
+
+The fenced capture retains raw DB and WAL bytes, original absence and their
+file identities. A newer schema refuses before effects. A declared forward
+migration must rehearse on an isolated copy, then use exactly
+`host control-migrate update ID migrating ATTEMPT` under a drainable stage
+lease. Root revokes that attempt and reads back schema and integrity before
+advancing. Lost migration replies are inspected before any idempotent retry.
+
+Abort quarantines only `control.db-shm`, `control.db-wal` and `control.db`, in
+that order. Per-file intent, identity and rename readback survive interruption.
+It reinstalls captured DB and WAL presence byte-for-byte, or restores original
+absence. SHM is not recovery data. Verification uses the hash-bound retained
+updater and an isolated copy, never a restored pre-gate command. Unrelated
+`.bak` and `-journal` names are untouched. Post-commit downgrade is unsupported.
+
+Activation has durable native issuer intent and readback. An unknown delivery
+never causes another restart. Only the observer is restarted when required.
+Other old-binary units are reported, not restarted. Terminal reopening retains
+its journal until admission is open, its exclusive lock is released, runner
+state is restored and the fixed reconcile handoff is acknowledged. Boot settle
+leaves nonterminal updates pending for the operator. Successful updates retain
+only their current recovery staging directory. Abort keeps the committed recovery
+point and the latest aborted staging until the next completed update supersedes
+it. A newly enabled settle unit is disabled before its added unit file is removed.
+Abort quarantine remains for operator
+inspection and removal. No fixture or mock proves the Debian PAM or native
+service behavior on a live host.
+
+See [Update an enrolled host](runbooks/operator-update.md).
+
 `brine enroll SSH_DESTINATION --finish` completes verification for an existing enrolled journal without replaying Apply. It requires the original public deploy key, a matching private key and the existing client identity-key file. Before restricted transport, a read-only host verification binds those keys, the installed binary hash and installed assets to the original protected enrollment. Missing packages or ID-map helpers refuse. The supplied host binary runs only as the operator's verifier and is never installed. Finish presents only verification, journaled fixture cleanup, empty runtime provenance and final private target writing. It retains the ordinary terminal target-name confirmation and cannot combine with `--undo`. The same host verification repeats after restricted ping, shell-command rejection and inventory; only then may existing verification cleanup and the normal target writer run.
 
 Rootless Podman requires Debian `uidmap` and executable `/usr/bin/newuidmap` and `/usr/bin/newgidmap`. Inventory explicitly includes uidmap even when installing without recommendations. Its exact package version and dependencies enter the confirmed transaction and original package journal. Missing helper executables refuse runtime verification before any Podman query.

@@ -186,7 +186,7 @@ func TestDataInitializationReceiptRemainsImmutableAndReopens(t *testing.T) {
 
 func TestDataInitializationMigrationFromTaskSchemaSevenPreservesJobs(t *testing.T) {
 	dir := stateDir(t)
-	state, err := Open(dir)
+	state, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestDataInitializationMigrationFromTaskSchemaSevenPreservesJobs(t *testing.
 	if err = state.Close(); err != nil {
 		t.Fatal(err)
 	}
-	migrated, err := Open(dir)
+	migrated, err := OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

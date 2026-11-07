@@ -156,7 +156,7 @@ func TestUDPPrepareSQLiteRaceAndFamilyIsolation(t *testing.T) {
 	in := udpStoreInput(t)
 	first, p := saveUDPOperation(t, s, in, "first")
 	second, _ := saveUDPOperation(t, s, in, "second")
-	other, err := Open(s.dir)
+	other, err := OpenContext(t.Context(), s.dir)
 	if err != nil {
 		t.Fatal(err)
 	}

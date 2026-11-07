@@ -148,7 +148,7 @@ func TestReviewSQLiteUnknownControls(t *testing.T) {
 func reviewStatelessStore(t *testing.T) (string, *store.Store, target.Snapshot) {
 	t.Helper()
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,7 @@ func TestReadinessWithdrawalRequiresExactProtectedEvidence(t *testing.T) {
 
 func TestReadinessBindingCoverageIncludesEveryDatabase(t *testing.T) {
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -40,7 +40,7 @@ func taskReceipt(id string) json.RawMessage {
 
 func TestDetachedTaskReceiptBeyondObserverDeadline(t *testing.T) {
 	dir := t.TempDir()
-	state, err := store.Open(dir)
+	state, err := store.OpenContext(t.Context(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}

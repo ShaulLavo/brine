@@ -470,7 +470,7 @@ func testArchiveCDNFinalTransaction(t *testing.T, mode string) {
 	s, p, f := archiveCDNFixture(t)
 	_, o, _ := preparedStoredArchive(t, s, p)
 	state := advanceArchiveRetirement(t, s, o)
-	other, err := Open(s.dir)
+	other, err := OpenContext(t.Context(), s.dir)
 	if err != nil {
 		t.Fatal(err)
 	}

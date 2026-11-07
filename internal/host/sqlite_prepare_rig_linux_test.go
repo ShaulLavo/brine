@@ -141,7 +141,7 @@ func newSQLitePrepRig(t *testing.T, accepts []string, marker string) *sqlitePrep
 	}
 	r := &sqlitePrepRig{t: t, root: shortReplicaStateRoot(t), proc: t.TempDir()}
 	var err error
-	if r.state, err = store.Open(r.root); err != nil {
+	if r.state, err = store.OpenContext(t.Context(), r.root); err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = r.state.Close() })

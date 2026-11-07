@@ -82,7 +82,7 @@ func TestUDPRealSQLiteReservationInvariants(t *testing.T) {
 func TestUDPRealSQLiteEndpointRace(t *testing.T) {
 	a := openTest(t)
 	op := operation(t, a)
-	b, err := Open(a.dir)
+	b, err := OpenContext(t.Context(), a.dir)
 	if err != nil {
 		t.Fatal(err)
 	}

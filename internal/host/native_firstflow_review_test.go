@@ -58,7 +58,7 @@ func newFirstOperatorFixture(t *testing.T) firstOperatorFixture {
 	if err := os.Mkdir(stateRoot, 0700); err != nil {
 		t.Fatal(err)
 	}
-	state, err := store.Open(stateRoot)
+	state, err := store.OpenContext(t.Context(), stateRoot)
 	if err != nil {
 		t.Fatal(err)
 	}

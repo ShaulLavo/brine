@@ -24,7 +24,7 @@ import (
 
 type sqliteBackupStatusReader struct {
 	stateDir                  string
-	open                      func(context.Context, string) (*store.Store, error)
+	mode                      stateMode
 	workspaceRoot             string
 	policy                    PolicyLoader
 	executor                  localexec.Executor
@@ -43,11 +43,11 @@ func (r *sqliteBackupStatusReader) SQLiteBackupStatus(ctx context.Context, a dis
 	if !a.Valid() {
 		return sqlitestatus.Status{}, result.New(result.InvalidUsage, nil)
 	}
-	open := r.open
-	if open == nil {
-		open = store.OpenReadOnly
+	mode := stateReadOnly
+	if r.mode == stateSnapshot {
+		mode = stateSnapshot
 	}
-	state, err := open(ctx, r.stateDir)
+	state, err := openState(ctx, r.stateDir, mode, nil)
 	if err != nil {
 		if ctx.Err() != nil {
 			return sqlitestatus.Status{}, ctx.Err()

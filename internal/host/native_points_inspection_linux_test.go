@@ -27,7 +27,7 @@ func TestNativePointInspectionDoesNotOpenMutationRuntimeOrCreateEvidence(t *test
 	if err := os.Mkdir(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	state, err := store.Open(root)
+	state, err := store.OpenContext(t.Context(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
